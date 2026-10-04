@@ -1026,7 +1026,10 @@ class PreviewStore {
         agent: null,
         sort: 'recency',
         pinned: [],
-        pinnedSessions: [],
+        // The one conversation whose worktree is gone (`foldersGone` above) is
+        // pinned: a folder that is gone is not listed as a project, and a
+        // conversation somebody pinned is the one thing of it that still is.
+        pinnedSessions: [String(sessionKey(runtimeId('codex'), 's2' as SessionId))],
         collapsed: [],
         panelsCollapsed: [],
         othersOpen: false,
@@ -1451,6 +1454,8 @@ class PreviewStore {
     this.setListPrefs({ pinned: [...pinned.slice(0, toIndex), root, ...pinned.slice(toIndex)] })
   }
   setOthersOpen = (othersOpen: boolean): void => this.setListPrefs({ othersOpen })
+  forgetFolders = async (folders: readonly string[]): Promise<void> =>
+    this.setListPrefs({ forgottenFolders: [...new Set([...(this.#snapshot.listPrefs.forgottenFolders ?? []), ...folders])] })
 
   // --- the team verbs, against the fixture ---------------------------------
   /* Annotated rather than inferred. An `async () =>` answers to nothing, which

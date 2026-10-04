@@ -37,6 +37,7 @@ import { openingOf, sessionKey, type Session, type SessionSummary, type TeamStat
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
+import { seatLabelsOf } from '../lib/seat-names'
 import { teamSeats } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
 import { goalName, goalWords } from '../lib/goals'
@@ -110,6 +111,8 @@ type SessionRowSlice = {
   folderGone: string | null
   active: boolean
   needsYou: boolean
+  /** What a seat nobody typed to is called: its job and its Team. */
+  seatLabel: string | null
 }
 
 const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boolean =>
@@ -117,7 +120,8 @@ const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boo
   left.density === right.density && left.pinned === right.pinned &&
   left.liveTitle === right.liveTitle && left.trace === right.trace &&
   left.backgrounded === right.backgrounded && left.folderGone === right.folderGone &&
-  left.active === right.active && left.needsYou === right.needsYou
+  left.active === right.active && left.needsYou === right.needsYou &&
+  left.seatLabel === right.seatLabel
 
 const SessionRow = memo(({
   summary,
@@ -153,7 +157,7 @@ const SessionRow = memo(({
   const key = sessionKey(summary.runtime, summary.id)
   const {
     openInPane, runtime, density, pinned, liveTitle, trace, backgrounded,
-    folderGone, active, needsYou,
+    folderGone, active, needsYou, seatLabel,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
     const needsYou = snapshot.approvals.some((entry) => entry.key === key) ||
@@ -169,6 +173,7 @@ const SessionRow = memo(({
       folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
       active: snapshot.activeSessionKey === key,
       needsYou,
+      seatLabel: seatLabelsOf(snapshot).get(String(key)) ?? null,
     }
   }, sameSessionRowSlice)
   const agentName = runtime?.presentation.name ?? 'This conversation’s agent'
@@ -177,7 +182,10 @@ const SessionRow = memo(({
      138 renames in a row left the sidebar saying "Untitled session" down the
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
-  const ownLabel = sessionLabel(liveTitle ?? summary.title, summary.preview)
+  /* A seat in a Team has no first message of a person's to be named by: the
+     desk handed it its brief. It is called by its job and its Team, not
+     "Untitled session" — and only when nothing a person wrote can name it. */
+  const ownLabel = sessionLabel(liveTitle ?? summary.title, summary.preview, seatLabel ?? undefined)
   const label = need?.name ?? ownLabel
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
@@ -871,7 +879,7 @@ const WindowedProjectRows = ({
     const live = snapshot.sessions.get(key)
     const needsYou = snapshot.approvals.some((entry) => entry.key === key) || snapshot.queues.get(key)?.status === 'paused'
     const need = needsYou ? needsYouOf(row.summary, snapshot) : undefined
-    return need?.name ?? sessionLabel(live?.title ?? row.summary.title, row.summary.preview)
+    return need?.name ?? sessionLabel(live?.title ?? row.summary.title, row.summary.preview, seatLabelsOf(snapshot).get(String(key)))
   }))
 
   useEffect(() => {

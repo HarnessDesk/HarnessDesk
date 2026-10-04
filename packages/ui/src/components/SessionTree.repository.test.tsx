@@ -4,9 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
   sessionKey,
+  type GoalView,
   type RepoInfo,
   type RuntimeInfo,
   type SessionSummary,
+  type TeamState,
   type WorkspaceEntry,
 } from '@harnessdesk/protocol'
 
@@ -328,4 +330,63 @@ it('puts the line at the end of Other projects when that fold is drawn', () => {
   const block = fold!.closest('[data-slot="sidebar-menu"]')!.parentElement!
   expect(block.contains(goneLine())).toBe(true)
   expect(block.lastElementChild?.contains(goneLine())).toBe(true)
+})
+
+// ------------------------------------------------------------------- titles
+
+const seatRig = (members: Array<{ id: string; role: string | null; name?: string }>, over: Partial<SessionSummary> = {}) => {
+  const rows = members.map((member) => row(member.id, WIDGETS, { title: null, preview: null, ...over }))
+  const keys = rows.map((one) => sessionKey(one.runtime, one.id))
+  const team = {
+    id: 'team-1', name: 'Retry the checkout call', updatedAt: 3, root: WIDGETS, members: keys.map(String),
+    messaging: true, intents: [], channel: [],
+  } as unknown as TeamState
+  const goal = {
+    goal: {
+      id: team.id, root: WIDGETS, cwd: WIDGETS, sentence: 'Retry the checkout call', state: 'open', revision: 1,
+      checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 3, receipt: null,
+    },
+    activity: 'working', waitingOn: [], board: team, receipt: null, problem: null,
+    members: members.map((member, index) => ({
+      id: `seat-${index}`, session: { runtime: runtime.id, sessionId: member.id }, role: member.role, openedAt: 1,
+      closed: null, agent: { name: member.name ?? 'Claude Code' }, seatLabel: 'agent · model',
+    })),
+  } as unknown as GoalView
+  mount(rows, { teams: new Map([[team.id, team]]), goals: new Map([[team.id, goal]]) })
+}
+
+it('names a seat nobody typed to by its job and its Team, never “Untitled session”', () => {
+  seatRig([{ id: 'seat-a', role: 'implementer' }, { id: 'seat-b', role: 'reviewer' }])
+  const names = titles()
+  expect(names).toContain('Implementer · Retry the checkout call')
+  expect(names).toContain('Reviewer · Retry the checkout call')
+  expect(names).not.toContain('Untitled session')
+})
+
+it('names a seat with no job by the agent it is, and still prefers what a person said', () => {
+  seatRig([{ id: 'seat-a', role: null, name: 'Claude Code' }])
+  expect(titles()).toContain('Claude Code · Retry the checkout call')
+  act(() => root.unmount())
+  root = createRoot(container)
+  seatRig([{ id: 'seat-a', role: 'implementer' }], { preview: 'Retry the checkout call on a 502' })
+  expect(titles()).toContain('Retry the checkout call on a 502')
+  expect(titles()).not.toContain('Implementer · Retry the checkout call')
+})
+
+it('leaves a conversation that is no seat’s as “Untitled session”', () => {
+  mount([row('loose', WIDGETS, { title: null, preview: null })])
+  expect(titles()).toEqual(['Untitled session'])
+})
+
+it('never takes a conversation’s name from a summary an agent wrote of its own history', () => {
+  mount([
+    row('summary-title', WIDGETS, { title: '<summary> ## 1. Primary Request and Intent The user asked for a retry on a 502.', preview: 'Retry the checkout call' }),
+    row('summary-only', WIDGETS, { title: null, preview: '<summary> 1. Primary Request and Intent: Worker 4 was asked to' }),
+    row('continued', WIDGETS, { title: 'This session is being continued from a previous conversation that ran out of context.', preview: null }),
+  ])
+  const names = titles()
+  expect(names).toContain('Retry the checkout call')
+  expect(names.filter((name) => name === 'Untitled session')).toHaveLength(2)
+  expect(names.some((name) => name.includes('Primary Request'))).toBe(false)
+  expect(names.some((name) => name.includes('being continued'))).toBe(false)
 })
