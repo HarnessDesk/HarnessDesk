@@ -142,7 +142,7 @@ export interface ApprovalChoice {
   readonly title?: string
 }
 
-/** What is being approved, so a yes is never given blind: the command whole, the files a change touches, what an access would open, and why the runtime asks. */
+/** What is being approved, shown with the choices so an answer is given knowing it: the command whole, the files a change touches, what an access would open, and why the runtime asks. */
 export interface ApprovalDetail {
   readonly code?: string
   readonly reason?: string
@@ -208,7 +208,8 @@ export const approvalDoor = (approval: Approval, boardTool?: BoardToolWords | nu
   const primary = ordered.filter((option) => placement(option) === 'proceed').at(-1)?.id
   return {
     detail: detailOf(approval),
-    elsewhere: false,
+    // An approval that offers no choice here still has one in its conversation.
+    elsewhere: ordered.length === 0,
     choices: ordered.map((option): ApprovalChoice => ({
       id: option.id,
       label: explain ? boardToolLabel(option, options, { session: boardTool.sessionOptionLabel, once: boardTool.onceOptionLabel }) : option.label,

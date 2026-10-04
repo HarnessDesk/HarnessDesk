@@ -297,6 +297,13 @@ describe('an approval, as a second door to the same answer', () => {
     }
   })
 
+  it('leaves an approval that offers no choice to its conversation, where its card does', () => {
+    const none: Approval = { ...base, type: 'permission', summary: 'Use a tool', options: [] }
+    const door = approvalDoor(none)
+    expect(door.choices).toEqual([])
+    expect(door.elsewhere).toBe(true)
+  })
+
   it('leaves a tool\'s request for information to its conversation', () => {
     const elicitation: Approval = { ...base, type: 'elicitation', server: 'docs', message: 'Which space?', schema: { type: 'object' } }
     const door = approvalDoor(elicitation)
