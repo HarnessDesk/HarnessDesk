@@ -75,6 +75,7 @@ import { LibraryOptionFrames } from './frames-library-options'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
+import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
@@ -1064,6 +1065,7 @@ const Preview = () => {
       {new URLSearchParams(window.location.search).has('run-view') && <RunViewFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
+      {new URLSearchParams(window.location.search).has('run-controls') && <RunControlsFrames variant={ABANDON_VARIANTS.find((one: AbandonVariant) => one === new URLSearchParams(window.location.search).get('abandon')) ?? null} />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
       {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}

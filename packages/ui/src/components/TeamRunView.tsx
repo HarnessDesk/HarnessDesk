@@ -3,6 +3,7 @@ import type { InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protoco
 import { useSnapshot, useStore } from '../state/context'
 import { hasConversation, teamSeats } from '../lib/team-seats'
 import { teamSeatCost } from '../lib/team-overview'
+import { answerStep } from '../state/needs-you'
 import type { FindingsListState } from '../lib/findings'
 import { RunWorkspace } from './RunWorkspace'
 import { RunView } from './RunView'
@@ -21,10 +22,12 @@ const findingsRead = (list: FindingsListState | undefined): 'reading' | 'failed'
 }
 
 /** Reads only while the Run is mounted; the pane's rail owns conversation navigation. */
-export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: ComponentProps<typeof RunView> & {
+export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, ...view }: ComponentProps<typeof RunView> & {
   execution: RunTimelineInput['execution']
   origin: string | null
   onOpenSeat: (key: SessionKey) => void
+  /** Where a review step's attempt is chosen; without it a person's step reads as text. */
+  onOpenBoard?: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -70,6 +73,10 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
       findings: findingsList?.rows,
     },
     findingsRead: findingsRead(findingsList),
+    // The same requests the board makes, so a card answered or abandoned here is one thing to the host.
+    onAbandon: card => store.teamIntent(execution.goal, card, 'abandon'),
+    onAnswer: (card, outcome, note) => answerStep(store, execution.goal, card, outcome, note),
+    ...(onOpenBoard ? { onOpenBoard } : {}),
     publication: snapshot.findingRuns.get(execution.id)?.rounds.find(round => round.round === selected?.round),
     seats: seats.map(seat => ({ id: seat.record.id, name: seat.name,
       override: goal?.receipt?.members?.find(member => member.seat === seat.record.id)?.seatLabel ?? goal?.members.find(record => record.id === seat.record.id)?.seatLabel,

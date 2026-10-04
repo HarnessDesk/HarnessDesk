@@ -37,6 +37,18 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   stays where it is with its final action off and the same reason, rather than
   offer what the host would refuse.
 
+- **Answer what needs you from a Team's Overview.** Each row under Needs you
+  carries its answer: an approval or a question offers the agent's own
+  choices beside what it asks for, and a step addressed to you offers the
+  words its role declares, an optional note, and a line saying what each
+  answer does next. Command approvals name the working folder. A request to
+  type into a running command also names the command and the input. A step
+  whose answer records which attempt you choose is still answered on the
+  board. In a Run's inspector, a card that has not finished
+  can be abandoned, after a question that says first what the Flow will do
+  about it: open the next round, end the Run, or wait for the round's other
+  cards.
+
 - **A Run shows the Flow it started with.** A Run's header switches between
   its Timeline and its Flow: the Flow it was started from, kept at the
   revision it began with, drawn as cards joined by arrows that name the
