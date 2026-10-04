@@ -72,3 +72,18 @@ it.each([
  expect(box.textContent?.split(publicationReason).length).toBe(copies+1)
  expect(box.textContent).toContain(runReason)
 })
+
+it('gives the task column priority and wraps its human title',()=>{
+ render([row('Alpha',{card:{id:1,title:'Retry the checkout call after a transient failure'}})])
+ const heads=[...box.querySelectorAll('th')]
+ expect(heads[1]?.className).not.toContain('w-40')
+ expect(heads[4]?.className).toContain('w-40')
+ expect(box.querySelector('[data-slot="seat-card"]')?.className).not.toContain('truncate')
+})
+it('does not repeat a waiting approval sentence in the activity cell',()=>{
+ const model=overviewModel('needs-you')
+ act(()=>root.render(<TeamOverview model={model}/>))
+ const waiting=box.querySelector('[data-seat="seat-1"]')!
+ expect(waiting.querySelector('[data-slot="seat-doing"]')).toBeNull()
+ expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain('choose whether to keep the original payment method')
+})

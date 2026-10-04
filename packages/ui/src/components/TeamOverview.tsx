@@ -84,7 +84,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const rows = model.seats.filter(row => !row.done).concat(expanded ? done : [])
   const face = (row: SeatRow) => <IconTile shape="face" size="sm">{faces?.get(row.seat) ?? <AgentIcon />}</IconTile>
   const doing = (row: SeatRow) => {
-    if (cardState(row)) return null
+    if (cardState(row) || model.needsYou.some(item => item.seat === row.seat)) return null
     const next = doingLine(held.current.get(row.seat) ?? null, row.doing, now)
     held.current.set(row.seat, next)
     const line = words(next.line ?? row.reason ?? '')
@@ -151,10 +151,10 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             <Table variant="framed" className="table-fixed">
               <TableHeader><TableRow>
                 <TableHead className="w-36">Agent</TableHead>
-                <TableHead className="w-40">Card</TableHead>
+                <TableHead>Card</TableHead>
                 <TableHead className="w-16">Round</TableHead>
                 <TableHead className="w-28">State</TableHead>
-                <TableHead>Now</TableHead>
+                <TableHead className="w-40">Now</TableHead>
                 <TableHead className="w-16">Time</TableHead>
                 <TableHead className="w-24">Cost</TableHead>
               </TableRow></TableHeader>
@@ -168,7 +168,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                         <div className="min-w-0">{name(row)}{row.role && <Text role="meta" as="div">{words(row.role)}</Text>}</div>
                       </TableCell>
                       <TableCell>
-                        <div data-slot="seat-card" className="truncate" title={row.card ? words(row.card.title) : undefined}>
+                        <div data-slot="seat-card" className="whitespace-normal [overflow-wrap:anywhere]" title={row.card ? words(row.card.title) : undefined}>
                           <Text role="row">{row.card ? `#${row.card.id} · ${words(row.card.title)}` : '—'}</Text>
                         </div>
                       </TableCell>
