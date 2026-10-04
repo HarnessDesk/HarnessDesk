@@ -94,11 +94,10 @@ export const RunAgain = ({ run, card, refusal, onRow = false }: {
 }) => {
   const [asking, setAsking] = useState(false)
   if (refusal !== null && onRow) return null
-  const again = (
-    <Button variant={onRow ? 'link' : 'outline'} size={onRow ? 'xs' : 'sm'} onClick={() => setAsking(true)}>
-      Run again…
-    </Button>
-  )
+  const ask = () => setAsking(true)
+  const again = onRow
+    ? <Button variant="link" size="xs" onClick={ask}>Run again…</Button>
+    : <Button variant="outline" size="sm" className="self-start" onClick={ask}>Run again…</Button>
   return (
     <>
       {refusal === null ? again : (

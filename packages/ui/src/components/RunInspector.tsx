@@ -44,7 +44,7 @@ const Words = ({ children }: { children: string }) => <Text as="div" role="prose
  */
 const Attempt = ({ attempt }: { attempt: FlowCheckAttempt }) => {
   const [open, setOpen] = useState(false)
-  return <div data-attempt={attempt.n} className="flex min-w-0 flex-col gap-1">
+  return <div data-attempt={attempt.n} className="flex min-w-0 flex-col items-start gap-1">
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       <Text role="row">Attempt {attempt.n}</Text>
       <Chip tone="neutral">{sanitizeText(attemptWords(attempt))}</Chip>
@@ -52,7 +52,7 @@ const Attempt = ({ attempt }: { attempt: FlowCheckAttempt }) => {
     </div>
     <Text role="meta" as="div" title={sanitizeText(attempt.commit)}>{attempt.timedOut ? 'Timed out' : attempt.exit === null ? 'No exit recorded' : `Exit ${attempt.exit}`} · {sanitizeText(attempt.commit.slice(0, 12))}</Text>
     <Button variant="link" size="inline-link" aria-expanded={open} onClick={() => setOpen(was => !was)}>{open ? 'Hide output' : 'Show output'}</Button>
-    {open && <CodeText block wrap>{sanitizeText(attempt.tail || 'No output was printed')}</CodeText>}
+    {open && <CodeText block wrap className="self-stretch">{sanitizeText(attempt.tail || 'No output was printed')}</CodeText>}
   </div>
 }
 const costWords = (cost: InspectorSeat['cost']): string => cost ? `${cost.estimated ? 'About ' : ''}${cost.unit === 'money' ? `$${cost.value.toFixed(2)}` : `${cost.value} turns`}` : 'Not recorded'

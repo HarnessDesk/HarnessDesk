@@ -65,7 +65,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
         <ListRows size="sm" aria-label="Run timeline">
           {model.rows.map(row => {
             // What a check ran each time, drawn once it has run more than once: plain rows under their check; the check's inspector holds the output.
-            if (row.kind === 'attempt') return <ListRow key={row.id} data-row={row.id} data-kind="attempt" size="sm" wrapTitle
+            if (row.kind === 'attempt') return <ListRow key={row.id} data-row={row.id} data-kind="attempt" wrapTitle
               lead={<IconTile size="sm" aria-hidden className="invisible" />}
               title={<span className="flex min-w-0 flex-wrap items-center gap-2">
                 <Text role="meta" className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.title)}</Text>
@@ -85,11 +85,11 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
               {status}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
-            // *Run again…* is the row's sibling, never inside its button, laid over the end of the first line where the row keeps its room.
+            // *Run again…* is the row's sibling, never inside its button, laid over the end of the first line where the row keeps its room (the spacer is the control's own width, and the control is a button tall, centred on a line of text a little under the row's top padding).
             const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
             const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
               onClick={() => onSelect(row.id)} title={row.kind === 'end' && row.detail ? null : title}
-              trail={again ? <span aria-hidden className="invisible whitespace-nowrap">Run again…</span> : undefined}
+              trail={again ? <span aria-hidden className="invisible mx-1.5 whitespace-nowrap">Run again…</span> : undefined}
               className={row.kind === 'round' ? 'mt-4' : undefined}
               lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
                 : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
@@ -99,7 +99,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
               meta={row.kind === 'end' && row.detail ? <Banner tone={row.attention ? 'warning' : 'neutral'} title={row.title}>{words(row.detail)}</Banner>
                 : row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
             return again ? <div key={row.id} data-slot="run-row" className="relative">{item}
-              <div className="absolute end-2 top-1.5 flex h-(--hd-line-sm) items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
+              <div className="absolute end-4 top-2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
             </div> : <Fragment key={row.id}>{item}</Fragment>
           })}
         </ListRows>
