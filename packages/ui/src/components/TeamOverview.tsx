@@ -7,8 +7,10 @@ import {
 } from '../design'
 import { elapsedSince } from '../lib/clock'
 import { sanitizeHtml } from '../lib/sanitize'
+import type { NeedsYouAnswers } from '../lib/needs-you'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
 import { AgentIcon } from './Icons'
+import { NeedsYouRow } from './NeedsYouRow'
 import { formatDuration } from './TurnTail'
 
 /** Agent words stay plain text, with the transcript's sanitation boundary. */
@@ -37,11 +39,13 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, faces, metered, onOpen, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
+export const TeamOverview = ({ model, faces, metered, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
   model: ReturnType<typeof teamOverview>
   faces?: ReadonlyMap<string, ReactNode>
   metered?: ReadonlyMap<string, boolean>
   onOpen?: (seat: string) => void
+  /** How what needs the person is answered from here; without it the rows only say what waits. */
+  answers?: NeedsYouAnswers | undefined
   onRun?: () => void
   runName?: string
   runReason?: string | null
@@ -105,9 +109,8 @@ export const TeamOverview = ({ model, faces, metered, onOpen, onRun, runName = '
             <GroupLabel>Needs you</GroupLabel>
             <ListRows>
               {model.needsYou.map((item, index) => (
-                <ListRow key={`${item.kind}-${item.seat}-${index}`}
-                  title={<Chip tone="warning">{item.kind === 'card' ? `#${item.card}` : item.kind === 'question' ? 'Question' : 'Approval'}</Chip>}
-                  subtitle={words(item.summary)} wrapSubtitle />
+                <NeedsYouRow key={item.approval ?? `${item.kind}-${item.seat}-${index}`} item={item}
+                  name={model.seats.find(one => one.seat === item.seat)?.name ?? null} answers={answers} onOpenSeat={onOpen} />
               ))}
             </ListRows>
           </section>
