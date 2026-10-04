@@ -40,11 +40,15 @@ for (const theme of ['light', 'dark'] as const) {
     }
     const none = page.locator('#review-publication-none')
     await expect(none.locator('[data-slot="run-header"]')).not.toContainText(/Posted|Waiting to post|Kept on the desk|Not confirmed/)
+    const emptyRelease = page.locator('#review-publication-empty-release')
+    await expect(emptyRelease.locator('[data-slot="run-header"]')).not.toContainText(/Needs you|Not posted|Kept on the desk/)
+    await expect(emptyRelease.locator('[data-row="check-2-2"]')).not.toContainText(/Not posted|Kept on the desk/)
     const missing = page.locator('#review-publication-missing-round')
     await expect(missing.locator('[data-slot="run-header"]')).toContainText('Posted to #128')
     await expect(missing.locator('[data-row="findings-3"]')).not.toContainText('Posted to #128')
     if (process.env.REVIEW_PUBLICATION_FRAMES_DIR) {
       await none.screenshot({ path: path.join(process.env.REVIEW_PUBLICATION_FRAMES_DIR, `none-${theme}.png`) })
+      await emptyRelease.screenshot({ path: path.join(process.env.REVIEW_PUBLICATION_FRAMES_DIR, `empty-release-${theme}.png`) })
       await missing.screenshot({ path: path.join(process.env.REVIEW_PUBLICATION_FRAMES_DIR, `missing-round-${theme}.png`) })
     }
     const refused = page.locator('#review-publication-refused')

@@ -21,7 +21,7 @@ const review = (card: number, over: Partial<EvidenceRecord> = {}): EvidenceView 
     card: { board: 'goal-1', id: card }, observedAt: 1, ...over },
   freshness: { state: 'fresh' }, by: null,
 })
-const rig = (decisions: readonly PublicationRound[], entries: readonly PublicationEntry[], facts: readonly EvidenceView[] = []) => {
+const rig = (decisions: readonly PublicationRound[], entries: readonly PublicationEntry[], facts: readonly EvidenceView[] = [], records: readonly EvidenceRecord[] = []) => {
   const stored: StoredPublication = {
     rounds: Object.fromEntries(decisions.map((one) => [String(one.round), one])),
     ops: Object.fromEntries(entries.map((one) => [one.key, one])),
@@ -34,13 +34,13 @@ const rig = (decisions: readonly PublicationRound[], entries: readonly Publicati
     ], pendingFindings: 0 } : null,
     entry: () => null, snapshot: () => stored, roundClosed: () => true,
     goal: () => ({ open: true, preference: true }), projectOf: async () => '/repo', facts: async () => facts,
-    ledger: async () => ({ records: [], views: [], unreadable: 0 }), seat: () => null, template: () => '',
+    ledger: async () => ({ records, views: [], unreadable: 0 }), seat: () => null, template: () => '',
     appendPost: async () => {}, forge: new FakeFindingForge('a'.repeat(40)), now: () => 1, log: () => {},
   })
 }
 
 test('rounds distinguish posted and local decisions while status keeps the run aggregate', async () => {
-  const pub = rig([decision(1), decision(2, { mode: 'local', pr: null, repo: null, reason: 'Posting is off.' })], [entry(1, 'posted')])
+  const pub = rig([decision(1), decision(2, { mode: 'local', pr: null, repo: null, reason: 'Posting is off.' })], [entry(1, 'posted')], [review(21)])
   assert.deepEqual(await pub.rounds('run-1'), [
     { round: 1, state: 'posted', reason: null, pr: 7, cards: [11, 12] },
     { round: 2, state: 'local', reason: 'Posting is off.', pr: null, cards: [21] },
@@ -76,10 +76,30 @@ test('each round uses the aggregate fold rules and prefers an unposted operation
     [[entry(1, 'posted', 'Old posted reason.')], 'posted', 'Decision reason.'],
     [[entry(1, 'started'), entry(1, 'uncertain', 'Uncertain.')], 'uncertain', 'Uncertain.'],
   ] as const) {
-    const pub = rig([decision(1, { reason: 'Decision reason.' })], entries)
+    const pub = rig([decision(1, { reason: 'Decision reason.' })], entries, [review(11)])
     assert.deepEqual(await pub.rounds('run-1'), [{ round: 1, state, reason, pr: 7, cards: [11, 12] }])
     assert.equal((await pub.status('run-1')).publication, state)
   }
+})
+
+test('empty release decisions do not invent a review publication', async () => {
+  for (const mode of ['batch', 'local', 'refused'] as const) {
+    const pub = rig([decision(1, { mode })], [])
+    assert.equal((await pub.rounds('run-1'))[0]?.state, 'none')
+    assert.equal((await pub.status('run-1')).publication, 'local', 'the aggregate remains the host fold')
+  }
+})
+
+test('a finding-only round kept before binding still has a local publication', async () => {
+  const record: EvidenceRecord = { ...review(11).record,
+    fact: { kind: 'finding', id: 'finding-1', state: 'repaired', at: 'a'.repeat(40) },
+    finding: { version: 1, sequence: 2, operation: 'repair-1',
+      origin: { goal: 'goal-1', run: 'run-1', round: 1, card: 11, seat: 'seat-1', at: 'a'.repeat(40) },
+      event: { kind: 'repair', note: 'Bound the retries.' } } }
+  const pub = rig([decision(1, { mode: 'local', pr: null })], [], [], [record])
+  assert.equal((await pub.rounds('run-1'))[0]?.state, 'local')
+  const otherGoal = rig([decision(1)], [], [], [{ ...record, card: { board: 'another-goal', id: 11 } }])
+  assert.equal((await otherGoal.rounds('run-1'))[0]?.state, 'none')
 })
 
 

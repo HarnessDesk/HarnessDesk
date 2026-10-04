@@ -166,3 +166,12 @@ it('shows an authoritative posted review round even when it raised no ledger fin
  expect(model.rows.find(one=>one.card===1)?.publication?.label).toBe('Posted to #7')
  expect(model.rows.some(one=>one.kind==='findings')).toBe(false)
 })
+it.each([true, false])('uses the current PR binding for a local round kept before binding (posting %s)', publicationOn => {
+  const findingRun = publicationRun({ rounds: [{ round: 1, state: 'local', reason: 'Kept before binding.', pr: null, cards: [1] }] })
+  const model = runTimeline({ execution: run(), cards: [card()], findingRun, publicationOn })
+  expect(model.rows.find(row => row.card === 1)?.publication?.label).toBe(publicationOn ? 'Not posted' : 'Kept on the desk')
+})
+it('preserves a posted round’s recorded target when the Run binds another PR', () => {
+  const findingRun = publicationRun({ publication: 'posted', rounds: [{ round: 1, state: 'posted', reason: null, pr: 9, cards: [1] }] })
+  expect(runTimeline({ execution: run(), cards: [card()], findingRun }).rows.find(row => row.card === 1)?.publication?.label).toBe('Posted to #9')
+})

@@ -21,8 +21,8 @@ const findingRun = (state: FindingRunView['publication'] = 'local'): FindingRunV
   boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null,
 })
 const button = (container: HTMLElement, label: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === label)!
-const mount = async (view: FindingPublicationsView, publish = vi.fn(async (_input: unknown) => publications()), state: FindingRunView['publication'] = 'local') => {
-  let snapshot = { ...emptySnapshot(), findingRuns: new Map([[run, findingRun(state)]]) }
+const mount = async (view: FindingPublicationsView, publish = vi.fn(async (_input: unknown) => publications()), state: FindingRunView['publication'] = 'local', patch: Partial<FindingRunView> = {}) => {
+  let snapshot = { ...emptySnapshot(), findingRuns: new Map([[run, { ...findingRun(state), ...patch }]]) }
   const listeners = new Set<() => void>()
   const read = vi.fn(async () => view)
   const store = { getSnapshot: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
@@ -36,6 +36,16 @@ const mount = async (view: FindingPublicationsView, publish = vi.fn(async (_inpu
     close: () => { act(() => root.unmount()); container.remove() },
   }
 }
+it('warns about a local review kept before its Run bound a pull request', async () => {
+  const view = await mount(publications({ backfill: { pr: 7, stamp: 'backfill-stamp', rounds: [{ round: 3, findings: 0, reviews: 1 }] } }), undefined, 'local', {
+    rounds: [{ round: 3, state: 'local', reason: 'Kept before binding.', pr: null, cards: [3] }],
+  })
+  try {
+    expect(view.container.textContent).toContain('Not posted')
+    expect(view.container.textContent).not.toContain('Kept on the desk')
+    expect(button(view.container, 'Post to pull request').disabled).toBe(false)
+  } finally { view.close() }
+})
 it('keeps Copy review usable and shows the host refusal beside a disabled posting button', async () => {
   const writeText = vi.fn(async (_text: string) => {})
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })

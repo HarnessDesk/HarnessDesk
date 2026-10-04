@@ -1538,6 +1538,11 @@ on the Overview strip, Run header, end banner and Findings summary. A review
 row reads only its own `FindingRunView.rounds` record; a missing record or
 `none` never inherits the aggregate. The round budget and Goal-owned open
 finding counts cannot establish a new Run's publication.
+An empty release decision for work with no review, finding event or posting
+operation reads `none`; closing an author or check round does not create a review.
+For a local round, the Run's current pull request binding determines whether
+it is Not posted, including reviews kept before binding. A posted round keeps
+its recorded target.
 
 The Teams page and Overview pass the same confirmed Run read into the shared
 selector. A bound, posting-enabled local review, partial posting or uncertain

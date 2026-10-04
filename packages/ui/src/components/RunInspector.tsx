@@ -93,7 +93,9 @@ export const RunInspector = ({ input, selectedRow, seats, publication, reviewAct
     const runReview = input.findingRun?.run === execution.id && input.findingRun.goal === execution.goal ? input.findingRun : null
     const review = runReview ? runReview.rounds.find(one => one.round === round?.n && one.cards.includes(card.id))
       : publication && publication.round === round?.n && publication.cards.includes(card.id) ? publication : null
-    const chip = review ? reviewPublication({state:review.state,pr:review.pr,postingOn:input.publicationOn !== false,hasFindings:review.state !== 'none'}) : null
+    const chip = review ? reviewPublication({ state: review.state,
+      pr: review.state === 'local' && runReview ? runReview.boundPr?.pr ?? null : review.pr,
+      postingOn: input.publicationOn !== false, hasFindings: review.state !== 'none' }) : null
     const reviewText = card.handoff ?? card.note ?? findings.map(one => `${one.title}\n${one.body}`).join('\n\n')
     const reviewReason = review?.reason ?? runReview?.reason
     body = <>

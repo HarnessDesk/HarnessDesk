@@ -80,7 +80,9 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     }))
     const roundFindings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
     const recorded = findingRun?.rounds.find(one => one.round === round.n)
-    const roundPublication = recorded ? reviewPublication({ state: recorded.state, pr: recorded.pr, postingOn: input.publicationOn !== false, hasFindings: recorded.state !== 'none' }) : null
+    const roundPublication = recorded ? reviewPublication({ state: recorded.state,
+      pr: recorded.state === 'local' ? findingRun?.boundPr?.pr ?? null : recorded.pr,
+      postingOn: input.publicationOn !== false, hasFindings: recorded.state !== 'none' }) : null
     const role = execution.document.flow.roles.find(one => one.id === round.role)
     round.cards.forEach((id, index) => {
       const card = cards[index]
