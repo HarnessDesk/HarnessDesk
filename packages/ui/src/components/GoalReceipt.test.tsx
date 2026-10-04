@@ -136,6 +136,19 @@ it('labels a Seat answer and its evidence by name, from the receipt’s own memb
   expect(text).toContain('Observed by the desk')
 })
 
+it('does not repeat an Agent name when the Seat label adds nothing', () => {
+  const receipt = {
+    ...baseReceipt,
+    seats: ['seat-1'],
+    members: [{ seat: 'seat-1', agent: 'Alpha', seatLabel: 'Alpha' }],
+    answers: [{ seat: 'seat-1', session: { runtime: 'codex', sessionId: 's1' }, turn: 't1', text: 'Done.', partial: false, stopReason: null }],
+  } as unknown as Receipt
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+
+  expect(container.textContent).not.toContain('Alpha · Alpha')
+  expect(container.textContent).toContain('Alpha')
+})
+
 /*
  * A restored Seat — history a backup brought, never one this wrap held —
  * produces real evidence but has no entry in `members`, which excludes it

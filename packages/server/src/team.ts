@@ -1493,7 +1493,7 @@ export class Team {
     }
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
-    if (!intent) throw new Error(`There is no intent #${id} on this board.`)
+    if (!intent) throw new Error(`There is no card #${id} on this board.`)
     /* The same answer to a card already answered that way is a retry (a
        person's pick answered once, a second press), not news: nothing is
        signalled or handed to its flow twice. A changed person answer and
@@ -1959,7 +1959,7 @@ export class Team {
     if (title === '') return 'An intent needs a title. Nothing was added.'
     for (const dep of args.dependsOn ?? []) {
       if (!board.intents.some((intent) => intent.id === dep)) {
-        return `There is no intent #${dep} to depend on. Nothing was added.\n\n${this.#renderBoard(board, caller)}`
+        return `There is no card #${dep} to depend on. Nothing was added.\n\n${this.#renderBoard(board, caller)}`
       }
     }
     const outside = (args.files ?? []).filter(
@@ -2406,7 +2406,7 @@ export class Team {
     const board = await this.#boardOf(caller)
     this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}. ${this.#renderBoard(board, caller)}`
+    if (!intent) return `There is no card #${intentId}. ${this.#renderBoard(board, caller)}`
     /* A reviewer of an open blind round keeps to its own card: any other card
        it took would carry its note, context or reason to every member before
        the round closes. Its own card is already its. */
@@ -2640,7 +2640,7 @@ export class Team {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
     const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}.`
+    if (!intent) return `There is no card #${intentId}.`
     if (
       intent.state !== 'claimed' ||
       !intent.claim ||
@@ -2667,7 +2667,7 @@ export class Team {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
     const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}.`
+    if (!intent) return `There is no card #${intentId}.`
     if (
       intent.state !== 'claimed' ||
       !intent.claim ||
@@ -2696,7 +2696,7 @@ export class Team {
        the same conversation in between is a different claim. */
     const held = (since?: number): { intent: Intent } | { refused: string } => {
       const intent = board.intents.find((entry) => entry.id === intentId)
-      if (!intent) return { refused: `There is no intent #${intentId}.` }
+      if (!intent) return { refused: `There is no card #${intentId}.` }
       if (
         intent.state !== 'claimed' ||
         !intent.claim ||
@@ -2797,7 +2797,7 @@ export class Team {
     const board = await this.#boardOf(caller)
     this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}.`
+    if (!intent) return `There is no card #${intentId}.`
     if (
       intent.state !== 'claimed' ||
       !intent.claim ||
@@ -2837,7 +2837,7 @@ export class Team {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
     const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}.`
+    if (!intent) return `There is no card #${intentId}.`
     if (this.#embargoed(board, caller).has(intentId)) {
       return `Refused: #${intentId} belongs to a review round that is still open. What its reviewer left is released when the round closes.`
     }

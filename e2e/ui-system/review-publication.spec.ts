@@ -8,6 +8,7 @@ const states = [
   ['partial', 'Partly posted', true],
   ['uncertain', 'Not confirmed', true],
   ['local', 'Not posted', true],
+  ['refused', 'Not posted', false],
   ['kept', 'Kept on the desk', false],
   ['unbound', 'Kept on the desk', false],
 ] as const
@@ -25,10 +26,25 @@ for (const theme of ['light', 'dark'] as const) {
       const frame = page.locator(`#review-publication-${state}`)
       const header = frame.locator('[data-slot="run-header"]')
       await expect(header).toContainText(words)
-      if (['local', 'partial', 'uncertain'].includes(state)) await expect(header).toContainText('Needs you')
+      if (['local', 'partial', 'uncertain', 'refused'].includes(state)) await expect(header).toContainText('Needs you')
       const round = frame.locator('[data-row="findings-3"]')
       await expect(round).toContainText(words)
-      await expect(frame.locator('[data-slot="run-ending"] [data-slot="chip-words"]').filter({ hasText: words })).toHaveCount(1)
+      const ending = frame.locator('[data-slot="run-ending"]')
+      await expect(ending.locator('[data-slot="chip-words"]').filter({ hasText: words })).toHaveCount(1)
+      const waitingReason = {
+        partial: 'One review still waits for you.',
+        uncertain: 'The desk did not receive confirmation.',
+        local: 'This review was kept before the pull request was bound.',
+        refused: 'The pull request moved past this review.',
+      }[state]
+      if (waitingReason) {
+        await expect(ending).toContainText('Needs you')
+        await expect(ending).toContainText(waitingReason)
+        await expect(ending).not.toContainText('Nothing waits.')
+      } else {
+        await expect(ending).toContainText('Settled')
+        await expect(ending).toContainText('Nothing waits.')
+      }
       const inspector = frame.locator('[data-slot="run-inspector"]')
       await expect(inspector.getByRole('button', { name: 'Copy review', exact: true })).toBeEnabled()
       const post = inspector.getByRole('button', { name: 'Post to pull request', exact: true })
