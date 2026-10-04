@@ -4012,18 +4012,18 @@ export class Host {
     // The folder rule: `real` is inside an open root, or it is the top level of
     // the repository an open root sits in. Either admits it as a folder.
     let admitted = true
-    let fallbackOpen: string | undefined
+    let fallbackOpened: string[] | undefined
     try {
       confine(real, opened)
     } catch (refusal) {
       admitted = false
+      fallbackOpened = []
       for (const open of opened) {
         const top = await gitOps.checkedTopLevel(open, signal)
         signal.throwIfAborted()
         if (top !== null && (await this.#realPath(top)) === real) {
           admitted = true
-          fallbackOpen = open
-          break
+          fallbackOpened.push(open)
         }
       }
       if (!admitted) throw refusal
@@ -4034,7 +4034,7 @@ export class Host {
     // and then every git verb runs against B — its refs, config and hooks — a
     // repository nobody opened. So the repository git actually resolves for
     // `real` is judged too, by where its database lives.
-    await this.#assertGitDatabaseOpen(real, opened, signal, fallbackOpen)
+    await this.#assertGitDatabaseOpen(real, opened, signal, fallbackOpened)
     signal.throwIfAborted()
     return real
   }
@@ -4051,13 +4051,13 @@ export class Host {
    * worktree, a submodule and a `--separate-git-dir` tree each keep their `.git`
    * outside their own folder yet remain legitimate. Git finding no repository
    * leaves nothing to escape into, so the folder admission stands. A top-level
-   * fallback must instead share the database of the checkout that supplied it.
+   * fallback must instead share the database of a checkout that supplied it.
    */
   async #assertGitDatabaseOpen(
     real: string,
     opened: readonly string[],
     signal: AbortSignal,
-    fallbackOpen?: string,
+    fallbackOpened?: readonly string[],
   ): Promise<void> {
     // Request-local: duplicates (including aliases and the requested root itself)
     // share a read, but the next request observes any changed repository layout.
@@ -4072,10 +4072,14 @@ export class Host {
       return read
     }
     const database = await databaseOf(real)
-    if (fallbackOpen !== undefined) {
+    if (fallbackOpened !== undefined) {
       // core.worktree can report a top level which resolves another database.
       // The requested folder's own .git cannot justify this fallback admission.
-      if (database !== null && (await databaseOf(fallbackOpen)) === database) return
+      if (database !== null) {
+        for (const open of fallbackOpened) {
+          if ((await databaseOf(open)) === database) return
+        }
+      }
       throw new Error(
         `${real} is the top level of an open checkout, but git there resolves to a different repository. ` +
           'Open its folder first to work in it.',

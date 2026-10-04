@@ -3008,6 +3008,51 @@ test('a folder inside an open one cannot reach a repository it only points at, y
   })
 })
 
+test('top-level fallback admission does not depend on the order of open checkouts', async (t) => {
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-git-fallback-order-')))
+  const state = new StateStore(join(scratch, 'state.json'))
+  const harness = await start({ state })
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await stop(harness)
+    await rm(scratch, { recursive: true, force: true })
+  })
+  const asked = join(scratch, 'project')
+  const configured = join(scratch, 'configured-checkout')
+  const subfolder = join(asked, 'pkg')
+  for (const root of [asked, configured]) {
+    await mkdir(root)
+    await gitIn(root, 'init', '-q', '-b', 'main')
+    await gitIn(root, 'commit', '-q', '--allow-empty', '-m', root === asked ? 'project commit' : 'configured commit')
+  }
+  await mkdir(subfolder)
+  await gitIn(configured, 'config', 'core.worktree', asked)
+  // Both checkouts report this top level, but only the subfolder shares its database.
+  for (const root of [configured, subfolder]) {
+    assert.equal((await gitIn(root, 'rev-parse', '--show-toplevel')).trim(), asked)
+  }
+  assert.notEqual(
+    (await gitIn(configured, 'rev-parse', '--path-format=absolute', '--git-common-dir')).trim(),
+    (await gitIn(subfolder, 'rev-parse', '--path-format=absolute', '--git-common-dir')).trim(),
+  )
+  for (const [name, roots] of [
+    ['configured checkout first', [configured, subfolder]],
+    ['genuine subfolder first', [subfolder, configured]],
+  ] as const) {
+    await t.test(name, async () => {
+      await gitIn(configured, 'config', '--unset', 'core.worktree')
+      state.state.workspaces = []
+      // Opening a workspace puts it first in the persisted list.
+      for (const path of [...roots].reverse()) await client.call('workspace/open', { path })
+      assert.deepEqual(state.state.workspaces.map((entry) => entry.path), roots)
+      await gitIn(configured, 'config', 'core.worktree', asked)
+      const page = await client.call('git/log', { root: asked }) as { commits: readonly { subject: string }[] }
+      assert.deepEqual(page.commits.map((commit) => commit.subject), ['project commit'])
+    })
+  }
+})
+
 test('git confinement refuses uncertain reads, deduplicates canonical roots, and shares one deadline', async (t) => {
   const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-git-lookup-')))
   const state = new StateStore(join(scratch, 'state.json'))
@@ -3086,6 +3131,30 @@ catch (error) { process.exit(error.status ?? 1) }
     assert.equal(await client.call('git/status', { root: noRepo }), null)
     assert.equal(await client.call('git/status', { root: join(noRepo, 'not-yet') }), null)
   })
+  const boundary = join(scratch, 'filesystem-boundary')
+  await mkdir(boundary)
+  // Creating a mounted volume is not portable. Inject the complete C-locale
+  // diagnostic observed from Git at a filesystem boundary, only for this root;
+  // the other roots and all non-discovery verbs still use real Git.
+  const boundaryDiagnostic = 'fatal: not a git repository (or any parent up to mount point /)\n' +
+    'Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).'
+  for (const [name, roots, asked] of [
+    ['a filesystem-boundary common-directory read confirms absence', [boundary], boundary],
+    ['a filesystem-boundary top-level read does not block another open project', [boundary, join(opened, 'pkg')], opened],
+  ] as const) {
+    await t.test(name, async () => {
+      await mkdir(join(opened, 'pkg'), { recursive: true })
+      state.state.workspaces = roots.map((path) => ({ path, name: 'project', lastOpenedAt: 0 }))
+      await install(`if (args[1] === ${JSON.stringify(boundary)}) { console.error(${JSON.stringify(boundaryDiagnostic)}); process.exit(128) }`)
+      const status = await client.call('git/status', { root: asked }) as { root: string } | null
+      if (asked === boundary) assert.equal(status, null)
+      else assert.equal(status?.root, opened)
+      const calls = (await readFile(reads, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as string[])
+      assert.equal(calls.some((args) => args[1] === boundary && args.includes(
+        asked === boundary ? '--git-common-dir' : '--show-toplevel',
+      )), true)
+    })
+  }
   await t.test('forty repeated roots, including a symlink alias, cost two common-directory reads', async () => {
     const alias = join(scratch, 'alias')
     await symlink(opened, alias)

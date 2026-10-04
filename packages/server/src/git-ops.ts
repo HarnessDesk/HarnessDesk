@@ -472,7 +472,7 @@ const repositoryPath = async (root: string, field: string, signal?: AbortSignal)
       signal?.throwIfAborted()
       const failure = cause as { code?: unknown; stderr?: string }
       if (failure.code === 128 &&
-        failure.stderr?.trim() === 'fatal: not a git repository (or any of the parent directories): .git') return null
+        failure.stderr?.trim().startsWith('fatal: not a git repository')) return null
       throw cause
     }
     signal?.throwIfAborted()
