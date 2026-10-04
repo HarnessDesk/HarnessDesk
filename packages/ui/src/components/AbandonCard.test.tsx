@@ -83,10 +83,10 @@ it('abandons the card, holds the question while it is on its way, and closes onc
 })
 
 it('keeps the host\'s refusal on screen, with the act disabled, and lets the person keep the card', async () => {
-  draw({}, vi.fn().mockRejectedValue(new Error('There is no intent #5 on this board.')))
+  draw({}, vi.fn().mockRejectedValue(new Error('There is no card #5 on this board.')))
   open()
   await act(async () => inDialog('Abandon card').click())
-  expect(dialog()?.querySelector('[role="alert"]')?.textContent).toBe('There is no intent #5 on this board.')
+  expect(dialog()?.querySelector('[role="alert"]')?.textContent).toBe('There is no card #5 on this board.')
   expect(inDialog('Abandon card').disabled).toBe(true)
   act(() => inDialog('Keep it').click())
   expect(dialog()).toBeNull()

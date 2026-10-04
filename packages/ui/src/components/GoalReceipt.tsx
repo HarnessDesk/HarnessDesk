@@ -31,7 +31,9 @@ export interface GoalReceiptProps {
 const nameOf = (members: GoalReceiptRecord['members'], seat: string): string | null => {
   const member = members?.find((one) => one.seat === seat)
   if (!member) return null
-  return member.agent && member.agent !== member.seatLabel ? `${member.agent} · ${member.seatLabel}` : member.seatLabel
+  if (!member.agent) return member.seatLabel
+  if (!member.seatLabel || member.seatLabel === member.agent) return member.agent
+  return `${member.agent} · ${member.seatLabel}`
 }
 
 export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProps) => {
@@ -101,7 +103,7 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
               title={<>
                 <Text role="member">{member?.agent ?? member?.seatLabel ?? answer.seat}</Text>
                 {member?.role && <Text role="muted"> {member.role}</Text>}
-                {member?.agent && member.seatLabel !== member.agent && <Text role="muted"> · {member.seatLabel}</Text>}
+                {member?.agent && member.seatLabel && member.seatLabel !== member.agent && <Text role="muted"> · {member.seatLabel}</Text>}
               </>}
               desc={<>
                 <Text role="prose" as="div" className="whitespace-pre-wrap">{answer.text || 'No answer was recorded.'}</Text>

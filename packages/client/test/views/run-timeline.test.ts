@@ -209,6 +209,25 @@ const publicationFinding: FindingView = { id: 'publication-finding', title: 'Bou
     assert.equal(model.header.needsYou, needsYou);
     assert.deepEqual(model.rows.at(-1)?.publication, model.header.publication);
 }));
+;([
+  ['partial', 'partial', 'One review still waits for you.'],
+  ['local', 'local', 'This review was kept before the pull request was bound.'],
+  ['uncertain', 'uncertain', 'The desk did not receive confirmation.'],
+  ['refused', 'local', 'The pull request moved past this review.'],
+] as const).forEach(([scene, publication, reason]) => it(`keeps the ${scene} publication reason on a completed Run`, () => {
+  const findingRun = publicationRun({
+    publication,
+    reason,
+    rounds: [{ round: 1, state: publication, reason, pr: 7, cards: [1] }],
+  });
+  const model = runTimeline({
+    execution: run({ state: 'settled', end: { kind: 'complete' } }),
+    cards: [], findings: [publicationFinding], findingRun,
+  });
+
+  assert.equal(model.header.needsYou, true);
+  assert.partialDeepStrictEqual(model.rows.at(-1), { title: 'Needs you', detail: reason, attention: true });
+}));
 ;[{ rounds: [] }, { rounds: [{ round: 1, state: 'none' as const, reason: null, pr: null, cards: [1] }] }].forEach(({ rounds }) => it('never guesses a round chip from a posted aggregate ($rounds)' + JSON.stringify({ rounds }), () => {
     const model = runTimeline({ execution: run(), cards: [card()], findings: [publicationFinding], findingRun: publicationRun({ publication: 'posted', rounds }) });
     assert.equal(model.header.publication?.label, 'Posted to #7');

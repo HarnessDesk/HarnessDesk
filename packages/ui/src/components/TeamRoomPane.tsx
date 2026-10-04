@@ -1271,8 +1271,7 @@ export const TeamRoomPane = ({
                   <TeamIcon />
                 </IconTile>
               }
-              title="Chat"
-              subtitle="Everyone in this room"
+              title={<span title="Everyone in this Team">Chat</span>}
               /* Not how many things were said — that number answers no question
                  anybody has. What a rail owes the reader is the traffic that is
                  *stuck*: a message the board held is going nowhere until somebody
@@ -1293,8 +1292,9 @@ export const TeamRoomPane = ({
               selected={open === 'side-by-side'}
               onClick={grid.tiles.length > 0 ? () => show('side-by-side') : undefined}
               aria-disabled={grid.tiles.length === 0}
-              title="Side by side"
-              subtitle={grid.tiles.length === 0 ? 'Watch a member to put it here' : undefined}
+              title={grid.tiles.length === 0
+                ? <span title="Watch a member to put it here">Side by side</span>
+                : 'Side by side'}
               lead={
                 <IconTile size="sm" tint="violet">
                   <TeamIcon />

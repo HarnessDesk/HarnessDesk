@@ -842,12 +842,15 @@ it('re-reads the roster when the room’s membership moves', async () => {
 })
 
 it('the room’s channel says it is the room’s, not the project’s', async () => {
-  // A project holds several rooms; "everyone on this project reads this" was
-  // true of a folder board and is now a promise the channel does not keep.
+  // A project holds several Teams; the audience belongs in the Chat row's
+  // hover title, where it no longer costs a permanent second line.
   const { store } = rig()
   await render(store)
   expect(container.textContent).not.toContain('Everyone on this project')
-  expect(container.textContent).toContain('Everyone in this room')
+  expect(container.textContent).not.toContain('Everyone in this room')
+  const title = row('Chat').querySelector('[data-slot="list-row-title"] [title]')
+  expect(title?.getAttribute('title')).toBe('Everyone in this Team')
+  expect(row('Chat').querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
 })
 
 it('the host’s own problem with the board is said on the surface', async () => {
@@ -1135,7 +1138,10 @@ it('a tile can be taken off the grid without closing its conversation', async ()
   const takeOff = [...menu.querySelectorAll<HTMLElement>('*')].find((one) => one.textContent?.trim() === 'Take off the grid')!
   clickElement(takeOff)
   expect(container.querySelector('[data-slot="side-by-side-tile"]')).toBeNull()
-  expect(container.textContent).toContain('Watch a member to put it here')
+  const sideBySide = row('Side by side')
+  expect(sideBySide.querySelector('[data-slot="list-row-title"] [title]')?.getAttribute('title'))
+    .toBe('Watch a member to put it here')
+  expect(sideBySide.querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
   expect(store.getSnapshot().sessions.has(sessionKey('codex', 'c1'))).toBe(true)
 })
 
@@ -2744,10 +2750,10 @@ it('draws the chat with no header of its own', async () => {
   const { store } = rig()
   await render(store)
 
-  // The rail's row says "Chat / Everyone in this room"; the head that used to
-  // sit over the stream said "Chat / Everyone in this room reads this" — the
-  // destination repeated back to the person who had just chosen it.
+  // The destination is the single Chat rail row; the audience hint is only on
+  // its title, not repeated as a visible line in the stream or rail.
   expect(container.textContent).not.toContain('Everyone in this room reads this')
+  expect(container.textContent).not.toContain('Everyone in this room')
   const rows = [...container.querySelectorAll('[data-slot="list-row"]')].filter((entry) =>
     entry.textContent?.startsWith('Chat'),
   )
