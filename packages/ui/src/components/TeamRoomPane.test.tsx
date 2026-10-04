@@ -1870,6 +1870,26 @@ it('keeps an unrouted settled Run’s reason in the production Overview', async 
   expect(run.textContent?.split(reason)).toHaveLength(2)
 })
 
+it('reads a retained claim as Stopping in Overview, the timeline and inspector after Stop', async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped', endedAt: 60_001,
+    rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], state: 'closed', cause: 'seed', evidence: [] }],
+    operations: [], legacyRun: null, reason: null,
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  const overview = container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')!
+  expect(overview.textContent).toContain('#1 · Migrate auth callers · Stopping · 1m')
+  expect(overview.textContent).not.toContain('is working')
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  const card = container.querySelector<HTMLButtonElement>('[data-row="card-1-1"]')!
+  expect(card.textContent).toContain('Stopping')
+  expect(card.textContent).not.toMatch(/Working|so far/)
+  await act(async () => card.click())
+  expect(container.querySelector('[data-slot="run-inspector"] [data-slot="inspector-tools"]')?.textContent).toContain('Stopping')
+})
+
 /**
  * A flow a person started carries no trigger status, so its own stop reason
  * is what the live line has left to read (#917). The host's own default —

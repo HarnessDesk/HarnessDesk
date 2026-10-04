@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeId, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, turnId, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type Session, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from './run-timeline'
 
 const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
@@ -12,9 +12,38 @@ const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
 })
 const card = (patch: Partial<Intent> = {}): Intent => ({ id: 1, title: 'Build', state: 'claimed', claim: { runtime: runtimeId('agent'), sessionId: 'alpha', at: 100 }, createdAt: 50, updatedAt: 300, files: [], dependsOn: [], ...patch })
 const signal = (at: number, event: TeamSignal['signal']): TeamSignal => ({ id: `${event}-${at}`, kind: 'signal', at, signal: event, intent: 1, title: 'Build', by: { kind: 'agent', runtime: runtimeId('agent'), sessionId: 'alpha', title: 'Alpha' } })
+const session = (startedAt = 100, busy = true): Session => ({ runtime: runtimeId('agent'), id: sessionId('alpha'), cwd: '/work/project',
+  createdAt: 50, updatedAt: 300, itemsLoaded: true, status: { type: busy ? 'active' : 'idle' },
+  turns: [{ id: turnId('turn'), startedAt, status: busy ? 'inProgress' : 'completed', items: [] }] })
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it.each(['stopped', 'settled', 'stalled'] as const)('freezes claimed work when the Run is %s, until and after its turn ends', state => {
+    const execution = run({ state, endedAt: 250 })
+    for (const busy of [true, false]) {
+      const sessions = new Map([[sessionKey('agent', 'alpha'), session(100, busy)]])
+      expect(runTimeline({ execution, cards: [card()], sessions }).rows.find(row => row.card === 1))
+        .toMatchObject({ status: busy ? 'Stopping' : 'Stopped', working: false, durationMs: 150 })
+    }
+  })
+  it('does not call an absent or later follow-up turn Stopping, or invent a missing end time', () => {
+    for (const sessions of [undefined, new Map([[sessionKey('agent', 'alpha'), session(400)]])]) {
+      expect(runTimeline({ execution: run({ state: 'stopped', endedAt: 250 }), cards: [card()], sessions }).rows.find(row => row.card === 1))
+        .toMatchObject({ status: 'Stopped', working: false, durationMs: 150 })
+    }
+    expect(runTimeline({ execution: run({ state: 'stopped' }), cards: [card()] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Stopped', working: false, durationMs: null })
+  })
+  it('keeps a late completion duration bounded by the Run end without losing its answer', () => {
+    expect(runTimeline({ execution: run({ state: 'stopped', endedAt: 250 }), cards: [card({ state: 'done', outcome: 'published' })] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Published', working: false, durationMs: 150 })
+  })
+  it.each(['verify', 'person'])('does not leave a claimed %s step Working after the Run ends', role => {
+    const execution = run({ state: 'stopped', endedAt: 250, rounds: [{ ...run().rounds[0]!, role }],
+      operations: [{ key: 'check', kind: 'check', state: 'started', seat: null, card: 1 }] })
+    expect(runTimeline({ execution, cards: [card()] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Stopped', working: false, durationMs: 150 })
+  })
   it.each([
     ['published', 'Published'], ['committed', 'Committed'], ['approve', 'Approve'],
     ['request-changes', 'Request changes'], ['agreed', 'Agreed'], ['disagree', 'Disagree'],

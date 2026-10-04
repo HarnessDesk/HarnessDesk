@@ -13,6 +13,21 @@ const render = (props: Partial<RunInspectorProps> = {}) => {
   act(() => root.render(<RunInspector input={fixture} selectedRow={null} seats={[]} {...props} />))
   return { container, root, close: () => act(() => root.unmount()) }
 }
+it('reads the stopped card state in its header and keeps Abandon as a board release', async () => {
+  const fixture = runFixture('running')
+  const input = { ...fixture, execution: { ...fixture.execution, state: 'stopped' as const, endedAt: Date.now() } }
+  const onAbandon = vi.fn(async () => {})
+  const view = render({ input, selectedRow: 'card-4-4', onAbandon })
+  try {
+    expect(view.container.textContent).toContain('Stopped')
+    const abandon = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Abandon card…')!
+    expect(abandon.title).toBe('Releases this card on the board; no further step starts.')
+    act(() => abandon.click())
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Abandon card')!
+    await act(async () => confirm.click())
+    expect(onAbandon).toHaveBeenCalledWith(4)
+  } finally { view.close() }
+})
 it('reads the Run, its frozen base, budget and Seats without inventing absent facts', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },

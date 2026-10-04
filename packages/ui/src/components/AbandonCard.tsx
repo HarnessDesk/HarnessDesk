@@ -50,7 +50,8 @@ const AbandonQuestion = ({ execution, cards, card, holder, onAbandon, onStop }: 
   const who = holder ? sanitizeText(holder) : null
   return (
     <>
-      <Button variant="outline" onClick={() => { setProblem(null); setAsking(true) }}>Abandon card…</Button>
+      <Button variant="outline" title={execution.state !== 'running' ? 'Releases this card on the board; no further step starts.' : undefined}
+        onClick={() => { setProblem(null); setAsking(true) }}>Abandon card…</Button>
       {asking && (
         <ConfirmDialog
           title={`Abandon card #${card.id}?`}

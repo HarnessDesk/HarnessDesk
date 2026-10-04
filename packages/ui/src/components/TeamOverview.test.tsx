@@ -3,12 +3,26 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { overviewModel } from '../preview/team-overview-fixture'
 import { TeamOverview } from './TeamOverview'
+import { runTimeline } from '../lib/run-timeline'
+import { runFixture } from '../preview/run-view-fixture'
 import type { SeatRow } from '../lib/team-overview'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const box=document.createElement('div');document.body.append(box);const root=createRoot(box)
 afterEach(()=>act(()=>root.render(null)))
 const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role:'writer',card:null,round:null,state:'idle',done:false,reason:null,doing:null,since:null,cost:null,...patch})
 const render=(seats:SeatRow[])=>act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats}} metered={new Map(seats.map(one => [one.seat, false]))} />))
+it('uses the ended Run card state and fixed time for the current step and its Seat',()=>{
+ const fixture=runFixture('running')
+ const timeline=runTimeline({...fixture,execution:{...fixture.execution,state:'stopped',endedAt:fixture.cards[3]!.claim!.at+60_000}})
+ const summary=overviewModel('running')
+ const seat=row('Alpha',{seat:'seat-0',card:{id:4,title:'Answer the review'},state:'working',since:fixture.cards[3]!.claim!.at,doing:'Editing the retry'})
+ act(()=>root.render(<TeamOverview model={{...summary,needsYou:[],seats:[seat],run:{...summary.run!,state:'stopped',round:4}}} timeline={timeline} />))
+ expect(box.querySelector('[data-slot="run-current-step"]')?.textContent).toContain('Stopped')
+ expect(box.querySelector('[data-slot="run-current-step"]')?.textContent).toContain('1m')
+ expect(box.querySelector('[data-seat="seat-0"]')?.textContent).toContain('Stopped')
+ expect(box.textContent).not.toMatch(/Working|so far|Editing the retry/)
+ expect(box.querySelector('[data-slot="seat-state"] [data-slot="chip"]')).toBeNull()
+})
 it('offers Stop run… in the running Overview strip and withdraws it when the Run ends',()=>{
  const onStop=vi.fn()
  act(()=>root.render(<TeamOverview model={overviewModel('running')} onStop={onStop} />))

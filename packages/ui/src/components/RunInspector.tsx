@@ -139,7 +139,9 @@ export const RunInspector = ({ input, selectedRow, seats, onAbandon, onStop, onA
     </>
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
-    <PanelFrame><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text></PanelTools>
+    <PanelFrame><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
+      {card && selected?.status && <Text role="meta">{sanitizeText(selected.status)}</Text>}
+    </PanelTools>
       <PanelBody><PaneColumn inset="reading" className="flex min-w-0 flex-col gap-4">{body}</PaneColumn></PanelBody>
     </PanelFrame>
   </div>

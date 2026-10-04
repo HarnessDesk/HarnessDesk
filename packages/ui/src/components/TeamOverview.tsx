@@ -8,6 +8,7 @@ import {
 import { elapsedSince } from '../lib/clock'
 import { sanitizeHtml } from '../lib/sanitize'
 import type { NeedsYouAnswers } from '../lib/needs-you'
+import type { runTimeline } from '../lib/run-timeline'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
 import { AgentIcon } from './Icons'
 import { NeedsYouRow } from './NeedsYouRow'
@@ -39,8 +40,10 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop }: {
+export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop }: {
   model: ReturnType<typeof teamOverview>
+  /** Run card presentation is shared with its timeline and inspector. */
+  timeline?: ReturnType<typeof runTimeline> | null
   faces?: ReadonlyMap<string, ReactNode>
   metered?: ReadonlyMap<string, boolean>
   unavailable?: ReadonlySet<string>
@@ -60,6 +63,11 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
+  const stoppedCards = new Map(timeline?.rows.filter(row => row.card !== null && (row.status === 'Stopping' || row.status === 'Stopped'))
+    .map(row => [row.card, row]) ?? [])
+  const cardState = (row: SeatRow) => row.card ? stoppedCards.get(row.card.id) : undefined
+  const seatState = (row: SeatRow) => cardState(row)
+    ? <span data-slot="seat-state"><Text role="meta">{cardState(row)!.status}</Text></span> : <SeatState row={row} />
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
@@ -74,6 +82,7 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
   const rows = model.seats.filter(row => !row.done).concat(expanded ? done : [])
   const face = (row: SeatRow) => <IconTile shape="face" size="sm">{faces?.get(row.seat) ?? <AgentIcon />}</IconTile>
   const doing = (row: SeatRow) => {
+    if (cardState(row)) return null
     const next = doingLine(held.current.get(row.seat) ?? null, row.doing, now)
     held.current.set(row.seat, next)
     const line = words(next.line ?? row.reason ?? '')
@@ -103,6 +112,9 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
                     run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || 'Usage unavailable'}
                 </Text>
               </div>
+              {[...stoppedCards.values()].filter(row => row.round === run.round).map(row => <div key={row.id} data-slot="run-current-step"><Text role="meta">
+                {words(row.title)} · {row.status}{row.durationMs !== null ? ` · ${formatDuration(row.durationMs)}` : ''}
+              </Text></div>)}
               {statusLine ? statusLine(now) : runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
             </section>
           </CardContent></Card>
@@ -126,7 +138,7 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} lead={face(row)}
-                  title={<span className="flex min-w-0 items-center gap-2">{name(row)}<SeatState row={row} /></span>}
+                  title={<span className="flex min-w-0 items-center gap-2">{name(row)}{seatState(row)}</span>}
                   subtitle={doing(row)} trail={<Cost row={row} metered={metered?.get(row.seat)} />} />
               ))}
             </ListRows>
@@ -143,7 +155,8 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
               </TableRow></TableHeader>
               <TableBody>
                 {rows.map(row => {
-                  const elapsed = elapsedSince(row.since, now)
+                  const ended = cardState(row)
+                  const elapsed = ended ? ended.durationMs : elapsedSince(row.since, now)
                   return (
                     <TableRow key={row.seat} data-seat={row.seat}>
                       <TableCell lead={face(row)}>
@@ -155,7 +168,7 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
                         </div>
                       </TableCell>
                       <TableCell><Text role="meta" numeric>{row.round ?? '—'}</Text></TableCell>
-                      <TableCell><SeatState row={row} /></TableCell>
+                      <TableCell>{seatState(row)}</TableCell>
                       <TableCell>{doing(row)}</TableCell>
                       <TableCell><Text role="meta" numeric>{elapsed === null ? '—' : formatDuration(elapsed)}</Text></TableCell>
                       <TableCell><Cost row={row} metered={metered?.get(row.seat)} /></TableCell>

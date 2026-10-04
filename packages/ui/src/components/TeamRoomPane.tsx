@@ -775,6 +775,13 @@ export const TeamRoomPane = ({
     report: report?.goal === room ? report : null,
     runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
   }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report])
+  const overviewTimeline = useMemo(() => flowExecution ? runTimeline({ execution: flowExecution, cards: intents, sessions: snapshot.sessions,
+    signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal') }) : null,
+  [flowExecution, intents, snapshot.sessions, entries])
+  const stoppingSessions = new Set(overviewTimeline?.rows.filter(row => row.status === 'Stopping').flatMap(row => {
+    const claim = intents.find(card => card.id === row.card)?.claim
+    return claim ? [sessionKey(claim.runtime, claim.sessionId)] : []
+  }) ?? [])
   // What the Overview can do about what needs you: the same requests the board and the docked approval make.
   const needsYouAnswers = useNeedsYouAnswers({ room, execution: flowExecution ?? null, cards: intents, openBoard: () => show('board') })
   const memberOf = (key: SessionKey): TeamPeerInfo | null =>
@@ -1454,8 +1461,9 @@ export const TeamRoomPane = ({
                 return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
               }))}
               runName={flowExecution?.document.flow.name}
+              timeline={overviewTimeline}
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
-              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason />}
+              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1467,7 +1475,7 @@ export const TeamRoomPane = ({
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
                 onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
-                model={runTimeline({ execution: timelineRun, cards: intents,
+                model={runTimeline({ execution: timelineRun, cards: intents, sessions: snapshot.sessions,
                   signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
                   evidence: snapshot.boardEvidence.get(room),
                   findings: snapshot.findings.get(room)?.filter === 'all' ? snapshot.findings.get(room)?.rows : [],
@@ -2027,6 +2035,7 @@ const RoomLiveLine = ({
   needsYou,
   room,
   includeRunReason = false,
+  stoppingSessions,
 }: {
   readonly members: readonly Member[]
   readonly snapshot: AppSnapshot
@@ -2040,6 +2049,8 @@ const RoomLiveLine = ({
   readonly room: string
   /** Overview keeps the Run's reason even when another live fact takes precedence. */
   readonly includeRunReason?: boolean
+  /** Overview already reads these turns as Stopping on its current-step line. */
+  readonly stoppingSessions?: ReadonlySet<SessionKey>
 }) => {
   const store = useStore()
   const runReason = includeRunReason && flowExecution?.reason ? sentence(flowExecution.reason) : null
@@ -2149,7 +2160,7 @@ const RoomLiveLine = ({
         </TurnWorkLive>
       )
     }
-    const busy = waiting ? null : members.find((one) => one.busy) ?? null
+    const busy = waiting ? null : members.find((one) => one.busy && !stoppingSessions?.has(one.key)) ?? null
     const subject = waiting ?? busy
     if (!subject) return null
     const session = snapshot.sessions.get(subject.key)

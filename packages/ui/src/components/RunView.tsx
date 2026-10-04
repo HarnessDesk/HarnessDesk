@@ -70,7 +70,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
             const line = doingLine(previous, next, now)
             held.current.set(row.id, line)
             const duration = row.durationMs ?? (row.working && row.since !== null ? Math.max(0, now - row.since) : null)
-            const rest = row.status === 'Done' || row.status === 'Abandoned' || row.status === 'Waiting' || row.status === 'Result unavailable'
+            const rest = row.status === 'Done' || row.status === 'Abandoned' || row.status === 'Stopped' || row.status === 'Waiting' || row.status === 'Result unavailable'
             const selectedChip = selectedRow === row.id && !row.attention
             const status = row.status && (rest ? <Text role="meta">{row.status}</Text> : <Chip tone={row.attention ? 'warning' : 'neutral'} variant={selectedChip ? 'outline' : 'default'} emphasis={selectedChip}>{words(row.status)}</Chip>)
             const title = <span className="flex min-w-0 flex-wrap items-center gap-2">

@@ -67,7 +67,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, ...vie
   }))
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
   return <RunWorkspace {...view} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
-    input: { execution, cards, origin,
+    input: { execution, cards, origin, sessions: snapshot.sessions,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
       findings: findingsList?.rows,

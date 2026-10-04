@@ -3,9 +3,30 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runTimeline } from '../lib/run-timeline'
 import { overviewRun } from '../preview/team-overview-fixture'
+import { runFixture } from '../preview/run-view-fixture'
 import { RunView } from './RunView'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+it('shows a stopped claimed card as quiet Stopped with a frozen clock and no doing line', () => {
+  vi.useFakeTimers()
+  const fixture = runFixture('running')
+  const since = fixture.cards[3]!.claim!.at
+  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, state: 'stopped', endedAt: since + 60_000, end: { kind: 'stopped', by: 'person' } } })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunView model={model} number={1} selectedRow="card-4-4" onSelect={() => {}} doing={new Map([['seat-0', 'Editing the retry']])} />))
+    const card = container.querySelector('[data-row="card-4-4"]')!
+    expect(card.textContent).toContain('Stopped')
+    expect(card.textContent).toContain('1m')
+    expect(card.querySelector('[data-slot="chip"]')).toBeNull()
+    expect(card.textContent).not.toMatch(/Working|so far|Editing the retry/)
+    const frozen = card.textContent
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(card.textContent).toBe(frozen)
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})
 
 it('selects a stable row id and sanitizes the brief and in-flight words', () => {
   const container = document.createElement('div')
