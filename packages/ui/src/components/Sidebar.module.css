@@ -162,9 +162,12 @@
   margin: var(--hd-space-1) var(--hd-space-2) var(--hd-space-2) var(--hd-space-8);
 }
 
-.iconButton {
+.headerActions {
+  display: flex;
+  align-items: center;
   flex: none;
-  width: var(--hd-btn-h-sm);
+  gap: calc(var(--hd-sidebar-end-action-step) - var(--hd-icon-target));
+  margin-inline-end: calc(var(--hd-sidebar-end-rail) + var(--hd-space-2) - var(--hd-bar-pad));
 }
 
 .listAddButton {

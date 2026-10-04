@@ -496,3 +496,8 @@ button.inboxTitle:focus-visible::after {
   right: calc(-1 * var(--hd-space-3));
   box-shadow: 0 0 0 var(--hd-space-0-5) var(--hd-sidebar);
 }
+
+/* A rail-sized trigger leaves the next glyph one action step away. */
+.bell[data-size='icon-xs'] .bellCount {
+  right: calc(-1 * var(--hd-space-2));
+}
