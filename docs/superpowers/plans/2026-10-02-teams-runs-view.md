@@ -17,10 +17,10 @@ looked at, with the Run's live state laid over it later.
 `packages/ui/src/lib/` from the store snapshot it already holds. Their output
 shapes are the ones `@harnessdesk/client`'s core selectors return (the
 clients design, #1271); the overview selector has already moved there (#1295),
-and the timeline selector follows in PR 16, so the switch changes an input and
-no view. Host changes are additive fields on the Run record (PR 5) and the stop and
-list methods the clients design already owns. Nothing here waits on the event
-stream until PR 16.
+and the timeline selector has moved there too (#1360), so the switch changed an
+input and no view. Host changes are additive fields on the Run record (PR 5) and the stop and
+list methods the clients design already owns. The window builds the shared
+selectors' input from its own store (`packages/ui/src/lib/client-snapshot.ts`).
 
 **Tech Stack:** React 19, TypeScript, Vitest + jsdom, Playwright
 (`playwright.ui-system.config.ts`), the design system in
@@ -81,7 +81,7 @@ dependency, except possibly a graph-layout library in PR 14 (decided there).
 
 Sizes: S under a day of Team time, M about a day, L more.
 
-| PR | What | Depends on | Starts now? | Size |
+| PR | What | Depends on | Status | Size |
 | --- | --- | --- | --- | --- |
 | 1 | The overview model (pure selectors) | none | merged (#1276) | M |
 | 5 | Host: the Run record learns what the views need | none (coordinate on `flow-execution.ts`) | merged (#1281) | M |
@@ -89,38 +89,20 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1, 5 (both merged) | merged (#1284) | L |
 | 12 | The Teams page | 1; after 2 for `SessionTree.tsx` | merged (#1293) | M |
 | 3 | The Run model and timeline | none (PR 5 has merged; its fields are optional on older records) | merged (#1292) | L |
-| 4 | The Run inspector | 3 (merged) | **yes** | M |
-| 7 | Publication state and its doors | 3, 4 | after 4 | M |
-| 8 | Answer and approve from the Overview, abandon from the inspector | 2, 4 | after 4 | M |
-| 9 | Run a check again from the timeline | 3 (merged), 4 (#1263 is merged) | after 4 | S |
-| 10 | Stop a run | 2, 3 (both merged), 8; the stop method has merged (#1315) | after 8 | S |
-| 11 | The end of a Run, and Run again | 3, 4, 5, 6 (3, 5 and 6 have merged) | after 4 | M |
-| 13 | `FlowGraph` and the Flow tab (read-only) | 3 (merged) | **yes** | L |
-| 14 | The Run's state on the Flow | 13, 3 (merged), 9 | after 13 and 9 | L |
+| 4 | The Run inspector | 3 (merged) | merged (#1314) | M |
+| 7 | Publication state and its doors | 3, 4 (both merged) | merged (#1338) | M |
+| 8 | Answer and approve from the Overview, abandon from the inspector | 2, 4 (both merged) | merged (#1334) | M |
+| 9 | Run a check again from the timeline | 3, 4 (both merged; #1263 is merged) | merged (#1331) | S |
+| 10 | Stop a run | 2, 3, 8 (all merged); the stop method has merged (#1315) | merged (#1349) | S |
+| 11 | The end of a Run, and Run again | 3, 4, 5, 6 (all merged) | merged (#1339) | M |
+| 13 | `FlowGraph` and the Flow tab (read-only) | 3 (merged) | merged (#1322) | L |
+| 14 | The Run's state on the Flow | 13, 3, 9 (all merged) | merged (#1353) | L |
 | 15 | The poster and the site demo | 14 | optional | S |
-| 16 | Read from the shared client selectors | 3 (merged: the timeline selector it moves) and 7 (`review-publication.ts`, the chips); the Wire client and CLI session's PR 1c (#1295) and PR 2 (#1305) have merged | after 7 | M |
+| 16 | Read from the shared client selectors | 3 and 7 (both merged), and the Wire client and CLI session's PR 1c (#1295) and PR 2 (#1305) | merged (#1360) | M |
 | 17 | Host: a finished Seat's process rests | none | merged (#1283) | L |
-| 18 | A wrapped Team reads as a record | 2, 12, 3 (all merged) | **yes** | M |
+| 18 | A wrapped Team reads as a record | 2, 12, 3 (all merged) | merged (#1317, #1341) | M |
 
-**One Team at a time in `SessionTree.tsx`.** PR 2 (nesting a Team's Seats) and PR 12 (listing only active Teams) have merged; PR 18 (the wrapped group) is the one left to change the sidebar tree, from a fresh fetch of main.
-
-**`flow-execution.ts` needs no scheduling now.** PR 5 (#1281) and the other
-session's `flow/execution/stop` PR (#1315) both changed it, and both have merged.
-
-**One Team at a time in `TeamRoomPane.tsx`.** PRs 2 and 3 have merged. Every PR
-still to come except PR 15 (the poster) wires something through
-`packages/ui/src/components/TeamRoomPane.tsx`, a 2,600-line file: the rail, the
-Overview's strip and input, the Run header, or the Run branch where the timeline
-and its selected-row state live (PRs 4, 7, 8, 9, 10, 11, 13, 14, 16 and 18).
-Land them one at a time, each starting from a fresh fetch of main: whichever is
-second rebases onto the first before its PR is opened, not after review. PRs 1,
-2, 3, 5, 6, 12 and 17 have merged and need no scheduling.
-
-**What waits on the other session.** Nothing now: its PR 1c (#1295), its PR 1b (the two events below, #1285) and its stop method (#1315) have all merged. Every
-PR but PR 16 reads what the window's store already holds. PR 16
-adapts the window's store to the shared selectors' `ClientSnapshot` input (the
-window imports only `@harnessdesk/client/views`; `Client.snapshot()` is what the
-command line uses).
+**Scheduling is over.** Every PR here except PR 15 (the poster, optional) has merged, so the notes that asked for one Team at a time in `SessionTree.tsx`, `TeamRoomPane.tsx` and `flow-execution.ts`, and the note on what waited on the Wire client and CLI session, no longer apply. The briefs below are kept as the record of what each PR was asked to do; the code on `main` is what shipped.
 
 ## Coordination with the "Wire client and CLI" session
 
@@ -187,11 +169,10 @@ to their shape (agreed 2026-10-02, landed in its PR 1b, #1285):
    only `export * from '@harnessdesk/client/views'`, the layering rule allows
    the window to import nothing else from the client package, `insight/goal` is
    in the read tier, and a change to the model goes in the client package. The
-   timeline selector moves the same way in PR 16, and PR 16 settles two things
-   with that session first: the timeline also reads check results
-   (`evidence/board`) and a Team's findings (`finding/list`), neither of which is
-   in the client door's `CLIENT_METHODS` today, and its two word helpers are
-   UI-only (see PR 16).
+   timeline selector moved the same way in PR 16 (#1360): it is in
+   `packages/client/src/views/` with its tests in `packages/client/test/views`,
+   the two word helpers came with it, and `evidence/board` and `finding/list`
+   joined the client door's read tier.
 
 Its order: PR 1 (the read-only door, the library, `desks`, `status`, `teams`,
 `runs`, `watch`; merged, #1279), PR 1b (`seat/activity`, `FindingRunView.rounds`,
@@ -340,6 +321,8 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ## PR 4 — The Run inspector
 
+**Status.** Merged as #1314; this section is kept as the record of what it was asked to do.
+
 **Goal.** Selecting a timeline row shows what happened there, beside it.
 
 **Read first.** Spec: "The inspector" table; `patterns/InspectorPanel.tsx`; `packages/ui/src/lib/sanitize.ts`; PR 3's selection state (merged, #1292): the row `id`s and `kind`s `runTimeline` returns in `packages/ui/src/lib/run-timeline.ts`, `RunView`'s `selectedRow` and `onSelect` props, and `selectedRunRows` in `TeamRoomPane.tsx`, where the selected row is kept per Run. The Run tab already loads `snapshot.boardEvidence` and `snapshot.findings` for the Team; read what is there before adding a read.
@@ -417,6 +400,8 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ## PR 7 — Publication state and its doors
 
+**Status.** Merged as #1338; this section is kept as the record of what it was asked to do.
+
 **Goal.** A review that was not posted is visible on the Run, with the reason and a way to post it.
 
 **Read first.** Spec: "A review that was never posted", its table of the desk's words, and the `review-not-posted` frame. `packages/protocol/src/findings.ts`: `FindingRunView` (`round`, `publication`, `rounds`, `reason`, `boundPr`, `unbound`) and `FindingRoundPublication`, `FindingPublicationsView` and `FindingPublicationItem` (only postings a person must look at, plus the backfill), `FindingPublishAction`. `packages/ui/src/components/FindingPublications.tsx` (the existing post-again, skip and backfill controls) and `GoalFindings.tsx`; `store.readFindingPublications`. `docs/flows.md` § "Findings, budgets and blind rounds": confirm what `local`, `pending`, `partial` and `uncertain` mean before wording anything.
@@ -442,6 +427,8 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ## PR 8 — Answer and approve from the Overview, abandon from the inspector
 
+**Status.** Merged as #1334; this section is kept as the record of what it was asked to do.
+
 **Goal.** The Needs-you rows carry their buttons, and a card's inspector can abandon it.
 
 **Read first.** Spec: the controls table (Answer a card, Abandon a card, Approve and Deny); `TeamBoardPane.tsx` (the board's referee verb), `components/Approvals.tsx`; `store` methods behind `team/intent` and `approval/respond`.
@@ -463,6 +450,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 9 — Run a check again from the timeline
+
+**Status.** Merged as #1331 (plan PR 9); this section is kept as the record of what it was asked to do.
 
 **Goal.** A finished check can be run again from its row, with consent.
 
@@ -486,6 +475,8 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ## PR 10 — Stop a run
 
+**Status.** Merged as #1349; this section is kept as the record of what it was asked to do.
+
 **Goal.** One Run can be stopped from the Run itself.
 
 **Read first.** Spec: the controls table (Stop run…) and the `dialog-stop` frame; #1247; the Wire client and CLI session's `flow/execution/stop` (merged, #1315): `FlowExecutions.stop` in `packages/server/src/flow-execution.ts`, `Flows.stopRun` in `packages/server/src/flows.ts`, and its wire declaration in `packages/protocol/src/wire.ts`; the Run header in `RunView.tsx` and the Overview's Run card in `TeamOverview.tsx`.
@@ -507,6 +498,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 11 — The end of a Run, and Run again
+
+**Status.** Merged as #1339; this section is kept as the record of what it was asked to do.
 
 **Goal.** An ended Run says why and always offers a way on.
 
@@ -554,6 +547,8 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ## PR 13 — `FlowGraph` and the Flow tab (read-only)
 
+**Status.** Merged as #1322 (plan PR 13); this section is kept as the record of what it was asked to do.
+
 **Goal.** The Flow a Run started with, drawn to be looked at.
 
 **Read first.** Spec: "The Flow view" (every bullet of "How it is drawn"), the frames `flow-blueprint`, `flow-overlay` and `flow-hero`, and `flow-alt-track` (the look the owner set aside: take its bold traveled route and solid check badges, not its layout); `components/ShapeGraph.tsx` and `lib/shapes.ts` (the editor's graph, left as it is); `docs/design.md` § "Shapes say what a mark is".
@@ -576,6 +571,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 14 — The Run's state on the Flow
+
+**Status.** Merged as #1353 (plan PR 14); this section is kept as the record of what it was asked to do.
 
 **Goal.** The blueprint says where the Run is.
 
@@ -616,6 +613,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 16 — Read from the shared client selectors
+
+**Status.** Merged as #1360: the timeline selector, `review-publication.ts` and the two word helpers are in `packages/client/src/views/`, the UI files re-export them, `finding/list` and `evidence/board` joined `CLIENT_METHODS` at the `read` tier, `run show` renders the timeline over a baseline scoped to the Run, and the window builds its `ClientSnapshot` in `packages/ui/src/lib/client-snapshot.ts`; this section is kept as the record of what it was asked to do.
 
 **Goal.** The window and the command line derive the same views from the same code.
 
@@ -676,6 +675,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 18 — A wrapped Team reads as a record
+
+**Status.** Merged as #1317 (wrapped work stays readable) and #1341 (wrapped conversations stay stoppable and Seat records complete); this section is kept as the record of what it was asked to do.
 
 **Goal.** After Wrap, a Team's Seats, conversations and Run timeline stay viewable and nothing more is dispatched (the owner's decision on #1278).
 
