@@ -53,6 +53,40 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
 }
 const sectionText = (container: HTMLElement, title: string): string =>
   [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
+
+it.each(['member', 'answer', 'missing'] as const)('reads wrapped Run Seats with a conversation %s pointer', async pointer => {
+  const open = vi.fn()
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get('overview-team')!
+    const reviewer = goal.members[1]!
+    const receipt = {
+      version: 1 as const, id: 'wrapped-run-receipt', goal: goal.goal.id, sentence: goal.goal.sentence,
+      wrappedAt: 2, summary: 'Reviewed.', cards: [], seats: goal.members.map(seat => seat.id),
+      members: goal.members.map(seat => ({ seat: seat.id, agent: seat.agent?.name ?? null, seatLabel: seat.seatLabel,
+        ...(pointer === 'member' && seat.id === reviewer.id ? { session: seat.session } : {}) })),
+      answers: pointer === 'answer' ? [{ seat: reviewer.id, session: reviewer.session, turn: null, text: 'Reviewed.', partial: false, stopReason: null }] : [],
+      evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    }
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped', receipt: receipt.id }, members: [], receipt }]]) }
+  })
+  const view = await mount(store, { selectedRow: 'run', onOpenSeat: open })
+  try {
+    expect(sectionText(view.container, 'Seats')).toContain('Alpha')
+    expect(sectionText(view.container, 'Seats')).toContain('Beta')
+    await view.show({ selectedRow: 'card-3-3' })
+    const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
+    const button = [...inspector.querySelectorAll('button')].find(one => one.textContent === 'Open the conversation')
+    if (pointer === 'missing') {
+      expect(button).toBeUndefined()
+      expect(inspector.textContent).toContain('Conversation not kept')
+    } else {
+      expect(button).toBeDefined()
+      await act(async () => button!.click())
+      expect(open).toHaveBeenCalledWith('codex\0overview-1')
+      expect(costOf(view.container)).not.toContain('Not recorded')
+    }
+  } finally { view.close() }
+})
 const tryAgain = (container: HTMLElement): HTMLButtonElement =>
   [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!
 

@@ -9,6 +9,7 @@ import { headOf } from '../src/evidence/revision.js'
 import { Client, halt, start } from './fixtures/harness.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
+import { GoalStore } from '../src/goals/store.js'
 
 /** Waits for a fake-runtime turn this test explicitly finished to actually settle in the host's own registry, before a busy check downstream reads it. */
 const settled = async (client: Client, runtime: string, sessionId: string): Promise<void> => {
@@ -20,6 +21,126 @@ const settled = async (client: Client, runtime: string, sessionId: string): Prom
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+
+test('wrapped Seats retain conversations and refuse send, steer, queued sends, review and compaction; open Seats still dispatch', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  let restored: Awaited<ReturnType<typeof start>> | undefined
+  let restoredClient: Client | undefined
+  let halted = false
+  const work = tempDir('hd-wrapped-record-')
+  t.after(async () => { restoredClient?.close(); if (restored) await halt(restored); client.close(); if (!halted) await halt(harness); await rm(harness.stateDir, { recursive: true, force: true }); await rm(work, { recursive: true, force: true }) })
+  await client.call('workspace/open', { path: work })
+  const created = await client.call('goal/create', { root: work, sentence: 'Keep the completed work readable' }) as GoalView
+  const card = await client.call('team/add', { room: created.goal.id, title: 'Finish the change' }) as { id: number }
+  const conversation = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
+  const pointer = { runtime: 'fake', sessionId: conversation.id }
+  const assigned = await client.call('goal/assign', { goal: created.goal.id, card: card.id, session: pointer }) as SeatRecord
+  const input = [{ type: 'text', text: 'Read the change' }]
+  await client.call('turn/send', { ...pointer, input })
+  await client.call('turn/steer', { ...pointer, input })
+  const queued = await client.call('turn/queue', { ...pointer, input }) as { sent: boolean; queuedId: string }
+  assert.equal(queued.sent, false)
+  await client.call('turn/queue/cancel', { ...pointer, id: queued.queuedId })
+  harness.runtime.sessions.get(conversation.id)!.finish()
+  await settled(client, 'fake', conversation.id)
+  /* Review and compaction put work into a conversation as surely as a send
+     does, so they sit behind the same barrier. While the Team is open both
+     run — the control the refusals below are measured against. */
+  let compacted = 0
+  Object.assign(harness.runtime.sessions.get(conversation.id)!, { compact: async () => { compacted += 1 } })
+  const inPlace = { ...pointer, target: { type: 'uncommitted' } }
+  const onSideThread = { ...pointer, target: { type: 'uncommitted', delivery: 'detached' } }
+  const reviewing = [
+    ['compaction', 'session/compact', pointer],
+    ['review in place', 'session/review', inPlace],
+    ['review on a side thread', 'session/review', onSideThread],
+  ] as const
+  await client.call('session/compact', pointer)
+  assert.equal(compacted, 1, 'an open Seat compacts')
+  assert.equal(await client.call('session/review', inPlace), null, 'an open Seat reviews in place')
+  const side = await client.call('session/review', onSideThread) as Session
+  assert.notEqual(side.id, conversation.id, 'an open Seat reviews on a side thread')
+  await client.call('team/intent', { room: created.goal.id, id: card.id, action: 'done' })
+  const choices = { summary: 'Finished and reviewed.', cards: [{ id: card.id, resolution: 'finished', reason: null }] }
+  // Acceptance can precede turn/started by an arbitrarily long round trip.
+  // Wrap must see the host's pending send as work, even while the read is idle.
+  const live = harness.runtime.sessions.get(conversation.id)!
+  const send = live.send.bind(live)
+  let release!: () => void
+  let entered!: () => void
+  const waiting = new Promise<void>(resolve => { release = resolve })
+  const started = new Promise<void>(resolve => { entered = resolve })
+  const pending = await client.call('goal/preview', { goal: created.goal.id, choices }) as WrapPreview
+  live.send = async (...args) => { entered(); await waiting; return send(...args) }
+  const dispatch = client.call('turn/send', { ...pointer, input })
+  await started
+  try {
+    await assert.rejects(client.call('goal/wrap', { goal: created.goal.id, stamp: pending.stamp, choices }), /Stop the running work/)
+  } finally {
+    release()
+    await dispatch
+    live.send = send
+    live.finish()
+    await settled(client, 'fake', conversation.id)
+  }
+  let receipt!: GoalReceipt
+  const save = GoalStore.prototype.save
+  let staged!: () => void
+  let finishStage!: () => void
+  const staging = new Promise<void>(resolve => { staged = resolve })
+  const stageHeld = new Promise<void>(resolve => { finishStage = resolve })
+  GoalStore.prototype.save = async function (...args) {
+    if (args[0].goal.id === created.goal.id && args[0].goal.state === 'wrapping') { staged(); await stageHeld }
+    return save.apply(this, args)
+  }
+  const wrapping = (async () => {
+    for (let tries = 0; tries < 5; tries++) {
+      const preview = await client.call('goal/preview', { goal: created.goal.id, choices }) as WrapPreview
+      try { receipt = await client.call('goal/wrap', { goal: created.goal.id, stamp: preview.stamp, choices }) as GoalReceipt; return }
+      catch (error) { if (!/changed while you reviewed/.test(String(error))) throw error }
+    }
+    throw new Error('the settled Team must wrap')
+  })()
+  try {
+    await Promise.race([staging, wrapping.then(() => { throw new Error('Wrap did not stage its receipt') })])
+    // Stored state is still open here; the GoalPlane closing barrier owns it.
+    await assert.rejects(client.call('turn/send', { ...pointer, input }), /This Team is wrapped/)
+  } finally {
+    finishStage()
+    GoalStore.prototype.save = save
+    await wrapping
+  }
+  assert.ok(receipt, 'the settled Team must wrap')
+  const view = await client.call('goal/read', { goal: created.goal.id }) as GoalView
+  const team = await client.call('team/state', { room: created.goal.id }) as TeamState
+  console.log('wrapped rig:', JSON.stringify({ legacyMembers: team.members, liveMembers: view.members, receiptMembers: receipt.members, answers: receipt.answers.map(one => ({ seat: one.seat, session: one.session })), readable: (await client.call('session/read', pointer) as Session).id }))
+  await t.test('receipt retains the conversation', () => assert.deepEqual(receipt.members?.find(one => one.seat === assigned.id), { seat: assigned.id, agent: assigned.agent?.name ?? null, seatLabel: assigned.seatLabel, session: pointer }))
+  for (const method of ['turn/send', 'turn/steer', 'turn/queue', 'turn/queue/flush'] as const) {
+    await t.test(method, async () => assert.rejects(client.call(method, { ...pointer, input }), /This Team is wrapped/, method))
+  }
+  const threads = harness.runtime.sessions.size
+  for (const [name, method, params] of reviewing) {
+    await t.test(name, async () => assert.rejects(client.call(method, params), /This Team is wrapped/, method))
+  }
+  assert.equal(compacted, 1, 'the wrapped conversation was not compacted again')
+  assert.equal(harness.runtime.sessions.size, threads, 'the wrapped conversation did not start a review thread')
+  const another = await client.call('goal/create', { root: work, sentence: 'Start separate work' }) as GoalView
+  const newCard = await client.call('team/add', { room: another.goal.id, title: 'Use a new conversation' }) as { id: number }
+  await assert.rejects(client.call('goal/assign', { goal: another.goal.id, card: newCard.id, session: pointer }), /This Team is wrapped/)
+  // The durable receipt, not a live membership or handle, owns the refusal.
+  client.close()
+  await halt(harness)
+  halted = true
+  restored = await start({}, harness.stateDir)
+  restoredClient = await Client.connect(restored.server)
+  await restoredClient.call('workspace/open', { path: work })
+  assert.equal((await restoredClient.call('session/read', pointer) as Session).id, pointer.sessionId)
+  await assert.rejects(restoredClient.call('turn/send', { ...pointer, input }), /This Team is wrapped/)
+  for (const [name, method, params] of reviewing) {
+    await assert.rejects(restoredClient.call(method, params), /This Team is wrapped/, `${name} after a restart`)
+  }
+})
 
 test('Goal Agent seating preserves the held ceiling through the host adapter', async (t) => {
   const work = tempDir('hd-goal-held-seat-work-')
@@ -125,9 +246,10 @@ test('live Goal assignments write durable Seats before restart', async () => {
     const evidence = new EvidenceStore(`${harness.stateDir}/evidence`)
     const { lines } = await evidence.read(work, 'seats')
     assert.equal(lines.filter((line) => line.type === 'seat' && line.record.board === goal.goal.id).length, 2)
-    second = await start({}, harness.stateDir)
+    second = await start({}, harness.stateDir, harness.runtime)
     secondClient = await Client.connect(second.server)
     await secondClient.call('workspace/open', { path: work })
+    await secondClient.call('turn/send', { runtime: 'fake', sessionId: session.id, input: [{ type: 'text', text: 'Continue the open work after restart' }] })
     const rooms = await secondClient.call('team/rooms', { root: work }) as readonly TeamState[]
     assert.deepEqual([...rooms[0]!.members].sort(), [`fake\u0000${session.id}`, `fake\u0000${another.id}`].sort())
   } finally {

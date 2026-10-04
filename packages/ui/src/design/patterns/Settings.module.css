@@ -665,6 +665,11 @@
   color: var(--hd-muted-foreground);
 }
 
+.note[data-inset='pane-title'] {
+  padding-left: calc(var(--hd-bar-ink) + var(--hd-space-6) + var(--hd-bar-gap));
+  padding-right: var(--hd-bar-pad);
+}
+
 .note[data-icon] {
   display: flex;
   align-items: flex-start;

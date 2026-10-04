@@ -1530,3 +1530,38 @@ measured.
 
 **The rule:** the interface language chooses its CJK fallback in the
 foundation; no component chooses a language's face itself.
+
+
+## Wrapping ends dispatch, while the receipt keeps conversations readable
+
+Closing a Seat ends membership. It does not erase the conversation or turn it
+into new work: a receipt now captures each Seat's own session pointer along
+with its name. Older receipts resolve a conversation only from that Seat's
+kept answer, and otherwise keep its name without a link. The rail, Overview
+and sidebar all read that same list, and it is a list of conversations as an
+open Team's is: a receipt keeps every Seat, and a conversation seated twice is
+named once — where its first Seat put it, by the last that held it — because
+each of those surfaces keys a row by its session. A Seat with no conversation
+has no session to share, so each is its own row, and the rail says no Agents
+were kept only when it lists none. Receipt opens in the pane's scrolling
+body, so the record never pushes its own navigation away. A narrow pane opens
+on that body, not on the Agents list. An open Team with no Run has nothing to
+read first, so it starts on the list; a wrapped Team always has its receipt,
+and one a person made, which never had a Run, is no exception.
+
+The renderer uses one wrapped-state rule for dispatching controls and
+conversation composers. The host refuses sends, steers, queued dispatch,
+reviews and compaction before reopening the conversation and again once it is
+open, and a queue draining after a wrap at delivery. A review or a compaction
+puts work into a conversation as surely as a send does, so they sit behind the
+same barrier, and the conversation menus that offered them show the same
+reason instead. Closed Seat history and receipt pointers preserve that refusal
+after restart. Run history remains a read; wrapping and deletion keep their
+existing lifecycles.
+
+A Run that ends wraps its Team, so a Team can wrap under a person who already
+has a question open. That question reads the Team's state live rather than the
+data it opened with — a run's own view still says it is decidable — and stays
+on screen with its final action disabled and the reason beside it: closing it
+would throw away what was typed, and leaving it armed would offer what the host
+then refuses. This implements PR 18 of the approved Teams/Runs plan.

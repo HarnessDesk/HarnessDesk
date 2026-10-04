@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
-import { teamSeats } from '../lib/team-seats'
+import { hasConversation, teamSeats } from '../lib/team-seats'
 import { teamOverview } from '../lib/team-overview'
 import type { FindingsListState } from '../lib/findings'
 import { RunWorkspace } from './RunWorkspace'
@@ -54,7 +54,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
   }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished, readAgain])
   const costs = teamOverview({ team: execution.goal, cards, report: report?.goal === execution.goal ? report : null,
-    seats: seats.map(seat => ({ record: seat.record, name: seat.name, runtime: snapshot.runtimes.find(runtime => runtime.id === seat.record.session.runtime) ?? null, session: null, unreadSince: null, approvals: [] })),
+    seats: seats.filter(hasConversation).map(seat => ({ record: seat.record, name: seat.name, runtime: snapshot.runtimes.find(runtime => runtime.id === seat.record.session.runtime) ?? null, session: null, unreadSince: null, approvals: [] })),
     run: { execution, startedAt: execution.startedAt ?? null },
   })
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
@@ -69,7 +69,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
     seats: seats.map(seat => ({ id: seat.record.id, name: seat.name,
       override: goal?.members.find(record => record.id === seat.record.id)?.seatLabel,
       cost: costs.seats.find(row => row.seat === seat.record.id)?.cost,
-      onOpen: () => onOpenSeat(seat.key),
+      onOpen: hasConversation(seat) ? () => onOpenSeat(seat.key) : undefined,
     })),
   }} />
 }

@@ -687,3 +687,13 @@ describe('what the action button says about when the message goes', () => {
     expect(action('Queue').nextElementSibling).toBe(container.querySelector('[aria-label="Stop"]'))
   })
 })
+
+
+it.each([false,true])('a wrapped Seat cannot type or dispatch with busy=%s', busy => {
+ mount({busy,steer:true})
+ mountedSnapshot={...mountedSnapshot,goals:new Map([['wrapped',{goal:{id:'wrapped',state:'wrapped'},members:[],receipt:{seats:['seat'],members:[{seat:'seat',session:{runtime:'alpha',sessionId:'s1'}}],answers:[]}} as never]])}
+ act(()=>mountedListeners.forEach(listener=>listener()))
+ expect(textarea().disabled).toBe(true)
+ expect(textarea().placeholder).toBe('This Team is wrapped')
+ expect([...container.querySelectorAll<HTMLButtonElement>('[data-slot="composer-send"]')].every(one=>one.disabled)).toBe(true)
+})

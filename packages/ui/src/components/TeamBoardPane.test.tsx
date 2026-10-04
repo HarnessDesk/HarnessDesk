@@ -1486,3 +1486,122 @@ it('a board opened after restart loads its named Flow execution so finished chec
   await render(store)
   expect(store.readFlowExecution).toHaveBeenCalledWith('saved-check-run')
 })
+
+
+it('a wrapped Team disables adding, assigning, answering, reopening and abandoning work', async () => {
+ const goal={goal:{id:ROOM,state:'wrapped',origin:{kind:'person'}},members:[]} as unknown as GoalView
+ const {store}=rig([intent({})],{},undefined,goal)
+ await render(store)
+ const add=container.querySelector<HTMLButtonElement>('button[aria-label^="New job"]')!
+ expect(add.disabled).toBe(true);expect(add.title).toBe('This Team is wrapped')
+ const items=await menuItems(1)
+ expect(items.length).toBeGreaterThan(0)
+ for (const item of items) {expect(item.getAttribute('aria-disabled')).toBe('true');expect(item.textContent).toContain('This Team is wrapped')}
+})
+
+/**
+ * A Run that ends wraps its Team, and it can do that under a person who has a
+ * question open on its board. Each of these was asked while the board could
+ * still change, so what is left to answer is the Team's, not the dialog's
+ * (#1317, round 1).
+ */
+const WRAPPED = { goal: { id: ROOM, state: 'wrapped', origin: { kind: 'person' } }, members: [] } as unknown as GoalView
+
+const wrapsLater = (store: AppStore): (() => void) => {
+  let snapshot = store.getSnapshot()
+  const listeners = new Set<() => void>()
+  Object.assign(store, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+  })
+  return () => {
+    snapshot = { ...snapshot, goals: new Map([[ROOM, WRAPPED]]) }
+    act(() => listeners.forEach((listener) => listener()))
+  }
+}
+
+/** What the open question says — the question, not the board behind it. */
+const questionText = (): string => document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent ?? ''
+
+it('a stop question already open stops taking its answer when the Team wraps', async () => {
+  const { store } = rig([intent({ state: 'open' })])
+  const wrap = wrapsLater(store)
+  await render(store)
+  await pick(1, 'Stop it — say why')
+  await act(async () => {})
+  const stop = (): HTMLButtonElement =>
+    [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Stop it')!
+  expect(stop().disabled).toBe(false)
+  expect(questionText()).not.toContain('This Team is wrapped')
+
+  wrap()
+
+  expect(stop().disabled).toBe(true)
+  expect(stop().title).toBe('This Team is wrapped')
+  expect(questionText()).toContain('This Team is wrapped')
+  // Enter in the field is the same press as the button.
+  act(() => whyField()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+  act(() => stop().click())
+  await act(async () => {})
+  expect(store.teamIntent).not.toHaveBeenCalled()
+})
+
+it('a first-run question already open stops offering to run the command when the Team wraps', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['verify'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ kind: 'unseen', unseen: UNSEEN })
+  const wrap = wrapsLater(store)
+  await render(store)
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  await armed()
+  const asked = question() as HTMLElement
+  const run = (): HTMLButtonElement =>
+    [...asked.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Run verify')!
+  expect(run().disabled).toBe(false)
+  expect(questionText()).not.toContain('This Team is wrapped')
+
+  wrap()
+
+  expect(run().disabled).toBe(true)
+  expect(questionText()).toContain('This Team is wrapped')
+  act(() => run().click())
+  await act(async () => {})
+  // The one call is the question itself; confirming it never went out.
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+})
+
+it('an attempt question already open stops recording an answer when the Team wraps', async () => {
+  const judge = intent({ id: 1, state: 'open', role: 'judge', title: 'Choose a route' })
+  const attempt = intent({ id: 2, state: 'done', role: 'competitor', title: 'Implement checkout', outcome: 'pass' })
+  const { store, snapshot } = rig([judge, attempt], {}, observed([], [cardEvidence(2, [])]))
+  vi.mocked(store.flowReviewCandidates).mockResolvedValue([
+    { id: 'candidate-one', card: 2, at: 'abcdef0123456789', branch: 'attempt-one', evidence: [] },
+  ])
+  const execution = {
+    id: 'flow-run-person-wrapped', goal: ROOM, version: 2, state: 'running', operations: [], legacyRun: null,
+    document: { format: 'agents', flow: {
+      roles: [{ id: 'judge', kind: 'person', outcomes: ['picked'] }],
+      rules: [{ id: 'judge-review', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'next', title: 'Next' } }],
+    } },
+    rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'cause' }],
+  }
+  const reviewSnapshot = { ...snapshot, flowExecutions: new Map([[execution.id, execution]]) }
+  const live = { ...store, getSnapshot: () => reviewSnapshot } as unknown as AppStore
+  const wrap = wrapsLater(live)
+  await render(live)
+  await pick(1, 'Pick an attempt…')
+  act(() => document.querySelector<HTMLElement>('[role="radio"]')!.click())
+  await act(async () => {})
+  const record = (): HTMLButtonElement =>
+    [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Record answer')!
+  expect(record().disabled).toBe(false)
+  expect(questionText()).not.toContain('This Team is wrapped')
+
+  wrap()
+
+  expect(record().disabled).toBe(true)
+  expect(record().title).toBe('This Team is wrapped')
+  expect(questionText()).toContain('This Team is wrapped')
+  await act(async () => record().click())
+  expect(store.decideFlowReview).not.toHaveBeenCalled()
+})

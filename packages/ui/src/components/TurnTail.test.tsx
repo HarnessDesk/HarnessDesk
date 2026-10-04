@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, turnId, type Session, type Turn } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, turnId, type GoalView, type Session, type Turn } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -32,6 +32,22 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   vi.useRealTimers()
+})
+
+it('keeps a wrapped answer readable while disabling its retry dispatch', async () => {
+  const key = sessionKey('fake', 'kept-answer')
+  const snapshot = { ...emptySnapshot(), activeSessionKey: key, goals: new Map([['record', {
+    goal: { state: 'wrapped' }, members: [], receipt: { members: [{ session: { runtime: 'fake', sessionId: 'kept-answer' } }] },
+  } as unknown as GoalView]]) }
+  const queue = vi.fn()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, queue } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><TurnTail turn={{ id: turnId('answer'), items: [], status: 'completed' } as unknown as Turn} session={{ turns: [] } as unknown as Session} answer="The work is finished." /></StoreProvider>))
+  const retry = container.querySelector<HTMLButtonElement>('button[aria-label="Ask the agent to try again"]')!
+  expect(retry.disabled).toBe(true)
+  expect(retry.title).toBe('This Team is wrapped')
+  act(() => retry.click())
+  expect(queue).not.toHaveBeenCalled()
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Copy this message"]')?.disabled).toBe(false)
 })
 
 const render = async (turn: Turn) => {

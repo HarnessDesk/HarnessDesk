@@ -1,3 +1,4 @@
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
@@ -242,6 +243,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
      empty state below rather than an error. */
   const board = snapshot.teams.get(room)
   const goal = snapshot.goals.get(room)
+  const record = isRecord(goal)
   const namedRun = namedGoalRun(goal)
   const intents = board?.intents ?? []
   const openCards = intents.filter((one) => one.state === 'open' && !one.claim).length
@@ -507,10 +509,11 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                 being useful. */}
             {openCards > 0 && (peers?.some((peer) => !peer.busy) ?? false) && (
               <Button
+                disabled={record}
                 size="sm"
                 variant="outline"
                 aria-label="Hand out the open cards"
-                title="Hand out the open cards, one per idle member"
+                title={record ? RECORD_REASON : "Hand out the open cards, one per idle member"}
                 onClick={() => setHanding(true)}
               >
                 <HandoffIcon />
@@ -525,7 +528,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                  visible one breaks speech control and WCAG 2.5.3: "click New
                  job" has to match what is announced. */
               aria-label="New job — add work with files, dependencies and a goal"
-              title="Add work with files, dependencies and a goal"
+              disabled={record}
+              title={record ? RECORD_REASON : "Add work with files, dependencies and a goal"}
               onClick={openAdd}
             >
               <PlusIcon />
@@ -565,12 +569,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             title="Nothing on the board"
             description="Work added here — by you, or by any agent that can reach the board — can be claimed by one conversation at a time, with its files owned while the claim lives."
           >
-            <Button size="sm" className="self-center" onClick={openAdd}>
+            <Button size="sm" className="self-center" disabled={record} title={record ? RECORD_REASON : undefined} onClick={openAdd}>
               <PlusIcon />
               Add the first job
             </Button>
             {emptyGoal && (
-              <Button size="sm" variant="secondary" className="self-center" onClick={() => setStartingTeam(true)}>
+              <Button size="sm" variant="secondary" disabled={record} title={record ? RECORD_REASON : undefined} className="self-center" onClick={() => setStartingTeam(true)}>
                 <TeamIcon />
                 Start with a team
               </Button>
@@ -609,6 +613,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       {stopping && (
         <StopWork
           intent={stopping}
+          record={record}
           onClose={() => setStopping(null)}
           onStop={(reason) => {
             act(stopping.id, 'block', reason)
@@ -621,6 +626,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           unseen={asking.unseen}
           card={asking.card}
           busy={starting}
+          record={record}
           onRun={() =>
             runCheck(asking.card, asking.unseen.check.name, {
               seen: asking.unseen.check.run,
@@ -683,10 +689,13 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
  */
 const StopWork = ({
   intent,
+  record,
   onClose,
   onStop,
 }: {
   intent: Intent
+  /** The Team wrapped while this was open — a Run that ends wraps its Team, under whoever is stopping a card (#1317). */
+  record: boolean
   onClose: () => void
   onStop: (reason: string) => void
 }) => {
@@ -697,7 +706,7 @@ const StopWork = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" onClick={() => onStop(reason)}>
+          <Button variant="default" disabled={record} title={record ? RECORD_REASON : undefined} onClick={() => onStop(reason)}>
             Stop it
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -727,11 +736,12 @@ const StopWork = ({
             placeholder="Waiting on the rename"
             onChange={(event) => setReason(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') onStop(reason)
+              if (event.key === 'Enter' && !record) onStop(reason)
             }}
           />
         )}
       </Field>
+      {record && <Note>{RECORD_REASON}</Note>}
     </Dialog>
   )
 }
@@ -829,7 +839,7 @@ const IntentCard = ({
   }
 
   const confirmReview = async (): Promise<void> => {
-    if (!reviewDialog?.selected || !reviewDialog.answer) return
+    if (!reviewDialog?.selected || !reviewDialog.answer || isRecord(store.getSnapshot().goals.get(room))) return
     setReviewDialog({ ...reviewDialog, pending: true, error: null })
     try {
       await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected, reviewDialog.answer)
@@ -843,6 +853,7 @@ const IntentCard = ({
     }
   }
 
+  const record = isRecord(snapshot.goals.get(room))
   const runtime = intent.claim
     ? (snapshot.runtimes.find((one) => one.id === intent.claim?.runtime) ?? null)
     : null
@@ -1163,13 +1174,13 @@ const IntentCard = ({
           <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
             {(close) => (
               <Menu close={close}>
-                {onAssign ? <MenuItem label="Give this to…" onSelect={onAssign} /> : null}
+                {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}
                 {onAssign && (checkItems.length > 0 || verbs.length > 0) ? <MenuSeparator /> : null}
                 {checkItems.map((one) => (
                   <MenuItem
                     key={`check:${one.key}`}
                     label={one.label}
-                    disabled={one.why ?? false}
+                    disabled={record ? RECORD_REASON : one.why ?? false}
                     onSelect={() => onRunCheck(one.key)}
                   />
                 ))}
@@ -1178,6 +1189,7 @@ const IntentCard = ({
                   <MenuItem
                     key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
                     label={one.label}
+                    disabled={record ? RECORD_REASON : false}
                     danger={one.danger}
                     onSelect={() => one.review ? void openReviewDialog() : onAct(one.verb, one.outcome)}
                   />
@@ -1197,12 +1209,15 @@ const IntentCard = ({
         footer={(
           <>
             <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
-            <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending} onClick={() => void confirmReview()}>
+            <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending || record} title={record ? RECORD_REASON : undefined} onClick={() => void confirmReview()}>
               {reviewDialog.pending ? 'Saving…' : 'Record answer'}
             </Button>
           </>
         )}
       >
+        {/* A Run that ends wraps its Team, even under a person who has an attempt chosen: the answer would be added
+            to a record (#1317). */}
+        {record && <Note>{RECORD_REASON}</Note>}
         {reviewDialog.error && <Note tone="bad">{reviewDialog.error}</Note>}
         {reviewDialog.pending && reviewDialog.candidates.length === 0
           ? <Note>Loading attempts…</Note>

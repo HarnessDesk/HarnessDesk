@@ -128,7 +128,9 @@ export const receiptOf = (value: unknown, goal: string, id: unknown): value is G
   // Both optional: a receipt wrapped before either field existed has neither.
   if (value.members !== undefined && (!Array.isArray(value.members) || !value.members.every((member) =>
     object(member) && typeof member.seat === 'string' &&
-    (member.agent === null || typeof member.agent === 'string') && typeof member.seatLabel === 'string'))) return false
+    (member.agent === null || typeof member.agent === 'string') && typeof member.seatLabel === 'string' &&
+    (member.session === undefined || (object(member.session) && typeof member.session.runtime === 'string' && member.session.runtime.length > 0 &&
+      typeof member.session.sessionId === 'string' && member.session.sessionId.length > 0))))) return false
   if (value.evidenceSeats !== undefined && (!Array.isArray(value.evidenceSeats) || !value.evidenceSeats.every((ref) =>
     object(ref) && typeof ref.id === 'string' && (ref.seat === null || typeof ref.seat === 'string') &&
     (ref.seatLabel === undefined || ref.seatLabel === null || typeof ref.seatLabel === 'string')))) return false

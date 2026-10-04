@@ -3,7 +3,8 @@ import { useMemo, useState } from 'react'
 import type { Intent, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { ActionError, Button, CodeBlock, Dialog, Field, FormStack, Note, Text, Textarea } from '../design'
-import { useStore } from '../state/context'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { useSnapshotSelector, useStore } from '../state/context'
 import styles from './HandOut.module.css'
 
 /**
@@ -109,6 +110,9 @@ export const HandOut = ({
   readonly onTrouble: (message: string | null) => void
 }) => {
   const store = useStore()
+  /* A Run that ends wraps its Team, even under a person who has the batch laid out: the cards are its record by
+     then, not work to hand to anyone (#1317). */
+  const record = useSnapshotSelector((snapshot) => isRecord(snapshot.goals.get(room)))
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -119,7 +123,7 @@ export const HandOut = ({
   const preview = first ? fill(template, varsFor(first.card, first.member)) : ''
 
   const send = async (): Promise<void> => {
-    if (pairs.length === 0 || busy) return
+    if (pairs.length === 0 || busy || record) return
     setBusy(true)
     setProblem(null)
     try {
@@ -151,7 +155,7 @@ export const HandOut = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" disabled={busy || pairs.length === 0 || template.trim() === ''} onClick={() => void send()}>
+          <Button variant="default" disabled={busy || record || pairs.length === 0 || template.trim() === ''} title={record ? RECORD_REASON : undefined} onClick={() => void send()}>
             {busy ? 'Handing out…' : `Hand out ${pairs.length} ${pairs.length === 1 ? 'card' : 'cards'}`}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
@@ -195,6 +199,8 @@ export const HandOut = ({
             <CodeBlock className={styles.preview} output={preview} />
           </div>
         )}
+
+        {record && <Note>{RECORD_REASON}</Note>}
 
         {problem && (
           <ActionError>{problem}</ActionError>

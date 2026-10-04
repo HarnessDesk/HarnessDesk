@@ -1591,3 +1591,27 @@ and no screen draws its appearance. The `flow-graph` catalogue board mounts the
 production pattern for a straight Flow, a loop, a fan-out, a person step, a
 Flow with its own positions, a long Flow, one in the older format and one with
 no steps, in both faces.
+
+### The wrapped Team
+
+Wrap retains the same pane and navigation, opening on Receipt. The receipt
+scrolls in the body, leaving the rail and its Agents available. In a narrow
+pane Receipt is the half that shows, for a Team that never had a Run as much as
+for one a Run wrapped, and the Agents list is one tap behind it. Overview and
+Run stay readable. The shared Seat list reads the receipt's captured
+conversations, then an older receipt's answers, naming each conversation once
+however many Seats were retained for it; an unlinked Seat remains a face and
+name with **Conversation not kept**, without an opening action, and the rail's
+**No Agents were kept** line is for a receipt that kept no Seat at all.
+Dispatching controls and both composers are disabled with **This Team is
+wrapped**, the conversation menu's **Compact now** and the branch chip's
+**Review uncommitted changes** among them. A dialog open when the Team wraps
+stays open, with its final action disabled and a note carrying the same reason;
+Cancel still closes it. The sidebar keeps those conversations under its collapsed Wrapped
+group, the Seats whose conversation was not kept together in one nested list.
+The `team-record` catalogue board mounts the production pane with
+retained conversations, an older receipt, a conversation seated twice, a
+receipt whose every Seat lost its conversation, no Seats, a narrow rail and a
+Team that never had a Run in a narrow pane; its
+preview also mounts the production sidebar and an open Team that can be wrapped
+under a dialog.

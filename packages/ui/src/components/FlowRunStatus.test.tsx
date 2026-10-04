@@ -6,6 +6,7 @@ import type { FlowExecution, FlowPreview } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
+import { PREVIEW_GOAL } from '../preview/goal-fixture'
 import { FlowRunStatus, RetryCheck } from './FlowRunStatus'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -48,6 +49,36 @@ const INTERRUPTED: FlowExecution = {
   operations: [{ key: 'check:2:0', kind: 'check', state: 'uncertain', card: 3, seat: null }],
   legacyRun: null, reason: 'This check was interrupted. Inspect its effects, then choose Run again.',
 }
+
+it('disables check recovery when its Run read lags behind a wrapped Team', async () => {
+  const goal = { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, id: INTERRUPTED.goal, state: 'wrapped' as const } }
+  const snapshot = { ...emptySnapshot(), goals: new Map([[goal.goal.id, goal]]), flowExecutions: new Map([[INTERRUPTED.id, INTERRUPTED]]) }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><FlowRunStatus execution={INTERRUPTED} /></StoreProvider>))
+  const review = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Review and run again…')!
+  expect(review.disabled).toBe(true)
+  expect(review.title).toBe('This Team is wrapped')
+})
+
+it('disables an already-open check confirmation when the Team wraps', async () => {
+  const goal = { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, id: INTERRUPTED.goal } }
+  let snapshot = { ...emptySnapshot(), goals: new Map([[goal.goal.id, goal]]), flowExecutions: new Map([[INTERRUPTED.id, INTERRUPTED]]) }
+  const previewFlowRetry = vi.fn(async () => ({ token: 'preview-token', commands: [], problems: [] }))
+  const retryFlowCheck = vi.fn()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, previewFlowRetry, retryFlowCheck } as unknown as AppStore
+  const render = () => act(() => root.render(<StoreProvider store={store}><RetryCheck run={INTERRUPTED.id} card={3} onClose={() => {}} /></StoreProvider>))
+  render()
+  await settle()
+  const confirm = () => [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Run again')!
+  expect(confirm().disabled).toBe(false)
+  snapshot = { ...snapshot, goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped' } }]]) }
+  render()
+  await settle()
+  expect(confirm().disabled).toBe(true)
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  act(() => confirm().click())
+  expect(retryFlowCheck).not.toHaveBeenCalled()
+})
 
 /*
  * The pinned revision a review run works at moved to `TeamRoomPane`'s own
