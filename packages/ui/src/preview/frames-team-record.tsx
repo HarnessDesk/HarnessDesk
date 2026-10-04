@@ -35,7 +35,10 @@ export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
  const wrapped:GoalView={...goal,goal:{...goal.goal,state:'wrapped',receipt:receipt.id,origin:{kind:'flow',run:'overview-run'}},members:[],activity:null,board,receipt}
  const run=original.flowExecutions.get('overview-run')!
  const sessions=new Map([...original.sessions].map(([key,session])=>[key,{...session,turns:[{id:turnId('record-answer'),status:'completed' as const,items:[{id:itemId('record-answer-text'),type:'assistantMessage' as const,text:'The change was checked and is ready.'}]}]}]))
- const seed={...original,sessions,goals:new Map([[wrapped.goal.id,wrapped]]),teams:new Map([[board.id,board]]),
+ /* The conversation's menus offer Compact now and Review uncommitted changes only for a runtime that can; this one can,
+    so the record shows both refused rather than absent. */
+ const runtimes=original.runtimes.map(one=>({...one,capabilities:{...one.capabilities,compaction:true,review:true}}))
+ const seed={...original,runtimes,sessions,goals:new Map([[wrapped.goal.id,wrapped]]),teams:new Map([[board.id,board]]),
   flowExecutions:new Map([[run.id,{...run,state:'settled' as const,rounds:run.rounds.map(round=>({...round,cards:round.cards.filter(id=>id<=2),seats:[...round.seats.filter(id=>id==='seat-0'||id==='seat-1'),...(again&&round.n===2?[again.seat]:[])],state:'closed' as const})),end:{kind:'complete' as const},endedAt:goal.goal.updatedAt}]]),
   approvals:[],inbox:[],activeSessionKey:sessionKey('codex','overview-0')}
  const store=previewStore(seed)

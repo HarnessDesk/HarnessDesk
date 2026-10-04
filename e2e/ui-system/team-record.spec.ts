@@ -68,6 +68,21 @@ for (const theme of ['light','dark'] as const) {
    await expect(dialog).toHaveCount(0)
   }
  })
+ test(`Wrapped Team: a kept conversation's menus refuse compaction and review, and say why, in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const frame=page.locator('#team-record-wrapped')
+  await frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await frame.locator('header button[aria-label="Conversation"]').click()
+  const compact=page.locator('button',{hasText:'Compact now'})
+  await expect(compact).toBeDisabled()
+  await expect(compact).toHaveAttribute('title','This Team is wrapped')
+  await expect(compact).toContainText('This Team is wrapped')
+  await page.keyboard.press('Escape')
+  await frame.locator('button:has-text("storefront")').first().click()
+  const review=page.locator('[role="menuitem"]',{hasText:'Review uncommitted changes'})
+  await expect(review).toHaveAttribute('aria-disabled','true')
+  await expect(review).toHaveAttribute('title','This Team is wrapped')
+ })
  test(`Wrapped Team: sidebar keeps the nested conversations and unlinked Seat in ${theme}`, async ({page}) => {
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const sidebar=page.locator('#team-record-sidebar')
