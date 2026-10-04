@@ -46,3 +46,14 @@ test('a key is its own key, so a value that was already read comes back unchange
   const key = repoKey('git@github.com:acme/widgets.git')!
   assert.equal(repoKey(key), key)
 })
+
+test('an invalid remote never falls back to its raw userinfo', () => {
+  assert.equal(repoKey('https://jane:not-a-real-token@example.com:invalid/acme/widgets.git'), null)
+  assert.equal(repoKey('https://jane:not-a-real-token@/acme/widgets.git'), null)
+})
+
+test('relative local origins are not shared repository identities', () => {
+  assert.equal(repoKey('widgets.git'), null)
+  assert.equal(repoKey('source/widgets.git'), null)
+  assert.equal(repoKey('source/acme/widgets.git'), null)
+})

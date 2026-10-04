@@ -662,6 +662,13 @@ test('a transcript that holds nothing a person said has no first prompt', () => 
   assert.equal(firstPromptOf(join(tmpdir(), 'claude-acp-missing', 'nope.jsonl')), null, 'a missing file is not an error')
 })
 
+test('a summary and real ask in one message are stripped before the title is shortened', () => {
+  const path = transcript([
+    { type: 'user', message: { role: 'user', content: `<summary>${'Earlier context. '.repeat(40)}</summary>\nNow add the jitter and the tests` } },
+  ])
+  assert.equal(firstPromptOf(path), 'Now add the jitter and the tests')
+})
+
 test('a stored row named after the agent’s own summary is named from its transcript; any other name is left alone', () => {
   const path = transcript([
     { type: 'user', isCompactSummary: true, message: { role: 'user', content: CONTINUATION } },

@@ -23,9 +23,11 @@ export const repoKey = (originUrl: string | null | undefined): string | null => 
   }
   try {
     const url = new URL(trimmed)
-    return `${hostOf(url.hostname)}${url.pathname.toLowerCase()}`
+    return url.hostname && url.pathname !== '/' ? `${hostOf(url.hostname)}${url.pathname.toLowerCase()}` : null
   } catch {
-    return trimmed.toLowerCase()
+    // A host-qualified key may be read back, but an invalid URL or a relative
+    // local origin must never become an identity (or carry its userinfo).
+    return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+\/[^\s@:?#[\]\\]+$/i.test(trimmed) ? trimmed.toLowerCase() : null
   }
 }
 

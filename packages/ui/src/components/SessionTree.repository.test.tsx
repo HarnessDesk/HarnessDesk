@@ -191,6 +191,59 @@ it('keeps a fresh clone you have open in the project it is a copy of, before it 
 
 // ---------------------------------------------------------- pins and folds
 
+it('keeps the opened home and its fold while another agent’s clone is the only visible history', () => {
+  const other = '/demo/other'
+  const second = { ...runtime, id: 'second', presentation: { name: 'Second' } } as RuntimeInfo
+  const rig = mount([row('home', WIDGETS), row('clone', PLAN, { runtime: second.id })], {
+    runtimes: [runtime, second],
+    workspace: workspace(other, at(other, 'github.com/acme/other')),
+    workspaces: [workspace(WIDGETS), workspace(other, at(other, 'github.com/acme/other'))],
+    listPrefs: { ...emptySnapshot().listPrefs, agent: second.id, pinned: [WIDGETS], collapsed: [WIDGETS] },
+  })
+  expect(projects()).toEqual(['widgets'])
+  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(titles()).toEqual([])
+  expect(rig.store.setListPrefs).not.toHaveBeenCalled()
+  rig.update({ listPrefs: { ...rig.store.getSnapshot().listPrefs, collapsed: [] } })
+  expect(titles()).toEqual(['clone'])
+})
+
+it('uses opened repository metadata before a history page contains the home checkout', () => {
+  const other = '/demo/other'
+  mount([row('clone', PLAN)], {
+    workspace: workspace(other, at(other, 'github.com/acme/other')),
+    workspaces: [workspace(WIDGETS), workspace(other, at(other, 'github.com/acme/other'))],
+    historyLoading: true,
+    listPrefs: { ...emptySnapshot().listPrefs, pinned: [WIDGETS], collapsed: [WIDGETS] },
+  })
+  expect(projects().sort()).toEqual(['other', 'widgets'])
+  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(titles()).toEqual([])
+})
+
+it('carries a gone clone’s pin and fold to the surviving checkout at startup', () => {
+  const rig = mount([row('home', WIDGETS), row('gone-clone', PLAN, { repo: null, git: { originUrl: 'https://github.com/acme/widgets.git' } as never })], {
+    foldersGone: new Map([[PLAN, 'This folder no longer exists.']]),
+    listPrefs: { ...emptySnapshot().listPrefs, pinned: [PLAN], collapsed: [PLAN] },
+  })
+  expect(projects()).toEqual(['widgets'])
+  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(titles()).toEqual([])
+  expect(rig.store.setListPrefs).toHaveBeenCalledWith({ pinned: [WIDGETS], collapsed: [WIDGETS] })
+  expect(goneLine()?.textContent).toContain('1 folder is gone')
+})
+
+it('uses a surviving clone as home when the original checkout is gone, retaining its aliases', () => {
+  const rig = mount([row('gone-home', WIDGETS), row('clone', PLAN, { createdAt: 5 })], {
+    foldersGone: new Map([[WIDGETS, 'This folder no longer exists.']]),
+    workspaces: [workspace(WIDGETS), workspace(PLAN)],
+    listPrefs: { ...emptySnapshot().listPrefs, pinned: [WIDGETS], collapsed: [WIDGETS] },
+  })
+  expect(projects()).toEqual(['widgets-team-plan-pr18'])
+  expect(titles()).toEqual([])
+  expect(rig.store.setListPrefs).toHaveBeenCalledWith({ pinned: [PLAN], collapsed: [PLAN] })
+})
+
 it('a pin or a fold recorded under a clone is the project’s, and is rewritten under its home once', () => {
   const rig = mount([row('a', WIDGETS), row('b', PLAN), row('c', LUNA), row('d', '/Users/a/code/other', { repo: at('/Users/a/code/other', 'github.com/acme/other') })], {
     listPrefs: { ...emptySnapshot().listPrefs, pinned: [PLAN, '/Users/a/code/other'], collapsed: [LUNA] },

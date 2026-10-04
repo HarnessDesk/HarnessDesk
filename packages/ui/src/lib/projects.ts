@@ -135,8 +135,8 @@ interface Entry {
  * the one worked in first is the project's home, however many conversations
  * the others hold. With none of them opened, the oldest history leads.
  */
-const leadRootOf = (entry: Entry, opened: ReadonlySet<string>): string | null => {
-  const candidates = [...entry.roots.entries()]
+const leadRootOf = (entry: Entry, opened: ReadonlySet<string>, gone: ReadonlySet<string>): string | null => {
+  const candidates = [...entry.roots.entries()].filter(([root]) => !gone.has(root))
   const only = candidates[0]
   if (only === undefined) return null
   if (candidates.length === 1) return only[0]
@@ -153,12 +153,13 @@ const homeOf = (
   entry: Entry,
   opened: ReadonlySet<string>,
   current: string | null,
+  gone: ReadonlySet<string>,
 ): string => {
-  const lead = leadRootOf(entry, opened)
+  const lead = leadRootOf(entry, opened, gone)
   // Only the leading checkout's own folders may be the home: the project is
   // not renamed after a clone because that clone is the folder in front of
   // you, any more than after a worktree.
-  const own = lead === null ? entry.cwds : new Map([...entry.cwds].filter(([cwd]) => entry.rootOf.get(cwd) === lead))
+  const own = new Map([...entry.cwds].filter(([cwd]) => !gone.has(cwd) && (lead === null || entry.rootOf.get(cwd) === lead)))
   const candidates = [...own.entries()]
   // Most sessions wins; shortest path breaks the tie. A project's home must
   // not depend on which of its folders was worked in last: `packages/desktop`
@@ -183,11 +184,19 @@ const homeOf = (
 
 export const groupByProject = (
   history: readonly SessionSummary[],
-  workspaces: readonly string[],
+  workspaces: readonly (string | WorkspaceEntry)[],
   /** The folder the app has open, if any: it may claim its project's home. */
   current: WorkspaceEntry | null = null,
+  options: { identityHistory?: readonly SessionSummary[]; goneFolders?: ReadonlySet<string> } = {},
 ): ProjectGroup[] => {
-  const opened = new Set(workspaces)
+  // Visibility never decides repository identity, aliases or the home. Opened
+  // checkouts also supply facts before their first history page arrives.
+  const facts = options.identityHistory ?? history
+  const visible = new Set(history)
+  const gone = options.goneFolders ?? new Set<string>()
+  const paths = workspaces.map((workspace) => typeof workspace === 'string' ? workspace : workspace.path)
+  const opened = new Set(paths.filter((path) => !gone.has(path)))
+  const knownWorkspaces = workspaces.filter((workspace): workspace is WorkspaceEntry => typeof workspace !== 'string')
   // What each signal resolves to, learned from the rows that carry two of
   // them. A repository root is the strongest — it is one path per project,
   // whether or not the project has a remote at all — so a remote and a
@@ -196,7 +205,16 @@ export const groupByProject = (
   const rootByFolder = new Map<string, string>()
   const originByFolder = new Map<string, string>()
   const originByRoot = new Map<string, string>()
-  for (const summary of history) {
+  for (const workspace of knownWorkspaces) {
+    const root = workspace.repo?.root
+    const origin = repoKey(workspace.repo?.origin)
+    if (root !== undefined) rootByFolder.set(workspace.path, root)
+    if (origin !== null) {
+      originByFolder.set(workspace.path, origin)
+      if (root !== undefined) originByRoot.set(root, origin)
+    }
+  }
+  for (const summary of facts) {
     const origin = originOf(summary)
     const root = summary.repo?.root
     if (origin !== null) {
@@ -208,7 +226,7 @@ export const groupByProject = (
 
   // Only checkouts something else in the list has vouched for. A guess read
   // off a path may name a project, never invent one.
-  const vouched = new Set([...rootByFolder.values(), ...workspaces])
+  const vouched = new Set([...rootByFolder.values(), ...paths])
 
   const rootOfRow = (summary: SessionSummary): string | undefined => {
     const root = summary.repo?.root ?? rootByFolder.get(summary.cwd)
@@ -221,7 +239,7 @@ export const groupByProject = (
   }
 
   const byKey = new Map<string, Entry>()
-  for (const summary of history) {
+  for (const summary of facts) {
     const root = rootOfRow(summary)
     // Not every agent reports git; a session that knows only its folder joins
     // whatever another session placed that folder, or its checkout, in.
@@ -232,7 +250,7 @@ export const groupByProject = (
       entry = { sessions: [], cwds: new Map(), roots: new Map(), rootOf: new Map(), origin }
       byKey.set(key, entry)
     }
-    entry.sessions.push(summary)
+    if (visible.has(summary)) entry.sessions.push(summary)
     entry.cwds.set(summary.cwd, (entry.cwds.get(summary.cwd) ?? 0) + 1)
     if (root !== undefined) {
       entry.rootOf.set(summary.cwd, root)
@@ -242,14 +260,27 @@ export const groupByProject = (
     }
   }
 
+  for (const workspace of knownWorkspaces) {
+    const root = workspace.repo?.root ?? rootByFolder.get(workspace.path)
+    const origin = repoKey(workspace.repo?.origin) ?? originByFolder.get(workspace.path) ?? (root === undefined ? null : originByRoot.get(root))
+    const key = origin ? `${ORIGIN}${origin}` : root ? `${ROOT}${root}` : `path:${workspace.path}`
+    const entry = byKey.get(key)
+    if (!entry) continue
+    if (!entry.cwds.has(workspace.path)) entry.cwds.set(workspace.path, 0)
+    if (root !== undefined) {
+      entry.rootOf.set(workspace.path, root)
+      if (!entry.roots.has(root)) entry.roots.set(root, Number.POSITIVE_INFINITY)
+    }
+  }
+
   // A worktree is a checkout to work in, not a project to be homed at.
   const claimant = current === null || currentIsWorktree(current) ? null : ownPathOf(current)
   // The folder you have open has no conversations of its own yet when it is a
   // fresh clone, but its remote still says which project it is a copy of.
   const openedOrigin = repoKey(current?.repo?.origin)
   const openedFolder = current === null ? null : projectGroupRootOf(current)
-  return [...byKey.values()].map((entry) => {
-    const root = homeOf(entry, opened, claimant)
+  return [...byKey.values()].filter((entry) => entry.sessions.length > 0).map((entry) => {
+    const root = homeOf(entry, opened, claimant, gone)
     const others = [...new Set([...entry.cwds.keys(), ...entry.roots.keys()])].filter((folder) => folder !== root).sort()
     const holdsOpenFolder = openedFolder !== null && openedOrigin !== null && entry.origin === openedOrigin
     return {

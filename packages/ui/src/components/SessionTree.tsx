@@ -1232,8 +1232,9 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     // is the project it is a checkout of, so the row it leads is that one.
     const list = groupByProject(
       shown,
-      snapshot.workspaces.map((workspace) => workspace.path),
+      snapshot.workspaces,
       snapshot.workspace,
+      { identityHistory: listed, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()) },
     )
     const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, list)
     // A folder just opened has no sessions to be grouped by, and a list that

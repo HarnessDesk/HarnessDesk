@@ -174,7 +174,7 @@ export const firstPromptOf = (path: string): string | null => {
           : ''
       const replay = classifyReplayed(text)
       if (replay?.kind !== 'prompt') continue
-      const name = unwrap(replay.text)
+      const name = unwrap(withoutCompaction(replay.text))
       if (name !== null && !isCompactionSummary(name)) return name.slice(0, NAME_LIMIT)
     }
     return null
