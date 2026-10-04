@@ -685,7 +685,9 @@ export class FindingsPlane {
         const raiser = this.#port.seats.byId(found.origin.seat)
         if (!raiser?.agent) throw new Error('This finding was raised by a Seat with no Agent, so no later Seat can speak for it. A person decides it.')
         if (caller.seat.agent?.id !== raiser.agent.id) throw new Error('Only the Agent that raised this finding may decide it, from a later review.')
-        if (String(caller.seat.id) === found.origin.seat || (found.origin.run === bound.run && bound.round <= found.origin.round)) {
+        const ownCard = String(caller.seat.id) === found.origin.seat && found.origin.run === bound.run && input.intent === found.origin.card && bound.round === found.origin.round
+        if (!(ownCard && input.state === 'withdrawn') &&
+          (String(caller.seat.id) === found.origin.seat || (found.origin.run === bound.run && bound.round <= found.origin.round))) {
           throw new Error('Decide a finding from a later review card, not the one that raised it.')
         }
         if (found.origin.run !== bound.run && found.origin.goal === caller.goal) throw new Error('This finding belongs to another run on this Goal.')
@@ -734,21 +736,21 @@ export class FindingsPlane {
     if (ledger.unreadable > 0 && input.filter !== 'all') {
       throw new Error('Some evidence records could not be read, so the open findings cannot be listed as complete. A person has to look.')
     }
-    return rows.map((view) => this.#seatRowOf(view, caller, bound))
+    return rows.map((view) => this.#seatRowOf(view, caller, { ...bound, card: input.intent }))
   }
 
   /** `raisedByYou`/`decidableNow`/`personDecides` for one row of `readForSeat`. `decidableNow` mirrors who `decide` lets decide it; a call can still be refused for what only the call knows (a blind round still open, a stale `expected`). */
   #seatRowOf(
     view: FindingView, caller: Caller,
-    bound: { readonly run: string; readonly round: number; readonly reviews: boolean },
+    bound: { readonly run: string; readonly round: number; readonly reviews: boolean; readonly card: number },
   ): FindingSeatRow {
     const raiser = this.#port.seats.byId(view.origin.seat)
     const raisedByYou = Boolean(raiser?.agent && caller.seat.agent && raiser.agent.id === caller.seat.agent.id)
     // A finding an earlier run on this Goal raised is left to a person: `decide` refuses any Seat for it.
     const otherRun = view.origin.run !== bound.run && view.origin.goal === caller.goal
     const decidableNow = raisedByYou && !isResolved(view) && bound.reviews && !otherRun &&
-      String(caller.seat.id) !== view.origin.seat &&
-      !(view.origin.run === bound.run && bound.round <= view.origin.round)
+      ((String(caller.seat.id) === view.origin.seat && bound.card === view.origin.card && bound.run === view.origin.run && bound.round === view.origin.round) ||
+        (String(caller.seat.id) !== view.origin.seat && !(view.origin.run === bound.run && bound.round <= view.origin.round)))
     return { ...view, raisedByYou, decidableNow, ...(raisedByYou && otherRun && !isResolved(view) ? { personDecides: true } : {}) }
   }
 
@@ -841,14 +843,15 @@ export class FindingsPlane {
     const owned = ledger.views.filter((one) => one.ownerGoal === input.goal)
     const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? []
     const admitted = admittedOf(series)
-    const activeBlocking = (view: FindingView): boolean => (admitted.has(view.id) && !isResolved(view)) || view.problem !== null
+    const inactive = this.#inactiveReasons(ledger, await this.#port.flows.facts?.(input.goal) ?? [])
+    const activeBlocking = (view: FindingView): boolean => (admitted.has(view.id) && !isResolved(view) && !inactive.has(view.id)) || view.problem !== null
     const selected = filter === 'blocking' ? owned.filter(activeBlocking)
       : filter === 'open' ? owned.filter((one) => !isResolved(one))
       : owned
     // Stamped per row, not left to `blocking`'s raw raise-time claim: a carried finding starts outside the
     // admitted set until its own first round closes, and a row that still said "Blocking" there would
     // disagree with this same page's own totals below.
-    const rows = selected.map((view) => ({ ...view, activeBlocking: activeBlocking(view) }))
+    const rows = selected.map((view) => ({ ...view, activeBlocking: activeBlocking(view), ...(inactive.has(view.id) ? { inactiveReason: inactive.get(view.id)! } : {}) }))
     const problem = ledger.unreadable > 0 ? unreadableNote(ledger, input.goal, 'this ledger cannot be shown as complete.') : null
     const totals = problem !== null ? null : {
       all: owned.length,
@@ -880,11 +883,13 @@ export class FindingsPlane {
       offset = Number(input.cursor)
       if (!Number.isSafeInteger(offset) || offset < 0 || offset > records.length) throw new Error(SNAPSHOT_STALE)
     }
+    const inactive = this.#inactiveReasons(ledger, await this.#port.flows.facts?.(input.goal) ?? [])
     const page = records.slice(offset, offset + READ_PAGE_LIMIT)
     const nextOffset = offset + page.length
     const seat = view.origin.seat ? this.#port.seats.byId(view.origin.seat) : null
+    const inactiveReason = inactive.get(view.id)
     return {
-      finding: view, records: page, seat,
+      finding: inactiveReason ? { ...view, activeBlocking: false, inactiveReason } : view, records: page, seat,
       next: nextOffset < records.length ? String(nextOffset) : null,
       problem: ledger.unreadable > 0
         ? 'Some evidence records could not be read, so this history cannot be shown as complete. A person has to look.'
@@ -1018,7 +1023,11 @@ export class FindingsPlane {
   async receiptWithGaps(goal: string): Promise<{ readonly receipt: FindingReceipt; readonly gaps: readonly string[] }> {
     const project = await this.#port.projectOf(goal)
     const ledger = await this.#serial(project, () => this.#ledger(project))
-    const findings = ledger.views.filter((one) => one.ownerGoal === goal)
+    const inactive = this.#inactiveReasons(ledger, await this.#port.flows.facts?.(goal) ?? [])
+    const findings = ledger.views.filter((one) => one.ownerGoal === goal).map((view) => {
+      const inactiveReason = inactive.get(view.id)
+      return inactiveReason ? { ...view, activeBlocking: false, inactiveReason } : view
+    })
     const overrides = this.#port.flows.overridesOfGoal?.(goal) ?? []
     return {
       receipt: { version: 1, evidence: findings.flatMap((one) => one.evidence), findings, overrides },
@@ -1111,6 +1120,29 @@ export class FindingsPlane {
     }
   }
 
+  /** An accepted review route keeps its selected subject, without pretending the other claims were repaired. */
+  #inactiveReasons(ledger: { readonly views: readonly FindingView[] }, facts: readonly EvidenceView[]): ReadonlyMap<string, string> {
+    const reasons = new Map<string, string>()
+    for (const view of ledger.views) {
+      if (view.problem !== null || view.restored || isResolved(view) || view.ownerGoal !== view.origin.goal) continue
+      const snapshot = this.#port.flows.run?.(view.origin.run)
+      const review = snapshot?.rounds.findLast((one) => one.reviews)
+      if (!snapshot || !review || review.state !== 'closed') continue
+      const after = snapshot.rounds.filter((one) => one.n > review.n)
+      const accepted = new Set(after.flatMap((one) => one.evidence))
+      const choices = facts.filter((one) => accepted.has(one.record.id) && !one.record.restored &&
+        one.record.fact.kind === 'review' && one.record.card?.board === snapshot.goal && review.cards.includes(one.record.card.id))
+      const kept = new Set(choices.map((one) => one.record.checkout?.cwd).filter((cwd): cwd is string => Boolean(cwd)))
+      if (kept.size !== 1) continue
+      const series = snapshot.findings?.series.find((one) => one.role === review.role &&
+        (one.initial.includes(view.id) || one.exceptions.includes(view.id)))
+      if (!series || kept.has(series.checkout.cwd)) continue
+      const at = choices[0]?.record.fact.kind === 'review' ? choices[0].record.fact.at : null
+      if (at) reasons.set(view.id, `The review selected revision ${at.slice(0, 12)} for the next step.`)
+    }
+    return reasons
+  }
+
   /** What a ready rule of this run also needs: its admitted blockers, a pending exception, a readable ledger. */
   async gate(run: string): Promise<FindingsGate | null> {
     const snapshot = this.#port.flows.run?.(run)
@@ -1119,9 +1151,16 @@ export class FindingsPlane {
     const ledger = await this.#serial(project, () => this.#ledger(project))
     const admitted = admittedOf(snapshot.findings.series)
     const owned = ledger.views.filter((one) => one.ownerGoal === snapshot.goal)
-    const blockers = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length
+    const active = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null)
+    const byCheckout: Record<string, number> = {}
+    for (const view of active) {
+      // A carried or damaged finding cannot be safely attributed to a losing attempt.
+      if (view.problem !== null || view.restored || view.origin.goal !== snapshot.goal || view.origin.run !== run) continue
+      const cwd = ledger.records.find((record) => record.fact.kind === 'finding' && record.fact.id === view.id && record.finding?.event.kind === 'raise')?.checkout?.cwd
+      if (cwd) byCheckout[cwd] = (byCheckout[cwd] ?? 0) + 1
+    }
     return {
-      blockers,
+      blockers: active.length, byCheckout,
       pending: snapshot.findings.series.some((one) => one.pending.length > 0) || snapshot.pendingFindings > 0,
       unreadable: ledger.unreadable > 0,
     }
@@ -1148,6 +1187,7 @@ export class FindingsPlane {
     const blind = (this.#port.flows.embargoedRounds?.(snapshot.goal) ?? this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
     const publication = this.#publisher ? await this.#publisher.status(run) : { publication: 'local' as const, reason: null }
     const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
+    const inactive = this.#inactiveReasons(ledger, facts)
     // What "merge anyway" needs: a pull request the desk observed and bound, whatever posting is set to.
     const bound = boundPullRequest(facts)
     let reviewersFinished: number | null = null
@@ -1170,7 +1210,7 @@ export class FindingsPlane {
       total: snapshot.findings?.budget.rounds ?? 0,
       embargoed: blind,
       open: owned.filter((one) => !isResolved(one)).length,
-      blocking: owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length,
+      blocking: owned.filter((one) => (admitted.has(one.id) && !isResolved(one) && !inactive.has(one.id)) || one.problem !== null).length,
       reason: snapshot.findings?.stopped?.reason ?? publication.reason,
       ceilingStop: snapshot.findings?.stopped?.ceiling ?? false,
       publication: publication.publication,

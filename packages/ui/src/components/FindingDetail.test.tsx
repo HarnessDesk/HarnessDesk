@@ -312,3 +312,12 @@ it('a resolved finding offers no decision at all', async () => {
   await renderDeciding(store, runView())
   expect(document.body.textContent).not.toContain('Decide it yourself')
 })
+
+it('shows why a losing attempt stays open without gating the picked attempt', async () => {
+  const base = page()
+  const reason = 'The review selected revision bbbbbbbbbbbb for the next step.'
+  const { store } = rig(page({ finding: { ...base.finding, activeBlocking: false, inactiveReason: reason } }))
+  await render(store)
+  expect(document.body.textContent).toContain('Not kept')
+  expect(document.body.textContent).toContain(reason)
+})

@@ -140,13 +140,14 @@ export const FindingDetail = ({
             <KeyValue>
               <KeyValueRow label="Id"><CodeText>{view.id}</CodeText></KeyValueRow>
               <KeyValueRow label="Category">{CATEGORY_WORDS[view.category] ?? view.category}</KeyValueRow>
-              <KeyValueRow label="Weight"><Chip tone={view.blocking ? 'warning' : 'neutral'}>{blockingWords(view)}</Chip></KeyValueRow>
+              <KeyValueRow label="Weight"><Chip tone={(view.activeBlocking ?? view.blocking) ? 'warning' : 'neutral'}>{blockingWords(view)}</Chip></KeyValueRow>
               <KeyValueRow label="Raised">{`Round ${view.origin.round}, at ${view.origin.at.slice(0, 12)}`}</KeyValueRow>
               {view.restored && <KeyValueRow label="History">From a backup — history here, not live clearance.</KeyValueRow>}
               {view.anchor && (
                 <KeyValueRow label="Location" kind="path">{`${view.anchor.path}:${view.anchor.line}`}</KeyValueRow>
               )}
             </KeyValue>
+            {view.inactiveReason && <Text role="muted">{view.inactiveReason}</Text>}
             <Markdown text={view.body} />
             {/* Only once there is a later event, or more of them to read: a named
                 group with nothing under it reads as a history that failed to load. */}

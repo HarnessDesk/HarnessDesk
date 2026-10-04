@@ -1793,3 +1793,24 @@ left that Run and returned before it answered.
 
 **The rule:** chips follow the host's recorded state, actions follow its
 offered door, and a person presses before a posting is sent.
+
+## A comparison gates the subject its review selected
+
+*Issue #1382.* A judge could select one attempt while raising blockers on
+another, and the keep step waited forever on work nobody would repair.
+The evidence guard already selects the one subject every required reviewer
+chose; the findings gate now uses that same selection. It subtracts only
+readable, locally raised blockers attributed to the unselected checkouts.
+A selected subject’s blockers, findings from elsewhere, damage and pending
+exceptions still hold the rule.
+
+The alternative was to close the other findings as “not kept”. A selection
+is about which attempt continues, not whether a claim was correct, so the
+findings stay open. The accepted route’s durable review evidence explains
+**Not kept** in their list and detail; no new lifecycle event or verdict is
+invented. An ordinary single-subject review excludes nothing.
+
+A reviewer can also correct a mistaken claim before finishing its raising
+card: a reasoned withdrawal is allowed there. Confirming or rejecting a
+repair still needs a later review of the raising Agent. The same ownership,
+revision, sequence and open-card checks apply to both paths.

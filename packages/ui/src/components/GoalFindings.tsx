@@ -216,7 +216,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                 desc={
                   <MetaList>
                     {rowSecondLine(row)}
-                    {blockingWords(row) === 'Blocking' ? ' · Blocking' : ' · Advisory'}
+                    {` · ${blockingWords(row)}`}
                   </MetaList>
                 }
                 control={<Chip tone={lifecycleTone(row)}>{lifecycleWords(row)}</Chip>}

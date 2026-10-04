@@ -116,7 +116,7 @@ const INSIGHT_REPORT = insightReportFor(PREVIEW_GOAL.goal.id)
 
 const DIALOG_OPTIONS = [
   'off', 'goal create', 'goal assign', 'goal wrap', 'finding carry', 'finding decision',
-  'finding detail', 'finding publications', 'finding backfill', 'finding backfill wrapped',
+  'finding detail', 'finding before selection', 'finding not kept', 'finding publications', 'finding backfill', 'finding backfill wrapped',
   'add member', 'add work', 'hand out', 'shape save',
   'shape editor', 'trigger create', 'front door', 'findings rail',
 ] as const
@@ -137,6 +137,15 @@ type DialogOption = (typeof DIALOG_OPTIONS)[number]
  * default doubled the "Open" tab and `finding-open-1` row the existing
  * findings.spec.ts reaches for expecting one.
  */
+/** A public frame mounts only the finding's synthetic surface, without unrelated preview tooltips. */
+export const FindingFrames = ({ scene }: { readonly scene: string | null }) => scene === 'rail' ? (
+  <Frame id="goal-findings-rail" title="Goal — its findings rail">
+    <div className="max-h-[480px] overflow-y-auto p-4"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></div>
+  </Frame>
+) : (
+  <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={scene === 'before' ? 'finding-before-selection' : 'finding-not-kept-1'} decide={RUN_VIEW} onClose={() => {}} />
+)
+
 export const GoalFrames = () => {
   const [dialog, setDialog] = useState<DialogOption>('off')
   return (
@@ -153,8 +162,8 @@ export const GoalFrames = () => {
         {dialog === 'goal wrap' && <GoalWrap view={PREVIEW_GOAL} onClose={() => setDialog('off')} />}
         {dialog === 'finding carry' && <FindingCarry source={CARRY_SOURCE} />}
         {dialog === 'finding decision' && <FindingDecision goal={PREVIEW_GOAL.goal.id} view={RUN_VIEW} onClose={() => setDialog('off')} />}
-        {dialog === 'finding detail' && (
-          <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={findingDetail('finding-open-1').finding.id} decide={RUN_VIEW} onClose={() => setDialog('off')} />
+        {(dialog === 'finding detail' || dialog === 'finding before selection' || dialog === 'finding not kept') && (
+          <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={findingDetail(dialog === 'finding not kept' ? 'finding-not-kept-1' : dialog === 'finding before selection' ? 'finding-before-selection' : 'finding-open-1').finding.id} decide={RUN_VIEW} onClose={() => setDialog('off')} />
         )}
         {dialog === 'finding publications' && <FindingPublications goal={PREVIEW_GOAL.goal.id} run="run-preview" stamp="preview-stamp" />}
         {(dialog === 'finding backfill' || dialog === 'finding backfill wrapped') && (

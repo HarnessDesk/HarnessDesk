@@ -67,7 +67,7 @@ import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } fr
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
 import { MessageQueue } from '../components/MessageQueue'
-import { GoalFrames } from './frames-goals'
+import { FindingFrames, GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
 import { CoverageFrames, NoticePlacementFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
@@ -1112,11 +1112,18 @@ const PublicationPreview = () => {
   return <ReviewPublicationFrames />
 }
 
+const FindingsPreview = () => {
+  useTheme()
+  return <div className="min-h-screen bg-background p-4 text-foreground"><FindingFrames scene={new URLSearchParams(window.location.search).get('findings')} /></div>
+}
+
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('cli-install')
+        {new URLSearchParams(window.location.search).has('findings')
+          ? <FindingsPreview />
+          : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('review-publication')
           ? <PublicationPreview />

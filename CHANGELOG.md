@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A comparison keeps the attempt its judge picked.** Findings on the other
+  attempt no longer hold the person’s keep step; they stay open and explain
+  why they were not kept. A blocker on the picked attempt still holds it.
+  Reviewers can withdraw a mistaken finding from the card that raised it,
+  with a reason kept in its history. (Fixes #1382)
+
 - **Choose Command Line Tools for agent commands on macOS.** Starting the app
   with `HARNESSDESK_COMMAND_LINE_TOOLS=1` supplies their developer directory to
   agents when Xcode is selected and those tools are installed, avoiding the
