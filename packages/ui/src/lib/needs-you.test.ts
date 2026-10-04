@@ -62,6 +62,23 @@ describe('a person step', () => {
     expect(door?.kind === 'answer' && door.answers[0]?.effect).toBe('Approved may open a fixer round, depending on the Run\'s evidence.')
   })
 
+  it('says an answer is only recorded while the Run is not running, which advances nothing', () => {
+    const rules = [rule('ship', 'decide', 'verify', { every: ['approved'] })]
+    const effects = (state: FlowExecution['state']) => {
+      const door = stepDoor(card(7), run({ state }, rules))
+      return door?.kind === 'answer' ? door.answers.map((one) => one.effect) : null
+    }
+    expect(effects('stalled')).toEqual([
+      'Approved is recorded, and no rule follows while this Run is stalled.', 'Request changes is recorded, and no rule follows while this Run is stalled.',
+    ])
+    for (const state of ['stopped', 'settled'] as const) {
+      expect(effects(state)).toEqual([`Approved is recorded, and no rule follows: this Run is ${state}.`, `Request changes is recorded, and no rule follows: this Run is ${state}.`])
+    }
+    const referee = run({ state: 'stopped', rounds: [{ n: 3, role: 'referee', cards: [7], seats: [], evidence: [], state: 'running', cause: 'seed' }] })
+    const marked = stepDoor(card(7, { role: 'referee' }), referee)
+    expect(marked?.kind === 'answer' && marked.answers[0]?.effect).toBe('Marking it done is recorded, and no rule follows: this Run is stopped.')
+  })
+
   it('lets a role that declares no words be marked done, as the board does', () => {
     const referee = run({ rounds: [{ n: 3, role: 'referee', cards: [7], seats: [], evidence: [], state: 'running', cause: 'seed' }] }, [rule('after', 'referee', 'writer')])
     expect(stepDoor(card(7, { role: 'referee' }), referee)).toEqual({ kind: 'answer', card: 7, answers: [{ outcome: null, effect: 'Marking it done opens a writer round.' }] })
@@ -157,10 +174,13 @@ describe('abandoning a card', () => {
 
   it('says nothing follows when the Run is not running, or the card\'s round is over', () => {
     const rules = [rule('review', 'writer', 'reviewer')]
-    for (const state of ['stopped', 'settled', 'stalled'] as const) {
+    for (const state of ['stopped', 'settled'] as const) {
       expect(abandonEffect(run({ state, rounds: [writerRound([4])] }, rules), [card(4, { role: 'writer' })], card(4, { role: 'writer' })))
         .toBe(`This Run is ${state}, so no rule follows: abandoning only sets the card aside.`)
     }
+    // A stalled Run advances nothing now, and says no more than that.
+    expect(abandonEffect(run({ state: 'stalled', rounds: [writerRound([4])] }, rules), [card(4, { role: 'writer' })], card(4, { role: 'writer' })))
+      .toBe('This Run is stalled, so no rule follows now: abandoning only sets the card aside.')
     const later = run({ rounds: [writerRound([4], { state: 'closed' }), { n: 3, role: 'reviewer', cards: [5], seats: [], evidence: [], state: 'running', cause: 'review' }] }, rules)
     expect(abandonEffect(later, [card(4, { role: 'writer' })], card(4, { role: 'writer' })))
       .toBe('Its round has already ended, so no rule follows: abandoning only sets the card aside.')

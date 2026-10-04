@@ -43,8 +43,11 @@ export type StepDoor =
   /** A review step needs the attempt it answers for, which only the board's picker records. */
   | { readonly kind: 'review'; readonly card: number }
 
-const answerEffect = (flow: FlowPolicy, role: string, outcome: string | null): string => {
+const answerEffect = (flow: FlowPolicy, role: string, outcome: string | null, state: FlowExecution['state']): string => {
   const said = outcome === null ? 'Marking it done' : wordOf(outcome)
+  // The engine decides a round only while its Run is running, so an answer to a Run that is not is only recorded.
+  if (state === 'stalled') return `${said} is recorded, and no rule follows while this Run is stalled.`
+  if (state !== 'running') return `${said} is recorded, and no rule follows: this Run is ${state}.`
   const follow = followOf(flow, role, [outcome])
   if (follow.kind === 'opens') {
     return follow.guarded
@@ -70,7 +73,7 @@ export const stepDoor = (card: Intent, execution: FlowExecution | null | undefin
   const words: readonly (string | null)[] = step.outcomes.length > 0 ? step.outcomes : [null]
   return {
     kind: 'answer', card: card.id,
-    answers: words.map((outcome) => ({ outcome, effect: flow ? answerEffect(flow, role, outcome) : null })),
+    answers: words.map((outcome) => ({ outcome, effect: flow ? answerEffect(flow, role, outcome, execution.state) : null })),
   }
 }
 
@@ -89,7 +92,7 @@ export const abandonEffect = (execution: FlowExecution, cards: readonly Intent[]
   const round = execution.rounds.find((one) => one.cards.includes(card.id))
   const document = execution.document
   if (!round || document.format !== 'agents') return GENERIC
-  if (execution.state !== 'running') return `This Run is ${execution.state}, so no rule follows: abandoning only sets the card aside.`
+  if (execution.state !== 'running') return `This Run is ${execution.state}, so no rule follows${execution.state === 'stalled' ? ' now' : ''}: abandoning only sets the card aside.`
   if (round.state === 'closed' || execution.rounds.at(-1)?.n !== round.n) return 'Its round has already ended, so no rule follows: abandoning only sets the card aside.'
   // The engine reads a card it cannot find as unfinished, so the round keeps waiting for it.
   const unfinished = round.cards.filter((id) => id !== card.id && !finished(cards.find((one) => one.id === id)))
