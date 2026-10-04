@@ -9,6 +9,15 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **The command line now ships inside the app.** HarnessDesk › Install
+  command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
+  own, so a terminal or a script can list Teams and runs, start a flow, watch
+  it, stop it and answer the cards it addressed to you. It runs on the app's own
+  runtime, needs no separate Node install and no password, never replaces a
+  `harnessdesk` it did not put there, and keeps working when the app is updated
+  or moved; choosing the item again offers to remove it. `docs/cli.md` lists
+  every command, its `--json` shape and its exit codes.
+
 - **A wrapped Team stays readable** — it opens on its receipt, in a narrow
   window as in a wide one and whether or not it ever had a Run. The receipt
   keeps every Seat's conversation, and its rail and the sidebar's Wrapped group

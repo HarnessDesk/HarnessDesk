@@ -29,6 +29,7 @@ is itself checked, by the last row.
 | [`check-interface-drift.mjs`](check-interface-drift.mjs) | Desk must be the app, to the pixel. |
 | [`design-audit.mjs`](design-audit.mjs) | Where the interface has stepped outside its own system. The checked-in baseline must be complete and zero; `--strict` rejects any finding. |
 | [`design-doc.mjs`](design-doc.mjs) | Writes `docs/design-system.md` from the source; `--check` fails when it is stale. |
+| [`cli-doc.mjs`](cli-doc.mjs) | Writes `docs/cli.md` from the command table in the built command line (`pnpm cli:doc` compiles it first); `--check` fails when it is stale. |
 | [`generate-codex-protocol.mjs`](generate-codex-protocol.mjs) | Regenerates the vendored Codex app-server types. Needs a real `codex` binary, so CI does not run it. |
 | [`check-verify-drift.mjs`](check-verify-drift.mjs) | The gate and `ci.yml` must run the same commands. Both its parsers are unit-tested in `gates.test.mjs`, because both have been silently wrong before. |
 

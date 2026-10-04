@@ -70,6 +70,7 @@ export const DESCRIBED_AS = new Map([
   ['design drift', /design-system gates/i],
   ['UI system', /UI-system architecture/i],
   ['design doc', /design-system gates/i],
+  ['cli doc', /command-line reference/i],
   ['interface drift', /interface drift/i],
   ['alignment census', /design-system gates/i],
   ['recorded claims', /recorded-claims/i],
