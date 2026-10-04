@@ -103,6 +103,50 @@ window's whole wire.
 
 ---
 
+## The command line reaches a person's PATH through a launcher the app owns, and nothing else
+
+"Install command-line tool…" in the HarnessDesk menu puts one small file,
+`harnessdesk`, in a folder the person already owns and already has on the PATH
+their login shell builds: `~/.local/bin`, then `~/bin`. That PATH is asked of
+the login shell, because an app opened from the Dock inherits launchd's and not
+theirs. It is never `/usr/local/bin` and never a folder that needs an
+administrator, so the item never asks for a password; and it never writes into a
+package manager's or a version manager's folder, which the manager rewrites and
+which moves under a version change. When neither folder is on PATH it installs
+in `~/.local/bin` anyway, and the dialog says where the file is and gives the
+one line that puts that folder on PATH, in the person's own shell's words. No
+shell file is edited: those are the person's.
+
+The launcher is a POSIX script that runs the command line bundled in the app on
+the app's own runtime with `ELECTRON_RUN_AS_NODE=1`, so no separate Node install
+is needed. It records where the app was when it was written. When that is gone
+it looks in `/Applications` and `~/Applications` and then asks Spotlight for the
+bundle id, so an upgrade or a move never strands it and it never has to be
+rewritten. Arguments reach the program as the shell's own argument list and
+never as part of a string, so a quote, a `$` or a newline in one is only a
+character in it. Nothing in it is a credential: a local client has none.
+
+A `harnessdesk` that is not ours is never touched. Ours is a file whose second
+line is the marker, and nothing else is: not a script that quotes the marker
+further down, not a link, not a folder. A first install stops at anyone else's
+`harnessdesk` in either folder, because two commands of one name shadow each
+other and which one wins would depend on an order the person never chose. A
+second run of the item offers to remove the launcher, and the file is read again
+for the marker at the moment it is deleted. An install over our own launcher
+replaces it, so a launcher an older build wrote follows a newer one.
+
+The alternatives were a copy of the command line in a system folder, which
+needs an administrator and goes stale at the next update, and a package-manager
+install, which puts a second copy of the program beside the app and has to be
+kept in step with it. Windows has no launcher yet: its door is a named pipe and
+its installer is a change of its own.
+
+**The rule:** the app puts its command line on a person's PATH with one file in a
+folder they own; it never overwrites a file that is not its own, never edits a
+shell file and never asks for a password.
+
+---
+
 ## The Team overview is derived from held facts, with no reader of its own
 
 The overview model turns plain Seat, card, Run, approval and Insight data into
