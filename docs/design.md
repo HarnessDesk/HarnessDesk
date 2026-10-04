@@ -1503,6 +1503,42 @@ approval reasons arrive whole even in a narrow pane. Recorded usage is read
 when Overview is selected, on card completion while it is shown, and each
 minute of a running Run while it stays selected.
 
+### Answering what needs you
+
+A Needs-you row carries the way to answer it, in the row's own `meta` slot, so
+its sentence stays whole above the controls at every width. The seat that asks
+is named beside the kind chip.
+
+- **A request for approval** offers the agent's own choices in the docked
+  card's order and words (refusals first, the plain yes last), with only the
+  plain yes filled and a grant that outlives the answer quiet. What is being
+  approved is shown with it, whole and wrapped, never cut: the command in the
+  code face, the files a change touches, the folders and hosts an access would
+  open, and the reason the runtime gave. A yes is never given blind. The
+  answer is the call the docked card makes, so whichever door answers first
+  wins and the other row goes with it.
+- **A question** with one single-choice question offers each option and Cancel.
+  A question that needs a form (several questions, a multiple choice, a free
+  answer) and a tool's request for information leave to their conversation,
+  and offer only Cancel here, beside **Answer in the conversation**, the one
+  filled act.
+- **A person's step** is answered with the words its role declares, one button
+  each, an optional note the next step reads, and one sentence saying what
+  each answer does, read from the Run's own frozen Flow. A word no rule follows
+  says the Run ends without a next step; a role no rule starts from says it
+  finishes the Run. A role that declares no words is marked done, as the board
+  does. A review step records the attempt it answers for, which only the
+  board's picker does, so its row says **Pick an attempt on the board** and
+  opens it.
+- **A refusal** stays on screen, in the danger alert under the controls, with
+  the answer it refused disabled and the others open: the host does not yet say
+  beforehand what it will take. The same controls stand in the Run inspector's
+  step.
+
+The `team-overview` catalogue board draws each of these on the production row:
+a command, an access request, a step, a question, a form, a review step, a
+refused answer and a narrow pane, in both themes.
+
 ### The Run timeline
 
 The Run view composes `PaneColumn`, `ListRows`, `ListRow`, `Text` and `Chip`.
@@ -1591,3 +1627,24 @@ and no screen draws its appearance. The `flow-graph` catalogue board mounts the
 production pattern for a straight Flow, a loop, a fan-out, a person step, a
 Flow with its own positions, a long Flow, one in the older format and one with
 no steps, in both faces.
+
+### Run controls
+
+A card that has not finished (open, claimed or blocked) offers **Abandon
+card…** in its inspector, an ordinary outline button before the conversation
+link: the door to a question is not red, because abandoning sets a card aside
+and a card can be put back in play. The question is a `ConfirmDialog` (Keep it,
+and Abandon card as the one filled act) whose first sentence says what the rule
+after the card's role will do. The window's reply to an abandon says nothing
+of that, so the sentence is read from the Run's own frozen Flow, the way the
+engine reads it: the rule that follows still fires and opens the next round; no
+rule accepts a card with no answer, so the Run ends without a next step and
+reads Needs you; the round stays open until its other cards finish; or nothing
+follows because the Run is not running or the round is over. A claimed card
+adds who holds it and that they cannot finish it. A refusal stays in the
+question, with the act disabled; asked again, it starts fresh. A person's
+step is answered in the inspector with the controls the Overview uses.
+
+The `run-controls` catalogue board and `preview.html?run-controls` draw the
+inspector's controls and, one at a time as a dialog is, the question for each
+way the Flow can answer it (`&abandon=opens|ends|waits|refused`).

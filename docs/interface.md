@@ -971,6 +971,16 @@ unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
 
+What needs you can be answered from its row. A tool's request for approval
+offers the agent's own choices, with the command, the files or the access it
+would open shown beside them, and sends the same answer as the approval in
+the chat, so whichever you answer first wins. A question with one single
+choice offers its options; one that needs a form leaves to its conversation. A
+step a Flow addressed to you offers the words its role declares, a note the
+next step reads, and a sentence saying what each answer does before you give
+it (a review step asks you to pick an attempt on the board). A refusal stays on
+the row, beside the answer it refused.
+
 ### A Team's Run
 
 Run opens from the Team rail or its Overview strip. It reads oldest first:
@@ -995,3 +1005,9 @@ inspector, which explains a row of the timeline, steps aside while the Flow
 shows. **Open the file** reads the Flow's file as it is now, in a window you
 can only read; the Run keeps the revision it started with, and nothing in this
 tab can be changed.
+
+A card that has not finished offers **Abandon card…** in its inspector. The
+question says first what the rule after the card's role will do: open the next
+round, end the Run without a next step, wait for the round's other cards, or
+nothing when the Run is not running; a claimed card names who holds it. A
+person's step is answered there with the same controls as the Overview.

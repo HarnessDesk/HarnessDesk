@@ -201,6 +201,45 @@ function of the document; the list says everything the lines show.
 
 ---
 
+## The window says what an answer or an abandon will do from the Run's own Flow
+
+The window's `team/intent` reply is `null`: a command-line abandon gets
+`{ role, nextRole }` back because the client door waits for the engine to open
+the next round, and the window does not. So what an abandon, or an answer to a
+person's step, will do cannot be read from what the host returns, and the
+person has to be told before acting. The window reads the Run's frozen Flow
+instead. `followOf` in `@harnessdesk/protocol` picks the first rule of the
+card's role whose answers hold for the round, reading a card with no answer as
+the engine does: it satisfies neither `every` nor `any`, and a rule with no
+restrictive guard follows any round that has cards. A host test runs the
+engine's own `decide` against the same table, so the two cannot drift apart
+unseen.
+
+The sentence follows what the engine does around the rule. Nothing follows a
+Run that is not running or a round that is over. A round decides only once its
+cards have all finished, so abandoning one of several says the round stays
+open (a card the board does not hold counts as unfinished). A rule that also
+reads evidence is said to depend on it and not to fire. A card abandoned where
+every rule needs an answer ends the Run without a next step, which reads Needs
+you: the plan's wording, that the rule after the role still fires, is only the
+common case, and the code decides.
+
+A review step, a person role whose rule reads a review fact, is not answered
+with a word: it records the attempt it answers for, which only the board's
+picker does, so the Overview and the inspector send it there. Every other
+answer, and every abandon, is the request the board's menu makes, argument for
+argument; a person's note is the card's context package. An answer given in two
+places is therefore one request, and the host refuses the second as already
+answered. An approval answered from the Overview sends the decision the docked
+card sends and shows what it approves beside its choices, so a yes is never
+given blind.
+
+**The rule:** the window says what an answer or an abandon will do from the
+Run's own Flow, read as the engine reads it, and it sends no request the board
+does not.
+
+---
+
 ## The host runs a declared check for an agent; an agent is never given the network
 
 A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
