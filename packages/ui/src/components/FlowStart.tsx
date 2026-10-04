@@ -231,7 +231,8 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
   const errors = (preview?.problems ?? []).filter((one) => one.level === 'error')
   const warnings = (preview?.problems ?? []).filter((one) => one.level === 'warning')
   const document = preview?.compiled.document ?? null
-  const legacy = document?.format === 'legacy'
+  // An early host refusal carries an empty legacy document, not a parsed old-format Flow.
+  const legacy = document?.format === 'legacy' && document.flow.name !== ''
   const flow = document?.format === 'agents' ? document.flow : null
 
   return (
@@ -255,7 +256,7 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
           </NativeSelect>
         )}
       </Field>}
-      {initial && <Text role="subject">{flow?.name ?? 'Reading the earlier Run’s Flow…'}</Text>}
+      {initial && (document?.flow.name || !preview) && <Text role="subject">{document?.flow.name || 'Reading the earlier Run’s Flow…'}</Text>}
 
       {problem && <ActionError>That flow could not be read. {problem}</ActionError>}
 
@@ -315,7 +316,7 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
         </NativeSelect>}
       </Field>})}
 
-      {preview && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
+      {preview && flow && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
     </div>
   )
 }

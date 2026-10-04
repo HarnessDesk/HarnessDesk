@@ -2568,6 +2568,7 @@ export class FlowExecutions {
     const policy = request.compiled.document.flow
     const earlier = request.continues ? this.#get(request.continues) : null
     if (earlier) {
+      if (this.#continued(earlier)) throw new Error('A newer Run continues this one. Start work on that Run instead.')
       if (!sameCanonicalPath(this.#team.stateFor(earlier.goal).root, request.root)) throw new Error('This Team belongs to another project.')
       const board = this.#team.stateFor(earlier.goal)
       if (request.cwd && !sameCanonicalPath(board.cwd ?? board.root, request.cwd)) throw new Error('This Team’s checkout changed. Review the dry run again before starting.')

@@ -450,6 +450,23 @@ test('a continued predecessor refuses late question delivery and ignores an in-t
   assert.equal(e.rig.flows.executionOf(e.run.id)!.state, 'stalled')
 })
 
+test('three Runs cannot fork a question-stalled successor and deliver its late answer', async t => {
+  const e = await engineStopped(t)
+  const second = await continueRun(e)
+  const seat = [...e.rig.seats.values()].find(one => one.board === second.goal && one.id !== e.seat.id)!
+  assert.ok(seat)
+  assert.equal(await e.rig.flows.stopForQuestion(seat.session.runtime, seat.session.sessionId, QUESTION_STOP), true)
+  const before = e.rig.events.length
+  await assert.rejects(continueRun(e), /newer Run/)
+  assert.equal(e.rig.events.length, before)
+  const third = await continueRun({ ...e, run: second })
+  await assert.rejects(e.rig.flows.answerQuestion(seat.session.runtime, seat.session.sessionId, e.words, e.settle), /newer Run/)
+  await e.rig.flows.answeredInTurn(seat.session.runtime, seat.session.sessionId)
+  assert.equal(e.rig.flows.executionOf(second.id)!.state, 'stalled')
+  assert.deepEqual(e.rig.flows.liveExecutionsFor(e.run.goal).map(run => run.id), [third.id])
+  assert.deepEqual(e.settled, [])
+})
+
 test('a continued predecessor retains its kept answer but cannot continue it', async t => {
   const e = await engineStopped(t)
   e.rig.failOrderTimes = 2

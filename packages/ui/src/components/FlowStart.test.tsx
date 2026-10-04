@@ -95,6 +95,35 @@ it('previews the recorded source and inputs without reading the current catalogu
   expect(change).toHaveBeenLastCalledWith({ source: initial.source, vars: initial.vars, token: 't', seats: {}, attended: true })
 })
 
+it('shows a continuation refusal rather than calling its empty preview an old-format Flow', async () => {
+  const refusal = 'A newer Run continues this one. Start work on that Run instead.'
+  const preview: FlowPreview = { ...emptyPreview(), token: null,
+    compiled: { document: { format: 'legacy', flow: { name: '', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
+    problems: [{ level: 'error', at: 'run', text: refusal }],
+  }
+  const theStore = store({ entries: [], source: () => '', preview: () => preview })
+  const change = vi.fn()
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" continues="earlier" initial={{ source: 'saved', vars: {} }} onChange={change} /></StoreProvider>))
+  expect(container.textContent).toContain(refusal)
+  expect(container.textContent).not.toContain('This flow uses the old format')
+  expect(container.textContent).not.toContain('Reading the earlier Run’s Flow')
+  expect(container.textContent).not.toContain('This flow names no Agent role')
+  expect(change).toHaveBeenLastCalledWith(null)
+})
+
+it('keeps the migration banner for a parsed old-format Flow without a separate format problem', async () => {
+  const preview: FlowPreview = { ...emptyPreview(), token: null,
+    compiled: { document: { format: 'legacy', flow: { name: 'Old Flow', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
+    problems: [],
+  }
+  const theStore = store({ entries: [], source: () => '', preview: () => preview })
+  const change = vi.fn()
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={{ source: 'saved', vars: {} }} onChange={change} /></StoreProvider>))
+  expect(container.textContent).toContain('This flow uses the old format')
+  expect(container.textContent).not.toContain('This flow will not run yet')
+  expect(change).toHaveBeenLastCalledWith(null)
+})
+
 it('edits and resets one Seat slot while preserving every other Seat and role', async () => {
   const first = { runtime: 'alpha' }, second = { runtime: 'beta', model: 'second' }, changed = { runtime: 'alpha', effort: 'high' }
   const dry = emptyPreview()

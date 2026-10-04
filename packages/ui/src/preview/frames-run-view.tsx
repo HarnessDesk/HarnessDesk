@@ -58,7 +58,7 @@ export const RunEndingRigFrames = () => {
   return input ? <section id="run-ending-rig" className="flex h-144 flex-col"><RunExample scene="settled" input={input} /></section> : null
 }
 
-export const RUN_AGAIN_STATES = ['default', 'empty', 'pending', 'failed', 'multiple-seats'] as const
+export const RUN_AGAIN_STATES = ['default', 'empty', 'pending', 'failed', 'superseded', 'multiple-seats'] as const
 export type RunAgainScene = typeof RUN_AGAIN_STATES[number]
 export const RunAgainExample = ({ scene = 'default', opened = false }: { scene?: RunAgainScene; opened?: boolean }) => {
   const [open, setOpen] = useState(opened)
@@ -69,6 +69,7 @@ export const RunAgainExample = ({ scene = 'default', opened = false }: { scene?:
       if (key === 'flowExecutionSource' && scene === 'empty') return async () => ({ ...await target.flowExecutionSource(execution.id), vars: { brief: '', task: '' } })
       if (key === 'flowExecutionSource' && scene === 'pending') return () => new Promise(() => {})
       if (key === 'flowExecutionSource' && scene === 'failed') return async () => { throw new Error('The earlier Run’s source could not be read.') }
+      if (key === 'previewFlow' && scene === 'superseded') return async () => supersededPreview()
       if (key === 'previewFlow' && scene === 'multiple-seats') return async (...args: Parameters<typeof target.previewFlow>) => multipleSeatPreview(await target.previewFlow(...args), args[3])
       return Reflect.get(target, key)
     } })
@@ -84,6 +85,7 @@ export const RunAgainCases = () => {
     if (key === 'flowExecutionSource' && scene === 'empty') return async () => ({ ...await target.flowExecutionSource(execution.id), vars: { brief: '', task: '' } })
     if (key === 'flowExecutionSource' && scene === 'pending') return () => new Promise(() => {})
     if (key === 'flowExecutionSource' && scene === 'failed') return async () => { throw new Error('The earlier Run’s source could not be read.') }
+    if (key === 'previewFlow' && scene === 'superseded') return async () => supersededPreview()
     if (key === 'previewFlow' && scene === 'multiple-seats') return async (...args: Parameters<typeof target.previewFlow>) => multipleSeatPreview(await target.previewFlow(...args), args[3])
     return Reflect.get(target, key)
   } }), [scene])
@@ -91,6 +93,14 @@ export const RunAgainCases = () => {
     {scene && <RunAgain key={scene} execution={execution} root="/repo" sentence="Retry the checkout call" onClose={() => setScene(null)} onStarted={() => setScene(null)} />}
   </StoreProvider>
 }
+
+// Matches the host's empty preview when continuation resolution refuses.
+const supersededPreview = (): FlowPreview => ({
+  token: null,
+  compiled: { document: { format: 'legacy', flow: { name: '', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
+  seats: [], commands: [], guards: [], messaging: 'board-only',
+  problems: [{ level: 'error', at: 'run', text: 'A newer Run continues this one. Start work on that Run instead.' }],
+})
 
 const multipleSeatPreview = (preview: FlowPreview, options?: FlowRunOptions): FlowPreview => {
   if (preview.compiled.document.format !== 'agents') return preview

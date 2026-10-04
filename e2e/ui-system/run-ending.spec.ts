@@ -98,7 +98,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Run again loading, refusal and narrow form in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize({ width: 390, height: 900 })
-    for (const scene of ['pending', 'failed', 'empty', 'default']) {
+    for (const scene of ['pending', 'failed', 'superseded', 'empty', 'default']) {
       await page.goto(`/preview.html?run-again=${scene}&theme=${theme}`)
       const dialog = page.getByRole('dialog', { name: 'Run again', exact: true })
       await expect(dialog).toBeVisible()
@@ -108,6 +108,10 @@ for (const theme of ['light', 'dark'] as const) {
       } else {
         await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
         if (scene === 'failed') await expect(dialog).toContainText('The earlier Run’s source could not be read.')
+        if (scene === 'superseded') {
+          await expect(dialog).toContainText('A newer Run continues this one. Start work on that Run instead.')
+          await expect(dialog.getByLabel('writer · Seat preference')).toHaveCount(0)
+        }
       }
       expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
       await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeInViewport()

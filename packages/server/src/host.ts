@@ -1551,6 +1551,7 @@ export class Host {
       continuation: async (run, root) => {
         const earlier = this.#flows.executionOf(run)
         if (!earlier?.goal) throw new Error('The earlier Run is no longer recorded. Start a new Team.')
+        if (this.#flows.executionsFor(earlier.goal).some(next => next.continues === run)) throw new Error('A newer Run continues this one. Start work on that Run instead.')
         const board = this.#team.stateFor(earlier.goal)
         if (!sameCanonicalPath(board.root, root)) throw new Error('This Team belongs to another project.')
         const dispatch = this.#goals.canDispatch(earlier.goal)

@@ -118,6 +118,27 @@ test('concurrent Run again starts open one seed, and a continued budget stall st
   assert.equal((await read(rig, earlier.id)).state, 'stalled', 'wrapping stops current work without rewriting continued history')
 })
 
+test('three Runs cannot fork a budget-stalled successor by continuing its predecessor again', async t => {
+  const rig = await goalRig(t)
+  const source = FINAL.replace('roles:', 'budget: { rounds: 1, without-progress: 2 }\nroles:').replace('rules: []', 'rules:\n  - { id: again, on: person, then: { role: person, title: Again } }')
+  const first = await start(rig)
+  await rig.executions.stop(first.id)
+  const second = await start(rig, source, { continues: first.id })
+  await rig.team.intentAction(first.goal, second.rounds[0]!.cards[0]!, 'done', undefined, 'done')
+  await rig.flows.flush()
+  assert.equal((await read(rig, second.id)).state, 'stalled')
+  const events = rig.events.length, saves = rig.files.saves
+  await assert.rejects(start(rig, FINAL, { continues: first.id }), /newer Run/)
+  assert.equal(rig.events.length, events, 'refusal opens no work')
+  assert.equal(rig.files.saves, saves, 'refusal writes no start journal')
+  const third = await start(rig, FINAL, { continues: second.id })
+  await assert.rejects(rig.executions.authorizeExtraRound(second.id, 1, 'Another round'), /newer Run/)
+  assert.deepEqual(rig.flows.liveExecutionsFor(first.goal).map(run => run.id), [third.id])
+  await rig.restart()
+  await assert.rejects(start(rig, FINAL, { continues: first.id }), /newer Run/)
+  await assert.rejects(rig.executions.authorizeExtraRound(second.id, 1, 'Another round'), /newer Run/)
+})
+
 test('Run again holds the earlier Run’s queue while its start is journaled', async t => {
   const rig = await goalRig(t)
   const source = FINAL.replace('roles:', 'budget: { rounds: 1, without-progress: 2 }\nroles:').replace('rules: []', 'rules:\n  - { id: again, on: person, then: { role: person, title: Again } }')
@@ -134,11 +155,13 @@ test('Run again holds the earlier Run’s queue while its start is journaled', a
   }
   const starting = start(rig, FINAL, { continues: earlier.id })
   await writing
+  const competing = assert.rejects(start(rig, FINAL, { continues: earlier.id }), /newer Run/)
   const authorizing = Promise.allSettled([rig.executions.authorizeExtraRound(earlier.id, 1, 'Another round')])
   // Let a competing authorization reach the earlier Run's queue before the write finishes.
   await new Promise<void>(resolve => setImmediate(resolve))
   release()
   const next = await starting
+  await competing
   const answer = (await authorizing)[0]!
   assert.equal(answer.status, 'rejected')
   if (answer.status === 'rejected') assert.match(String(answer.reason), /newer Run/)
