@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import type { FlowEntry, FlowExecution, FlowOrigin, SeatRecord } from '@harnessdesk/protocol'
 
 import { ActionError, Button, CodeBlock, Dialog, FlowGraph, Note, RefusedAction, Text } from '../design'
-import { flowModel, holdsOfRun } from '../lib/flow-model'
+import { ceilingsOfRun, flowModel } from '../lib/flow-model'
 import { useStore } from '../state/context'
 
 const PLACE: Readonly<Record<FlowOrigin, string>> = {
@@ -29,12 +29,12 @@ export const RunFlow = ({ execution, root, seats }: {
   execution: Pick<FlowExecution, 'document' | 'revision' | 'rounds'>
   /** The project the Run belongs to, where its Flow's file is looked for; null when it is not known. */
   root: string | null
-  /** The Seats the Run opened, for whether each step's ceiling was held or only asked. */
+  /** The Seats the Run opened, for the ceiling each step's seats ran under and whether it was held or only asked. */
   seats: readonly Pick<SeatRecord, 'id' | 'ceiling'>[]
 }) => {
   const store = useStore()
   const flow = execution.document.flow
-  const model = useMemo(() => flowModel(flow, { holds: holdsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats])
+  const model = useMemo(() => flowModel(flow, { ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats])
   const [reading, setReading] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [opened, setOpened] = useState<{ readonly entry: FlowEntry; readonly text: string } | null>(null)

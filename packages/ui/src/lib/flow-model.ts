@@ -1,5 +1,6 @@
-import { ceilingOfPermission, type CeilingLevel, type Flow, type FlowEvidenceGuard, type FlowPolicy, type SeatCeiling } from '@harnessdesk/protocol'
+import { ceilingOfPermission, narrower, type Flow, type FlowEvidenceGuard, type FlowPolicy, type SeatCeiling } from '@harnessdesk/protocol'
 
+import { ceilingWords, seatCeilingWords } from './agents'
 import { readGraphPositions, type GraphPoint } from './shapes'
 
 /**
@@ -14,9 +15,6 @@ import { readGraphPositions, type GraphPoint } from './shapes'
 export type DrawnFlow = FlowPolicy | Flow
 
 export type StepKind = 'agent' | 'check' | 'person'
-
-/** Whether the runtime enforced a ceiling or it was only asked of the agent (`SeatCeiling.hold`). */
-export type CeilingHold = 'held' | 'asked'
 
 export interface FlowStep {
   readonly id: string
@@ -54,13 +52,14 @@ export interface FlowModel {
 }
 
 export interface FlowModelOptions {
-  /** What each Agent step ran under in the Run that holds this Flow, by step id; a step it names nothing for is left unsaid. */
-  readonly holds?: ReadonlyMap<string, CeilingHold>
+  /**
+   * What the seats of each Agent step ran under in the Run that holds this
+   * Flow, by step id, as the Seat record says it: the level they ran at and
+   * whether the runtime held it. A step it names nothing for says only its
+   * grant.
+   */
+  readonly ceilings?: ReadonlyMap<string, SeatCeiling>
 }
-
-const CEILING_WORDS: Readonly<Record<CeilingLevel, string>> = { read: 'Read', edit: 'Edit', publish: 'Publish', merge: 'Merge' }
-
-export const ceilingWord = (level: CeilingLevel): string => CEILING_WORDS[level]
 
 export const stepName = (id: string): string => {
   const words = id.replace(/[_\-\s]+/g, ' ').trim()
@@ -74,7 +73,7 @@ const stepOf = (role: DrawnFlow['roles'][number], options: FlowModelOptions): Fl
   const name = stepName(role.id)
   if (role.kind === 'check') return { id: role.id, kind: 'check', name, line: role.check?.run.trim() || 'No command yet', count: 1, agents: [] }
   if (role.kind === 'person') return { id: role.id, kind: 'person', name, line: role.outcomes.join(' · ') || 'No answers yet', count: 1, agents: [] }
-  const hold = options.holds?.get(role.id)
+  const ran = options.ceilings?.get(role.id)
   // The current format spells a ceiling and names Agents; the older one spells
   // a permission (whose `read` always allowed edits) and lists seats.
   const [grant, listed, count, agents] = 'grant' in role
@@ -84,7 +83,10 @@ const stepOf = (role: DrawnFlow['roles'][number], options: FlowModelOptions): Fl
     id: role.id,
     kind: 'agent',
     name,
-    line: `${ceilingWord(grant)}${hold ? ` · ${hold}` : ''}`,
+    // A seat runs at the narrower of its Agent's ceiling and the grant, so once
+    // a Run has seated the step the line is the seat's own record, in the words
+    // the Seat record uses; the grant is never followed by a hold it did not earn.
+    line: ran ? seatCeilingWords(ran) : ceilingWords(grant),
     count: widthOf(listed, count),
     agents,
   }
@@ -134,27 +136,39 @@ const sentenceOf = (when: Guard): string => {
 }
 
 /**
- * What each Agent step ran under in a Run, from the seats its rounds opened.
+ * What each Agent step's seats ran under in a Run, from the seats its rounds
+ * opened.
  *
- * A step is only said to have been held when every seat it opened was; one
- * that was merely asked of its agent makes the step asked, because the weaker
- * answer is the one a person must not miss. A step no recorded seat ran under
- * a recorded ceiling is left out, and the card says nothing rather than guess.
+ * Where a step's seats differ it says the floor of them: the narrowest level,
+ * and *asked* if any was only asked of its agent, because the weaker answer is
+ * the one a person must not miss. A step with a seat that has no recorded
+ * ceiling (one this window does not know, or one from before ceilings were
+ * recorded) is left out, and so is a step that opened none: the card says its
+ * grant and nothing more, rather than speak for a seat it cannot see.
  */
-export const holdsOfRun = (
+export const ceilingsOfRun = (
   rounds: readonly { readonly role: string; readonly seats: readonly string[] }[],
   seats: readonly { readonly id: string; readonly ceiling: SeatCeiling | null }[],
-): ReadonlyMap<string, CeilingHold> => {
-  const heldBy = new Map(seats.map((seat) => [seat.id, seat.ceiling?.hold ?? null] as const))
-  const holds = new Map<string, CeilingHold>()
+): ReadonlyMap<string, SeatCeiling> => {
+  const recorded = new Map(seats.map((seat) => [seat.id, seat.ceiling] as const))
+  const floors = new Map<string, SeatCeiling>()
+  const unsaid = new Set<string>()
   for (const round of rounds) {
     for (const id of round.seats) {
-      const hold = heldBy.get(id)
-      if (!hold) continue
-      holds.set(round.role, hold === 'asked' || holds.get(round.role) === 'asked' ? 'asked' : 'held')
+      const ceiling = recorded.get(id)
+      if (!ceiling) {
+        unsaid.add(round.role)
+        continue
+      }
+      const floor = floors.get(round.role)
+      floors.set(round.role, floor === undefined ? ceiling : {
+        level: narrower(floor.level, ceiling.level),
+        hold: floor.hold === 'asked' || ceiling.hold === 'asked' ? 'asked' : 'held',
+      })
     }
   }
-  return holds
+  for (const role of unsaid) floors.delete(role)
+  return floors
 }
 
 export const flowModel = (flow: DrawnFlow, options: FlowModelOptions = {}): FlowModel => {

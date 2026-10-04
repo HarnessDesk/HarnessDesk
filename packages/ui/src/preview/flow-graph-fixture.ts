@@ -1,6 +1,6 @@
-import type { CeilingLevel, Flow, FlowAgentRole, FlowDocument, FlowPolicy, FlowPolicyRole, FlowPolicyRule } from '@harnessdesk/protocol'
+import type { CeilingLevel, Flow, FlowAgentRole, FlowDocument, FlowPolicy, FlowPolicyRole, FlowPolicyRule, SeatCeiling } from '@harnessdesk/protocol'
 
-import { flowModel, type CeilingHold, type DrawnFlow, type FlowModel } from '../lib/flow-model'
+import { flowModel, type DrawnFlow, type FlowModel } from '../lib/flow-model'
 
 /**
  * Flows to draw, for the catalogue board, the preview frames, the browser
@@ -131,17 +131,19 @@ export const flowGraphDocument = (scene: FlowGraphScene): FlowDocument => {
   return 'version' in flow ? { format: 'agents', flow } : { format: 'legacy', flow }
 }
 
+const ran = (level: CeilingLevel, hold: SeatCeiling['hold']): SeatCeiling => ({ level, hold })
+
 /**
- * What the seats a Run opened were held to, for the scenes drawn as that Run
+ * What the seats a Run opened ran under, for the scenes drawn as that Run
  * would: the blueprint's writers and reviewers were only asked to keep to their
  * ceiling, as the spec's frame reads, and the loop's were held to it, so both
  * words are drawn. The rest are drawn as written, with no Run behind them.
  */
-const SEATED: Partial<Record<FlowGraphScene, ReadonlyMap<string, CeilingHold>>> = {
-  blueprint: new Map([['write', 'asked'], ['review', 'asked'], ['fix', 'asked']]),
-  loop: new Map([['write', 'held'], ['review', 'held']]),
+const SEATED: Partial<Record<FlowGraphScene, ReadonlyMap<string, SeatCeiling>>> = {
+  blueprint: new Map([['write', ran('edit', 'asked')], ['review', ran('read', 'asked')], ['fix', ran('edit', 'asked')]]),
+  loop: new Map([['write', ran('edit', 'held')], ['review', ran('read', 'held')]]),
 }
 
-/** A Flow drawn as the Run that holds it would: with what its seats were held to where a scene has been seated. */
-export const flowGraphModel = (scene: FlowGraphScene, holds: ReadonlyMap<string, CeilingHold> | undefined = SEATED[scene]): FlowModel =>
-  flowModel(flowGraphFlow(scene), holds ? { holds } : {})
+/** A Flow drawn as the Run that holds it would: with what its seats ran under where a scene has been seated. */
+export const flowGraphModel = (scene: FlowGraphScene, ceilings: ReadonlyMap<string, SeatCeiling> | undefined = SEATED[scene]): FlowModel =>
+  flowModel(flowGraphFlow(scene), ceilings ? { ceilings } : {})

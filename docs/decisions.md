@@ -185,10 +185,16 @@ appearance of its own. The one part added to the system for it is
 `Card variant="raised"`, the registry card with its soft shadow, for a card
 that stands on a canvas of its own.
 
-An Agent step says what the runtime held only when the Run recorded it: a step
-reads *held* when every seat it opened was held, *asked* when any was only
-asked of its agent, and says nothing when no seat of it recorded a ceiling.
-The weaker answer wins because it is the one a person must not miss.
+An Agent step says what its seats ran under only when the Run recorded it. A
+seat runs at the narrower of its Agent's own ceiling and the grant the Flow
+gives the step, so once a Run has seated the step the card reads the seat's
+record, in the words the Seat record uses — the level it ran at, and whether
+the runtime *held* it or only *asked* it of the agent — and not the grant,
+which an Agent with a lower ceiling never reached. Where a step's seats differ
+it reads the floor of them: the narrowest level, and *asked* if any was only
+asked, because the weaker answer is the one a person must not miss. A step
+with no seat, or with any seat whose record this window does not have, says its
+grant and nothing more, rather than speak for a seat it cannot see.
 
 **The rule:** the Flow tab shows what the Run froze; where things go is a
 function of the document; the list says everything the lines show.

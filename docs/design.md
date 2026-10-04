@@ -1557,16 +1557,17 @@ product does: agents handing work on, a check that cannot be talked round, a
 person at the gate, a loop that has to end. A step is a raised `Card` with an
 `IconTile` for its kind (violet for an Agent, sky for a check, amber for a
 person: the tints the rail already uses), its name in a word, and one earned
-line — what an Agent may do (and whether the runtime held it or only asked,
-once a Run has seated it), the command a check runs, the words a person may
-answer. An Agent is a square tile: the Flow defines it, a Run seats it, and
-only then does it become a face. A step that opens several seats is a fan of
-up to three cards, so a count reads without a number. A rule is a line with an
-arrowhead and, only when something guards it, the outcome word above it in a
-neutral `Chip` with a ground of its own; a loop is a curve under the line whose
-word carries the retry mark. Cards sit on a faint dot grid with hairline
-borders and one soft shadow (`Card variant="raised"`). Colour is for what a
-step is, never decoration, and every value is a token.
+line — what an Agent may do (once a Run has seated it, the level its seats ran
+at, which is below the Flow's grant when the Agent's own ceiling is, and whether
+the runtime held it or only asked), the command a check runs, the words a
+person may answer. An Agent is a square tile: the Flow defines it, a Run seats
+it, and only then does it become a face. A step that opens several seats is a
+fan of up to three cards, so a count reads without a number. A rule is a line
+with an arrowhead and, only when something guards it, the outcome word above it
+in a neutral `Chip` with a ground of its own; a loop is a curve under the line
+whose word carries the retry mark. Cards sit on a faint dot grid with hairline
+borders and one soft shadow (`Card variant="raised"`). Colour is for what a step
+is, never decoration, and every value is a token.
 
 Where things go is `lib/flow-layout.ts`, a pure function of the document:
 steps run left to right in the order their rules reach them, a loop falls under

@@ -89,10 +89,36 @@ it('draws a Run from before the current format as well, without a position it ne
   expect([...container.querySelectorAll('[data-slot="flow-step"]')].map((one) => one.getAttribute('data-step'))).toEqual(['fixer', 'reviewer', 'referee'])
 })
 
-it('says whether the runtime held a step’s ceiling, from the seats the Run opened', () => {
+it('says what a step’s seats ran under and whether the runtime held it, from the seats the Run opened', () => {
   render(fakeStore([]), { seats: [{ id: 'seat-a', ceiling: { level: 'edit', hold: 'asked' } }] })
   expect(container.querySelector('[data-step="write"]')!.textContent).toContain('Edit · asked')
   expect(container.querySelector('[data-step="fix"]')!.textContent).not.toContain('·')
+})
+
+it('says the level a step’s seat ran at, not the one the Flow asks for, when its Agent’s own ceiling was narrower', () => {
+  // The blueprint grants `write` an edit ceiling; a seat of an Agent that only reads runs at read.
+  render(fakeStore([]), { seats: [{ id: 'seat-a', ceiling: { level: 'read', hold: 'held' } }] })
+  const write = container.querySelector('[data-step="write"]')!.textContent
+  expect(write).toContain('Read · held')
+  expect(write).not.toContain('Edit')
+})
+
+it('says the narrowest level of a step’s seats when they ran at different ones', () => {
+  render(fakeStore([]), {
+    execution: run({ rounds: [{ n: 1, role: 'write', cards: [1, 2], seats: ['seat-a', 'seat-b'], evidence: [], state: 'closed', cause: 'seed' }] }),
+    seats: [{ id: 'seat-a', ceiling: { level: 'edit', hold: 'held' } }, { id: 'seat-b', ceiling: { level: 'read', hold: 'held' } }],
+  })
+  expect(container.querySelector('[data-step="write"]')!.textContent).toContain('Read · held')
+})
+
+it('says only the grant for a step when any one of its seats is unknown here, rather than speak for the rest', () => {
+  render(fakeStore([]), {
+    execution: run({ rounds: [{ n: 1, role: 'write', cards: [1, 2], seats: ['seat-a', 'seat-gone'], evidence: [], state: 'closed', cause: 'seed' }] }),
+    seats: [{ id: 'seat-a', ceiling: { level: 'edit', hold: 'held' } }],
+  })
+  const write = container.querySelector('[data-step="write"]')!.textContent
+  expect(write).toContain('Edit')
+  expect(write).not.toContain('·')
 })
 
 it('opens the file the Flow came from, as it is now, and says the Run keeps the one it started with', async () => {

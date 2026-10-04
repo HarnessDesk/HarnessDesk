@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CeilingLevel, Flow, FlowAgentRole, FlowPolicy, FlowPolicyRole, FlowPolicyRule } from '@harnessdesk/protocol'
+import type { CeilingLevel, Flow, FlowAgentRole, FlowPolicy, FlowPolicyRole, FlowPolicyRule, SeatCeiling } from '@harnessdesk/protocol'
 
-import { ceilingWord, flowModel, holdsOfRun, stepName } from './flow-model'
+import { ceilingsOfRun, flowModel, stepName } from './flow-model'
 
 /**
  * What a drawing of a Flow says in words: a step's name and its one earned
@@ -16,6 +16,7 @@ const agent = (id: string, grant: CeilingLevel = 'read', over: Partial<FlowAgent
 })
 const check = (id: string, run: string): FlowPolicyRole => ({ id, kind: 'check', check: { run, timeout: 300, exits: { 0: 'pass' }, otherwise: 'fail' } })
 const person = (id: string, outcomes: readonly string[]): FlowPolicyRole => ({ id, kind: 'person', outcomes })
+const ran = (level: CeilingLevel, hold: SeatCeiling['hold']): SeatCeiling => ({ level, hold })
 const rule = (id: string, on: string, to: string, when?: FlowPolicyRule['when']): FlowPolicyRule => ({
   id, on, ...(when ? { when } : {}), then: { role: to, title: `Open ${to}` },
 })
@@ -40,15 +41,23 @@ describe('a step', () => {
     expect(stepName('  ')).toBe('')
   })
 
-  it('says every ceiling in one word', () => {
-    expect((['read', 'edit', 'publish', 'merge'] as const).map(ceilingWord)).toEqual(['Read', 'Edit', 'Publish', 'Merge'])
+  it('says a grant in the words the rest of the app says a ceiling in', () => {
+    const model = flowModel(policy((['read', 'edit', 'publish', 'merge'] as const).map((level) => agent(level, level))))
+    expect(model.steps.map((step) => step.line)).toEqual(['Read', 'Edit', 'Publish', 'Merge'])
   })
 
-  it('says whether the runtime held the ceiling or only asked, once a Run has seated it', () => {
+  it('says what its seats ran under, and whether the runtime held it or only asked, once a Run has seated it', () => {
     const model = flowModel(policy([agent('write', 'edit'), agent('review', 'read'), check('verify', 'pnpm verify')]), {
-      holds: new Map([['write', 'asked'], ['review', 'held'], ['verify', 'held']]),
+      ceilings: new Map([['write', ran('edit', 'asked')], ['review', ran('read', 'held')], ['verify', ran('read', 'held')]]),
     })
     expect(model.steps.map((step) => step.line)).toEqual(['Edit · asked', 'Read · held', 'pnpm verify'])
+  })
+
+  it('says the level its seats ran at when that is below the grant the Flow asks for', () => {
+    // A seat runs at the narrower of its Agent's ceiling and the grant: the
+    // grant followed by *held* would say the runtime enforced what it never did.
+    const model = flowModel(policy([agent('write', 'edit')]), { ceilings: new Map([['write', ran('read', 'held')]]) })
+    expect(model.steps[0]!.line).toBe('Read · held')
   })
 
   it('does not guess when it does not know', () => {
@@ -186,26 +195,45 @@ it('names the Flow and its first step', () => {
   expect(model.seed).toBe('verify')
 })
 
-describe('what a Run held', () => {
+describe('what a Run ran under', () => {
   const round = (n: number, role: string, seats: readonly string[]) => ({ n, role, seats })
-  const seat = (id: string, hold: 'held' | 'asked' | null) => ({ id, ceiling: hold ? { level: 'edit' as const, hold } : null })
+  const seat = (id: string, ceiling: SeatCeiling | null) => ({ id, ceiling })
 
   it('is read from the seats a step opened, by the role that opened them', () => {
-    const holds = holdsOfRun(
+    const ceilings = ceilingsOfRun(
       [round(1, 'write', ['a']), round(2, 'review', ['b', 'c'])],
-      [seat('a', 'asked'), seat('b', 'held'), seat('c', 'held')],
+      [seat('a', ran('edit', 'asked')), seat('b', ran('read', 'held')), seat('c', ran('read', 'held'))],
     )
-    expect([...holds]).toEqual([['write', 'asked'], ['review', 'held']])
+    expect([...ceilings]).toEqual([['write', ran('edit', 'asked')], ['review', ran('read', 'held')]])
   })
 
   it('says asked when any seat of a step was only asked, however many held', () => {
-    const holds = holdsOfRun([round(1, 'review', ['a', 'b']), round(2, 'review', ['c'])], [seat('a', 'held'), seat('b', 'asked'), seat('c', 'held')])
-    expect(holds.get('review')).toBe('asked')
+    const ceilings = ceilingsOfRun(
+      [round(1, 'review', ['a', 'b']), round(2, 'review', ['c'])],
+      [seat('a', ran('read', 'held')), seat('b', ran('read', 'asked')), seat('c', ran('read', 'held'))],
+    )
+    expect(ceilings.get('review')).toEqual(ran('read', 'asked'))
+  })
+
+  it('says the narrowest level among a step’s seats, whichever order they came in', () => {
+    const seats = [seat('a', ran('publish', 'held')), seat('b', ran('read', 'held')), seat('c', ran('edit', 'asked'))]
+    expect(ceilingsOfRun([round(1, 'review', ['a', 'b'])], seats).get('review')).toEqual(ran('read', 'held'))
+    expect(ceilingsOfRun([round(1, 'review', ['b', 'a'])], seats).get('review')).toEqual(ran('read', 'held'))
+    expect(ceilingsOfRun([round(1, 'review', ['a']), round(2, 'review', ['c'])], seats).get('review')).toEqual(ran('edit', 'asked'))
   })
 
   it('stays quiet about a step no seat ran, a seat this window does not know, and a seat from before ceilings were recorded', () => {
-    const holds = holdsOfRun([round(1, 'write', ['gone']), round(2, 'review', ['old']), round(3, 'fix', [])], [seat('old', null)])
-    expect(holds.size).toBe(0)
-    expect(flowModel(policy([agent('write', 'edit')]), { holds }).steps[0]!.line).toBe('Edit')
+    const ceilings = ceilingsOfRun([round(1, 'write', ['gone']), round(2, 'review', ['old']), round(3, 'fix', [])], [seat('old', null)])
+    expect(ceilings.size).toBe(0)
+    expect(flowModel(policy([agent('write', 'edit')]), { ceilings }).steps[0]!.line).toBe('Edit')
+  })
+
+  it('stays quiet about a whole step when any one of its seats has no record, however many do', () => {
+    const ceilings = ceilingsOfRun(
+      [round(1, 'review', ['b', 'c']), round(2, 'review', ['gone']), round(3, 'write', ['a'])],
+      [seat('a', ran('edit', 'held')), seat('b', ran('read', 'held')), seat('c', ran('read', 'held'))],
+    )
+    expect([...ceilings.keys()]).toEqual(['write'])
+    expect(flowModel(policy([agent('review', 'read')]), { ceilings }).steps[0]!.line).toBe('Read')
   })
 })

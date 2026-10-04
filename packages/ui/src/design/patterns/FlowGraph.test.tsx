@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import type { CeilingLevel, FlowAgentRole, FlowPolicy, FlowPolicyRole, FlowPolicyRule } from '@harnessdesk/protocol'
+import type { CeilingLevel, FlowAgentRole, FlowPolicy, FlowPolicyRole, FlowPolicyRule, SeatCeiling } from '@harnessdesk/protocol'
 
 import { flowLayout } from '../../lib/flow-layout'
 import { flowModel } from '../../lib/flow-model'
@@ -48,15 +48,16 @@ const blueprint = () => policy(
   ],
 )
 
-const draw = (flow: FlowPolicy, holds?: ReadonlyMap<string, 'held' | 'asked'>) => {
-  const model = flowModel(flow, holds ? { holds } : {})
+const ran = (level: CeilingLevel, hold: SeatCeiling['hold']): SeatCeiling => ({ level, hold })
+const draw = (flow: FlowPolicy, ceilings?: ReadonlyMap<string, SeatCeiling>) => {
+  const model = flowModel(flow, ceilings ? { ceilings } : {})
   act(() => root.render(<FlowGraph model={model} />))
   return model
 }
 const stepsOf = () => [...container.querySelectorAll<HTMLElement>('[data-slot="flow-step"]')]
 
 it('draws a card for each step, in the model\'s order, each saying what it is, its name and its one line', () => {
-  draw(blueprint(), new Map([['write', 'asked']]))
+  draw(blueprint(), new Map([['write', ran('edit', 'asked')]]))
   const steps = stepsOf()
   expect(steps.map((step) => step.dataset['step'])).toEqual(['write', 'check', 'review', 'land', 'fix', 'you'])
   expect(steps.map((step) => step.dataset['kind'])).toEqual(['agent', 'check', 'agent', 'check', 'agent', 'person'])
@@ -133,7 +134,7 @@ it('keeps the drawing out of the accessibility tree and gives the list to everyo
 })
 
 it('lists every step and says what each is, so a screen reader reaches what the drawing shows', () => {
-  draw(blueprint(), new Map([['write', 'held']]))
+  draw(blueprint(), new Map([['write', ran('edit', 'held')]]))
   const steps = container.querySelector<HTMLElement>('section[aria-label="Steps"]')!
   const rows = [...steps.querySelectorAll('[data-slot="row"]')]
   expect(rows).toHaveLength(6)
