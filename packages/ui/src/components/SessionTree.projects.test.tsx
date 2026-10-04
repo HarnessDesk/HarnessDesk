@@ -2,10 +2,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionKey, type RuntimeInfo, type SessionSummary, type WorkspaceEntry } from '@harnessdesk/protocol'
+import { sessionKey, type HostMethodName, type RuntimeInfo, type SessionSummary, type WireNotification, type WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot, type AppStore as AppStoreShape } from '../state/store'
 import { SessionTree } from './SessionTree'
 
 /**
@@ -43,7 +43,7 @@ const runtime = {
 
 const REPO = '/repo'
 
-const session = (id: string, cwd: string, repo: { root: string; worktree: boolean }): SessionSummary =>
+const session = (id: string, cwd: string, repo: { root: string; worktree: boolean; origin?: string }): SessionSummary =>
   ({
     id,
     runtime: runtime.id,
@@ -58,7 +58,12 @@ const session = (id: string, cwd: string, repo: { root: string; worktree: boolea
     archived: false,
   }) as unknown as SessionSummary
 
-const workspace = (path: string, repo: { root: string; worktree: boolean }): WorkspaceEntry =>
+const notify = (store: AppStore, notification: WireNotification): void => {
+  const transport = store.transport as unknown as { handlers: { onNotification(value: WireNotification): void } }
+  transport.handlers.onNotification(notification)
+}
+
+const workspace = (path: string, repo: { root: string; worktree: boolean; origin?: string }): WorkspaceEntry =>
   ({ path, name: path.split('/').at(-1) ?? path, lastOpenedAt: 1, repo })
 
 const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<AppSnapshot> = {}): void => {
@@ -79,7 +84,7 @@ const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<A
     setProjectsCollapsed: vi.fn(),
     toggleProjectCollapsed: vi.fn(),
     setOthersOpen: vi.fn(),
-  } as unknown as AppStore
+  } as unknown as AppStoreShape
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -108,6 +113,103 @@ it('gives an open subfolder one row, not a second empty one for its repository',
 
   expect(projects()).toEqual(['ui'])
   expect(currentProject()).toBe('ui')
+})
+
+it('keeps the cached home when an older unloaded match is returned while both clones are open', async () => {
+  const home = session('home-session', '/widgets', {
+    root: '/widgets', worktree: false, origin: 'github.com/acme/widgets',
+  })
+  const clone = session('clone-session', '/widgets-clone', {
+    root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets',
+  })
+  // The first history page has only the home checkout. Search can return an
+  // older matching conversation from another clone before pagination reaches it.
+  const history = [{ ...home, createdAt: 10 }]
+  const opened = [
+    workspace('/widgets', { root: '/widgets', worktree: false, origin: 'github.com/acme/widgets' }),
+    workspace('/widgets-clone', { root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets' }),
+  ]
+  const runtimeInfo = {
+    id: runtime.id,
+    name: runtime.presentation.name,
+    capabilities: { listHistory: true, searchHistory: true },
+    presentation: runtime.presentation,
+  }
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (
+    method: HostMethodName,
+    params: { query?: string },
+  ) => {
+    if (method === 'session/list') return { data: history, nextCursor: null }
+    if (method === 'session/search') return { data: [{ ...clone, createdAt: 1 }], nextCursor: null }
+    if (method === 'workspace/recent') return opened
+    if (method === 'routes/list') return []
+    if (params.query) throw new Error(`unexpected query: ${params.query}`)
+    return null
+  }) as never)
+  let searching = false
+  const renderTree = (): void => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={4} searching={searching} />
+      </StoreProvider>,
+    )
+  }
+  const afterStoreWake = (): Promise<void> => new Promise((resolve) => {
+    const unsubscribe = store.subscribe(() => {
+      unsubscribe()
+      resolve()
+    })
+  })
+
+  await act(async () => {
+    notify(store, {
+      method: 'sync',
+      params: {
+        sessions: [{
+          id: home.id,
+          runtime: home.runtime,
+          cwd: home.cwd,
+          title: home.title,
+          status: { type: 'notLoaded' },
+          createdAt: home.createdAt,
+          updatedAt: home.updatedAt,
+          turns: [],
+          git: { originUrl: 'https://github.com/acme/widgets' },
+        }],
+        queues: [], tasks: [], health: [], runtimes: [runtimeInfo], plugins: [], contributions: [],
+      },
+    } as unknown as WireNotification)
+    await store.loadHistory({ reset: true })
+    await store.loadWorkspaces()
+    renderTree()
+  })
+
+  expect(projects()).toEqual(['widgets'])
+
+  searching = true
+  await act(async () => {
+    renderTree()
+    await store.searchHistory('clone-only')
+    await afterStoreWake()
+  })
+  expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['clone-session'])
+  expect(projects()).toEqual(['widgets'])
+  const cloneRows = [...container.querySelectorAll<HTMLElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')]
+    .filter((row) => row.textContent?.includes('clone-session'))
+  expect(cloneRows).toHaveLength(1)
+  const homeRows = [...container.querySelectorAll<HTMLElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')]
+    .filter((row) => row.textContent?.includes('home-session'))
+  expect(homeRows).toHaveLength(1)
+
+  searching = false
+  await act(async () => {
+    renderTree()
+    await store.searchHistory('')
+    await afterStoreWake()
+  })
+  expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['home-session'])
+  expect(projects()).toEqual(['widgets'])
 })
 
 it('selects exactly the open conversation, never its current project head', () => {
