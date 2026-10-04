@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { itemId, sessionKey, turnId, type GoalReceipt, type GoalView } from '@harnessdesk/protocol'
+import { itemId, sessionKey, turnId, type GoalReceipt, type GoalView, type Intent, type SessionSummary } from '@harnessdesk/protocol'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { SessionTree } from '../components/SessionTree'
 import { RailSection } from '../design'
@@ -8,7 +8,7 @@ import type { AppSnapshot } from '../state/store'
 import { previewStore } from './harness'
 import { overviewTeamStore } from './team-overview-fixture'
 
-export const TEAM_RECORD_STATES = ['wrapped', 'older', 'shared', 'unlinked', 'empty', 'narrow', 'person'] as const
+export const TEAM_RECORD_STATES = ['wrapped', 'older', 'shared', 'unlinked', 'empty', 'narrow', 'person', 'running'] as const
 export type RecordScene = typeof TEAM_RECORD_STATES[number]
 /** The scenes shown in a narrow pane, where the room is one half at a time and the Receipt has to be the half that opens. */
 const NARROW: readonly RecordScene[] = ['narrow', 'person']
@@ -38,7 +38,12 @@ export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
  const person=scene==='person'
  const wrapped:GoalView={...goal,goal:{...goal.goal,state:'wrapped',receipt:receipt.id,origin:person?{kind:'person'}:{kind:'flow',run:'overview-run'}},members:[],activity:null,board,receipt}
  const run=original.flowExecutions.get('overview-run')!
- const sessions=new Map([...original.sessions].map(([key,session])=>[key,{...session,turns:[{id:turnId('record-answer'),status:'completed' as const,items:[{id:itemId('record-answer-text'),type:'assistantMessage' as const,text:'The change was checked and is ready.'}]}]}]))
+ /* `running` is a turn still going in the first Seat's conversation after the Team wrapped: the composer takes nothing
+    new, and Stop is the one control left on it, because the host leaves `turn/interrupt` open (#1317). */
+ const sessions=new Map([...original.sessions].map(([key,session],index)=>{
+  const going=scene==='running'&&index===0
+  return [key,{...session,...(going?{status:{type:'active' as const}}:{}),turns:[{id:turnId('record-answer'),status:going?'inProgress' as const:'completed' as const,items:[{id:itemId('record-answer-text'),type:'assistantMessage' as const,text:going?'Checking the retry budget against the last release…':'The change was checked and is ready.'}]}]}]
+ }))
  /* The conversation's menus offer Compact now and Review uncommitted changes only for a runtime that can; this one can,
     so the record shows both refused rather than absent. */
  const runtimes=original.runtimes.map(one=>({...one,capabilities:{...one.capabilities,compaction:true,review:true}}))
@@ -72,6 +77,32 @@ const WrapsUnderQuestion = () => {
  },[store])
  return <section id="team-record-open" className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
 }
+/**
+ * "Give this to…" on an open Team's card nobody holds, in a project where a wrapped Team keeps a conversation: the
+ * dialog offers the two conversations nothing holds and leaves out the one that Team's receipt keeps, because the host
+ * would refuse it for another Team's card (#1317).
+ */
+const AssignWhereOneIsKept = () => {
+ const store=useMemo(()=>{
+  const base=overviewTeamStore('running')
+  const snapshot=base.getSnapshot()
+  const open=snapshot.goals.get('overview-team')!
+  const card:Intent={id:3,title:'Check the retry budget',state:'open',files:[],dependsOn:[],claim:null,createdAt:open.goal.createdAt,updatedAt:open.goal.updatedAt}
+  const board={...open.board,intents:[...open.board.intents,card]}
+  const summary=(id:string,title:string):SessionSummary=>({id,runtime:'codex',title,preview:null,cwd:board.root,status:{type:'idle'},createdAt:open.goal.createdAt,updatedAt:open.goal.updatedAt,git:null,repo:{root:board.root},archived:false}) as SessionSummary
+  const kept={runtime:'codex',sessionId:'retired-conversation'}
+  const retired:GoalView={...open,goal:{...open.goal,id:'retired-team',sentence:'Tighten the checkout copy',state:'wrapped',receipt:'receipt-retired'},members:[],activity:null,
+   receipt:{version:1,id:'receipt-retired',goal:'retired-team',sentence:'Tighten the checkout copy',wrappedAt:open.goal.updatedAt,summary:'The checkout copy was tightened.',cards:[],seats:['seat-retired'],
+    members:[{seat:'seat-retired',agent:'Gamma',seatLabel:'Writer',session:kept}],
+    answers:[{seat:'seat-retired',session:kept,turn:null,text:'The copy is shorter.',partial:false,stopReason:null}],
+    evidence:[],lanes:[],revisions:[],citations:[],gaps:[]}}
+  ;(base as unknown as {patch(partial:Partial<AppSnapshot>):void}).patch({
+   goals:new Map([[open.goal.id,{...open,board}],[retired.goal.id,retired]]),teams:new Map([[board.id,board]]),
+   history:[...snapshot.history,summary('free-copy','Tidy the settings copy'),summary(kept.sessionId,'Tighten the checkout copy'),summary('free-tests','Add a test for the retry budget')]})
+  return base
+ },[])
+ return <section id="team-record-assign" className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+}
 export const TeamRecordFrames = () => {
  const sidebar=useMemo(()=>teamRecordStore('older'),[])
  const shared=useMemo(()=>teamRecordStore('shared'),[])
@@ -81,5 +112,6 @@ export const TeamRecordFrames = () => {
   <section id="team-record-sidebar-shared" className="w-72"><StoreProvider store={shared}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>
   <section id="team-record-sidebar-unlinked" className="w-72"><StoreProvider store={unlinked}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>
   <WrapsUnderQuestion />
+  <AssignWhereOneIsKept />
  </div>
 }

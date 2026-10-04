@@ -1473,6 +1473,33 @@ reason instead. Closed Seat history and receipt pointers preserve that refusal
 after restart. Run history remains a read; wrapping and deletion keep their
 existing lifecycles.
 
+The host asks that question before every send, steer and delivery, so it is a
+lookup and never a scan of the desk's Goals: a send on a desk with three
+hundred wrapped Teams costs what it does on a desk with three. The Goal store
+keeps the conversations its wrapped receipts name, built at the one place a
+document enters the store, so it holds for a Team wrapped in this process, one
+read back at the next start and one a backup brought. The Seat book answers for
+a conversation's Seats, and a Goal's standing is read in place, so a Team
+that is mid-wrap refuses from the moment its wrap begins, before any receipt
+exists. A dispatch asks twice — before it reopens the conversation and once it
+is open — and a send already held by a dispatch is not fenced again. The
+renderer treats a Team as wrapped once it reads `wrapped`, the host as soon as
+a wrap begins, so a send from a composer that has not heard yet fails with the
+same reason instead of being disabled beforehand.
+
+Three things follow from a conversation belonging to a wrapped Team. Stop is
+the one control that stays on while a turn is running in it: stopping is not
+new work, and the host leaves `turn/interrupt` open for exactly that. It
+stands alone in the corner — the refused send is drawn only while nothing
+runs, because the composer's send track is one coin wide and clips a second,
+which would leave a Stop that is on and cannot be pressed; the placeholder
+already says why nothing can be sent. Choosing a conversation is not sending to one, so the Assign dialog does not
+list a conversation a wrapped Team keeps, and a host asked to seat one anyway
+says it belongs to a wrapped Team — "This Team is wrapped" would point at the
+Team the person is in. A skill is a message into the open conversation, so the
+palette withdraws an agent's skills there, as it withdraws any entry it cannot
+run.
+
 A Run that ends wraps its Team, so a Team can wrap under a person who already
 has a question open. That question reads the Team's state live rather than the
 data it opened with — a run's own view still says it is decidable — and stays

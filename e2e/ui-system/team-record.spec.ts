@@ -116,6 +116,50 @@ for (const theme of ['light','dark'] as const) {
   await expect(frame.getByText('As recorded when wrapped',{exact:true})).toBeHidden()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  })
+ /* A turn can still be running in a conversation a wrap kept, and the host leaves `turn/interrupt` open for it. The
+    composer takes nothing new — no typing, no Send — but Stop is on, so the person can end what is running (#1317). */
+ test(`Wrapped Team: a turn still running in a kept conversation can be stopped, and nothing else is on, in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const frame=page.locator('#team-record-running')
+  await frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
+  await expect(frame.locator('textarea[data-slot="composer-text"]')).toHaveAttribute('placeholder','This Team is wrapped')
+  const stop=frame.getByRole('button',{name:'Stop',exact:true})
+  await expect(stop).toBeEnabled()
+  await expect(stop).toHaveAttribute('title','Stop this turn')
+  // Enabled is not enough. The corner is one coin wide and clips a second, so a refused send drawn beside Stop leaves a
+  // Stop that is on and cannot be pressed: the element a pointer finds at its centre is the composer's, not Stop. (A
+  // Playwright click is no proof — it scrolls the clipped track until Stop shows, which a person's pointer cannot do.)
+  await frame.scrollIntoViewIfNeeded()
+  expect(await stop.evaluate(node=>{
+    const box=node.getBoundingClientRect()
+    const hit=document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)
+    return hit!==null&&(hit===node||node.contains(hit))
+  })).toBe(true)
+  await expect(frame.locator('[data-slot="composer-send"]')).toHaveCount(1)
+  // The other Seat's turn finished: its conversation has nothing to stop, and its single control is off.
+  await frame.locator('aside [data-slot="list-row"]').filter({hasText:'Beta'}).click()
+  await expect(frame.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
+  await expect(frame.locator('[data-slot="composer-send"]')).toBeDisabled()
+ })
+ /* The Assign dialog is the one place a person chooses a conversation, and the host will not seat one a wrapped Team's
+    receipt keeps for another Team's card. It does not offer it, rather than offer it and refuse (#1317). */
+ test(`Wrapped Team: another Team's Assign dialog does not offer a conversation a wrapped Team keeps in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const open=page.locator('#team-record-assign')
+  await open.locator('aside').getByRole('button',{name:/^Board/}).click()
+  await open.getByRole('button',{name:'What to do with #3',exact:true}).click()
+  await page.getByRole('menuitem',{name:/^Give this to/}).click()
+  const dialog=page.locator('[data-slot="dialog-content"]')
+  await expect(dialog).toContainText('Assign a conversation')
+  const rows=dialog.getByRole('radio')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.filter({hasText:'Tidy the settings copy'})).toHaveCount(1)
+  await expect(rows.filter({hasText:'Add a test for the retry budget'})).toHaveCount(1)
+  await expect(dialog).not.toContainText('Tighten the checkout copy')
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click()
+  await expect(dialog).toHaveCount(0)
+ })
  test(`Wrapped Team: the sidebar lists Seats with no conversation in one nested list in ${theme}`, async ({page}) => {
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const sidebar=page.locator('#team-record-sidebar-unlinked')
