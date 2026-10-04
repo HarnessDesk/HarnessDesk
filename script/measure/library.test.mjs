@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
@@ -1465,25 +1465,26 @@ test('Cursor\'s calendar version is read exactly and nothing looser is', () => {
 
 // Cursor's install layout, staged: a launcher on PATH that points into
 // share/cursor-agent/versions/<version>/, where a script launcher finds its own
-// runtime and bundle beside it.
-function stageCursorInstall(base, version = '2026.09.28-64d2043') {
-  const versionDir = join(base, 'share/cursor-agent/versions', version)
+// runtime and bundle beside it. The runtime is a file of its own in the folder,
+// as Cursor's is; a link out of the folder is what staging refuses.
+function stageCursorInstall(base, version = '2026.09.28-64d2043', { launcher = 'cursor-agent', folder = join('share/cursor-agent/versions', version) } = {}) {
+  const versionDir = join(base, folder)
   fs.mkdirSync(versionDir, { recursive: true })
   fs.mkdirSync(join(base, 'bin'), { recursive: true })
-  fs.symlinkSync(process.execPath, join(versionDir, 'node'))
+  fs.writeFileSync(join(versionDir, 'node'), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`, { mode: 0o755 })
   fs.writeFileSync(join(versionDir, 'index.js'), `if (process.argv.includes('--version')) process.stdout.write(${JSON.stringify(`${version}\n`)})\n`)
-  fs.writeFileSync(join(versionDir, 'cursor-agent'), [
+  fs.writeFileSync(join(versionDir, launcher), [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
     'HERE="$(dirname "$(realpath "$0")")"',
     'exec "$HERE/node" "$HERE/index.js" "$@"',
     '',
   ].join('\n'), { mode: 0o755 })
-  fs.symlinkSync(join(versionDir, 'cursor-agent'), join(base, 'bin/cursor-agent'))
-  return { version, versionDir, launcher: join(versionDir, 'cursor-agent'), onPath: join(base, 'bin/cursor-agent'), bin: join(base, 'bin') }
+  fs.symlinkSync(join(versionDir, launcher), join(base, 'bin', launcher))
+  return { version, versionDir, launcher: join(versionDir, launcher), onPath: join(base, 'bin', launcher), bin: join(base, 'bin') }
 }
 
-test('a Cursor-shaped launcher-plus-versions install is discovered and its version read under strict isolation', async (t) => {
+test('a Cursor-shaped launcher-plus-versions install is discovered and its version read from a copy under strict isolation', async (t) => {
   if (process.platform !== 'darwin') return t.skip('macOS only')
   const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-cursor-'))
   t.after(() => rm(base, { recursive: true, force: true }))
@@ -1496,7 +1497,9 @@ test('a Cursor-shaped launcher-plus-versions install is discovered and its versi
   const agent = { id: 'cursor', name: 'Cursor', brand: 'cursor', home: { path: '~/.cursor' }, cli: { commands: ['cursor-agent'] } }
   const found = await harness.findAgentInstall(agent, fixture)
   assert.equal(found.state, 'chosen', JSON.stringify(found.copies))
-  assert.equal(found.chosen.path, install.launcher)
+  // What runs is the copy in the fixture, never the install it was copied from.
+  assert.ok(under(fixture.root, found.chosen.path), 'the launcher that runs is inside the fixture')
+  assert.notEqual(found.chosen.path, install.launcher)
   assert.equal(found.chosen.version, install.version)
   const captured = await harness.captureHelpVersion({ ...agent, command: found.chosen.path }, fixture)
   assert.equal(captured.version.code, 0, captured.version.stderr)
@@ -1531,4 +1534,339 @@ test('a launcher script under a credential root is refused by the unchanged prof
   assert.equal(control.stdout.trim(), underCredentialRoot.version, control.stderr)
   const outside = version(profilePath, elsewhere.launcher)
   assert.equal(outside.stdout.trim(), elsewhere.version, outside.stderr)
+})
+
+// ---------------------------------------------------------------------------
+// Round B2d: Cursor's launcher cannot run in place under the approved profile
+// (the credential-root test above shows why, rule by rule), so its one version
+// folder is copied into the fixture and launched from the copy, as the bundled
+// bridges are. No sandbox rule changes: the profile text stays pinned by the
+// test near the top of this file.
+// ---------------------------------------------------------------------------
+
+const CURSOR_AGENT = { id: 'cursor', name: 'Cursor', brand: 'cursor', home: { path: '~/.cursor' }, cli: { commands: ['cursor-agent'] } }
+
+// The harness reads the real home and PATH from the process. A test that needs
+// another home or another PATH sets them for its own length only.
+function usingEnv(t, vars) {
+  const prior = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]))
+  Object.assign(process.env, vars)
+  t.after(() => {
+    for (const [name, value] of Object.entries(prior)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
+}
+
+// Everything under a root, in a stable order, each with its kind, size and mode.
+async function walkTree(root) {
+  const entries = []
+  const walk = async (dir) => {
+    for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const path = join(dir, entry.name)
+      const info = fs.lstatSync(path)
+      const kind = info.isDirectory() ? 'dir' : info.isSymbolicLink() ? 'link' : info.isFile() ? 'file' : 'other'
+      entries.push({ rel: relative(root, path), kind, size: kind === 'file' ? info.size : 0, mode: info.mode & 0o777 })
+      if (kind === 'dir') await walk(path)
+    }
+  }
+  await walk(root)
+  return entries
+}
+
+const totalOf = (tree) => ({ files: tree.filter((entry) => entry.kind === 'file').length, bytes: tree.reduce((sum, entry) => sum + entry.size, 0) })
+
+// A stand-in home holding Cursor's install where it really lives, behind
+// ~/.local/bin and under the .local/share credential root. The harness takes
+// the real home from the process, so the stand-in is the home for this test.
+async function standInHome(t, version) {
+  const home = fs.realpathSync(await mkdtemp('/tmp/hd-measure-cursor-home-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const install = stageCursorInstall(join(home, '.local'), version)
+  usingEnv(t, { HOME: home, PATH: `${install.bin}:/usr/bin:/bin` })
+  return { home, install }
+}
+
+test('only a launcher named for the agent, directly inside a versions/<version> folder, is staged', () => {
+  const folder = '/h/.local/share/cursor-agent/versions/2026.10.01-e373342'
+  assert.equal(harness.stagedInstallRoot({ id: 'cursor' }, `${folder}/cursor-agent`), folder)
+  for (const [agent, path] of [
+    [{ id: 'claude-code' }, `${folder}/cursor-agent`],
+    [{ id: 'constructor' }, `${folder}/cursor-agent`],
+    [undefined, `${folder}/cursor-agent`],
+    [{ id: 'cursor' }, `${folder}/bin/cursor-agent`],
+    [{ id: 'cursor' }, `${folder}/agent`],
+    [{ id: 'cursor' }, '/opt/homebrew/Caskroom/cursor-cli/2026.02.13-41ac335/dist-package/cursor-agent'],
+    [{ id: 'cursor' }, undefined],
+  ]) assert.equal(harness.stagedInstallRoot(agent, path), null, `${agent?.id} ${path}`)
+})
+
+test('a Cursor install under a credential root is read from a copy in the fixture, where the same launcher in place is refused', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const { install } = await standInHome(t)
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-cursor-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const found = await harness.findAgentInstall(CURSOR_AGENT, fixture)
+  assert.equal(found.state, 'chosen', JSON.stringify({ reason: fixture.isolation.reason, copies: found.copies }))
+  assert.ok(under(fixture.root, found.chosen.path), 'the launcher that runs is inside the fixture')
+  assert.equal(found.chosen.version, install.version)
+  // The chosen install carries the copy's own numbers: the folder's files and bytes, and the time the copy took.
+  assert.deepEqual({ files: found.chosen.staged.files, bytes: found.chosen.staged.bytes }, totalOf(await walkTree(install.versionDir)))
+  assert.ok(Number.isInteger(found.chosen.staged.milliseconds) && found.chosen.staged.milliseconds >= 0)
+  const captured = await harness.captureHelpVersion({ ...CURSOR_AGENT, command: found.chosen.path }, fixture)
+  assert.equal(captured.version.code, 0, captured.version.stderr)
+  assert.equal(captured.value, install.version)
+  // Under the very profile that ran the copy, the install itself is refused: by the credential-root denial.
+  const inPlace = await run(install.launcher, ['--version'], fixture)
+  assert.notEqual(inPlace.code, 0)
+  assert.match(inPlace.stderr, /Operation not permitted/)
+  // No rule is added and none names the install: this is the plain strict profile, with no install allowance at all.
+  assert.deepEqual(fixture.isolation.readPaths, [])
+  assert.equal(fixture.isolation.profileText.includes(install.versionDir), false)
+  assert.equal(fixture.isolation.profileText, makeSandboxProfile(fixture.root, homedir(), { isolation: 'strict' }))
+})
+
+test('only the one resolved version folder is copied, with its modes, and nothing beside it', async (t) => {
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-stage-'))
+  t.after(() => { spawnSync('chmod', ['-R', 'u+rwx', base]); return rm(base, { recursive: true, force: true }) })
+  const install = stageCursorInstall(base, '2026.10.01-e373342')
+  // Inside the folder: nested folders and files, and a read-only folder.
+  fs.mkdirSync(join(install.versionDir, 'node_modules/pkg'), { recursive: true })
+  fs.writeFileSync(join(install.versionDir, 'node_modules/pkg/index.js'), 'module.exports = 1\n')
+  fs.writeFileSync(join(install.versionDir, '1268.index.js'), 'chunk\n')
+  fs.mkdirSync(join(install.versionDir, 'sealed'))
+  fs.writeFileSync(join(install.versionDir, 'sealed/data.bin'), 'sealed data\n', { mode: 0o444 })
+  fs.chmodSync(join(install.versionDir, 'sealed'), 0o555)
+  // Beside it, none of which may leave: an older version, a file next to the versions folder, an unrelated app's data.
+  fs.mkdirSync(join(base, 'share/cursor-agent/versions/2026.09.18-9a7762b'), { recursive: true })
+  fs.writeFileSync(join(base, 'share/cursor-agent/versions/2026.09.18-9a7762b/cursor-agent'), 'OLDER_VERSION_SENTINEL\n')
+  fs.writeFileSync(join(base, 'share/cursor-agent/beside-versions.json'), 'BESIDE_VERSIONS_SENTINEL\n')
+  fs.mkdirSync(join(base, 'share/other-app'), { recursive: true })
+  fs.writeFileSync(join(base, 'share/other-app/token.txt'), 'OTHER_APP_SENTINEL\n')
+  const before = await walkTree(install.versionDir)
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-stage-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+
+  const staged = await harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture)
+
+  // The fixture's install area holds that one folder and the folders above it, nothing else.
+  const area = join(fixture.root, 'agent-install')
+  assert.deepEqual(fs.readdirSync(area), ['0'])
+  assert.deepEqual(fs.readdirSync(join(area, '0')), [install.version])
+  const copy = join(area, '0', install.version)
+  assert.equal(staged.launcher, join(copy, 'cursor-agent'))
+  // The copy equals the folder, file modes kept. A folder keeps its mode too, except that its owner can always write
+  // to it, so the fixture can always be removed.
+  const copied = await walkTree(copy)
+  assert.deepEqual(copied.map(({ rel, kind, size }) => ({ rel, kind, size })), before.map(({ rel, kind, size }) => ({ rel, kind, size })))
+  for (const [index, entry] of before.entries()) assert.equal(copied[index].mode, entry.kind === 'dir' ? entry.mode | 0o700 : entry.mode, entry.rel)
+  assert.ok(fs.statSync(join(copy, 'cursor-agent')).mode & 0o100, 'the launcher is still executable')
+  assert.equal(fs.statSync(copy).mode & 0o777, (fs.statSync(install.versionDir).mode & 0o777) | 0o700, 'the folder itself too')
+  // The numbers recorded are the copy's own: files, bytes, and the time it took, as whole numbers.
+  assert.deepEqual({ files: staged.files, bytes: staged.bytes }, totalOf(before))
+  assert.ok(Number.isInteger(staged.milliseconds) && staged.milliseconds >= 0, String(staged.milliseconds))
+  // Nothing from beside the folder is anywhere in the fixture.
+  const leaked = []
+  for (const entry of await walkTree(fixture.root)) {
+    if (entry.kind !== 'file') continue
+    const text = await readFile(join(fixture.root, entry.rel), 'utf8')
+    for (const sentinel of ['OLDER_VERSION_SENTINEL', 'BESIDE_VERSIONS_SENTINEL', 'OTHER_APP_SENTINEL']) if (text.includes(sentinel)) leaked.push(`${entry.rel}: ${sentinel}`)
+  }
+  assert.deepEqual(leaked, [])
+  // The read-only folder does not stop the fixture from being removed.
+  await rm(fixture.root, { recursive: true })
+  assert.equal(existsSync(fixture.root), false)
+})
+
+test('a link that points outside the version folder is refused, and nothing is copied', async (t) => {
+  const refusal = 'cannot isolate: install directory links outside itself'
+  for (const [name, plant] of [
+    ['an absolute link to a file outside', (dir) => { fs.rmSync(join(dir, 'node')); fs.symlinkSync(process.execPath, join(dir, 'node')) }],
+    ['a relative link up and out', (dir, outside) => fs.symlinkSync(relative(dir, outside.file), join(dir, 'up'))],
+    ['a link to a folder outside', (dir, outside) => fs.symlinkSync(outside.dir, join(dir, 'lib'))],
+    ['a link that spells a path inside the folder and resolves outside through another link', (dir) => {
+      fs.mkdirSync(join(dir, 'x/y'), { recursive: true })
+      fs.symlinkSync('../..', join(dir, 'x/y/d'))
+      fs.symlinkSync('x/y/d/../..', join(dir, 'l'))
+    }],
+  ]) {
+    await t.test(name, async (t) => {
+      const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-links-'))
+      t.after(() => rm(base, { recursive: true, force: true }))
+      const install = stageCursorInstall(base)
+      const outside = { dir: join(base, 'outside'), file: join(base, 'outside/secret.txt') }
+      fs.mkdirSync(outside.dir)
+      fs.writeFileSync(outside.file, 'OUTSIDE_SENTINEL\n')
+      plant(install.versionDir, outside)
+      const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-links-fixture-'))
+      t.after(() => rm(fixture.root, { recursive: true, force: true }))
+      await assert.rejects(harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture), { message: refusal })
+      assert.equal(existsSync(join(fixture.root, 'agent-install')), false, 'nothing was copied')
+    })
+  }
+})
+
+test('a link that stays inside the version folder is kept as a link inside the copy', async (t) => {
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-inner-links-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const install = stageCursorInstall(base)
+  fs.mkdirSync(join(install.versionDir, 'node_modules'))
+  fs.symlinkSync('index.js', join(install.versionDir, 'current.js'))
+  fs.symlinkSync(join(install.versionDir, 'index.js'), join(install.versionDir, 'absolute.js'))
+  fs.symlinkSync('node_modules', join(install.versionDir, 'modules'))
+  fs.symlinkSync('missing.js', join(install.versionDir, 'dangling.js'))
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-inner-links-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const staged = await harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture)
+  const copy = join(fixture.root, 'agent-install/0', install.version)
+  for (const name of ['current.js', 'absolute.js', 'modules', 'dangling.js']) assert.ok(fs.lstatSync(join(copy, name)).isSymbolicLink(), name)
+  // Every link is spelled relative to its own folder, so it means the same in the copy, and none points back at the install.
+  assert.equal(fs.readlinkSync(join(copy, 'current.js')), 'index.js')
+  assert.equal(fs.readlinkSync(join(copy, 'absolute.js')), 'index.js')
+  assert.equal(fs.readlinkSync(join(copy, 'modules')), 'node_modules')
+  assert.equal(fs.readlinkSync(join(copy, 'dangling.js')), 'missing.js')
+  assert.ok(under(fs.realpathSync(copy), fs.realpathSync(join(copy, 'absolute.js'))))
+  assert.equal(fs.readFileSync(join(copy, 'absolute.js'), 'utf8'), fs.readFileSync(join(install.versionDir, 'index.js'), 'utf8'))
+  assert.equal(staged.files, totalOf(await walkTree(install.versionDir)).files, 'links are not counted as files')
+})
+
+test('a folder that is not Cursor\'s launcher with its runtime and bundle is not copied', async (t) => {
+  const layout = 'cannot isolate: install layout not recognized'
+  for (const [name, plant] of [
+    ['no runtime', (install) => fs.rmSync(join(install.versionDir, 'node'))],
+    ['no bundle', (install) => fs.rmSync(join(install.versionDir, 'index.js'))],
+    ['a runtime that is a folder', (install) => { fs.rmSync(join(install.versionDir, 'node')); fs.mkdirSync(join(install.versionDir, 'node')) }],
+  ]) {
+    await t.test(name, async (t) => {
+      const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-layout-'))
+      t.after(() => rm(base, { recursive: true, force: true }))
+      const install = stageCursorInstall(base)
+      plant(install)
+      const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-layout-fixture-'))
+      t.after(() => rm(fixture.root, { recursive: true, force: true }))
+      await assert.rejects(harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture), { message: layout })
+      assert.equal(existsSync(join(fixture.root, 'agent-install')), false, 'nothing was copied')
+    })
+  }
+  await t.test('a launcher that is not in a versions folder, or is another agent\'s', async (t) => {
+    const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-layout-'))
+    t.after(() => rm(base, { recursive: true, force: true }))
+    const install = stageCursorInstall(base, '2026.02.13-41ac335', { folder: 'Caskroom/cursor-cli/2026.02.13-41ac335/dist-package' })
+    const versions = stageCursorInstall(join(base, 'second'))
+    const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-layout-fixture-'))
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    await assert.rejects(harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture), { message: layout })
+    await assert.rejects(harness.stageInstallFolder({ id: 'claude-code' }, versions.launcher, fixture), { message: layout })
+    assert.equal(existsSync(join(fixture.root, 'agent-install')), false, 'nothing was copied')
+  })
+})
+
+test('a folder that holds anything but files, folders and links, or the home itself, is not copied', async (t) => {
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-entries-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const install = stageCursorInstall(base)
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-entries-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  // A folder that holds the home is never an install root the harness allows; staging refuses it too, whoever calls it.
+  await assert.rejects(harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture, { realHome: install.versionDir }), { message: 'cannot isolate: install directory unsafe' })
+  // A named pipe would block a copy forever, so it is refused before anything is read.
+  assert.equal(spawnSync('mkfifo', [join(install.versionDir, 'pipe')]).status, 0)
+  await assert.rejects(harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture), { message: 'cannot isolate: install directory holds an entry that is not a file, a folder or a link' })
+  assert.equal(existsSync(join(fixture.root, 'agent-install')), false, 'nothing was copied')
+})
+
+test('an install that is not Cursor\'s versions layout is launched in place, as before, with its folder allowed', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  for (const [name, agent, options] of [
+    ['another agent with a versions folder', { id: 'claude-code', name: 'Claude Code', brand: 'claude', home: { path: '~/.claude' }, cli: { commands: ['claude'] } }, { launcher: 'claude' }],
+    ['Cursor\'s launcher outside a versions folder', CURSOR_AGENT, { folder: 'Caskroom/cursor-cli/2026.02.13-41ac335/dist-package' }],
+  ]) {
+    await t.test(name, async (t) => {
+      const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-inplace-'))
+      t.after(() => rm(base, { recursive: true, force: true }))
+      const install = stageCursorInstall(base, '2026.02.13-41ac335', options)
+      usingEnv(t, { PATH: `${install.bin}:/usr/bin:/bin` })
+      const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-inplace-fixture-'))
+      t.after(() => rm(fixture.root, { recursive: true, force: true }))
+      const found = await harness.findAgentInstall(agent, fixture)
+      assert.equal(found.state, 'chosen', JSON.stringify(found.copies))
+      assert.equal(found.chosen.path, install.launcher)
+      assert.equal(found.chosen.staged, undefined)
+      assert.deepEqual(fixture.isolation.readPaths, [install.versionDir])
+      assert.equal(existsSync(join(fixture.root, 'agent-install')), false)
+    })
+  }
+})
+
+test('when the copy is refused nothing is launched in place instead', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  // Outside any credential root, where running in place would work: a fallback would show as a chosen install.
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-refused-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const install = stageCursorInstall(base)
+  fs.rmSync(join(install.versionDir, 'node'))
+  fs.symlinkSync(process.execPath, join(install.versionDir, 'node'))
+  usingEnv(t, { PATH: `${install.bin}:/usr/bin:/bin` })
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-refused-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const found = await harness.findAgentInstall(CURSOR_AGENT, fixture)
+  assert.equal(found.chosen, null)
+  assert.equal(found.state, 'unsafe')
+  assert.deepEqual(found.copies.map((copy) => copy.reason), ['cannot isolate: install directory links outside itself'])
+  assert.equal(existsSync(join(fixture.root, 'agent-install')), false)
+})
+
+test('the ask path is handed the copy, and the copy runs under keychain-read-only too', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const { install } = await standInHome(t)
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-cursor-ask-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const found = await harness.findAgentInstall(CURSOR_AGENT, fixture)
+  assert.equal(found.state, 'chosen', JSON.stringify({ reason: fixture.isolation.reason, copies: found.copies }))
+  // A model run's steps in the order the harness takes them, with a scripted bridge in place of Cursor's and the
+  // handshake alone: no prompt is sent, and no vendor agent runs.
+  const packagesRoot = join(fixture.root, 'packages')
+  const requests = join(fixture.root, 'bridge-requests.jsonl')
+  const source = await readFile(new URL('../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url), 'utf8')
+  await mkdir(join(packagesRoot, 'cursor-acp/dist/src'), { recursive: true })
+  await writeFile(join(packagesRoot, 'cursor-acp/package.json'), '{"type":"module"}')
+  await writeFile(join(packagesRoot, 'cursor-acp/dist/src/main.js'), source.replace('const handler = handlers[message.method]', `appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ method: message.method, executable: process.env.CURSOR_ACP_COMMAND }) + '\\n');\n  const handler = handlers[message.method]`))
+  const agent = { ...CURSOR_AGENT, command: found.chosen.path, acp: { args: [], bridge: { command: 'cursor-acp', args: [], executableEnv: 'CURSOR_ACP_COMMAND' } } }
+  const resolved = await harness.resolveModelBridge(agent, { packagesRoot, realHome: join(fixture.root, 'real-home') })
+  const stagedBridge = await harness.stageModelBridge(resolved.agent, fixture)
+  assert.equal(await prepareSandbox(fixture, { isolation: KEYCHAIN_READ_ONLY, readPaths: fixture.isolation.readPaths }), true, fixture.isolation.reason)
+  installProbes({ registerProbe: () => {}, createPromptBudget: harness.createPromptBudget, run })
+  const result = await probeModule.probeAcpHandshake(stagedBridge, fixture)
+  assert.equal(result.status, 'asked')
+  assert.equal(result.prompted, false)
+  const sent = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
+  assert.ok(sent.length > 0 && sent.every((request) => request.executable === found.chosen.path), 'the bridge is handed the copy')
+  const version = await run(found.chosen.path, ['--version'], fixture)
+  assert.equal(version.stdout.trim(), install.version, version.stderr)
+})
+
+test('a staged copy and an install run in place are found side by side, and the newest wins', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  // The shape of a real machine: Cursor's own install and an older cask copy, each behind a bin folder of its own,
+  // and a second link to the first. The older one is first on PATH, so only the versions can put the newer first.
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-side-by-side-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const newer = stageCursorInstall(join(base, 'own'), '2026.10.01-e373342')
+  const older = stageCursorInstall(join(base, 'cask'), '2026.02.13-41ac335', { folder: 'Caskroom/cursor-cli/2026.02.13-41ac335/dist-package' })
+  fs.mkdirSync(join(base, 'twin/bin'), { recursive: true })
+  fs.symlinkSync(newer.launcher, join(base, 'twin/bin/cursor-agent'))
+  usingEnv(t, { PATH: `${older.bin}:${newer.bin}:${join(base, 'twin/bin')}:/usr/bin:/bin` })
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-side-by-side-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const found = await harness.findAgentInstall(CURSOR_AGENT, fixture)
+  assert.equal(found.state, 'chosen', JSON.stringify(found.copies))
+  assert.ok(under(fixture.root, found.chosen.path), 'the newer install is run from its copy')
+  assert.equal(found.chosen.version, newer.version)
+  assert.deepEqual(found.copies.map((copy) => [copy.version, copy.standing]), [[newer.version, 'chosen'], [older.version, 'older']])
+  // The older one was read in place, and only its folder is allowed. The newer one's folder is not.
+  assert.deepEqual(fixture.isolation.readPaths, [older.versionDir])
+  // One folder is one copy, however many paths lead to it.
+  assert.deepEqual(fs.readdirSync(join(fixture.root, 'agent-install')), ['0'])
+  assert.deepEqual(fs.readdirSync(join(fixture.root, 'agent-install/0')), [newer.version])
 })

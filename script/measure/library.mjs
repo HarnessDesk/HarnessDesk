@@ -1,10 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { constants, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
 
 import { PROMPT_ACTIVITY_KEYS } from './probes/index.mjs'
@@ -834,8 +835,10 @@ export async function findAgentInstall(agent, fixture, options = {}) {
         unsafeCopies.push({ path, reason: 'cannot isolate: install runtime boundary unavailable' })
         continue
       }
-      copyRoots.push(installRoot)
-      candidateRecords.push({ path, realPath, installRoot })
+      // A staged folder is copied into the fixture and run from there, so the real one gets no read allowance.
+      const isStaged = stagedInstallRoot(agent, realPath) === installRoot
+      if (!isStaged) copyRoots.push(installRoot)
+      candidateRecords.push({ path, realPath, installRoot, staged: isStaged })
     } catch {
       candidateRecords.push({ path, unreadable: true })
     }
@@ -849,13 +852,27 @@ export async function findAgentInstall(agent, fixture, options = {}) {
     return { chosen: null, copies, state: installDiscoveryState({ candidateCount: unreadablePaths.length + unsafeCopies.length, copies, unsafeCount: unsafeCopies.length }) }
   }
   if (!candidateRecords.length) return { chosen: null, copies: unsafeCopies, state: 'unsafe' }
+  // Each staged folder is copied once, however many paths lead to it, and every launch below is of the copy. A copy
+  // that is refused is not replaced by running the install in place: that is the launch the profile refuses.
+  const staged = new Map()
+  for (const record of candidateRecords) {
+    if (!record.staged || staged.has(record.realPath)) continue
+    staged.set(record.realPath, await stageInstallFolder(agent, record.realPath, fixture, { index: staged.size, realHome }).catch((error) => ({ refusal: error.message })))
+  }
+  const launchable = []
+  for (const record of candidateRecords) {
+    const copy = record.staged ? staged.get(record.realPath) : null
+    if (copy?.refusal) unsafeCopies.push({ path: record.path, reason: copy.refusal })
+    else launchable.push(copy ? { ...record, runPath: copy.launcher, copy } : record)
+  }
+  if (!launchable.length) return { chosen: null, copies: unsafeCopies, state: 'unsafe' }
   const found = await findInstalls(spec, {
     ...locateOptions,
     probe: async (path, args) => {
       try {
-        const candidate = candidateRecords.find((entry) => entry.path === path)
+        const candidate = launchable.find((entry) => entry.path === path)
         if (!candidate || candidate.unreadable) return null
-        const result = await run(candidate.realPath, [...args], fixture, { timeoutMs: 10_000 })
+        const result = await run(candidate.runPath ?? candidate.realPath, [...args], fixture, { timeoutMs: 10_000 })
         return result.code === 0 ? `${result.stdout}\n${result.stderr}` : null
       } catch {
         return null
@@ -864,7 +881,13 @@ export async function findAgentInstall(agent, fixture, options = {}) {
   })
   const judged = judgeInstalls(found, { minVersion: spec.minVersion })
   const copies = [...judged.copies, ...unsafeCopies, ...unreadablePaths.map((path) => ({ path, standing: 'unreadable' }))]
-  const chosen = judged.chosen ? { ...judged.chosen, path: judged.chosen.realPath } : null
+  const chosenRecord = judged.chosen ? launchable.find((entry) => entry.realPath === judged.chosen.realPath) : null
+  const chosen = judged.chosen
+    ? {
+        ...judged.chosen, path: chosenRecord?.runPath ?? judged.chosen.realPath,
+        ...(chosenRecord?.copy ? { staged: { bytes: chosenRecord.copy.bytes, files: chosenRecord.copy.files, milliseconds: chosenRecord.copy.milliseconds } } : {}),
+      }
+    : null
   return { chosen, copies, state: installDiscoveryState({ candidateCount: candidates.length, copies, chosen, unsafeCount: unsafeCopies.length }) }
 }
 
@@ -934,6 +957,112 @@ export async function stageModelBridge(agent, fixture) {
     return { ...agent, acp: { ...agent.acp, bridge: { ...agent.acp.bridge, args: [join(staged, relative(root, entry))] } } }
   } catch (error) {
     throw new Error(error.message === 'cannot isolate: bridge install directory unsafe' ? error.message : 'bridge not installed')
+  }
+}
+
+// Cursor's launcher is a shell script in share/cursor-agent/versions/<version>/,
+// under the `.local/share` credential root. Run in place it is refused twice by
+// the approved profile: that root's final denial overrides any install
+// allowance, and the script's own `realpath "$0"` reads the metadata of every
+// folder above it, which the blanket home denial refuses (README). Neither rule
+// is touched. The one version folder is copied into the fixture instead and
+// launched from the copy, as the bundled bridges are, so the strict profile that
+// already allows the fixture is all it needs. Per agent, what that folder must
+// hold: the launcher, then the runtime and bundle it runs.
+const STAGED_INSTALLS = { cursor: { launcher: 'cursor-agent', bundle: ['node', 'index.js'] } }
+const STAGED_INSTALL_DIR = 'agent-install'
+// Every way a copy is refused, spelled once and path-free: nothing else leaves staging.
+const STAGED_INSTALL_REFUSALS = Object.freeze({
+  layout: 'cannot isolate: install layout not recognized',
+  links: 'cannot isolate: install directory links outside itself',
+  entry: 'cannot isolate: install directory holds an entry that is not a file, a folder or a link',
+  unsafe: 'cannot isolate: install directory unsafe',
+  copy: 'cannot isolate: install copy failed',
+})
+
+// The folder that would be copied, from the launcher's resolved path alone: the
+// agent's own launcher, directly inside a folder that is directly inside a
+// `versions` folder. Anything else is not staged and keeps the in-place launch it
+// always had.
+export function stagedInstallRoot(agent, realLauncher) {
+  const layout = Object.hasOwn(STAGED_INSTALLS, agent?.id) ? STAGED_INSTALLS[agent.id] : null
+  if (!layout || typeof realLauncher !== 'string' || basename(realLauncher) !== layout.launcher) return null
+  const folder = dirname(realLauncher)
+  return basename(dirname(folder)) === 'versions' ? folder : null
+}
+
+// Copies that one folder into the fixture's install area and returns the
+// launcher inside the copy, with the copy's size and the time it took. Only the
+// folder is read: the folder above it and everything beside it are never
+// touched. The whole folder is judged before anything is written, so a refusal
+// leaves nothing behind. A link may point only inside the folder; it is
+// recreated, never followed, because a copy that reached outside through one
+// would be reading the credential root the profile exists to keep out. File
+// modes are kept. A folder's own mode is applied last and its owner always keeps
+// write access, so nothing in the fixture can become impossible to remove.
+export async function stageInstallFolder(agent, realLauncher, fixture, { index = 0, realHome = realpathSync(homedir()) } = {}) {
+  const started = performance.now()
+  try {
+    const layout = Object.hasOwn(STAGED_INSTALLS, agent?.id) ? STAGED_INSTALLS[agent.id] : null
+    const folder = stagedInstallRoot(agent, realLauncher)
+    if (!layout || !folder) throw new Error(STAGED_INSTALL_REFUSALS.layout)
+    // The native realpath, here and for every link below: the kernel reads the copy, and it follows a link before
+    // it applies a `..` after it, where Node's own realpath folds `a/link/..` as a string and can say "inside".
+    const root = realpathSync.native(folder)
+    if (!installRootIsSafe(root, realHome)) throw new Error(STAGED_INSTALL_REFUSALS.unsafe)
+    const entries = []
+    const walk = async (dir) => {
+      for (const name of (await readdir(dir)).sort()) {
+        const path = join(dir, name)
+        const info = await lstat(path)
+        const rel = relative(root, path)
+        if (info.isDirectory()) {
+          entries.push({ rel, type: 'dir', mode: info.mode })
+          await walk(path)
+        } else if (info.isFile()) {
+          entries.push({ rel, type: 'file', mode: info.mode })
+        } else if (info.isSymbolicLink()) {
+          // Both where the link is spelled to go and where it really ends up must be inside: a link through
+          // another link can end somewhere its spelling does not say. A link to nothing has no end, so only
+          // its spelling can be judged.
+          const spelled = resolve(dir, await readlink(path))
+          let ends = spelled
+          try { ends = realpathSync.native(path) } catch (error) { if (error?.code !== 'ENOENT') throw new Error(STAGED_INSTALL_REFUSALS.links) }
+          if (!isWithin(root, spelled) || !isWithin(root, ends)) throw new Error(STAGED_INSTALL_REFUSALS.links)
+          entries.push({ rel, type: 'link', target: relative(dir, spelled) || '.' })
+        } else throw new Error(STAGED_INSTALL_REFUSALS.entry)
+      }
+    }
+    await walk(root)
+    for (const name of [layout.launcher, ...layout.bundle]) {
+      if (!(await stat(join(root, name)).catch(() => null))?.isFile()) throw new Error(STAGED_INSTALL_REFUSALS.layout)
+    }
+    const parent = join(fixture.root, STAGED_INSTALL_DIR, String(index))
+    const target = join(parent, basename(root))
+    let bytes = 0
+    let files = 0
+    try {
+      await mkdir(target, { recursive: true, mode: 0o700 })
+      for (const entry of entries) {
+        const to = join(target, entry.rel)
+        if (entry.type === 'dir') await mkdir(to, { mode: 0o700 })
+        else if (entry.type === 'link') await symlink(entry.target, to)
+        else {
+          await copyFile(join(root, entry.rel), to, constants.COPYFILE_EXCL)
+          await chmod(to, entry.mode & 0o777)
+          bytes += (await lstat(to)).size
+          files += 1
+        }
+      }
+      for (const entry of entries.filter((one) => one.type === 'dir').reverse()) await chmod(join(target, entry.rel), (entry.mode & 0o777) | 0o700)
+      await chmod(target, ((await lstat(root)).mode & 0o777) | 0o700)
+    } catch {
+      await rm(parent, { recursive: true, force: true }).catch(() => {})
+      throw new Error(STAGED_INSTALL_REFUSALS.copy)
+    }
+    return { launcher: join(target, basename(realLauncher)), bytes, files, milliseconds: Math.round(performance.now() - started) }
+  } catch (error) {
+    throw new Error(Object.values(STAGED_INSTALL_REFUSALS).includes(error?.message) ? error.message : STAGED_INSTALL_REFUSALS.copy)
   }
 }
 
