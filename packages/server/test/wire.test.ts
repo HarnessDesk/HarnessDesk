@@ -2552,6 +2552,48 @@ test('worktree/list answers for a submodule, or a checkout made with --separate-
   })
 })
 
+test('worktree listings preserve trailing whitespace in an open checkout\'s external database path', async (t) => {
+  for (const layout of ['submodule', 'separate'] as const) {
+    for (const [name, suffix] of [['space', ' '], ['tab', '\t']] as const) {
+      await t.test(`${layout} database ending in ${name}`, async (t) => {
+        const harness = await start()
+        t.after(() => stop(harness))
+        const client = await Client.connect(harness.server)
+        t.after(() => client.close())
+        const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-database-whitespace-')))
+        t.after(() => rm(scratch, { recursive: true, force: true }))
+        const work = layout === 'submodule' ? join(scratch, 'super', 'work') : join(scratch, 'work')
+        let database: string
+        if (layout === 'submodule') {
+          const origin = join(scratch, 'origin')
+          const superproject = join(scratch, 'super')
+          for (const repo of [origin, superproject]) {
+            await mkdir(repo)
+            await gitIn(repo, 'init', '-q', '-b', 'main')
+            await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+          }
+          await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q',
+            '--name', `module${suffix}`, origin, work)
+          database = join(superproject, '.git', 'modules', `module${suffix}`)
+        } else {
+          database = join(scratch, `work.git${suffix}`)
+          await gitIn(scratch, 'init', '-q', '-b', 'main', `--separate-git-dir=${database}`, work)
+          await gitIn(work, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+        }
+        // Git's output really carries the suffix, and no trimmed sibling exists.
+        assert.equal(await gitIn(work, 'rev-parse', '--path-format=absolute', '--git-common-dir'), `${database}\n`)
+        assert.equal(existsSync(database.trimEnd()), false)
+        await assert.rejects(() => client.call('worktree/list', { root: work }), /not a project opened here/)
+        await client.call('workspace/open', { path: work })
+        for (const method of ['worktree/list', 'git/worktrees'] as const) {
+          const listed = await client.call(method, { root: work }) as readonly { path: string; isMain: boolean }[]
+          assert.deepEqual(listed.map((entry) => [entry.path, entry.isMain]), [[work, true]])
+        }
+      })
+    }
+  }
+})
+
 test('a folder whose .git file names a repository elsewhere is refused by the worktree verbs, as by the git ones, until that repository is open', async (t) => {
   // Git takes the folder holding such a `.git` file as the checkout, and lists
   // the folder of the repository the file names instead. Counting the folder a
