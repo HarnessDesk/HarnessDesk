@@ -1731,6 +1731,46 @@ test('a link that stays inside the version folder is kept as a link inside the c
   assert.equal(staged.files, totalOf(await walkTree(install.versionDir)).files, 'links are not counted as files')
 })
 
+test('an absolute link through a directory link followed by .. keeps its real target in the copy', async (t) => {
+  await mkdir('/tmp/rev-1332', { recursive: true })
+  const base = fs.realpathSync(await mkdtemp('/tmp/rev-1332/absolute-links-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const install = stageCursorInstall(base)
+  fs.mkdirSync(join(install.versionDir, 'a'))
+  fs.mkdirSync(join(install.versionDir, 'b/nested'), { recursive: true })
+  fs.writeFileSync(join(install.versionDir, 'a/index.js'), 'STRING_NORMALIZED_TARGET\n')
+  fs.writeFileSync(join(install.versionDir, 'b/index.js'), 'NATIVE_REAL_TARGET\n')
+  fs.symlinkSync('../b/nested', join(install.versionDir, 'a/link'))
+  // Keep the .. in the target: join() would normalize it before the kernel can follow the directory link.
+  for (const name of ['absolute.js', 'a/absolute.js']) fs.symlinkSync(`${install.versionDir}/a/link/../index.js`, join(install.versionDir, name))
+  const fixture = await createFixture(join(base, 'fixture'))
+
+  const staged = await harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture)
+  const copy = join(fixture.root, 'agent-install/0', install.version)
+  assert.equal(staged.launcher, join(copy, 'cursor-agent'))
+  for (const name of ['absolute.js', 'a/absolute.js']) {
+    const sourceLink = join(install.versionDir, name)
+    const copyLink = join(copy, name)
+    const sourceEnd = fs.realpathSync.native(sourceLink)
+    assert.equal(sourceEnd, join(install.versionDir, 'b/index.js'))
+    assert.ok(fs.lstatSync(copyLink).isSymbolicLink())
+    assert.equal(fs.realpathSync.native(copyLink), join(copy, relative(install.versionDir, sourceEnd)))
+    assert.equal(fs.readFileSync(copyLink, 'utf8'), fs.readFileSync(sourceLink, 'utf8'))
+  }
+})
+
+test('an absolute dangling link refuses the copy before anything is written', async (t) => {
+  await mkdir('/tmp/rev-1332', { recursive: true })
+  const base = fs.realpathSync(await mkdtemp('/tmp/rev-1332/dangling-links-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const install = stageCursorInstall(base)
+  fs.symlinkSync(join(install.versionDir, 'missing.js'), join(install.versionDir, 'absolute.js'))
+  const fixture = await createFixture(join(base, 'fixture'))
+
+  await assert.rejects(harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture), { message: 'cannot isolate: install directory links outside itself' })
+  assert.equal(existsSync(join(fixture.root, 'agent-install')), false, 'nothing was copied')
+})
+
 test('a folder that is not Cursor\'s launcher with its runtime and bundle is not copied', async (t) => {
   const layout = 'cannot isolate: install layout not recognized'
   for (const [name, plant] of [

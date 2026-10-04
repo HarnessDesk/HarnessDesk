@@ -1035,14 +1035,14 @@ export async function stageInstallFolder(agent, realLauncher, fixture, { index =
           entries.push({ rel, type: 'file', mode: info.mode })
         } else if (info.isSymbolicLink()) {
           // Both where the link is spelled to go and where it really ends up must be inside: a link through
-          // another link can end somewhere its spelling does not say. A link to nothing has no end, so only
-          // its spelling can be judged.
+          // another link can end somewhere its spelling does not say. A relative link to nothing keeps its
+          // spelling; an absolute one must have a verified end before it can be rebased.
           const target = await readlink(path)
           const spelled = resolve(dir, target)
           let ends = spelled
-          try { ends = realpathSync.native(path) } catch (error) { if (error?.code !== 'ENOENT') throw new Error(STAGED_INSTALL_REFUSALS.links) }
+          try { ends = realpathSync.native(path) } catch (error) { if (error?.code !== 'ENOENT' || isAbsolute(target)) throw new Error(STAGED_INSTALL_REFUSALS.links) }
           if (!isWithin(root, spelled) || !isWithin(root, ends)) throw new Error(STAGED_INSTALL_REFUSALS.links)
-          entries.push({ rel, type: 'link', target: isAbsolute(target) ? (relative(dir, spelled) || '.') : target })
+          entries.push({ rel, type: 'link', target: isAbsolute(target) ? (relative(dir, ends) || '.') : target })
         } else throw new Error(STAGED_INSTALL_REFUSALS.entry)
       }
     }
