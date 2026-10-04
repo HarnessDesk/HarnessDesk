@@ -625,6 +625,7 @@ const flowEvidenceGuardValidator: Validator<FlowEvidenceGuard> = (value, path = 
 }
 const flowCheckValidator = goalShape({
   run: atMost(4000, isFilled),
+  onRequest: optional(isBoolean),
   cwd: optional(atMost(4096)),
   timeout: goalInteger(1),
   exits: recordOf(atMost(200, isFilled)),

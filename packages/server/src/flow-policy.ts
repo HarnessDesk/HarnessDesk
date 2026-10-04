@@ -42,8 +42,8 @@ const BUDGET_FIELDS = new Set(['rounds', 'without-progress'])
 /** The most rounds a budget may name, either key. */
 const BUDGET_LIMIT = 100
 const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf', 'blind'])
-const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'timeout', 'cwd'])
-const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd'])
+const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'timeout', 'cwd', 'onRequest'])
+const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd', 'onRequest'])
 const PERSON_FIELDS = new Set(['kind', 'outcomes'])
 const RULE_FIELDS = new Set(['id', 'on', 'when', 'then'])
 const THEN_FIELDS = new Set(['role', 'title', 'detail', 'files', 'split'])
@@ -159,7 +159,7 @@ const readThen = (value: unknown, at: string, problems: FlowProblem[]): FlowThen
 
 const readCheck = (record: Record<string, unknown>, at: string, problems: FlowProblem[]): FlowCheck | null => {
   const nested = record['check']
-  const flat = ['run', 'exits', 'otherwise', 'timeout', 'cwd'].some((key) => record[key] !== undefined)
+  const flat = [...CHECK_VALUE_FIELDS].some((key) => record[key] !== undefined)
   if (nested !== undefined && flat) {
     problems.push(problem('error', at, 'write a nested check or flat check fields, not both'))
     return null
@@ -170,6 +170,10 @@ const readCheck = (record: Record<string, unknown>, at: string, problems: FlowPr
     return null
   }
   if (nested !== undefined) unknownKeys(source, CHECK_VALUE_FIELDS, `${at}.check`, problems)
+  const onRequest = source['onRequest']
+  if (onRequest !== undefined && typeof onRequest !== 'boolean') {
+    problems.push(problem('error', `${at}${nested === undefined ? '' : '.check'}.onRequest`, 'onRequest must be a boolean'))
+  }
   const run = asText(source['run'])?.trim()
   if (!run) {
     problems.push(problem('error', `${at}.run`, 'a check needs a command to run'))
@@ -184,7 +188,7 @@ const readCheck = (record: Record<string, unknown>, at: string, problems: FlowPr
   }
   const otherwise = asText(source['otherwise'])?.trim() || 'fail'
   const timeout = integer(source['timeout'], `${at}.timeout`, problems, DEFAULT_TIMEOUT, 1, DEFAULT_TIMEOUT)
-  return { run, ...(asText(source['cwd'])?.trim() ? { cwd: asText(source['cwd'])!.trim() } : {}), timeout, exits, otherwise }
+  return { run, ...(typeof onRequest === 'boolean' ? { onRequest } : {}), ...(asText(source['cwd'])?.trim() ? { cwd: asText(source['cwd'])!.trim() } : {}), timeout, exits, otherwise }
 }
 
 const readEvidence = (value: unknown, at: string, problems: FlowProblem[]): FlowEvidenceGuard[] => {
@@ -664,6 +668,7 @@ export const serializeFlowPolicy = (policy: FlowPolicy): string => {
     } else if (role.kind === 'person') lines.push(`    outcomes: [${role.outcomes.map(scalar).join(', ')}]`)
     else {
       lines.push(`    run: ${scalar(role.check.run)}`, `    exits: { ${Object.entries(role.check.exits).map(([code, outcome]) => `${code}: ${scalar(outcome)}`).join(', ')} }`, `    otherwise: ${scalar(role.check.otherwise)}`, `    timeout: ${role.check.timeout}`)
+      if (role.check.onRequest !== undefined) lines.push(`    onRequest: ${role.check.onRequest}`)
       if (role.check.cwd) lines.push(`    cwd: ${scalar(role.check.cwd)}`)
     }
   }

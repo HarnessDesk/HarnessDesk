@@ -85,6 +85,17 @@ rules:
     then: { role: referee, title: "Merge it" }
 `
 
+test('legacy check declarations keep a boolean onRequest for conversion and reject other values', () => {
+  for (const field of ['', ', onRequest: true', ', onRequest: false']) {
+    const source = `name: Check\nroles:\n  tests: { kind: check, run: "pnpm test", exits: { 0: pass }${field} }\nseed: { role: tests, title: Test }\nrules: []\n`
+    const parsed = parseFlow(source)
+    assert.ok(parsed.flow, JSON.stringify(parsed.problems))
+    assert.deepEqual(parsed.flow.roles[0]?.check, { run: 'pnpm test', exits: { 0: 'pass' }, otherwise: 'fail', timeout: 900, ...(field ? { onRequest: field.includes('true') } : {}) })
+  }
+  const invalid = parseFlow('name: Check\nroles:\n  tests: { kind: check, run: "pnpm test", exits: { 0: pass }, onRequest: "true" }\nseed: { role: tests, title: Test }\n')
+  assert.ok(invalid.problems.some((one) => one.level === 'error' && /boolean/.test(one.text)))
+})
+
 const read = (source: string) => {
   const { flow, problems } = parseFlow(source)
   assert.ok(flow, `the flow did not parse: ${problems.map((one) => one.text).join('; ')}`)

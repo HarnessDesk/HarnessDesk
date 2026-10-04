@@ -8,6 +8,7 @@ import { parseClientMessage, ValidationError, type HostMethodName } from '@harne
 import { Agents } from '../src/agents.js'
 import { AuthoringPlane, COPY_AGENTS_FIRST, MODELS_STAY_HERE } from '../src/authoring/plane.js'
 import { TreeQueue } from '../src/flow-update.js'
+import { parseFlowPolicy } from '../src/flow-policy.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { tempDir } from './scratch.js'
 
@@ -131,6 +132,23 @@ const setup = async () => {
 }
 
 const agentFile = (prefer: string) => `---\nname: Reviewer\nceiling: read\nanswers: [done]\nprefer: [${prefer}]\n---\n\nReview it.\n`
+
+test('a parsed check policy renders through the wire and handler without changing onRequest', async () => {
+  const { plane } = await setup()
+  const ctx = { authoring: plane } as unknown as HostContext
+  for (const field of ['', ', onRequest: true', ', onRequest: false']) {
+    const parsed = parseFlowPolicy(`version: 2\nname: Checks\nbudget: { rounds: 3, without-progress: 2 }\nroles:\n  verify: { kind: check, run: "pnpm test"${field} }\nseed: { role: verify, title: Verify }\n`)
+    assert.ok(parsed.document?.format === 'agents', JSON.stringify(parsed.problems))
+    const policy = parsed.document.flow
+    const message = parseClientMessage({ id: 1, method: 'authoring/shape/render', params: { policy } })
+    assert.equal(message.method, 'authoring/shape/render')
+    const rendered = await dispatch(ctx, 'authoring/shape/render', message.params as import('@harnessdesk/protocol').HostParams<'authoring/shape/render'>)
+    assert.deepEqual(rendered.issues, [])
+    const again = parseFlowPolicy(rendered.source)
+    assert.ok(again.document?.format === 'agents', JSON.stringify(again.problems))
+    assert.deepEqual(again.document.flow, policy)
+  }
+})
 
 test('creation and scope are explicit', async () => {
   const { project, plane } = await setup()

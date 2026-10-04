@@ -13,6 +13,31 @@ import { checkRetryRefusal, isPersonReviewStep, parseClientMessage, ValidationEr
 
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
+const checkPolicy = (check: Record<string, unknown>) => ({
+  version: 2, name: 'Checks', inputs: [], rules: [], messaging: 'board-only', wait: 60,
+  roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm test', timeout: 60, exits: { 0: 'pass' }, otherwise: 'fail', ...check } }],
+  seed: { role: 'verify', title: 'Verify' },
+})
+
+for (const onRequest of [undefined, true, false]) test(`authoring/shape/render preserves check onRequest ${String(onRequest)}`, () => {
+  const policy = checkPolicy(onRequest === undefined ? {} : { onRequest })
+  const message = request('authoring/shape/render', { policy })
+  const parsed = (message.params as HostParams<'authoring/shape/render'>).policy
+  // Optional fields may be normalized to undefined, but JSON must preserve the policy exactly.
+  assert.deepEqual(JSON.parse(JSON.stringify(parsed)), policy)
+})
+
+test('authoring/shape/render refuses non-boolean check onRequest values at their own field', () => {
+  for (const onRequest of ['true', 'false', 0, 1, [], {}]) {
+    assert.throws(() => request('authoring/shape/render', { policy: checkPolicy({ onRequest }) }), (error: unknown) => {
+      assert.ok(error instanceof ValidationError)
+      assert.equal(error.path, 'message.params.policy.roles[0].check.onRequest')
+      assert.match(error.message, /expected boolean/)
+      return true
+    })
+  }
+})
+
 test('flow/start-goal accepts optional lineage, and keeps output metadata host-owned', () => {
   const params = { root: '/repo', source: 'version: 2', token: 't1', sentence: 'Go' }
   assert.doesNotThrow(() => request('flow/start-goal', { ...params, continues: 'flow-earlier' }))

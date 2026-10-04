@@ -393,6 +393,10 @@ const readCheck = (value: unknown, at: string, problems: FlowProblem[]): FlowChe
     problems.push(problem('error', at, 'a check is a command: { run: "pnpm test", exits: { 0: pass } }'))
     return null
   }
+  const onRequest = record['onRequest']
+  if (onRequest !== undefined && typeof onRequest !== 'boolean') {
+    problems.push(problem('error', `${at}.onRequest`, 'onRequest must be a boolean'))
+  }
   const run = asText(record['run'])
   if (!run) {
     problems.push(problem('error', `${at}.run`, 'a check needs a command to run'))
@@ -418,6 +422,7 @@ const readCheck = (value: unknown, at: string, problems: FlowProblem[]): FlowChe
   const timeout = Number(record['timeout'] ?? DEFAULT_CHECK_TIMEOUT_SEC)
   return {
     run,
+    ...(typeof onRequest === 'boolean' ? { onRequest } : {}),
     ...(asText(record['cwd']) ? { cwd: asText(record['cwd']) as string } : {}),
     timeout: Number.isFinite(timeout) && timeout > 0 ? Math.trunc(timeout) : DEFAULT_CHECK_TIMEOUT_SEC,
     exits,
