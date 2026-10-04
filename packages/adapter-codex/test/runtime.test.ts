@@ -1214,6 +1214,18 @@ const storedThread = (preview: string): Parameters<typeof mapSummary>[0] =>
     turns: [],
   }) as unknown as Parameters<typeof mapSummary>[0]
 
+test('a thread whose head was compacted into a summary is not named after the summary', () => {
+  // The summary an agent writes of its own history sits in the user's seat; it is not what anyone asked.
+  const summary = '<summary>\n## 1. Primary Request and Intent\nThe user asked for a retry on a 502.\n</summary>'
+  assert.equal(mapSummary(storedThread(summary)).preview, null)
+  assert.equal(mapSummary({ ...storedThread('Retry the checkout call'), name: summary }).title, null, 'nor is a name that is only the summary')
+  assert.equal(mapSummary({ ...storedThread('Retry the checkout call'), name: 'Retry the checkout call' }).title, 'Retry the checkout call')
+  // What a person said after it still names the thread.
+  assert.equal(mapSummary(storedThread(`${summary}\n\nNow add the jitter`)).preview, 'Now add the jitter')
+  assert.equal(nameFromMessage(summary), null)
+  assert.equal(nameFromMessage(`${summary}\n\nNow add the jitter`), 'Now add the jitter')
+})
+
 test('a hand-off to Codex is called by the hand-off, not by the block the adapter puts in front of it (review of #231)', async (t) => {
   /* A real kernel with a context provider that is not a chip, the way the Git
      plugin registers its block: the adapter prepends it to every message. */

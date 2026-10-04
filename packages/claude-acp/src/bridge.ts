@@ -10,6 +10,8 @@ import {
   type AgentContext,
   type InitializeRequest,
   type InitializeResponse,
+  type ListSessionsRequest,
+  type ListSessionsResponse,
   type LoadSessionRequest,
   type LoadSessionResponse,
   type NewSessionRequest,
@@ -22,7 +24,7 @@ import {
   type SetSessionConfigOptionResponse,
 } from '@agentclientprotocol/sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
-import { DESK_TOOL_CEILINGS, peelDeskContextPrefix } from '@harnessdesk/protocol'
+import { DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
 
 import { sessionFiles, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
@@ -134,6 +136,70 @@ export const storedTitle = (path: string): string | null => {
     return ai
   } finally { closeSync(handle) }
 }
+
+/** How much of a first prompt names a conversation: the same width the sidebar's other names are cut at. */
+const NAME_LIMIT = 200
+
+/**
+ * What a person first asked in a stored conversation, past everything Claude
+ * Code or the desk put in the user's seat that no one typed.
+ *
+ * The SDK names a conversation Claude Code never titled after its first
+ * prompt, and a conversation that was continued after a compaction opens with
+ * the summary Claude wrote of what it dropped (`isCompactSummary`): "This
+ * session is being continued from a previous conversation…". So the name is
+ * read from the transcript instead, skipping that, a slash command's caveat,
+ * a background task's report and a reminder — the first message that is a
+ * person's words. Read from the head of the file only; nothing here costs a
+ * token.
+ */
+export const firstPromptOf = (path: string): string | null => {
+  let handle: number
+  try { handle = openSync(path, 'r') } catch { return null }
+  try {
+    const length = Math.min(fstatSync(handle).size, TITLE_WINDOW)
+    const buffer = Buffer.alloc(length)
+    readSync(handle, buffer, 0, length, 0)
+    for (const line of buffer.toString('utf8').split('\n')) {
+      if (!line.startsWith('{') || !line.includes('"user"')) continue
+      let entry: { type?: string; isMeta?: boolean; isCompactSummary?: boolean; isSidechain?: boolean; message?: { content?: unknown } }
+      // The window can cut the last line in half; half a line is not an entry.
+      try { entry = JSON.parse(line) } catch { continue }
+      if (entry.type !== 'user' || entry.isMeta === true || entry.isCompactSummary === true || entry.isSidechain === true) continue
+      const content = entry.message?.content
+      const text = typeof content === 'string'
+        ? content
+        : Array.isArray(content)
+          ? content.map((block: { type?: string; text?: unknown } | null) => (block?.type === 'text' ? String(block.text) : '')).join('\n')
+          : ''
+      const replay = classifyReplayed(text)
+      if (replay?.kind !== 'prompt') continue
+      const name = unwrap(replay.text)
+      if (name !== null && !isCompactionSummary(name)) return name.slice(0, NAME_LIMIT)
+    }
+    return null
+  } finally { closeSync(handle) }
+}
+
+/**
+ * The agent's listing, with a summary it wrote of its own history taken off
+ * any row's name.
+ *
+ * A row whose name is only that summary — or the continuation message — has
+ * no name; it takes the first real thing a person asked, from `promptOf`, or
+ * none. A row that was never named, or was named by anything else, is left
+ * exactly as the agent said it.
+ */
+export const withRealTitles = <T extends { readonly title?: string | null; readonly cwd: string; readonly sessionId: string }>(
+  rows: readonly T[],
+  promptOf: (row: T) => string | null,
+): T[] =>
+  rows.map((row) => {
+    if (!row.title) return row
+    const title = withoutCompaction(row.title).trim()
+    if (title === row.title) return row
+    return { ...row, title: title !== '' ? title : promptOf(row) }
+  })
 
 const safeBlock = (block: unknown): unknown => {
   const shaped = block as { type?: unknown; text?: unknown; data?: unknown; mimeType?: unknown; source?: { type?: unknown; data?: unknown; media_type?: unknown; url?: unknown } } | null
@@ -868,6 +934,18 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     if (values['ceiling'] !== 'read') return
     const query = this.sessions[sessionId]?.query as { setPermissionMode?: (mode: string) => Promise<void> } | undefined
     if (query?.setPermissionMode) await query.setPermissionMode('default')
+  }
+
+  /**
+   * The stored sessions, without a summary the agent wrote of its own history
+   * for a name. See `withRealTitles`.
+   */
+  override async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+    const response = await super.listSessions(params)
+    return {
+      ...response,
+      sessions: withRealTitles(response.sessions, (row) => firstPromptOf(transcriptPath(row.cwd, row.sessionId))),
+    }
   }
 
   async #replayStored(sessionId: string): Promise<void> {

@@ -681,6 +681,25 @@ test('the fallback takes the first message that says something, not the first me
   })
 })
 
+test('the fallback passes over a summary the agent wrote of its own compacted history', async () => {
+  // The head of a compacted transcript is the agent talking to itself, in the user's seat: not what the conversation is called.
+  await withStore(async (store, dir) => {
+    await legacy(store, dir, 'compacted', [
+      turn('t1', [
+        said('i0', 'userMessage', '<summary>\n## 1. Primary Request and Intent\nWorker 4 was asked to retry the checkout call.\n</summary>'),
+        said('a0', 'assistantMessage', 'Picking it up.'),
+      ]),
+      turn('t2', [said('i1', 'userMessage', 'Now add the jitter')]),
+    ])
+    await legacy(store, dir, 'only-summary', [
+      turn('t1', [said('i0', 'userMessage', '[Previous conversation summary]: Summary: 1. Primary Request and Intent: the retry path'), said('a0', 'assistantMessage', 'Quietly continuing.')]),
+    ])
+    const again = new TranscriptStore(dir)
+    assert.equal((await again.search('add the jitter'))[0]?.summary.preview, 'Now add the jitter')
+    assert.equal((await again.search('Quietly continuing'))[0]?.summary.preview, null)
+  })
+})
+
 test('importOne refuses malformed transcript turns that lack items array (#500)', async () => {
   await withStore(async (store, dir) => {
     const outcomeNull = await store.importOne('codex', 's1', {
