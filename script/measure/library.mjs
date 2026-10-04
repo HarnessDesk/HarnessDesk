@@ -695,7 +695,7 @@ export function normalizeFixtureTokens(value, allowed) {
 
 export function validateResult(result, fixture) {
   if (!fixture || !Array.isArray(fixtureTokens(fixture))) throw new Error('fixture-derived result allowlist is required')
-  const allowedKeys = new Set(['agent', 'agentId', 'version', 'measured', 'interface', 'question', 'rawAnswer', 'facts', 'status', 'reason', 'isolation', 'auth'])
+  const allowedKeys = new Set(['agent', 'agentId', 'version', 'measured', 'interface', 'question', 'rawAnswer', 'facts', 'status', 'reason', 'isolation', 'auth', 'stagedInstall'])
   if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).some((key) => !allowedKeys.has(key))) throw new Error('result has fields outside the strict schema')
   for (const key of ['agent', 'agentId', 'version', 'measured', 'interface', 'question']) {
     if (typeof result[key] !== 'string' || !result[key].trim()) throw new Error(`${key} is required`)
@@ -710,6 +710,7 @@ export function validateResult(result, fixture) {
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
   if (result.isolation !== undefined && !['strict', KEYCHAIN_READ_ONLY].includes(result.isolation)) throw new Error('isolation is not allowlisted')
   if (result.auth !== undefined && !['no sign-in used', 'owner subscription sign-in', 'environment key'].includes(result.auth)) throw new Error('auth is not allowlisted')
+  if (result.stagedInstall !== undefined && !stagedInstallAllowed(result.agentId, result.stagedInstall)) throw new Error('stagedInstall is outside its fixed shape')
   const strictDiscovery = result.isolation === 'strict' && ['no sign-in used', 'environment key'].includes(result.auth)
   const keychainException = result.isolation === KEYCHAIN_READ_ONLY && KEYCHAIN_READ_ONLY_AGENTS.has(result.agentId) && ['owner subscription sign-in', 'environment key', 'no sign-in used'].includes(result.auth)
   if ((result.isolation !== undefined || result.auth !== undefined) && !strictDiscovery && !keychainException) throw new Error('isolation and auth must describe one supported profile')
@@ -980,6 +981,17 @@ const STAGED_INSTALL_REFUSALS = Object.freeze({
   copy: 'cannot isolate: install copy failed',
 })
 
+// What a run that launched a copy records about it: its size, its file count and
+// the time it took, as the harness measured them. Three whole numbers under fixed
+// names, so nothing an agent said can reach them; result validation admits
+// exactly these, and only for an agent that is staged. They are not facts about
+// what an agent loads, so they sit beside `isolation` and `auth`, not in `facts`.
+const STAGED_INSTALL_KEYS = ['bytes', 'files', 'milliseconds']
+const stagedInstallAllowed = (agentId, value) => Object.hasOwn(STAGED_INSTALLS, agentId)
+  && Boolean(value) && Object.getPrototypeOf(value) === Object.prototype
+  && Object.keys(value).sort().join(',') === STAGED_INSTALL_KEYS.join(',')
+  && STAGED_INSTALL_KEYS.every((key) => Number.isSafeInteger(value[key]) && value[key] >= 0)
+
 // The folder that would be copied, from the launcher's resolved path alone: the
 // agent's own launcher, directly inside a folder that is directly inside a
 // `versions` folder. Anything else is not staged and keeps the in-place launch it
@@ -1141,6 +1153,8 @@ export async function main(args = process.argv.slice(2)) {
             ...(options.ask ? { isolation: 'strict', auth: 'no sign-in used' } : {}),
             reason: environment.reason ?? (options.ask && installResult.state === 'absent' ? 'binary not installed' : !fixture.isolation.available || installResult.state === 'unsafe' ? 'cannot isolate' : installResult.state === 'absent' ? 'binary not installed' : installResult.state === 'unreadable' ? 'installed candidate version unreadable' : installResult.state === 'below-floor' ? 'installed version below supported floor' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery'),
           }
+      // A run that launched a copy says what the copy was: its size and the time it took, as plain numbers.
+      if (install?.staged) result.stagedInstall = install.staged
       await writeResult(result, RESULT_DIR_PATH, fixture)
       process.stdout.write(`${result.status}: ${agent.id} ${result.version}\n`)
     } finally {

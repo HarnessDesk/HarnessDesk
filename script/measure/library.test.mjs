@@ -1870,3 +1870,96 @@ test('a staged copy and an install run in place are found side by side, and the 
   assert.deepEqual(fs.readdirSync(join(fixture.root, 'agent-install')), ['0'])
   assert.deepEqual(fs.readdirSync(join(fixture.root, 'agent-install/0')), [newer.version])
 })
+
+test('a persisted result may carry the copy\'s size and time as plain numbers, and nothing looser', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-staged-result-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  const discovery = {
+    agent: 'Cursor', agentId: 'cursor', version: '2026.10.01-e373342', measured: '2026-10-03', interface: 'not launched',
+    question: 'Is an installed build available?', rawAnswer: '', facts: {}, status: 'could-not-ask', reason: 'needs sign-in, not measured',
+    isolation: 'strict', auth: 'no sign-in used',
+  }
+  const staged = { bytes: 619_000_000, files: 451, milliseconds: 1234 }
+  assert.deepEqual(validateResult({ ...discovery, stagedInstall: staged }, fixture).stagedInstall, staged)
+  assert.equal(validateResult(discovery, fixture).stagedInstall, undefined, 'a run that launched no copy records none')
+  // On disk they are plain numbers under their own names.
+  const path = await writeResult({ ...discovery, stagedInstall: staged }, join(root, 'results'), fixture)
+  const saved = await readFile(path, 'utf8')
+  assert.deepEqual(JSON.parse(saved).stagedInstall, staged)
+  assert.match(saved, /"stagedInstall": \{\n {4}"bytes": 619000000,\n {4}"files": 451,\n {4}"milliseconds": 1234\n {2}\}/)
+  // A model result carries them too. Counts among its facts stop at 500; these are not facts the agent reported.
+  const asked = {
+    ...discovery, status: 'asked', interface: 'ACP model prompt', question: 'rules catalogue precedence rejections refresh mcp', rawAnswer: 'measure-sentinel',
+    facts: { precedence: { duplicateCount: 1 } }, isolation: KEYCHAIN_READ_ONLY, auth: 'owner subscription sign-in', stagedInstall: staged,
+  }
+  delete asked.reason
+  assert.deepEqual(validateResult(asked, fixture).stagedInstall, staged)
+  for (const bad of [
+    { bytes: 1, files: 1 }, { ...staged, extra: 1 }, { ...staged, bytes: -1 }, { ...staged, files: 0.5 }, { ...staged, milliseconds: '12' },
+    { ...staged, bytes: Number.MAX_SAFE_INTEGER + 1 }, { ...staged, bytes: Number.NaN }, { ...staged, bytes: Infinity }, { ...staged, files: null },
+    [staged.bytes, staged.files, staged.milliseconds], null, 'text', 12, {},
+  ]) assert.throws(() => validateResult({ ...discovery, stagedInstall: bad }, fixture), /stagedInstall/, JSON.stringify(bad))
+  // Only an agent that is staged can carry them.
+  assert.throws(() => validateResult({ ...discovery, agent: 'Codex', agentId: 'codex', stagedInstall: staged }, fixture), /stagedInstall/)
+})
+
+// The command itself, from a staged copy of the harness against a scripted locator that finds exactly one install, under a stand-in home.
+async function runCommandOn(t, { install, home, version }) {
+  const root = await mkdtemp('/tmp/hd-measure-cli-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  for (const path of ['script/measure/probes', 'packages/server/src/installs', 'packages/server/dist/src/installs']) fs.mkdirSync(join(root, path), { recursive: true })
+  for (const path of ['script/measure/library.mjs', 'script/measure/probes/index.mjs', 'packages/server/src/installs/known-agents.ts']) {
+    await writeFile(join(root, path), await readFile(new URL(`../../${path}`, import.meta.url)))
+  }
+  await writeFile(join(root, 'packages/server/dist/src/installs/known-agents.js'), `export const KNOWN_AGENTS = [{ id: 'cursor', name: 'Cursor', brand: 'cursor', home: { path: '~/.cursor' }, cli: { commands: ['cursor-agent'] } }]`)
+  await writeFile(join(root, 'packages/server/dist/src/installs/locate.js'), [
+    `export const candidatePaths = () => [${JSON.stringify(install.onPath)}]`,
+    `export const findInstalls = async (spec, { probe }) => (await probe(${JSON.stringify(install.onPath)}, ['--version'])) ? [{ path: ${JSON.stringify(install.onPath)}, realPath: ${JSON.stringify(install.launcher)}, version: ${JSON.stringify(version)} }] : []`,
+    `export const judgeInstalls = (found) => ({ chosen: found[0] ? { ...found[0], standing: 'chosen' } : null, copies: found })`,
+  ].join('\n'))
+  const execution = await promisify(execFile)(process.execPath, [fs.realpathSync(join(root, 'script/measure/library.mjs')), '--agent', 'cursor'], { env: { ...process.env, HOME: home, PATH: '/usr/bin:/bin' } }).catch((error) => error)
+  assert.ok(!(execution instanceof Error), `${execution.stderr}`)
+  assert.equal(execution.stdout, `could-not-ask: cursor ${version}\n`)
+  assert.equal(execution.stderr, '', 'nothing was kept')
+  return JSON.parse(await readFile(join(root, `docs/verification/library-measurements/cursor-${version}.json`), 'utf8'))
+}
+
+test('the copy lives in the fixture and goes with it, and the written result records its size and time', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const home = fs.realpathSync(await mkdtemp('/tmp/hd-measure-cursor-home-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  // A version no other test and no real install has, so a copy left behind could not be mistaken for another run's.
+  const version = '2031.07.04-c0ffee1'
+  const startedAt = Date.now()
+  // Whatever a failing run leaves behind goes too: only a fixture born during this test, holding this test's copy.
+  const copies = async () => (await readdir('/tmp')).filter((name) => name.startsWith('hd-measure-') && existsSync(join('/tmp', name, 'agent-install/0', version)))
+  t.after(async () => {
+    for (const name of await copies()) if (fs.statSync(join('/tmp', name)).birthtimeMs >= startedAt - 1000) await rm(join('/tmp', name), { recursive: true, force: true })
+  })
+  const install = stageCursorInstall(join(home, '.local'), version)
+  const before = await walkTree(install.versionDir)
+  const written = await runCommandOn(t, { install, home, version })
+  assert.equal(written.version, version, 'the version was read, and only the copy can have printed it here')
+  assert.equal(written.reason, 'needs sign-in, not measured')
+  assert.ok(written.stagedInstall, 'the result records the copy it launched')
+  assert.deepEqual(Object.keys(written.stagedInstall), ['bytes', 'files', 'milliseconds'])
+  assert.deepEqual({ files: written.stagedInstall.files, bytes: written.stagedInstall.bytes }, totalOf(before))
+  assert.ok(Number.isInteger(written.stagedInstall.milliseconds) && written.stagedInstall.milliseconds >= 0)
+  // The copy was made inside a fixture, and that fixture, copy and all, is gone with the run.
+  assert.deepEqual(await copies(), [])
+  // The install it was copied from is exactly as it was.
+  assert.deepEqual(await walkTree(install.versionDir), before)
+})
+
+test('a run that launched the install in place records no copy', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  // Outside the home, as a Homebrew cask install is, so the stand-in home holds nothing of it.
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-inplace-'))
+  const home = fs.realpathSync(await mkdtemp('/tmp/hd-measure-cursor-home-'))
+  t.after(() => Promise.all([rm(base, { recursive: true, force: true }), rm(home, { recursive: true, force: true })]))
+  const install = stageCursorInstall(base, '2031.07.05-c0ffee2', { folder: 'Caskroom/cursor-cli/2031.07.05-c0ffee2/dist-package' })
+  const written = await runCommandOn(t, { install, home, version: '2031.07.05-c0ffee2' })
+  assert.equal(written.reason, 'needs sign-in, not measured')
+  assert.equal(Object.hasOwn(written, 'stagedInstall'), false)
+})
