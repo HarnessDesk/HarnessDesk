@@ -329,9 +329,10 @@ export const replaceLauncher = (path, text) => {
  *
  * `loginPath` is that PATH, or null when it could not be read. Returns
  * `{ status: 'installed' | 'updated' | 'unchanged', path, dir, onPath }`, with
- * `onPath` null when the PATH was unknown. Throws a `foreign` error before it
- * writes anything when a `harnessdesk` that is not ours is in either candidate
- * folder, and a `no-folder` error when neither can take a file.
+ * `onPath` null when the PATH was unknown. Our own launcher, wherever it is, is
+ * brought up to date in place. Otherwise a first install throws a `foreign`
+ * error, before it writes anything, when a `harnessdesk` that is not ours is in
+ * either candidate folder, and a `no-folder` error when neither can take a file.
  */
 export const installLauncher = ({ home, target, loginPath, searchFolders }) => {
   const text = launcherText({ ...target, ...(searchFolders ? { searchFolders } : {}) })
