@@ -701,7 +701,7 @@ test('real section headers start at the row icon inset', async ({ page }) => {
       if (await header.count() === 0) continue
       const x = await header.evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
       const rowX = (await box(group.locator('[data-slot="sidebar-menu-icon"]').first())).x
-      expect.soft(Math.abs(x + 29 - rowX), `${await header.textContent()} at ${width}px: Pinned children take one leading step from ${x} to ${rowX}`).toBeLessThanOrEqual(1)
+      expect.soft(Math.abs(x - rowX), `${await header.textContent()} at ${width}px: child leading edge should match heading at ${x}, row=${rowX}`).toBeLessThanOrEqual(1)
     }
   }
   await page.goto('/design.html?view=app-window')

@@ -124,12 +124,6 @@
   padding-inline-start: var(--hd-sidebar-start-inset);
 }
 
-/* Project and Pinned indentation moves the leading content inside the original
-   row boxes. Seat menus retain their own existing inset and guide. */
-[data-sidebar-indent="true"] [data-slot="sidebar-menu-button"] {
-  padding-inline-start: calc(var(--hd-sidebar-start-inset) + var(--hd-space-5) + var(--hd-space-2) + var(--hd-space-px));
-}
-
 /* Deeply nested Seats give the title room before spending it on a state word. */
 @container sidebar-row (max-width: 200px) {
   [data-nested="true"] [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) {
