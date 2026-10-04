@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -121,4 +122,48 @@ export const history = async (repo: Repo, length: number, files = 1, from?: stri
     shas.push(parent)
   }
   return { base, shas }
+}
+
+export interface Scripted extends Counting {
+  /** From now on Git has no such object. */
+  lose(sha: string): void
+}
+
+/**
+ * A runner that answers Git's questions from memory, so a test can have a
+ * reader do the work of thousands of processes in a moment and still count
+ * every one it would have started. Every object is a commit unless it was
+ * lost; the patch between two commits is a fixed function of the pair, and
+ * `patch-id` hashes whatever it is given, as the real one does.
+ */
+export const scriptedGit = (budget = Number.POSITIVE_INFINITY): Scripted => {
+  const lost = new Set<string>()
+  const commands: (readonly string[])[] = []
+  const run: ChildRunner = async (_executable, args, options) => {
+    const command = subcommand(args)
+    commands.push(command)
+    if (commands.length > budget) throw new Error('process-budget-exceeded')
+    const [verb, first] = command
+    if (verb === 'cat-file' && first?.startsWith('--batch-check')) {
+      const ids = (options.input ?? Buffer.alloc(0)).toString('utf8').split('\n').filter(Boolean)
+      return Buffer.from(`${ids.map((id) => lost.has(id) ? `${id} missing` : 'commit').join('\n')}\n`)
+    }
+    if (verb === 'cat-file' && first === 'commit') return Buffer.from(`tree ${'0'.repeat(40)}\n\nmessage\n`)
+    if (verb === 'diff-tree') {
+      const ends = command.filter((arg) => /^[a-f0-9]{40}$/.test(arg))
+      return command.includes('--name-only') ? Buffer.from('file\0') : Buffer.from(`diff ${ends.join(' ')}\n`)
+    }
+    if (verb === 'patch-id') {
+      const id = createHash('sha1').update(first ?? '').update(options.input ?? '').digest('hex')
+      return Buffer.from(`${id} ${'0'.repeat(40)}\n`)
+    }
+    throw new Error(`the script has no answer for git ${verb}`)
+  }
+  return {
+    run,
+    commands,
+    get started() { return commands.length },
+    verbs: () => commands.map((command) => command[0] ?? ''),
+    lose: (sha) => { lost.add(sha) },
+  }
 }
