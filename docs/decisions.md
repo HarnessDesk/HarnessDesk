@@ -377,6 +377,16 @@ repository. And the tool refuses while another open card whose Seat may
 commit works in the same checkout, since "changed since my claim" would then
 include that card's work too; isolating the role is the way through.
 
+When a merge is in progress, Git requires a commit of the whole index rather
+than a pathspec. `commit_work` concludes the resolved merge with both parents,
+without staging any more work. It refuses before writing when any path still
+has conflicts or a staged path was already dirty at the claim, naming those
+files so the person's own edits cannot enter the merge. An untracked directory
+at claim protects its descendants, and a rename's literal source is checked
+against the saved display spelling, including quoted names and literal arrows.
+The message, attribution, identity and hardened Git configuration are the same as for an
+ordinary card commit. (#1351)
+
 Git the host runs on its own in a checkout an agent can write — evidence
 reads, status, cutting a lane, diffs — carries a narrower floor
 (`git-hardening.ts`): no hook, no filesystem monitor, no external diff, the
