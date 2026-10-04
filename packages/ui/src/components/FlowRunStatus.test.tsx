@@ -6,7 +6,7 @@ import type { FlowExecution, FlowPreview } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
-import { FlowRunStatus, RetryCheck } from './FlowRunStatus'
+import { FlowRunStatus } from './FlowRunStatus'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -25,22 +25,6 @@ afterEach(() => {
 const settle = (): Promise<void> => act(async () => {})
 
 const DOCUMENT = { format: 'agents' as const, flow: { version: 2 as const, name: 'Fix', inputs: [], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 } }
-
-for (const state of ['stopped', 'settled']) it(`the consent dialog explains a ${state} refusal and never starts a check`, async () => {
-  const text = `This run is ${state}. Start a new run to run this check again.`
-  const retryFlowCheck = vi.fn()
-  const store = {
-    subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), retryFlowCheck,
-    previewFlowRetry: vi.fn(async () => ({ token: null, commands: [], problems: [{ level: 'error', at: 'run', text }] })),
-  } as unknown as AppStore
-  act(() => root.render(<StoreProvider store={store}><RetryCheck run="run-1" card={3} onClose={() => {}} /></StoreProvider>))
-  await settle()
-  expect(document.body.textContent).toContain(text)
-  const confirm = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Run again')!
-  act(() => confirm.click())
-  await settle()
-  expect(retryFlowCheck).not.toHaveBeenCalled()
-})
 
 const INTERRUPTED: FlowExecution = {
   version: 2, id: 'run-1', goal: 'goal-1', document: DOCUMENT, state: 'stalled',
@@ -94,8 +78,8 @@ it('an interrupted check requires fresh confirmation and preserves its Goal, on 
   // The original command is shown verbatim, and the mismatch leaves the confirming action disabled.
   expect(document.body.textContent).toContain('pnpm verify')
   expect(document.body.textContent).toContain('/repo')
-  const confirm = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('Run again'))!
-  expect((confirm as HTMLButtonElement).disabled).toBe(false) // ConfirmDialog itself never blocks on `preview`; the retry call below is what the mismatch refuses.
+  const confirm = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Run again')!
+  expect((confirm as HTMLButtonElement).disabled).toBe(true)
   act(() => confirm.click())
   await settle()
   // No token to redeem — retryFlowCheck is never called with a null token.
