@@ -92,12 +92,12 @@ const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<A
 /** The project rows, by the name each one shows. */
 const projects = (): string[] =>
   [...container.querySelectorAll<HTMLElement>('[draggable="true"]')].map(
-    (head) => head.querySelector('[class*="groupName"]')?.textContent ?? '',
+    (head) => head.querySelector('[data-draggable] [data-role="prose"]')?.textContent ?? '',
   )
 
 /** The row the list is calling the folder you are in. */
 const currentProject = (): string | null =>
-  container.querySelector<HTMLElement>('[data-current] [class*="groupName"]')?.textContent ?? null
+  container.querySelector<HTMLElement>('[data-current] [data-draggable] [data-role="prose"]')?.textContent ?? null
 
 it('gives an open subfolder one row, not a second empty one for its repository', () => {
   // The subfolder is the project's home — grouping lets the folder you have
@@ -146,7 +146,7 @@ it('still gives a folder you have just opened a row of its own', () => {
   expect(currentProject()).toBe('other')
 })
 
-it('keeps capture state off the project row, stopped or not — it is in the project’s menu', () => {
+it('only a stopped project adds capture text, including its folded canonical alias', () => {
   const tree = `${REPO}/.claude/worktrees/hours-bug`
   const off = { project: REPO, enabled: false, state: 'stopped' as const, reason: 'Capture is off.', nextStep: 'Turn capture on.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 }
   render(
@@ -154,9 +154,10 @@ it('keeps capture state off the project row, stopped or not — it is in the pro
     workspace(tree, { root: REPO, worktree: true }),
     { captureHealth: new Map([[REPO, off]]) },
   )
-  // The row says which project it is and nothing about how capture is going.
-  expect(container.textContent).not.toContain('Capture')
-  expect(container.querySelector('[draggable="true"] [data-slot="chip"]')).toBeNull()
+  expect(container.textContent).toContain('Capture stopped')
+  expect(container.querySelector('[data-slot="chip"]')?.getAttribute('data-variant')).toBe('quiet')
+  render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
+  expect(container.textContent).not.toContain('Capture stopped')
 })
 
 it('a trigger Goal’s room is named by its Goal, with no origin line of its own, and no row asks Intake for one', async () => {

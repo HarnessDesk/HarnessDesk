@@ -124,3 +124,20 @@ it('does not export sidebar parts that duplicate shared controls or workbench la
     expect(sidebarExports).not.toHaveProperty(name)
   }
 })
+
+it('indents project leading content without moving row boxes or drawing a guide', () => {
+  const project = renderToStaticMarkup(<sidebarExports.SidebarGroupContent nested><span>Team</span></sidebarExports.SidebarGroupContent>)
+  const seats = renderToStaticMarkup(<SidebarMenu nested><SidebarMenuItem>Seat</SidebarMenuItem></SidebarMenu>)
+  expect(project).toContain('data-sidebar-indent="true"')
+  expect(project).not.toContain('ms-(--hd-space-5)')
+  expect(project).not.toContain('border-s')
+  expect(seats).toContain('ms-(--hd-space-5)')
+  expect(seats).toContain('border-s border-sidebar-border ps-(--hd-space-2)')
+})
+
+it('lets a band share the enclosing rail without a second horizontal inset', () => {
+  const markup = renderToStaticMarkup(<sidebarExports.SidebarGroup inset={false}>Pinned</sidebarExports.SidebarGroup>)
+  expect(markup).toContain('data-inset="false"')
+  expect(markup).toContain('px-0')
+  expect(markup).not.toContain('px-(--hd-space-2)')
+})

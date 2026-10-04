@@ -13,7 +13,9 @@ import { cn } from '@/lib/utils'
  *
  * One style now: the chrome step (13px), the secondary ink, sentence case. It
  * names the group quietly, so the rows under it stay the reading subject, and
- * it never shouts — **no label in the app is set in capitals** except a key on
+ * Navigation bands can opt into muted ink to sit below their project headers;
+ * other groups keep secondary ink. Neither choice changes their geometry.
+ * It never shouts — **no label in the app is set in capitals** except a key on
  * a `Keycap`, which is a physical thing with printing on it. The design audit
  * counts every `uppercase` outside that one place (`uppercaseLabel`).
  *
@@ -25,10 +27,12 @@ export type GroupLabelProps = Omit<ComponentProps<'span'>, 'children'> & {
   /** A real heading for a page section; a plain span over a card or a rail list. */
   as?: 'span' | 'h2' | 'h3' | 'div' | 'legend'
   children: ReactNode
+  /** Muted for a quiet navigation band; other section labels keep secondary ink. */
+  ink?: 'secondary' | 'muted'
 }
 
 export const groupLabelClass =
   'm-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-[number:var(--hd-label-weight,var(--hd-weight-normal))] text-(--hd-secondary-foreground)'
 
-export const GroupLabel = ({ as = 'span', className, children, ...props }: GroupLabelProps) =>
-  createElement(as, { 'data-slot': 'group-label', className: cn(groupLabelClass, className), ...props }, children)
+export const GroupLabel = ({ as = 'span', className, ink = 'secondary', children, ...props }: GroupLabelProps) =>
+  createElement(as, { 'data-slot': 'group-label', className: cn(groupLabelClass, ink === 'muted' && 'text-(--hd-muted-foreground)', className), ...props }, children)

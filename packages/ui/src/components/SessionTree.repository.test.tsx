@@ -141,7 +141,7 @@ const mount = (
 /** The project rows, by the name each one shows. */
 const projects = (): string[] =>
   [...container.querySelectorAll<HTMLElement>('[draggable="true"]')].map(
-    (head) => head.querySelector('[class*="groupName"]')?.textContent ?? '',
+    (head) => head.querySelector('[data-draggable] [data-role="prose"]')?.textContent ?? '',
   )
 
 /** Every conversation row's title, wherever it is drawn. */
@@ -485,7 +485,10 @@ const seatRig = (members: Array<{ id: string; role: string | null; name?: string
       closed: null, agent: { name: member.name ?? 'Claude Code' }, seatLabel: 'agent · model',
     })),
   } as unknown as GoalView
-  return mount(rows, { teams: new Map([[team.id, team]]), goals: new Map([[team.id, goal]]) })
+  const rig = mount(rows, { teams: new Map([[team.id, team]]), goals: new Map([[team.id, goal]]) })
+  // Seats start folded; inspect their names through the real disclosure.
+  act(() => container.querySelector<HTMLButtonElement>('[aria-label="Show the agents in Retry the checkout call"]')!.click())
+  return rig
 }
 
 it('names a seat nobody typed to by its job and its Team, never “Untitled session”', () => {

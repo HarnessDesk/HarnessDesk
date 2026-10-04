@@ -1,3 +1,4 @@
+import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
@@ -1075,6 +1076,7 @@ const Preview = () => {
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
       {new URLSearchParams(window.location.search).has('run-controls') && <RunControlsFrames variant={ABANDON_VARIANTS.find((one: AbandonVariant) => one === new URLSearchParams(window.location.search).get('abandon')) ?? null} />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
+      {new URLSearchParams(window.location.search).has('sidebar-structure') && <SidebarStructureExample />}
       {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}

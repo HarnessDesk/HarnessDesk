@@ -53,6 +53,9 @@ test('the sidebar list is one keyboard stop with row navigation and row menus', 
 test('ArrowLeft from a nested Seat focuses its owning Team', async ({ page }) => {
   await page.goto('/preview.html')
   const tree = page.locator('[data-region="session-tree"]')
+  const disclosure = tree.getByRole('button', { name: /^Show the agents in / }).first()
+  // Teams start folded; expand through the real control before testing Seats.
+  await disclosure.evaluate(node => (node as HTMLButtonElement).click())
   const seat = tree.locator('[data-nested="true"] [data-region="session-row"] [data-slot="sidebar-menu-button"]').first()
   await expect(seat).toBeVisible()
 
