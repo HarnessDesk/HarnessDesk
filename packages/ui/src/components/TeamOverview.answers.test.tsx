@@ -149,3 +149,17 @@ it('keeps the attention sentence whole in its own slot beside the controls', () 
   expect(sentence?.textContent).toBe(summary)
   expect(sentence?.hasAttribute('data-wrap-subtitle')).toBe(true)
 })
+
+it('keeps the note being written when another request arrives above the step', () => {
+  const door: StepDoor = { kind: 'answer', card: 7, answers: [{ outcome: 'approved', effect: null }] }
+  const answers = fake([command('a1')], { stepDoor: () => door })
+  const step: NeedsYouItem = { kind: 'card', seat: null, card: 7, summary: 'Review the change', since: 50 }
+  draw([step], answers)
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  const note = () => box.querySelector<HTMLInputElement>('[aria-label="Needs you"] input[aria-label="Note"]')!
+  act(() => { setter.call(note(), 'Not before the retry has a ceiling.'); note().dispatchEvent(new Event('input', { bubbles: true })) })
+  // An older request sorts above it, moving the step down a place.
+  draw([item({ since: 10 }), step], answers)
+  expect(rows()).toHaveLength(2)
+  expect(note().value).toBe('Not before the retry has a ceiling.')
+})

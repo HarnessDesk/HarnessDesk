@@ -109,7 +109,7 @@ export const TeamOverview = ({ model, faces, metered, onOpen, answers, onRun, ru
             <GroupLabel>Needs you</GroupLabel>
             <ListRows>
               {model.needsYou.map((item, index) => (
-                <NeedsYouRow key={item.approval ?? `${item.kind}-${item.seat}-${index}`} item={item}
+                <NeedsYouRow key={item.approval ?? (item.card !== null ? `card-${item.card}` : `${item.kind}-${item.seat}-${index}`)} item={item}
                   name={model.seats.find(one => one.seat === item.seat)?.name ?? null} answers={answers} onOpenSeat={onOpen} />
               ))}
             </ListRows>
