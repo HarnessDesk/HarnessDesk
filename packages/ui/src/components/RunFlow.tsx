@@ -12,9 +12,13 @@ const PLACE: Readonly<Record<FlowOrigin, string>> = {
   builtin: 'Ships with HarnessDesk',
 }
 
-/** The file as the catalogue lists it now, found by the name the Run froze: a Run keeps no id or place of its own. */
-const entryNamed = (entries: readonly FlowEntry[], name: string): FlowEntry | undefined =>
-  entries.find((one) => one.name === name && one.problem === null && one.format !== null)
+/**
+ * The files the catalogue lists now under the name the Run froze: a Run keeps
+ * no id or place of its own. More than one is a copy saved under another file
+ * name, and the Run cannot say which of them it started from.
+ */
+const entriesNamed = (entries: readonly FlowEntry[], name: string): readonly FlowEntry[] =>
+  entries.filter((one) => one.name === name && one.problem === null && one.format !== null)
 
 /**
  * The Flow half of a Run's header switch: the Flow the Run started with,
@@ -44,9 +48,13 @@ export const RunFlow = ({ execution, root, seats }: {
     setReading(true)
     setProblem(null)
     try {
-      const entry = entryNamed(await store.flowCatalog(root), flow.name)
+      const [entry, ...others] = entriesNamed(await store.flowCatalog(root), flow.name)
       if (!entry) {
         setProblem(`No flow called “${flow.name}” is in the catalogue any more.`)
+        return
+      }
+      if (others.length > 0) {
+        setProblem(`More than one flow in the catalogue is called “${flow.name}”, so which file this Run started from cannot be told here.`)
         return
       }
       setOpened({ entry, text: await store.flowSource(root, entry.id, entry.origin) })

@@ -163,6 +163,25 @@ it('says so when no file by that name is left, and reads nothing', async () => {
   expect(container.querySelector('[role="alert"]')!.textContent).toContain('No flow called “Write, review, land” is in the catalogue any more.')
 })
 
+it('does not choose between two files that carry the Flow’s name, and says so', async () => {
+  const store = fakeStore([entry({ id: 'copy', path: '.harnessdesk/flows/review-copy.yml' }), entry()])
+  render(store)
+  act(() => openFile().click())
+  await settle()
+  expect(store.flowSource).not.toHaveBeenCalled()
+  expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  expect(container.querySelector('[role="alert"]')!.textContent).toContain('More than one flow in the catalogue is called “Write, review, land”')
+})
+
+it('opens the one file of that name that parses when another of the name does not', async () => {
+  const store = fakeStore([entry({ id: 'broken', format: null, problem: 'file: this flow could not be parsed' }), entry()])
+  render(store)
+  act(() => openFile().click())
+  await settle()
+  expect(store.flowSource).toHaveBeenCalledWith('/repo', 'review', 'project')
+  expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+})
+
 it('skips a file that does not parse, rather than showing what could not be read as the Flow', async () => {
   const store = fakeStore([entry({ format: null, problem: 'file: this flow could not be parsed' })])
   render(store)
