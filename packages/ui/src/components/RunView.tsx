@@ -80,6 +80,32 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
         <ListRows size="sm" aria-label="Run timeline">
           {model.rows.map(row => {
+            if (row.kind === 'end') {
+              // Status and aggregate publication belong to the header. The ending
+              // keeps only its reason, time and doors; each round keeps its own posting.
+              const reason = ['Settled', 'Stopped', 'Needs you', 'Stopped by you', 'Stopped by the desk'].includes(row.title) ? null : words(row.title)
+              const message = <div className="whitespace-pre-line">
+                {reason && <Text role="row" as="div">{reason}</Text>}
+                {row.detail && <span>{words(row.detail)}</span>}
+              </div>
+              const actions = [
+                header.end?.kind === 'complete' && onWrap ? <Button key="wrap" size="sm" variant="outline" onClick={onWrap}>Wrap</Button> : null,
+                header.interruptedCheck !== null && onReviewCheck ? <Button key="again" size="sm" variant="outline" onClick={onReviewCheck}>Review and run again…</Button>
+                  : header.end && header.end.kind !== 'complete' && onRunAgain ? <Button key="again" size="sm" variant="outline" onClick={onRunAgain}>Run again…</Button> : null,
+                header.end?.kind === 'unrouted' && onBoard ? <Button key="board" size="sm" variant="outline" onClick={onBoard}>Board</Button> : null,
+              ].filter(Boolean)
+              return <div key={row.id} data-slot="run-ending">
+                <ListRow wrapTitle data-row={row.id} data-kind="end" selected={selectedRow === row.id || selectedRows?.includes(row.id)}
+                  title={<span className="flex flex-wrap items-center gap-2">
+                    <Button variant="link" size="inline-link" onClick={() => onSelect(row.id)}>End</Button>
+                    {row.since !== null && <Text role="meta">{commitDate(row.since, now)}</Text>}
+                    {header.end?.kind === 'stopped' && <Text role="meta">{header.end.by === 'person' ? 'By you' : 'By the desk'}</Text>}
+                  </span>}
+                  subtitle={row.attention ? <Banner tone="warning">{message}</Banner> : reason || row.detail ? message : undefined}
+                  wrapSubtitle
+                  meta={actions.length > 0 ? <div className="flex flex-wrap gap-2">{actions}</div> : undefined} />
+              </div>
+            }
             // What a check ran each time, drawn once it has run more than once: plain rows under their check; the check's inspector holds the output.
             if (row.kind === 'attempt') return <ListRow key={row.id} data-row={row.id} data-kind="attempt" wrapTitle selected={selectedRows?.includes(row.id)}
               lead={<IconTile size="sm" aria-hidden className="invisible" />}
@@ -105,26 +131,16 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
             // *Run again…* is the row's sibling, never inside its button: laid over the end of the first line, where an invisible spacer in the row's trail keeps the row's own words clear of it.
             const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
             const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id || selectedRows?.includes(row.id)}
-              onClick={() => onSelect(row.id)} title={row.kind === 'end' ? 'End' : title}
+              onClick={() => onSelect(row.id)} title={title}
               trail={again ? <span aria-hidden className="invisible mx-1.5 whitespace-nowrap">Run again…</span> : undefined}
               className={row.kind === 'round' ? 'mt-4' : undefined}
               lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
                 : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
                 : row.kind === 'brief' ? <IconTile size="sm"><PlanIcon /></IconTile> : undefined}
-              subtitle={row.kind !== 'end' && (row.detail || (row.working && line.line)) ? <span data-slot="run-detail" className={row.kind === 'brief' ? 'line-clamp-2' : 'whitespace-pre-line'}>{words(row.detail ?? line.line ?? '')}</span> : undefined}
+              subtitle={(row.detail || (row.working && line.line)) ? <span data-slot="run-detail" className={row.kind === 'brief' ? 'line-clamp-2' : 'whitespace-pre-line'}>{words(row.detail ?? line.line ?? '')}</span> : undefined}
               wrapSubtitle
-              meta={(row.kind === 'start' || row.kind === 'end') && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
+              meta={row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
             return <Fragment key={row.id}>
-              {row.kind === 'end' && <div data-slot="run-ending"><Banner tone={row.attention ? 'warning' : 'neutral'} title={words(row.title)}>
-                {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
-                {row.detail && <div className="whitespace-pre-line">{words(row.detail)}</div>}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {header.end?.kind === 'complete' && onWrap && <Button size="sm" variant="outline" onClick={onWrap}>Wrap</Button>}
-                  {header.interruptedCheck !== null && onReviewCheck ? <Button size="sm" variant="outline" onClick={onReviewCheck}>Review and run again…</Button>
-                    : header.end && header.end.kind !== 'complete' && onRunAgain && <Button size="sm" variant="outline" onClick={onRunAgain}>Run again…</Button>}
-                  {header.end?.kind === 'unrouted' && onBoard && <Button size="sm" variant="outline" onClick={onBoard}>Board</Button>}
-                </div>
-              </Banner></div>}
               {again ? <div data-slot="run-row" className="relative">{item}
                 <div className="absolute end-4 top-2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
               </div> : item}

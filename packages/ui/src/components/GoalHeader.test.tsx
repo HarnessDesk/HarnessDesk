@@ -17,7 +17,7 @@ const view = (patch: Partial<GoalView['goal']> = {}): GoalView => ({
   board: { id: 'g1', name: 'Ship it', root: '/repo', updatedAt: 2, members: [], messaging: true, intents: [], channel: [] }, receipt: null, problem: null,
 })
 
-it('opens dependencies and says why a wrapped Goal cannot be mutated', () => {
+it('opens dependencies without repeating a wrapped Goal’s state', () => {
   const snapshot = emptySnapshot() as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn(), updateGoal: vi.fn() } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><GoalHeader view={view({ state: 'wrapped' })} /></StoreProvider>))
@@ -25,7 +25,17 @@ it('opens dependencies and says why a wrapped Goal cannot be mutated', () => {
   const dep = [...document.querySelectorAll('button')].find(one => one.textContent?.includes('Prepare it'))!
   act(() => dep.click())
   expect(store.openGoal).toHaveBeenCalledWith('g0')
-  expect(document.body.textContent).toContain('receipt is kept here')
+  expect(document.body.textContent).not.toContain('receipt is kept here')
+})
+
+it('keeps the wrapping notice and any problem on a wrapped Goal', () => {
+  const snapshot = emptySnapshot() as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn() } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><GoalHeader view={view({ state: 'wrapping' })} /></StoreProvider>))
+  expect(document.body.textContent).toContain('The desk is finishing this receipt.')
+  act(() => root.render(<StoreProvider store={store}><GoalHeader view={{ ...view({ state: 'wrapped' }), problem: 'The receipt could not be read.' }} /></StoreProvider>))
+  expect(document.body.textContent).toContain('The receipt could not be read.')
+  expect(document.body.textContent).not.toContain('receipt is kept here')
 })
 
 /**

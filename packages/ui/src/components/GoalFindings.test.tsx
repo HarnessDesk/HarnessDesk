@@ -617,3 +617,16 @@ it('a dropped run’s open finding says where it came from, and is decided again
     goal: 'g1', run: 'run-old', stamp: 'stamp-run-old', action: { kind: 'adjudicate', finding: 'finding-old', state: 'withdrawn' },
   }))
 })
+
+it('keeps a finding title separate from its literal id and lifecycle controls', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [row('finding-claim-1', { title: 'Race between two writers on the same lane' })],
+    next: null, totals: { all: 1, open: 1, blocking: 1 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const { store } = rig(state)
+  await render(store)
+  const button = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('finding-claim-1'))!
+  expect(button.querySelector(`.${stylesSettings.rowTitle}`)?.textContent).toBe('Race between two writers on the same lane')
+  expect(button.querySelector('[data-slot="row-desc"]')?.textContent).toContain('finding-claim-1')
+})
