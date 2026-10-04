@@ -29,7 +29,10 @@ resolve relative to the CLI's working directory and follow symlinks, matching
 the host's canonical project identity.
 
 Human output removes C0/C1 controls and terminal escape sequences from relayed
-text. `--json` emits one object for each command: `{desks}`, `{hello, teams,
+text. An error is printed by `errorText`: a usage error is the command line's
+own two lines, and any other message (a desk's included) is cleaned a line at a
+time with every line after the first marked `  | `, so none of it can pass for a
+line the command line wrote. `--json` emits one object for each command: `{desks}`, `{hello, teams,
 runs, overviews}`, `{teams}`, or `{runs}`. A watch emits the client's stable
 version-1 events, one object per line, beginning with `hello` and ending with `end`.
 Watch subscribes to `runs`, `cards`, `teams`, `seats`, `reviews`, `waiting`

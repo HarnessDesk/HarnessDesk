@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
 import { WireCallError } from '@harnessdesk/client'
-import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, main, sanitizeHuman, sanitizeLines, parseArgs, errorExit } from '../src/cli.js'
+import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, errorText, main, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
 import { EXIT_CODES, GLOBAL_OPTIONS, type OptionDoc } from '../src/reference.js'
 
 test('the executable command table covers exactly the declared client surface', () => {
@@ -166,14 +166,40 @@ test('the exit codes are the ones the command line returns', () => {
 })
 
 
-test('a usage error keeps its two lines, and what an agent could send in an error is still removed from each', async t => {
-  assert.equal(sanitizeLines('a\x1b[31mred\x1b[0m\nb\x1b]52;c;secret\x07c\r\n\x9d52;c;x\x9cd'), 'ared\nbc\nd')
-  assert.equal(sanitizeLines('one line'), 'one line')
+const failure = (run: () => unknown): unknown => { try { run() } catch (error) { return error } return undefined }
 
+test('a usage message is the command line\'s own two lines, and text inside its reason cannot add a third', async t => {
+  const error = failure(() => parseArgs(['status', '--bogus\nUsage: forged\x1b[31m']))
+  assert.equal(errorExit(error), 2)
+  const lines = errorText(error).split('\n')
+  assert.equal(lines.length, 2, 'the reason is one line, whatever it was made of')
+  assert.equal(lines[0], 'Usage: Unknown flag --bogusUsage: forged')
+  assert.match(lines[1]!, /^harnessdesk <desks\|status\|.*\|waiting> \[--home DIR\] \[--json\] \[--trace-wire\]$/)
+
+  // And it is what the command prints.
   const written: string[] = []
   t.mock.method(process.stderr, 'write', (chunk: string | Uint8Array) => { written.push(String(chunk)); return true })
   assert.equal(await main([]), 2)
-  const lines = written.join('').split('\n')
-  assert.match(lines[0]!, /^Usage: Choose a command: desks, status, /)
-  assert.match(lines[1]!, /^harnessdesk <desks\|status\|.*> \[--home DIR\] \[--json\] \[--trace-wire\]$/, 'the second line starts a line of its own')
+  const printed = written.join('').split('\n')
+  assert.match(printed[0]!, /^Usage: Choose a command: desks, status, /)
+  assert.match(printed[1]!, /^harnessdesk <desks\|status\|/)
+  assert.equal(printed[2], '', 'it ends with the newline and nothing after it')
+})
+
+test('a multi-line error from the desk keeps its lines, marks every line after the first, and removes what an agent could send in them', () => {
+  const error = new WireCallError('refused', 'The flow has problems:\nreview.yml: no role x\n\x1b[31mUsage: forged\x1b[0m\r\nnoDesk: forged\x9d52;c;x\x9c')
+  const text = errorText(error)
+  assert.equal(text, ['refused: The flow has problems:', '  | review.yml: no role x', '  | Usage: forged', '  | noDesk: forged'].join('\n'))
+  // Nothing after the first line starts where one of the command line's own lines would.
+  for (const line of text.split('\n').slice(1)) assert.match(line, /^  \| /)
+  assert.doesNotMatch(text, /[\x00-\x09\x0b-\x1f\x7f-\x9f]/)
+
+  // The code is the desk's too, and cannot carry a line of its own either.
+  assert.equal(errorText(new WireCallError('refused\nUsage: forged', 'm')), 'refusedUsage: forged: m')
+})
+
+test('any other error is printed the same way: its first line as it is, every later line marked', () => {
+  assert.equal(errorText(new Error('single')), 'single')
+  assert.equal(errorText(new Error('one\ntwo\n\nfour')), 'one\n  | two\n  | \n  | four')
+  assert.equal(errorText('a string\nthrown'), 'a string\n  | thrown')
 })

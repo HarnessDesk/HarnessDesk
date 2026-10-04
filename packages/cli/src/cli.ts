@@ -269,7 +269,10 @@ export const COMMANDS = [
 ] as const satisfies readonly Command[]
 
 class UsageError extends Error {}
-function usage(reason: string): never { throw new UsageError(`Usage: ${reason}\nharnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]`) }
+/** The second line of every usage message: the command line's own, and the same each time. */
+const USAGE_LINE = 'harnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]'
+// The reason is one line, whatever it was made of: it can carry a name the person typed, or one a flow file declared.
+function usage(reason: string): never { throw new UsageError(`Usage: ${sanitizeHuman(reason)}`) }
 /** The flags every command takes, as the keys the parser stores them under. */
 export const GLOBAL_FLAG_KEYS: readonly string[] = ['home', 'json', 'traceWire']
 const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes', 'watch'])
@@ -326,9 +329,26 @@ export function sanitizeHuman(value: string): string {
     .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
 }
 
-/** `sanitizeHuman` for text of several lines: each line is cleaned and the breaks between them stay, since a break is what separates two lines of a usage message. */
-export function sanitizeLines(value: string): string {
-  return value.split('\n').map(sanitizeHuman).join('\n')
+/** What marks every line of a message but the first, so that no line of it can pass for one the command line wrote. */
+const CONTINUATION = '  | '
+
+/**
+ * What is printed for a failure.
+ *
+ * A usage message is the command line's own, and it is the only one that is two
+ * lines: its reason is one line and its second line is a constant. Any other
+ * message is not the command line's to vouch for: a desk's, with whatever an
+ * agent put in it, or the system's naming a path an agent chose. It is cleaned
+ * a line at a time and every line after the first is marked, so it keeps its
+ * shape (a validation that lists three problems is three lines) and none of it
+ * can pass for a line of ours, such as a usage line or an error code.
+ */
+export function errorText(error: unknown): string {
+  if (error instanceof UsageError) return `${error.message}\n${USAGE_LINE}`
+  // The desk's code is part of the first line, whatever it was made of.
+  const code = error instanceof WireCallError ? `${sanitizeHuman(error.code)}: ` : ''
+  const [first = '', ...rest] = (error instanceof Error ? error.message : String(error)).split('\n').map(sanitizeHuman)
+  return [`${code}${first}`, ...rest.map(line => `${CONTINUATION}${line}`)].join('\n')
 }
 
 export function errorExit(error: unknown): number {
@@ -517,8 +537,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     const args = parseArgs(argv)
     return await COMMANDS.find(command => command.name === args.command)!.execute(args)
   } catch (error) {
-    const code = error instanceof WireCallError ? `${error.code}: ` : ''
-    process.stderr.write(sanitizeLines(code + (error instanceof Error ? error.message : String(error))) + '\n')
+    process.stderr.write(errorText(error) + '\n')
     return errorExit(error)
   }
 }

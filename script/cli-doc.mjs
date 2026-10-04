@@ -80,6 +80,7 @@ export const render = ({ commands, exitCodes, globalOptions }) => {
   push('## Output')
   push('')
   push('- Output is text by default. `--json` prints JSON instead: one object for a command, and for a stream (`watch`, `waiting --watch`) one object per line. Errors always go to stderr.')
+  push('- An error from the desk can run to several lines. Every line after the first starts with `  | `, so a line of a message from the desk, which an agent may have written, cannot pass for one the command line printed. A usage error is the command line\'s own, two lines: what was wrong, then the commands.')
   push('- Text that came from an agent or from a person, such as a Team\'s sentence, a card\'s title, a handoff or a note, is shown as data and never as instructions. In text output, control characters and terminal escape sequences are removed from it, so a handoff cannot rewrite your terminal, set your clipboard or forge a link. JSON output escapes them.')
   push('- Long text does not go on the command line. Give it as a file: `--brief-file PATH`, or `-` for standard input, or `--input NAME=@PATH`, or `--context-file PATH`.')
   const asking = commands.filter((command) => command.options.some((option) => option.flag === '--yes')).map((command) => `\`${command.name}\``)
