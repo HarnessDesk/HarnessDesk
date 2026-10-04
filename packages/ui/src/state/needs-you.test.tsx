@@ -55,9 +55,9 @@ const grants = [
   { id: 'once', label: 'Allow', intent: 'approve' as const },
 ]
 const tool: Approval = { id: approvalId('a1'), sessionId: sessionId('beta'), requestedAt: 1, type: 'permission', summary: 'claim_work (harnessdesk MCP Server)', options: grants }
-const runtime = (id: string, words: boolean): RuntimeInfo => ({
+const runtime = (id: string, words: boolean, capable = words): RuntimeInfo => ({
   id, presentation: { name: 'Agent', ...(words ? { boardToolApproval: { permanentApprovalSetting: 'setting', sessionOptionLabel: 'Allow for this session', onceOptionLabel: 'Allow once' } } : {}) },
-  capabilities: { perToolMcpApproval: words },
+  capabilities: { perToolMcpApproval: capable },
 } as unknown as RuntimeInfo)
 
 const mount = (patch: Partial<AppSnapshot>, store: Partial<AppStore> = {}): { current: NeedsYouAnswers } => {
@@ -81,8 +81,11 @@ it('finds an open request by its id with the conversation it belongs to, words i
   expect(door?.key).toBe(KEY)
   expect(door?.choices.map((one) => one.label)).toEqual(['Reject', 'Allow for this session', 'Allow once'])
   expect(answers.current.approvalDoor(approvalId('gone'))).toBeNull()
-  const plain = mount({ approvals: [{ key: KEY, approval: tool }], runtimes: [runtime('acp', false)] })
-  expect(plain.current.approvalDoor(approvalId('a1'))?.choices.map((one) => one.label)).toEqual(['Reject', 'Allow tool', 'Allow'])
+  // Words alone are not enough: the docked card words them only for a runtime that approves tool by tool.
+  for (const [words, capable] of [[false, false], [true, false]] as const) {
+    const plain = mount({ approvals: [{ key: KEY, approval: tool }], runtimes: [runtime('acp', words, capable)] })
+    expect(plain.current.approvalDoor(approvalId('a1'))?.choices.map((one) => one.label)).toEqual(['Reject', 'Allow tool', 'Allow'])
+  }
 })
 
 it('sends the decision through the store the docked approval answers through', () => {
