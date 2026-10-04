@@ -30,6 +30,7 @@ import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { StopRunDialog, StopRunFailure } from './StopRunDialog'
 import { RunFlow } from './RunFlow'
+import { useCheckAttempts } from '../state/check-attempts'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
@@ -78,6 +79,8 @@ import { GoalReceiptCost } from './GoalReceiptCost'
 import { FindingCarry } from './FindingCarry'
 import { FindingDetail } from './FindingDetail'
 import { FlowRunStatus } from './FlowRunStatus'
+import { RetryCheck } from './RetryCheck'
+import { RunAgain } from './RunAgain'
 import { WindowControls } from './WindowControls'
 import {
   ActionError,
@@ -418,6 +421,9 @@ export const TeamRoomPane = ({
     setOnRail(!(opensOnReceipt || flowExecution))
   }, [room, flowExecution?.id, record])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
+  const [again, setAgain] = useState<FlowExecution | null>(null)
+  const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
+  useEffect(() => { setAgain(null); setRetryCheck(null) }, [room])
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
   const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)), [snapshot.flowExecutions, room])
@@ -426,6 +432,8 @@ export const TeamRoomPane = ({
   const [timelinePending, setTimelinePending] = useState(false)
   const [timelineReadError, setTimelineReadError] = useState<string | null>(null)
   const [timelineRead, setTimelineRead] = useState(0)
+  // What each check of the Run recorded each time it ran: read while the Run is on show, and again when a result lands.
+  const checkAttempts = useCheckAttempts({ execution: timelineRun ?? undefined, evidence: snapshot.boardEvidence.get(room), active: open === 'run', nonce: timelineRead })
   const [runHistoryProblem, setRunHistoryProblem] = useState<{ room: string; message: string } | null>(null)
   useEffect(() => {
     // A trigger Goal names no opener Run. Discover its history even when
@@ -762,6 +770,9 @@ export const TeamRoomPane = ({
     const timer = flowExecution?.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
   }, [store, room, open, Boolean(goal), closedCards, flowExecution?.state])
+  useEffect(() => {
+    if (flowExecution && typeof store.loadFindingRun === 'function') void store.loadFindingRun(room, flowExecution.id).catch(() => {})
+  }, [store, room, flowExecution?.id])
   const overview = useMemo(() => teamOverview({
     team: room, cards: intents, signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
     seats: seats.map(seat => ({
@@ -772,9 +783,11 @@ export const TeamRoomPane = ({
       approvals: snapshot.approvals.filter(one => one.key === seat.key).map(one => one.approval),
     })),
     run: flowExecution ? {execution: flowExecution, startedAt: flowExecution.startedAt ?? null} : null,
+    findingRun: flowExecution ? snapshot.findingRuns.get(flowExecution.id) : null,
+    publicationOn: goal?.goal.findingPublication !== false,
     report: report?.goal === room ? report : null,
     runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
-  }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report])
+  }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
   const overviewTimeline = useMemo(() => flowExecution ? runTimeline({ execution: flowExecution, cards: intents, sessions: snapshot.sessions,
     signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal') }) : null,
   [flowExecution, intents, snapshot.sessions, entries])
@@ -946,7 +959,7 @@ export const TeamRoomPane = ({
    * to "Needs you" — the two surfaces disagreeing about the same run is
    * exactly the bug this constant exists to close.
    */
-  const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled'
+  const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
     : pendingApproval || needsYou
@@ -983,6 +996,9 @@ export const TeamRoomPane = ({
         ended={stoppingExecution.state === 'stopped' || stoppingExecution.state === 'settled'}
         failure={snapshot.flowStopProblems.get(stoppingRun)}
         onStop={reason => store.stopFlowExecution(stoppingRun, reason)} onClose={() => setStoppingRun(null)} /> : null}
+      {again?.goal === room && goal && <RunAgain key={again.id} execution={again} root={goal.goal.root} sentence={goal.goal.sentence}
+        onClose={() => setAgain(null)} onStarted={next => { setAgain(null); setChosenRun(next.id); show('run'); void store.loadTeamRuns(room) }} />}
+      {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
 
       {/*
         * The one header row, at the window's own bar height — the same one a
@@ -1461,26 +1477,39 @@ export const TeamRoomPane = ({
                 return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
               }))}
               runName={flowExecution?.document.flow.name}
+              runNeedsYou={flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'}
               timeline={overviewTimeline}
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
               statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {runs.length > 1 && <PaneColumn inset="reading" aria-label="Choose a Run" className="flex flex-wrap gap-2">
-                {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
-                  onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
-              </PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun}
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
+                runChooser={runs.length > 1 && <span aria-label="Choose a Run" className="flex flex-wrap gap-2">
+                  {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
+                    onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
+                </span>}
+                continuesNumber={timelineRun.continues ? runs.findIndex(one => one.id === timelineRun.continues) + 1 || undefined : undefined}
+                onRunAgain={goal?.goal.state === 'open' ? () => setAgain(timelineRun) : undefined}
+                onWrap={!wrapDisabled ? () => setWrapping(true) : undefined}
+                onBoard={() => show('board')}
+                onReviewCheck={() => { const check = timelineRun.operations.find(one => one.kind === 'check' && one.state === 'uncertain'); if (check?.card != null) setRetryCheck({ run: timelineRun.id, card: check.card }) }}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
                 onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimeline({ execution: timelineRun, cards: intents, sessions: snapshot.sessions,
                   signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
                   evidence: snapshot.boardEvidence.get(room),
+                  findingRun: snapshot.findingRuns.get(timelineRun.id),
+                  publicationOn: goal?.goal.findingPublication !== false,
                   findings: snapshot.findings.get(room)?.filter === 'all' ? snapshot.findings.get(room)?.rows : [],
                   origin: timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
+                  ...(checkAttempts.attempts ? { attempts: checkAttempts.attempts } : {}),
+                  ...(checkAttempts.incomplete.size ? { incompleteAttempts: checkAttempts.incomplete } : {}),
                 })}
+                attempts={checkAttempts.attempts}
+                incompleteAttempts={checkAttempts.incomplete}
+                attemptsRead={checkAttempts.read}
                 selectedRow={selectedRunRows.get(timelineRun.id) ?? null}
                 onSelect={id => setSelectedRunRows(was => new Map(was).set(timelineRun.id, id))}
                 doing={new Map(overview.seats.map(one => [one.seat, one.doing]))}
@@ -1488,7 +1517,8 @@ export const TeamRoomPane = ({
                 onRetry={() => setTimelineRead(was => was + 1)}
                 flow={<RunFlow execution={timelineRun} root={goal?.goal.root ?? null} seats={goal?.members ?? []} />}
                 problem={snapshot.boardEvidenceFailed.has(room) ? 'Check evidence is unavailable.'
-                  : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)}
+                  : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)
+                  ?? (checkAttempts.read === 'failed' ? 'Earlier attempts of a check could not be read.' : null)}
                 faces={new Map(seats.map(seat => {
                   const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                   const brand = runtime ? brandForRuntime(runtime) : null

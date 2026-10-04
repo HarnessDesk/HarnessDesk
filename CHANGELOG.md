@@ -21,6 +21,12 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   finishing that card or selecting another cannot carry over a late refusal.
   (Fixes #1342)
 
+- **One repository is one sidebar project.** Team clones and linked worktrees
+  share its row. Gone folders leave the list while their conversations remain
+  searchable. Seats with no first message are named by their job and Team,
+  and an agent's compaction summary is never a conversation title. Capture
+  state lives in the project's menu.
+
 - **The command line now ships inside the app.** HarnessDesk › Install
   command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
   own, so a terminal or a script can list Teams and runs, start a flow, watch
@@ -60,6 +66,12 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   can be abandoned, after a question that says first what the Flow will do
   about it: open the next round, end the Run, or wait for the round's other
   cards.
+
+- **An ended Run has a way on.** Its banner says why it ended and offers
+  Wrap, the board, a fresh Run, or consent to an interrupted check. Run again
+  prefills the saved inputs and brief, leaves seat preferences open to change,
+  and keeps both Runs on the same Team. The header’s Flow revision opens
+  the Flow that Run started with.
 
 - **A Run shows the Flow it started with.** A Run's header switches between
   its Timeline and its Flow: the Flow it was started from, kept at the

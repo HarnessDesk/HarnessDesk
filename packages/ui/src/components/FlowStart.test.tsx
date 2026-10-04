@@ -82,6 +82,82 @@ const select = async (value: string): Promise<void> => {
   })
 }
 
+it('previews the recorded source and inputs without reading the current catalogue file', async () => {
+  const theStore = store({ entries: [], source: () => { throw new Error('must not read'); }, preview: () => ({ ...emptyPreview(), compiled: compiled({ flow: {
+    version: 2, name: 'Fix', inputs: [{ id: 'brief', label: 'Brief' }, { id: 'task', label: 'Task' }], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only', wait: 240,
+  } }) }) })
+  const initial = { source: 'frozen source', vars: { task: 'Retry', brief: 'Two\nparagraphs' }, seats: {}, attended: true }
+  const change = vi.fn()
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={initial} onChange={change} /></StoreProvider>))
+  expect(theStore.flowSource).not.toHaveBeenCalled()
+  expect(theStore.previewFlow).toHaveBeenCalledWith('/repo', initial.source, initial.vars, { seats: {}, attended: true })
+  expect(container.querySelector('textarea')!.value).toBe(initial.vars.brief)
+  expect(change).toHaveBeenLastCalledWith({ source: initial.source, vars: initial.vars, token: 't', seats: {}, attended: true })
+})
+
+it('shows a continuation refusal rather than calling its empty preview an old-format Flow', async () => {
+  const refusal = 'A newer Run continues this one. Start work on that Run instead.'
+  const preview: FlowPreview = { ...emptyPreview(), token: null,
+    compiled: { document: { format: 'legacy', flow: { name: '', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
+    problems: [{ level: 'error', at: 'run', text: refusal }],
+  }
+  const theStore = store({ entries: [], source: () => '', preview: () => preview })
+  const change = vi.fn()
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" continues="earlier" initial={{ source: 'saved', vars: {} }} onChange={change} /></StoreProvider>))
+  expect(container.textContent).toContain(refusal)
+  expect(container.textContent).not.toContain('This flow uses the old format')
+  expect(container.textContent).not.toContain('Reading the earlier Run’s Flow')
+  expect(container.textContent).not.toContain('This flow names no Agent role')
+  expect(change).toHaveBeenLastCalledWith(null)
+})
+
+it('keeps the migration banner for a parsed old-format Flow without a separate format problem', async () => {
+  const preview: FlowPreview = { ...emptyPreview(), token: null,
+    compiled: { document: { format: 'legacy', flow: { name: 'Old Flow', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
+    problems: [],
+  }
+  const theStore = store({ entries: [], source: () => '', preview: () => preview })
+  const change = vi.fn()
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={{ source: 'saved', vars: {} }} onChange={change} /></StoreProvider>))
+  expect(container.textContent).toContain('This flow uses the old format')
+  expect(container.textContent).not.toContain('This flow will not run yet')
+  expect(change).toHaveBeenLastCalledWith(null)
+})
+
+it('edits and resets one Seat slot while preserving every other Seat and role', async () => {
+  const first = { runtime: 'alpha' }, second = { runtime: 'beta', model: 'second' }, changed = { runtime: 'alpha', effort: 'high' }
+  const dry = emptyPreview()
+  const slot = (index: number): FlowPreviewSeat => ({ role: 'reviewer', index, agent: 'reviewer', isolate: false, reviews: true,
+    plan: { id: 'reviewer', from: 'prefer', winner: index, blocked: null, ceiling: { level: 'read', hold: 'held' },
+      candidates: [first, second, changed].map((seat, n) => candidate({ seat, label: `Choice ${n}`, runtimeName: 'Agent', state: n === index ? 'taken' : 'untried', reason: null, fix: null })) } })
+  const preview = { ...dry, compiled: compiled({ flow: { version: 2, name: 'Review', inputs: [],
+    roles: [{ id: 'reviewer', kind: 'agent', uses: ['reviewer'], seats: [first, second], isolate: false, grant: 'read', independentOf: [] }],
+    rules: [], seed: { role: 'reviewer', title: 'Review' }, messaging: 'board-only', wait: 240 } }), seats: [slot(0), slot(1)] }
+  const theStore = store({ entries: [], source: () => '', preview: () => preview })
+  theStore.previewFlow = vi.fn(async (_root, _source, _vars, options) => ({ ...preview, seats: preview.seats.map(seat => {
+    const chosen = options?.seats?.reviewer?.[seat.index]
+    return chosen ? { ...seat, plan: { ...seat.plan, winner: 0, candidates: seat.plan.candidates.filter(candidate => JSON.stringify(candidate.seat) === JSON.stringify(chosen)) } } : seat
+  }) }))
+  const change = vi.fn()
+  const initial = { source: 'saved', vars: {}, seats: { writer: [{ runtime: 'writer' }] }, attended: true }
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={initial} onChange={change} /></StoreProvider>))
+  expect(container.querySelectorAll('select')).toHaveLength(2)
+  const controls = () => [...container.querySelectorAll('select')]
+  const chooseSlot = async (index: number, value: string) => act(async () => {
+    const control = controls()[index]!
+    control.value = value; control.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await chooseSlot(0, JSON.stringify(changed))
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'saved', {}, { seats: { ...initial.seats, reviewer: [changed, second] }, attended: true })
+  expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ seats: { ...initial.seats, reviewer: [changed, second] } }))
+  expect([...controls()[0]!.options].map(option => option.value)).toContain(JSON.stringify(first))
+  await chooseSlot(1, JSON.stringify(first))
+  await chooseSlot(0, '')
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'saved', {}, { seats: { ...initial.seats, reviewer: [first, first] }, attended: true })
+  await chooseSlot(1, '')
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'saved', {}, { seats: initial.seats, attended: true })
+})
+
 it('every candidate and effective ceiling remains visible', async () => {
   const seatHeld: FlowPreviewSeat = {
     role: 'fixer', index: 0, agent: 'builder', isolate: true, reviews: false,
@@ -534,4 +610,23 @@ it.each(['unreadable', 'binary'])('a pending %s file restores the valid choice w
   })
   expect(container.querySelector('textarea')?.value).toBe('Existing draft')
   expect(onChange).toHaveBeenLastCalledWith(previous)
+})
+
+it('changing a recorded seat preference invalidates consent until that exact choice is previewed', async () => {
+  const first: FlowPreview = { ...emptyPreview(), seats: [{ role: 'fixer', index: 0, agent: 'builder', isolate: false, reviews: false,
+    plan: { id: 'builder', from: 'machine', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'held' }, candidates: [
+      candidate({ state: 'taken', label: 'Alpha', reason: null, fix: null }),
+      candidate({ state: 'untried', label: 'Beta', seat: { runtime: 'beta' }, reason: null, fix: null }),
+    ] } }] }
+  let resolve!: (value: FlowPreview) => void
+  let calls = 0
+  const theStore = store({ entries: [], source: () => 'unused', preview: () => ++calls === 1 ? first : new Promise<FlowPreview>(done => { resolve = done }) })
+  const change = vi.fn()
+  const initial = { source: 'saved', vars: {} }
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={initial} onChange={change} /></StoreProvider>))
+  await select(JSON.stringify({ runtime: 'beta' }))
+  expect(change).toHaveBeenLastCalledWith(null)
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'saved', {}, { seats: { fixer: [{ runtime: 'beta' }] }, attended: undefined })
+  await act(async () => resolve({ ...first, token: 'second' }))
+  expect(change).toHaveBeenLastCalledWith({ source: 'saved', vars: {}, token: 'second', seats: { fixer: [{ runtime: 'beta' }] }, attended: undefined })
 })

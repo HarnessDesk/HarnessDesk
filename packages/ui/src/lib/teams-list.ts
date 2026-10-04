@@ -51,7 +51,7 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
  const wrapped = goal?.goal.state === 'wrapped'
  const waiting = overview.needsYou[0]
  const blocked = seats.find(one => one.state === 'needs-you')
- const needs = !wrapped && (Boolean(waiting || blocked) || goal?.activity === 'needs-you' || execution?.state === 'stalled' || execution?.end?.kind === 'unrouted' || Boolean(execution?.keptAnswer))
+ const needs = !wrapped && (Boolean(waiting || blocked || overview.run?.needsYou) || goal?.activity === 'needs-you' || execution?.state === 'stalled' || execution?.end?.kind === 'unrouted' || Boolean(execution?.keptAnswer))
  const unreadSeats = seats.filter(one => one.state === 'unread')
  const workingSeats = seats.filter(one => one.state === 'working')
  const unfinished = team.intents.some(card => card.state !== 'done' && card.state !== 'abandoned')
@@ -73,13 +73,14 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
      : wrapped ? goal?.goal.updatedAt ?? null : null
  const round = overview.run
  const after = goal?.waitingOn?.length ? `After ${goal.waitingOn.map(one => one.sentence).join(' · ')}` : null
- const detail = wrapped ? null : waiting?.summary ?? blocked?.reason ?? execution?.pendingReleaseNote ?? after ?? execution?.reason ?? (!settled && round?.round !== null && round?.round !== undefined
+ const detail = wrapped ? null : waiting?.summary ?? blocked?.reason ?? (overview.run?.needsYou ? overview.run.findingRun?.reason : null) ?? execution?.pendingReleaseNote ?? after ?? execution?.reason ?? (!settled && round?.round !== null && round?.round !== undefined
   ? `Round ${round.round}${round.role ? ` · ${round.role}` : ''} · ${workingSeats.length} of ${seats.length} seats working` : null)
  // Usage refreshes and clock ticks do not unhide work. Identity, lifecycle and
  // observed attention do; these marks contain no transcript or command text.
  const change = JSON.stringify([team.updatedAt,goal?.goal.updatedAt ?? null,goal?.goal.state ?? null,goal?.activity ?? null,
   execution?.id ?? null,execution?.state ?? null,execution?.endedAt ?? null,execution?.reason ?? null,execution?.pendingReleaseNote ?? null,
   execution?.rounds.map(one => [one.n,one.state,one.cards,one.seats]) ?? [],
+  [overview.run?.findingRun?.publication ?? null,overview.run?.publicationOn ?? null,overview.run?.findingRun?.reason ?? null],
   seats.map(one => [one.seat,one.state,one.since,one.card?.id ?? null]),
   overview.needsYou.map(one => [one.kind,one.seat,one.card,one.since])])
  return {id:team.id,project:team.root,sentence:goal ? goalName(goal.goal) : team.name,seats,state,since,detail,

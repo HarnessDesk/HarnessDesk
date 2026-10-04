@@ -196,7 +196,7 @@ export interface GoalRig {
 
 export const goalRig = async (
   t: { after(fn: () => Promise<void>): void },
-  options: { readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly dropBase?: (root: string, run: string) => Promise<void> } = {},
+  options: { readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void> } = {},
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
@@ -355,6 +355,10 @@ export const goalRig = async (
       // Found again by `goalsOf`, the way the host's store answers for a reservation.
       rig.goals.set(input.goal, input.run)
     },
+    reserveContinuation: async (input) => {
+      if (team.stateFor(input.goal).root !== input.root) throw new Error('This Team belongs to another project.')
+      rig.goals.set(input.goal, input.run)
+    },
     releaseGoal: async (input) => {
       if (rig.goals.get(input.goal) !== input.run) return
       rig.events.push(`unreserve:${input.goal}:${input.run}`)
@@ -399,13 +403,13 @@ export const goalRig = async (
       return { commit: 'c'.repeat(40), paths: ['notes.md'] }
     },
     // A `run_check` checkout: a folder named for the commit, whose head is that commit, gone once removed.
-    checkoutAt: async (cwd, at) => {
+    checkoutAt: options.checkoutAt ?? (async (cwd, at) => {
       const path = `${cwd}/.check/${at.slice(0, 8)}-${rig.checkouts.length}`
       rig.checkouts.push(path)
       rig.heads.set(path, { at, dirty: false })
       rig.events.push(`checkout:${at}`)
       return { cwd: path, remove: async () => { rig.heads.delete(path); rig.events.push(`checkout-removed:${at}`) } }
-    },
+    }),
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
       where.onStarted?.()

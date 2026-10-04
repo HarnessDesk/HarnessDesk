@@ -25,6 +25,7 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
  * a row mounts that row's screen — a shared helper hides the export, and
  * every tab then looks like it loads all of them.
  */
+const RunAgainSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RunAgainSurface })))
 const FlowBriefSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.FlowBriefSurface })))
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
 const ComposerSlotsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSlotsSurface })))
@@ -37,6 +38,7 @@ const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ de
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
 const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
 const SeatRowsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SeatRowsSurface })))
+const ProjectsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ProjectsSurface })))
 const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
 const SignInSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SignInSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, tokenVisual, useResolvedTokens } from './foundation'
@@ -131,6 +133,7 @@ const DIALS = [
  * tab renders is the same lie as a drawing, in words.
  */
 const SURFACES = [
+  { id: 'run-again', title: 'Run again', about: 'A fresh start from recorded inputs, with editable seating; ready, empty, reading and refused.', render: RunAgainSurface },
   { id: 'flow-brief', title: 'Flow brief', about: 'The shipped Brief input: empty, filled, long, refused file and reading. Switch the theme or narrow the window to inspect the same control.', render: FlowBriefSurface },
   {
     id: 'dashboard',
@@ -192,8 +195,15 @@ const SURFACES = [
     id: 'seat-rows',
     title: 'Seats in the left bar',
     about:
-      'Three Seats of one role, one per agent, all titled by the role — at compact density the agent is a chip on the title line, drawn only where rows from more than one agent share a title. The third Seat ran in a worktree that is gone, so its row also wears the gone-folder mark.',
+      'Three Seats of one role, one per agent, all titled by the role — at compact density the agent is a chip on the title line, drawn only where rows from more than one agent share a title.',
     render: SeatRowsSurface,
+  },
+  {
+    id: 'projects',
+    title: 'Projects in the left bar',
+    about:
+      'The left bar on a busy desk: one repository cloned once per Team is one project, whichever clone holds the conversation; a second repository and a folder with no remote keep rows of their own; twelve deleted folders are not projects and are said in one quiet line at the end, with a menu that forgets them. A conversation an agent named after its own summary is named by what the person asked; a Team\'s two seats, which nobody typed to, are named by their jobs. The project\'s ⋯ menu holds its capture state — the row says only which project it is. This tab shows that fixture, on a store of its own; the shared preview is a different desk.',
+    render: ProjectsSurface,
   },
   {
     id: 'git',

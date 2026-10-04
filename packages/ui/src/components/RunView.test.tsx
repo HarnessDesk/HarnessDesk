@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runTimeline } from '../lib/run-timeline'
 import { overviewRun } from '../preview/team-overview-fixture'
-import { runFixture } from '../preview/run-view-fixture'
+import { StoreProvider } from '../state/context'
+import { emptySnapshot, type AppStore } from '../state/store'
 import { RunView } from './RunView'
+import { runFixture } from '../preview/run-view-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -108,8 +110,50 @@ it.each(['running', 'stopped', 'settled', 'stalled'] as const)('offers Stop run�
     else expect(stop).toBeUndefined()
   } finally { done() }
 })
+it('does not invent a new ending door for a legacy Run without an end kind', () => {
+  const { container, done } = withFlow({ model: runTimeline({ execution: { ...runFixture('stopped').execution, end: undefined }, cards: [] }), onRunAgain: () => {} })
+  try { expect(container.querySelector('[data-slot="run-ending"] button')).toBeNull() } finally { done() }
+})
 const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
+
+it.each([
+  ['complete', 'Wrap'], ['settled', 'Run again…'], ['stopped', 'Run again…'], ['stalled', 'Review and run again…'],
+] as const)('gives %s a banner and an independent door', (scene, label) => {
+  const onRunAgain = vi.fn(), onWrap = vi.fn(), onBoard = vi.fn(), onReviewCheck = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline(runFixture(scene)), onRunAgain, onWrap, onBoard, onReviewCheck })
+  try {
+    const banner = container.querySelector('[data-slot="run-ending"]')!
+    expect(banner).not.toBeNull()
+    const button = [...banner.querySelectorAll('button')].find(one => one.textContent === label)!
+    expect(button.closest('[data-row]')).toBeNull()
+    act(() => button.click())
+    expect(scene === 'complete' ? onWrap : scene === 'stalled' ? onReviewCheck : onRunAgain).toHaveBeenCalledOnce()
+    if (scene === 'settled') {
+      act(() => [...banner.querySelectorAll('button')].find(one => one.textContent === 'Board')!.click())
+      expect(onBoard).toHaveBeenCalledOnce()
+    }
+  } finally { done() }
+})
+
+it.each(['rounds', 'without-progress'] as const)('names the %s budget and its recorded count even without a reason', which => {
+  const execution = { ...runFixture('stalled').execution, operations: [], end: { kind: 'budget' as const, which, used: 7 }, reason: null }
+  const { container, done } = withFlow({ model: runTimeline({ execution, cards: [] }), onRunAgain: () => {} })
+  try {
+    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('7')
+    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('Run again…')
+  } finally { done() }
+})
+
+it('opens the frozen Flow from the revision button', () => {
+  const { container, done } = withFlow()
+  try {
+    const revision = container.querySelector<HTMLButtonElement>('[data-slot="run-revision"]')!
+    expect(revision).not.toBeNull()
+    act(() => revision.click())
+    expect(container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
+  } finally { done() }
+})
 
 it('has no switch when there is no Flow to show', () => {
   const { container, done } = withFlow({ flow: undefined })
@@ -153,4 +197,76 @@ it('answers to a caller that chooses the view, and says what was chosen', () => 
     expect(onView).toHaveBeenCalledWith('timeline')
     expect(container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
   } finally { done() }
+})
+
+/*
+ * A check run again: its row offers *Run again…* beside it, and a check with
+ * more than one result draws each under the card. The control is the row's
+ * sibling and never inside it (a button inside a button), and pressing it asks
+ * the host, never selecting the row.
+ */
+const GATE = (patch: Partial<ReturnType<typeof overviewRun>> = {}) => ({ ...overviewRun(), brief: null,
+  rounds: [{ n: 1, role: 'verify', cards: [1], seats: [], evidence: [], state: 'closed' as const, cause: 'seed' }],
+  operations: [{ key: 'check:1:0', kind: 'check' as const, state: 'finished' as const, card: 1, seat: null }],
+  document: { format: 'agents' as const, flow: { version: 2 as const, name: 'Gate', inputs: [], messaging: 'board-only' as const, wait: 1, rules: [], seed: { role: 'verify', title: 'Check' },
+    roles: [{ id: 'verify', kind: 'check' as const, check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } },
+  ...patch })
+const DONE = { id: 1, title: 'Verify', state: 'done' as const, outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
+const ATTEMPTS = new Map([[1, [
+  { id: 'attempt-1', n: 1, at: Date.now() - 600_000, commit: 'abc', exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL' },
+  { id: 'attempt-2', n: 2, at: Date.now() - 60_000, commit: 'abc', exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
+]]])
+
+const mountGate = (execution: ReturnType<typeof GATE>, extra: Partial<Parameters<typeof runTimeline>[0]> = {}) => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const previewFlowRetry = vi.fn(async () => new Promise<never>(() => {}))
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewFlowRetry } as unknown as AppStore
+  const onSelect = vi.fn()
+  const model = runTimeline({ execution, cards: [DONE], ...extra })
+  act(() => root.render(<StoreProvider store={store}><RunView model={model} number={1} selectedRow={null} onSelect={onSelect} /></StoreProvider>))
+  return { container, onSelect, previewFlowRetry, done: () => { act(() => root.unmount()); container.remove() } }
+}
+
+it('offers Run again… beside a check that may be asked again — outside the row’s own button, and without selecting it', () => {
+  const { container, onSelect, previewFlowRetry, done } = mountGate(GATE())
+  try {
+    const again = [...container.querySelectorAll('button')].find(one => one.textContent === 'Run again…')!
+    const row = container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement
+    expect(again).toBeDefined()
+    expect(row.contains(again)).toBe(false)
+    expect(row.closest('[data-slot="run-view"]')!.contains(again)).toBe(true)
+    act(() => again.click())
+    expect(previewFlowRetry).toHaveBeenCalledWith(GATE().id, 1)
+    expect(onSelect).not.toHaveBeenCalled()
+  } finally { done() }
+})
+
+it('shows no Run again… on a check that cannot be asked again, and none on a row that is not a check', () => {
+  for (const execution of [GATE({ state: 'settled' }), GATE({ operations: [] }), { ...GATE(), rounds: [{ ...GATE().rounds[0]!, role: 'writer' }] }]) {
+    const { container, done } = mountGate(execution)
+    try { expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(false) } finally { done() }
+  }
+})
+
+it('draws each attempt under a check that ran more than once, oldest first, as plain rows that select nothing', () => {
+  const { container, onSelect, done } = mountGate(GATE(), { attempts: ATTEMPTS })
+  try {
+    const order = [...container.querySelectorAll('[data-row]')].map(one => one.getAttribute('data-row'))
+    expect(order).toEqual(['start', 'round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2'])
+    const [first, second] = ['attempt-1-1-1', 'attempt-1-1-2'].map(id => container.querySelector(`[data-row="${id}"]`) as HTMLElement) as [HTMLElement, HTMLElement]
+    expect(first.textContent).toContain('Attempt 1')
+    expect(first.textContent).toContain('Failed')
+    expect(second.textContent).toContain('Attempt 2')
+    expect(second.textContent).toContain('Passed')
+    expect(first.tagName).not.toBe('BUTTON')
+    act(() => first.click())
+    expect(onSelect).not.toHaveBeenCalled()
+  } finally { done() }
+})
+
+it('draws no attempt rows for a check with one result', () => {
+  const { container, done } = mountGate(GATE(), { attempts: new Map([[1, ATTEMPTS.get(1)!.slice(0, 1)]]) })
+  try { expect(container.querySelector('[data-kind="attempt"]')).toBeNull() } finally { done() }
 })

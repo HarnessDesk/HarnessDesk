@@ -10,6 +10,7 @@ import { sanitizeHtml } from '../lib/sanitize'
 import type { NeedsYouAnswers } from '../lib/needs-you'
 import type { runTimeline } from '../lib/run-timeline'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
+import { runPublication } from '../lib/review-publication'
 import { AgentIcon } from './Icons'
 import { NeedsYouRow } from './NeedsYouRow'
 import { formatDuration } from './TurnTail'
@@ -40,7 +41,7 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop }: {
+export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop, runNeedsYou = false }: {
   model: ReturnType<typeof teamOverview>
   /** Run card presentation is shared with its timeline and inspector. */
   timeline?: ReturnType<typeof runTimeline> | null
@@ -57,6 +58,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   /** The Team's shared live line, using this view's ticking clock. */
   statusLine?: (now: number) => ReactNode
   defaultExpanded?: boolean
+  runNeedsYou?: boolean
 }) => {
   const box = useRef<HTMLDivElement>(null)
   const [narrow, setNarrow] = useState(false)
@@ -92,6 +94,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
     ? <Button variant="link" size="inline-link" onClick={() => onOpen(row.seat)}><Text role="row">{words(row.name)}</Text></Button>
     : <Text role="row">{words(row.name)}</Text>
   const run = model.run
+  const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
@@ -100,7 +103,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
-                <Chip tone={run.state === 'stalled' ? 'warning' : 'neutral'}>{runWords[run.state]}</Chip>
+                <Chip tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : 'neutral'}>{runNeedsYou || run.needsYou ? 'Needs you' : runWords[run.state]}</Chip>
+                {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
                 {run.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
               </div>
               <div className="flex flex-wrap gap-3">
@@ -115,6 +119,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               {[...stoppedCards.values()].filter(row => row.round === run.round).map(row => <div key={row.id} data-slot="run-current-step"><Text role="meta">
                 {words(row.title)} · {row.status}{row.durationMs !== null ? ` · ${formatDuration(row.durationMs)}` : ''}
               </Text></div>)}
+              {publication?.needsYou && run.findingRun?.reason && (statusLine || run.findingRun.reason !== runReason) && <Text role="meta" as="div">{words(run.findingRun.reason)}</Text>}
               {statusLine ? statusLine(now) : runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
             </section>
           </CardContent></Card>

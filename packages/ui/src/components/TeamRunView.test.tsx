@@ -315,6 +315,25 @@ it('answers to a caller that chooses the tab, and keeps the pane its own while i
   } finally { view.close() }
 })
 
+it('hands the attempts it was given, and why they are missing, to the check’s inspector', async () => {
+  const attempt = (n: number) => ({ id: `attempt-${n}`, n, at: Date.now() - (3 - n) * 600_000, commit: `c0ffee${n}`, exit: n === 1 ? 1 : 0, timedOut: false, outcome: n === 1 ? 'fail' : 'pass', tail: `output ${n}` })
+  const view = await mount(storeWith(), { selectedRow: 'check-2-2', attempts: new Map([[2, [attempt(1), attempt(2)]]]) })
+  try {
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt 2')
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt 1')
+    await view.show({ attempts: new Map([[2, [attempt(1), attempt(2)]]]), incompleteAttempts: new Set([2]) })
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt history could not be read completely.')
+    expect(sectionText(view.container, 'Attempts')).toContain('Recorded result')
+    expect(sectionText(view.container, 'Attempts')).not.toContain('Attempt 1')
+    await view.show({ attempts: undefined, attemptsRead: 'reading' })
+    expect(sectionText(view.container, 'Attempts')).toContain('Reading attempts…')
+    await view.show({ attempts: undefined, attemptsRead: 'failed' })
+    expect(sectionText(view.container, 'Attempts')).toContain('Earlier attempts could not be read')
+    await view.show({ attempts: undefined, attemptsRead: undefined })
+    expect(view.container.textContent).not.toContain('Attempts')
+  } finally { view.close() }
+})
+
 /** The store with another scene of the Run fixture on the Team's board, as the running Team holds it. */
 const sceneStore = (scene: 'running' | 'person', verbs: Record<string, unknown> = {}): AppStore => storeWith(snapshot => {
   const fixture = runFixture(scene)

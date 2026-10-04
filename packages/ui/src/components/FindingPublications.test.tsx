@@ -169,3 +169,24 @@ it('a round kept on the desk is posted only after its preview is confirmed, with
   await act(async () => { button('Post to #7').click() })
   expect(publish).toHaveBeenCalledWith({ goal: 'g1', run: 'run-1', action: { kind: 'backfill', stamp: STAMP } })
 })
+it('does not carry a late publication response into a later visit to the same Run', async () => {
+  let finish!: (value: FindingPublicationsView) => void
+  const store = rig(async () => view(), () => new Promise(resolve => { finish = resolve }))
+  await render(store)
+  act(() => button('Post again').click())
+  await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-2" stamp="s2" /></StoreProvider>))
+  await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-1" stamp="s3" /></StoreProvider>))
+  expect(container.textContent).toContain('finding-0001')
+  await act(async () => finish(view({ items: [] })))
+  expect(container.textContent).toContain('finding-0001')
+  expect(container.textContent).not.toContain('Nothing here needs you.')
+})
+it('a new visit clears an older action’s busy state even while the intervening Run read is pending', async () => {
+ let reads=0
+ const store=rig(() => ++reads===2 ? new Promise(() => {}) : Promise.resolve(view()), () => new Promise(() => {}))
+ await render(store)
+ act(() => button('Post again').click())
+ await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-2" stamp="s2" /></StoreProvider>))
+ await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-1" stamp="s3" /></StoreProvider>))
+ expect(button('Post again').disabled).toBe(false)
+})

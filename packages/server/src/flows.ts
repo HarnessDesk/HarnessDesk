@@ -371,12 +371,21 @@ export class Flows implements TeamFlows {
     return this.#executions?.runs(goal) ?? []
   }
 
+  /** A continued stall is history; its replacement owns the Team's live work. */
+  liveExecutionsFor(goal: string): FlowExecution[] {
+    const runs = this.executionsFor(goal)
+    const continued = new Set(runs.map(run => run.continues).filter(Boolean))
+    return runs.filter(run => !continued.has(run.id) && (run.state === 'running' || run.state === 'stalled'))
+  }
+
   /** Observe one card's routing without the disposer's timer cancellation. */
   async cardContinuation(run: string): Promise<void> { await this.#executions?.cardContinuation(run) }
 
   executionSummaries(options: { team?: string; project?: string; active?: boolean } = {}): readonly FlowExecutionSummary[] {
-    return (this.#executions?.runs(options.team) ?? [])
-      .filter(run => options.active === false || run.state === 'running' || run.state === 'stalled')
+    const runs = this.#executions?.runs(options.team) ?? []
+    const continued = new Set(runs.map(run => run.continues).filter(Boolean))
+    return runs
+      .filter(run => options.active === false || !continued.has(run.id) && (run.state === 'running' || run.state === 'stalled'))
       .filter(run => {
         if (options.project === undefined) return true
         const root = this.#port.recovery.goal(run.goal).root

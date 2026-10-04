@@ -181,6 +181,19 @@ it('retryFlowCheck redeems a check-retry token and keeps the resulting execution
   expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(settled)
 })
 
+it('readCheckAttempts reads one check card’s recorded results by run and card, and keeps nothing of them', async () => {
+  const attempts = [
+    { id: 'attempt-1', n: 1, at: 100, commit: 'a'.repeat(40), exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL: 1 test' },
+    { id: 'attempt-2', n: 2, at: 200, commit: 'b'.repeat(40), exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
+  ]
+  const response = { attempts, complete: true }
+  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue(response)
+  const before = store.getSnapshot()
+  expect(await store.readCheckAttempts('run-1', 3)).toEqual(response)
+  expect(spy).toHaveBeenCalledWith('flow/check/attempts', { run: 'run-1', card: 3 })
+  expect(store.getSnapshot()).toBe(before)
+})
+
 it('continueFlowAnswer calls the run-scoped wire verb and keeps the returned execution', async () => {
   const stalled: FlowExecution = { ...EXECUTION, state: 'stalled', keptAnswer: {
     card: 1, seat: 'seat-1', question: 'Which base branch?', answer: 'main', at: 1, canContinue: true, refusal: null,

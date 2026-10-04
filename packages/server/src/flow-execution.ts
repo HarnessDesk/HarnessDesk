@@ -273,6 +273,8 @@ export interface FlowExecutionPort {
    * again by `goalsOf` after a restart, like a Goal this run made.
    */
   reserveGoal?(input: { readonly goal: string; readonly revision: number; readonly run: string; readonly operation: string; readonly root: string }): Promise<void>
+  /** Keeps a fresh Run on an ended Run's Team, with a durable start reservation. */
+  reserveContinuation?(input: { readonly goal: string; readonly run: string; readonly root: string; readonly previous: readonly string[] }): Promise<void>
   /**
    * Lets go of this run's reservation of an existing Goal — only while it is
    * still this run's, and a no-op otherwise — so a run that ended before its
@@ -335,7 +337,7 @@ export interface FlowExecutionPort {
    * it away, forced, whatever the check left in it. A retained Flow base
    * check is named apart from temporary checks and survives startup cleanup.
    */
-  checkoutAt?(cwd: string, at: string, options?: { readonly retained?: true }): Promise<{ readonly cwd: string; remove(): Promise<void> }>
+  checkoutAt?(cwd: string, at: string, options?: { readonly retained?: true; readonly signal?: AbortSignal }): Promise<{ readonly cwd: string; remove(): Promise<void> }>
   commitWork?(cwd: string, before: readonly string[], message: string): Promise<
     { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
   >
@@ -1027,6 +1029,7 @@ export class FlowExecutions {
 
   async #authorizeExtraRound(id: string, round: number, reason: string, count = 1): Promise<void> {
     let run = this.#get(id)
+    if ([...this.#runs.values()].some(next => next.goal === run.goal && next.continues === id)) throw new Error('A newer Run continues this one. Authorize work on that Run instead.')
     if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
     if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
     const already = run.findings.extraRound
@@ -1312,6 +1315,7 @@ export class FlowExecutions {
     if (!run) throw new Error(`There is no flow run ${id}.`)
     return this.#queue.within(id, async () => {
       const now = this.#get(id)
+      if (this.#continued(now)) throw new Error('A newer Run continues this one. Answer work on that Run instead.')
       const kept = now.keptAnswer
       if (now.state !== 'stalled' || !kept) throw new Error('This run is no longer waiting on that answer.')
       const card = this.#team.stateFor(now.goal).intents.find((one) => one.id === kept.card)
@@ -1372,6 +1376,7 @@ export class FlowExecutions {
       if (run.state !== 'stalled' || !this.#seatingOf(run, runtime, sessionId)) continue
       await this.#queue.within(run.id, async () => {
         const now = this.#get(run.id)
+        if (this.#continued(now)) return
         const seating = this.#seatingOf(now, runtime, sessionId)
         if (seating && now.state === 'stalled' && now.reason === questionStall(seating.card, QUESTION_STOP)) {
           await this.#put({ ...now, state: 'running', reason: null })
@@ -1388,6 +1393,7 @@ export class FlowExecutions {
     words: { readonly question: string; readonly answer: string },
     settle: () => Promise<void>,
   ): Promise<boolean> {
+    if (this.#continued(this.#get(id))) throw new Error('A newer Run continues this one. Answer work on that Run instead.')
     const stopped = (): boolean => {
       const run = this.#get(id)
       const seating = this.#seatingOf(run, runtime, sessionId)
@@ -1936,7 +1942,7 @@ export class FlowExecutions {
     const check = chosen.check
     let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
     try {
-      const checkout = await this.#port.checkoutAt(seat.checkout.cwd, at)
+      const checkout = await this.#port.checkoutAt(seat.checkout.cwd, at, { signal: controller.signal })
       try {
         let where = checkout.cwd
         if (check.cwd) {
@@ -2490,7 +2496,8 @@ export class FlowExecutions {
     if (keptAnswer) {
       const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === keptAnswer!.card)
       const seat = this.#port.seatOf(keptAnswer.seat)
-      const refusal = !card || done(card) ? cardFinishedAnswer(keptAnswer.card)
+      const refusal = this.#continued(run) ? 'A newer Run continues this one. Answer work on that Run instead.'
+        : !card || done(card) ? cardFinishedAnswer(keptAnswer.card)
         : !seat || seat.closed ? missingAnswerSeat(keptAnswer.card, Boolean(seat)) : null
       keptAnswer = { ...keptAnswer, canContinue: refusal === null, refusal }
     }
@@ -2502,6 +2509,10 @@ export class FlowExecutions {
   }
 
   // ---------------------------------------------------------------- start
+
+  #continued(run: StoredFlowExecution): boolean {
+    return [...this.#runs.values()].some(next => next.goal === run.goal && next.continues === run.id)
+  }
 
   async #fetchBase(run: StoredFlowExecution, root: string, base: FlowBase): Promise<StoredFlowExecution> {
     if (!this.#port.fetchBase) throw new Error('This desk cannot fetch a Flow base. No work was started.')
@@ -2542,12 +2553,37 @@ export class FlowExecutions {
   }
 
   async startGoal(request: FlowStartRequest): Promise<FlowExecution> {
+    if (request.continues) {
+      const earlier = this.#runs.get(request.continues)
+      if (!earlier?.goal) throw new Error('The earlier Run is no longer recorded. Start a new Team.')
+      return this.#queue.within(`continue:${earlier.goal}`, () => this.#queue.within(earlier.id, () => this.#startGoal(request)))
+    }
+    return this.#startGoal(request)
+  }
+
+  async #startGoal(request: FlowStartRequest): Promise<FlowExecution> {
     const refused = this.refusal()
     if (refused) throw new Error(refused)
     if (request.compiled.document.format !== 'agents') throw new Error('Only a flow in the Agent format starts a new Goal. Update this flow first.')
     const errors = request.compiled.problems.filter((one) => one.level === 'error')
     if (errors.length) throw new Error(`This flow will not run yet:\n${errors.map((one) => `• ${one.at}: ${one.text}`).join('\n')}`)
     const policy = request.compiled.document.flow
+    const earlier = request.continues ? this.#get(request.continues) : null
+    if (earlier) {
+      if (this.#continued(earlier)) throw new Error('A newer Run continues this one. Start work on that Run instead.')
+      if (!sameCanonicalPath(this.#team.stateFor(earlier.goal).root, request.root)) throw new Error('This Team belongs to another project.')
+      const board = this.#team.stateFor(earlier.goal)
+      if (request.cwd && !sameCanonicalPath(board.cwd ?? board.root, request.cwd)) throw new Error('This Team’s checkout changed. Review the dry run again before starting.')
+      if (request.goal || request.target) throw new Error('Run again uses the earlier Run’s Team. Review its start again.')
+      if (!this.#port.reserveContinuation) throw new Error('This desk cannot start another Run on this Team.')
+      const siblings = [...this.#runs.values()].filter(one => one.goal === earlier.goal)
+      if (siblings.some(one => one.state === 'running' || one.state !== 'stopped' && one.operations.some(op => op.state === 'started' || op.state === 'uncertain'))) {
+        throw new Error('This Team still has a running or interrupted operation. Stop it or review the check before starting another Run.')
+      }
+      if (this.#port.seatsOn(earlier.goal).some(seat => this.#port.busy?.(seat))) throw new Error('A Seat on this Team is still inside a turn. Wait for it before starting another Run.')
+      const dispatch = this.#port.canDispatch(earlier.goal)
+      if (!dispatch.ok) throw new Error(dispatch.reason)
+    }
     const vars: Record<string, string> = {}
     for (const input of policy.inputs) vars[input.id] = request.vars?.[input.id] ?? input.default ?? ''
     if ((request.requireHeld === true) !== (request.authorization.start === 'front-door')) {
@@ -2586,7 +2622,18 @@ export class FlowExecutions {
     }
     const base = run.base
     let goal: { readonly id: string }
-    if (request.goal) {
+    if (earlier) {
+      try {
+        await this.#port.reserveContinuation!({ goal: earlier.goal, run: id, root: request.root,
+          previous: [...this.#runs.values()].filter(one => one.goal === earlier.goal).map(one => one.id) })
+      } catch (error) {
+        await this.#letGo(id, earlier.goal)
+        await this.#abortBaseStart(id, error)
+        await this.#put(this.#operation({ ...this.#get(id), state: 'stopped', reason: error instanceof Error ? error.message : String(error) }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+        throw error
+      }
+      goal = { id: earlier.goal }
+    } else if (request.goal) {
       try {
         await this.#port.reserveGoal!({ goal: request.goal.id, revision: request.goal.revision, run: id, operation: 'start', root: request.root })
       } catch (error) {
@@ -2747,6 +2794,7 @@ export class FlowExecutions {
   againTriggered(id: string, key: string, evidence: readonly string[]): Promise<FlowRoundState> {
     return this.#queue.within(id, async () => {
       let run = this.#get(id)
+      if (this.#continued(run)) throw new TriggerRefusal('A newer Run continues this one. Start work on that Run instead.')
       if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
       const cause = `cause:intake:${key}`
       const existing = run.rounds.find((one) => one.cause === cause)
@@ -2773,6 +2821,7 @@ export class FlowExecutions {
   resumeTriggered(id: string): Promise<void> {
     return this.#queue.within(id, async () => {
       let run = this.#get(id)
+      if (this.#continued(run)) return
       if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
       // The Seats whose turn a pause or the cap ended: handed their cards again below, once each.
       const waiting = run.intake.rearm ?? []
@@ -3495,7 +3544,19 @@ export class FlowExecutions {
     if (relative !== null) {
       try { insideRelative(relative) } catch { return { context, targets: [{ cwd: root, at: null }], refused: CHECK_CWD_OUTSIDE } }
     }
-    const checkout = await this.#port.checkoutAt(root, run.base.at, { retained: true })
+    // Planning holds the run queue too: register before cutting the tree so
+    // Stop, pause and disposal reach this write without waiting for planning.
+    const controller = new AbortController()
+    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
+    this.#checks.set(run.goal, running.add(controller))
+    if (this.#stopRequests.has(run.id)) controller.abort()
+    let checkout: Awaited<ReturnType<NonNullable<FlowExecutionPort['checkoutAt']>>>
+    try {
+      checkout = await this.#port.checkoutAt(root, run.base.at, { retained: true, signal: controller.signal })
+    } finally {
+      running.delete(controller)
+      if (running.size === 0) this.#checks.delete(run.goal)
+    }
     let cwd = checkout.cwd
     if (relative !== null) {
       try { cwd = await (await ConfinedTree.open(cwd)).resolveDir(insideRelative(relative)) }
@@ -3636,6 +3697,7 @@ export class FlowExecutions {
   /** Snapshot of the exact card, attempt and checkout shown by a retry preview. */
   async previewCheck(id: string, card: number): Promise<CheckRetry> {
     const run = this.#get(id)
+    if ([...this.#runs.values()].some(next => next.goal === run.goal && next.continues === id)) throw new Error('A newer Run continues this one. Run the check from that Run instead.')
     const found = this.#cardOf(run.goal, card)
     if (!found || found.run.id !== id) throw new Error(`Card #${card} belongs to no round of this run.`)
     const role = policyOf(run).roles.find((one) => one.id === found.round.role)
@@ -3736,7 +3798,7 @@ export class FlowExecutions {
 
   async #advance(id: string): Promise<void> {
     let run = this.#get(id)
-    if (run.state !== 'running') return
+    if (run.state !== 'running' || this.#continued(run)) return
     if (run.goal === '') return
     // A trigger's run whose firing is not yet recorded opens nothing and sends nothing.
     if (run.intake?.dispatchHeld) return
@@ -3884,8 +3946,9 @@ export class FlowExecutions {
 
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
   async stopGoal(goal: string, why: string): Promise<void> {
+    const continued = new Set([...this.#runs.values()].filter(one => one.goal === goal).map(one => one.continues).filter(Boolean))
     for (const run of [...this.#runs.values()]) {
-      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled' || [...this.#checking.values()].includes(run.id))) await this.stop(run.id, why, 'desk')
+      if (run.goal === goal && !continued.has(run.id) && (run.state === 'running' || run.state === 'stalled' || [...this.#checking.values()].includes(run.id))) await this.stop(run.id, why, 'desk')
     }
   }
 
@@ -3915,7 +3978,7 @@ export class FlowExecutions {
    */
   async #reArm(id: string, operation: FlowOperation, why: 'turn-ended' | 'released' | 'relaunched' = 'turn-ended'): Promise<void> {
     const run = this.#get(id)
-    if (run.state !== 'running') return
+    if (run.state !== 'running' || this.#continued(run)) return
     if (run.intake && !await this.#mayDispatch(id)) {
       await this.#noteHeld(id, operation)
       return
@@ -4230,6 +4293,7 @@ export class FlowExecutions {
       // A trigger's run waits for its budget's fresh read and its firing's release; anyone else's does not wait on either.
       if (which !== 'all' && (which === 'triggered') !== Boolean(run.intake)) continue
       await this.#queue.within(run.id, async () => {
+        if (this.#get(run.id).state !== 'running' || this.#continued(this.#get(run.id))) return
         /* Read before advancing: a card the advance itself hands out — a
            round it opens, an order a crash left unsent — is handed out by
            it, never a second time here. */

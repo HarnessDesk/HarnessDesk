@@ -1,5 +1,6 @@
 import type { AgentRuntime, Flow, FlowProblem, ModelInfo } from '@harnessdesk/protocol'
 
+import { checkAttemptsOf } from '../evidence/check-attempts.js'
 import { CHANGED_PREVIEW } from '../flow-preview.js'
 import { sourceDigest } from '../flow-execution.js'
 import { dryRun, parseFlow, validateFlow } from '../flow.js'
@@ -80,7 +81,7 @@ export const flowMethods = {
    * makes, and the token this mints authorizes only the exact text and
    * inputs it was taken of.
    */
-  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry, undefined, { seats: params.seats, attended: params.attended }),
+  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry, undefined, { seats: params.seats, attended: params.attended, continues: params.continues }),
 
   /**
    * The only v2 call that spends anything. Redeems the token first — a
@@ -91,7 +92,7 @@ export const flowMethods = {
    */
   'flow/start-goal': async (ctx, params) => {
     if (ctx.flowPreviews.retryTarget(params.token)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
-    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {}, { seats: params.seats, attended: params.attended })
+    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {}, { seats: params.seats, attended: params.attended, continues: params.continues })
     if (!redeemed) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
     /* The held-seat policy and the reused Goal are the token's, never the
        request's: a front-door token started without its Goal, or with another,
@@ -113,7 +114,7 @@ export const flowMethods = {
       /* Where the run works and what it works on, as the host resolved them
          for the token — the folder its context named, and the commit every
          Seat is pinned to — never re-read from the request. */
-      ...(bound ? { cwd: bound.target.context.root } : {}),
+      ...(bound ? { cwd: bound.target.context.root } : redeemed.continuation ? { cwd: redeemed.continuation.cwd } : {}),
       ...(bound?.target.resolved ? { target: bound.target.resolved } : {}),
       authorization: {
         sourceDigest: sourceDigest(params.source),
@@ -163,6 +164,18 @@ export const flowMethods = {
     const redeemed = await ctx.flowPreviews.redeem(params.token, goal.goal.root, stored.source, stored.vars)
     if (!redeemed) throw new Error(CHANGED_PREVIEW)
     return ctx.flows.retryCheck(params.run, params.card, approved)
+  },
+
+  /**
+   * What the desk recorded each time this check card's command ran. Reads only:
+   * the run says which card is a check, the evidence says what each attempt did,
+   * and the Goal the evidence is read for is the run's own — the caller names a
+   * run and a card, never a place in the store.
+   */
+  'flow/check/attempts': async (ctx, params) => {
+    const execution = ctx.flows.executionOf(params.run)
+    if (!execution) throw new Error(`There is no flow run ${params.run}.`)
+    return checkAttemptsOf(execution, params.card, (goal) => ctx.evidence.checkResults(goal, params.card))
   },
 
   'flow/answer/continue': (ctx, params) => ctx.flows.continueAnswer(params.run),

@@ -52,7 +52,7 @@ for (const theme of ['light', 'dark'] as const) {
     const rig = page.locator('#run-view-team')
     await rig.getByRole('button', { name: 'Run 1', exact: true }).click()
     await expect(rig.locator('[data-slot="run-view"]')).toBeVisible()
-    await expect(rig.locator('[data-kind="end"]')).toContainText('Settled')
+    await expect(rig.locator('[data-slot="run-ending"]')).toContainText('Ended without a next step')
   })
 
   test(`Run findings keep damaged history visible at narrow width in ${theme}`, async ({ page }) => {

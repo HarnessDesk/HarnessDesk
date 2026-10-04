@@ -61,6 +61,15 @@ const approval = (id: string, patch: Partial<Approval> = {}): Approval => ({
 } as Approval)
 
 describe('teamOverview', () => {
+  it('does not need attention for an empty release, but preserves a clean local review', () => {
+    const run = { execution: execution({ state: 'settled' }), startedAt: 150 }
+    const findingRun = { run: 'run', goal: 'team', publication: 'local', boundPr: { repo: 'acme/widgets', pr: 7 },
+      rounds: [{ round: 1, state: 'none', reason: null, pr: 7, cards: [1] }], open: 0, blocking: 0,
+    } as unknown as import('@harnessdesk/protocol').FindingRunView
+    assert.equal(teamOverview(input({ run, findingRun })).run?.needsYou, false)
+    assert.equal(teamOverview(input({ run, findingRun: { ...findingRun,
+      rounds: [{ ...findingRun.rounds[0]!, state: 'local' }] } })).run?.needsYou, true)
+  })
   it('orders needs-you, unread, working, idle before card number', () => {
     const data = input({
       seats: [seat('Idle'), seat('Working', { session: session('Working') }), seat('Unread', { unreadSince: 260, session: session('Unread') }), seat('Waiting', { approvals: [approval('Waiting')] })],

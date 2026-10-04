@@ -327,7 +327,12 @@ it, read what it printed, and repeat. The check never runs in anybody's
 working tree: the host cuts a fresh detached checkout at the handed commit
 (the card's seating's base, one of the commits it was handed, or its
 checkout's committed `HEAD`), with hooks off, and removes it afterwards, on a
-timeout or an abort too — so a writer's uncommitted edits in a shared checkout
+timeout or an abort too. Cutting the tree has its own three-minute limit,
+separate from the thirty seconds for Git reads, and a pause or stop reaches
+that write through the check's signal. A failed write removes and prunes its
+partial checkout immediately; a timeout names the limit rather than showing
+Git's progress. Retained Flow base-check snapshots use the same write limit
+and cancellation — so a writer's uncommitted edits in a shared checkout
 are never what runs. The agent names a declared check and never writes a
 command. It gets three runs a turn and ten a card, one at a time, and none
 while the run is paused or not live.
@@ -371,6 +376,16 @@ would go into history raw. A submodule is never looked into: it is its own
 repository. And the tool refuses while another open card whose Seat may
 commit works in the same checkout, since "changed since my claim" would then
 include that card's work too; isolating the role is the way through.
+
+When a merge is in progress, Git requires a commit of the whole index rather
+than a pathspec. `commit_work` concludes the resolved merge with both parents,
+without staging any more work. It refuses before writing when any path still
+has conflicts or a staged path was already dirty at the claim, naming those
+files so the person's own edits cannot enter the merge. An untracked directory
+at claim protects its descendants, and a rename's literal source is checked
+against the saved display spelling, including quoted names and literal arrows.
+The message, attribution, identity and hardened Git configuration are the same as for an
+ordinary card commit. (#1351)
 
 Git the host runs on its own in a checkout an agent can write — evidence
 reads, status, cutting a lane, diffs — carries a narrower floor
@@ -1598,6 +1613,23 @@ Children outside the recorded group are outside this guarantee.
 Interrupted work still needs fresh
 consent, since killing a process cannot undo its effects.
 
+The attempts a retry leaves are read from the evidence the engine already
+wrote, not from the card's operation: an operation is one record a retry
+replaces, and `evidence/board` keeps only the latest fact of a question, while
+each attempt is a durable `check` fact on the card. `flow/check/attempts`
+(`{ run, card }`) lists them oldest first with the Flow's own word for each —
+its `exits` entry for the status, else `otherwise`, which is how the engine
+answers a completed check's card, and a test holds the two together. It reads
+the store and nothing else: no token is minted and no result is judged against
+git. An attempt exists once its result is recorded; a retry still running, or
+one the desk interrupted before it could keep what it printed, is the card's
+operation until then. The refusals the Run and the check already say (the check
+is not waiting; the run has settled or stopped) are one function in the
+protocol, held to the host's own sentences by tests, so the window can keep a
+control disabled with the host's reason on screen; every other refusal comes
+from the host's preview, in the consent dialog, whose answer stays disabled
+while no token has been minted.
+
 The existing statechart already expresses a retry: `otherwise: retry` plus a
 rule back to the check, or an unconditional final rule for every non-landing
 outcome. `retry` remains an ordinary outcome, never a reserved command with an
@@ -1702,3 +1734,32 @@ data it opened with — a run's own view still says it is decidable — and stay
 on screen with its final action disabled and the reason beside it: closing it
 would throw away what was typed, and leaving it armed would offer what the host
 then refuses. This implements PR 18 of the approved Teams/Runs plan.
+
+## A Run's publication and a review round are separate facts
+
+The Run's `finding/run.publication` folds every posting it holds. It belongs
+on the Overview strip, Run header, end banner and Findings summary. A review
+row reads only its own `FindingRunView.rounds` record; a missing record or
+`none` never inherits the aggregate. The round budget and Goal-owned open
+finding counts cannot establish a new Run's publication.
+An empty release decision for work with no review, finding event or posting
+operation reads `none`; closing an author or check round does not create a review.
+For a local round, the Run's current pull request binding determines whether
+it is Not posted, including reviews kept before binding. A posted round keeps
+its recorded target.
+
+The Teams page and Overview pass the same confirmed Run read into the shared
+selector. A bound, posting-enabled local review, partial posting or uncertain
+posting needs the person. A first read still pending establishes nothing;
+`finding/changed` invalidates it too, and an older answer cannot replace the
+newer read.
+
+`finding/publications` supplies actions, not successful publication states.
+Both the Findings pane and inspector use one action hook for post-again,
+skip, backfill and host refusals. Backfill keeps its stamped preview and asks
+for confirmation; copy remains available when posting is refused. A late
+action answer belongs to the visit that submitted it, even if the person
+left that Run and returned before it answered.
+
+**The rule:** chips follow the host's recorded state, actions follow its
+offered door, and a person presses before a posting is sent.

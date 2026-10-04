@@ -253,4 +253,20 @@ test('two starts race for one empty Goal', async () => {
   // Empty and free again: a fresh start at the new revision reserves it.
   await reserve('run-g', 2)
   assert.deepEqual(store.read('g1').flowReservation, { run: 'run-g', operation: 'start' })
+
+  // A continuation keeps existing work, advances the reservation atomically, and is idempotent.
+  const continuation = { goal: 'g2', root: '/work/repo', previous: ['old-run'] }
+  const originalCards = store.read('g2').board.intents
+  const continued = await Promise.allSettled([
+    plane.reserveFlowContinuation({ ...continuation, run: 'next-a' }),
+    plane.reserveFlowContinuation({ ...continuation, run: 'next-b' }),
+  ])
+  assert.equal(continued.filter(one => one.status === 'fulfilled').length, 1)
+  const next = store.read('g2').flowReservation!.run
+  assert.deepEqual(store.read('g2').board.intents, originalCards)
+  const revision = store.read('g2').goal.revision
+  await plane.reserveFlowContinuation({ ...continuation, run: next })
+  assert.equal(store.read('g2').goal.revision, revision)
+  assert.equal((await plane.view('g2')).reservation!.run, next)
+  await assert.rejects(plane.reserveFlowContinuation({ ...continuation, run: 'foreign', root: '/work/other' }), /another project/)
 })

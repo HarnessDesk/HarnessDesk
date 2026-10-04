@@ -1549,10 +1549,17 @@ Round headings group the oldest-first story; outcomes stay neutral unless the
 host names that outcome as the reason no step follows. Done and waiting are
 quiet text. Wrapped record titles keep their lead on the first line. Sentences wrap at
 narrow widths, while the brief previews two lines.
+A check that has run more than once draws each recorded result under its row,
+oldest first, as plain lines in the check row's own words (Passed, Failed, Timed
+out, Did not finish, or the Flow's own word). *Run again…* is a quiet link at the
+end of a check row's first line, the row's sibling and never inside its button, so
+a row's own words keep their room. It appears only where the Run and the check
+allow it; a refused row shows nothing, so one sentence is not repeated down every
+check row of an ended Run, and the inspector is where the reason is read.
 The `run-view` catalogue board mounts the production component for every Run
-state, empty and failed reads, a long timeline, and the narrow pane. The
-header's `Segmented` switch offers the Flow beside the timeline; the Flow
-drawing below is its other half.
+state, a check with two attempts, empty and failed reads, a long timeline, and
+the narrow pane. The header's `Segmented` switch offers the Flow beside the
+timeline; the Flow drawing below is its other half.
 
 ### The Run inspector
 
@@ -1579,14 +1586,29 @@ through a reload, and a card shows the ones that are its own whatever else is
 unread. Cards and cost follow the Team the timeline beside the inspector reads,
 and a Seat's cost stays on screen while the report is read again.
 
+A check that has run more than once lists its recorded attempts under
+Attempts, newest first: each with its result, exit, the commit it ran at (twelve
+characters, the whole on hover) and its time, and its output behind *Show output*,
+shown as text through the shared sanitiser, so an earlier output is read as it was
+recorded. While they are being read the section says so, and when the read failed
+it says that: a check is never said to have run once before the desk has been
+asked, and attempts already in hand stay on screen through a failed refresh.
+*Run again…* is the last control. Where the Run has ended or the check is still
+running it stays, disabled, with the host's own sentence on screen
+(`checkRetryRefusal`); everything else the host refuses (a moved checkout, cleanup
+still pending, a Team that cannot take work) is said in the consent dialog, which
+shows the command exactly as it will run and keeps its answer disabled while there
+is no token to redeem.
+
 At pane widths below 48rem, a selection pushes detail over the timeline;
 Run timeline returns to the selected row, and Run details opens the summary.
 Cost is recorded for the Seats, which may have worked in more than one Run.
 Handoffs and finding text preserve literal markup and discard terminal escapes
 through the shared sanitiser. The `run-inspector` catalogue and preview use
 the production component for every kind, findings still being read or
-unreadable, empty, pending and failed reads, narrow navigation and both
-themes.
+unreadable, a check with two attempts, one whose Run has ended, and one whose
+attempts are still being read or could not be, empty, pending and failed reads,
+narrow navigation and both themes.
 
 ### The Flow drawing
 

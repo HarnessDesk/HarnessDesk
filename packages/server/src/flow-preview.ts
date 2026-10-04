@@ -65,6 +65,8 @@ export interface FlowPreviewPort {
   /** A retried check's own run: its saved source and inputs, read back for the equality check — never a new choice. */
   previewCheck?(run: string, card: number): Promise<CheckRetry>
   storedRun?(run: string): Promise<{ readonly source: string; readonly vars: Readonly<Record<string, string>>; readonly compiled?: CompiledFlow } | null>
+  /** Host-owned Team identity and effective checkout for a fresh continuation. Refuses a different project. */
+  continuation?(run: string, root: string): Promise<{ readonly team: string; readonly cwd: string }>
   /**
    * The project's own declared checks (`.harnessdesk/checks.yml`), as the
    * commands they run — asked only when this flow's own roles leave a
@@ -79,6 +81,7 @@ const TOKEN_TTL_MS = 10 * 60_000
 export const CHANGED_PREVIEW = 'This flow or its seating changed. Review the dry run again before starting.'
 
 interface HeldPreview {
+  readonly continuation?: { readonly run: string; readonly team: string; readonly cwd: string }
   readonly root: string
   readonly source: string
   readonly vars: Readonly<Record<string, string>>
@@ -172,11 +175,17 @@ export class FlowPreviews {
     vars: Readonly<Record<string, string>> = {},
     retry?: { readonly run: string; readonly card: number },
     frontDoor?: FrontDoorBinding,
-    options: FlowRunOptions = {},
+    options: FlowRunOptions & { readonly continues?: string | null } = {},
   ): Promise<FlowPreview> {
     this.#sweep()
     options = structuredClone(options)
     await this.#port.confine(root)
+    let continuation: HeldPreview['continuation']
+    if (options.continues) {
+      if (retry || frontDoor || !this.#port.continuation) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
+      try { continuation = { run: options.continues, ...await this.#port.continuation(options.continues, root) } }
+      catch (error) { return emptyPreview([{ level: 'error', at: 'run', text: error instanceof Error ? error.message : String(error) }]) }
+    }
     let actualSource = source
     let actualVars = vars
     let retryCompiled: CompiledFlow | undefined
@@ -201,7 +210,7 @@ export class FlowPreviews {
     }
     const built = retryCheck && retryCompiled?.document.format === 'agents'
       ? { compiled: retryCompiled, seats: [], commands: [retryCheck.command], guards: [], messaging: retryCompiled.document.flow.messaging, problems: [] }
-      : await this.#build(root, actualSource, options.attended === false, frontDoor !== undefined, null, options.seats)
+      : await this.#build(root, actualSource, options.attended === false, frontDoor !== undefined, null, options.seats, continuation?.cwd)
     if (built.compiled.document.format === 'agents' && built.compiled.document.flow.base &&
       frontDoor && (frontDoor.goal || frontDoor.target.resolved)) {
       return { ...built, token: null, problems: [...built.problems, { level: 'error', at: 'base', text: 'A Flow with a remote base starts a new Goal from the project. Remove base to review a target or reuse a Goal.' }] }
@@ -212,7 +221,7 @@ export class FlowPreviews {
     if (errors.length === 0 && built.compiled.document.format === 'agents') {
       token = randomUUID()
       this.#tokens.set(token, {
-        root, source: actualSource, vars: structuredClone(actualVars), attended: options.attended !== false, overrides: options.seats ?? {}, compiled: built.compiled, seats: built.seats, commands: built.commands,
+        root, source: actualSource, vars: structuredClone(actualVars), attended: options.attended !== false, overrides: options.seats ?? {}, compiled: built.compiled, seats: built.seats, commands: built.commands, ...(continuation ? { continuation } : {}),
         expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), ...(retryCheck ? { retryCheck } : {}), ...(frontDoor ? { frontDoor } : {}), consumed: false,
       })
     }
@@ -268,7 +277,7 @@ export class FlowPreviews {
    * each role as a trigger's Goal would be seated — under this machine's
    * unattended ceiling policy — so what an arm shows is what will run.
    */
-  async #build(root: string, source: string, unattended = false, requireHeld = false, againRole: string | null = null, overrides: NonNullable<FlowRunOptions['seats']> = {}): Promise<Omit<FlowPreview, 'token'>> {
+  async #build(root: string, source: string, unattended = false, requireHeld = false, againRole: string | null = null, overrides: NonNullable<FlowRunOptions['seats']> = {}, cwd = root): Promise<Omit<FlowPreview, 'token'>> {
     const problems: FlowProblem[] = []
     const parsed = parseFlowPolicy(source)
     problems.push(...parsed.problems)
@@ -339,12 +348,12 @@ export class FlowPreviews {
         // `rolesAtPredecessor` uses the same `handedCheckout` rule as a run;
         // either an isolated role or a role opened on handed work reads its lane.
         const lane = role.isolate || compiled.document.flow.base !== undefined || atPredecessor.has(role.id)
-        const checkout = await this.#port.checkoutPath?.(root, lane) ?? root
+        const checkout = await this.#port.checkoutPath?.(cwd, lane) ?? cwd
         // A lane does not exist until the run opens it, so nothing can read its
         // configuration yet; it is cut from this project, whose own is the best
         // prediction. Where the lane's turns out different, the run stops at the
         // seat with that reason rather than trying another candidate.
-        const providerRoot = root
+        const providerRoot = cwd
         if (role.independentOf.length > 0 && !plan.blocked) {
           const writerProviders = role.independentOf.flatMap((id) => providersByRole.get(id) ?? [null])
           // When no predecessor provider can be read at all, the runner makes the
@@ -374,7 +383,7 @@ export class FlowPreviews {
             if (candidate.state === 'passed') continue
             // Match execution's pre-open candidate filter, which reads the
             // Goal checkout before the selected Seat is opened.
-            const ownProvider = await provider(candidate.seat.runtime, root)
+            const ownProvider = await provider(candidate.seat.runtime, cwd)
             const reason = independentProviderReason(ownProvider, knownWriters)
             // An unreadable provider is not a known clash: the start may go
             // ahead, warned, and the run decides when the step is reached —
@@ -430,7 +439,7 @@ export class FlowPreviews {
         })
         if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
           const selected = plan.candidates[plan.winner]!
-          const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, lane)
+          const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, cwd, lane)
           if (toolProblem) problems.push({
             level: 'error',
             at: `roles.${role.id}.seat`,
@@ -445,7 +454,7 @@ export class FlowPreviews {
         }
       }
     }
-    const commands = commandsOf(root, compiled)
+    const commands = commandsOf(cwd, compiled)
     const guards = guardsOf(compiled)
     const messaging = compiled.document.format === 'agents' ? compiled.document.flow.messaging : 'board-only'
     const shown = compiled.document.format === 'agents' ? Object.fromEntries(compiled.document.flow.roles.flatMap(role => role.kind === 'agent' && Object.hasOwn(overrides, role.id)
@@ -464,14 +473,15 @@ export class FlowPreviews {
    * world having moved since the preview was taken.
    */
   async redeem(
-    token: string, root: string, source: string, vars: Readonly<Record<string, string>>, options: FlowRunOptions = {},
-  ): Promise<{ readonly compiled: CompiledFlow; readonly commands: FlowPreview['commands']; readonly frontDoor: FrontDoorBinding | null; readonly attended: boolean; readonly overrides: NonNullable<FlowRunOptions['seats']> } | null> {
+    token: string, root: string, source: string, vars: Readonly<Record<string, string>>, options: FlowRunOptions & { readonly continues?: string | null } = {},
+  ): Promise<{ readonly compiled: CompiledFlow; readonly commands: FlowPreview['commands']; readonly frontDoor: FrontDoorBinding | null; readonly attended: boolean; readonly overrides: NonNullable<FlowRunOptions['seats']>; readonly continuation?: HeldPreview['continuation'] } | null> {
     this.#sweep()
     const held = this.#tokens.get(token)
     if (!held || held.consumed) return null
     held.consumed = true
     if (held.expires < this.#port.now()) return null
     if (held.root !== root || held.source !== source || JSON.stringify(held.vars) !== JSON.stringify(vars)) return null
+    if ((held.continuation?.run ?? null) !== (options.continues ?? null)) return null
     // A token authorizes the exact seats and attendance. Neither a client nor a changed request can widen it.
     const canonical = (value: NonNullable<FlowRunOptions['seats']>) => JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))))
     if (held.attended !== (options.attended !== false) || canonical(held.overrides) !== canonical(options.seats ?? {})) return null
@@ -486,7 +496,14 @@ export class FlowPreviews {
       } catch { return null }
       return { compiled: held.compiled, commands: held.commands, frontDoor: null, attended: held.attended, overrides: held.overrides }
     }
-    const fresh = await this.#build(root, source, !held.attended, held.frontDoor !== undefined, null, held.overrides)
+    if (held.continuation) {
+      if (!this.#port.continuation) return null
+      try {
+        const fresh = { run: held.continuation.run, ...await this.#port.continuation(held.continuation.run, root) }
+        if (JSON.stringify(fresh) !== JSON.stringify(held.continuation)) return null
+      } catch { return null }
+    }
+    const fresh = await this.#build(root, source, !held.attended, held.frontDoor !== undefined, null, held.overrides, held.continuation?.cwd)
     if (fresh.problems.some((one) => one.level === 'error')) return null
     if (fingerprint({ compiled: fresh.compiled, seats: fresh.seats, commands: fresh.commands }) !== fingerprint(held)) return null
     if (held.frontDoor) {
@@ -500,7 +517,7 @@ export class FlowPreviews {
       }
       if (facts !== held.frontDoor.target.facts) return null
     }
-    return { compiled: held.compiled, commands: held.commands, frontDoor: held.frontDoor ?? null, attended: held.attended, overrides: held.overrides }
+    return { compiled: held.compiled, commands: held.commands, frontDoor: held.frontDoor ?? null, attended: held.attended, overrides: held.overrides, ...(held.continuation ? { continuation: held.continuation } : {}) }
   }
 
   /** The uncertain run/card a check-retry token is bound to, without consuming it — `flow/check/retry`'s own validation. */

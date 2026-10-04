@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runFixture } from '../preview/run-view-fixture'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
-import type { FindingRunState } from '@harnessdesk/protocol'
+import type { FindingRunState, FlowCheckAttempt } from '@harnessdesk/protocol'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const render = (props: Partial<RunInspectorProps> = {}) => {
@@ -43,7 +43,7 @@ it('shows card input and predecessor handoffs, findings and review before its co
   const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card, dependsOn: card.id === 3 ? [1] : [], detail: card.id === 3 ? 'Review the bounded retry' : null, handoff: card.id === 1 ? 'Added a ceiling' : null })) }, selectedRow: 'card-3-3', seats: [{ id: 'seat-1', name: 'Beta', onOpen }],
     publication: { round: 3, state: 'local', reason: 'Posting is off for this Team.', pr: null, cards: [3] } })
   try {
-    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Handoff', 'Findings', 'Cap the attempts.', 'Not posted', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
+    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Handoff', 'Findings', 'Cap the attempts.', 'Kept on the desk', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
     const buttons = [...view.container.querySelectorAll('button')]
     expect(buttons.at(-1)?.textContent).toBe('Open the conversation')
     act(() => buttons.at(-1)!.click())
@@ -275,6 +275,141 @@ it('reads findings rows and falls back to the Run when the selected card is gone
   try { expect(view.container.textContent).toContain('Cap the attempts.') } finally { view.close() }
   const missing = render({ input: fixture, selectedRow: 'card-99-99' })
   try { expect(missing.container.textContent).toContain('Brief') } finally { missing.close() }
+})
+it('does not assign a round publication to a card the round record does not name', () => {
+ const view=render({input:runFixture(),selectedRow:'card-3-3',publication:{round:3,state:'posted',reason:null,pr:7,cards:[99]}})
+ try {
+  expect(sectionText(view.container,'Review')).toContain('No review recorded')
+  expect(sectionText(view.container,'Review')).not.toContain('Posted to #7')
+ } finally {view.close()}
+})
+
+/*
+ * A check run again: the inspector lists what the desk recorded each time it
+ * ran, with each attempt's output kept as it was, and offers *Run again…* last.
+ */
+const gate = (patch: { state?: 'running' | 'stalled' | 'settled' | 'stopped'; operation?: 'started' | 'finished' | 'uncertain' | null } = {}) => {
+  const fixture = runFixture()
+  const operations = patch.operation === null ? [] : [{ key: 'check:2:0', kind: 'check' as const, state: patch.operation ?? 'finished', card: 2, seat: null }]
+  return { ...fixture, execution: { ...fixture.execution, state: patch.state ?? 'running', operations: [...fixture.execution.operations, ...operations] } }
+}
+const attempt = (n: number, patch: Partial<FlowCheckAttempt> = {}): FlowCheckAttempt =>
+  ({ id: `attempt-${n}`, n, at: Date.now() - (3 - n) * 600_000, commit: `c0ffee${n}`, exit: n === 1 ? 1 : 0, timedOut: false, outcome: n === 1 ? 'fail' : 'pass', tail: `output of attempt ${n}`, ...patch })
+const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(one => one.textContent === label)
+
+it('lists each recorded attempt newest first, with its output behind a link and the earlier output exactly as recorded', () => {
+  const input = { ...gate(), attempts: new Map([[2, [attempt(1), attempt(2)]]]) }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const attempts = sectionText(view.container, 'Attempts')
+    expect(attempts.indexOf('Attempt 2')).toBeGreaterThan(-1)
+    expect(attempts.indexOf('Attempt 2')).toBeLessThan(attempts.indexOf('Attempt 1'))
+    for (const text of ['Failed', 'Passed', 'Exit 1', 'Exit 0', 'c0ffee1', 'c0ffee2']) expect(attempts).toContain(text)
+    expect(attempts).not.toContain('output of attempt')
+    const first = view.container.querySelector('[data-attempt="1"]') as HTMLElement
+    const show = button(first, 'Show output')!
+    expect(show.getAttribute('aria-expanded')).toBe('false')
+    act(() => show.click())
+    expect(first.textContent).toContain('output of attempt 1')
+    expect(view.container.querySelector('[data-attempt="2"]')!.textContent).not.toContain('output of attempt 2')
+    act(() => button(first, 'Hide output')!.click())
+    expect(first.textContent).not.toContain('output of attempt 1')
+  } finally { view.close() }
+})
+
+it('names the commit an attempt ran at by its first twelve characters, and the whole of it on hover', () => {
+  const sha = 'a1b2c3d4e5f6'.repeat(3) + 'a1b2'
+  const view = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1, { commit: sha }), attempt(2)]]]) }, selectedRow: 'check-2-2' })
+  try {
+    const one = view.container.querySelector('[data-attempt="1"]') as HTMLElement
+    expect(one.textContent).toContain('a1b2c3d4e5f6')
+    expect(one.textContent).not.toContain('a1b2c3d4e5f6a')
+    expect(one.querySelector(`[title="${sha}"]`)).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('has no Attempts section for a check with one result or none, which the Latest result already reads', () => {
+  for (const attempts of [new Map([[2, [attempt(1)]]]), new Map([[2, []]]), undefined]) {
+    const view = render({ input: { ...gate(), ...(attempts ? { attempts } : {}) }, selectedRow: 'check-2-2' })
+    try { expect(view.container.textContent).not.toContain('Attempts') } finally { view.close() }
+  }
+})
+
+it.each([
+  { read: 'reading' as const, shown: 'Reading attempts…' },
+  { read: 'failed' as const, shown: 'Earlier attempts could not be read' },
+])('says "$shown" while a check’s attempts are not here, and never calls them none', ({ read, shown }) => {
+  const view = render({ input: gate(), attemptsRead: read, selectedRow: 'check-2-2' })
+  try {
+    expect(sectionText(view.container, 'Attempts')).toContain(shown)
+    expect(view.container.textContent).not.toContain('Attempt 1')
+  } finally { view.close() }
+  // The read of another check's attempts is not this one's: a card with none of its own still says it is reading.
+  const other = render({ input: { ...gate(), attempts: new Map([[9, [attempt(1), attempt(2)]]]) }, attemptsRead: read, selectedRow: 'check-2-2' })
+  try { expect(sectionText(other.container, 'Attempts')).toContain(shown) } finally { other.close() }
+})
+
+it('shows readable attempts and says when the history is incomplete', () => {
+  const view = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1, { n: null })] ]]), incompleteAttempts: new Set([2]) }, selectedRow: 'check-2-2' })
+  try {
+    const attempts = sectionText(view.container, 'Attempts')
+    expect(attempts).toContain('Recorded result')
+    expect(attempts).not.toContain('Attempt 1')
+    expect(attempts).toContain('Attempt history could not be read completely.')
+  } finally { view.close() }
+})
+
+it.each(['reading', 'failed'] as const)('shows the attempts it has whatever the read of them says, and says nothing of a check it already knows ran once (%s)', read => {
+  const some = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1), attempt(2)]]]) }, attemptsRead: read, selectedRow: 'check-2-2' })
+  try {
+    expect(sectionText(some.container, 'Attempts')).toContain('Attempt 2')
+    expect(some.container.textContent).not.toContain('Reading attempts…')
+    expect(some.container.textContent).not.toContain('could not be read')
+  } finally { some.close() }
+  const once = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1)]]]) }, attemptsRead: read, selectedRow: 'check-2-2' })
+  try {
+    expect(once.container.textContent).not.toContain('Attempts')
+    expect(once.container.textContent).not.toContain('could not be read')
+  } finally { once.close() }
+})
+
+it('keeps markup literal and removes terminal escape sequences from an attempt’s output, as it does for the latest', () => {
+  const unsafe = '<img src=x onerror="alert(1)">\u001b[31mred\u001b[0m\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007<script>1</script> & more'
+  const input = { ...gate(), attempts: new Map([[2, [attempt(1, { tail: unsafe }), attempt(2, { tail: unsafe })]]]) }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    for (const one of [1, 2]) act(() => button(view.container.querySelector(`[data-attempt="${one}"]`) as HTMLElement, 'Show output')!.click())
+    const shown = [...view.container.querySelectorAll('[data-attempt] [data-slot="code-text"]')].map(one => one.textContent)
+    expect(shown).toHaveLength(2)
+    for (const one of shown) expect(one).toBe('<img src=x onerror="alert(1)">redlink<script>1</script> & more')
+    expect(view.container.textContent).not.toContain('\u001b')
+    expect(view.container.querySelector('img,script,a')).toBeNull()
+  } finally { view.close() }
+})
+
+it('puts Run again… last in a check’s inspector, enabled while the Run and the check allow it', () => {
+  const input = { ...gate(), attempts: new Map([[2, [attempt(1), attempt(2)]]]) }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const buttons = [...view.container.querySelectorAll('button')]
+    expect(buttons.at(-1)!.textContent).toBe('Run again…')
+    expect(buttons.at(-1)!.disabled).toBe(false)
+    expect(view.container.textContent).not.toContain('Start a new run')
+  } finally { view.close() }
+})
+
+it.each([
+  { name: 'settled Run', patch: { state: 'settled' as const }, reason: 'This run is settled. Start a new run to run this check again.' },
+  { name: 'stopped Run', patch: { state: 'stopped' as const, operation: 'uncertain' as const }, reason: 'This run is stopped. Start a new run to run this check again.' },
+  { name: 'check still running', patch: { operation: 'started' as const }, reason: 'This check is not waiting to be run again.' },
+])('keeps Run again… disabled with the host’s reason on screen for a $name', ({ patch, reason }) => {
+  const view = render({ input: gate(patch), selectedRow: 'check-2-2' })
+  try {
+    const again = button(view.container, 'Run again…')!
+    expect(again.hasAttribute('disabled') || again.getAttribute('aria-disabled') === 'true').toBe(true)
+    const shown = [...view.container.querySelectorAll('*')].filter(one => one.children.length === 0 && one.textContent === reason)
+    expect(shown.some(one => !one.closest('.sr-only'))).toBe(true)
+  } finally { view.close() }
 })
 
 /** The controls the connected view hands the inspector; none are present unless a caller gives them. */

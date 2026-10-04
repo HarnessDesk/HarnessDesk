@@ -65,6 +65,7 @@ import {
   SessionGoneError,
   openingOf,
   laneEnvironmentOf,
+  withoutCompaction,
   wrapContext,
 } from '@harnessdesk/protocol'
 import {
@@ -3155,8 +3156,17 @@ const isIdPlaceholder = (title: string, sessionId: string): boolean => {
   return named === id || (named === head && /^[0-9a-f]{8}$/.test(head))
 }
 
+/**
+ * What an agent calls a conversation, if that says anything.
+ *
+ * Not its own id, and not a summary it wrote of its own compacted history —
+ * an agent whose name for an unnamed conversation is the beginning of the
+ * transcript hands over `<summary> ## 1. Primary Request and Intent …` after a
+ * compaction. Whichever agent it is, that is the agent talking to itself; the
+ * row falls back to what the person asked.
+ */
 const titleOf = (row: AcpSessionRow): string | null => {
-  const title = row.title?.trim() ?? ''
+  const title = withoutCompaction(row.title?.trim() ?? '').trim()
   return title !== '' && !isIdPlaceholder(title, row.sessionId) ? title : null
 }
 
@@ -3836,9 +3846,22 @@ class AcpSession implements AgentSession {
   // ------------------------------------------------------------------ internal
 
   summary(): SessionSummary {
-    const preview = this.#turns
+    // The first message that says anything, as every other producer of a name
+    // reads it: a message of a picture alone, or an agent's own summary of the
+    // history it compacted, names nothing, and the person's first real words
+    // come after it.
+    const opening = this.#turns
       .flatMap((turn) => turn.items)
-      .find((item) => item.type === 'userMessage')
+      .map((item) =>
+        item.type === 'userMessage'
+          ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
+            openingOf([
+              ...(item.context ?? []).map((block) => wrapContext(block.label, block.text)),
+              item.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+            ].join('\n')).slice(0, 120)
+          : '',
+      )
+      .find((line) => line !== '')
     return {
       id: this.id,
       runtime: this.runtime,
@@ -3846,15 +3869,10 @@ class AcpSession implements AgentSession {
       // heard saying so; `listSessions` is where that is learned.
       title: this.#host.titleOf(this.id),
       preview:
-        preview?.type === 'userMessage'
-          ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
-            openingOf([
-              ...(preview.context ?? []).map((block) => wrapContext(block.label, block.text)),
-              preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
-            ].join('\n')).slice(0, 120) || null
-          : // Loaded, not replayed: the agent's own record of how this
-            // conversation opened stands in for turns this process never saw.
-            this.#host.previewOf(this.id),
+        opening ??
+        // Loaded, not replayed: the agent's own record of how this
+        // conversation opened stands in for turns this process never saw.
+        this.#host.previewOf(this.id),
       cwd: this.#cwd,
       status: this.#currentTurn ? { type: 'active' as const } : { type: 'idle' as const },
       createdAt: Date.now(),

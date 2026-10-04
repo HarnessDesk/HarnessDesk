@@ -42,6 +42,7 @@ import type {
 } from './intake.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
+  FlowCheckAttempts,
   FlowEntry,
   FlowExecution,
   FlowPolicy,
@@ -1875,6 +1876,8 @@ export interface HostMethods {
    */
   'flow/preview': {
     params: {
+      /** Run again binds consent to this Run's Team and retained checkout. */
+      readonly continues?: string
       readonly seats?: Readonly<Record<string, readonly FlowSeat[]>>
       readonly attended?: boolean
       readonly root: string
@@ -1900,6 +1903,16 @@ export interface HostMethods {
   'flow/execution/source': { params: { readonly run: string }; result: { readonly source: string; readonly vars: Readonly<Record<string, string>> } }
   /** Starts a finished or interrupted check again after fresh consent; returns on launch. The preview token binds the run, card, attempt and current checkout revision. */
   'flow/check/retry': { params: { readonly run: string; readonly card: number; readonly token: string }; result: FlowExecution }
+  /**
+   * Every result the desk recorded for one check card, oldest first: what each
+   * exited with and printed, the commit it ran at and the word the Flow reads
+   * it as. A check run again keeps its earlier results as durable evidence, but
+   * `evidence/board` returns only the latest and an operation is overwritten by
+   * a retry, so this is the read of the rest. It reads: nothing runs and no
+   * token is minted. A card that is not a check card of that run, and a run on
+   * the old format, are refused.
+   */
+  'flow/check/attempts': { params: { readonly run: string; readonly card: number }; result: FlowCheckAttempts }
   /** Hands a stopped run's kept answer (`FlowExecution.keptAnswer`) to the same Seat again, and the run goes on; refused, the answer still kept, while it cannot be delivered. */
   'flow/answer/continue': { params: { readonly run: string }; result: FlowExecution }
   /** Observed predecessor subjects a person review card may choose from. */
