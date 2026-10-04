@@ -3,14 +3,15 @@ import type { InsightReport } from '@harnessdesk/protocol'
 import type { AppSnapshot } from '../state/snapshot'
 import { goalRunOf } from './goal-run'
 import { teamSeats, hasConversation } from './team-seats'
-import { teamOverview, teamTotals, type TeamOverviewInput } from './team-overview'
+import { teamOverview, teamOverviewInputOf, teamTotals } from '@harnessdesk/client/views'
+import { clientSnapshot } from './client-snapshot'
 import type { TeamListInput } from './teams-list'
 
 export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,InsightReport> = new Map()): TeamListInput[] => [...snapshot.teams.values()].map(team => {
  const goal=snapshot.goals.get(team.id) ?? null
  const execution=goalRunOf(team.id,goal,snapshot.flowExecutions)
- const input: TeamOverviewInput = {
-  team:team.id,cards:team.intents,signals:team.channel.filter(one=>one.kind==='signal'),
+ const input = teamOverviewInputOf(clientSnapshot(snapshot), team.id, {
+  runtimes: snapshot.runtimes.map(one => ({ id: one.id, name: one.presentation.name, metered: one.capabilities.metered })),
   seats:teamSeats(goal,team,execution).filter(hasConversation).map(seat=>({record:seat.record,name:seat.name,
    runtime:snapshot.runtimes.find(one=>one.id===seat.record.session.runtime) ?? null,
    session:snapshot.sessions.get(seat.key) ?? null,
@@ -20,7 +21,6 @@ export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,In
   findingRun:execution?snapshot.findingRuns.get(execution.id):null,
   publicationOn:goal?.goal.findingPublication !== false,
   report:reports.get(team.id) ?? null,
-  runtimeCapabilities:new Map(snapshot.runtimes.map(one=>[one.id,one.capabilities])),
- }
+ })
  return {team,goal,execution,overview:teamOverview(input),total:teamTotals(input)}
 })

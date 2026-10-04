@@ -432,7 +432,7 @@ when Mobile comes (see *Local only, or through the relay*).
 | `harnessdesk flow preview <flow> …` | What it would do, spending nothing: seats (overrides marked), checks verbatim, held or asked, problems | `flow/source`, `flow/preview` | read | catalogue flows only |
 | `harnessdesk flow start <flow> … [--yes]` | Previews, confirms, and starts a Team running it; prints the run and the Team | `flow/preview`, `flow/start-goal` | run | catalogue flows only |
 | `harnessdesk runs [--team T \| --project P] [--all]` | Runs, newest first; active ones unless `--all` | `flow/executions` | read | yes |
-| `harnessdesk run show <run>` | One run: state, rounds, cards, and why it stopped | `flow/execution` | read | yes |
+| `harnessdesk run show <run>` | One Run: the shared timeline, attendance and overrides; JSON keeps the execution | `flow/execution`, `client/subscribe`, `evidence/board`, `finding/list`, `finding/run` | read | yes |
 | `harnessdesk run wait <run> [--timeout S]` | Blocks until the run settles, stops, stalls or waits for a person; the exit code says which | `client/subscribe` | read | yes |
 | `harnessdesk run stop <run> --reason …` | Ends the round, interrupts its seats, and fires no rule (#1247) | `flow/execution/stop` | run | yes |
 | `harnessdesk teams [--project P]` | Teams, with their activity | `goal/list` | read | yes |
@@ -511,11 +511,12 @@ Four rules hold every row:
   pure functions over plain data, with no transport. `snapshot()` supplies
   the held facts; `synced()` waits until the subscription baseline and its
   initial review reads have applied, again after every `gap`. The run timeline
-  selector joins `views` when the window's PR writes it.
+  selector and its publication words now live in `views` too.
   - The window imports that entry and nothing else from the library; the
     layering gate holds it to that.
   - `harnessdesk status` uses the overview selectors in a terminal's words.
-    `run show` will use the timeline selector when it lands.
+    `run show` uses the same timeline over a Run-scoped baseline, with explicit
+    check evidence, findings and publication reads.
 
 ### Exit codes
 

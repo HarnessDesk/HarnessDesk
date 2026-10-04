@@ -21,6 +21,8 @@ export const CLIENT_METHODS = {
   'flow/execution/stop': 'run',
   'flow/executions': 'read',
   'finding/run': 'read',
+  'finding/list': 'read',
+  'evidence/board': 'read',
   'insight/goal': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 

@@ -851,3 +851,89 @@ rules:
   assert.match(abandoned.output().stderr, /if its conditions match/)
   assert.ok((await flowRig.board(d, second.goal)).some(one => one.role === 'reviewer'))
 })
+
+
+test('run show human output is the shared timeline, with attendance and overrides, and JSON stays the execution', { timeout: REAL_HOST_TEST_MS }, async t => {
+  const r = await rig(t)
+  const human = launch(t, r.directory, r.home, ['run', 'show', r.run.id, '--trace-wire'])
+  assert.equal(await human.exit, 0, human.output().stderr)
+  const view = await r.h.host.call('goal/read', { goal: r.run.goal }) as GoalView
+  const card = view.board.intents[0]!
+  assert.equal(human.output().stdout, [
+    `${r.run.id}  CLI proof  running  attended  revision ${r.run.revision}`,
+    'Start',
+    'Round 1 · ship  0 of 1 answered',
+    `#${card.id} · ${card.title}  Needs you`,
+    '',
+  ].join('\n'))
+  const sent = human.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send')
+  assert.deepEqual(sent.map(e => e.message.method), ['client/hello', 'client/subscribe', 'flow/execution', 'evidence/board', 'finding/list', 'finding/run'])
+  assert.deepEqual(sent[1].message.params, { topics: ['cards', 'teams'], scope: { run: r.run.id } })
+  await r.complete()
+  const ended = launch(t, r.directory, r.home, ['run', 'show', r.run.id])
+  assert.equal(await ended.exit, 0, ended.output().stderr)
+  assert.match(ended.output().stdout, /Settled  Nothing waits\./)
+  const json = launch(t, r.directory, r.home, ['run', 'show', r.run.id, '--json', '--trace-wire'])
+  assert.equal(await json.exit, 0, json.output().stderr)
+  assert.deepEqual(json.lines()[0], await r.h.host.call('flow/execution', { run: r.run.id }))
+  const jsonSent = json.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send')
+  assert.deepEqual(jsonSent.map(e => e.message.method), ['client/hello', 'flow/execution'])
+})
+
+
+test('status and run show replay the window stream, including check evidence, paged findings and publication words', async t => {
+  const { readFile } = await import('node:fs/promises')
+  const replay = JSON.parse(await readFile(new URL('../../../../e2e/fixtures/client-views-stream.json', import.meta.url), 'utf8')) as {
+    stream: import('@harnessdesk/protocol').WireNotification[]
+    execution: FlowExecution
+    evidence: import('@harnessdesk/protocol').BoardEvidence
+    findings: import('@harnessdesk/protocol').FindingView[]
+    findingRun: import('@harnessdesk/protocol').FindingRunView
+    expectedRows: string[]
+  }
+  const directory = await mkdtemp('/tmp/hd-door-'); await chmod(directory, 0o700)
+  const home = await realpath(directory)
+  const socket = join(directory, `${createHash('sha256').update(home).digest('hex').slice(0, 16)}.sock`)
+  const server = createServer(), sockets = new WebSocketServer({ noServer: true })
+  let stopped = false
+  const currentRun = () => stopped ? { ...replay.execution, state: 'stopped', currentEndedAt: 500,
+    end: { kind: 'stopped', by: 'person' }, reason: 'Pause the demo.' } : replay.execution
+  server.on('upgrade', (req, socket, head) => sockets.handleUpgrade(req, socket, head, ws => {
+    ws.on('message', raw => {
+      const request = JSON.parse(raw.toString())
+      const results: Record<string, unknown> = {
+        'client/hello': { protocolVersion: 1, hostVersion: 'demo', desk: { home, pid: process.pid, startedAt: 1 }, tiers: ['read'], methods: Object.keys(CLIENT_METHODS), runtimes: [] },
+        'client/subscribe': { baseline: replay.stream.length },
+        'flow/execution': currentRun(), 'evidence/board': replay.evidence,
+        'finding/list': { rows: request.params.cursor ? replay.findings.slice(1) : replay.findings.slice(0, 1), next: request.params.cursor ? null : 'second-page' },
+        'finding/run': replay.findingRun, 'insight/goal': null,
+      }
+      assert.ok(Object.hasOwn(results, request.method), request.method)
+      ws.send(JSON.stringify({ id: request.id, ok: true, result: results[request.method] }))
+      if (request.method === 'client/subscribe') for (const notification of replay.stream) ws.send(JSON.stringify(notification))
+    })
+  }))
+  await new Promise<void>(resolve => server.listen(socket, resolve)); await chmod(socket, 0o600)
+  await writeFile(socket.replace('.sock', '.json'), JSON.stringify({ home, pid: process.pid, startedAt: 1, hostVersion: 'demo', protocolVersion: 1 }), { mode: 0o600 })
+  t.after(async () => { for (const ws of sockets.clients) ws.terminate(); await new Promise<void>(resolve => sockets.close(() => server.close(() => resolve()))); await rm(directory, { recursive: true, force: true }) })
+  const show = launch(t, directory, home, ['run', 'show', 'demo-run', '--trace-wire'])
+  assert.equal(await show.exit, 0, show.output().stderr)
+  assert.equal(show.output().stdout, [
+    'demo-run  Scripted demo  running  unattended  revision demo-revision  continues previous-run  Kept on the desk',
+    ...replay.expectedRows, 'writer  override  demo', '',
+  ].join('\n'))
+  const sends = show.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send')
+  assert.deepEqual(sends.filter(e => e.message.method === 'finding/list').map(e => e.message.params), [
+    { goal: 'demo-team', filter: 'all' }, { goal: 'demo-team', filter: 'all', cursor: 'second-page' },
+  ])
+  const status = launch(t, directory, home, ['status', '--team', 'demo-team', '--json'])
+  assert.equal(await status.exit, 0, status.output().stderr)
+  const overview = status.lines()[0].overviews[0].overview
+  assert.partialDeepStrictEqual(overview.seats, [{ seat: 'writer-seat', name: 'Writer', done: true, state: 'idle' }])
+  assert.partialDeepStrictEqual(overview.needsYou, [{ kind: 'card', card: 4, summary: 'Choose the next step' }])
+  assert.partialDeepStrictEqual(overview.run, { run: 'demo-run', state: 'running', round: 4, role: 'person' })
+  stopped = true
+  const ended = launch(t, directory, home, ['run', 'show', 'demo-run'])
+  assert.equal(await ended.exit, 0, ended.output().stderr)
+  assert.ok(ended.output().stdout.includes('Stopped by you  Kept on the desk  Pause the demo.'))
+})

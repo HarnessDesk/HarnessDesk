@@ -588,6 +588,7 @@ export class AppStore {
             : []
           this.#patch({
             sessions,
+            seatActivities: new Map(),
             queues,
             tasks,
             runtimes,
@@ -739,6 +740,12 @@ export class AppStore {
         if (notification.method === 'person/notice') {
           this.#personNotice(notification.params.notice)
         }
+        if (notification.method === 'seat/activity') {
+          const activity = notification.params
+          const seatActivities = new Map(this.#snapshot.seatActivities)
+          seatActivities.set(JSON.stringify([activity.goal, activity.seat]), activity)
+          this.#patch({ seatActivities })
+        }
         if (notification.method === 'team/changed') {
           const { state } = notification.params
           const teams = new Map(this.#snapshot.teams)
@@ -796,7 +803,8 @@ export class AppStore {
           boardEvidence.delete(room)
           const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
           boardEvidenceFailed.delete(room)
-          this.#patch({ teams, boardEvidence, boardEvidenceFailed })
+          const seatActivities = new Map([...this.#snapshot.seatActivities].filter(([, activity]) => activity.goal !== room))
+          this.#patch({ teams, boardEvidence, boardEvidenceFailed, seatActivities })
           /* A pane pointed at a room that no longer exists is a surface backed
              by nothing — it would draw the empty board rather than say why. It
              goes with the room, and whatever the pane was replacing comes
