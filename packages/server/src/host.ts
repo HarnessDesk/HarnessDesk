@@ -5917,7 +5917,7 @@ export class Host {
     const handed = laneEnvironmentFor(this.#runtime({ runtime }), environment) !== undefined
     await live.send(
       [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
-      { recordAs: 'notice' },
+      { recordAs: 'notice', noticeKind: 'agentBrief' },
     )
   }
 
