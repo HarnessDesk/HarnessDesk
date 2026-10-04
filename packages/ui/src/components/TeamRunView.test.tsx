@@ -267,3 +267,14 @@ it('keeps a person\'s step as text when the pane gives it no way to the board', 
   const view = await mountScene('person', sceneStore('person'), {})
   try { expect([...view.container.querySelectorAll('button')].map(one => one.textContent)).not.toContain('Approved') } finally { view.close() }
 })
+it('gives the note written in the inspector as the context the next round reads', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const view = await mountScene('person', sceneStore('person', { teamIntent }), { onOpenBoard: () => {} })
+  try {
+    const note = view.container.querySelector<HTMLInputElement>('input[aria-label="Note"]')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => { setter.call(note, 'Looks right.'); note.dispatchEvent(new Event('input', { bubbles: true })) })
+    await press('Approved', view.container)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved', 'Looks right.')
+  } finally { view.close() }
+})
