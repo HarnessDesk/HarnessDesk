@@ -115,8 +115,8 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Run commands shorten home paths across Flow, Steps, Timeline and inspector in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const flow = page.locator('#run-view-live-polish-flow')
-    const raw = 'node /home/dev/tools/land.mjs --check'
-    const shown = 'node ~/tools/land.mjs --check'
+    const raw = 'PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check'
+    const shown = 'PATH=/usr/bin:~/bin node ~/tools/land.mjs --check'
     for (const selector of ['[data-step="verify"]', '[data-step-row="verify"]']) {
       await expect(flow.locator(selector)).toContainText(shown)
       await expect(flow.locator(selector).locator('[title]').filter({ hasText: shown })).toHaveAttribute('title', raw)

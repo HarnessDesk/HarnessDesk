@@ -462,8 +462,9 @@ The same ceiling vocabulary appears on six governed-seat surfaces: the
 conversation header, Agent name card, room rail, board holder, flow dry run and
 Agent roster. The chip is neutral whether the limit is held or asked — most
 runtimes have no control that holds one, so `asked` is the ordinary state, not
-a warning; the words *held* and *asked* and a hover explanation make colour
-unnecessary either way.
+a warning. A held ceiling names the level (*Read only*, *Edit*, *Publish* or
+*Merge*); an asked ceiling adds *asked, not enforced*. Those words and a hover
+explanation make colour unnecessary either way.
 The roster keeps two facts distinct: the Agent file's declared level and the
 effective would-be seat after the seating grant narrows it. A plain conversation
 has no ceiling chip.
@@ -690,8 +691,9 @@ Library's Agent filter both read back what a Seat's runtime build actually
 loaded, by that Seat's own immutable id — "declared, not loaded" and "not
 recorded" are shown as different facts, never folded into one another.
 
-**Settings › Permissions › Ceilings** shows four held/asked chips for every
-installed runtime, using controls the runtime declares and reads back rather
+**Settings › Permissions › Ceilings** shows the same four ceiling levels and
+whether each is enforced for every installed runtime, using controls the
+runtime declares and reads back rather
 than a runtime-name table. It also chooses whether a watched conversation may
 open an unheld seat and say so, or pass it over, and a second, independent
 choice for a Goal a trigger opened — refuse by default, or seat it and say so

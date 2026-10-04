@@ -289,7 +289,7 @@ it('shortens the Timeline check command while keeping its full hover title', () 
   try {
     act(() => root.render(<RunView model={runTimeline(runFixture('live-polish'))} home="/home/dev" number={1} selectedRow={null} onSelect={() => {}} />))
     const check = container.querySelector('[data-row="check-2-2"]')!
-    expect(check.textContent).toContain('node ~/tools/land.mjs --check')
-    expect(check.querySelector('[title="node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
+    expect(check.textContent).toContain('PATH=/usr/bin:~/bin node ~/tools/land.mjs --check')
+    expect(check.querySelector('[title="PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
   } finally { act(() => root.unmount()) }
 })

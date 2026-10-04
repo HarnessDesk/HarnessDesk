@@ -627,6 +627,19 @@ describe('commandShown', () => {
     expect(commandShown('ROOT=/home/dev node "/home/dev/tools/land.mjs" < /home/dev/input', '/home/dev'))
       .toBe('ROOT=~ node "~/tools/land.mjs" < ~/input')
   })
+  it('shortens home paths after path-list separators', () => {
+    expect(commandShown('PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check', '/home/dev'))
+      .toBe('PATH=/usr/bin:~/bin node ~/tools/land.mjs --check')
+  })
+  it('shortens bare home entries before and after path-list separators', () => {
+    const home = '/home/dev'
+    expect(commandShown(`PATH=${home}:/usr/bin:${home}:${home}/bin node`, home))
+      .toBe('PATH=~:/usr/bin:~:~/bin node')
+  })
+  it('keeps sibling names and embedded path fragments in path lists intact', () => {
+    const command = 'PATH=/usr/bin:/home/user/bin:/srv/home/u/bin:/home/user2 node'
+    expect(commandShown(command, '/home/u')).toBe(command)
+  })
   it('keeps other homes, sibling names and embedded path fragments intact', () => {
     const command = 'node /home/dev/work-two/run /home/agent/run /tmp/home/dev/work/run prefix/home/dev/work/run'
     expect(commandShown(command, '/home/dev/work')).toBe(command)

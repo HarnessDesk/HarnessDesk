@@ -109,7 +109,7 @@ export const commandShown = (command: string, home: string | null | undefined): 
   const root = home?.replace(/\/+$/, '')
   if (!root) return command
   const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const token = new RegExp(`(^|[\\s"'=;|&()<>])${escaped}(?=$|[/\\s"';|&()<>])`, 'g')
+  const token = new RegExp(`(^|[\\s"'=:;|&()<>])${escaped}(?=$|[/\\s"':;|&()<>])`, 'g')
   return command.replace(token, (_, before: string) => `${before}${shortPath(root, root)}`)
 }
 

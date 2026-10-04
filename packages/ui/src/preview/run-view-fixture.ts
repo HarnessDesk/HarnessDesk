@@ -26,7 +26,7 @@ export const runFixture = (scene: RunScene = 'running') => {
     document: { format: 'agents', flow: { version: 2, name: 'Build and review', inputs: [{ id: 'brief', label: 'Brief' }, { id: 'task', label: 'Task' }], messaging: 'board-only', wait: 240,
       roles: [
         { id: 'writer', kind: 'agent', uses: ['writer'], seats: [], isolate: false, grant: 'edit', independentOf: [] },
-        { id: 'verify', kind: 'check', check: { run: scene === 'live-polish' ? 'node /home/dev/tools/land.mjs --check' : 'pnpm verify', timeout: 600, exits: { '0': 'pass' }, otherwise: 'fail' } },
+        { id: 'verify', kind: 'check', check: { run: scene === 'live-polish' ? 'PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check' : 'pnpm verify', timeout: 600, exits: { '0': 'pass' }, otherwise: 'fail' } },
         { id: 'reviewer', kind: 'agent', uses: ['reviewer'], seats: [], isolate: true, grant: 'read', count: 2, independentOf: ['writer'] },
         { id: 'person', kind: 'person', outcomes: ['approved'] },
       ],

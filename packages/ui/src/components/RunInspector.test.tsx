@@ -562,7 +562,7 @@ it('shortens the selected check command and keeps the full command on hover', ()
   const input = runFixture('live-polish')
   const view = render({ input, selectedRow: 'check-2-2', home: '/home/dev' })
   try {
-    expect(view.container.textContent).toContain('node ~/tools/land.mjs --check')
-    expect(view.container.querySelector('[title="node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
+    expect(view.container.textContent).toContain('PATH=/usr/bin:~/bin node ~/tools/land.mjs --check')
+    expect(view.container.querySelector('[title="PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
   } finally { view.close() }
 })
