@@ -77,7 +77,7 @@ dependency, except possibly a graph-layout library in PR 14 (decided there).
   the linked issue. No competitor or reference-app names, and no thanks or
   address to an outside project.
 
-## Order, dependencies and what can start now
+## Original order and dependencies
 
 Sizes: S under a day of Team time, M about a day, L more.
 
@@ -97,12 +97,12 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 11 | The end of a Run, and Run again | 3, 4, 5, 6 (all merged) | merged (#1339) | M |
 | 13 | `FlowGraph` and the Flow tab (read-only) | 3 (merged) | merged (#1322) | L |
 | 14 | The Run's state on the Flow | 13, 3, 9 (all merged) | merged (#1353) | L |
-| 15 | The poster and the site demo | 14 | optional | S |
+| 15 | The poster and the site demo | 14 | parked (optional) | S |
 | 16 | Read from the shared client selectors | 3 and 7 (both merged), and the Wire client and CLI session's PR 1c (#1295) and PR 2 (#1305) | merged (#1360) | M |
 | 17 | Host: a finished Seat's process rests | none | merged (#1283) | L |
 | 18 | A wrapped Team reads as a record | 2, 12, 3 (all merged) | merged (#1317, #1341) | M |
 
-**Scheduling is over.** Every PR here except PR 15 (the poster, optional) has merged, so the notes that asked for one Team at a time in `SessionTree.tsx`, `TeamRoomPane.tsx` and `flow-execution.ts`, and the note on what waited on the Wire client and CLI session, no longer apply. The briefs below are kept as the record of what each PR was asked to do; the code on `main` is what shipped.
+**Scheduling is complete.** PR 15 (the poster) remains parked and optional; no work is scheduled. The notes that asked for one Team at a time in `SessionTree.tsx`, `TeamRoomPane.tsx` and `flow-execution.ts`, and the note on what waited on the Wire client and CLI session, no longer apply. The briefs below are kept as the record of what each PR was asked to do; the code on `main` is what shipped.
 
 ## Coordination with the "Wire client and CLI" session
 
@@ -595,6 +595,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 15 — The poster and the site demo (optional)
+
+**Status.** Parked and optional; no work is scheduled.
 
 **Goal.** The same drawing, large, for the site and the changelog.
 
