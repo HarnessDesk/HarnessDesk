@@ -1492,6 +1492,23 @@ Children outside the recorded group are outside this guarantee.
 Interrupted work still needs fresh
 consent, since killing a process cannot undo its effects.
 
+The attempts a retry leaves are read from the evidence the engine already
+wrote, not from the card's operation: an operation is one record a retry
+replaces, and `evidence/board` keeps only the latest fact of a question, while
+each attempt is a durable `check` fact on the card. `flow/check/attempts`
+(`{ run, card }`) lists them oldest first with the Flow's own word for each —
+its `exits` entry for the status, else `otherwise`, which is how the engine
+answers a completed check's card, and a test holds the two together. It reads
+the store and nothing else: no token is minted and no result is judged against
+git. An attempt exists once its result is recorded; a retry still running, or
+one the desk interrupted before it could keep what it printed, is the card's
+operation until then. The refusals the Run and the check already say (the check
+is not waiting; the run has settled or stopped) are one function in the
+protocol, held to the host's own sentences by tests, so the window can keep a
+control disabled with the host's reason on screen; every other refusal comes
+from the host's preview, in the consent dialog, whose answer stays disabled
+while no token has been minted.
+
 The existing statechart already expresses a retry: `otherwise: retry` plus a
 rule back to the check, or an unconditional final rule for every non-landing
 outcome. `retry` remains an ordinary outcome, never a reserved command with an

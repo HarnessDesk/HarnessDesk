@@ -995,3 +995,10 @@ inspector, which explains a row of the timeline, steps aside while the Flow
 shows. **Open the file** reads the Flow's file as it is now, in a window you
 can only read; the Run keeps the revision it started with, and nothing in this
 tab can be changed.
+
+A check that finished, or that the desk interrupted, can be run again from its
+row or its inspector while the Run is running or stalled. It asks first and
+shows the command exactly as it will run; the earlier result and its output are
+kept, and every result the desk recorded is listed under the check, with its
+output in the inspector. A Run that has settled or stopped refuses, says so, and
+points to starting a new Run.
