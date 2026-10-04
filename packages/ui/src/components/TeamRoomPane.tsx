@@ -381,23 +381,28 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
+  /* A wrapped Team opens on its Receipt, with or without a Run: the record is
+     what the person came for, and the rail is the way around it. */
+  const opensOnReceipt = record && Boolean(goal?.receipt)
   const [open, setOpen] = useState<'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
-    () => (record && goal?.receipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
+    () => (opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
   )
   /* Which half a *narrow* room is showing. Two columns need width; when the
      pane has none — a three-way split, or the details panel open beside it —
      the room becomes one column at a time, the way every master/detail list
      does, rather than two unreadable ones. At full width this is inert: the
-     container query below never fires and both halves stay up. */
-  const [onRail, setOnRail] = useState(!flowExecution)
+     container query below never fires and both halves stay up. A Team opens on
+     the rail only when it has nothing to read first: a Run gives it an
+     Overview and a wrapped Team its Receipt, and each of those is the body. */
+  const [onRail, setOnRail] = useState(!(opensOnReceipt || flowExecution))
   const destination = useRef({ room, chosen: false })
   useEffect(() => {
     if (destination.current.room !== room) destination.current = { room, chosen: false }
     // Runs are loaded after the Team opens. Apply its default only until the
     // person chooses a destination; a push must not take them away from Chat.
     if (destination.current.chosen || grid.tiles.length > 0) return
-    setOpen(record && goal?.receipt ? 'receipt' : flowExecution ? 'overview' : 'room')
-    setOnRail(!flowExecution)
+    setOpen(opensOnReceipt ? 'receipt' : flowExecution ? 'overview' : 'room')
+    setOnRail(!(opensOnReceipt || flowExecution))
   }, [room, flowExecution?.id, record])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())

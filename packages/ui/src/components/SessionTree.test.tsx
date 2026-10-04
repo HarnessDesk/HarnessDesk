@@ -988,6 +988,32 @@ it('lists a receipt conversation once under the wrapped group however many Seats
   } finally { errors.mockRestore() }
 })
 
+/* The Seats whose conversation was not kept are one list under the room, the way the conversations that were kept
+   are — not a menu apiece, each a one-item list with its own rule and gutter (#1317). */
+it('lists every Seat whose conversation was not kept in one nested menu', () => {
+  const board = room({ id: 'record-team', name: 'Read completed work' })
+  const base = triggerGoalView(board)
+  const view = { ...base, goal: { ...base.goal, state: 'wrapped' }, members: [], receipt: {
+    seats: ['keeper', 'lost', 'lost-too'],
+    members: [
+      { seat: 'keeper', agent: 'Keeper', seatLabel: 'Writer', session: { runtime: 'codex', sessionId: 'kept' } },
+      { seat: 'lost', agent: 'Gamma', seatLabel: 'Reviewer' },
+      { seat: 'lost-too', agent: 'Delta', seatLabel: 'Reviewer' },
+    ],
+    answers: [],
+  } } as unknown as GoalView
+  const { container: tree } = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, view]]))
+  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Wrapped · 1')!.click())
+  const lists = [...tree.querySelectorAll('ul[data-nested="true"]')].filter(one => /Gamma|Delta/.test(one.textContent ?? ''))
+  expect(lists).toHaveLength(1)
+  const missing = [...lists[0]!.querySelectorAll<HTMLButtonElement>('button')]
+  expect(missing.map(one => one.textContent)).toEqual(['Gamma', 'Delta'])
+  for (const one of missing) {
+    expect(one.disabled).toBe(true)
+    expect(one.title).toBe('Conversation not kept')
+  }
+})
+
 it('a conversation in a room is listed once, under the room', () => {
   // Two rows for one session — the room's copy and a loose copy — would make
   // the tree disagree with itself about how many conversations there are, and

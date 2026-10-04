@@ -3522,3 +3522,51 @@ it('a receipt that kept no Seat at all still says so', async () => {
  await render(store)
  expect(container.querySelector('aside')?.textContent).toContain('No Agents were kept in this Team’s receipt.')
 })
+
+/* The pane is two columns at width and one at a time without it, and `data-showing` names the one on show. A wrapped
+   Team opens on its Receipt, so in a narrow pane the Receipt has to be the half that shows — whether or not the Team
+   ever had a Run. A Team with no Run used to start on the Agents list, as an open one does, and a person-made Team
+   that wrapped read as a list of names with the record behind a way back (#1317). `receiptGoal` is exactly that Team:
+   made by a person, never given a Flow. */
+const showing = (): string | null => container.querySelector('[data-showing]')?.getAttribute('data-showing') ?? null
+const KEPT = [{ seat: 'kept', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } }]
+
+it('a wrapped Team that never had a Run opens on its Receipt, not on the Agents list, in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+ expect(container.textContent).toContain('As recorded when wrapped')
+})
+
+it('an open Team that has no Run still starts on the Agents list in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+})
+
+it('a Team with no Run that wraps while its narrow pane shows the Agents list moves to its Receipt', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+})
+
+it('a person who already chose where to look is not moved when a Team with no Run wraps', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ act(() => row('Board').click())
+ await act(async () => {})
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ expect(showing()).toBe('body')
+})

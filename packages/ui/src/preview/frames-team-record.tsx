@@ -8,8 +8,10 @@ import type { AppSnapshot } from '../state/store'
 import { previewStore } from './harness'
 import { overviewTeamStore } from './team-overview-fixture'
 
-export const TEAM_RECORD_STATES = ['wrapped', 'older', 'shared', 'unlinked', 'empty', 'narrow'] as const
+export const TEAM_RECORD_STATES = ['wrapped', 'older', 'shared', 'unlinked', 'empty', 'narrow', 'person'] as const
 export type RecordScene = typeof TEAM_RECORD_STATES[number]
+/** The scenes shown in a narrow pane, where the room is one half at a time and the Receipt has to be the half that opens. */
+const NARROW: readonly RecordScene[] = ['narrow', 'person']
 
 /** Wrapped host shapes: both member lists emptied; the receipt owns the links. */
 export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
@@ -32,21 +34,23 @@ export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
   evidence:[],lanes:[],revisions:[],citations:[],gaps:[],
  }
  const board={...goal.board,members:[],nicknames:{}}
- const wrapped:GoalView={...goal,goal:{...goal.goal,state:'wrapped',receipt:receipt.id,origin:{kind:'flow',run:'overview-run'}},members:[],activity:null,board,receipt}
+ /* `person` is a Team a person made, which never had a Flow Run: no origin run and no execution, only the receipt. */
+ const person=scene==='person'
+ const wrapped:GoalView={...goal,goal:{...goal.goal,state:'wrapped',receipt:receipt.id,origin:person?{kind:'person'}:{kind:'flow',run:'overview-run'}},members:[],activity:null,board,receipt}
  const run=original.flowExecutions.get('overview-run')!
  const sessions=new Map([...original.sessions].map(([key,session])=>[key,{...session,turns:[{id:turnId('record-answer'),status:'completed' as const,items:[{id:itemId('record-answer-text'),type:'assistantMessage' as const,text:'The change was checked and is ready.'}]}]}]))
  /* The conversation's menus offer Compact now and Review uncommitted changes only for a runtime that can; this one can,
     so the record shows both refused rather than absent. */
  const runtimes=original.runtimes.map(one=>({...one,capabilities:{...one.capabilities,compaction:true,review:true}}))
  const seed={...original,runtimes,sessions,goals:new Map([[wrapped.goal.id,wrapped]]),teams:new Map([[board.id,board]]),
-  flowExecutions:new Map([[run.id,{...run,state:'settled' as const,rounds:run.rounds.map(round=>({...round,cards:round.cards.filter(id=>id<=2),seats:[...round.seats.filter(id=>id==='seat-0'||id==='seat-1'),...(again&&round.n===2?[again.seat]:[])],state:'closed' as const})),end:{kind:'complete' as const},endedAt:goal.goal.updatedAt}]]),
+  flowExecutions:person?new Map():new Map([[run.id,{...run,state:'settled' as const,rounds:run.rounds.map(round=>({...round,cards:round.cards.filter(id=>id<=2),seats:[...round.seats.filter(id=>id==='seat-0'||id==='seat-1'),...(again&&round.n===2?[again.seat]:[])],state:'closed' as const})),end:{kind:'complete' as const},endedAt:goal.goal.updatedAt}]]),
   approvals:[],inbox:[],activeSessionKey:sessionKey('codex','overview-0')}
  const store=previewStore(seed)
  return new Proxy(store,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>null;return Reflect.get(target,key)}})
 }
 export const RecordExample = ({scene}:{scene:RecordScene}) => {
  const store=useMemo(()=>teamRecordStore(scene),[scene])
- return <section className={scene==='narrow'?'h-144 max-w-sm':'h-144'}><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+ return <section className={NARROW.includes(scene)?'h-144 max-w-sm':'h-144'}><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
 }
 export const TeamRecordBoard = () => <div className="flex flex-col gap-4">{TEAM_RECORD_STATES.map(scene=><section key={scene} data-catalog-state={scene}><RecordExample scene={scene}/></section>)}</div>
 /**
@@ -71,9 +75,11 @@ const WrapsUnderQuestion = () => {
 export const TeamRecordFrames = () => {
  const sidebar=useMemo(()=>teamRecordStore('older'),[])
  const shared=useMemo(()=>teamRecordStore('shared'),[])
- return <div className="flex flex-col gap-4 p-4">{TEAM_RECORD_STATES.map(scene=><section key={scene} id={`team-record-${scene}`} className={scene==='narrow'?'max-w-sm':undefined}><RecordExample scene={scene}/></section>)}
+ const unlinked=useMemo(()=>teamRecordStore('unlinked'),[])
+ return <div className="flex flex-col gap-4 p-4">{TEAM_RECORD_STATES.map(scene=><section key={scene} id={`team-record-${scene}`} className={NARROW.includes(scene)?'max-w-sm':undefined}><RecordExample scene={scene}/></section>)}
   <section id="team-record-sidebar" className="w-72"><StoreProvider store={sidebar}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>
   <section id="team-record-sidebar-shared" className="w-72"><StoreProvider store={shared}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>
+  <section id="team-record-sidebar-unlinked" className="w-72"><StoreProvider store={unlinked}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>
   <WrapsUnderQuestion />
  </div>
 }

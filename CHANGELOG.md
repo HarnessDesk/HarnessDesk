@@ -7,10 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## 0.3.1 — 2026-09-27
 
-- **A wrapped Team stays readable** — its receipt keeps every Seat's
-  conversation, and its rail and the sidebar's Wrapped group still open those
-  conversations and the Run. A conversation seated more than once is listed
-  once. Older receipts keep Seats without a retained conversation visible, even
+- **A wrapped Team stays readable** — it opens on its receipt, in a narrow
+  window as in a wide one and whether or not it ever had a Run. The receipt
+  keeps every Seat's conversation, and its rail and the sidebar's Wrapped group
+  still open those conversations and the Run. A conversation seated more than
+  once is listed once. Older receipts keep Seats without a retained conversation visible, even
   when that is every Seat, rather than saying no Agents were kept. Composers and
   work-dispatching controls say “This Team
   is wrapped”, and the host refuses new sends, steers, queued work, reviews and

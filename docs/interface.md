@@ -852,7 +852,9 @@ their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
-rail. The sidebar's Wrapped group keeps the same conversations. Older receipts
+rail. It opens there with or without a Run, and in a narrow pane too, where the
+Agents list is one tap behind it. The sidebar's Wrapped group keeps the same
+conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one says
 **Conversation not kept**, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than

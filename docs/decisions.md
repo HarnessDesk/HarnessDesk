@@ -1458,7 +1458,10 @@ named once — where its first Seat put it, by the last that held it — because
 each of those surfaces keys a row by its session. A Seat with no conversation
 has no session to share, so each is its own row, and the rail says no Agents
 were kept only when it lists none. Receipt opens in the pane's scrolling
-body, so the record never pushes its own navigation away.
+body, so the record never pushes its own navigation away. A narrow pane opens
+on that body, not on the Agents list. An open Team with no Run has nothing to
+read first, so it starts on the list; a wrapped Team always has its receipt,
+and one a person made, which never had a Run, is no exception.
 
 The renderer uses one wrapped-state rule for dispatching controls and
 conversation composers. The host refuses sends, steers, queued dispatch,

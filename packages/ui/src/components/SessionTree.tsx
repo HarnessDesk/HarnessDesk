@@ -714,6 +714,9 @@ const RoomRow = ({
      filter keeps is the rule; where they were found is not. */
   const filtered = snapshot.listPrefs.agent !== null
   const members = roomMembers(room, sessions, snapshot, hiddenKeys)
+  /* A wrapped Team's Seats whose conversation was not kept: names, with nothing to open. Listed together, as the
+     conversations that were kept are. */
+  const unlinked = open ? teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).filter(one => !hasConversation(one)) : []
   const claimed = room.intents.filter((one) => one.state === 'claimed').length
   const held = room.channel.filter(
     (entry) => entry.kind === 'message' && entry.state === 'held',
@@ -758,9 +761,15 @@ const RoomRow = ({
           <DisclosureChevron open={open} size="xs" />
         </SidebarMenuAction>
         </div>
-        {open && teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).filter(one => !hasConversation(one)).map(one => (
-          <SidebarMenu nested key={one.record.id}><SidebarMenuItem><SidebarMenuButton disabled title="Conversation not kept" label={one.name} /></SidebarMenuItem></SidebarMenu>
-        ))}
+        {unlinked.length > 0 && (
+          <SidebarMenu nested>
+            {unlinked.map((one) => (
+              <SidebarMenuItem key={one.record.id}>
+                <SidebarMenuButton disabled title="Conversation not kept" label={one.name} />
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        )}
         {open && members.length > 0 && (
           <SidebarMenu nested>
             {members.map((summary) => (

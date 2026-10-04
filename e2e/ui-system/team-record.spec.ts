@@ -102,4 +102,27 @@ for (const theme of ['light','dark'] as const) {
   await expect(frame.getByText('As recorded when wrapped',{exact:true})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  })
+ /* A narrow room shows one half at a time. A wrapped Team opens on its Receipt, so the Receipt is the half that shows
+    — for a Team a person made, which never had a Run, as much as for one a Run wrapped. The Agents list is one tap
+    behind it, not in front of it (#1317). */
+ test(`Wrapped Team: a Team that never had a Run opens on its Receipt in a narrow pane in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const frame=page.locator('#team-record-person')
+  await expect(frame.getByText('As recorded when wrapped',{exact:true})).toBeVisible()
+  await expect(frame.locator('aside')).toBeHidden()
+  expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+  await frame.getByRole('button',{name:'Agents',exact:true}).click()
+  await expect(frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
+  await expect(frame.getByText('As recorded when wrapped',{exact:true})).toBeHidden()
+  expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+ })
+ test(`Wrapped Team: the sidebar lists Seats with no conversation in one nested list in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const sidebar=page.locator('#team-record-sidebar-unlinked')
+  await sidebar.getByRole('button',{name:'Wrapped · 1',exact:true}).click()
+  const missing=sidebar.locator('ul[data-nested="true"]').filter({has:page.locator('button[title="Conversation not kept"]')})
+  await expect(missing).toHaveCount(1)
+  await expect(missing.locator('button[title="Conversation not kept"]')).toHaveCount(2)
+  for (const name of ['Alpha','Beta']) await expect(missing.getByRole('button',{name,exact:true})).toBeDisabled()
+ })
 }
