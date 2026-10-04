@@ -1351,7 +1351,12 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               Two saturated coins side by side read as two competing primary
               buttons, which is what this replaces. */}
           <ComposerTrack name="send">
-          {(record || !busy || canSend) && (
+          {/* A wrapped Team's conversation draws its refused send only while
+              nothing is running. The corner is one coin wide and clips a
+              second, so beside a running turn the refused send would hide
+              the Stop that works; the placeholder already says why nothing
+              can be sent. */}
+          {(!busy || canSend) && (
             <ComposerSend
               type="button"
               data-when={!canSend ? 'nothing' : deferred ? 'later' : 'now'}
@@ -1363,13 +1368,17 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               <SendIcon size={15} />
             </ComposerSend>
           )}
+          {/* Stopping is not new work. A turn can still be running in a
+              wrapped Team's conversation, and the host leaves
+              `turn/interrupt` open for it, so Stop stays enabled whenever a
+              turn is running; only what would add to the conversation is
+              turned off — and it is not drawn beside Stop. */}
           {busy && (
             <ComposerSend
               type="button"
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
-              disabled={record}
-              title={record ? RECORD_REASON : "Stop this turn"}
+              title="Stop this turn"
             >
               <StopIcon size={12} />
             </ComposerSend>

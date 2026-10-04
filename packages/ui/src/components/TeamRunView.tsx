@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { hasConversation, teamSeats } from '../lib/team-seats'
-import { teamOverview } from '../lib/team-overview'
+import { teamSeatCost } from '../lib/team-overview'
 import type { FindingsListState } from '../lib/findings'
 import { RunWorkspace } from './RunWorkspace'
 import { RunView } from './RunView'
@@ -35,7 +35,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
   // The room asks for all of the findings; the Findings tab may be holding another filter's list, which is not them.
   const listed = snapshot.findings.get(execution.goal)
   const findingsList = listed?.filter === 'all' ? listed : undefined
-  const seats = useMemo(() => teamSeats(goal, team, execution), [goal, team, execution])
+  const seats = useMemo(() => teamSeats(goal, team, execution, 'seat'), [goal, team, execution])
   const [report, setReport] = useState<InsightReport | null>(null)
   const [readAgain, setReadAgain] = useState(0)
   const [readProblem, setReadProblem] = useState<string | null>(null)
@@ -53,10 +53,15 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
     const timer = execution.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
   }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished, readAgain])
-  const costs = teamOverview({ team: execution.goal, cards, report: report?.goal === execution.goal ? report : null,
-    seats: seats.filter(hasConversation).map(seat => ({ record: seat.record, name: seat.name, runtime: snapshot.runtimes.find(runtime => runtime.id === seat.record.session.runtime) ?? null, session: null, unreadSince: null, approvals: [] })),
-    run: { execution, startedAt: execution.startedAt ?? null },
-  })
+  const usage = report?.goal === execution.goal ? report : null
+  const costs = new Map(seats.map(seat => {
+    // Usage may know a Seat's runtime even when an older receipt kept no session pointer. It does not grant Open.
+    const runtimeId = seat.record.session?.runtime ?? usage?.breakdowns.find(one => one.dimension === 'seat')?.rows
+      .find(row => row.goal === execution.goal && row.seat === seat.record.id)?.session?.runtime ??
+      usage?.seats.find(record => record.id === seat.record.id)?.session.runtime
+    const metered = snapshot.runtimes.find(runtime => runtime.id === runtimeId)?.capabilities.metered
+    return [seat.record.id, teamSeatCost({ team: execution.goal, report: usage }, seat.record.id, metered)]
+  }))
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
   return <RunWorkspace {...view} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     input: { execution, cards, origin,
@@ -67,8 +72,8 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
     findingsRead: findingsRead(findingsList),
     publication: snapshot.findingRuns.get(execution.id)?.rounds.find(round => round.round === selected?.round),
     seats: seats.map(seat => ({ id: seat.record.id, name: seat.name,
-      override: goal?.members.find(record => record.id === seat.record.id)?.seatLabel,
-      cost: costs.seats.find(row => row.seat === seat.record.id)?.cost,
+      override: goal?.receipt?.members?.find(member => member.seat === seat.record.id)?.seatLabel ?? goal?.members.find(record => record.id === seat.record.id)?.seatLabel,
+      cost: costs.get(seat.record.id),
       onOpen: hasConversation(seat) ? () => onOpenSeat(seat.key) : undefined,
     })),
   }} />

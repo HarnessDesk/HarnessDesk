@@ -1,6 +1,7 @@
 import { WORKSPACE_TEXT_LIMIT_BYTES, type CapabilityContribution, type ConfigOption, type RuntimeId } from '@harnessdesk/protocol'
 
 import { offeredHere } from '../lib/contributions'
+import { isRecordConversation } from '../lib/team-record'
 import { summonable } from '../panels/views'
 import type { AppSnapshot, AppStore } from './store'
 
@@ -305,6 +306,10 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
     name: skill.name,
     description: skill.description,
     source: agentName,
+    /* A skill is a message into the open conversation, and one a wrapped Team
+       keeps takes none — the host refuses it. A palette has no greyed row, so
+       the entry is withdrawn there rather than offered to fail. */
+    available: (here) => !isRecordConversation(here.goals.values(), here.activeSessionKey),
     kind: {
       type: 'action' as const,
       /* Queued, like every other message from that box. A skill is typed into

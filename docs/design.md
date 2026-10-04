@@ -1627,13 +1627,20 @@ name with **Conversation not kept**, without an opening action, and the rail's
 **No Agents were kept** line is for a receipt that kept no Seat at all.
 Dispatching controls and both composers are disabled with **This Team is
 wrapped**, the conversation menu's **Compact now** and the branch chip's
-**Review uncommitted changes** among them. A dialog open when the Team wraps
+**Review uncommitted changes** among them; **Stop** is the exception while a
+turn is still running in a kept conversation, since stopping adds nothing, and
+it stands alone in the corner — the refused send is drawn only when nothing
+runs, as the corner holds one coin. A
+dialog that chooses a conversation for a card does not list one a wrapped Team
+keeps. A dialog open when the Team wraps
 stays open, with its final action disabled and a note carrying the same reason;
 Cancel still closes it. Wrapped Teams leave the sidebar and remain on the Teams
 page; their retained conversations stay readable from the Team’s Agents list.
 The `team-record` catalogue board mounts the production pane with
 retained conversations, an older receipt, a conversation seated twice, a
-receipt whose every Seat lost its conversation, no Seats, a narrow rail and a
-Team that never had a Run in a narrow pane; its
+receipt whose every Seat lost its conversation, no Seats, a narrow rail, a
+Team that never had a Run in a narrow pane and a turn still running in a kept
+conversation; its
 preview also mounts the production sidebar and an open Team that can be wrapped
-under a dialog.
+under a dialog, and an open Team whose Assign dialog sits beside a wrapped Team's
+kept conversation.

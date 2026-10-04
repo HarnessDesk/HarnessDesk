@@ -5,7 +5,7 @@ import { sessionKey, splitSessionKey, type GoalView, type SessionKey } from '@ha
 import { Button, Dialog, Note, RowChoice, Rows } from '../design'
 import { groupByProject } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
-import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { isRecord, isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import { useSnapshot, useStore } from '../state/context'
 
 export const GoalAssign = ({
@@ -27,12 +27,16 @@ export const GoalAssign = ({
   const [problem, setProblem] = useState<string | null>(null)
   const loose = useMemo(() => {
     const members = new Set(view.members.filter((seat) => seat.closed === null).map((seat) => String(sessionKey(seat.session.runtime, seat.session.sessionId))))
+    // Re-readable, unlike `values()`: asked once for every conversation in the project.
+    const teams = [...snapshot.goals.values()]
     const groups = groupByProject(snapshot.history, snapshot.workspaces.map((workspace) => workspace.path), snapshot.workspace)
     return (groups.find((group) => group.root === view.goal.root)?.sessions ?? []).filter((summary) => {
-      const key = String(sessionKey(summary.runtime, summary.id))
-      return !members.has(key) && summary.status.type !== 'active'
+      const key = sessionKey(summary.runtime, summary.id)
+      /* A conversation a wrapped Team keeps is that Team's record, and the host will not seat it for another card
+         ("That conversation belongs to a wrapped Team"), so it is not offered only to be refused (#1317). */
+      return !members.has(String(key)) && summary.status.type !== 'active' && !isRecordConversation(teams, key)
     })
-  }, [snapshot.history, snapshot.workspace, snapshot.workspaces, view.goal.root, view.members])
+  }, [snapshot.goals, snapshot.history, snapshot.workspace, snapshot.workspaces, view.goal.root, view.members])
 
   const assign = async (): Promise<void> => {
     if (choice === null || busy || record) return
