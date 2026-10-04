@@ -84,3 +84,21 @@ for(const theme of ['light','dark'] as const) {
   await active.screenshot({path:`output/playwright/teams-page/hidden-${theme}.png`})
  })
 }
+
+for (const theme of ['light','dark'] as const) {
+ test(`unread Team title and detail share one edge in ${theme}`,async({page})=>{
+  await page.goto(`/preview.html?teams-page&theme=${theme}`)
+  for(const width of [1440,720]) {
+   await page.setViewportSize({width,height:1000})
+   const row=page.locator('#teams-page-active [data-team-row]').first()
+   const delta=await row.evaluate(el=>{
+    const title=el.querySelector('[data-slot="list-row-title"] [data-role="row"]')!
+    const detail=el.querySelector('[data-slot="list-row-subtitle"]')!
+    const a=document.createRange(),b=document.createRange();a.selectNodeContents(title);b.selectNodeContents(detail)
+    return Math.abs(a.getClientRects()[0]!.left-b.getClientRects()[0]!.left)
+   })
+   expect(delta).toBeLessThan(1)
+   await expect(row.locator('[data-slot="list-row-mark"] [aria-label="Unread changes"]')).toBeVisible()
+  }
+ })
+}
