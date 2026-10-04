@@ -530,6 +530,13 @@
   padding-left: calc(var(--hd-space-2-5) * 2 + var(--hd-space-4));
 }
 
+/* An always-focused search field already locates focus with its caret. */
+.search [data-focus-indicator='caret']:focus {
+  outline: none;
+  border-color: var(--hd-border-strong);
+  box-shadow: var(--hd-input-shadow);
+}
+
 .search[data-size='compact'] > svg {
   left: var(--hd-space-1-5);
 }
