@@ -1381,7 +1381,11 @@ const Compaction = (_: { item: CompactionItem }) => (
  * background task reporting back, a turn that was stopped. Quiet on purpose:
  * it is the setting for what follows, not something to read.
  */
-const Notice = ({ item }: { item: NoticeItem }) => (
+const Notice = ({ item }: { item: NoticeItem }) => item.kind === 'agentBrief' ? (
+  <Row icon={<InfoIcon size={14} />} title="Agent brief">
+    <Markdown text={item.text} document />
+  </Row>
+) : (
   <Note ink="muted" icon={<InfoIcon size={12} className={styles.noticeIcon} />}>
     {item.text}
   </Note>

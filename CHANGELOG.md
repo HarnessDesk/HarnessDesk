@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An Agent’s brief starts folded.** A newly seated conversation and its
+  Side by side tile open on one **Agent brief** row. Open it to read the
+  standing order with its headings and lists intact. (Fixes #1379)
+
 - **Choose Command Line Tools for agent commands on macOS.** Starting the app
   with `HARNESSDESK_COMMAND_LINE_TOOLS=1` supplies their developer directory to
   agents when Xcode is selected and those tools are installed, avoiding the

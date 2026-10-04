@@ -524,6 +524,10 @@ by what their labels carry:
   turn, and a fold would hide what the reader came for. Closed by hand, such a
   turn's fold reads the sentences back as its receipt rather than a tally.
 
+A seated Agent’s brief starts as one closed **Agent brief** row in its
+conversation and in Side by side. Opening it shows the headings, lists and
+full standing order; other housekeeping notices stay on their plain rows.
+
 Opening any step shows the command under a prompt mark, then what it printed;
 the sentence never has the command glued to it, because a sentence in monospace
 with a shell line hanging off it teaches a CLI that does not exist.
