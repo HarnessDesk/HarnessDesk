@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## 0.3.1 — 2026-09-27
 
+- **A Run moves through its Flow.** The Flow tab shows the route taken, completed
+  steps and their times, seated faces, current work and a person waiting for an
+  answer. Repeated steps and loops show counts; check counts come from recorded
+  attempts and stay unknown when that history is incomplete. Selecting a step
+  selects its Timeline rows, and a row selects its step. The baton and current
+  ring follow live updates and stop under reduced motion; the narrow step list
+  carries the same state.
+
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
 - **The command line now ships inside the app.** HarnessDesk › Install

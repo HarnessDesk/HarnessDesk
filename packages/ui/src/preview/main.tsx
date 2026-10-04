@@ -73,6 +73,7 @@ import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
+import { FlowOverlayFrames } from './frames-flow-overlay'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
@@ -1089,6 +1090,7 @@ createRoot(container).render(
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
+          : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
           : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>

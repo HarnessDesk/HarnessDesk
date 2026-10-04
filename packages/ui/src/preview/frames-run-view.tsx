@@ -25,7 +25,7 @@ export const RunWorkspaceExample = ({ scene = 'running', view: first = 'timeline
   const [view, setView] = useState<RunViewTab>(first)
   return <StoreProvider store={sharedStore()}><TeamRunView execution={source.execution} origin="Started by you" onOpenSeat={() => {}}
     model={runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
-    flow={<RunFlow execution={source.execution} root="/repo" seats={[]} />} view={view} onView={setView} /></StoreProvider>
+    drawFlow view={view} onView={setView} /></StoreProvider>
 }
 export const RunViewBoard = () => <div className="flex flex-col gap-4">{RUN_VIEW_STATES.map(scene =>
   <section key={scene} data-catalog-state={scene} className={scene === 'narrow' ? 'flex h-144 max-w-sm flex-col' : 'flex h-144 flex-col'}><RunExample scene={scene} /></section>)}

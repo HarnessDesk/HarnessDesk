@@ -125,7 +125,7 @@ const ATTEMPTS = new Map([[1, [
   { id: 'attempt-2', n: 2, at: Date.now() - 60_000, commit: 'abc', exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
 ]]])
 
-const mountGate = (execution: ReturnType<typeof GATE>, extra: Partial<Parameters<typeof runTimeline>[0]> = {}) => {
+const mountGate = (execution: ReturnType<typeof GATE>, extra: Partial<Parameters<typeof runTimeline>[0]> = {}, selectedRows?: readonly string[]) => {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -133,7 +133,7 @@ const mountGate = (execution: ReturnType<typeof GATE>, extra: Partial<Parameters
   const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewFlowRetry } as unknown as AppStore
   const onSelect = vi.fn()
   const model = runTimeline({ execution, cards: [DONE], ...extra })
-  act(() => root.render(<StoreProvider store={store}><RunView model={model} number={1} selectedRow={null} onSelect={onSelect} /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}><RunView model={model} number={1} selectedRow={null} selectedRows={selectedRows} onSelect={onSelect} /></StoreProvider>))
   return { container, onSelect, previewFlowRetry, done: () => { act(() => root.unmount()); container.remove() } }
 }
 
@@ -177,4 +177,17 @@ it('draws each attempt under a check that ran more than once, oldest first, as p
 it('draws no attempt rows for a check with one result', () => {
   const { container, done } = mountGate(GATE(), { attempts: new Map([[1, ATTEMPTS.get(1)!.slice(0, 1)]]) })
   try { expect(container.querySelector('[data-kind="attempt"]')).toBeNull() } finally { done() }
+})
+
+
+it('highlights the passive attempt rows with their selected Flow step without making them controls', () => {
+  const selected = ['round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2']
+  const { container, onSelect, done } = mountGate(GATE(), { attempts: ATTEMPTS }, selected)
+  try {
+    expect([...container.querySelectorAll('[aria-current="true"]')].map(one => one.getAttribute('data-row'))).toEqual(selected)
+    const attempt = container.querySelector<HTMLElement>('[data-row="attempt-1-1-1"]')!
+    expect(attempt.tagName).not.toBe('BUTTON')
+    act(() => attempt.click())
+    expect(onSelect).not.toHaveBeenCalled()
+  } finally { done() }
 })

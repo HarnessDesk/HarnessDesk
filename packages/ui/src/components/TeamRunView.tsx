@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
-import type { FlowCheckAttempt, InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, type FlowCheckAttempt, type InsightReport, type SessionKey, type TeamSignal } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
+import { runtimeTint } from '../lib/accounts'
 import { hasConversation, teamSeats } from '../lib/team-seats'
 import { teamSeatCost } from '../lib/team-overview'
 import { answerStep } from '../state/needs-you'
 import type { FindingsListState } from '../lib/findings'
+import { RunFlow } from './RunFlow'
+import { rowsForStep, stepForRow } from '../lib/flow-overlay'
 import { RunWorkspace } from './RunWorkspace'
 import { RunView } from './RunView'
 import type { RunTimelineInput } from '../lib/run-timeline'
@@ -22,7 +25,7 @@ const findingsRead = (list: FindingsListState | undefined): 'reading' | 'failed'
 }
 
 /** Reads only while the Run is mounted; the pane's rail owns conversation navigation. */
-export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, attempts, incompleteAttempts, attemptsRead, ...view }: ComponentProps<typeof RunView> & {
+export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFlow, attempts, incompleteAttempts, attemptsRead, ...view }: ComponentProps<typeof RunView> & {
   execution: RunTimelineInput['execution']
   origin: string | null
   onOpenSeat: (key: SessionKey) => void
@@ -34,6 +37,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, attemp
   attemptsRead?: 'reading' | 'failed'
   /** Where a review step's attempt is chosen; without it a person's step reads as text. */
   onOpenBoard?: () => void
+  drawFlow?: boolean
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -72,7 +76,15 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, attemp
     return [seat.record.id, teamSeatCost({ team: execution.goal, report: usage }, seat.record.id, metered)]
   }))
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
-  return <RunWorkspace {...view} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
+  const selectedStep = stepForRow(execution, view.model.rows, view.selectedRow)
+  const stepRows = rowsForStep(execution, view.model.rows, selectedStep)
+  const flow = drawFlow ? <RunFlow execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
+    cards={cards} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
+      const rows = rowsForStep(execution, view.model.rows, id)
+      const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
+      if (latest) view.onSelect(latest)
+    }} faces={view.faces} faceTints={new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))} doing={view.doing} /> : view.flow
+  return <RunWorkspace {...view} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     input: { execution, cards, origin,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),

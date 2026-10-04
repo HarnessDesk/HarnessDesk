@@ -221,3 +221,51 @@ it('draws a Flow from the position its file gave, and says nothing about it', ()
   expect(container.textContent).not.toContain('layout')
   expect(model.positions['write']).toEqual({ x: 300, y: 40 })
 })
+
+it('draws recorded Run state with faces, a badge and duration, a working ring and a counted route', () => {
+  const model = flowModel(blueprint())
+  const overlay = {
+    steps: new Map([
+      ['write', { state: 'done' as const, runs: 1, durationMs: 660_000, since: null, line: 'published', seats: ['alpha'] }],
+      ['review', { state: 'done' as const, runs: 1, durationMs: 360_000, since: null, line: 'changes', seats: ['beta', 'gamma'] }],
+      ['fix', { state: 'working' as const, runs: 1, durationMs: 0, since: 1000, line: null, seats: ['alpha'] }],
+      ['land', { state: 'future' as const, runs: 0, durationMs: null, since: null, line: null, seats: [] }],
+    ]),
+    rules: new Map([['r4', { count: 1, current: true }]]),
+  }
+  const select = vi.fn()
+  act(() => root.render(<FlowGraph model={model} overlay={overlay} now={121000} selectedStep="fix" onSelectStep={select}
+    faces={new Map([['alpha', <span>Alpha mark</span>], ['beta', <span>Beta mark</span>], ['gamma', <span>Gamma mark</span>]])}
+    doing={new Map([['alpha', 'Editing src/retry.ts']])} />))
+  const write = container.querySelector('[data-step="write"]')!
+  expect(write.getAttribute('data-state')).toBe('done')
+  expect(write.querySelector('[data-slot="flow-complete"]')).not.toBeNull()
+  expect(write.querySelector('[data-slot="flow-duration"]')?.textContent).toBe('11m')
+  expect(write.querySelector('[data-shape="face"]')?.textContent).toContain('Alpha mark')
+  expect(container.querySelector('[data-step="review"]')!.querySelectorAll('[data-shape="face"]')).toHaveLength(2)
+  const fix = container.querySelector('[data-step="fix"]')!
+  expect(fix.textContent).toContain('Working')
+  expect(fix.textContent).toContain('Editing src/retry.ts')
+  expect(fix.getAttribute('data-selected')).toBe('true')
+  expect(container.querySelector('[data-edge="review>fix"]')!.getAttribute('data-state')).toBe('travelled')
+  expect(container.querySelector('[data-slot="flow-baton"]')).not.toBeNull()
+  expect(container.textContent).toContain('request-changes ×1')
+  act(() => (container.querySelector('section[aria-label="Steps"] button') as HTMLButtonElement).click())
+  expect(select).toHaveBeenCalledWith('write')
+})
+
+it('the list carries waiting, repeat counts and unknown duration; agent words are sanitized', () => {
+  const model = flowModel(blueprint())
+  act(() => root.render(<FlowGraph model={model} overlay={{ rules: new Map(), steps: new Map([
+    ['you', { state: 'waiting', runs: 1, durationMs: null, since: null, line: 'merged · dropped', seats: [] }],
+    ['write', { state: 'done', runs: 2, durationMs: null, since: null, line: '<script>bad()</script><b>published</b>', seats: [] }],
+  ]) }} />))
+  expect(container.querySelector('[data-step="you"]')!.textContent).toContain('Needs you')
+  const list = container.querySelector('[data-slot="flow-list"]')!
+  expect(list.textContent).toContain('Needs you')
+  expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
+  expect(list.textContent).toContain('2 runs')
+  expect(list.textContent).toContain('Time not recorded')
+  expect(container.textContent).not.toContain('<script>')
+  expect(container.querySelector('script')).toBeNull()
+})

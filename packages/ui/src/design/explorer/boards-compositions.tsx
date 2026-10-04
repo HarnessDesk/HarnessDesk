@@ -1,6 +1,7 @@
 import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunControlsBoard } from '../../preview/frames-run-controls'
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
+import { FlowOverlayBoard } from '../../preview/frames-flow-overlay'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
@@ -2950,7 +2951,13 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     id: 'flow-graph',
     title: 'FlowGraph',
     about: 'A Flow’s steps and rules, drawn read-only: cards on a dot grid, edges with the outcome word above them, loops under the line, and the list that says the same.',
-    render: FlowGraphBoard,
+    render: () => <><FlowGraphBoard /><FlowOverlayBoard /></>,
+  },
+  {
+    id: 'flow-overlay',
+    title: 'The Run on its Flow',
+    about: 'The recorded route, current work and waiting person, with repeated checks and unknown history.',
+    render: FlowOverlayBoard,
   },
   {
     id: 'teams-page',

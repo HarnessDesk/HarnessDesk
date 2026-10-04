@@ -1036,3 +1036,18 @@ question says first what the rule after the card's role will do: open the next
 round, end the Run without a next step, wait for the round's other cards, or
 nothing when the Run is not running; a claimed card names who holds it. A
 person's step is answered there with the same controls as the Overview.
+
+The Run is laid over that frozen Flow as it moves: completed steps have a filled
+check and their recorded time; the route already taken is bold in the accent;
+current work has a breathing ring, Working and its doing line below. Seated
+Agent steps carry their Seats' faces, overlapping when several work at once.
+Unreached steps are dashed; a person waiting for an answer says Needs you in
+the warning ring. Repeated steps and loops show their counts. Check counts read
+the separate history of recorded results; Working says that a check is still
+in flight. Unavailable or incomplete history leaves the count unknown. A baton follows the curve that
+brought work to the current step, keeping its phase across live updates. Reduced
+motion stops the baton and ring. The blueprint has no motion.
+
+Selecting a step selects its rounds and rows in the Timeline. Selecting a
+Timeline row selects its step on the Flow. The same live state and selection
+are available through the accessible step list in a narrow pane.
