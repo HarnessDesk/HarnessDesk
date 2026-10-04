@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 
 import { isBusy, type GoalReceipt, type GoalView, type SeatRecord, type Session, type TeamState, type WrapPreview } from '@harnessdesk/protocol'
@@ -112,9 +113,6 @@ test('wrapped Seats retain conversations and refuse send, steer, queued sends, r
     await wrapping
   }
   assert.ok(receipt, 'the settled Team must wrap')
-  const view = await client.call('goal/read', { goal: created.goal.id }) as GoalView
-  const team = await client.call('team/state', { room: created.goal.id }) as TeamState
-  console.log('wrapped rig:', JSON.stringify({ legacyMembers: team.members, liveMembers: view.members, receiptMembers: receipt.members, answers: receipt.answers.map(one => ({ seat: one.seat, session: one.session })), readable: (await client.call('session/read', pointer) as Session).id }))
   await t.test('receipt retains the conversation', () => assert.deepEqual(receipt.members?.find(one => one.seat === assigned.id), { seat: assigned.id, agent: assigned.agent?.name ?? null, seatLabel: assigned.seatLabel, session: pointer }))
   for (const method of ['turn/send', 'turn/steer', 'turn/queue', 'turn/queue/flush'] as const) {
     await t.test(method, async () => assert.rejects(client.call(method, { ...pointer, input }), /This Team is wrapped/, method))
@@ -127,11 +125,18 @@ test('wrapped Seats retain conversations and refuse send, steer, queued sends, r
   assert.equal(harness.runtime.sessions.size, threads, 'the wrapped conversation did not start a review thread')
   const another = await client.call('goal/create', { root: work, sentence: 'Start separate work' }) as GoalView
   const newCard = await client.call('team/add', { room: another.goal.id, title: 'Use a new conversation' }) as { id: number }
-  await assert.rejects(client.call('goal/assign', { goal: another.goal.id, card: newCard.id, session: pointer }), /This Team is wrapped/)
-  // The durable receipt, not a live membership or handle, owns the refusal.
+  /* Choosing a conversation is not sending to one: the person is inside an open Team, so the sentence is about the
+     conversation they chose, not about the Team they are in. */
+  await assert.rejects(client.call('goal/assign', { goal: another.goal.id, card: newCard.id, session: pointer }), /That conversation belongs to a wrapped Team/)
+  // The durable receipt, not a live membership or handle, owns the refusal. Nothing else is left to say whose
+  // conversation this was: the Seat records go too, as on a desk whose evidence folder was lost.
   client.close()
   await halt(harness)
   halted = true
+  const evidence = join(harness.stateDir, 'evidence')
+  const seatFiles = (await readdir(evidence, { recursive: true })).filter(file => basename(file) === 'seats.ndjson')
+  assert.ok(seatFiles.length > 0, 'the rig kept the Team’s Seats on disk, so removing them is a change')
+  for (const file of seatFiles) await rm(join(evidence, file))
   restored = await start({}, harness.stateDir)
   restoredClient = await Client.connect(restored.server)
   await restoredClient.call('workspace/open', { path: work })
@@ -139,6 +144,70 @@ test('wrapped Seats retain conversations and refuse send, steer, queued sends, r
   await assert.rejects(restoredClient.call('turn/send', { ...pointer, input }), /This Team is wrapped/)
   for (const [name, method, params] of reviewing) {
     await assert.rejects(restoredClient.call(method, params), /This Team is wrapped/, `${name} after a restart`)
+  }
+})
+
+/*
+ * Whether a conversation belongs to a Team that is wrapped is asked before every send, steer and queued delivery, so
+ * it has to cost the same on a desk with three hundred wrapped Teams as on one with three. It was a copy of every
+ * Goal document, up to four times a send; it is a lookup in what the store keeps beside its documents, and this
+ * counts the documents the store copies while a message goes out so that it cannot become a scan again (#1317).
+ */
+test('a send copies no Goal document, however many Teams are wrapped, and says no from the same lookup', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  const work = tempDir('hd-wrapped-lookup-')
+  t.after(async () => { client.close(); await halt(harness); await rm(harness.stateDir, { recursive: true, force: true }); await rm(work, { recursive: true, force: true }) })
+  await client.call('workspace/open', { path: work })
+  const input = [{ type: 'text', text: 'Read the change' }]
+  const conversation = async () => {
+    const made = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
+    return { runtime: 'fake', sessionId: made.id }
+  }
+  const team = async (sentence: string, wrap: boolean) => {
+    const goal = await client.call('goal/create', { root: work, sentence }) as GoalView
+    const card = await client.call('team/add', { room: goal.goal.id, title: 'Finish the change' }) as { id: number }
+    const pointer = await conversation()
+    await client.call('goal/assign', { goal: goal.goal.id, card: card.id, session: pointer })
+    if (!wrap) return pointer
+    await client.call('team/intent', { room: goal.goal.id, id: card.id, action: 'done' })
+    const choices = { summary: 'Finished.', cards: [{ id: card.id, resolution: 'finished', reason: null }] }
+    for (let tries = 0; ; tries += 1) {
+      const preview = await client.call('goal/preview', { goal: goal.goal.id, choices }) as WrapPreview
+      try { await client.call('goal/wrap', { goal: goal.goal.id, stamp: preview.stamp, choices }); return pointer }
+      catch (error) { if (tries >= 4 || !/changed while you reviewed/.test(String(error))) throw error }
+    }
+  }
+  const wrapped = [await team('Wrapped one', true), await team('Wrapped two', true), await team('Wrapped three', true)]
+  const seated = await team('Still open', false)
+  const loose = await conversation()
+
+  /**
+   * What the Goal store was asked while `work` ran: how many documents it copied (a `read` copies one, a `list` every
+   * one), and how many times it was asked who keeps a conversation.
+   */
+  const asked = async (work: () => Promise<unknown>): Promise<{ documents: number; lookups: number }> => {
+    const { list, read, keptBy } = GoalStore.prototype
+    let documents = 0
+    let lookups = 0
+    GoalStore.prototype.list = function (...args) { const all = list.apply(this, args); documents += all.length; return all }
+    GoalStore.prototype.read = function (...args) { documents += 1; return read.apply(this, args) }
+    GoalStore.prototype.keptBy = function (...args) { lookups += 1; return keptBy.apply(this, args) }
+    try { await work() } finally { Object.assign(GoalStore.prototype, { list, read, keptBy }) }
+    return { documents, lookups }
+  }
+  // One dispatch asks twice — before it reopens the conversation and after, when a wrap may have landed — and no more.
+  const dispatch = { documents: 0, lookups: 2 }
+
+  assert.deepEqual(await asked(() => client.call('turn/send', { ...loose, input })), dispatch, 'a send to a conversation no Team keeps')
+  assert.deepEqual(await asked(() => client.call('turn/send', { ...seated, input })), dispatch, 'a send to a Seat of a Team that is still open')
+  for (const [index, pointer] of wrapped.entries()) {
+    const refusal = await asked(() => assert.rejects(client.call('turn/send', { ...pointer, input }), /This Team is wrapped/))
+    assert.deepEqual(refusal, { documents: 0, lookups: 1 }, `the refusal for wrapped Team ${index + 1} comes from the first lookup`)
+  }
+  for (const method of ['turn/steer', 'turn/queue', 'turn/queue/flush'] as const) {
+    const refusal = await asked(() => assert.rejects(client.call(method, { ...wrapped[0], input }), /This Team is wrapped/))
+    assert.deepEqual(refusal, { documents: 0, lookups: 1 }, `${method} on a wrapped conversation`)
   }
 })
 

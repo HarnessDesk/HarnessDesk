@@ -458,16 +458,15 @@ export class GoalPlane {
     })
   }
 
-  /** How a Goal stands for intake: open, closing (a wrap has begun), wrapped, or not on this desk. */
+  /**
+   * How a Goal stands for intake: open, closing (a wrap has begun), wrapped, or not on this desk. Read in place, never
+   * from a copy of the document: the host asks this before every send to a conversation a Goal once held.
+   */
   lifecycle(id: string): 'open' | 'closing' | 'wrapped' | 'missing' {
-    let document: GoalDocument
-    try {
-      document = this.store.read(id)
-    } catch {
-      return 'missing'
-    }
-    if (document.restored || document.goal.state === 'wrapped') return 'wrapped'
-    if (document.goal.state === 'wrapping' || this.#closing.has(id)) return 'closing'
+    const standing = this.store.standing(id)
+    if (!standing) return 'missing'
+    if (standing.restored || standing.state === 'wrapped') return 'wrapped'
+    if (standing.state === 'wrapping' || this.#closing.has(id)) return 'closing'
     return 'open'
   }
 

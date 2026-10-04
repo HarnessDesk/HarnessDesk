@@ -867,10 +867,15 @@ conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one says
 **Conversation not kept**, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than
-once is one row, named by the last Seat that held it. These conversations remain readable, with their
+once is one row, named by the last Seat that held it. Run details keep each
+Seat separately, including its recorded cost when its conversation was not kept. These conversations remain readable, with their
 composer disabled: **This Team is wrapped**. Adding, assigning, answering,
 posting and running checks are disabled with that same reason, as are a
-conversation's **Compact now** and **Review uncommitted changes**. A question
+conversation's **Compact now** and **Review uncommitted changes**. **Stop**
+stays on while a turn is still running in one, because stopping is not new
+work, and it is the only coin in the corner then; the command palette offers
+no agent skill there, and **Give this to…**
+lists no conversation a wrapped Team keeps. A question
 already open when a Run ends and wraps its Team stays on screen with what was
 typed in it, its final action disabled and the same reason beside it.
 A receipt's Citations row opens each memory citation's own retained detail in

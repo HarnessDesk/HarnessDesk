@@ -689,11 +689,44 @@ describe('what the action button says about when the message goes', () => {
 })
 
 
-it.each([false,true])('a wrapped Seat cannot type or dispatch with busy=%s', busy => {
- mount({busy,steer:true})
+/** The mounted conversation is one a wrapped Team kept. */
+const wrapIt=():void=>{
  mountedSnapshot={...mountedSnapshot,goals:new Map([['wrapped',{goal:{id:'wrapped',state:'wrapped'},members:[],receipt:{seats:['seat'],members:[{seat:'seat',session:{runtime:'alpha',sessionId:'s1'}}],answers:[]}} as never]])}
  act(()=>mountedListeners.forEach(listener=>listener()))
+}
+const stop=():HTMLButtonElement|null=>container.querySelector<HTMLButtonElement>('[aria-label="Stop"]')
+const sends=():HTMLButtonElement[]=>[...container.querySelectorAll<HTMLButtonElement>('[data-slot="composer-send"]')]
+
+it('a wrapped Seat cannot type or send, and has nothing to stop when no turn is running',()=>{
+ mount({busy:false,steer:true})
+ wrapIt()
  expect(textarea().disabled).toBe(true)
  expect(textarea().placeholder).toBe('This Team is wrapped')
- expect([...container.querySelectorAll<HTMLButtonElement>('[data-slot="composer-send"]')].every(one=>one.disabled)).toBe(true)
+ expect(sends().every(one=>one.disabled)).toBe(true)
+ expect(stop()).toBeNull()
+})
+
+// A turn already going in a conversation a wrap kept is not new work, and the host leaves `turn/interrupt` open: the
+// one control that can end it stays, and everything that would put more into the conversation stays off.
+it('a wrapped Seat cannot type, send or queue while a turn runs, but can still stop it',()=>{
+ mount({busy:true,steer:true})
+ wrapIt()
+ expect(textarea().disabled).toBe(true)
+ expect(textarea().placeholder).toBe('This Team is wrapped')
+ const button=stop()
+ expect(button).not.toBeNull()
+ expect(button!.disabled).toBe(false)
+ expect(button!.title).toBe('Stop this turn')
+ // The corner is one coin wide and clips a second, so a refused send drawn beside Stop would hide the Stop that
+ // works: with a turn running the corner is Stop's alone, and the placeholder above says why nothing can be sent.
+ expect(sends()).toHaveLength(1)
+ expect(sends()[0]).toBe(button)
+ expect(button!.parentElement).toBe(container.querySelector('[data-composer-track="send"]'))
+ expect(button!.parentElement!.children).toHaveLength(1)
+ act(()=>button!.click())
+ expect(calls.interrupt).toHaveBeenCalledTimes(1)
+ expect(calls.interrupt).toHaveBeenCalledWith(KEY)
+ expect(calls.send).not.toHaveBeenCalled()
+ expect(calls.queue).not.toHaveBeenCalled()
+ expect(calls.steer).not.toHaveBeenCalled()
 })

@@ -43,3 +43,16 @@ it('a wrapped Team names a conversation once however many Seats were retained fo
  const linked = seats.flatMap(one=>one.key===null?[]:[one.key])
  expect(new Set(linked).size).toBe(linked.length)
 })
+
+it('retains every receipt Seat by ID for a Run inspector, including repeated conversations', () => {
+ const wrapped = { ...goal([]), goal: { id:'team', state:'wrapped' }, receipt: {
+  seats:['a','b'], members:[
+   {seat:'a',agent:'Writer',seatLabel:'First',session:{runtime:'agent-a',sessionId:'one'}},
+   {seat:'b',agent:'Reviewer',seatLabel:'Later',session:{runtime:'agent-a',sessionId:'one'}},
+  ], answers:[],
+ } } as unknown as GoalView
+ expect(teamSeats(wrapped,team(),run,'seat').map(one=>[one.record.id,one.key,one.role])).toEqual([
+  ['a',sessionKey('agent-a','one'),'writer'],['b',sessionKey('agent-a','one'),'reviewer'],
+ ])
+ expect(teamSeats(wrapped,team(),run).map(one=>one.record.id)).toEqual(['b'])
+})
