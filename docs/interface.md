@@ -683,6 +683,15 @@ as an explicit decision. The same section is focused when a seating refusal's
 fix opens Settings; Approvals and Rules remain beside it and do not
 auto-answer held peer actions.
 
+**Settings › Permissions › Local clients** has one switch, **Let command-line
+clients answer for me**, off by default. Its hover title includes other local
+clients. The per-desk preference `clientsMayAnswer` grants the `answer` tier
+only when it is the boolean `true`; the host reads it for every call, so
+turning it off revokes answering for clients already connected.
+For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
+regardless of the stored switch. The switch shows and changes the stored
+preference; disabling it does not remove that environment override.
+
 **Runtimes** is every registered runtime with its accounts beneath it, and a
 page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* is where a registry entry or a custom one is added. Extensions

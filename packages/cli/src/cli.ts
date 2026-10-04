@@ -22,9 +22,15 @@ interface Arguments {
   unattended?: boolean
   yes?: boolean
   timeout?: string
+  reason?: string
+  card?: string
+  outcome?: string
+  contextFile?: string
+  watch?: boolean
 }
 interface Command {
   readonly name: string
+  readonly action?: 'done' | 'abandon'
   readonly tier: ClientTier
   readonly methods: readonly ClientMethodName[]
   readonly flags: readonly string[]
@@ -42,14 +48,20 @@ export const COMMANDS = [
   { name: 'flow preview', tier: 'read', methods: ['flow/source', 'flow/preview'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended'], execute: previewFlow },
   { name: 'flow start', tier: 'run', methods: ['flow/source', 'flow/preview', 'flow/start-goal'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended', 'yes'], execute: startFlow },
   { name: 'run show', tier: 'read', methods: ['flow/execution'], flags: ['target'], execute: showRun },
+  { name: 'run stop', tier: 'run', methods: ['flow/execution/stop'], flags: ['target', 'reason', 'yes'], execute: stopRun },
   { name: 'run wait', tier: 'read', methods: ['client/subscribe', 'flow/execution'], flags: ['target', 'timeout'], execute: waitRun },
+  { name: 'card show', tier: 'read', methods: ['goal/read'], flags: ['team', 'card'], execute: showCard },
+  { name: 'card handoff', tier: 'read', methods: ['goal/read'], flags: ['team', 'card'], execute: handoffCard },
+  { name: 'card answer', tier: 'answer', action: 'done', methods: ['team/intent'], flags: ['team', 'card', 'outcome', 'contextFile'], execute: answerCard },
+  { name: 'card abandon', tier: 'run', action: 'abandon', methods: ['goal/read', 'flow/executions', 'flow/execution', 'team/intent'], flags: ['team', 'card', 'reason', 'yes'], execute: abandonCard },
+  { name: 'waiting', tier: 'read', methods: ['client/subscribe'], flags: ['watch'], execute: waiting },
 ] as const satisfies readonly Command[]
 
 class UsageError extends Error {}
-function usage(reason: string): never { throw new UsageError(`Usage: ${reason}\nharnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run wait> [--home DIR] [--json] [--trace-wire]`) }
+function usage(reason: string): never { throw new UsageError(`Usage: ${reason}\nharnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]`) }
 const globals = ['home', 'json', 'traceWire']
-const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes'])
-const names: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout' }
+const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes', 'watch'])
+const names: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason', '--context-file': 'contextFile', '--watch': 'watch' }
 
 export function parseArgs(argv: readonly string[]): Arguments {
   const result: Record<string, string | boolean | string[]> = {}
@@ -57,8 +69,11 @@ export function parseArgs(argv: readonly string[]): Arguments {
     const arg = argv[i]!
     if (!arg.startsWith('-')) {
       if (!result['command']) result['command'] = arg
-      else if (result['command'] === 'flow' || result['command'] === 'run') result['command'] += ` ${arg}`
-      else if (['open', 'flow preview', 'flow start', 'run show', 'run wait'].includes(String(result['command'])) && !result['target']) result['target'] = arg
+      else if (result['command'] === 'flow' || result['command'] === 'run' || result['command'] === 'card') result['command'] += ` ${arg}`
+      else if (['open', 'flow preview', 'flow start', 'run show', 'run wait', 'run stop'].includes(String(result['command'])) && !result['target']) result['target'] = arg
+      else if (String(result['command']).startsWith('card ') && !result['team']) result['team'] = arg
+      else if (String(result['command']).startsWith('card ') && !result['card']) result['card'] = arg
+      else if (result['command'] === 'card answer' && !result['outcome']) result['outcome'] = arg
       else usage(`Unexpected argument ${arg}`)
       continue
     }
@@ -80,6 +95,9 @@ export function parseArgs(argv: readonly string[]): Arguments {
   }
   if (['team', 'run', 'project'].filter(key => result[key] !== undefined).length > 1) usage('Choose only one of --team, --run, --project')
   if ((command.flags as readonly string[]).includes('target') && !result['target']) usage(`${command.name} requires a target`)
+  if (command.name.startsWith('card ') && (!result['team'] || !result['card'] || !/^\d+$/.test(String(result['card'])) || !Number.isSafeInteger(Number(result['card'])))) usage(`${command.name} requires a team and numeric card id`)
+  if (command.name === 'card answer' && !result['outcome']) usage('card answer requires an outcome')
+  if ((command.name === 'run stop' || command.name === 'card abandon') && (typeof result['reason'] !== 'string' || !result['reason'].trim())) usage(`${command.name} requires --reason TEXT`)
   if (result['until'] && (result['until'] !== 'settled' || !result['run'])) usage('--until settled requires --run')
   if (result['timeout'] !== undefined && (typeof result['timeout'] !== 'string' || !result['timeout'].trim() || !Number.isFinite(Number(result['timeout'])) || Number(result['timeout']) < 0 || Number(result['timeout']) * 1000 > 2_147_483_647)) usage('--timeout needs finite non-negative seconds within the timer range')
   return result as unknown as Arguments
@@ -479,4 +497,108 @@ async function waitRun(args: Arguments): Promise<number> {
   const state = client?.snapshot().runs.find(run => run.id === args.target)?.state ?? null
   output(args, { run: args.target, state, reason }, () => line([args.target, state, reason]))
   return code!
+}
+
+
+async function confirmAction(args: Arguments, prompt: string): Promise<boolean> {
+  if (args.yes) return true
+  if (!process.stdin.isTTY || process.stdin.readableEnded) usage(`Without terminal input, ${args.command} requires --yes`)
+  return /^y(?:es)?$/i.test((await readConfirmation(prompt)).trim())
+}
+
+async function stopRun(args: Arguments): Promise<number> {
+  if (!await confirmAction(args, 'Stop this run? [y/N] ')) return 4
+  const client = await open(args)
+  try {
+    const run = await client.call('flow/execution/stop', { run: args.target!, reason: args.reason! })
+    output(args, run, () => line([run.id, run.state, run.reason]))
+    return 0
+  } finally { client.close() }
+}
+
+
+async function readCard(args: Arguments, client: Client) {
+  const view = await client.call('goal/read', { goal: args.team! })
+  const card = view.board.intents.find(card => card.id === Number(args.card))
+  if (!card) throw new WireCallError('refused', 'There is no such card on this Team.')
+  return card
+}
+
+function handoffText(text: string): string { return text.split('\n').map(sanitizeHuman).join('\n') }
+function printHandoff(text: string): void { process.stdout.write(handoffText(text) + (text.endsWith('\n') ? '' : '\n')) }
+
+async function showCard(args: Arguments): Promise<number> {
+  const client = await open(args)
+  try {
+    const card = await readCard(args, client)
+    output(args, card, () => {
+      line([card.id, card.role, card.state, card.title])
+      line(['outcome', card.outcome ?? '(none)']); line(['note', card.note ?? '(none)'])
+      line(['handoff']); if (card.handoff) printHandoff(card.handoff); else line(['(none)'])
+    })
+    return 0
+  } finally { client.close() }
+}
+
+async function handoffCard(args: Arguments): Promise<number> {
+  const client = await open(args)
+  try {
+    const card = await readCard(args, client)
+    if (!card.handoff) { process.stderr.write('This card has no handoff.\n'); return 1 }
+    if (args.json) jsonLine({ handoff: card.handoff }); else printHandoff(card.handoff)
+    return 0
+  } finally { client.close() }
+}
+
+async function answerCard(args: Arguments): Promise<number> {
+  const context = args.contextFile === undefined ? undefined : args.contextFile === '-' ? await stdinText() : await readTextFile(args.contextFile)
+  const client = await open(args)
+  try {
+    await client.call('team/intent', { room: args.team!, id: Number(args.card), action: 'done', outcome: args.outcome!, ...(context === undefined ? {} : { context }) })
+    output(args, { team: args.team, card: Number(args.card), outcome: args.outcome }, () => line([args.team, args.card, 'answered', args.outcome]))
+    return 0
+  } finally { client.close() }
+}
+
+async function abandonCard(args: Arguments): Promise<number> {
+  const client = await open(args)
+  try {
+    const card = await readCard(args, client)
+    const runs = await client.call('flow/executions', { team: args.team, active: true })
+    const executions = await Promise.all(runs.map(run => client.call('flow/execution', { run: run.id })))
+    const execution = executions.find(run => run.rounds.some(round => round.cards.includes(card.id)))
+    const rules = execution?.document.flow.rules.filter(rule => rule.on === card.role) ?? []
+    const targets = rules.map(rule => `${rule.then.role}${rule.when ? ' (if its conditions match)' : ''}`)
+    const message = `Abandoning ${card.role ?? 'this role'} still fires the rule after the role. ${targets.length ? `Next role: ${targets.join(', ')}; the first matching rule opens it.` : 'No next role is declared.'} To end the work, use run stop${execution ? ` ${execution.id}` : ' <run>'} --reason TEXT.`
+    process.stderr.write(sanitizeHuman(message) + '\n')
+    if (!await confirmAction(args, 'Abandon this card? [y/N] ')) return 4
+    const result = await client.call('team/intent', { room: args.team!, id: Number(args.card), action: 'abandon', reason: args.reason! })
+    output(args, result ?? { role: card.role ?? null, nextRole: null }, () => line([args.card, 'abandoned', 'role', result?.role ?? card.role, 'next role', result?.nextRole ?? '(none)']))
+    return 0
+  } finally { client.close() }
+}
+
+async function waiting(args: Arguments): Promise<number> {
+  let client: Client | undefined, pending: ClientTransport | undefined, signalCode = 0
+  const cancel = () => { client?.close(); pending?.close() }
+  const interrupt = () => { signalCode ||= 130; cancel() }
+  const terminate = () => { signalCode ||= 143; cancel() }
+  process.on('SIGINT', interrupt); process.on('SIGTERM', terminate)
+  let drain: Promise<void> | undefined
+  try {
+    client = await open(args, undefined, { topics: ['waiting'] }, transport => { pending = transport; if (signalCode) transport.close() })
+    if (signalCode) client.close()
+    drain = (async () => { for await (const ignored of client!.notifications()) { void ignored } })()
+    await client.synced()
+    if (!args.watch) {
+      const items = client.snapshot().waiting ?? []
+      output(args, { waiting: items }, () => { for (const item of items) line([item.id, item.kind, item.team, item.card, item.summary]) })
+    } else {
+      for await (const event of client.events()) {
+        if (['hello', 'waiting', 'waiting.cleared', 'gap', 'notice', 'end'].includes(event.type)) { if (args.json) jsonLine(event); else eventLine(event) }
+      }
+    }
+    return signalCode
+  } catch (error) { if (signalCode) return signalCode; throw error }
+  finally { client?.close(); await drain; process.off('SIGINT', interrupt); process.off('SIGTERM', terminate) }
 }

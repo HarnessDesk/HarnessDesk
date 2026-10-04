@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { sameCanonicalPath } from './path-identity.js'
 
-import { sessionKey } from '@harnessdesk/protocol'
+import { flowStepOf, sessionKey } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceRecord,
@@ -371,6 +371,9 @@ export class Flows implements TeamFlows {
     return this.#executions?.runs(goal) ?? []
   }
 
+  /** Observe one card's routing without the disposer's timer cancellation. */
+  async cardContinuation(run: string): Promise<void> { await this.#executions?.cardContinuation(run) }
+
   executionSummaries(options: { team?: string; project?: string; active?: boolean } = {}): readonly FlowExecutionSummary[] {
     return (this.#executions?.runs(options.team) ?? [])
       .filter(run => options.active === false || run.state === 'running' || run.state === 'stalled')
@@ -444,10 +447,18 @@ export class Flows implements TeamFlows {
    * the listeners (`onRunStopped`); a comment already on its way is read
    * back, never rolled back. The wrap barrier (`stopGoal`) is not a Stop: a
    * wrap waits for its findings' posting instead.
+   *
+   * A run that has already ended is answered as it ended — its result is
+   * neither rewritten nor refused — but its listeners are told all the same.
+   * They are idempotent, and they are the part of a Stop that can fail after
+   * the run is stopped for good: asking again has to finish it, and a run
+   * that settled around an unfinished batch has a Stop that reaches that too.
    */
   async stopRun(id: string, why?: string, by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
-    const stopped = await this.#executions.stop(id, why, by)
+    const current = this.executionOf(id)!
+    const ended = current.state === 'settled' || current.state === 'stopped'
+    const stopped = ended ? current : await this.#executions.stop(id, why, by)
     for (const listener of this.#runStopped) await listener(id)
     return stopped
   }
@@ -1026,6 +1037,12 @@ export class Flows implements TeamFlows {
    * — and the failure is invisible: the card finishes, the board looks right,
    * and the next round simply never opens.
    */
+  /** The frozen run, never a caller's role label, decides who a card addresses. */
+  personCard(room: string, intent: Intent): { readonly live: boolean; readonly outcomes: readonly string[] } | null {
+    const step = flowStepOf(intent, undefined, this.executionsFor(room))
+    return step?.kind === 'person' ? { live: step.live, outcomes: step.outcomes } : null
+  }
+
   refuseOutcome(room: string, intent: Intent, outcome: string | null): string | null {
     if (this.#modernCard(room, intent.id)) return this.#executions!.refuseOutcome(room, intent, outcome)
     const run = this.#runFor(room, intent.id)

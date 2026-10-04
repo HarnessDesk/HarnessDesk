@@ -112,10 +112,12 @@ test('notification sequences derive run, card, team, waiting, clear and notice e
   const waiting = await next(events)
   assert.equal(waiting.type, 'waiting')
   assert.equal(waiting.type === 'waiting' && waiting.id, 'card:team-1:1')
+  assert.deepEqual(client.snapshot().waiting?.map(item => item.id), ['card:team-1:1'])
   assert.equal((await next(events)).type, 'team.changed')
   transport.emit(cards(board('done', 'accept')))
   assert.equal((await next(events)).type, 'card.changed')
   assert.equal((await next(events)).type, 'waiting.cleared')
+  assert.deepEqual(client.snapshot().waiting, [])
   transport.emit({ method: 'person/notice', params: { notice: { id: 'notice-1', from: { runtime: 'demo', sessionId: 'session-1', name: 'Demo' }, where: 'inbox', title: 'Ready', body: 'See result', at: 1 } } } as WireNotification)
   const notice = await next(events)
   assert.equal(notice.type, 'notice')
@@ -492,7 +494,7 @@ test('snapshot copies all held plain data and follows updates and approval resol
   transport.baseline = []
   await client.call('client/subscribe', { topics: [] })
   await client.synced()
-  assert.deepEqual(client.snapshot(), { teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [] })
+  assert.deepEqual(client.snapshot(), { teams: [], runs: [], boards: [], seats: [], waiting: [], approvals: [], reviews: [] })
 })
 
 test('synced starts again after replacement and reconnect gaps', async t => {

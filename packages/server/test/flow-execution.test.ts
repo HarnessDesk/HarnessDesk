@@ -871,8 +871,11 @@ test('a stop that lands while a round is still seating hands no card over and le
 
   // The stop lands after the first Seat opened, before the second is asked for.
   const early = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
-  rig.beforeClaim = (n) => { if (n === 1) rig.triggerGate = () => STOP }
+  let firstOpened!: () => void
+  const first = new Promise<void>(resolve => { firstOpened = resolve })
+  rig.beforeClaim = (n) => { if (n === 1) { rig.triggerGate = () => STOP; firstOpened() } }
   const releasing = rig.flows.resumeTriggered(early.id)
+  await first
   const stopping = rig.flows.stopRun(early.id, STOP)
   await Promise.all([releasing, stopping])
   await rig.flows.flush()
@@ -1567,4 +1570,141 @@ test('a role with one restrictive rule and one rule with no "when" keeps its Age
   const opened = rig.board(run.goal).intents.find((one) => one.role === 'second')
   assert.ok(opened, 'the unconditional rule fired on a word its own restrictive rule never named')
   assert.equal(opened?.title, 'Fallback path', 'the restrictive rule did not match, so file order fell through to the one that always does')
+})
+
+test('a person stops a writer mid-turn without dispatching its reviewer (#1247)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(THREE_STAGES, AGENTS)
+  rig.busySeats.add('seat-1')
+  rig.busySeats.add('seat-2')
+  const stopped = await rig.flows.stopRun(run.id, 'The seat rule changed')
+  await rig.flows.flush()
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(stopped.reason, 'The seat rule changed')
+  assert.deepEqual(stopped.end, { kind: 'stopped', by: 'person' })
+  for (const seat of ['seat-1', 'seat-2']) assert.ok(rig.events.includes(`interrupt:${seat}`), `${seat} interrupted`)
+  assert.equal(stopped.rounds.at(-1)?.state, 'closed')
+  for (const card of rig.board(run.goal).intents) await rig.team.intentAction(run.goal, card.id, 'done', undefined, 'done')
+  await rig.flows.flush()
+  assert.ok(!rig.board(run.goal).intents.some(card => card.role === 'reviewer'))
+  assert.deepEqual(await rig.flows.stopRun(run.id, 'A later reason'), stopped)
+})
+
+/*
+ * #1315. Stop fires no rule and opens no card. The barrier a pending Stop
+ * raises used to cover the Seat, check and turn effects only: a completion
+ * already queued ahead of the Stop ran first and opened the reviewer's card
+ * on a run that read stopped.
+ */
+test('a completion queued ahead of a person’s stop opens no reviewer card', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(THREE_STAGES, AGENTS)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  t.after(() => release())
+  // Something else holds the run's queue, so both completions wait behind it and the Stop is accepted while they do.
+  const holding = rig.flows.withDecision(run.id, () => held)
+  for (const card of rig.board(run.goal).intents) await rig.team.intentAction(run.goal, card.id, 'done', undefined, 'done')
+  const stopping = rig.flows.stopRun(run.id, 'The person stopped it')
+  release()
+  const [stopped] = await Promise.all([stopping, holding])
+  await rig.flows.flush()
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(stopped.reason, 'The person stopped it')
+  assert.deepEqual(stopped.end, { kind: 'stopped', by: 'person' })
+  assert.ok(!rig.board(run.goal).intents.some(card => card.role === 'reviewer'), 'no reviewer card opened')
+  assert.equal(rig.flows.executionOf(run.id)!.rounds.length, 1, 'and no second round was begun')
+  assert.equal(opens(rig.events).length, 2, 'nor was a Seat opened for one')
+  assert.deepEqual(rig.logs.filter(line => /could not open a round/.test(line)), [], 'what the Stop held back is not reported as a round that failed to open')
+})
+
+test('a stop accepted while the next round is being prepared opens none of its cards', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(THREE_STAGES, AGENTS)
+  let reached!: () => void
+  const preparing = new Promise<void>((resolve) => { reached = resolve })
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  t.after(() => release())
+  // The save that journals the reviewer round as prepared is held; nothing has been added to the board yet.
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async (stored) => {
+    if (stored.operations.some((one) => one.key === 'round:2' && one.state === 'prepared')) {
+      reached()
+      await gate
+    }
+    await save(stored)
+  }
+  for (const card of rig.board(run.goal).intents) await rig.team.intentAction(run.goal, card.id, 'done', undefined, 'done')
+  await preparing
+  const stopping = rig.flows.stopRun(run.id, 'The person stopped it')
+  release()
+  const stopped = await stopping
+  await rig.flows.flush()
+  assert.equal(stopped.state, 'stopped')
+  assert.ok(!rig.board(run.goal).intents.some(card => card.role === 'reviewer'), 'no reviewer card opened')
+  assert.ok(stopped.rounds.every(round => round.state === 'closed'), 'and the round that was being prepared is closed with the rest')
+  assert.equal(opens(rig.events).length, 2, 'no Seat was opened for it')
+})
+
+test('a stop that fails to save lets the completion it held back open its round', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(THREE_STAGES, AGENTS)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  t.after(() => release())
+  const holding = rig.flows.withDecision(run.id, () => held)
+  for (const card of rig.board(run.goal).intents) await rig.team.intentAction(run.goal, card.id, 'done', undefined, 'done')
+  rig.files.failOnce = (stored) => stored.state === 'stopped'
+  const stopping = assert.rejects(rig.flows.stopRun(run.id, 'The person stopped it'), /the journal write failed/)
+  release()
+  await Promise.all([stopping, holding])
+  await rig.flows.flush()
+  // The Stop did not happen, so what it held back is not lost: the run goes on as if it had not been asked.
+  assert.equal(rig.flows.executionOf(run.id)!.state, 'running')
+  assert.ok(rig.board(run.goal).intents.some(card => card.role === 'reviewer'), 'the rule the completion fires opens its card')
+})
+
+/*
+ * #1315. Stop's cleanup can be retried. A Stop ends the run and then tells the
+ * listeners that cancel what the run had released and not yet sent
+ * (`onRunStopped`). The run is stopped for good once its own write lands, so a
+ * listener that failed after that left a stopped run and a Stop that said it
+ * had failed — and asking again was answered from the ended run without
+ * telling the listener, so the retry succeeded having cancelled nothing.
+ */
+test('a stop whose cleanup failed is finished by asking again', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(THREE_STAGES, AGENTS)
+  const told: string[] = []
+  let failing = true
+  rig.flows.onRunStopped(async (id) => {
+    told.push(id)
+    if (failing) { failing = false; throw new Error('the cancellation could not be written') }
+  })
+  await assert.rejects(rig.flows.stopRun(run.id, 'The person stopped it'), /the cancellation could not be written/)
+  const ended = rig.flows.executionOf(run.id)!
+  assert.equal(ended.state, 'stopped', 'the run itself ended: it is only what follows the Stop that failed')
+  assert.equal(ended.reason, 'The person stopped it')
+  const again = await rig.flows.stopRun(run.id, 'A later reason')
+  assert.deepEqual(told, [run.id, run.id], 'the second Stop did what the first could not finish')
+  assert.deepEqual(again, ended, 'and answered with the run as it ended, never rewritten by the later reason')
+  assert.deepEqual(rig.flows.executionOf(run.id), ended)
+})
+
+test('stopping a run that already settled tells the stop listeners, and leaves it as it settled', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  await rig.team.complete(2, { outcome: 'request-changes' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  const settled = rig.flows.executionOf(run.id)!
+  assert.equal(settled.state, 'settled')
+  const told: string[] = []
+  rig.flows.onRunStopped(async (id) => { told.push(id) })
+  assert.deepEqual(await rig.flows.stopRun(run.id, 'A person stops what settled'), settled, 'an ended run is answered as it stands')
+  assert.deepEqual(told, [run.id], 'but what it had not yet sent is still cancelled')
+  assert.deepEqual(rig.flows.executionOf(run.id), settled)
 })

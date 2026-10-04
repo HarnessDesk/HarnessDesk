@@ -44,12 +44,29 @@ clients before returning.
 
 The door speaks the host's wire, but answers only the entries in
 `CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. `read` and
-`run` are granted by default; `answer` remains ungranted. A connection says hello before calling or subscribing;
+`run` are granted by default; `answer` is off until the per-desk preference
+or scripted-desk environment switch grants it. A connection says hello before calling or subscribing;
 the door checks the surface and granted tier before validating the method's
 params. The command line lists desks, status, Teams and runs, and watches
 their changes. Catalogue/source/preview calls use `read`; opening a project
-and starting a Flow use `run`. Stopping work, answering cards and tool approvals,
-and changing settings remain outside the client surface.
+and starting or stopping a Flow use `run`. `team/intent` names its tier per
+action beside the method table: abandoning requires `run`, and answering
+a live person card requires `answer`. All other actions, tool approvals
+and settings remain outside the client surface. A client cannot supply
+answer attribution: the door adds its stated name at the host's board mutation,
+which validates the frozen role and declared outcome before the first await.
+The first answer preserves its context and every waiting subscriber sees
+resolution. It is the first answer *saved*: the board reads an answer before
+it is durable, and a failed save gives the card back, so a later answer, a
+retry included, waits for how that save turns out before it is decided. An
+identical window decision retry then remains a quiet no-op; clients and
+changed answers receive `alreadyAnswered`, or take the card if the save failed.
+
+A Stop ends the run, then cancels what it had not sent. The second is a write
+of its own after the run is stopped for good, and it can fail, so a Stop on a
+run that already ended is answered with that run unchanged but still does it
+again: asking twice finishes what one could not, and a run that settled around
+an unfinished batch can have its unsent comments cancelled too.
 
 A start redeems a single-use preview token that freezes source, inputs,
 seat overrides and attendance. Those choices survive in the execution and

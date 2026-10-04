@@ -706,3 +706,131 @@ test('a terminal whose brief consumed stdin to EOF requires explicit consent', {
   assert.equal(await child.exit, 2, child.output().stderr)
   assert.match(child.output().stderr, /requires --yes/)
 })
+
+
+test('card CLI answers a person once, streams stable waiting ids, and reads the written handoff', { timeout: REAL_HOST_TEST_MS }, async t => {
+  const previous = process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']
+  delete process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']
+  t.after(() => { if (previous === undefined) delete process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']; else process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] = previous })
+  const r = await rig(t)
+  const card = (await r.h.host.call('goal/read', { goal: r.run.goal })).board.intents[0]!
+  const list = launch(t, r.directory, r.home, ['waiting', '--json', '--trace-wire'])
+  assert.equal(await list.exit, 0, list.output().stderr)
+  const item = list.lines()[0].waiting.find((one: any) => one.card === card.id)
+  assert.ok(item)
+  const trace = list.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(one => one.direction === 'send')
+  assert.deepEqual(trace.map(one => one.message.method), ['client/hello', 'client/subscribe'])
+  assert.deepEqual(trace[1].message.params.topics, ['waiting'])
+  const noHandoff = launch(t, r.directory, r.home, ['card', 'handoff', r.run.goal, String(card.id)])
+  assert.equal(await noHandoff.exit, 1, noHandoff.output().stderr)
+  assert.match(noHandoff.output().stderr, /no handoff/i)
+  const off = launch(t, r.directory, r.home, ['card', 'answer', r.run.goal, String(card.id), 'shipped'])
+  assert.equal(await off.exit, 4, off.output().stderr)
+  assert.match(off.output().stderr, /tierNotGranted/)
+  process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] = '1'
+  const watch = launch(t, r.directory, r.home, ['waiting', '--watch', '--json'])
+  await watch.until(lines => lines.some(one => one.type === 'waiting' && one.id === item.id))
+  const bad = launch(t, r.directory, r.home, ['card', 'answer', r.run.goal, String(card.id), 'wrong'])
+  assert.equal(await bad.exit, 4, bad.output().stderr)
+  assert.match(bad.output().stderr, /refused/)
+  const context = 'First line.\nSecond \x1b[31mline\x1b[0m.\n'
+  const contextFile = join(r.directory, 'context.txt'); await writeFile(contextFile, context)
+  const answer = launch(t, r.directory, r.home, ['card', 'answer', r.run.goal, String(card.id), 'shipped', '--context-file', contextFile, '--json'])
+  assert.equal(await answer.exit, 0, answer.output().stderr)
+  await watch.until(lines => lines.some(one => one.type === 'waiting.cleared' && one.id === item.id))
+  watch.child.kill('SIGINT'); assert.equal(await watch.exit, 130)
+  const repeat = launch(t, r.directory, r.home, ['card', 'answer', r.run.goal, String(card.id), 'shipped'])
+  assert.equal(await repeat.exit, 4, repeat.output().stderr)
+  assert.match(repeat.output().stderr, /alreadyAnswered/)
+  const written = (await r.h.host.call('goal/read', { goal: r.run.goal })).board.intents.find(one => one.id === card.id)!
+  assert.equal(written.handoff, context.trim())
+  await new Promise<void>((resolve, reject) => {
+    let detach = () => {}
+    const timer = setTimeout(() => { detach(); reject(new Error('The answered person run did not settle')) }, LOADED_MACHINE_MS)
+    const check = async () => {
+      if ((await r.h.host.call('flow/execution', { run: r.run.id })).state === 'settled') { clearTimeout(timer); detach(); resolve() }
+    }
+    detach = r.h.host.addBroadcaster(message => { if (message.method === 'flow/execution-changed') void check() })
+    void check()
+  })
+  const shown = launch(t, r.directory, r.home, ['card', 'show', r.run.goal, String(card.id), '--json'])
+  assert.equal(await shown.exit, 0, shown.output().stderr); assert.deepEqual(shown.lines()[0], written)
+  const handoff = launch(t, r.directory, r.home, ['card', 'handoff', r.run.goal, String(card.id)])
+  assert.equal(await handoff.exit, 0, handoff.output().stderr)
+  assert.equal(handoff.output().stdout, 'First line.\nSecond line.\n')
+  const human = launch(t, r.directory, r.home, ['card', 'show', r.run.goal, String(card.id)])
+  assert.equal(await human.exit, 0, human.output().stderr)
+  assert.match(human.output().stdout, /ship.*done/); assert.match(human.output().stdout, /shipped/)
+  const channel = await r.h.host.call('team/state', { room: r.run.goal })
+  assert.ok(JSON.stringify(channel).includes('command line'), 'channel attributes the person answer to command line')
+  const source = 'version: 2\nname: Answer advances\nroles:\n  decide: { kind: person, outcomes: [approved] }\n  ship: { kind: person, outcomes: [shipped] }\nseed: { role: decide, title: Decide }\nrules:\n  - { id: ship, on: decide, when: { every: [approved] }, then: { role: ship, title: Ship } }\n'
+  const preview = await r.h.host.call('flow/preview', { root: r.repo.dir, source })
+  assert.ok(preview.token)
+  const nextRun = await r.h.host.call('flow/start-goal', { root: r.repo.dir, source, token: preview.token!, sentence: 'Advance proof' })
+  const first = (await r.h.host.call('goal/read', { goal: nextRun.goal })).board.intents[0]!
+  const stdin = launch(t, r.directory, r.home, ['card', 'answer', nextRun.goal, String(first.id), 'approved', '--context-file', '-'], undefined, undefined, REAL_HOST_TEST_MS, true)
+  stdin.child.stdin!.end('Context from stdin.\n')
+  assert.equal(await stdin.exit, 0, stdin.output().stderr)
+  await new Promise<void>((resolve, reject) => {
+    let detach = () => {}
+    const timer = setTimeout(() => { detach(); reject(new Error('The next person round did not open')) }, LOADED_MACHINE_MS)
+    const check = async () => {
+      if ((await r.h.host.call('goal/read', { goal: nextRun.goal })).board.intents.some(one => one.role === 'ship')) { clearTimeout(timer); detach(); resolve() }
+    }
+    detach = r.h.host.addBroadcaster(() => { void check() })
+    void check()
+  })
+  const advanced = await r.h.host.call('goal/read', { goal: nextRun.goal })
+  assert.ok(advanced.board.intents.some(one => one.role === 'ship'))
+  assert.equal(advanced.board.intents.find(one => one.id === first.id)!.handoff, 'Context from stdin.')
+
+})
+
+
+test('card abandon warns about continuation and run stop interrupts the writer without a reviewer', { timeout: REAL_HOST_TEST_MS }, async t => {
+  const d = await flowRig.desk(t)
+  const { HoldFake } = await import(new URL('../../../server/dist/test/fixtures/hold-runtime.js', import.meta.url).href) as typeof import('../../server/test/fixtures/hold-runtime.js')
+  const holding = new HoldFake('held'); d.host.register(holding); await holding.start()
+  const directory = await mkdtemp('/tmp/hd-door-')
+  const door = await openClientDoor({ host: d.host, logger: silent, home: d.stateDir, directory, hostVersion: '9.9.9' })
+  assert.ok(door)
+  t.after(async () => { await door.close(); await rm(directory, { recursive: true, force: true }) })
+  const source = `version: 2
+name: Stop proof
+roles:
+  writer: { kind: agent, uses: researcher, seats: [held] }
+  reviewer: { kind: person, outcomes: [approved] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: conditional-review, on: writer, when: { every: [gathered] }, then: { role: reviewer, title: Review } }
+  - { id: review, on: writer, then: { role: reviewer, title: Review } }
+`
+  const run = await flowRig.start(d, source, {})
+  const [card] = await flowRig.claimed(d, run.goal, 'writer', 1)
+  const prior = process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']; process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] = '1'
+  t.after(() => { if (prior === undefined) delete process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']; else process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] = prior })
+  const agentAnswer = launch(t, directory, d.stateDir, ['card', 'answer', run.goal, String(card!.id), 'done'])
+  assert.equal(await agentAnswer.exit, 4, agentAnswer.output().stderr)
+  assert.match(agentAnswer.output().stderr, /refused/)
+  const noConsent = launch(t, directory, d.stateDir, ['run', 'stop', run.id, '--reason', 'Stop proof'])
+  assert.equal(await noConsent.exit, 2, noConsent.output().stderr)
+  const stopped = launch(t, directory, d.stateDir, ['run', 'stop', run.id, '--reason', 'Stop proof', '--yes', '--json'])
+  assert.equal(await stopped.exit, 0, stopped.output().stderr)
+  assert.equal(stopped.lines()[0].state, 'stopped')
+  assert.equal((await flowRig.execution(d, run.id)).state, 'stopped')
+  assert.ok((await flowRig.board(d, run.goal)).every(one => one.role !== 'reviewer'))
+  const second = await flowRig.start(d, source, {})
+  const [secondCard] = await flowRig.claimed(d, second.goal, 'writer', 1)
+  const refuse = launch(t, directory, d.stateDir, ['card', 'abandon', second.goal, String(secondCard!.id), '--reason', 'Replan'])
+  assert.equal(await refuse.exit, 2, refuse.output().stderr)
+  assert.match(refuse.output().stderr, /rule after the role/)
+  assert.match(refuse.output().stderr, /reviewer/)
+  assert.match(refuse.output().stderr, /run stop/)
+  const abandoned = launch(t, directory, d.stateDir, ['card', 'abandon', second.goal, String(secondCard!.id), '--reason', 'Replan', '--yes', '--json'])
+  assert.equal(await abandoned.exit, 0, abandoned.output().stderr)
+  assert.deepEqual(abandoned.lines()[0], { role: 'writer', nextRole: 'reviewer' })
+  assert.match(abandoned.output().stderr, /rule after the role/)
+  assert.match(abandoned.output().stderr, /reviewer/)
+  assert.match(abandoned.output().stderr, /if its conditions match/)
+  assert.ok((await flowRig.board(d, second.goal)).some(one => one.role === 'reviewer'))
+})

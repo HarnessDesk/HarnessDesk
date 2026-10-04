@@ -713,7 +713,7 @@ touches the door, tiers or attribution gets a critical review.
      unattended), `run show`, `run wait`.
 
    This replaces the launcher and the keeper.
-3. **Stopping and answering.**
+3. **Stopping and answering — done.**
    - Host: `flow/execution/stop` (#1247); the `answer` tier and its desk
      setting.
    - Commands: `run stop`, `card show`, `card handoff`, `card answer`,

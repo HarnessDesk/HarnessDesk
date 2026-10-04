@@ -415,6 +415,78 @@ test('stop during batch retains honest partial result', async (t) => {
   assert.equal(forge.sends.length, 2)
 })
 
+/*
+ * #1315. Stop's cleanup can be retried. A run is stopped for good once its own
+ * write lands; the cancellation of what it had not sent is a write after that,
+ * and a Stop that asked again was answered from the ended run without making
+ * it — so the retry succeeded with the comments still waiting to be posted.
+ * A run that had settled around an unfinished batch had no Stop that reached
+ * it at all.
+ */
+const holdSecondSend = (r: Rig): { sending: Promise<void>; proceed: () => void } => {
+  let proceed!: () => void
+  const held = new Promise<void>((resolve) => { proceed = resolve })
+  let inFlight!: () => void
+  const sending = new Promise<void>((resolve) => { inFlight = resolve })
+  let n = 0
+  r.forge.onSend = async (): Promise<SendOutcome> => {
+    n += 1
+    if (n === 2) {
+      inFlight()
+      await held
+    }
+    return 'ok'
+  }
+  return { sending, proceed }
+}
+
+test('a stop whose cancellation could not be written is finished by asking again', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  const { sending, proceed } = holdSecondSend(r)
+  await f.finishReviews('request-changes')
+  await sending
+  // The write that records the first skip fails once: the run is stopped, and its cancellation is not.
+  f.rig.files.failOnce = (stored) => Object.values(stored.publication?.ops ?? {}).some((entry) => entry.state === 'skipped')
+  await assert.rejects(f.rig.flows.stopRun(f.run), /the journal write failed/)
+  assert.equal(f.rig.flows.executionOf(f.run)?.state, 'stopped')
+  assert.equal(r.entries().filter((entry) => entry.state === 'skipped').length, 0, 'nothing was cancelled yet')
+  await f.rig.flows.stopRun(f.run)
+  proceed()
+  await r.pub.idle()
+  const states = r.entries().map((entry) => entry.state)
+  assert.equal(states.filter((state) => state === 'posted').length, 2, 'the one in flight was not rolled back: it landed and was recorded')
+  assert.equal(states.filter((state) => state === 'skipped').length, 2, 'what was never sent is skipped by the Stop that asked again')
+  assert.ok(r.entries().filter((entry) => entry.state === 'skipped').every((entry) => /stopped before this was posted/.test(entry.reason ?? '')))
+  assert.equal(forge.sends.length, 2, 'and nothing else reached the forge')
+})
+
+test('stopping a run that settled around an unfinished batch skips the comments it never sent', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  const { sending, proceed } = holdSecondSend(r)
+  await f.finishReviews('request-changes')
+  await sending
+  // The run goes on and settles around the batch: the fixer finishes, and the reviewers approve.
+  await f.finishFixer()
+  await f.finishReviews('approve')
+  const settled = f.rig.flows.executionOf(f.run)!
+  assert.equal(settled.state, 'settled')
+  assert.deepEqual(await f.rig.flows.stopRun(f.run), settled, 'an ended run is answered as it stands')
+  proceed()
+  await r.pub.idle()
+  const states = r.entries().map((entry) => entry.state)
+  assert.equal(states.filter((state) => state === 'posted').length, 2, 'the one in flight landed and was recorded')
+  // The approving round closed behind the batch with comments of its own: none of them waits to be sent either.
+  assert.ok(states.filter((state) => state === 'skipped').length >= 2, 'what was never sent is skipped')
+  assert.ok(states.every((state) => state === 'posted' || state === 'skipped'), 'and nothing is left waiting to be sent')
+  assert.ok(r.entries().filter((entry) => entry.state === 'skipped').every((entry) => /stopped before this was posted/.test(entry.reason ?? '')))
+  assert.equal(forge.sends.length, 2)
+  assert.deepEqual(f.rig.flows.executionOf(f.run), settled, 'and the run is as it settled')
+})
+
 test('a repair reaches its finding’s own thread, and a moved head waits for a person', async (t) => {
   const r = await publicationRig(t)
   const { f, forge } = r

@@ -590,3 +590,31 @@ test('a manually started unattended run times out its question and delivers a la
   assert.equal(d.host.registry.hasApproval(runtime.info.id, session.id, 'qu-manual' as never), false)
   assert.ok(sent.some(text => text.includes('main')), 'a fresh turn carries the late answer')
 })
+
+
+test('Stop during an answer handback refuses delivery without sending a new order', { timeout: 20_000 }, async t => {
+  const e = await engineStopped(t)
+  const save = e.rig.files.save.bind(e.rig.files)
+  let release!: () => void, held!: () => void
+  const gated = new Promise<void>(resolve => { held = resolve })
+  const resume = new Promise<void>(resolve => { release = resolve })
+  let intercepted = false
+  e.rig.files.save = async document => {
+    if (!intercepted && document.id === e.run.id && document.operations.some(one => one.key.includes(':answer:') && one.state === 'started')) {
+      intercepted = true; held(); await resume
+    }
+    return save(document)
+  }
+  try {
+    const before = e.rig.events.filter(one => one.startsWith('order:')).length
+    const answering = e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle)
+    const rejected = assert.rejects(answering, /stopped before this turn was handed over/)
+    await gated
+    const stopping = e.rig.flows.stopRun(e.run.id, 'Stop before handback')
+    release()
+    const [, stopped] = await Promise.all([rejected, stopping])
+    assert.equal(stopped.state, 'stopped')
+    assert.equal(e.rig.events.filter(one => one.startsWith('order:')).length, before)
+    assert.equal(stopped.keptAnswer, undefined, 'terminal Stop does not retain an answer for another turn')
+  } finally { release(); e.rig.files.save = save }
+})

@@ -1,5 +1,5 @@
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
-import type { SeatActivity } from '@harnessdesk/protocol'
+import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -1265,7 +1265,8 @@ export class Host {
       // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
       interrupt: async (seat) => {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
-        if (record?.live && record.running.size > 0) await record.live.interrupt()
+        if (record?.live && this.#queueBusy(record) &&
+            this.#runtime({ runtime: seat.session.runtime }).info.capabilities.interrupt) await record.live.interrupt()
       },
       laneOf: (seat) => this.#lanes.forSeat(seat.id),
       reseat: async (seat) => {
@@ -2685,6 +2686,46 @@ export class Host {
        approval of a session was still appending to `audit.ndjson` after
        `dispose()` had resolved. */
     await this.#audit.flush()
+  }
+
+  /** Answers are a live per-desk choice, never a connection's cached grant.
+   * Only the boolean true, or the explicit scripted-desk switch, enables it.
+   * Like run, a tier constrains verbs; socket ownership authenticates the user. */
+  clientTiers(): readonly ClientTier[] {
+    return this.#state.state.preferences['clientsMayAnswer'] === true || process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] === '1'
+      ? [...CLIENT_TIERS_GRANTED_BY_DEFAULT, 'answer'] : CLIENT_TIERS_GRANTED_BY_DEFAULT
+  }
+
+  /** The client's name is stated attribution, not authority. The door's live
+   * action tier is checked again here; wire params cannot spoof provenance. */
+  async clientIntent(params: HostParams<'team/intent'>, client: string): Promise<HostResult<'team/intent'>> {
+    if (params.action !== 'done' && params.action !== 'abandon') throw Object.assign(new Error('This action is not on the client surface.'), { wireCode: 'notOnClientSurface' })
+    if (params.action === 'done' && !this.clientTiers().includes('answer')) throw Object.assign(new Error('This desk has not granted client answers.'), { wireCode: 'tierNotGranted' })
+    const before = this.#flows.executionsFor(params.room).find(run => run.rounds.some(round => round.cards.includes(params.id)))
+    const round = before?.rounds.find(round => round.cards.includes(params.id))
+    let routed!: () => void
+    const routing = new Promise<void>(resolve => { routed = resolve })
+    // Subscribe before mutating: a fast next round may open during the save.
+    // A successor check may keep that run's queue busy; its durable card is
+    // enough to name it without waiting for the command to finish.
+    const detach = before && params.action === 'abandon' ? this.addBroadcaster(message => {
+      if (message.method !== 'flow/execution-changed' || message.params.execution.id !== before.id) return
+      const run = message.params.execution
+      if (run.state !== 'running' || run.rounds.some(one => one.n > (round?.n ?? Infinity) && one.cards.length > 0)) routed()
+    }) : () => {}
+    try {
+      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
+      await this.#team.flush()
+      if (params.action === 'done') return null
+      if (before) await Promise.race([this.#flows.cardContinuation(before.id), routing])
+      // Round metadata can be announced before its board save lands. Name
+      // only a successor whose cards survived that save.
+      await this.#team.flush()
+      const after = before ? this.#flows.executionOf(before.id) : null
+      const board = before ? this.#goalStore.read(params.room).board : this.#team.stateFor(params.room)
+      const next = after?.rounds.find(one => one.n > (round?.n ?? Infinity) && one.cards.some(id => board.intents.some(card => card.id === id)))
+      return { role: round?.role ?? null, nextRole: next?.role ?? null }
+    } finally { detach() }
   }
 
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {

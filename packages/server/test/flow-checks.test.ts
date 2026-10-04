@@ -353,6 +353,7 @@ for (const stop of ['run', 'goal', 'settled-goal'] as const) test(`a queued ${st
   await rig.flows.flush()
   const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
   const approved = await rig.flows.previewCheck(run.id, gate.id)
+  const before = checks(rig.events).length
   rig.checksRunUntilStopped = () => {}
   const retry = rig.flows.retryCheck(run.id, gate.id, approved)
   try {
@@ -366,7 +367,11 @@ for (const stop of ['run', 'goal', 'settled-goal'] as const) test(`a queued ${st
     if (stop !== 'run') await rig.flows.stopGoal(run.goal)
     else await rig.flows.stopRun(run.id)
     await retry
-    assert.ok(rig.events.includes('check-stopped:pnpm verify'), 'Stop returned only after the admitted retry stopped')
+    if (stop === 'settled-goal') {
+      assert.ok(rig.events.includes('check-stopped:pnpm verify'), 'Stop returned only after the already-launched retry stopped')
+    } else {
+      assert.equal(checks(rig.events).length, before, 'the queued retry never launched after Stop was requested')
+    }
     assert.equal(rig.flows.executionOf(run.id)!.operations.find((one) => one.card === gate.id)?.state, 'uncertain')
     await assert.rejects(rig.flows.retryCheck(run.id, gate.id, approved), /Start a new run/)
   } finally {

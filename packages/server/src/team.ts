@@ -404,6 +404,9 @@ export interface TeamPort {
  * null and nothing on this plane behaves differently from the day before.
  */
 export interface TeamFlows {
+  /** Person-card identity from the run's frozen policy; independent of its answer state. */
+  personCard?(room: string, intent: Intent): { readonly live: boolean; readonly outcomes: readonly string[] } | null
+
   /**
    * Why this card may not answer that — or null, which is the answer for
    * every card that belongs to no run. Synchronous, because it decides
@@ -575,6 +578,9 @@ const LEASE_MS = 45 * 60 * 1000
 export const STOP_HEAD_TIMEOUT_MS = 10_000
 
 const keyOf = (runtime: string, sessionId: string): SessionKey => sessionKey(runtime, sessionId)
+
+/** A card across boards, as `#answerSaves` keys it. */
+const answerKey = (room: string, id: number): string => `${room}\u0000${id}`
 
 /**
  * The family a model belongs to, as a person would say it.
@@ -903,6 +909,13 @@ export class Team {
    * a burst is one write, and nothing is ever saved older than it is shown.
    */
   readonly #queuedSave = new Map<string, QueuedSave>()
+  /*
+   * The save a card's first answer rides in, from the moment it is made until
+   * that save has landed or been put back, by board and card. An answer is on
+   * the board before it is durable, so what the board says is not yet the
+   * answer that won: anything that would be decided by it waits here.
+   */
+  readonly #answerSaves = new Map<string, Promise<Error | null>>()
   /** Boards held against every change, by board, with why: see `holdBoard`. */
   readonly #holds = new Map<string, string>()
   /** Latest content per file; a burst of mutations becomes one write. */
@@ -1467,18 +1480,42 @@ export class Team {
     outcome?: string,
     /** The person's own context package, for the round that depends on this. */
     context?: string,
+    /** Host-owned provenance from the client door; never accepted in wire params. */
+    client?: string,
   ): Promise<void> {
+    /* An answer is first only once it is saved. While one is still being
+       saved the board already reads as answered — the next change is built on
+       it — but a failed save puts it back, so nothing that this answer would
+       be decided by, its retry shortcut and the first-answer guard alike,
+       reads the board until that save has landed or been put back. */
+    if (action === 'done' || action === 'abandon') {
+      for (let saving = this.#answerSaves.get(answerKey(room, id)); saving; saving = this.#answerSaves.get(answerKey(room, id))) await saving
+    }
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
     /* The same answer to a card already answered that way is a retry (a
        person's pick answered once, a second press), not news: nothing is
-       signalled or handed to its flow twice. A new context package is not a
-       repeat, so that still goes through and replaces the handoff. */
+       signalled or handed to its flow twice. A changed person answer and
+       every client repeat go through the first-answer guard below; ordinary
+       manual agent-card handoff updates retain their existing behavior. */
     if (
-      action === 'done' && intent.state === 'done' && intent.outcome === (outcome?.trim() || null) &&
+      client === undefined && action === 'done' && intent.state === 'done' && intent.outcome === (outcome?.trim() || null) &&
       (!context?.trim() || context.trim() === intent.handoff)
     ) return
+    const person = this.#flows?.personCard?.(board.id, intent) ?? null
+    // Decide and mutate before the first await: every window and socket shares
+    // this referee. A loser cannot replace the winner's context or signal.
+    if ((action === 'done' || action === 'abandon') && (client !== undefined || person !== null) &&
+        (intent.state === 'done' || intent.state === 'abandoned')) {
+      throw Object.assign(new Error('This card was already answered.'), { wireCode: 'alreadyAnswered' })
+    }
+    if (client !== undefined && action === 'done' && (!person || !person.live)) {
+      throw Object.assign(new Error('Only a live card addressed to a person may be answered by a client.'), { wireCode: 'refused' })
+    }
+    if (client !== undefined && action === 'done' && !person!.outcomes.includes(outcome?.trim() ?? '')) {
+      throw Object.assign(new Error('This outcome is not an answer the person role declares.'), { wireCode: 'refused' })
+    }
     const by: TeamActor = { kind: 'user' }
     if (action === 'block') {
       /* `blockedBy: 'hand'`, the same as an agent's `release(blocked)`: a
@@ -1504,12 +1541,17 @@ export class Team {
          the Done column showed why the work had once been stopped instead of
          how it finished. */
       const undo = this.#undoFor(board, [id])
-      this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
-      this.#signal(board, by, 'abandoned', intent, null)
+      this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null, ...(reason?.trim() ? { note: reason.trim() } : {}) })
+      this.#signal(board, by, 'abandoned', intent, reason?.trim() || null)
       undo.mark()
       const saved = this.#commit(board, true, undo)
+      if (client !== undefined || person !== null) this.#trackAnswer(room, id, saved)
       // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
-      if (saved && (await saved)) return
+      const failure = saved ? await saved : null
+      if (failure) {
+        if (client !== undefined) throw Object.assign(new Error(`The card could not be saved: ${failure.message}`), { wireCode: 'refused' })
+        return
+      }
       // Where its checkout stood the moment it stopped is recorded by `#patchIntent`, above; its flow must not continue past that.
       await this.awaitStops(board.id)
       // Its flow hears of it once it is saved, and not at all when it is not.
@@ -1524,7 +1566,7 @@ export class Team {
     } else if (action === 'done') {
       const said = outcome?.trim() || null
       const refusal = this.#flows?.refuseOutcome(board.id, intent, said) ?? null
-      if (refusal) throw new Error(refusal)
+      if (refusal) throw Object.assign(new Error(refusal), client !== undefined ? { wireCode: 'refused' } : {})
       const undo = this.#undoFor(board, board.intents.filter((one) => one.id === id || one.state === 'blocked').map((one) => one.id))
       this.#patchIntent(board, id, {
         state: 'done',
@@ -1536,12 +1578,17 @@ export class Team {
            finished card done by hand does not erase the package it left. */
         ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
-      this.#signal(board, by, 'completed', intent, said ? `you answered ${said}` : 'marked done by you')
+      this.#signal(board, by, 'completed', intent, client !== undefined ? `answered from the command line (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
       undo.mark()
       const saved = this.#commit(board, true, undo)
+      if (client !== undefined || person !== null) this.#trackAnswer(room, id, saved)
       // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
-      if (saved && (await saved)) return
+      const failure = saved ? await saved : null
+      if (failure) {
+        if (client !== undefined) throw Object.assign(new Error(`The card could not be saved: ${failure.message}`), { wireCode: 'refused' })
+        return
+      }
       // Where its checkout stood the moment it stopped is recorded by `#patchIntent`, above; its flow must not continue past that.
       await this.awaitStops(board.id)
       // Its flow hears of it once it is saved, and not at all when it is not.
@@ -5044,6 +5091,22 @@ export class Team {
       return
     }
     void saved.then((error) => { if (!error) then() })
+  }
+
+  /**
+   * Notes that a card's answer rides in `saved`, until that save is settled,
+   * for `intentAction`'s answers to wait on. The note is gone before the
+   * promise it holds resolves, so whoever waited reads the board with no
+   * answer in flight. A board with no Goal behind it has no save to wait for.
+   */
+  #trackAnswer(room: string, id: number, saved: Promise<Error | null> | undefined): void {
+    if (!saved) return
+    const key = answerKey(room, id)
+    const tracked: Promise<Error | null> = saved.then((error) => {
+      if (this.#answerSaves.get(key) === tracked) this.#answerSaves.delete(key)
+      return error
+    })
+    this.#answerSaves.set(key, tracked)
   }
 
   /**
