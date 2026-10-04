@@ -3448,3 +3448,110 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await act(async () => nav.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
 })
+
+/**
+ * What needs you, answered from the Overview. Each answer is the request the
+ * surface that already answers it makes — the board's menu for a person's
+ * card, the docked approval for a request — so whichever door answers first
+ * wins, and the host sees one request either way.
+ */
+const personRun = (rules: readonly unknown[] = [], extraRoles: readonly unknown[] = []): FlowExecution => ({
+  version: 2, id: 'run-1', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null, operations: [],
+  rounds: [{ n: 1, role: 'decide', cards: [5], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  document: { format: 'agents', flow: {
+    version: 2, name: 'Ship', inputs: [], roles: [{ id: 'decide', kind: 'person', outcomes: ['approved', 'request-changes'] }, ...extraRoles],
+    rules, seed: { role: 'decide', title: 'Go' }, messaging: 'board-only', wait: 240,
+  } },
+} as unknown as FlowExecution)
+const personCard = { ...state.intents[1]!, id: 5, title: 'Decide whether to ship', state: 'open', role: 'decide', claim: null } as Intent
+const needsYouRow = (): HTMLElement => container.querySelector('[aria-label="Needs you"]') as HTMLElement
+const inNeedsYou = (label: string): HTMLButtonElement =>
+  [...needsYouRow().querySelectorAll('button')].find((one) => one.textContent === label) as HTMLButtonElement
+
+it("answers a person's step from the Overview with the request the board's own menu makes", async () => {
+  const execution = personRun([{ id: 'ship', on: 'decide', when: { every: ['approved'] }, then: { role: 'decide', title: 'Again' } }])
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(needsYouRow().textContent).toContain('Decide whether to ship')
+  expect(needsYouRow().textContent).toContain('Approved opens a step for you.')
+  expect(needsYouRow().textContent).toContain('Request changes ends the Run without a next step.')
+  await act(async () => inNeedsYou('Approved').click())
+  expect(store.teamIntent).toHaveBeenCalledTimes(1)
+  const fromOverview = vi.mocked(store.teamIntent).mock.lastCall
+  expect(fromOverview).toEqual([ROOM, 5, 'done', undefined, 'approved'])
+
+  // The board's menu, for the same card and the same word.
+  act(() => row('Board').click())
+  await act(async () => {})
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="What to do with #5"]')!
+  act(() => {
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    trigger.click()
+  })
+  await act(async () => {})
+  const item = [...document.querySelectorAll<HTMLElement>('[data-slot="dropdown-menu-item"]')].find((one) => one.textContent?.includes('Answer approved'))!
+  act(() => item.click())
+  await act(async () => {})
+  expect(store.teamIntent).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(store.teamIntent).mock.lastCall).toEqual(fromOverview)
+})
+
+it('gives the note the person wrote as the context the next round reads, and shows the host\'s refusal', async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  vi.mocked(store.teamIntent).mockRejectedValueOnce(new Error('This card was already answered.'))
+  await render(store)
+  const note = needsYouRow().querySelector<HTMLInputElement>('input')!
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  act(() => { setter.call(note, 'Ship it once the retry has a ceiling.'); note.dispatchEvent(new Event('input', { bubbles: true })) })
+  await act(async () => inNeedsYou('Request changes').click())
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 5, 'done', undefined, 'request-changes', 'Ship it once the retry has a ceiling.')
+  expect(needsYouRow().querySelector('[role="alert"]')?.textContent).toBe('This card was already answered.')
+  expect(inNeedsYou('Request changes').disabled).toBe(true)
+})
+
+it('sends a review step to the board, where its attempt is chosen', async () => {
+  const execution = personRun(
+    [{ id: 'land', on: 'decide', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'merge', title: 'Merge' } }],
+    [{ id: 'merge', kind: 'person', outcomes: ['merged'] }],
+  )
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(inNeedsYou('Approved')).toBeUndefined()
+  await act(async () => inNeedsYou('Pick an attempt on the board').click())
+  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+  expect(store.teamIntent).not.toHaveBeenCalled()
+})
+
+it("answers an approval from the Overview with the call the docked card makes", async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([[execution.id, execution]]))
+  const approvals = [{
+    key: sessionKey('codex', 'c1'),
+    approval: {
+      id: 'a1', sessionId: 'c1', requestedAt: 5, type: 'command', kind: 'command', command: 'pnpm verify', cwd: '/repo', actions: [],
+      options: [
+        { id: 'yes', label: 'Yes', intent: 'approve' },
+        { id: 'always', label: 'Yes, always', intent: 'approveAlways' },
+        { id: 'no', label: 'No, tell it instead', intent: 'deny' },
+      ],
+    },
+  }]
+  const snapshot = { ...store.getSnapshot(), approvals: approvals as never }
+  const respondToApproval = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { getSnapshot: () => snapshot, respondToApproval })
+  await render(store)
+  expect(needsYouRow().textContent).toContain('pnpm verify')
+  expect([...needsYouRow().querySelectorAll('button')].map((one) => one.textContent)).toEqual(['No, tell it instead', 'Yes, always', 'Yes'])
+  await act(async () => inNeedsYou('Yes').click())
+  const fromOverview = respondToApproval.mock.lastCall
+  expect(fromOverview).toEqual([sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'yes' }])
+
+  // The docked card in the chat, for the same request, sends the same thing.
+  act(() => row('Chat').click())
+  await act(async () => {})
+  const docked = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-card"] button')].find((one) => /^Yes\d?$/.test(one.textContent ?? ''))!
+  act(() => docked.click())
+  expect(respondToApproval).toHaveBeenCalledTimes(2)
+  expect(respondToApproval.mock.lastCall).toEqual(fromOverview)
+})

@@ -37,6 +37,7 @@ import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, or
 import { isPathInside } from '../lib/paths'
 import { folderName } from '../lib/projects'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
@@ -753,6 +754,8 @@ export const TeamRoomPane = ({
     report: report?.goal === room ? report : null,
     runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
   }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report])
+  // What the Overview can do about what needs you: the same requests the board and the docked approval make.
+  const needsYouAnswers = useNeedsYouAnswers({ room, execution: flowExecution ?? null, cards: intents, openBoard: () => show('board') })
   const memberOf = (key: SessionKey): TeamPeerInfo | null =>
     members.find((peer) => sessionKey(peer.runtime, peer.sessionId as SessionId) === key) ?? null
 
@@ -1397,7 +1400,7 @@ export const TeamRoomPane = ({
             </Button>
           </span>
           {open === 'overview' ? (
-            <TeamOverview model={overview} onRun={() => show('run')}
+            <TeamOverview model={overview} answers={needsYouAnswers} onRun={() => show('run')}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null
