@@ -348,6 +348,42 @@ test('pr_create never pushes: an unpushed branch is refused with the command to 
   assert.match(again, /git push/)
 })
 
+test('pr_create accepts a branch pushed to its remote without an upstream', async (t) => {
+  const forge = await rig(t)
+  execFileSync('git', ['checkout', '-q', '-b', 'feature/no-upstream'], { cwd: forge.repo })
+  execFileSync('git', ['push', '-q', 'origin', 'feature/no-upstream'], { cwd: forge.repo })
+
+  const said = await forge.run('pr_create', { title: 'x', body: 'y' })
+  assert.match(said, /Opened pull request #7/)
+  assert.ok(forge.calls().some((args) => args[0] === 'pr' && args[1] === 'create'))
+  assert.throws(
+    () => execFileSync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { cwd: forge.repo, stdio: ['ignore', 'pipe', 'ignore'] }),
+    'pr_create does not need to set an upstream to recognize the remote branch',
+  )
+})
+
+test('pr_create reports how far a no-upstream branch differs from its remote', async (t) => {
+  const forge = await rig(t)
+  execFileSync('git', ['checkout', '-q', '-b', 'feature/diverged'], { cwd: forge.repo })
+  writeFileSync(join(forge.repo, 'local.txt'), 'local commit\n')
+  execFileSync('git', ['add', 'local.txt'], { cwd: forge.repo })
+  execFileSync('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'local change'], { cwd: forge.repo })
+
+  const remote = join(forge.repo, '..', 'remote.git')
+  const peer = join(forge.home, 'peer')
+  execFileSync('git', ['clone', '-q', remote, peer])
+  execFileSync('git', ['checkout', '-q', '-b', 'feature/diverged', 'origin/main'], { cwd: peer })
+  writeFileSync(join(peer, 'remote.txt'), 'remote commit\n')
+  execFileSync('git', ['add', 'remote.txt'], { cwd: peer })
+  execFileSync('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'remote change'], { cwd: peer })
+  execFileSync('git', ['push', '-q', 'origin', 'HEAD:refs/heads/feature/diverged'], { cwd: peer })
+
+  const said = await forge.run('pr_create', { title: 'x', body: 'y' })
+  assert.match(said, /1 commit ahead of origin\/feature\/diverged and 1 commit behind it/)
+  assert.ok(!forge.calls().some((args) => args[0] === 'pr' && args[1] === 'create'))
+  assert.equal(forge.published.length, 0)
+})
+
 test('a pull request already open for the branch is named, not duplicated', async (t) => {
   const forge = await rig(t)
   await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
