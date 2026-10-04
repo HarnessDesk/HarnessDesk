@@ -821,8 +821,11 @@ export const gitPlugin: HarnessPlugin = {
             if (publishedHead !== head) {
               // Fetch the advertised object to count commits even when the
               // remote has moved from another checkout and its tip is unknown
-              // locally. This writes no branch or FETCH_HEAD and never pushes.
+              // locally. This writes no branch or FETCH_HEAD, never pushes,
+              // and must not run repository-configured hooks or maintenance.
               const fetched = await ctx.shell.run('git', [
+                ...GIT_READ_HARDENING_ARGS,
+                '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
                 'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', remote, publishedHead,
               ])
               if (fetched.exitCode !== 0) {
