@@ -161,10 +161,11 @@ export const captureRange = async (
 ): Promise<RangeObservation> => {
   live(signal)
   if (!parts.length || parts.length > 64) throw new Error('limit-exceeded')
+  const found = await git.kinds(parts.map((part) => part.sha), signal)
   let parent = from
   for (const part of parts) {
     if (part.parents.length !== 1 || part.parents[0] !== parent) throw new Error('history-gap')
-    if (!await git.commit(part.sha, signal)) throw new Error('missing-object')
+    if (found.get(part.sha) !== 'commit') throw new Error('missing-object')
     parent = part.sha
   }
   const latest = latestLinks(links)
@@ -184,14 +185,16 @@ export const captureRange = async (
   }
   const to = parts.at(-1)!.sha
   const patch = await git.patch(from, to, signal)
-  const netFiles = await git.files(from, to, signal)
+  // The net delta's paths are the patch's own; what each path fingerprints to
+  // is not read here, so it is not asked of Git.
+  const netFiles = patch.files
   // One Seat owns all mutations on a path: a nonempty net delta retains some
   // of that Seat's contribution. Two Seats require line survival, which this
   // phase deliberately does not infer. A reverted path supplies no survivor.
   for (const [path, seats] of owners) {
-    if (seats.size !== 1 || !netFiles.some((file) => file.path === path)) ambiguous = true
+    if (seats.size !== 1 || !netFiles.includes(path)) ambiguous = true
   }
-  if (!patch.files.length || netFiles.some((file) => !owners.has(file.path))) ambiguous = true
+  if (!patch.files.length || netFiles.some((path) => !owners.has(path))) ambiguous = true
   const sourceIds = parts.flatMap((part) => [part.id, latest.get(part.sha)?.id ?? 'missing-link'])
   return {
     id: digest(['range', 1, from, to, sourceIds]),
@@ -228,13 +231,40 @@ export const rangeSource = (
   }
 }
 
-/** Contiguous first-parent suffixes only; the worker persists the returned remainder. */
+/** What a range needs to be read: the commit before its first part, and its parts, oldest first. */
+export interface RangeCandidate {
+  readonly key: string
+  readonly from: string
+  readonly commits: readonly CommitObservation[]
+}
+
+/** At most this many never-tried ranges are offered at once; the rest are named as pending. */
+const OFFERED = 256
+
+/**
+ * A pending entry that no later pass can act on: it marks a range that could
+ * not be read, or a history longer than a range may be. Anything else pending
+ * is work still to do.
+ */
+export const LIMIT_PREFIX = 'limit:'
+
+/** Whether a later pass has something to do that no change in what it reads is needed for. */
+export const backlog = (pending: readonly string[]): boolean => pending.some((key) => !key.startsWith(LIMIT_PREFIX))
+
+/**
+ * Contiguous first-parent suffixes only; the worker persists the returned remainder.
+ * A range in `failed` could not be read when it was tried: it is offered
+ * separately, as `retry`, so ranges that could not be read take no place from
+ * ranges that have never been tried.
+ */
 export const rangeCandidates = (
   commits: readonly CommitObservation[],
   captured: ReadonlySet<string>,
-): { ready: readonly { key: string; from: string; commits: readonly CommitObservation[] }[]; pending: readonly string[] } => {
+  failed: ReadonlySet<string> = new Set(),
+): { ready: readonly RangeCandidate[]; pending: readonly string[]; retry: readonly RangeCandidate[] } => {
   const bySha = new Map(commits.map((commit) => [commit.sha, commit]))
-  const ready: { key: string; from: string; commits: readonly CommitObservation[] }[] = []
+  const ready: RangeCandidate[] = []
+  const retry: RangeCandidate[] = []
   const pending: string[] = []
   for (const tip of [...commits].sort((a, b) => a.sha.localeCompare(b.sha))) {
     const parts: CommitObservation[] = []
@@ -246,14 +276,15 @@ export const rangeCandidates = (
       const from = current.parents[0]!
       const key = digest([from, tip.sha, parts.map((part) => part.id)])
       if (parts.length > 1 && !captured.has(key)) {
-        if (ready.length < 256) ready.push({ key, from, commits: [...parts] })
+        if (failed.has(key)) retry.push({ key, from, commits: [...parts] })
+        else if (ready.length < OFFERED) ready.push({ key, from, commits: [...parts] })
         else pending.push(key)
       }
       current = bySha.get(from)
     }
-    if (current && parts.length === 64) pending.push(`limit:${tip.sha}`)
+    if (current && parts.length === 64) pending.push(`${LIMIT_PREFIX}${tip.sha}`)
   }
-  return { ready, pending }
+  return { ready, pending, retry }
 }
 
 const related = (input: ReconcileInput, from: string, to: string): boolean => {
