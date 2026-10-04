@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 
 import type { CheckUnseen } from '@harnessdesk/protocol'
 
-import { CodeText, ConfirmDialog } from '../design'
+import { CodeText, ConfirmDialog, Note } from '../design'
 import { shortPath } from '../lib/paths'
+import { RECORD_REASON } from '../lib/team-record'
 import { useSnapshot } from '../state/context'
 
 export const ARM_MS = 600
@@ -12,12 +13,15 @@ export const RunCheck = ({
   unseen,
   card,
   busy,
+  record,
   onRun,
   onCancel,
 }: {
   readonly unseen: CheckUnseen
   readonly card: number
   readonly busy: boolean
+  /** The card's Team wrapped while this was open — a Run that ends wraps its Team, under whoever is being asked (#1317). */
+  readonly record: boolean
   readonly onRun: () => void
   readonly onCancel: () => void
 }) => {
@@ -40,11 +44,12 @@ export const RunCheck = ({
       cancelLabel="Not now"
       busy={busy}
       busyLabel="Starting…"
-      pending={!armed}
+      pending={!armed || record}
       onConfirm={onRun}
       onCancel={onCancel}
     >
       <div className="flex flex-col gap-2">
+        {record && <Note>{RECORD_REASON}</Note>}
         <p>{`For #${card}, in ${shortPath(unseen.cwd, snapshot.home)}, it runs exactly this:`}</p>
         <CodeText as="pre" className="whitespace-pre-wrap break-all">
           {check.run}

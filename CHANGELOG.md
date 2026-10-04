@@ -18,6 +18,25 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   or moved; choosing the item again offers to remove it. `docs/cli.md` lists
   every command, its `--json` shape and its exit codes.
 
+- **A wrapped Team stays readable** — it opens on its receipt, in a narrow
+  window as in a wide one and whether or not it ever had a Run. The receipt
+  keeps every Seat's conversation, and its rail and the sidebar's Wrapped group
+  still open those conversations and the Run. A conversation seated more than
+  once is listed once; Run details still keep each Seat and its recorded usage,
+  including a Seat whose conversation was not kept. Older receipts keep Seats without a retained conversation visible, even
+  when that is every Seat, rather than saying no Agents were kept. Composers and
+  work-dispatching controls say “This Team
+  is wrapped”, and the host refuses new sends, steers, queued work, reviews and
+  compaction too; the conversation's menus say so rather than offer them. A
+  turn still running in such a conversation can be stopped. “Give this to…”
+  does not list a conversation a wrapped Team keeps, and the command palette
+  offers no agent skill there. A
+  question already open when a Run ends and wraps its Team — deciding a run or
+  a finding, posting to the pull request, running a check, stopping, adding,
+  handing out, assigning or answering a card, seating an Agent, wrapping —
+  stays where it is with its final action off and the same reason, rather than
+  offer what the host would refuse.
+
 - **A Run shows the Flow it started with.** A Run's header switches between
   its Timeline and its Flow: the Flow it was started from, kept at the
   revision it began with, drawn as cards joined by arrows that name the

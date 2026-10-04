@@ -27,6 +27,15 @@ import { TEMPLATE_BRIDGES } from '@harnessdesk/server'
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const smoke = readFileSync(new URL('./smoke-packaged.mjs', import.meta.url), 'utf8')
 
+test('Electron uses the HarnessDesk product name in development and packaged builds', () => {
+  assert.equal(
+    manifest.productName,
+    'HarnessDesk',
+    'Electron reads productName from the app manifest for app.name; build.productName only names ' +
+      'electron-builder artifacts and does not set the runtime name used by macOS Hide and Quit roles.',
+  )
+})
+
 test('every template bridge is a dependency of the app', () => {
   const dependencies = Object.keys(manifest.dependencies ?? {})
   for (const bridge of TEMPLATE_BRIDGES) {

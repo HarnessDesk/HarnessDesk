@@ -3448,3 +3448,125 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await act(async () => nav.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
 })
+
+
+it('a wrapped Team keeps receipt Seats and its Run readable while dispatching verbs are disabled', async () => {
+ const execution = {version:2,id:'wrapped-run',goal:ROOM,state:'settled',reason:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Completed review',roles:[],rules:[]}}} as unknown as FlowExecution
+ const goal: GoalView = {...GOAL,goal:{...GOAL.goal,state:'wrapped',origin:{kind:'flow',run:execution.id}},members:[],receipt:{version:1,id:'receipt',goal:ROOM,sentence:GOAL.goal.sentence,summary:'Reviewed.',wrappedAt:2,cards:[],seats:['kept','lost'],members:[{seat:'kept',agent:'Writer',seatLabel:'Alpha',session:{runtime:'codex',sessionId:'c1'}},{seat:'lost',agent:null,seatLabel:'Gamma'}],answers:[],evidence:[],lanes:[],revisions:[],citations:[],gaps:[]}}
+ const {store}=rig([],undefined,{members:[]},goal,new Map([[execution.id,execution]]))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('Writer')
+ expect(container.querySelector('aside')?.textContent).toContain('Gamma')
+ expect(container.textContent).toContain('Conversation not kept')
+ for (const label of ['Seat an Agent in this Goal','Hold messages at the board']) {
+  const button=container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  expect(button?.disabled).toBe(true);expect(button?.title).toBe('This Team is wrapped')
+ }
+ const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('aside button')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
+ await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
+ await pick('Receipt');expect(container.textContent).toContain('As recorded when wrapped')
+ act(()=>row('Writer').click());await act(async()=>{})
+ expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
+})
+
+/* A wrapped Team's receipt, as the host keeps it: every Seat that was ever retained, each with the conversation it
+   had (or, on an older receipt, none). */
+const receiptGoal = (seats: readonly string[], members: readonly unknown[]): GoalView => ({
+ ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' }, members: [],
+ receipt: { version: 1, id: 'receipt', goal: ROOM, sentence: GOAL.goal.sentence, summary: 'Reviewed.', wrappedAt: 2, cards: [], seats, members, answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [] },
+} as unknown as GoalView)
+
+/** The rail's rows, as a person reads them. */
+const railRows = (): string[] => [...container.querySelectorAll('aside [data-slot="list-row"]')].map(one => one.textContent ?? '')
+
+/* A conversation can be seated more than once in a Team's life, and the receipt keeps every Seat. The rail lists
+   conversations, so it names each one once — and does not draw two rows under one React key (#1317, round 1). */
+it('a wrapped Team lists a conversation once however many Seats were retained for it', async () => {
+ const goal = receiptGoal(['first', 'again', 'other'], [
+  { seat: 'first', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'again', agent: 'Reviewer', seatLabel: 'Alpha again', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'other', agent: 'Judge', seatLabel: 'Beta', session: { runtime: 'codex', sessionId: 'c2' } },
+ ])
+ const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+ try {
+  const { store } = rig([], undefined, { members: [] }, goal)
+  await render(store)
+  // The latest Seat to hold the conversation names it: `Writer` held it first and is not a second row.
+  expect(railRows().filter(text => /Writer|Reviewer|Judge/.test(text))).toHaveLength(2)
+  expect(railRows().some(text => text.includes('Reviewer'))).toBe(true)
+  expect(railRows().some(text => text.includes('Judge'))).toBe(true)
+  expect(railRows().some(text => text.includes('Writer'))).toBe(false)
+  // And the roster counts conversations, as it lists them.
+  expect(container.querySelector('aside')?.textContent).toContain('Agents2')
+  expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
+ } finally { errors.mockRestore() }
+})
+
+/* An older receipt may keep Seats without a conversation: the rail lists each as a name and says the conversation
+   was not kept. It cannot also say there are no Agents — it is looking at them (#1317, round 1). */
+it('an older receipt whose Seats were all kept without a conversation lists them and does not say there are none', async () => {
+ const goal = receiptGoal(['lost', 'lost-too'], [
+  { seat: 'lost', agent: 'Writer', seatLabel: 'Alpha' },
+  { seat: 'lost-too', agent: null, seatLabel: 'Gamma' },
+ ])
+ const { store } = rig([], undefined, { members: [] }, goal)
+ await render(store)
+ const rail = container.querySelector('aside')!.textContent ?? ''
+ expect(railRows().filter(text => /Writer|Gamma/.test(text))).toHaveLength(2)
+ expect(rail.match(/Conversation not kept/g)).toHaveLength(2)
+ expect(rail).not.toContain('No Agents were kept')
+})
+
+it('a receipt that kept no Seat at all still says so', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal([], []))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('No Agents were kept in this Team’s receipt.')
+})
+
+/* The pane is two columns at width and one at a time without it, and `data-showing` names the one on show. A wrapped
+   Team opens on its Receipt, so in a narrow pane the Receipt has to be the half that shows — whether or not the Team
+   ever had a Run. A Team with no Run used to start on the Agents list, as an open one does, and a person-made Team
+   that wrapped read as a list of names with the record behind a way back (#1317). `receiptGoal` is exactly that Team:
+   made by a person, never given a Flow. */
+const showing = (): string | null => container.querySelector('[data-showing]')?.getAttribute('data-showing') ?? null
+const KEPT = [{ seat: 'kept', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } }]
+
+it('a wrapped Team that never had a Run opens on its Receipt, not on the Agents list, in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+ expect(container.textContent).toContain('As recorded when wrapped')
+})
+
+it('an open Team that has no Run still starts on the Agents list in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+})
+
+it('a Team with no Run that wraps while its narrow pane shows the Agents list moves to its Receipt', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+})
+
+it('a person who already chose where to look is not moved when a Team with no Run wraps', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ act(() => row('Board').click())
+ await act(async () => {})
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ expect(showing()).toBe('body')
+})

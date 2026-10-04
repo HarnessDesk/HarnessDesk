@@ -19,6 +19,8 @@ export interface GoalReceiptMember {
   readonly seat: SeatId
   readonly agent: string | null
   readonly seatLabel: string
+  /** Retained conversation; absent on receipts written before this field existed. */
+  readonly session?: SeatRecord['session']
 }
 
 /**

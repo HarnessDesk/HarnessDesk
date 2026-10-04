@@ -8,12 +8,12 @@ import type { MethodsUnder } from './context.js'
  */
 export const turnMethods = {
   'turn/send': async (ctx, params) => {
-    const turnId = await (await ctx.sessions.live(params)).send(params.input)
+    const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), params.input, live))
     return { turnId: String(turnId) }
   },
 
   'turn/steer': async (ctx, params) => {
-    await (await ctx.sessions.live(params)).steer(params.input)
+    await ctx.sessions.dispatch(params, live => live.steer(params.input))
     return null
   },
 
@@ -23,6 +23,7 @@ export const turnMethods = {
   },
 
   'turn/queue': async (ctx, params) => {
+    ctx.sessions.assertDispatchable(params)
     const record = ctx.sessions.record(params)
     // Nothing to wait for: send it. A queue on an idle conversation would
     // sit until some future turn ended, which is not what "send" means.
@@ -59,6 +60,7 @@ export const turnMethods = {
   },
 
   'turn/queue/flush': async (ctx, params) => {
+    ctx.sessions.assertDispatchable(params)
     const record = ctx.sessions.record(params)
     if (ctx.queue.busy(record)) {
       throw new Error('A turn is still running. Stop it first, or add to it instead.')

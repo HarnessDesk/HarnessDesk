@@ -1,5 +1,6 @@
 {
   "name": "@harnessdesk/desktop",
+  "productName": "HarnessDesk",
   "version": "0.3.1",
   "private": true,
   "description": "HarnessDesk for macOS.",

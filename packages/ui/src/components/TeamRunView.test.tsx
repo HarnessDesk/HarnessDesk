@@ -53,6 +53,98 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
 }
 const sectionText = (container: HTMLElement, title: string): string =>
   [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
+
+it.each(['member', 'answer', 'missing'] as const)('reads wrapped Run Seats with a conversation %s pointer', async pointer => {
+  const open = vi.fn()
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get('overview-team')!
+    const reviewer = goal.members[1]!
+    const receipt = {
+      version: 1 as const, id: 'wrapped-run-receipt', goal: goal.goal.id, sentence: goal.goal.sentence,
+      wrappedAt: 2, summary: 'Reviewed.', cards: [], seats: goal.members.map(seat => seat.id),
+      members: goal.members.map(seat => ({ seat: seat.id, agent: seat.agent?.name ?? null, seatLabel: seat.seatLabel,
+        ...(pointer === 'member' && seat.id === reviewer.id ? { session: seat.session } : {}) })),
+      answers: pointer === 'answer' ? [{ seat: reviewer.id, session: reviewer.session, turn: null, text: 'Reviewed.', partial: false, stopReason: null }] : [],
+      evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    }
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped', receipt: receipt.id }, members: [], receipt }]]) }
+  })
+  const view = await mount(store, { selectedRow: 'run', onOpenSeat: open })
+  try {
+    expect(sectionText(view.container, 'Seats')).toContain('Alpha')
+    expect(sectionText(view.container, 'Seats')).toContain('Beta')
+    await view.show({ selectedRow: 'card-3-3' })
+    const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
+    const button = [...inspector.querySelectorAll('button')].find(one => one.textContent === 'Open the conversation')
+    if (pointer === 'missing') {
+      expect(button).toBeUndefined()
+      expect(inspector.textContent).toContain('Conversation not kept')
+    } else {
+      expect(button).toBeDefined()
+      await act(async () => button!.click())
+      expect(open).toHaveBeenCalledWith('codex\0overview-1')
+      expect(costOf(view.container)).not.toContain('Not recorded')
+    }
+  } finally { view.close() }
+})
+it('keeps both receipt Seats when one conversation worked in earlier and later rounds', async () => {
+  const open = vi.fn()
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get('overview-team')!
+    const writer = goal.members[0]!
+    const receipt = {
+      version: 1 as const, id: 'repeated-seat-receipt', goal: goal.goal.id, sentence: goal.goal.sentence,
+      wrappedAt: 2, summary: 'Reviewed.', cards: [], seats: ['seat-0', 'seat-1'],
+      members: [
+        { seat: 'seat-0', agent: 'Earlier writer', seatLabel: 'First Seat', session: writer.session },
+        { seat: 'seat-1', agent: 'Later reviewer', seatLabel: 'Second Seat', session: writer.session },
+      ], answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    }
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped', receipt: receipt.id }, members: [], receipt }]]),
+      runtimes: snapshot.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } })) }
+  })
+  const view = await mount(store, { selectedRow: 'run', onOpenSeat: open })
+  try {
+    expect(sectionText(view.container, 'Seats')).toContain('Earlier writer')
+    expect(sectionText(view.container, 'Seats')).toContain('Later reviewer')
+    expect(sectionText(view.container, 'Seats')).toContain('First Seat')
+    expect(sectionText(view.container, 'Seats')).toContain('Second Seat')
+    expect(view.container.textContent).not.toContain('Seat not recorded')
+    for (const [row, cost] of [['card-1-1', '$0.64'], ['card-3-3', '$0.21']]) {
+      await view.show({ selectedRow: row })
+      expect(costOf(view.container)).toContain(cost)
+      const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
+      const button = [...inspector.querySelectorAll('button')].find(one => one.textContent === 'Open the conversation')!
+      expect(button).toBeDefined()
+      await act(async () => button.click())
+      expect(open).toHaveBeenLastCalledWith('codex\0overview-0')
+    }
+  } finally { view.close() }
+})
+it.each(['breakdown', 'seat', 'missing'] as const)('shows known usage for a receipt Seat without a conversation (runtime from %s)', async source => {
+  let report = overviewReport()
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get('overview-team')!
+    if (source !== 'breakdown') {
+      report = { ...report, seats: source === 'seat' ? goal.members : [],
+        breakdowns: report.breakdowns.map(partition => ({ ...partition, rows: partition.rows.map(row => ({ ...row, session: null })) })) }
+    }
+    const receipt = {
+      version: 1 as const, id: 'unlinked-seat-receipt', goal: goal.goal.id, sentence: goal.goal.sentence,
+      wrappedAt: 2, summary: 'Reviewed.', cards: [], seats: ['seat-1'],
+      members: [{ seat: 'seat-1', agent: 'Beta', seatLabel: 'Reviewer' }],
+      answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    }
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped', receipt: receipt.id }, members: [], receipt }]]),
+      runtimes: snapshot.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } })) }
+  }, { readGoalInsight: async () => report })
+  const view = await mount(store)
+  try {
+    expect(costOf(view.container)).toContain(source === 'missing' ? '38 turns' : '$0.21')
+    expect(view.container.textContent).toContain('Conversation not kept')
+    expect(view.container.textContent).not.toContain('Open the conversation')
+  } finally { view.close() }
+})
 const tryAgain = (container: HTMLElement): HTMLButtonElement =>
   [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!
 

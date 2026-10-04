@@ -5,7 +5,8 @@ import type { FindingDetailPage, FindingOrigin, FindingRecord, FindingRunView, F
 import { Banner, Button, Chip, CodeText, Dialog, Fieldset, KeyValue, KeyValueRow, Note, Text, Textarea } from '../design'
 import { openExternal } from '../lib/desktop'
 import { blockingWords, postWords } from '../lib/findings'
-import { useStore } from '../state/context'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { useSnapshotSelector, useStore } from '../state/context'
 import { Markdown } from './Markdown'
 import { SeatRecordView } from './SeatRecordBlock'
 
@@ -216,10 +217,13 @@ const PersonVerdict = ({ goal, view, run, afterRun, why, setWhy, onDecided }: {
   readonly onDecided: () => void
 }) => {
   const store = useStore()
+  /* The run view this was handed says whether the Goal was open when it was read; a Run that ends wraps its Team,
+     even under a person who is deciding one of its findings, so only the Team can say it is open now (#1317). */
+  const record = useSnapshotSelector((snapshot) => isRecord(snapshot.goals.get(goal)))
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   if (view.lifecycle.confirmed || view.restored || view.problem !== null) return null
-  const refusal = (afterRun ? null : run.undecidable) ??
+  const refusal = (afterRun ? null : run.undecidable) ?? (record ? RECORD_REASON : null) ??
     (view.origin.run !== run.run && view.origin.goal === goal ? 'This finding belongs to an earlier run on this Goal.' : null)
   const choices: readonly { readonly label: string; readonly state: 'open' | 'repaired' | 'withdrawn' }[] = view.lifecycle.state === 'repaired'
     ? [{ label: 'Accept the repair', state: 'repaired' }, { label: 'Reject the repair', state: 'open' }, { label: 'Withdraw it', state: 'withdrawn' }]
