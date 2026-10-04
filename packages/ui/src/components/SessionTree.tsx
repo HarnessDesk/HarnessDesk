@@ -628,7 +628,7 @@ const roomMembers = (
   hiddenKeys: ReadonlySet<string>,
 ): SessionSummary[] => {
   const shown = new Map(
-    sessions.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
+    [...snapshot.history, ...sessions].map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
   )
   const filtered = snapshot.listPrefs.agent !== null
   return teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
@@ -1621,7 +1621,7 @@ export const SessionTree = ({ now }: { now: number }) => {
       if (root && row) setNavigationTarget({ root, index: Number(row.dataset.virtualIndex) })
     }} role="group" aria-label="Conversations" data-region="session-tree">
       {pinnedRows.length > 0 && (
-        <SidebarGroup inset={false} className={styles.triage} data-sidebar-band="pinned">
+        <SidebarGroup className={styles.triage} data-sidebar-band="pinned">
           <GroupLabel ink="muted">Pinned · {pinnedRows.length}</GroupLabel>
           <SidebarGroupContent nested>
             {pinnedRows.map((summary) => (

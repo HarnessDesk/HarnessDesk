@@ -2106,3 +2106,18 @@ it('uses a quiet spinner for running conversations and Teams without a Working w
   expect(roomRow(view.container, board.name).querySelector('[data-slot="sidebar-menu-state"]')?.getAttribute('aria-label')).toBe('Needs you')
   expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
 })
+
+// After a restart the Seat can exist only in history, in another checkout.
+it('keeps a history-only legacy Seat under its Team across checkouts', () => {
+  const seat = summary({ id: 'session-stored-seat', cwd: '/other-checkout' })
+  const board = room({ id: 'stored-team', name: 'Stored Team', members: [String(sessionKey(seat.runtime, seat.id))] })
+  const view = treeWith([board], [seat], [], { pinnedSessions: [sessionKey(seat.runtime, seat.id)] })
+  const nested = roomRow(view.container, board.name).closest('li')!.querySelector('[data-nested="true"]')!
+  expect(nested).not.toBeNull()
+  expect(rowTitles(nested as HTMLElement)).toEqual(['session-stored-seat'])
+  expect(rowTitles(view.container)).toEqual(['session-stored-seat'])
+  expect(view.container.querySelector('[data-sidebar-band="pinned"]')).toBeNull()
+  expect(view.container.querySelector('[data-project-root="/other-checkout"] [data-region="session-row"]')).toBeNull()
+  act(() => nested.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!.click())
+  expect(view.store.openSession).toHaveBeenCalledWith(seat.id, { runtime: seat.runtime })
+})

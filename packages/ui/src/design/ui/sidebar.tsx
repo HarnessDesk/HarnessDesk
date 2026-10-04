@@ -28,7 +28,7 @@ const sidebarNestedClass = 'ms-(--hd-space-5) w-[calc(100%-var(--hd-space-5))] b
 
 const SidebarGroupContent = ({ className, nested = false, ...props }: React.ComponentProps<'div'> & { nested?: boolean }) => (
   <div data-slot="sidebar-group-content" data-sidebar="group-content" data-sidebar-indent={nested ? 'true' : undefined}
-    className={cn('min-w-0 text-sm', nested && sidebarNestedClass, className)} {...props} />
+    className={cn('min-w-0 text-sm', className)} {...props} />
 )
 
 const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }: React.ComponentProps<'ul'> & { nested?: boolean; horizontal?: boolean }) => (

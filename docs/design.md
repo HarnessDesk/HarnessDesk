@@ -901,12 +901,16 @@ leading marks and titles take the same indent step as a project’s children. Ev
 Team is one row in its project with its Seats collapsed initially; Seats stay
 under their Team through running, waiting and pinning. Wrapped Teams live on the
 Teams page. Project children and Team Seats each take one shared nested-rail
-step, using `SidebarGroupContent nested` and `SidebarMenu nested` respectively.
+step, using `SidebarGroupContent nested` for leading content and
+`SidebarMenu nested` for the existing Seat list. Pinned keeps its heading,
+separator and row boxes; project children keep their full row boxes. Only the Seat list draws a
+vertical guide.
 Project headers have no folder icon: their names use regular 14px secondary ink,
 one tier above the muted section labels. Hover or keyboard focus reveals a fold
 chevron immediately after the name and the two end actions. Folding leaves only
 the header. Indentation moves the leading content alone; every trailing target
-keeps the enclosing rail, including Seats two steps in.
+keeps the enclosing rail, including Seats two steps in. A Seat row at 200px or
+narrower folds Needs you to its compact mark, preserving a readable title.
 The sidebar catalogue and `preview.html?sidebar-structure` mount the same
 production tree with three projects, three Seats, loose conversations and Pinned.
 

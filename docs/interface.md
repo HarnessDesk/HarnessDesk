@@ -235,17 +235,17 @@ a **Filtered** chip stays beside Projects and its × clears the query, so a
 short result list cannot read as missing data. The title, list filter and
 conversation history all remain in the same sidebar column.
 
-**State belongs to the row.** A running conversation wears a small quiet dot;
-its hover names the activity read from the turn's latest item — Planning,
-Editing, Testing, Running or Thinking. A conversation waiting for an approval,
+**State belongs to the row.** A running conversation wears a small neutral
+spinner, still under reduced motion; its hover names the activity read from the
+turn's latest item — Planning, Editing, Testing, Running or Thinking. A conversation waiting for an approval,
 a held queue or an answer says **Needs you** beside its own title. Neither state
 moves it into a separate band. Stored conversations say when they last ran on
 hover instead.
 
 **One row per Team.** Each active Team sits inside its project, one indent step
-beside the project's loose conversations. Its quiet **Needs you** or **Working**
-label describes the Team. Its Seats fold underneath, collapsed initially and
-one further indent step in; the chevron reveals them without opening the Team.
+beside the project's loose conversations. A running Team wears the same neutral
+spinner; **Needs you** is its only state label. Its Seats fold underneath,
+collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
 A Seat conversation stays under its Team, including when pinned or waiting.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
 
@@ -269,7 +269,8 @@ right edge, inside the trailing
 control's larger hit target. Hover, focus or an open menu folds that row’s
 label to its state dot and puts its actions on the rail, without taking more
 title space. At narrow row widths a count beside a
-state label hides first, returning when there is room. A room and each of its
+state label hides first, returning when there is room. A narrow Seat row folds
+its state to the compact mark to keep its title readable. A room and each of its
 members reveal their actions independently.
 
 The conversation list has one Tab stop: it enters at the active conversation,

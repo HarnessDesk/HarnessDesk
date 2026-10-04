@@ -839,7 +839,12 @@ test('real working worktree and expanded room members share distinct rail slots 
       await page.mouse.move(0, 0)
       const mark = row.locator(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]').last()
       if (await mark.isVisible()) expect(Math.abs(await centre(mark) - rail), `real ${row === room ? 'parent' : 'member'} mark misses rail at ${width}px`).toBeLessThanOrEqual(1)
-      else {
+      else if (row === member && (await box(row)).width <= 200) {
+        const state = row.locator('[data-slot="sidebar-menu-state"]')
+        await expect(state.locator('[data-sidebar-menu-state-full]')).toBeHidden()
+        await expect(state.locator('[data-sidebar-menu-state-compact]')).toBeVisible()
+        expect(Math.abs(await centre(state) - rail), `compact member state misses rail at ${width}px`).toBeLessThanOrEqual(1)
+      } else {
         const chip = await box(row.locator(':scope > div > [data-slot="sidebar-menu-button"] [data-sidebar-menu-state-full] [data-slot="chip"], :scope > [data-slot="sidebar-menu-button"] [data-sidebar-menu-state-full] [data-slot="chip"]'))
         const measured = await sidebar.evaluate(measureSidebarRail)
         expect(Math.abs(chip.x + chip.width - measured.rail), `whole parent chip occupies the visible rail when the count yields at ${width}px`).toBeLessThanOrEqual(0.5)

@@ -80,7 +80,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.locator('body').click({ position: { x: 1000, y: 1 } })
       await page.mouse.move(1000, 0)
       // The section and the project header retain the top-level start inset.
-      expect(Math.abs(await textStart(header.locator('[data-slot="text"]').first()) - await textStart(pinned.locator('[data-slot="group-label"]')))).toBeLessThanOrEqual(1)
+      expect(Math.abs(await textStart(header.locator('[data-slot="text"]').first()) - await textStart(tree.getByRole('button', { name: 'Other projects', exact: false }).locator('[data-slot="sidebar-menu-label-content"]')))).toBeLessThanOrEqual(1)
       await expect(header.locator('[data-slot="sidebar-menu-icon"]')).toHaveCount(0)
       const name = header.locator('[data-slot="text"]').first()
       await expect(name).toHaveCSS('font-size', '14px')
@@ -118,5 +118,46 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(project.locator('[data-virtual-project]')).toHaveCount(0)
     await header.click()
     await expect(header).toHaveAttribute('aria-expanded', 'true')
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`indentation preserves headings, separators and row highlights — ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const fixture = page.locator('#sidebar-structure')
+    const project = fixture.locator('[data-project-root="/work/atlas"]')
+    const team = project.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
+    await team.focus()
+    await page.keyboard.press('ArrowRight')
+    const pinned = fixture.locator('[data-sidebar-band="pinned"]')
+    const loose = project.locator('[data-region="session-row"]').filter({ hasText: 'Release notes' }).locator('[data-slot="sidebar-menu-button"]')
+    const seats = project.locator('[data-nested="true"]')
+    const writer = seats.locator('[data-slot="sidebar-menu-button"]').first()
+    const reviewer = seats.locator('[data-region="session-row"]').filter({ hasText: 'Reviewer' })
+    for (const width of [320, 200]) {
+      await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
+      await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
+      await page.mouse.move(1000, 0)
+      const origin = (await fixture.boundingBox())!.x
+      const bounds = async (node: typeof team) => { const b = (await node.boundingBox())!; return [b.x - origin, b.x + b.width - origin] }
+      const textX = (node: typeof team) => node.evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().x })
+      expect.soft(await textX(pinned.locator('[data-slot="group-label"]')) - origin).toBe(24)
+      expect.soft(await bounds(pinned.locator('[data-slot="separator"]'))).toEqual([16, width - 16])
+      expect.soft(await bounds(pinned.locator('[data-slot="sidebar-menu-button"]'))).toEqual([16, width - 16])
+      expect.soft(await bounds(loose)).toEqual([8, width - 8])
+      expect.soft(await bounds(team)).toEqual([8, width - 8])
+      expect.soft(await bounds(writer)).toEqual([37, width - 8])
+      await expect.soft(project.locator('[data-virtual-project]')).toHaveCSS('border-left-width', '0px')
+      await expect.soft(pinned.locator('[data-slot="sidebar-group-content"]')).toHaveCSS('border-left-width', '0px')
+      await expect.soft(seats).toHaveCSS('border-left-width', '1px')
+      const full = reviewer.locator('[data-sidebar-menu-state-full]')
+      if (width === 200) {
+        await expect.soft(full).toBeHidden()
+        await expect.soft(reviewer.locator('[data-sidebar-menu-state-compact]')).toBeVisible()
+        const title = reviewer.locator('[data-slot="sidebar-menu-label-content"] > span > span').first()
+        expect.soft(await title.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      } else await expect.soft(full).toBeVisible()
+    }
   })
 }
