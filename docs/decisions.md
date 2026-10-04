@@ -327,7 +327,12 @@ it, read what it printed, and repeat. The check never runs in anybody's
 working tree: the host cuts a fresh detached checkout at the handed commit
 (the card's seating's base, one of the commits it was handed, or its
 checkout's committed `HEAD`), with hooks off, and removes it afterwards, on a
-timeout or an abort too — so a writer's uncommitted edits in a shared checkout
+timeout or an abort too. Cutting the tree has its own three-minute limit,
+separate from the thirty seconds for Git reads, and a pause or stop reaches
+that write through the check's signal. A failed write removes and prunes its
+partial checkout immediately; a timeout names the limit rather than showing
+Git's progress. Retained Flow base-check snapshots use the same write limit
+and cancellation — so a writer's uncommitted edits in a shared checkout
 are never what runs. The agent names a declared check and never writes a
 command. It gets three runs a turn and ten a card, one at a time, and none
 while the run is paused or not live.

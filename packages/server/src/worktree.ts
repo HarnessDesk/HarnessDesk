@@ -387,6 +387,22 @@ export const create = async (
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }
 }
 
+type CheckoutGitRunner = (
+  command: string, args: readonly string[],
+  options: { readonly timeout: number; readonly maxBuffer: number; readonly signal?: AbortSignal },
+) => Promise<{ readonly stdout: string }>
+
+/** A tree write has its own bound; ordinary Git reads keep their 30 s limit. */
+const CHECKOUT_TIMEOUT_MS = 3 * 60_000
+
+/** Wait for Git to exit even when AbortSignal rejects execFile before close,
+ * so cleanup cannot race a child still writing the tree. */
+const checkoutGit: CheckoutGitRunner = async (command, args, options) => {
+  const pending = run(command, args, options)
+  const closed = new Promise<void>((resolve) => pending.child.once('close', () => resolve()))
+  try { return await pending } finally { await closed }
+}
+
 /**
  * A detached checkout of the repository at commit `at`, under HarnessDesk's
  * own worktree folder, cut with the hardened floor — no hook the repository
@@ -396,7 +412,8 @@ export const create = async (
  */
 export const createDetached = async (
   repoPath: string,
-  options: { readonly name: string; readonly at: string; readonly stateDir: string },
+  options: { readonly name: string; readonly at: string; readonly stateDir: string; readonly timeoutMs?: number; readonly signal?: AbortSignal },
+  execute: CheckoutGitRunner = checkoutGit,
 ): Promise<string> => {
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(options.at)) throw new Error(`${options.at} is not a full commit id.`)
   const main = await repositoryRoot(repoPath)
@@ -404,7 +421,25 @@ export const createDetached = async (
   const home = await worktreeHome(main, options.stateDir)
   await mkdir(home, { recursive: true })
   const path = join(home, `${slugify(options.name)}-${randomBytes(4).toString('hex')}`)
-  await git(main, ['worktree', 'add', '--detach', path, options.at])
+  const timeout = options.timeoutMs ?? CHECKOUT_TIMEOUT_MS
+  try {
+    await execute('git', ['-C', main, ...HARDENED_GIT_CONFIG, 'worktree', 'add', '--quiet', '--detach', path, options.at], {
+      timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
+    })
+  } catch (error) {
+    // The child has exited. Cleanup must run even when the caller's signal
+    // is aborted, and even when add left too little metadata for remove.
+    await git(main, ['worktree', 'remove', '--force', path]).catch(() => undefined)
+    await rm(path, { recursive: true, force: true })
+    await git(main, ['worktree', 'prune', '--expire', 'now'])
+    if (options.signal?.aborted) throw new Error('Cutting the checkout was stopped.', { cause: error })
+    const failure = error as { killed?: boolean; code?: string }
+    if (failure?.killed && failure.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+      const limit = timeout >= 60_000 ? `${timeout / 60_000} minutes` : `${timeout} ms`
+      throw new Error(`Cutting the checkout took longer than ${limit}.`, { cause: error })
+    }
+    throw error
+  }
   return path
 }
 

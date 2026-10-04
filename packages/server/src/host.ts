@@ -1298,7 +1298,7 @@ export class Host {
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
       checkoutAt: async (cwd, at, options) => {
         const stateDir = this.#state.directory
-        const path = await createDetached(cwd, { name: `${options?.retained ? 'flow-check' : 'check'}-${at.slice(0, 12)}`, at, stateDir })
+        const path = await createDetached(cwd, { name: `${options?.retained ? 'flow-check' : 'check'}-${at.slice(0, 12)}`, at, stateDir, signal: options?.signal })
         return { cwd: path, remove: async () => { await removeWorktree(path, { force: true, stateDir }) } }
       },
     }, {
