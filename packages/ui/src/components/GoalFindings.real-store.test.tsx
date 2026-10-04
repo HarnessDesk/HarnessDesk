@@ -24,6 +24,20 @@ import { GoalFindings } from './GoalFindings'
  * live `finding/changed` push arrives mid-edit, and the person then submits.
  */
 
+/**
+ * A ceiling sized for a starved machine, not a delay. Every wait below ends on
+ * the thing it waits for, so a passing run never reaches it (#1303, as #1289).
+ *
+ * A push reaches the screen through two timers: the store's coalesced refresh,
+ * then its coalesced wake of every subscriber (a frame, or 32ms, each). A fixed
+ * sleep guessed how long that takes, and lost the guess on a loaded machine.
+ */
+const LOADED_MACHINE_MS = 10_000
+/** A test with several such waits gets room for all of them, so a wait's own message fires before the runner's. */
+const TEST_MS = 4 * LOADED_MACHINE_MS
+/** A window that proves nothing happens: it can miss a late reload, but cannot fail because the machine is slow. */
+const QUIET_MS = 80
+
 let container: HTMLDivElement
 let root: Root
 
@@ -94,7 +108,26 @@ const typeInto = (textarea: HTMLTextAreaElement, text: string): void => {
   })
 }
 
-it('refreshes the round budget and blind reviewer counts from a flow execution push', async () => {
+/**
+ * Waits until `look` stops throwing, and hands back what it returned.
+ *
+ * What is waited for arrives from timers the test does not drive, so there is
+ * nothing for `act` to flush: it would hold React's own work back until its
+ * scope closed, and the wait would watch a screen that cannot change. While it
+ * waits, React is told it is not under `act`, as Testing Library's `waitFor`
+ * does, so an update that arrives on its own is rendered rather than warned of.
+ */
+const eventually = async <T,>(look: () => T): Promise<T> => {
+  const environment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  environment.IS_REACT_ACT_ENVIRONMENT = false
+  try {
+    return await vi.waitFor(look, { timeout: LOADED_MACHINE_MS, interval: 10 })
+  } finally {
+    environment.IS_REACT_ACT_ENVIRONMENT = true
+  }
+}
+
+it('refreshes the round budget and blind reviewer counts from a flow execution push', { timeout: TEST_MS }, async () => {
   const store = new AppStore('ws://localhost:0/')
   let current = runView({ round: 5, finished: 5, total: 5, embargoed: true, reviewersFinished: 1, reviewersTotal: 2 })
   let lists = 0
@@ -111,18 +144,21 @@ it('refreshes the round budget and blind reviewer counts from a flow execution p
   act(() => {
     root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
   })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
-  expect(container.textContent).toContain('Round5 of 5')
-  expect(container.textContent).toContain('1 of 2 reviewers finished')
+  await eventually(() => {
+    expect(container.textContent).toContain('Round5 of 5')
+    expect(container.textContent).toContain('1 of 2 reviewers finished')
+  })
 
   current = runView({ round: 7, finished: 7, total: 8, embargoed: true, reviewersFinished: 2, reviewersTotal: 3 })
   const listsBefore = lists
   notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: { extraRound: { after: 5, reason: 'make room', count: 3 } } } as never } })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
-  expect(container.textContent).toContain('Round7 of 8')
-  expect(container.textContent).toContain('2 of 3 reviewers finished')
+  await eventually(() => {
+    expect(container.textContent).toContain('Round7 of 8')
+    expect(container.textContent).toContain('2 of 3 reviewers finished')
+  })
   // The run views only: a push that moves a run must not reload the list, or
   // a person paging through findings is sent back to the first page (#1091).
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, QUIET_MS)) })
   expect(lists).toBe(listsBefore)
 })
 
