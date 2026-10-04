@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { constants } from 'node:fs'
+import { constants, rmSync } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { devNull } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -315,6 +315,77 @@ const storage = async (commonDir: string): Promise<'sha1' | 'sha256'> => {
   return format
 }
 
+/** A view's folder name, ahead of the six characters `mkdtemp` adds; the pid says whose it is. */
+const VIEW_PREFIX = 'provenance-view-'
+const VIEW_NAME = /^provenance-view-(?:(\d{1,10})-)?[A-Za-z0-9]{6}$/
+
+/**
+ * Every view this process made and has not yet removed: what its exit removes
+ * and what a sweep must leave alone. A view is a folder under the state
+ * directory that only `close()` used to remove, so one that never saw
+ * `close()` stayed.
+ */
+const viewsLive = new Set<string>()
+let removeAtExit = false
+const removeViewsNow = (): void => {
+  for (const viewDir of viewsLive) {
+    try {
+      rmSync(viewDir, { recursive: true, force: true })
+    } catch {
+      // The next start sweeps it.
+    }
+  }
+}
+
+/** Remove a handle's view, once and for all; calling it again is harmless. */
+export const releaseProject = async (handle: RepoHandle): Promise<void> => {
+  viewsLive.delete(handle.viewDir)
+  await rm(handle.viewDir, { recursive: true, force: true })
+}
+
+const running = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Remove the views in `stateDir` that nothing owns: left behind by a process
+ * that ended without closing them, or by an older build. It looks only at the
+ * entries of that one folder, only at plain folders whose names a view's would
+ * have, and leaves any that this process has open or that another running
+ * process made. Answers the names it removed.
+ */
+export const sweepViews = async (stateDir: string): Promise<readonly string[]> => {
+  const root = await realpath(stateDir).catch((error: unknown) => {
+    if (missing(error)) return null
+    throw error
+  })
+  if (root === null) return []
+  const removed: string[] = []
+  for (const name of await readdir(root)) {
+    const owner = VIEW_NAME.exec(name)
+    if (!owner) continue
+    const folder = join(root, name)
+    if (viewsLive.has(folder)) continue
+    const pid = owner[1] === undefined ? null : Number(owner[1])
+    if (pid !== null && pid !== process.pid && running(pid)) continue
+    // A file or a link of that name is somebody else's; only a plain folder is a view.
+    const info = await lstat(folder).catch(() => null)
+    if (!info?.isDirectory()) continue
+    try {
+      await rm(folder, { recursive: true, force: true })
+      removed.push(name)
+    } catch {
+      // Left for the next start.
+    }
+  }
+  return removed.sort()
+}
+
 export const admitProject = async (
   root: string,
   stateDir: string,
@@ -390,7 +461,12 @@ export const admitProject = async (
   const stamps = new Map<string, string>()
   for (const path of [commonDir, objectDir, ...checkouts.values()]) stamps.set(path, await identity(path))
   await mkdir(stateDir, { recursive: true })
-  const viewDir = await mkdtemp(join(await realpath(stateDir), 'provenance-view-'))
+  const viewDir = await mkdtemp(join(await realpath(stateDir), `${VIEW_PREFIX}${process.pid}-`))
+  viewsLive.add(viewDir)
+  if (!removeAtExit) {
+    removeAtExit = true
+    process.once('exit', removeViewsNow)
+  }
   try {
     await mkdir(join(viewDir, 'refs'))
     await mkdir(join(viewDir, 'objects'))
@@ -402,6 +478,7 @@ export const admitProject = async (
     admissions.set(handle, { walk, stamps, pointers })
     return handle
   } catch (error) {
+    viewsLive.delete(viewDir)
     await rm(viewDir, { recursive: true, force: true })
     throw error
   }
@@ -823,7 +900,7 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
       lifetime.abort()
       await queue
       forget()
-      await rm(handle.viewDir, { recursive: true, force: true })
+      await releaseProject(handle)
     },
   }
   return reader

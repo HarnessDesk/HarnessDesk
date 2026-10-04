@@ -10,7 +10,7 @@ import type { EvidencePlane } from '../evidence/plane.js'
 import { foldSeats } from '../evidence/records.js'
 import { sameCanonicalPath } from '../path-identity.js'
 import { exportProvenance, importProvenance } from './backup.js'
-import { admitProject, gitReader, oid, type GitReader, type ReaderOptions, type RepoHandle } from './git.js'
+import { admitProject, gitReader, oid, releaseProject, sweepViews, type GitReader, type ReaderOptions, type RepoHandle } from './git.js'
 import { captureHealth } from './health.js'
 import { digest, object, ProvenanceJournal, readCheckpoint, type JournalEntry } from './journal.js'
 import { RefObserver, type WorkerCheckpoint } from './observer.js'
@@ -78,6 +78,8 @@ export class ProvenancePlane {
   #aliases = new Map<string, string>()
   #journals = new Map<string, ProvenanceJournal>()
   #roots: readonly string[] = []
+  /** Every project folder this plane admitted and has not released: whatever else happens, none outlives `close()`. */
+  #handles = new Set<RepoHandle>()
   #revision = 0
   #generation = 0
   #closed = false
@@ -92,8 +94,24 @@ export class ProvenancePlane {
   async start(): Promise<void> {
     await this.#preferences.load()
     if (this.#closed) return
+    // Views a process that ended without closing them left behind; none of this plane's exists yet.
+    await sweepViews(this.#port.stateDir).catch(() => this.#port.log('provenance views could not be swept'))
+    if (this.#closed) return
     this.#started = true
     this.setProjects(this.#port.projects())
+  }
+
+  async #admit(root: string, roots: readonly string[]): Promise<RepoHandle> {
+    const handle = await admitProject(root, this.#port.stateDir, roots)
+    this.#handles.add(handle)
+    return handle
+  }
+
+  /** Give a handle's view back. Safe to call for a handle already released, or for none. */
+  async #release(handle: RepoHandle | null): Promise<void> {
+    if (!handle) return
+    this.#handles.delete(handle)
+    await releaseProject(handle).catch(() => this.#port.log('a provenance view could not be removed'))
   }
 
   #queue<T>(work: () => Promise<T>): Promise<T> {
@@ -118,21 +136,21 @@ export class ProvenancePlane {
         if (generation !== this.#generation || this.#closed) return
         let handle: RepoHandle | null = null
         try {
-          handle = await admitProject(root, this.#port.stateDir, next)
+          handle = await this.#admit(root, next)
           if (generation !== this.#generation || this.#closed) {
-            await gitReader(handle).close()
+            await this.#release(handle)
             return
           }
           this.#aliases.set(root, handle.project)
           if (this.#projects.has(handle.project)) {
-            await gitReader(handle).close()
+            await this.#release(handle)
             continue
           }
           const state = this.#state(handle.project, handle)
           this.#projects.set(handle.project, state)
           await this.#open(state)
         } catch (error) {
-          if (handle) await gitReader(handle).close().catch(() => {})
+          await this.#release(handle)
           const state = this.#state(root, null)
           this.#projects.set(root, state)
           this.#aliases.set(root, root)
@@ -228,12 +246,19 @@ export class ProvenancePlane {
   }
 
   async #open(state: Project): Promise<void> {
-    await this.#prepare(state.project)
+    try {
+      await this.#prepare(state.project)
+    } catch (error) {
+      // No observer owns the handle yet, so it goes now, whoever asked and however this ends.
+      await this.#release(state.handle)
+      state.handle = null
+      throw error
+    }
     try {
       await this.#load(state)
       const preference = this.#preferences.get(state.project)
       if (!preference.enabled || preference.problem || !state.handle || this.#closed) {
-        if (state.handle) await gitReader(state.handle).close()
+        await this.#release(state.handle)
         state.handle = null
         this.#publish(state)
         return
@@ -253,7 +278,10 @@ export class ProvenancePlane {
       await observer.start(state.handle, readCheckpoint(state.entries) as WorkerCheckpoint | null)
       if (this.#closed) await this.#stop(state)
     } catch {
-      if (state.handle && !state.observer) await gitReader(state.handle).close()
+      if (!state.observer) {
+        await this.#release(state.handle)
+        state.handle = null
+      }
       this.#problem(state, 'stopped', 'storage-failed')
     }
   }
@@ -336,11 +364,12 @@ export class ProvenancePlane {
       await this.#load(state)
       if (enabled && !this.#closed && this.#roots.includes(root)) {
         try {
-          state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
+          state.handle = await this.#admit(root, this.#roots)
           state.fatal = false
           state.issues.clear()
           await this.#open(state)
         } catch (error) {
+          if (!state.observer) await this.#release(state.handle)
           state.handle = null
           this.#problem(state, 'stopped', 'external-metadata')
           throw error
@@ -370,7 +399,7 @@ export class ProvenancePlane {
       if (preference.problem) this.#problem(state, 'stopped', preference.problem)
       if (preference.enabled && !this.#closed) {
         try {
-          state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
+          state.handle = await this.#admit(root, this.#roots)
         } catch (error) {
           state.handle = null
           this.#problem(state, 'stopped', 'external-metadata')
@@ -420,6 +449,8 @@ export class ProvenancePlane {
     const observer = state.observer
     state.observer = null
     if (observer) await observer.close().catch(() => this.#problem(state, 'stopped', 'storage-failed'))
+    // The observer's reader removed its view; a handle nothing opened a reader on still has one.
+    await this.#release(state.handle)
     state.handle = null
   }
 
@@ -429,6 +460,8 @@ export class ProvenancePlane {
     for (const state of this.#projects.values()) void state.observer?.close().catch(() => {})
     await this.#tail
     for (const state of this.#projects.values()) await this.#stop(state)
+    // Whatever else was admitted and never stopped: a state that was replaced, an admission that failed half way.
+    for (const handle of [...this.#handles]) await this.#release(handle)
     for (const journal of this.#journals.values()) {
       await journal.flush().catch(() => this.#port.log('provenance observations could not be saved'))
     }
