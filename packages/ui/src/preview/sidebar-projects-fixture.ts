@@ -208,6 +208,7 @@ export const sidebarProjectsFixture = (base: AppSnapshot): AppSnapshot => {
   return {
     ...base,
     history: projectsHistory,
+    historyIdentity: projectsHistory,
     foldersGone: projectsGone,
     sessions: new Map(),
     approvals: [],
