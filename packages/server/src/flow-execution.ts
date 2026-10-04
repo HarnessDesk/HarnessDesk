@@ -335,7 +335,7 @@ export interface FlowExecutionPort {
    * it away, forced, whatever the check left in it. A retained Flow base
    * check is named apart from temporary checks and survives startup cleanup.
    */
-  checkoutAt?(cwd: string, at: string, options?: { readonly retained?: true }): Promise<{ readonly cwd: string; remove(): Promise<void> }>
+  checkoutAt?(cwd: string, at: string, options?: { readonly retained?: true; readonly signal?: AbortSignal }): Promise<{ readonly cwd: string; remove(): Promise<void> }>
   commitWork?(cwd: string, before: readonly string[], message: string): Promise<
     { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
   >
@@ -1935,7 +1935,7 @@ export class FlowExecutions {
     const check = chosen.check
     let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
     try {
-      const checkout = await this.#port.checkoutAt(seat.checkout.cwd, at)
+      const checkout = await this.#port.checkoutAt(seat.checkout.cwd, at, { signal: controller.signal })
       try {
         let where = checkout.cwd
         if (check.cwd) {
@@ -3493,7 +3493,19 @@ export class FlowExecutions {
     if (relative !== null) {
       try { insideRelative(relative) } catch { return { context, targets: [{ cwd: root, at: null }], refused: CHECK_CWD_OUTSIDE } }
     }
-    const checkout = await this.#port.checkoutAt(root, run.base.at, { retained: true })
+    // Planning holds the run queue too: register before cutting the tree so
+    // Stop, pause and disposal reach this write without waiting for planning.
+    const controller = new AbortController()
+    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
+    this.#checks.set(run.goal, running.add(controller))
+    if (this.#stopRequests.has(run.id)) controller.abort()
+    let checkout: Awaited<ReturnType<NonNullable<FlowExecutionPort['checkoutAt']>>>
+    try {
+      checkout = await this.#port.checkoutAt(root, run.base.at, { retained: true, signal: controller.signal })
+    } finally {
+      running.delete(controller)
+      if (running.size === 0) this.#checks.delete(run.goal)
+    }
     let cwd = checkout.cwd
     if (relative !== null) {
       try { cwd = await (await ConfinedTree.open(cwd)).resolveDir(insideRelative(relative)) }
