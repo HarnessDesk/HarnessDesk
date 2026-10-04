@@ -681,6 +681,16 @@ Passive capture cannot recover a ref move whose reflog and objects Git no longer
 
 **The rule:** ambiguity remains visible; a rewritten association never refreshes the original checks, reviews or evidence.
 
+## Provenance capture does bounded work and leaves nothing behind
+
+Capture runs for as long as the desk does. A history of N commits offers about 63 ranges to each (every first-parent suffix of up to 64 commits), and reading one costs Git processes, so a pass that read them again on every wake kept one desk's host busy for hours over a repository that had not changed: a range it could not read, or a history longer than 64 commits, was enough to keep the pass from ever being skipped. A pass now does a bounded amount of work, and only when something it reads has changed: a commit or ref move, a fact, a Seat. A range that could not be read (an object pruned, or never fetched) waits for such a change; it never starts a pass by itself and never takes the place of a range not yet tried.
+
+What the reader keeps is what Git can never contradict. An object id names its content, so what Git said about one stays true; but an object that is missing now can be fetched later, so a miss is never remembered. Speed does not buy back a check: the metadata, pointer and object-format checks run before any kept answer is served, once for a batch of reads rather than once per read, and a check that fails empties everything kept.
+
+The private view capture reads through is a folder in the state directory. Whoever makes one removes it on every path they control (the reader closing, an admission abandoned half way, the process exiting), and at startup the views no live handle owns are swept, which is all that can be done about a process that was killed. A view's name carries its process id, so one desk never sweeps a view another running process is using.
+
+**The rule:** capture's work is bounded and skipped when nothing it reads has changed; what it keeps is only what Git cannot contradict; and a view it makes is removed by whoever made it, or by the next start.
+
 ## A Goal is finite; Seats and receipts are the authority
 
 Rooms accumulated three competing truths: a member array, the conversations
