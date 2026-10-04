@@ -21,7 +21,7 @@ export type RunViewTab = 'timeline' | 'flow'
 const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber }: {
+export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber }: {
   model: ReturnType<typeof runTimeline>
   number: number
   selectedRow: string | null
@@ -37,6 +37,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
   /** Which half shows, when the caller chooses it; left out, the view keeps it itself. */
   view?: RunViewTab
   onView?: (view: RunViewTab) => void
+  onStop?: (() => void) | undefined
   onRunAgain?: () => void
   onWrap?: () => void
   onBoard?: () => void
@@ -64,6 +65,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
         : <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>}
       {header.continues && <Text role="meta">Continues {continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</Text>}
       {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
+      {header.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
       {flow && <span className="ml-auto"><Segmented label="Show the Run as" value={showing} options={TABS}
         onChange={showView} /></span>}
     </PaneColumn>
@@ -88,7 +90,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
             const line = doingLine(previous, next, now)
             held.current.set(row.id, line)
             const duration = row.durationMs ?? (row.working && row.since !== null ? Math.max(0, now - row.since) : null)
-            const rest = row.status === 'Done' || row.status === 'Abandoned' || row.status === 'Waiting' || row.status === 'Result unavailable'
+            const rest = row.status === 'Done' || row.status === 'Abandoned' || row.status === 'Stopped' || row.status === 'Waiting' || row.status === 'Result unavailable'
             const selectedChip = selectedRow === row.id && !row.attention
             const status = row.status && (rest ? <Text role="meta">{row.status}</Text> : <Chip tone={row.attention ? 'warning' : 'neutral'} variant={selectedChip ? 'outline' : 'default'} emphasis={selectedChip}>{words(row.status)}</Chip>)
             const title = <span className="flex min-w-0 flex-wrap items-center gap-2">

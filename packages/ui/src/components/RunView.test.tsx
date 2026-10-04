@@ -10,6 +10,45 @@ import { runFixture } from '../preview/run-view-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+it('keeps a resumed Run Working with a ticking duration and doing line', () => {
+  vi.useFakeTimers()
+  const fixture = runFixture('running')
+  const since = fixture.cards[3]!.claim!.at
+  vi.setSystemTime(since + 60_000)
+  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, endedAt: since - 60_000, currentEndedAt: null } })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunView model={model} number={1} selectedRow="card-4-4" onSelect={() => {}} doing={new Map([['seat-0', 'Editing the retry']])} />))
+    const card = container.querySelector('[data-row="card-4-4"]')!
+    expect(card.textContent).toContain('Working')
+    expect(card.textContent).toContain('1m so far')
+    expect(card.textContent).toContain('Editing the retry')
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(card.textContent).toContain('2m so far')
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})
+
+it('shows a stopped claimed card as quiet Stopped with a frozen clock and no doing line', () => {
+  vi.useFakeTimers()
+  const fixture = runFixture('running')
+  const since = fixture.cards[3]!.claim!.at
+  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, state: 'stopped', endedAt: since + 60_000, currentEndedAt: since + 60_000, end: { kind: 'stopped', by: 'person' } } })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunView model={model} number={1} selectedRow="card-4-4" onSelect={() => {}} doing={new Map([['seat-0', 'Editing the retry']])} />))
+    const card = container.querySelector('[data-row="card-4-4"]')!
+    expect(card.textContent).toContain('Stopped')
+    expect(card.textContent).toContain('1m')
+    expect(card.querySelector('[data-slot="chip"]')).toBeNull()
+    expect(card.textContent).not.toMatch(/Working|so far|Editing the retry/)
+    const frozen = card.textContent
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(card.textContent).toBe(frozen)
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})
+
 it('selects a stable row id and sanitizes the brief and in-flight words', () => {
   const container = document.createElement('div')
   document.body.append(container)
@@ -62,6 +101,15 @@ const withFlow = (props: Partial<Parameters<typeof RunView>[0]> = {}) => {
   return { container, done: () => { act(() => root.unmount()); container.remove() } }
 }
 
+it.each(['running', 'stopped', 'settled', 'stalled'] as const)('offers Stop run… in the header only when the Run is running (%s)', state => {
+  const onStop = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline({ execution: overviewRun(state), cards: [] }), onStop })
+  try {
+    const stop = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="run-header"] button')].find(one => one.textContent === 'Stop run…')
+    if (state === 'running') { expect(stop).toBeDefined(); act(() => stop!.click()); expect(onStop).toHaveBeenCalledOnce() }
+    else expect(stop).toBeUndefined()
+  } finally { done() }
+})
 it('does not invent a new ending door for a legacy Run without an end kind', () => {
   const { container, done } = withFlow({ model: runTimeline({ execution: { ...runFixture('stopped').execution, end: undefined }, cards: [] }), onRunAgain: () => {} })
   try { expect(container.querySelector('[data-slot="run-ending"] button')).toBeNull() } finally { done() }

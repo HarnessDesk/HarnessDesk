@@ -72,7 +72,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, attemp
     return [seat.record.id, teamSeatCost({ team: execution.goal, report: usage }, seat.record.id, metered)]
   }))
   return <RunWorkspace {...view} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
-    input: { execution, cards, origin,
+    input: { execution, cards, origin, sessions: snapshot.sessions,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
       findings: findingsList?.rows,
@@ -85,6 +85,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, attemp
     ...(attemptsRead ? { attemptsRead } : {}),
     // The same requests the board makes, so a card answered or abandoned here is one thing to the host.
     onAbandon: card => store.teamIntent(execution.goal, card, 'abandon'),
+    onStop: view.onStop,
     onAnswer: (card, outcome, note) => answerStep(store, execution.goal, card, outcome, note),
     ...(onOpenBoard ? { onOpenBoard } : {}),
     reviewActions: {goal:execution.goal,run:execution.id,stamp:snapshot.findingRuns.get(execution.id)?.stamp ?? "reading"},

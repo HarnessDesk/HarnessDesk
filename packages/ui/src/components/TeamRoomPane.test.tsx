@@ -153,6 +153,7 @@ const rig = (
   goal: GoalView | null = null,
   /** Cached runs already in the store — a reused Goal's own id can carry more than one across its lifetime. */
   flowExecutions: ReadonlyMap<string, FlowExecution> = new Map(),
+  flowStopProblems: ReadonlyMap<string, { reason: string; message: string }> = new Map(),
 ) => {
   const session = {
     id: 'c1',
@@ -181,6 +182,7 @@ const rig = (
       teams: new Map([[ROOM, team]]),
       goals: new Map(goal ? [[ROOM, goal]] : []),
       flowExecutions: new Map(flowExecutions),
+      flowStopProblems: new Map(flowStopProblems),
     }) as AppSnapshot
   let snapshot = snapshotOf()
   const store = {
@@ -487,6 +489,94 @@ const GOAL: GoalView = {
 } as unknown as GoalView
 
 const FLOW_DOCUMENT = { format: 'agents' as const, flow: { version: 2 as const, name: 'Review', inputs: [], roles: [], rules: [], seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 } }
+
+it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from capabilities rather than the runtime’s identity', async door => {
+  const members = [
+    { id: 'alpha', session: { runtime: 'codex', sessionId: 'c1' }, agent: { name: 'Alpha' }, openedAt: 1, closed: null },
+    { id: 'beta', session: { runtime: 'claude', sessionId: 'k1' }, agent: { name: 'Beta' }, openedAt: 1, closed: null },
+    { id: 'closed', session: { runtime: 'codex', sessionId: 'old' }, agent: { name: 'Closed Seat' }, openedAt: 1, closed: { at: 2 } },
+    { id: 'other-run', session: { runtime: 'codex', sessionId: 'other' }, agent: { name: 'Other Run Seat' }, openedAt: 1, closed: null },
+  ] as unknown as GoalView['members']
+  const execution: FlowExecution = { version: 2, id: 'stop-me', goal: ROOM, document: FLOW_DOCUMENT, state: 'running',
+    reason: null, operations: [], legacyRun: null,
+    rounds: [{ n: 1, role: 'reviewer', cards: [], seats: ['alpha', 'beta', 'closed'], state: 'running', cause: 'seed', evidence: [] }] }
+  const runs = new Map([[execution.id, execution]])
+  const { store, pushes } = rig([], [
+    { id: 'codex', presentation: { name: 'Agent A' }, capabilities: { interrupt: false } },
+    { id: 'claude', presentation: { name: 'Agent B' }, capabilities: { interrupt: true } },
+  ], { members: [] }, { ...GOAL, members }, runs)
+  const stopping = vi.fn(async (_run: string, reason: string) => {
+    const stopped: FlowExecution = { ...execution, state: 'stopped', reason, end: { kind: 'stopped', by: 'person' } }
+    runs.set(execution.id, stopped)
+    await pushes({ updatedAt: 2 })
+    return stopped
+  })
+  store.stopFlowExecution = stopping
+  await render(store)
+  if (door === 'Run') { act(() => row('Run').click()); await act(async () => {}) }
+  const frame = container.querySelector(door === 'Run' ? '[data-slot="run-header"]' : '[aria-label="Run"]')!
+  act(() => [...frame.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.click())
+  const question = document.body.querySelector('[role="alertdialog"]')!
+  expect([...question.querySelectorAll('[data-stop-seat]')].map(one => one.textContent)).toEqual([
+    'Alphastops when its current turn ends', 'Betastops now',
+  ])
+  await act(async () => [...question.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run')!.click())
+  expect(stopping).toHaveBeenCalledWith('stop-me', 'You stopped this Run. No further step starts.')
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(container.textContent).not.toContain('Stop run…')
+  if (door === 'Run') expect(container.textContent).toContain('Stopped by you')
+})
+
+it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rejection and %s dismissal, even after reopening the pane', async dismissal => {
+  const execution: FlowExecution = { version: 2, id: 'stop-me', goal: ROOM, document: FLOW_DOCUMENT, state: 'running',
+    reason: null, operations: [], legacyRun: null, rounds: [] }
+  const runs = new Map([[execution.id, execution]])
+  const problems = new Map<string, { reason: string; message: string }>()
+  const { store, pushes } = rig([], [], { members: [] }, GOAL, runs, problems)
+  let reject!: (error: Error) => void
+  const stopped: FlowExecution = { ...execution, state: 'stopped', reason: 'The brief changed.', end: { kind: 'stopped', by: 'person' } }
+  const stopping = vi.fn().mockImplementationOnce(() => new Promise<void>((_yes, no) => { reject = no })).mockImplementationOnce(async () => {
+    problems.delete(execution.id)
+    await pushes({ updatedAt: 4 })
+    return stopped
+  })
+  store.stopFlowExecution = stopping
+  await render(store)
+  const click = (scope: Element, name: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)!.click()
+  act(() => click(container, 'Stop run…'))
+  let question = document.body.querySelector('[role="alertdialog"]')!
+  act(() => {
+    const input = question.querySelector('input')!
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'The brief changed.')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => click(question, 'Stop run'))
+  runs.set(execution.id, stopped)
+  await pushes({ updatedAt: 2 })
+  expect(container.textContent).not.toContain('Stop run…')
+  problems.set(execution.id, { reason: 'The brief changed.', message: 'One Seat could not be released.' })
+  await pushes({ updatedAt: 3 })
+  await act(async () => reject(new Error('One Seat could not be released.')))
+  expect(question.textContent).toContain('One Seat could not be released.')
+  await act(async () => {
+    if (dismissal === 'Close') click(question, 'Close')
+    else question.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+  act(() => root.render(null))
+  await render(store)
+  expect(container.textContent).toContain('One Seat could not be released.')
+  act(() => click(container, 'Retry stop…'))
+  question = document.body.querySelector('[role="alertdialog"]')!
+  expect(question.querySelector('input')?.value).toBe('The brief changed.')
+  expect(question.textContent).not.toContain('Keep running')
+  expect(question.textContent).toContain('One Seat could not be released.')
+  await act(async () => click(question, 'Retry stop'))
+  expect(stopping).toHaveBeenLastCalledWith('stop-me', 'The brief changed.')
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(container.textContent).not.toContain('Retry stop…')
+  expect(container.textContent).not.toContain('One Seat could not be released.')
+})
 
 /**
  * The commit a review run is pinned to, in the header's own meta line — moved
@@ -1783,6 +1873,26 @@ it('keeps an unrouted settled Run’s reason in the production Overview', async 
   const run = container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')!
   expect(run.textContent).toContain(reason)
   expect(run.textContent?.split(reason)).toHaveLength(2)
+})
+
+it('reads a retained claim as Stopping in Overview, the timeline and inspector after Stop', async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped', endedAt: 60_001, currentEndedAt: 60_001,
+    rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], state: 'closed', cause: 'seed', evidence: [] }],
+    operations: [], legacyRun: null, reason: null,
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  const overview = container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')!
+  expect(overview.textContent).toContain('#1 · Migrate auth callers · Stopping · 1m')
+  expect(overview.textContent).not.toContain('is working')
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  const card = container.querySelector<HTMLButtonElement>('[data-row="card-1-1"]')!
+  expect(card.textContent).toContain('Stopping')
+  expect(card.textContent).not.toMatch(/Working|so far/)
+  await act(async () => card.click())
+  expect(container.querySelector('[data-slot="run-inspector"] [data-slot="inspector-tools"]')?.textContent).toContain('Stopping')
 })
 
 /**

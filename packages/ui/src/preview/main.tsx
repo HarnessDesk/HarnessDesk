@@ -81,6 +81,7 @@ import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
 import { TeamOverviewFrames } from './frames-team-overview'
+import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -1068,6 +1069,7 @@ const Preview = () => {
       </Frame>
       <GoalFrames />
       <RunAgainFrames />
+      <StopRunDialogFrames scene={STOP_RUN_DIALOG_STATES.find(one => one === new URLSearchParams(window.location.search).get('stop-run-dialog'))} />
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
@@ -1079,6 +1081,7 @@ const Preview = () => {
       {new URLSearchParams(window.location.search).has('sidebar-structure') && <SidebarStructureExample />}
       {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
+      {new URLSearchParams(window.location.search).has('stop-run') && <StopRunFrames scene={STOP_RUN_STATES.find(one => one === new URLSearchParams(window.location.search).get('stop-run')) ?? 'running'} />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
       {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}
     </div>

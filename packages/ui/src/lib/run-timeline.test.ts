@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeId, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, turnId, type Session, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from './run-timeline'
 
 const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
@@ -12,9 +12,73 @@ const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
 })
 const card = (patch: Partial<Intent> = {}): Intent => ({ id: 1, title: 'Build', state: 'claimed', claim: { runtime: runtimeId('agent'), sessionId: 'alpha', at: 100 }, createdAt: 50, updatedAt: 300, files: [], dependsOn: [], ...patch })
 const signal = (at: number, event: TeamSignal['signal']): TeamSignal => ({ id: `${event}-${at}`, kind: 'signal', at, signal: event, intent: 1, title: 'Build', by: { kind: 'agent', runtime: runtimeId('agent'), sessionId: 'alpha', title: 'Alpha' } })
+const session = (startedAt = 100, busy = true): Session => ({ runtime: runtimeId('agent'), id: sessionId('alpha'), cwd: '/work/project',
+  createdAt: 50, updatedAt: 300, itemsLoaded: true, status: { type: busy ? 'active' : 'idle' },
+  turns: [{ id: turnId('turn'), startedAt, status: busy ? 'inProgress' : 'completed', items: [] }] })
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it('restores live claimed work after a stopped Run resumes, despite its historical end', () => {
+    const execution = { ...run({ endedAt: 250 }), currentEndedAt: null }
+    const resumed = card({ claim: { ...card().claim!, at: 400 }, updatedAt: 400 })
+    expect(runTimeline({ execution, cards: [resumed] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Working', working: true, since: 400, durationMs: null })
+  })
+  it('does not infer the current ending or its turn from an older Run’s first departure', () => {
+    const execution = run({ state: 'stopped', endedAt: 250 })
+    const sessions = new Map([[sessionKey('agent', 'alpha'), session(100)]])
+    const model = runTimeline({ execution, cards: [card()], sessions })
+    expect(model.rows.find(row => row.card === 1)).toMatchObject({ status: 'Stopped', working: false, durationMs: null })
+    expect(model.rows.at(-1)?.since).toBeNull()
+  })
+  it('uses the second stop after a stall and resume for retained work and the end row', () => {
+    const execution = { ...run({ state: 'stopped', endedAt: 250, currentEndedAt: 250 }), currentEndedAt: 700 }
+    const resumed = card({ claim: { ...card().claim!, at: 400 }, updatedAt: 400 })
+    for (const busy of [true, false]) {
+      const sessions = new Map([[sessionKey('agent', 'alpha'), session(400, busy)]])
+      const model = runTimeline({ execution, cards: [resumed], sessions })
+      expect(model.rows.find(row => row.card === 1))
+        .toMatchObject({ status: busy ? 'Stopping' : 'Stopped', working: false, durationMs: 300 })
+      expect(model.rows.at(-1)?.since).toBe(700)
+    }
+    expect(execution.endedAt).toBe(250)
+  })
+  it('keeps a completed post-resume claim and round at their true duration', () => {
+    const completed = card({ state: 'done', outcome: 'published', claim: null, updatedAt: 650 })
+    const signals = [signal(100, 'claimed'), signal(300, 'completed'), signal(400, 'claimed'), signal(650, 'completed')]
+    for (const state of ['running', 'settled'] as const) {
+      const execution = { ...run({ state, endedAt: 250, rounds: [{ ...run().rounds[0]!, state: 'closed' }] }), currentEndedAt: state === 'running' ? null : 700 }
+      const model = runTimeline({ execution, cards: [completed], signals })
+      expect(model.rows.find(row => row.card === 1)).toMatchObject({ status: 'Published', durationMs: 250, working: false })
+      expect(model.rows.find(row => row.kind === 'round')?.durationMs).toBe(250)
+    }
+  })
+  it.each(['stopped', 'settled', 'stalled'] as const)('freezes claimed work when the Run is %s, until and after its turn ends', state => {
+    const execution = run({ state, endedAt: 250, currentEndedAt: 250 })
+    for (const busy of [true, false]) {
+      const sessions = new Map([[sessionKey('agent', 'alpha'), session(100, busy)]])
+      expect(runTimeline({ execution, cards: [card()], sessions }).rows.find(row => row.card === 1))
+        .toMatchObject({ status: busy ? 'Stopping' : 'Stopped', working: false, durationMs: 150 })
+    }
+  })
+  it('does not call an absent or later follow-up turn Stopping, or invent a missing end time', () => {
+    for (const sessions of [undefined, new Map([[sessionKey('agent', 'alpha'), session(400)]])]) {
+      expect(runTimeline({ execution: run({ state: 'stopped', endedAt: 250, currentEndedAt: 250 }), cards: [card()], sessions }).rows.find(row => row.card === 1))
+        .toMatchObject({ status: 'Stopped', working: false, durationMs: 150 })
+    }
+    expect(runTimeline({ execution: run({ state: 'stopped' }), cards: [card()] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Stopped', working: false, durationMs: null })
+  })
+  it('keeps a late completion duration bounded by the Run end without losing its answer', () => {
+    expect(runTimeline({ execution: run({ state: 'stopped', endedAt: 250, currentEndedAt: 250 }), cards: [card({ state: 'done', outcome: 'published' })] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Published', working: false, durationMs: 150 })
+  })
+  it.each(['verify', 'person'])('does not leave a claimed %s step Working after the Run ends', role => {
+    const execution = run({ state: 'stopped', endedAt: 250, currentEndedAt: 250, rounds: [{ ...run().rounds[0]!, role }],
+      operations: [{ key: 'check', kind: 'check', state: 'started', seat: null, card: 1 }] })
+    expect(runTimeline({ execution, cards: [card()] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Stopped', working: false, durationMs: 150 })
+  })
   it('a completed Run says nothing waits even when its recorded reason predates that distinction', () => {
     const model = runTimeline({ execution: run({ state: 'settled', end: { kind: 'complete' }, reason: 'No rule continues, so this waits for you.' }), cards: [] })
     expect(model.rows.at(-1)?.detail).toBe('Nothing waits.')

@@ -1,4 +1,4 @@
-import { checkRetryRefusal, type BoardEvidence, type FindingRunView, type FindingView, type FlowCheckAttempt, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { checkRetryRefusal, currentTurn, isBusy, sessionKey, type Session, type SessionKey, type BoardEvidence, type FindingRunView, type FindingView, type FlowCheckAttempt, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { lifecycleWords } from './findings'
 import { reviewPublication, runPublication, type ReviewPublication } from './review-publication'
 import { wordOf } from './agents'
@@ -46,6 +46,8 @@ export interface RunTimelineRow {
 export interface RunTimelineInput {
   execution: FlowExecution
   cards: readonly Intent[]
+  /** Live conversations qualify a retained claim after the Run ends. */
+  sessions?: ReadonlyMap<SessionKey, Session> | undefined
   signals?: readonly TeamSignal[]
   evidence?: BoardEvidence | null
   findings?: readonly FindingView[]
@@ -83,6 +85,7 @@ const endTitle = (execution: FlowExecution): string => {
 }
 export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows: RunTimelineRow[] } {
   const execution = input.execution
+  const endedAt = execution.state !== 'running' ? execution.currentEndedAt ?? null : null
   const findingRun = input.findingRun?.run === execution.id && input.findingRun.goal === execution.goal ? input.findingRun : null
   const publication = runPublication(findingRun, input.publicationOn !== false)
   const needsYou = publication?.needsYou === true || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
@@ -97,7 +100,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     const starts = cards.flatMap(one => { const at = one ? claimAt(one, input.signals ?? []) : null; return at === null ? [] : [at] })
     const since = starts.length === cards.length && starts.length ? Math.min(...starts) : null
     const durationMs = round.state === 'closed' && since !== null && cards.every(Boolean)
-      ? Math.max(0, Math.max(...cards.map(one => one!.updatedAt)) - since) : null
+      ? Math.max(0, Math.min(Math.max(...cards.map(one => one!.updatedAt)), endedAt ?? Infinity) - since) : null
     rows.push(row(`round-${round.n}`, 'round', `Round ${round.n} · ${round.role}`, {
       round: round.n, detail: `${finished} of ${round.cards.length} answered`, durationMs,
     }))
@@ -111,10 +114,13 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       const card = cards[index]
       if (!card) { rows.push(row(`card-${round.n}-${id}`, 'card', `#${id} · Card unavailable`, { round: round.n, card: id })); return }
       const since = claimAt(card, input.signals ?? [])
-      const durationMs = terminal(card) && since !== null ? Math.max(0, card.updatedAt - since) : null
       const operation = [...execution.operations].reverse().find(one => one.kind === 'check' && one.card === id)
       const uncertain = role?.kind === 'check' && operation?.state === 'uncertain'
-      const working = role?.kind === 'check' ? operation?.state === 'started' : card.state === 'claimed'
+      const inFlight = role?.kind === 'check' ? operation?.state === 'started' : card.state === 'claimed'
+      const working = execution.state === 'running' && inFlight
+      const stoppedWork = execution.state !== 'running' && !terminal(card) && (card.state === 'claimed' || inFlight)
+      const until = terminal(card) ? Math.min(card.updatedAt, endedAt ?? Infinity) : stoppedWork ? endedAt : null
+      const durationMs = since !== null && until !== null ? Math.max(0, until - since) : null
       const outcome = card.outcome == null ? null : wordOf(card.outcome)
       let status: string = outcome ?? (working ? 'Working' : card.state === 'done' ? 'Done' : card.state === 'abandoned' ? 'Abandoned' : card.state === 'blocked' ? 'Blocked' : 'Waiting')
       let title = `#${id} · ${card.title}`
@@ -133,7 +139,14 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
         status = uncertain ? 'Needs you' : working ? 'Working' : result?.kind === 'check'
           ? attemptWords({ exit: result.exit, timedOut: result.timedOut, outcome: card.outcome ?? 'pass' }) : outcome ?? 'Result unavailable'
       }
-      const attention = uncertain || personWaiting || (execution.end?.kind === 'unrouted' && execution.end.card === id)
+      if (stoppedWork) {
+        const session = card.claim ? input.sessions?.get(sessionKey(card.claim.runtime, card.claim.sessionId)) : undefined
+        const turn = session ? currentTurn(session) : undefined
+        // A later follow-up in the same conversation is not this Run's turn.
+        const live = session && isBusy(session) && endedAt !== null && (turn?.startedAt == null || turn.startedAt <= endedAt)
+        status = live ? 'Stopping' : 'Stopped'
+      }
+      const attention = (!stoppedWork && (uncertain || personWaiting)) || (execution.end?.kind === 'unrouted' && execution.end.card === id)
       rows.push(row(`${kind}-${round.n}-${id}`, kind, title, { round: round.n, card: id,
         seat: [...execution.operations].reverse().find(one => one.kind === 'seat' && one.card === id && one.seat !== null)?.seat ?? null,
         status, attention, durationMs, since, working, publication: recorded?.cards.includes(id) ? roundPublication : null, retryRefusal }))
@@ -153,7 +166,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     const detail = end?.kind === 'complete' ? 'Nothing waits.'
       : end?.kind === 'budget' ? `${execution.reason ?? ''}${execution.reason ? '\n' : ''}${end.used} round${end.used === 1 ? '' : 's'} ${end.which === 'rounds' ? 'used' : 'without progress'}.`
         : execution.reason ?? (end?.kind === 'unrouted' ? `Card #${end.card} answered ${wordOf(end.outcome)}; no rule follows it.` : publication?.needsYou ? findingRun?.reason ?? null : null)
-    rows.push(row('end', 'end', endTitle(execution), { detail, publication, attention: needsYou, since: execution.endedAt ?? null }))
+    rows.push(row('end', 'end', endTitle(execution), { detail, publication, attention: needsYou, since: endedAt }))
   }
   return { header, rows }
 }

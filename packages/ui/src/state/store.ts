@@ -4617,6 +4617,26 @@ export class AppStore {
     return execution
   }
 
+  /** Stop one Run; the returned record also covers a stale view of a Run that already ended. */
+  async stopFlowExecution(run: string, reason: string): Promise<FlowExecution> {
+    try {
+      const execution = await this.transport.request('flow/execution/stop', { run, reason })
+      const flowExecutions = new Map(this.#snapshot.flowExecutions)
+      flowExecutions.set(execution.id, execution)
+      const flowStopProblems = new Map(this.#snapshot.flowStopProblems)
+      flowStopProblems.delete(run)
+      this.#patch({ flowExecutions, flowStopProblems })
+      return execution
+    } catch (error) {
+      // The stopped push can arrive before a cleanup listener refuses. Keep
+      // that failure outside the dismissible question until a retry succeeds.
+      const flowStopProblems = new Map(this.#snapshot.flowStopProblems)
+      flowStopProblems.set(run, { reason, message: describe(error) || 'The stop could not finish. Try again to finish stopping this Run.' })
+      this.#patch({ flowStopProblems })
+      throw error
+    }
+  }
+
   /**
    * A fresh preview bound to an interrupted check's exact saved source and
    * inputs — `flow/preview`'s own `retry` param validates that equality on

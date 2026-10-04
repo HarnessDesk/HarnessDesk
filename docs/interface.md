@@ -1085,4 +1085,25 @@ A card that has not finished offers **Abandon card…** in its inspector. The
 question says first what the rule after the card's role will do: open the next
 round, end the Run without a next step, wait for the round's other cards, or
 nothing when the Run is not running; a claimed card names who holds it. A
-person's step is answered there with the same controls as the Overview.
+person's step is answered there with the same controls as the Overview. The
+question belongs to that Run and card, closes when the card finishes, and
+offers **Stop the run instead** while the Run is running.
+
+**Stop run…** appears in the running Run's header and its Overview strip.
+The question says first that the Run stops now and no further step starts,
+then lists its open Seats: an Agent that can be interrupted stops now; one
+that cannot stops when its current turn ends. Interruption is best effort;
+if it fails, the turn finishes and nothing follows it. The note is optional
+and limited to 4,096 characters. Cards, findings and recorded cost are kept,
+and the timeline reads **Stopped by you**. A claimed card in an ended Run
+reads **Stopping** while its Seat finishes the current turn, then quiet
+**Stopped**. Its time stops at the Run’s end, with no running clock; the
+Overview’s current step and the card’s inspector read the same state.
+If the Run resumes, its live cards show Working and their clocks run again;
+a later stop fixes their time at that stop.
+**Abandon card…** still releases that card on the board without starting
+another step. A cleanup failure stays with that
+Run in the Team pane, with **Retry stop…**, even after you close the question
+or leave and reopen the pane. The retry keeps your note and clears the failure
+only when cleanup succeeds; a Run that already ended offers **Close**, rather
+than **Keep running**.

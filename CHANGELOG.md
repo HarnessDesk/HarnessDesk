@@ -9,6 +9,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **Stop one Run from its header or Overview.** Stop run… ends the round,
+  asks its Seats to stop and starts no further step. Its question says which
+  Seats stop now and which finish their current turn, accepts an optional
+  note, and keeps cards, findings and recorded cost. Claimed cards read
+  Stopping until their turn ends, then Stopped, with time fixed at the
+  Run’s current end in the timeline and Overview, including after a resume
+  and a later stop. A cleanup failure keeps
+  a retry in the Team pane after its question closes. The abandon question
+  offers Stop the run instead and stays with the card it was opened for;
+  finishing that card or selecting another cannot carry over a late refusal.
+  (Fixes #1342)
+
 - **One repository is one sidebar project.** Team clones and linked worktrees
   share its row. Gone folders leave the list while their conversations remain
   searchable. Seats with no first message are named by their job and Team,

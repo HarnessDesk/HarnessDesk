@@ -258,6 +258,8 @@ export interface FlowExecution {
   readonly startedAt?: number
   /** First departure from running, stamped once; null until then. Absent on older records. */
   readonly endedAt?: number | null
+  /** Current departure from running; cleared on resume. Absent on older records. */
+  readonly currentEndedAt?: number | null
   /** Structured cause of the current departure; reason retains its existing sentence. */
   readonly end?: FlowExecutionEnd | null
   readonly state: 'running' | 'settled' | 'stopped' | 'stalled'

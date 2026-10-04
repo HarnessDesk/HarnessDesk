@@ -28,6 +28,7 @@ import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
+import { StopRunDialog, StopRunFailure } from './StopRunDialog'
 import { RunFlow } from './RunFlow'
 import { useCheckAttempts } from '../state/check-attempts'
 import { runTimeline } from '../lib/run-timeline'
@@ -249,6 +250,16 @@ export const TeamRoomPane = ({
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
   const record = isRecord(goal)
+  const [stoppingRun, setStoppingRun] = useState<string | null>(null)
+  const stoppingExecution = stoppingRun ? snapshot.flowExecutions.get(stoppingRun) : null
+  // Only the open Seats recorded by this Run: a Team can also hold another Run's Seats.
+  const stopSeatIds = new Set(stoppingExecution?.rounds.flatMap(round => round.seats) ?? [])
+  const stopSeatNames = new Map(stoppingExecution ? teamSeats(goal, snapshot.teams.get(room), stoppingExecution, 'seat').map(seat => [seat.record.id, seat.name]) : [])
+  const stopSeats = (goal?.members ?? []).filter(seat => !seat.closed && stopSeatIds.has(seat.id)).map(seat => ({
+    id: seat.id,
+    name: stopSeatNames.get(seat.id) ?? 'Agent',
+    interrupt: snapshot.runtimes.find(runtime => runtime.id === seat.session.runtime)?.capabilities.interrupt,
+  }))
   /** Shared by the bar's full Wrap button and its narrow ⋯ fallback. */
   const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
   /**
@@ -777,6 +788,13 @@ export const TeamRoomPane = ({
     report: report?.goal === room ? report : null,
     runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
   }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
+  const overviewTimeline = useMemo(() => flowExecution ? runTimeline({ execution: flowExecution, cards: intents, sessions: snapshot.sessions,
+    signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal') }) : null,
+  [flowExecution, intents, snapshot.sessions, entries])
+  const stoppingSessions = new Set(overviewTimeline?.rows.filter(row => row.status === 'Stopping').flatMap(row => {
+    const claim = intents.find(card => card.id === row.card)?.claim
+    return claim ? [sessionKey(claim.runtime, claim.sessionId)] : []
+  }) ?? [])
   // What the Overview can do about what needs you: the same requests the board and the docked approval make.
   const needsYouAnswers = useNeedsYouAnswers({ room, execution: flowExecution ?? null, cards: intents, openBoard: () => show('board') })
   const memberOf = (key: SessionKey): TeamPeerInfo | null =>
@@ -973,6 +991,11 @@ export const TeamRoomPane = ({
     <PaneSurface className={`${styles.pane} h-full`} data-showing={onRail ? 'rail' : 'body'}>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
+      {stoppingRun && stoppingExecution?.goal === room ? <StopRunDialog key={stoppingRun} seats={stopSeats}
+        refusal={record ? RECORD_REASON : null}
+        ended={stoppingExecution.state === 'stopped' || stoppingExecution.state === 'settled'}
+        failure={snapshot.flowStopProblems.get(stoppingRun)}
+        onStop={reason => store.stopFlowExecution(stoppingRun, reason)} onClose={() => setStoppingRun(null)} /> : null}
       {again?.goal === room && goal && <RunAgain key={again.id} execution={again} root={goal.goal.root} sentence={goal.goal.sentence}
         onClose={() => setAgain(null)} onStarted={next => { setAgain(null); setChosenRun(next.id); show('run'); void store.loadTeamRuns(room) }} />}
       {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
@@ -1182,6 +1205,11 @@ export const TeamRoomPane = ({
       </Bar>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
+      {runs.map((execution, index) => {
+        const failure = snapshot.flowStopProblems.get(execution.id)
+        return failure ? <StopRunFailure key={execution.id} number={index + 1} message={failure.message}
+          refusal={record ? RECORD_REASON : null} onRetry={() => setStoppingRun(execution.id)} /> : null
+      })}
       {/* The one failure this row can have, said out loud and across the whole
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}
@@ -1450,11 +1478,14 @@ export const TeamRoomPane = ({
               }))}
               runName={flowExecution?.document.flow.name}
               runNeedsYou={flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'}
-              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason />}
+              timeline={overviewTimeline}
+              onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
+              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <TeamRunView key={timelineRun.id} execution={timelineRun}
+                onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
                 runChooser={runs.length > 1 && <span aria-label="Choose a Run" className="flex flex-wrap gap-2">
                   {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
                     onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
@@ -1466,7 +1497,7 @@ export const TeamRoomPane = ({
                 onReviewCheck={() => { const check = timelineRun.operations.find(one => one.kind === 'check' && one.state === 'uncertain'); if (check?.card != null) setRetryCheck({ run: timelineRun.id, card: check.card }) }}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
                 onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
-                model={runTimeline({ execution: timelineRun, cards: intents,
+                model={runTimeline({ execution: timelineRun, cards: intents, sessions: snapshot.sessions,
                   signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
                   evidence: snapshot.boardEvidence.get(room),
                   findingRun: snapshot.findingRuns.get(timelineRun.id),
@@ -2034,6 +2065,7 @@ const RoomLiveLine = ({
   needsYou,
   room,
   includeRunReason = false,
+  stoppingSessions,
 }: {
   readonly members: readonly Member[]
   readonly snapshot: AppSnapshot
@@ -2047,6 +2079,8 @@ const RoomLiveLine = ({
   readonly room: string
   /** Overview keeps the Run's reason even when another live fact takes precedence. */
   readonly includeRunReason?: boolean
+  /** Overview already reads these turns as Stopping on its current-step line. */
+  readonly stoppingSessions?: ReadonlySet<SessionKey>
 }) => {
   const store = useStore()
   const runReason = includeRunReason && flowExecution?.reason ? sentence(flowExecution.reason) : null
@@ -2156,7 +2190,7 @@ const RoomLiveLine = ({
         </TurnWorkLive>
       )
     }
-    const busy = waiting ? null : members.find((one) => one.busy) ?? null
+    const busy = waiting ? null : members.find((one) => one.busy && !stoppingSessions?.has(one.key)) ?? null
     const subject = waiting ?? busy
     if (!subject) return null
     const session = snapshot.sessions.get(subject.key)
