@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
-import type { InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protocol'
+import type { FlowCheckAttempt, InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { teamSeats } from '../lib/team-seats'
 import { teamOverview } from '../lib/team-overview'
@@ -21,10 +21,14 @@ const findingsRead = (list: FindingsListState | undefined): 'reading' | 'failed'
 }
 
 /** Reads only while the Run is mounted; the pane's rail owns conversation navigation. */
-export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: ComponentProps<typeof RunView> & {
+export const TeamRunView = ({ execution, origin, onOpenSeat, attempts, attemptsRead, ...view }: ComponentProps<typeof RunView> & {
   execution: RunTimelineInput['execution']
   origin: string | null
   onOpenSeat: (key: SessionKey) => void
+  /** What the desk recorded each time a check card ran, by card, as the pane read it for the timeline beside this. */
+  attempts?: ReadonlyMap<number, readonly FlowCheckAttempt[]>
+  /** Why a check's attempts are not in `attempts`: still being read, or the read failed. */
+  attemptsRead?: 'reading' | 'failed'
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -63,8 +67,10 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
       findings: findingsList?.rows,
+      ...(attempts ? { attempts } : {}),
     },
     findingsRead: findingsRead(findingsList),
+    ...(attemptsRead ? { attemptsRead } : {}),
     publication: snapshot.findingRuns.get(execution.id)?.rounds.find(round => round.round === selected?.round),
     seats: seats.map(seat => ({ id: seat.record.id, name: seat.name,
       override: goal?.members.find(record => record.id === seat.record.id)?.seatLabel,

@@ -1,5 +1,5 @@
-import type { FindingRoundPublication } from '@harnessdesk/protocol'
-import { runTimeline, type RunTimelineInput } from '../lib/run-timeline'
+import type { FindingRoundPublication, FlowCheckAttempt } from '@harnessdesk/protocol'
+import { attemptWords, runTimeline, type RunTimelineInput } from '../lib/run-timeline'
 import type { SeatRow } from '../lib/team-overview'
 export interface InspectorSeat {
   id: string
@@ -18,18 +18,43 @@ export interface RunInspectorProps {
    * Unset once every finding has been read. With no `input.findings` at all nothing has landed, so `reading`.
    */
   findingsRead?: 'reading' | 'failed'
+  /**
+   * Why a check's attempts are not in `input.attempts`: they are still being `read`, or the read `failed`. Unset when the
+   * caller reads none, so a check that has not asked says nothing. A check whose attempts are here shows them whichever it is.
+   */
+  attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, CodeText, GroupLabel, PaneColumn, PanelBody, PanelFrame, PanelTools, Text } from '../design'
+import { Button, Chip, CodeText, GroupLabel, PaneColumn, PanelBody, PanelFrame, PanelTools, Text } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
 import { lifecycleWords } from '../lib/findings'
-import type { ReactNode } from 'react'
+import { commitDate } from '../lib/git-refs'
+import { useState, type ReactNode } from 'react'
+import { RunAgain } from './RetryCheck'
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => <section className="flex min-w-0 flex-col gap-2">
   <GroupLabel>{title}</GroupLabel>{children}
 </section>
 const Words = ({ children }: { children: string }) => <Text as="div" role="prose" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{sanitizeText(children)}</Text>
+/**
+ * One recorded result of a check: how it ended, when, and the commit it ran at. Its output is the command's own text, which
+ * can hold anything a repository or a tool printed, so it goes through the sanitiser like every other agent-reachable text
+ * here; it stays behind a link because an earlier attempt's output is there to be read, not to lengthen every inspector.
+ */
+const Attempt = ({ attempt }: { attempt: FlowCheckAttempt }) => {
+  const [open, setOpen] = useState(false)
+  return <div data-attempt={attempt.n} className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <Text role="row">Attempt {attempt.n}</Text>
+      <Chip tone="neutral">{sanitizeText(attemptWords(attempt))}</Chip>
+      <Text role="meta" numeric>{commitDate(attempt.at, Date.now())}</Text>
+    </div>
+    <Text role="meta" as="div" title={sanitizeText(attempt.commit)}>{attempt.timedOut ? 'Timed out' : attempt.exit === null ? 'No exit recorded' : `Exit ${attempt.exit}`} · {sanitizeText(attempt.commit.slice(0, 12))}</Text>
+    <Button variant="link" size="inline-link" aria-expanded={open} onClick={() => setOpen(was => !was)}>{open ? 'Hide output' : 'Show output'}</Button>
+    {open && <CodeText block wrap>{sanitizeText(attempt.tail || 'No output was printed')}</CodeText>}
+  </div>
+}
 const costWords = (cost: InspectorSeat['cost']): string => cost ? `${cost.estimated ? 'About ' : ''}${cost.unit === 'money' ? `$${cost.value.toFixed(2)}` : `${cost.value} turns`}` : 'Not recorded'
 
 /** flow-execution appends these tool instructions after the rendered sentence.
@@ -46,7 +71,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ input, selectedRow, seats, publication, findingsRead }: RunInspectorProps) => {
+export const RunInspector = ({ input, selectedRow, seats, publication, findingsRead, attemptsRead }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -65,6 +90,7 @@ export const RunInspector = ({ input, selectedRow, seats, publication, findingsR
   let body: ReactNode
   if (selected?.kind === 'check' && card && role?.kind === 'check' && role.check) {
     const check = role.check
+    const results = input.attempts?.get(card.id)
     const record = evidence?.cards.find(one => one.card === card.id)?.facts.map(one => one.record)
       .filter(one => one.round === round?.n && one.fact.kind === 'check' && one.fact.name === role.id && one.fact.run === check.run)
       .sort((a, b) => b.observedAt - a.observedAt)[0]
@@ -76,6 +102,10 @@ export const RunInspector = ({ input, selectedRow, seats, publication, findingsR
       <Section title="Exit mapping"><Words>{[...Object.entries(check.exits).map(([exit, outcome]) => `Exit ${exit} → ${wordOf(outcome)}`), `Other exits and timeout → ${wordOf(check.otherwise)}`].join('\n')}</Words></Section>
       <Section title="Latest result"><Words>{selected.status ?? 'Result unavailable'}</Words>{fact && <Text role="meta">{fact.timedOut ? 'Timed out' : fact.exit === null ? 'No exit recorded' : `Exit ${fact.exit}`} · {sanitizeText(fact.at)}</Text>}</Section>
       <Section title="Output">{fact ? <CodeText block wrap>{sanitizeText(fact.tail || 'No output was printed')}</CodeText> : <Words>Output is not kept for this check</Words>}</Section>
+      {/* Once it has run more than once, each result the desk recorded — the latest above is the last of them. */}
+      {results && results.length > 1 ? <Section title="Attempts">{[...results].reverse().map(one => <Attempt key={one.n} attempt={one} />)}</Section>
+        : !results && attemptsRead ? <Section title="Attempts">{attemptsRead === 'failed' ? <Words>Earlier attempts could not be read</Words> : <Text role="meta" as="div">Reading attempts…</Text>}</Section> : null}
+      <RunAgain run={execution.id} card={card.id} refusal={selected.retryRefusal} />
     </>
   } else if (selected?.kind === 'person' && card) {
     body = <><Section title="Step"><Words>{detailWords(card.detail) ?? card.title}</Words></Section>
