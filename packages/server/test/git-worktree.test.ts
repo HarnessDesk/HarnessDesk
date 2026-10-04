@@ -6,8 +6,9 @@ import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { add, inventory, list, move, prune, remove, setLock } from '../src/git-worktree.js'
-import { worktreeHome } from '../src/worktree.js'
+import { add, inventory, inventoryOf, list, move, prune, remove, setLock } from '../src/git-worktree.js'
+import { list as sessionList, repositoryOf, worktreeHome } from '../src/worktree.js'
+import { captureShellProject, shellProjectUnchanged } from '../src/shell-project.js'
 
 /**
  * The client's worktree verbs against real repositories.
@@ -76,6 +77,70 @@ const gone = async (path: string): Promise<boolean> => {
 }
 
 // -------------------------------------------------------------------- list
+
+test('newline-containing checkout paths stay exact through both listings and shell identity', async () => {
+  const { repo, state } = await seedRepo('repo\n ')
+  const home = await worktreeHome(repo, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side\n ')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+
+  for (const from of [repo, side]) {
+    assert.deepEqual(await repositoryOf(from), { root: repo, worktree: from === side })
+    assert.deepEqual(
+      (await list(from, state)).map((row) => [row.path, row.isMain, row.isCurrent, row.managed, row.dirty]),
+      [[repo, true, from === repo, false, 0], [side, false, from === side, true, 0]],
+    )
+    assert.deepEqual(
+      (await sessionList(from, state)).map((row) => [row.path, row.isMain, row.managed]),
+      [[repo, true, false], [side, false, true]],
+    )
+    const identity = await captureShellProject(from)
+    assert.equal(identity.project, repo)
+    assert.equal(identity.checkoutRoot, from)
+    assert.equal(await shellProjectUnchanged(from, identity), true)
+  }
+})
+
+test('a resolved submodule main folder must belong to the repository before it can be listed or used', async () => {
+  const { repo: origin, beside, state } = await seedRepo()
+  const superproject = join(beside, 'super')
+  await mkdir(superproject)
+  await git(superproject, 'init', '-q', '-b', 'main')
+  await git(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+  const sub = join(superproject, 'sub')
+  const home = await worktreeHome(sub, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side')
+  await git(sub, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+  const common = join(superproject, '.git', 'modules', 'sub')
+  const config = join(common, 'config')
+  const alias = join(beside, 'sub-link')
+  await symlink(sub, alias, 'dir')
+
+  for (const valid of ['../../../sub', alias]) {
+    await git(beside, 'config', '--file', config, 'core.worktree', valid)
+    assert.deepEqual(await repositoryOf(side), { root: sub, worktree: true })
+    assert.equal((await list(side, state))[0]?.path, sub)
+    assert.equal((await captureShellProject(side)).project, sub)
+  }
+
+  const before = await git(origin, 'status', '--porcelain=v1', '-z')
+  const branches = await git(side, 'branch', '--list')
+  for (const invalid of [origin, join(beside, 'missing'), side]) {
+    await git(beside, 'config', '--file', config, 'core.worktree', invalid)
+    assert.equal(await repositoryOf(side), null)
+    await assert.rejects(list(side, state), /main checkout|repository/)
+    assert.deepEqual(await sessionList(side, state), [])
+    await assert.rejects(inventoryOf(side, invalid, state), /main checkout|repository/)
+    await assert.rejects(add(side, 'unwanted', { kind: 'new', branch: 'unwanted' }, state), /main checkout|repository/)
+    await assert.rejects(captureShellProject(side), /changed its repository/)
+    assert.equal(await shellProjectUnchanged(side, { project: side, checkoutRoot: side, gitCommonDir: common }), false)
+    assert.equal(await git(origin, 'status', '--porcelain=v1', '-z'), before)
+    assert.equal(await git(side, 'branch', '--list'), branches)
+    assert.equal(await gone(join(beside, 'unwanted')), true)
+  }
+})
 
 test('the listing preserves a main checkout path ending in whitespace', async () => {
   const { repo, beside, state } = await seedRepo('repo ')
