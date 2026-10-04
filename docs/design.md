@@ -1512,9 +1512,11 @@ is named beside the kind chip.
 - **A request for approval** offers the agent's own choices in the docked
   card's order and words (refusals first, the plain yes last), with only the
   plain yes filled and a grant that outlives the answer quiet. What is being
-  approved is shown with it, whole and wrapped, never cut: the command in the
-  code face, the files a change touches, the folders and hosts an access would
-  open, and the reason the runtime gave. A yes is never given blind. The
+  approved is shown with it: the command whole in the code face, wrapped and
+  never cut, the files a change touches, the folders and hosts an access would
+  open (a long list names its first six and how many more, and the whole list
+  is one hover away), and the reason the runtime gave. A yes is never given
+  blind. An approval that offers no choice here leaves to its conversation. The
   answer is the call the docked card makes, so whichever door answers first
   wins and the other row goes with it.
 - **A question** with one single-choice question offers each option and Cancel.
