@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Choose Command Line Tools for agent commands on macOS.** Starting the app
+  with `HARNESSDESK_COMMAND_LINE_TOOLS=1` supplies their developer directory to
+  agents when Xcode is selected and those tools are installed, avoiding the
+  Git shim's Xcode first-launch check inside a sandbox. The choice is opt-in:
+  Xcode's iOS build tools need an explicit `DEVELOPER_DIR`, existing choices
+  stay intact, and removing the setting and restarting undoes it. (Fixes #1221)
+
 - **Read the same Run in a terminal and the window.** `run show` uses the
   shared timeline for rounds, cards, check results, findings and the ending,
   while keeping attendance and seat overrides. Its JSON remains the saved

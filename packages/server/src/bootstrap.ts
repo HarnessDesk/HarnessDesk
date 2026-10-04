@@ -18,6 +18,7 @@ import { builtinPlugins } from '@harnessdesk/plugins'
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
 import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
+import { developerToolsEnvironment, type DeveloperToolsOptions } from './installs/developer-tools.js'
 import { knowledgeOverlay } from './installs/overlay.js'
 import type { KnownAgent } from './installs/known-agents.js'
 import { commandName, InstallService } from './installs/service.js'
@@ -179,7 +180,9 @@ export const agentEnvironment = (
   socketPath: string,
   agentEnv: Readonly<Record<string, string>> | undefined,
   agent?: string,
+  developerEnv: Readonly<Record<string, string>> = {},
 ): Readonly<Record<string, string>> => ({
+  ...developerEnv,
   HD_TOOLS_SOCKET: socketPath,
   // Which agent a composition-spawned bridge came from. It is said only by a
   // bridge no conversation offered — one with no caller token — so the desk
@@ -195,6 +198,8 @@ export const TOKENLESS_BRIDGE_NOTICE =
   'and the board refuses them.'
 
 export interface BootstrapOptions {
+  /** Injectable selection and filesystem probes for the opt-in macOS workaround. */
+  readonly developerTools?: DeveloperToolsOptions
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error'
   /** How stored credentials are protected at rest; the desktop shell passes safeStorage. */
   readonly credentialCipher?: HostOptions['credentialCipher']
@@ -229,6 +234,10 @@ export const createDefaultHost = (
     level: options.logLevel ?? 'info',
     file: join(stateDir, 'logs', 'host.ndjson'),
     console: options.console ?? true,
+  })
+  const developerEnv = developerToolsEnvironment({
+    ...options.developerTools,
+    log: (message) => logger.child('developer-tools').info(message),
   })
 
   // Before any runtime exists: the app opened from the Dock has launchd's
@@ -298,6 +307,7 @@ export const createDefaultHost = (
       clientVersion: options.version ?? '0.1.0',
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: home,
+      env: developerEnv,
       logger: logger.child(id),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
@@ -488,7 +498,7 @@ export const createDefaultHost = (
           }
         : {}),
       ...(executable ? { executable } : {}),
-      env: agentEnvironment(socketPath, agent.env, agent.id),
+      env: agentEnvironment(socketPath, agent.env, agent.id, developerEnv),
       ...(toolServer
         ? { toolServer: { ...toolServer, onOpen: claimOpen(agent.id), onSession: claimCaller(agent.id) } }
         : {}),
@@ -560,6 +570,7 @@ export const createDefaultHost = (
       // start the host for you, the desktop app included.
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: options.codexHome ?? null,
+      env: developerEnv,
       logger: logger.child('codex'),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
