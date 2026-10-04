@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionId, sessionKey, turnId, itemId, type AgentEntry, type Session } from '@harnessdesk/protocol'
+import { sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -395,6 +395,69 @@ it('the conversation’s menu offers Save as an Agent…', () => {
   if (!item) throw new Error('no Save as an Agent… in the menu')
   act(() => item.click())
   expect(document.body.querySelector('[role="dialog"][aria-label="Save as an Agent"]')).not.toBeNull()
+})
+
+/**
+ * A wrapped Team's conversations are its record, and the host refuses to
+ * compact one. The menu must not offer a row that can only fail: it says why,
+ * in the reason every other refused control gives, and a conversation outside
+ * the Team keeps it.
+ */
+const compacting = [
+  { id: 'codex', name: 'OpenAI Codex', presentation: { name: 'Codex' }, capabilities: { compaction: true } },
+] as unknown as AppSnapshot['runtimes']
+
+/** One wrapped Team whose receipt kept these conversations. */
+const wrappedTeam = (...kept: readonly string[]): ReadonlyMap<string, GoalView> =>
+  new Map([['record', {
+    goal: { state: 'wrapped' },
+    members: [],
+    receipt: { members: kept.map((id) => ({ session: { runtime: 'codex', sessionId: id } })), answers: [] },
+  } as unknown as GoalView]])
+
+const compactRow = (): HTMLButtonElement | undefined => {
+  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())
+  return [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+    one.textContent?.startsWith('Compact now'),
+  )
+}
+
+it('the conversation’s menu cannot compact a wrapped Team’s conversation — it says why and sends nothing', () => {
+  const compact = vi.fn(async () => {})
+  const { store } = rig(session(), new Map(), { runtimes: compacting, goals: wrappedTeam('s-1') })
+  Object.assign(store, { compact })
+  render(store)
+
+  const row = compactRow()
+  if (!row) throw new Error('no Compact now in the menu')
+  expect(row.disabled).toBe(true)
+  expect(row.title).toBe('This Team is wrapped')
+  expect(row.textContent).toContain('This Team is wrapped')
+  expect(row.textContent).not.toContain('Summarise older turns')
+  act(() => row.click())
+  expect(compact).not.toHaveBeenCalled()
+})
+
+it('the conversation’s menu still compacts one outside a wrapped Team — the pane’s own, not the window’s focused one', () => {
+  const compact = vi.fn(async () => {})
+  // The window's focus is on a conversation a wrapped Team kept; this pane
+  // shows another, which is nobody's record.
+  const focused = sessionKey('codex', sessionId('s-2'))
+  const { store } = rig(session(), new Map(), {
+    runtimes: compacting,
+    goals: wrappedTeam('s-2'),
+    activeSessionKey: focused,
+    sessions: new Map([[KEY, session()], [focused, session({ id: sessionId('s-2') })]]),
+  })
+  Object.assign(store, { compact })
+  render(store)
+
+  const row = compactRow()
+  if (!row) throw new Error('no Compact now in the menu')
+  expect(row.disabled).toBe(false)
+  expect(row.textContent).toContain('Summarise older turns')
+  act(() => row.click())
+  expect(compact).toHaveBeenCalledWith(KEY)
 })
 
 /**

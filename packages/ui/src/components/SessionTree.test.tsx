@@ -940,6 +940,54 @@ it('shows Goal activity and keeps wrapped Goals in a collapsed history group', (
   expect(roomRow(tree, 'Prepare release').textContent).toContain('Wrapped')
 })
 
+it('opens receipt conversations from the wrapped group without live or legacy membership', () => {
+  const board = room({ id: 'record-team', name: 'Read completed work' })
+  const base = triggerGoalView(board)
+  const view = { ...base, goal: { ...base.goal, state: 'wrapped' }, members: [], receipt: {
+    seats: ['keeper', 'older', 'missing'],
+    members: [
+      { seat: 'keeper', agent: 'Keeper', seatLabel: 'Writer', session: { runtime: 'codex', sessionId: 'kept' } },
+      { seat: 'older', agent: 'Reviewer', seatLabel: 'Reviewer' },
+      { seat: 'missing', agent: 'Gamma', seatLabel: 'Reviewer' },
+    ],
+    answers: [{ seat: 'older', session: { runtime: 'codex', sessionId: 'older-answer' } }],
+  } } as unknown as GoalView
+  const { container: tree, store } = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, view]]))
+  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Wrapped · 1')!.click())
+  for (const [name, id] of [['Keeper', 'kept'], ['Reviewer', 'older-answer']]) {
+    const button = [...tree.querySelectorAll<HTMLButtonElement>('button[data-slot="sidebar-menu-button"]')].find(one => one.textContent?.includes(name!))!
+    act(() => button.click())
+    expect(store.openSession).toHaveBeenCalledWith(id, { runtime: 'codex' })
+  }
+  const missing = [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Gamma')!
+  expect(missing.disabled).toBe(true)
+  expect(missing.title).toBe('Conversation not kept')
+})
+
+/* A conversation can be seated more than once in a Team's life, and the receipt keeps every Seat. The tree lists
+   conversations, so it names each one once under the Wrapped group, with no row sharing a React key (#1317). */
+it('lists a receipt conversation once under the wrapped group however many Seats were retained for it', () => {
+  const board = room({ id: 'record-team', name: 'Read completed work' })
+  const base = triggerGoalView(board)
+  const view = { ...base, goal: { ...base.goal, state: 'wrapped' }, members: [], receipt: {
+    seats: ['first', 'again'],
+    members: [
+      { seat: 'first', agent: 'Keeper', seatLabel: 'Writer', session: { runtime: 'codex', sessionId: 'kept' } },
+      { seat: 'again', agent: 'Second', seatLabel: 'Reviewer', session: { runtime: 'codex', sessionId: 'kept' } },
+    ],
+    answers: [],
+  } } as unknown as GoalView
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    const { container: tree } = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, view]]))
+    act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Wrapped · 1')!.click())
+    const rows = [...tree.querySelectorAll<HTMLButtonElement>('button[data-slot="sidebar-menu-button"]')]
+      .filter(one => /Keeper|Second/.test(one.textContent ?? ''))
+    expect(rows.map(one => one.textContent)).toEqual(['Second'])
+    expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
+  } finally { errors.mockRestore() }
+})
+
 it('a conversation in a room is listed once, under the room', () => {
   // Two rows for one session — the room's copy and a loose copy — would make
   // the tree disagree with itself about how many conversations there are, and

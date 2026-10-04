@@ -7,6 +7,20 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## 0.3.1 — 2026-09-27
 
+- **A wrapped Team stays readable** — its receipt keeps every Seat's
+  conversation, and its rail and the sidebar's Wrapped group still open those
+  conversations and the Run. A conversation seated more than once is listed
+  once. Older receipts keep Seats without a retained conversation visible, even
+  when that is every Seat, rather than saying no Agents were kept. Composers and
+  work-dispatching controls say “This Team
+  is wrapped”, and the host refuses new sends, steers, queued work, reviews and
+  compaction too; the conversation's menus say so rather than offer them. A
+  question already open when a Run ends and wraps its Team — deciding a run or
+  a finding, posting to the pull request, running a check, stopping, adding,
+  handing out, assigning or answering a card, seating an Agent, wrapping —
+  stays where it is with its final action off and the same reason, rather than
+  offer what the host would refuse.
+
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
 - **A Seat's commit stays yours.** The desk adds its co-author credit once

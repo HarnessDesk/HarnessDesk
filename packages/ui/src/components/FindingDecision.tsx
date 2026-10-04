@@ -3,7 +3,8 @@ import { useState } from 'react'
 import type { FindingDecisionAction, FindingRunView } from '@harnessdesk/protocol'
 
 import { Banner, Button, Dialog, Input, Note, Switch, Text, Textarea } from '../design'
-import { useStore } from '../state/context'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { useSnapshotSelector, useStore } from '../state/context'
 
 /**
  * The person's bounded controls on a stopped or stoppable run: one or more
@@ -40,8 +41,11 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
 
   // Merge anyway needs a pull request the desk bound, whatever posting is set to; the reason is the desk's own.
   const mergeRefusal = view.boundPr ? null : (view.unbound ?? 'Publish a pull request before merging here.')
-  // A Goal no longer open takes no decision: every action is greyed, with this reason.
-  const closed = view.undecidable
+  // A Goal no longer open takes no decision: every action is greyed, with this reason. The run this was opened on
+  // says so for a Goal that had wrapped by then; the Team itself says so for one that wraps while this is open — a Run
+  // that ends wraps its Team, under whoever is deciding it (#1317).
+  const record = useSnapshotSelector((snapshot) => isRecord(snapshot.goals.get(goal)))
+  const closed = view.undecidable ?? (record ? RECORD_REASON : null)
 
   const decide = async (kind: FindingDecisionAction['kind'], action: FindingDecisionAction): Promise<void> => {
     const trimmed = reason.trim()

@@ -437,7 +437,7 @@ test('a message on an idle conversation is sent; on a working one it is queued a
   })
   const make = (busy: boolean) =>
     contextWith({
-      sessions: { record: () => record(busy) },
+      sessions: { assertDispatchable: () => {}, record: () => record(busy) },
       registry: {
         enqueue: (_record: unknown, id: string, input: unknown) => {
           queued.push(input)
