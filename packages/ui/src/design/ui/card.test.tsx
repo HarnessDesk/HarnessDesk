@@ -172,6 +172,17 @@ it('draws the plate card from the app card family, with its hairline inside the 
   expect(card?.className).toContain('p-3')
 })
 
+it('lifts a card off a canvas of its own with the one soft shadow, keeping its hairline and ground', () => {
+  act(() => root.render(<Card variant="raised" spacing="compact">Write</Card>))
+  const card = container.firstElementChild as HTMLElement | null
+  expect(card?.dataset['variant']).toBe('raised')
+  expect(card?.className).toContain('shadow-(--hd-shadow-sm)')
+  /* Raised adds a shadow; it does not replace the registry card's edge or ground. */
+  expect(card?.className).toMatch(/(^|\s)border(\s|$)/)
+  expect(card?.className).toMatch(/(^|\s)bg-card(\s|$)/)
+  expect(card?.className).toContain('p-3')
+})
+
 it('bounds a lines viewport at the height it is given, and scrolls past it', () => {
   act(() => root.render(<CardViewport size="lines" maxHeight={96}>code</CardViewport>))
   const viewport = container.querySelector<HTMLElement>('[data-slot="card-viewport"]')
