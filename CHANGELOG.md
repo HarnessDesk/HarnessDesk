@@ -9,6 +9,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **Answer what needs you from a Team's Overview.** Each row under Needs you
+  carries its answer: an approval or a question offers the agent's own
+  choices beside what it asks for, and a step addressed to you offers the
+  words its role declares, an optional note, and a line saying what each
+  answer does next. A step that records which attempt you choose is still
+  answered on the board. In a Run's inspector, a card that has not finished
+  can be abandoned, after a question that says first what the Flow will do
+  about it: open the next round, end the Run, or wait for the round's other
+  cards.
+
 - **A Run shows the Flow it started with.** A Run's header switches between
   its Timeline and its Flow: the Flow it was started from, kept at the
   revision it began with, drawn as cards joined by arrows that name the
