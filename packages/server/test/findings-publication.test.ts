@@ -844,12 +844,12 @@ test('a sighted round publishes nothing before it closes, then releases once', a
 })
 
 
-test('the findings run view carries its review round before and after the publication decision', async (t) => {
+test('the findings run view carries its review decision while an empty author release stays none', async (t) => {
   const r = await publicationRig(t)
   await review(r, { second: false })
   const before = await r.f.plane.runView(r.f.run)
   assert.deepEqual(before.rounds, [
-    { round: 1, state: 'local', reason: null, pr: 7, cards: [1] },
+    { round: 1, state: 'none', reason: null, pr: 7, cards: [1] },
     { round: r.round, state: 'none', reason: null, pr: null, cards: r.f.cards('reviewer').map((one) => one.id) },
   ])
   await r.f.finishReviews('request-changes')

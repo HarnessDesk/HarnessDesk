@@ -51,6 +51,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
     <PaneColumn inset="reading" data-slot="run-header" className="flex flex-wrap items-center gap-3">
       <Text role="subject">Run {number}</Text>
       <Chip tone={header.needsYou ? 'warning' : 'neutral'}>{header.needsYou ? 'Needs you' : states[header.state]}</Chip>
+      {header.publication && <Chip tone={header.publication.tone}>{header.publication.label}</Chip>}
       <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>
       {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
       {flow && <span className="ml-auto"><Segmented label="Show the Run as" value={showing} options={TABS}
@@ -83,6 +84,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
             const title = <span className="flex min-w-0 flex-wrap items-center gap-2">
               <Text role={row.kind === 'round' ? 'section' : 'row'} className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.title)}</Text>
               {status}
+              {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
             // *Run again…* is the row's sibling, never inside its button: laid over the end of the first line, where an invisible spacer in the row's trail keeps the row's own words clear of it.
@@ -96,7 +98,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
                 : row.kind === 'brief' ? <IconTile size="sm"><PlanIcon /></IconTile> : undefined}
               subtitle={row.kind !== 'end' && (row.detail || (row.working && line.line)) ? <span data-slot="run-detail" className={row.kind === 'brief' ? 'line-clamp-2' : 'whitespace-pre-line'}>{words(row.detail ?? line.line ?? '')}</span> : undefined}
               wrapSubtitle
-              meta={row.kind === 'end' && row.detail ? <Banner tone={row.attention ? 'warning' : 'neutral'} title={row.title}>{words(row.detail)}</Banner>
+              meta={row.kind === 'end' && row.detail ? <Banner tone={row.attention ? 'warning' : 'neutral'} title={row.title}>{row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}<div>{words(row.detail)}</div></Banner>
                 : row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
             return again ? <div key={row.id} data-slot="run-row" className="relative">{item}
               <div className="absolute end-4 top-2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>

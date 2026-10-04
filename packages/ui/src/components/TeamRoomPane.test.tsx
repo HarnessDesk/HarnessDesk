@@ -7,6 +7,7 @@ import {
   sessionId,
   sessionKey,
   type FlowExecution,
+  type FindingPublicationsView,
   type Intent,
   type InsightReport,
   type RuntimeInfo,
@@ -198,6 +199,10 @@ const rig = (
     loadTeamRuns: vi.fn().mockResolvedValue(undefined),
     continueFlowAnswer: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
+    // This navigation rig has no publication service; match the host's empty read for that desk.
+    readFindingPublications: vi.fn(async (goal: string, run: string): Promise<FindingPublicationsView> => ({
+      goal, run, items: [], backfill: null, backfillRefusal: 'This desk posts nothing to a pull request.',
+    })),
     setRoomWatching: vi.fn((_id: string, watching: readonly SessionKey[]) => {
       savedView = { ...savedView, watching }
     }),
@@ -3390,6 +3395,7 @@ it('opens a read-only Run from the rail and Overview, and keeps selection in the
   const card = container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement
   expect(card).not.toBeNull()
   await act(async () => card.click())
+  expect(store.readFindingPublications).toHaveBeenCalledWith(ROOM, execution.id)
   expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
   const overview = [...container.querySelectorAll('aside button')].find(one => one.textContent === 'Overview') as HTMLButtonElement
   await act(async () => overview.click())
@@ -3425,6 +3431,7 @@ it('loads older Runs for the rail count and keeps each Run’s own selected row'
   const choose = async (label: string) => { await act(async () => { ([...container.querySelectorAll('[aria-label="Choose a Run"] button')].find(one => one.textContent === label) as HTMLButtonElement).click() }) }
   await choose('Run 1')
   await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
+  expect(store.readFindingPublications).toHaveBeenLastCalledWith(ROOM, 'old-run')
   await choose('Run 2')
   expect(container.querySelector('[aria-current="true"][data-row]')).toBeNull()
   await choose('Run 1')

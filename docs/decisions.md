@@ -1724,3 +1724,32 @@ data it opened with — a run's own view still says it is decidable — and stay
 on screen with its final action disabled and the reason beside it: closing it
 would throw away what was typed, and leaving it armed would offer what the host
 then refuses. This implements PR 18 of the approved Teams/Runs plan.
+
+## A Run's publication and a review round are separate facts
+
+The Run's `finding/run.publication` folds every posting it holds. It belongs
+on the Overview strip, Run header, end banner and Findings summary. A review
+row reads only its own `FindingRunView.rounds` record; a missing record or
+`none` never inherits the aggregate. The round budget and Goal-owned open
+finding counts cannot establish a new Run's publication.
+An empty release decision for work with no review, finding event or posting
+operation reads `none`; closing an author or check round does not create a review.
+For a local round, the Run's current pull request binding determines whether
+it is Not posted, including reviews kept before binding. A posted round keeps
+its recorded target.
+
+The Teams page and Overview pass the same confirmed Run read into the shared
+selector. A bound, posting-enabled local review, partial posting or uncertain
+posting needs the person. A first read still pending establishes nothing;
+`finding/changed` invalidates it too, and an older answer cannot replace the
+newer read.
+
+`finding/publications` supplies actions, not successful publication states.
+Both the Findings pane and inspector use one action hook for post-again,
+skip, backfill and host refusals. Backfill keeps its stamped preview and asks
+for confirmation; copy remains available when posting is refused. A late
+action answer belongs to the visit that submitted it, even if the person
+left that Run and returned before it answered.
+
+**The rule:** chips follow the host's recorded state, actions follow its
+offered door, and a person presses before a posting is sent.
