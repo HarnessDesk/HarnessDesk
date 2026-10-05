@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from 'react'
-import { BackLink, Button } from '../design'
+import { BackLink } from '../design'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
 import { RunView, type RunViewTab } from './RunView'
 import styles from './RunWorkspace.module.css'
@@ -14,8 +14,7 @@ export const RunWorkspace = ({ inspector, ...view }: ComponentProps<typeof RunVi
   const timeline = tab === 'timeline'
   return <div data-slot="run-workspace" data-detail={(detail && timeline) || undefined} className={styles.workspace}>
     <div className={styles.timeline}>
-      {timeline && <div className={styles.summary}><Button variant="link" size="inline-link" onClick={() => { view.onSelect('run'); setDetail(true) }}>Run details</Button></div>}
-      <RunView {...view} view={tab} onView={next => { if (view.view === undefined) keep(next); view.onView?.(next) }}
+      <RunView {...view} onDetails={() => { view.onSelect('run'); setDetail(true) }} view={tab} onView={next => { if (view.view === undefined) keep(next); view.onView?.(next) }}
         onSelect={id => { view.onSelect(id); setDetail(true) }} />
     </div>
     {timeline && <div className={styles.detail}>

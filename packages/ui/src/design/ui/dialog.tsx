@@ -112,7 +112,7 @@ const DialogContent = forwardRef<
           modalMotion,
           'bg-popover relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow)',
           SURFACE_FOCUS,
-          bleed || 'grid w-full gap-4 p-5 sm:max-w-md',
+          bleed || 'grid w-full gap-4 p-(--hd-inset-dialog) sm:max-w-md',
           className,
         )}
         {...props}

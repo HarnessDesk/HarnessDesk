@@ -271,7 +271,7 @@ const SummaryItem = ({
     {...(numeric ? { 'data-numeric': '' } : {})}
     {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
     className={cn(
-      'col-span-full grid grid-cols-subgrid gap-x-(--hd-space-6) gap-y-(--hd-space-0-5) px-(--hd-card-padding) py-(--hd-space-3)',
+      'col-span-full grid grid-cols-subgrid gap-x-(--hd-space-6) gap-y-(--hd-space-0-5) p-(--hd-inset-row)',
       'border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0',
       className,
     )}
