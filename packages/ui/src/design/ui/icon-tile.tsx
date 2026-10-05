@@ -63,6 +63,8 @@ type IconTileProps = React.ComponentProps<'span'> &
   VariantProps<typeof tileVariants> & {
     /** One identity qualifier at bottom-right. Top-right is reserved for attention. */
     badge?: React.ReactNode
+    /** An identity with nobody assigned: the shared empty ring, without a tint. */
+    empty?: boolean
   } &
   (
     | { tone?: Tone; tint?: never; color?: never }
@@ -70,16 +72,19 @@ type IconTileProps = React.ComponentProps<'span'> &
     | { color: string; tone?: never; tint?: never }
   )
 
-const IconTile = ({ className, size, shape, tone, tint, color, style, badge, children, ...props }: IconTileProps) => (
+const IconTile = ({ className, size, shape, tone, tint, color, style, badge, empty = false, children, ...props }: IconTileProps) => (
   <span
     data-slot="icon-tile"
+    {...(empty ? { 'data-empty': '' } : {})}
     {...(color ? { 'data-color': '' } : {})}
     {...(tint ? { 'data-tint': tint } : {})}
     {...(!color && !tint ? { 'data-tone': tone ?? 'neutral' } : {})}
     className={cn(
       tileVariants({ size, shape }),
       badge != null && "relative overflow-visible",
-      color
+      empty
+        ? 'border border-(--hd-border-strong) bg-transparent text-(--hd-muted-foreground)'
+        : color
         ? 'bg-(--tile-color) text-(--hd-accent-foreground)'
         : tint
           ? shape === 'face' ? solidTint({ tint }) : softTint({ tint })
