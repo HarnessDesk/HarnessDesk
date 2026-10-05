@@ -1,7 +1,20 @@
-import { findOption, refuseOptionValue, type AgentRuntime, type FlowSeat, type OptionValue } from '@harnessdesk/protocol'
+import { findOption, refuseOptionValue, OptionRefusedError, type AgentRuntime, type FlowSeat, type OptionValue } from '@harnessdesk/protocol'
 
 import { openedOtherwise, runningOf } from './agent-seating.js'
 import { SEAT_READ_DEADLINE_MS, within } from './seat-reads.js'
+
+export interface SeatOptionsProblem {
+  readonly text: string
+  /** A temporary read failure, not a defect in the Flow's requested picks. */
+  readonly availability?: true
+}
+
+const unavailable = (text: string): SeatOptionsProblem => ({ text, availability: true })
+const unsupported = (text: string): SeatOptionsProblem => ({ text })
+const readFailure = (label: string, error: unknown): SeatOptionsProblem => {
+  const text = `${label}: ${error instanceof Error ? error.message : String(error)}`
+  return error instanceof OptionRefusedError ? unsupported(text) : unavailable(text)
+}
 
 /**
  * Ask the runtime what the chosen model's session would offer, then use the
@@ -11,19 +24,19 @@ import { SEAT_READ_DEADLINE_MS, within } from './seat-reads.js'
  * compare what settled with the same read-back as opening. Its hidden probe
  * is never prompted.
  */
-export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, cwd: string, deadline = SEAT_READ_DEADLINE_MS): Promise<string | null> => {
+export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, cwd: string, deadline = SEAT_READ_DEADLINE_MS): Promise<SeatOptionsProblem | null> => {
   if (!seat.effort && seat.thinking === undefined) return null
   const name = runtime.info.presentation.name
   const catalogue = await within(() => runtime.knownModels ? runtime.knownModels() : runtime.listModels(), deadline)
   if (catalogue.settled !== 'value' || catalogue.value === null) {
-    return `${name}'s model catalogue could not be read, so this Seat's options cannot be checked. Read the preview again when the agent is ready.`
+    return unavailable(`${name}'s model catalogue could not be read, so this Seat's options cannot be checked. Read the preview again when the agent is ready.`)
   }
   const model = seat.model ? catalogue.value.find((one) => one.id === seat.model) : catalogue.value.find((one) => one.isDefault)
   let label = model ? `${name}'s ${model.displayName}` : name
   if (!runtime.defaultSessionOptions) {
-    return `${label}'s session options could not be read, so this Seat's options cannot be checked.`
+    return unavailable(`${label}'s session options could not be read, so this Seat's options cannot be checked.`)
   }
-  const idleProblem = () => `${name}'s session options cannot be checked while the agent is idle. Read the preview again when the agent is ready.`
+  const idleProblem = () => unavailable(`${name}'s session options cannot be checked while the agent is idle. Read the preview again when the agent is ready.`)
   // An idle runtime may answer drafts with cached controls. Changing that
   // cache's model value cannot reveal the selected model's real dimensions.
   if (runtime.health().state === 'idle') return idleProblem()
@@ -34,8 +47,8 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
   const selectedModel = seat.model
   const read = await within(() => runtime.defaultSessionOptions!(cwd, selectedModel ? { model: selectedModel } : {}, { fresh: true }), deadline)
   if (runtime.health().state === 'idle') return idleProblem()
-  if (read.settled === 'late') return `${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`
-  if (read.settled === 'error') return `${label}: ${read.error instanceof Error ? read.error.message : String(read.error)}`
+  if (read.settled === 'late') return unavailable(`${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`)
+  if (read.settled === 'error') return readFailure(label, read.error)
   const actualModel = findOption(read.value, 'model')?.currentValue
   const actual = catalogue.value.find((one) => one.id === actualModel)
   if (actual) label = `${name}'s ${actual.displayName}`
@@ -45,9 +58,9 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
   }
   for (const [id, value] of Object.entries(picks)) {
     const option = findOption(read.value, id)
-    if (!option) return id === 'effort' ? `${label} has no effort levels.` : `${label} has no thinking switch.`
+    if (!option) return unsupported(id === 'effort' ? `${label} has no effort levels.` : `${label} has no thinking switch.`)
     const refused = refuseOptionValue(option, value)
-    if (refused) return `${label}: ${refused}`
+    if (refused) return unsupported(`${label}: ${refused}`)
   }
   // Opening applies model, effort, then thinking, and clears a movable
   // thinking switch when the Seat did not ask for it. A model's individual
@@ -62,10 +75,11 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
       : options
   }, deadline)
   if (runtime.health().state === 'idle') return idleProblem()
-  if (settled.settled === 'late') return `${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`
-  if (settled.settled === 'error') return `${label}: ${settled.error instanceof Error ? settled.error.message : String(settled.error)}`
-  return openedOtherwise(
+  if (settled.settled === 'late') return unavailable(`${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`)
+  if (settled.settled === 'error') return readFailure(label, settled.error)
+  const problem = openedOtherwise(
     { ...seat, runtime: label },
     runningOf(settled.value, { cwd, model: actualModel ? String(actualModel) : '' }),
   )
+  return problem ? unsupported(problem) : null
 }

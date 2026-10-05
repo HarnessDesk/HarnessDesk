@@ -479,6 +479,7 @@ export const createDefaultHost = (
     const log = logger.child(agent.id)
     const built = new AcpRuntime({
       ...agent,
+      probeSessionsFile: join(stateDir, 'option-probes', `${encodeURIComponent(agent.id)}.jsonl`),
       // Today's name for a row still carrying a retired one, who the agent is
       // signed in as, and where it keeps usage it puts none of on the wire.
       // See `installs/overlay.ts`.

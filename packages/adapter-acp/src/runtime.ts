@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { extname, isAbsolute, join } from 'node:path'
+import { dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   approvalId,
@@ -339,6 +339,8 @@ export interface AcpAgentConfig {
    * server's own `instructions`, if it accepted one.
    */
   readonly instructions?: () => string
+  /** Host-owned identities of option-only sessions, retained across desk recreation. */
+  readonly probeSessionsFile?: string
   readonly logger?: {
     debug?(message: string, details?: unknown): void
     info?(message: string, details?: unknown): void
@@ -850,6 +852,17 @@ export class AcpRuntime implements AgentRuntime {
 
   constructor(config: AcpAgentConfig) {
     this.#config = config
+    if (config.probeSessionsFile) {
+      try {
+        for (const line of readFileSync(config.probeSessionsFile, 'utf8').split('\n').filter(Boolean)) {
+          const id: unknown = JSON.parse(line)
+          if (typeof id !== 'string') throw new Error('Invalid option probe identity.')
+          this.#optionProbeIds.add(makeSessionId(id))
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
     this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
@@ -1285,7 +1298,6 @@ export class AcpRuntime implements AgentRuntime {
     this.#disposed = true
     await this.#connection.stop()
     this.#sessions.clear()
-    this.#optionProbeIds.clear()
     this.#invalidateSearchListing()
     this.#resuming.clear()
     this.#openedIn.clear()
@@ -1303,7 +1315,6 @@ export class AcpRuntime implements AgentRuntime {
     this.#idleInfo = this.info
     await this.#connection.stop()
     this.#sessions.clear()
-    this.#optionProbeIds.clear()
     this.#resuming.clear()
     this.#probe = null
     this.#probeId = null
@@ -1441,7 +1452,6 @@ export class AcpRuntime implements AgentRuntime {
     this.#config.logger?.info?.('restarting agent', { agent: this.#config.id, why })
     await this.#connection.stop()
     this.#sessions.clear()
-    this.#optionProbeIds.clear()
     this.#probe = null
     this.#probeId = null
     this.#opening = null
@@ -1480,7 +1490,6 @@ export class AcpRuntime implements AgentRuntime {
     this.#config.logger?.info?.('restarting agent', { agent: this.#config.id, why: 'a secret changed' })
     await this.#connection.stop()
     this.#sessions.clear()
-    this.#optionProbeIds.clear()
     this.#probe = null
     this.#probeId = null
     this.#opening = null
@@ -2079,7 +2088,7 @@ export class AcpRuntime implements AgentRuntime {
           ...(Object.keys(values ?? {}).length > 0 ? { _meta: { harnessdesk: { options: values } } } : {}),
         })
         probe = AcpSession.probe(this, opened, where)
-        this.#optionProbeIds.add(probe.id)
+        this.#rememberProbe(probe.id)
         this.#sessions.set(probe.id, probe)
         return await this.#draftOptions(probe, values)
       } finally {
@@ -2193,6 +2202,7 @@ export class AcpRuntime implements AgentRuntime {
     const where = cwd ?? homedir()
     const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', { cwd: where })
     const probe = AcpSession.probe(this, opened, where)
+    this.#rememberProbe(probe.id)
     // Registered so the agent's follow-up notifications (an agent may
     // re-declare its options after set_model) reach it — but silent, and
     // hidden from every listing.
@@ -2206,8 +2216,19 @@ export class AcpRuntime implements AgentRuntime {
 
   #probe: AcpSession | null = null
   #probeId: SessionId | null = null
-  /** Isolated option reads remain hidden if an agent later lists them. */
+  /** Only sessions this adapter opened to read controls; never inferred from a listing. */
   readonly #optionProbeIds = new Set<SessionId>()
+  #rememberProbe(id: SessionId): void {
+    if (this.#optionProbeIds.has(id)) return
+    this.#optionProbeIds.add(id)
+    const file = this.#config.probeSessionsFile
+    if (file) {
+      mkdirSync(dirname(file), { recursive: true })
+      // Append before applying picks: a refused read still created a draft.
+      // JSON lines also preserve opaque ids containing whitespace or newlines.
+      appendFileSync(file, `${JSON.stringify(String(id))}\n`, { mode: 0o600 })
+    }
+  }
   #optionReads = 0
   #isProbe(id: SessionId): boolean {
     return id === this.#probeId || this.#optionProbeIds.has(id)
@@ -3741,7 +3762,7 @@ class AcpSession implements AgentSession {
    * disagree with it. `busy` is false while a loaded session's history is
    * being replayed, which is a turn re-read rather than one in flight.
    */
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
     if (this.busy) {
       throw new Error(
         `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
@@ -3753,7 +3774,11 @@ class AcpSession implements AgentSession {
     // `NoticeItem` already carries for a `/model` echo: housekeeping, not speech.
     const userItem: AgentItem =
       opts?.recordAs === 'notice'
-        ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
+        ? {
+            id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input),
+            ...(opts.noticeKind ? { kind: opts.noticeKind } : {}),
+            startedAt: Date.now(),
+          }
         : (() => {
             const { content, context } = peelUserContent(input, ACP_ENVELOPE)
             return {

@@ -25,7 +25,7 @@ import { useStore } from '../state/context'
 export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
   const store = useStore()
   const action = goalActions(view.goal)
-  const reason = view.problem ?? action.reason
+  const reason = view.problem ?? (view.goal.state === 'wrapped' ? null : action.reason)
 
   return (
     <>

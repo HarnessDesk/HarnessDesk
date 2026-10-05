@@ -583,7 +583,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
    * call to make: it sends at once when nothing is running and holds it when
    * something is, so the two states cannot disagree across a round trip.
    */
-  const recoverDraft = useCallback((draft: Draft, originKey: ReturnType<typeof sessionKey> | null) => {
+  const recoverDraft = useCallback((draft: Draft, originKey: ReturnType<typeof sessionKey> | null, failure?: string) => {
     // The store scopes this to the originating conversation, so a late reply
     // cannot put one conversation's words into a reused composer for another.
     // Every refusal takes this path, including an empty composer, so it survives
@@ -591,7 +591,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (originKey) store.addRecoverableDraft(originKey, {
       text: draft.text,
       attachments: draft.attachments,
-      detail: 'Restore the refused message to the composer; your current draft stays available.',
+      detail: failure ?? 'Restore the refused message to the composer; your current draft stays available.',
       reason: 'refused',
     })
     else store.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
@@ -761,8 +761,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (key) release()
 
     if (mode === 'now' && busy && canSteer) {
-      const accepted = await store.steer(content, key)
-      if (!accepted) recoverDraft(draft, key)
+      let failure: string | undefined
+      const accepted = await store.steer(content, key, (message) => { failure = message })
+      if (!accepted) recoverDraft(draft, key, failure)
       return
     }
     // A message that did not get anywhere goes back in the box. Losing what

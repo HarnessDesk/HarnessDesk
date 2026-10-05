@@ -2327,6 +2327,119 @@ test('a cwd is refused when it is relative, whichever method it is handed to', a
   )
 })
 
+test("a submodule's worktree opens as the workspace, and both listings name the submodule's folder as the main checkout", async (t) => {
+  // Git names a submodule's main checkout by its git directory. Everything that
+  // took the first entry of `git worktree list` for a place to work in
+  // therefore had `<super>/.git/modules/<name>`: opening a worktree of the
+  // submodule as the workspace was refused as a changed repository, and the
+  // listings that the interface reads named the git directory as the main
+  // checkout. The superproject is what is open, so that the submodule and its
+  // worktrees are open folders whatever else holds.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths, because git lists real paths and the expectations compare with them.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-worktree-main-entry-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const origin = join(scratch, 'origin')
+  const superproject = join(scratch, 'super')
+  for (const repo of [origin, superproject]) {
+    await mkdir(repo)
+    await gitIn(repo, 'init', '-q', '-b', 'main')
+    await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  }
+  await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+  const sub = join(superproject, 'sub')
+  const gitDirectory = join(superproject, '.git', 'modules', 'sub')
+  await client.call('workspace/open', { path: superproject })
+  const side = ((await client.call('worktree/create', { root: sub, name: 'side' })) as { path: string }).path
+  // The control: git itself lists the git directory, so a folder below can
+  // only come from the host.
+  assert.equal((await gitIn(sub, 'worktree', 'list', '--porcelain')).split('\n')[0], `worktree ${gitDirectory}`)
+
+  await t.test('the worktree opens as the workspace', async () => {
+    const opened = (await client.call('workspace/open', { path: side })) as { path: string }
+    assert.equal(opened.path, side)
+  })
+
+  await t.test('worktree/list names the submodule folder as the main checkout', async () => {
+    const listed = (await client.call('worktree/list', { root: side })) as readonly { path: string; isMain: boolean }[]
+    assert.deepEqual(
+      listed.map((entry) => [entry.path, entry.isMain]),
+      [
+        [sub, true],
+        [side, false],
+      ],
+    )
+  })
+
+  await t.test('git/worktrees names it too, with the worktree HarnessDesk made as its own and the current one', async () => {
+    const rows = (await client.call('git/worktrees', { root: side })) as readonly {
+      path: string
+      isMain: boolean
+      isCurrent: boolean
+      managed: boolean
+    }[]
+    assert.deepEqual(
+      rows.map((row) => [row.path, row.isMain, row.isCurrent, row.managed]),
+      [
+        [sub, true, false, false],
+        [side, false, true, true],
+      ],
+    )
+  })
+
+  await t.test('a worktree added from the pane lands beside the submodule, not inside the git directory', async () => {
+    const added = (await client.call('git/worktreeAdd', {
+      root: sub,
+      path: 'feature',
+      checkout: { kind: 'new', branch: 'feature' },
+    })) as { path: string }
+    assert.equal(added.path, join(superproject, 'feature'))
+    assert.equal(added.path.startsWith(`${gitDirectory}/`), false)
+  })
+})
+
+test("a submodule's git directory that names another repository as its work tree does not make that repository the project", async (t) => {
+  // The folder of a submodule's main checkout is read from its git directory's
+  // own `core.worktree`, and a file in a repository is not a thing to trust
+  // with where a shell may run. The folder it names is asked again from
+  // inside, and must itself be a checkout of this repository.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-worktree-core-worktree-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const origin = join(scratch, 'origin')
+  const superproject = join(scratch, 'super')
+  const stranger = join(scratch, 'stranger')
+  for (const repo of [origin, superproject, stranger]) {
+    await mkdir(repo)
+    await gitIn(repo, 'init', '-q', '-b', 'main')
+    await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  }
+  await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+  const sub = join(superproject, 'sub')
+  await client.call('workspace/open', { path: superproject })
+  const side = ((await client.call('worktree/create', { root: sub, name: 'side' })) as { path: string }).path
+
+  // The control: left as git wrote it, the worktree opens as the workspace.
+  assert.equal(((await client.call('workspace/open', { path: side })) as { path: string }).path, side)
+  await client.call('workspace/forget', { path: side })
+
+  await gitIn(scratch, 'config', '--file', join(superproject, '.git', 'modules', 'sub', 'config'), 'core.worktree', stranger)
+  // The tampering took: git now reads the stranger's folder as the submodule's work tree.
+  assert.equal((await gitIn(join(superproject, '.git', 'modules', 'sub'), 'rev-parse', '--show-toplevel')).trim(), stranger)
+
+  await assert.rejects(() => client.call('workspace/open', { path: side }), {
+    message: 'The project checkout changed its repository. Open the actual project folder before running shell commands.',
+  })
+})
+
 test('worktree/list refuses a repository nobody opened, and answers for one opened through any of its checkouts', async (t) => {
   // It ran `git worktree list` wherever it was pointed, so an absolute path to
   // a repository nobody opened was answered with every checkout's path, branch

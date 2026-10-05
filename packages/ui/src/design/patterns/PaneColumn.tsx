@@ -5,6 +5,9 @@ import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } fr
  * lined up with whatever gutter its own scrollbar reserves, and clear of a
  * floating composer where one sits over it.
  *
+ * A prose `page` takes the reading inset above and below its content too;
+ * a message stream keeps its smaller vertical air.
+ *
  * Four screens each drew a version of this by hand. Two of them were never
  * two shapes: the transcript's own scroll box (`Conversation.tsx`) and the
  * room's own stream (`TeamRoomPane.tsx`) are the same role — a reading
@@ -64,17 +67,21 @@ export type PaneColumnProps =
        * vertical air instead.
        */
       clearComposer?: boolean
+      /** A prose page keeps the reading gutter on all four edges. */
+      page?: boolean
     })
   | (PaneColumnCommonProps & {
       inset: StaticInset
       /** Meaningless off `reading`: nothing else floats a composer over it. */
       clearComposer?: never
+      page?: never
     })
 
 /** `data-slot`/`data-inset` are for a test or a screen's own CSS to read, the
- *  same convention the rest of `design/patterns` stamps. */
+ *  same convention the rest of `design/patterns` stamps. A prose `page`
+ *  keeps the full reading inset above and below its content. */
 export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
-  ({ inset, clearComposer = false, style, ...props }, ref) => (
+  ({ inset, clearComposer = false, page = false, style, ...props }, ref) => (
     <div
       ref={ref}
       data-slot="pane-column"
@@ -82,7 +89,7 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
       style={{
         padding: clearComposer
           ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} calc(var(--composer-h, 150px) + 16px)`
-          : `${VERTICAL[inset] ?? '0'} ${INLINE[inset]}`,
+          : `${page ? INLINE.reading : VERTICAL[inset] ?? '0'} ${INLINE[inset]}`,
         ...style,
       }}
       {...props}

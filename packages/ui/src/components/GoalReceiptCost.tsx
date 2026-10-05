@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import type { GoalReceipt } from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
@@ -8,7 +8,7 @@ import { InsightCost } from './InsightCost'
  * The receipt remains an immutable value.  This sibling owns the volatile
  * read, so refreshing accounting can neither replace nor amend receipt data.
  */
-export const GoalReceiptCost = ({ receipt }: { readonly receipt: GoalReceipt }) => {
+export const GoalReceiptCost = ({ receipt, children }: { readonly receipt: GoalReceipt; readonly children?: (insight: import('./InsightCost').InsightCostProps) => ReactNode }) => {
   const store = useStore()
   const [report, setReport] = useState<import('@harnessdesk/protocol').InsightReport | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -39,5 +39,6 @@ export const GoalReceiptCost = ({ receipt }: { readonly receipt: GoalReceipt }) 
     return () => { generation.current += 1 }
   }, [load])
 
+  if (children) return children({ report, loading, problem, onRefresh: load })
   return <InsightCost report={report} loading={loading} problem={problem} onRefresh={load} />
 }

@@ -82,3 +82,26 @@ test('desktop and narrow layouts keep every sentence inside the pane', async ({ 
     }
   }
 })
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`narrow findings reserve a full title line and keep literal ids and lifecycle in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 720, height: 1000 })
+    await page.goto(`/preview.html?theme=${theme}`)
+    const goal = page.locator('[data-frame-id="goal-roster"]')
+    await goal.locator('aside').getByRole('button', { name: 'Findings', exact: true }).click()
+    for (const id of ['finding-claim-1', 'finding-confirmed-1']) {
+      const row = goal.getByRole('button', { name: new RegExp(id) })
+      const geometry = await row.evaluate(el => {
+        const title = el.querySelector('[data-slot="row-title"]') ?? el.querySelector('.truncate')!
+        const identifier = [...el.querySelectorAll('[data-slot="code-text"]')][0]!
+        const state = el.querySelector('[data-slot="chip"]')!
+        const t = title.getBoundingClientRect(), i = identifier.getBoundingClientRect(), s = state.getBoundingClientRect()
+        return { width: t.width, idBelow: i.top >= t.bottom - 1, stateBelow: s.top >= t.bottom - 1, fits: title.scrollWidth <= title.clientWidth }
+      })
+      expect(geometry).toMatchObject({ idBelow: true, stateBelow: true, fits: true })
+      expect(geometry.width).toBeGreaterThan(300)
+      await expect(row).toContainText(id)
+      await expect(row).toContainText(id.includes('claim') ? 'Repair claimed · awaiting review' : 'Repair accepted by reviewer')
+    }
+  })
+}

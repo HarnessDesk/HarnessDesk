@@ -129,7 +129,7 @@ for (const answer of ['announce', 'reply']) {
 
 test('ACP explicit thinking off is checked against the settled combination', async (t) => {
   const { runtime, root } = await rig(t, 'variant')
-  assert.match(await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'medium', thinking: false }, root) ?? '', /with thinking on, which was asked to be off/)
+  assert.match((await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'medium', thinking: false }, root))?.text ?? '', /with thinking on, which was asked to be off/)
 })
 
 test('ACP default effort offered by the controls previews and actually opens', async (t) => {
@@ -170,10 +170,13 @@ for (const [kind, seat, reason] of [
   ['acp', 'claude-code=haiku+thinking', /thinking/i],
 ] as const) {
   test(`${kind}: preview refuses ${seat} and start creates no run, Goal, lane or card`, async (t) => {
-    const { host, root } = await rig(t, kind)
+    const { host, root, runtime } = await rig(t, kind)
     const text = source(seat)
     const preview = await host.call('flow/preview', { root, source: text })
     assert.equal(preview.token, null, JSON.stringify(preview.problems))
+    const optionProblem = await seatOptionsProblem(runtime, preview.seats[0]!.plan.candidates[0]!.seat, root)
+    assert.ok(optionProblem)
+    assert.equal(optionProblem.availability, undefined, 'unsupported option picks are content defects')
     assert.ok(preview.problems.some((problem) => problem.at.startsWith('roles.competitor') && reason.test(problem.text)), JSON.stringify(preview.problems))
     for (const index of [0, 1]) assert.ok(preview.problems.some((problem) => problem.at === `roles.competitor.seat[${index}]` && reason.test(problem.text)), 'each competitor has its own problem')
     await assert.rejects(host.call('flow/start-goal', { root, source: text, token: preview.token ?? 'not-authorized', sentence: 'Compare' }))
@@ -190,6 +193,7 @@ test('an unread catalogue is a problem even for +thinking with no named model', 
   const preview = await host.call('flow/preview', { root, source: source('claude-code+thinking') })
   assert.equal(preview.token, null)
   assert.match(preview.problems[0]?.text ?? '', /model catalogue could not be read/)
+  assert.equal(preview.problems[0]?.availability, true)
   assert.deepEqual(await host.call('lane/list', {}), [])
 })
 
@@ -248,7 +252,7 @@ test('a bare effort honors the project model instead of overriding it with the c
 test('a runtime that never answers the option read leaves a bounded problem', async (t) => {
   const { runtime, root } = await rig(t, 'acp')
   runtime.defaultSessionOptions = () => new Promise(() => {})
-  assert.match(await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'opus', effort: 'high' }, root, 10) ?? '', /session options could not be read within 10 ms/)
+  assert.match((await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'opus', effort: 'high' }, root, 10))?.text ?? '', /session options could not be read within 10 ms/)
 })
 
 for (const [kind, seat] of [['codex', 'codex=gpt-5.5/high'], ['acp', 'claude-code=opus/high']] as const) {
