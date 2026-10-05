@@ -377,6 +377,22 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.startsWith('ceiling permission ')) {
+    const input = JSON.parse(text.slice('ceiling permission '.length))
+    const toolCall = input.toolCall ?? input
+    const { outcome } = await request('session/request_permission', {
+      sessionId: state.id, toolCall,
+      ...(input._meta ? { _meta: input._meta } : {}),
+      options: [
+        { optionId: 'yes', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+    const allowed = outcome.outcome === 'selected' && outcome.optionId === 'yes'
+    say(allowed ? 'allowed.' : 'denied.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (text.includes('use the tool')) {
     update(state.id, {
       sessionUpdate: 'tool_call',

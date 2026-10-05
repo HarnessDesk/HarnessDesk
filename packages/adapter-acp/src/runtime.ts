@@ -39,6 +39,7 @@ import {
   type RuntimeInfo,
   type CeilingLevel,
   NO_CAPABILITIES,
+  DESK_TOOL_CEILINGS,
   type InstallationCheck,
   type Session,
   type SessionId,
@@ -2526,7 +2527,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#retireProbe(session.id)
     this.#sessions.set(session.id, session)
     this.#invalidateSearchListing()
-    if (heldCeiling) this.#sessionCeilings.set(session.id, heldCeiling)
+    if (options.requestedCeiling === 'read') this.#sessionCeilings.set(session.id, 'read')
     if (options.attachments) this.#attachmentInputs.set(session.id, options.attachments)
     this.#learnCatalog(result)
     // Initial option values ride the same path a user change would — mode
@@ -2680,7 +2681,7 @@ export class AcpRuntime implements AgentRuntime {
         // decides whether a resume repeats a Seat's frozen input, exactly as
         // it decided at create. This only remembers what it was handed.
         if (options.attachments) this.#attachmentInputs.set(id, options.attachments)
-        if (heldCeiling && this.#readCeiling) this.#sessionCeilings.set(id, heldCeiling)
+        if (requestedCeiling === 'read') this.#sessionCeilings.set(id, 'read')
         if (environment) {
           acknowledgeEnvironment(loaded._meta, environment)
           this.#environments.set(id, environment)
@@ -2945,6 +2946,17 @@ export class AcpRuntime implements AgentRuntime {
       const request = params as AcpPermissionRequest
       const session = this.#sessions.get(makeSessionId(request.sessionId))
       if (!session) throw new AcpError(`no session ${request.sessionId}`)
+      if (this.#sessionCeilings.get(session.id) === 'read' && !questionOf(request)) {
+        // Notifications describe work after it happened. Only requests can be
+        // refused here; the bridge's native pre-tool guard holds the ceiling.
+        const tool = this.trustsBridgeProvenance ? flowBoardToolOf(request) : null
+        const read = tool
+          ? READ_PERMISSION_TOOLS.has(tool.tool)
+          : request.toolCall.kind === 'read' || request.toolCall.kind === 'search'
+        // Execution, mode changes and unknown calls cannot be granted by the
+        // person or an automatic approval policy on behalf of a read Seat.
+        if (!read) return { outcome: { outcome: 'cancelled' } }
+      }
       return session.requestPermission(request)
     }
     // fs/* and terminal/* land here if an agent ignores the declined
@@ -2956,6 +2968,12 @@ export class AcpRuntime implements AgentRuntime {
 }
 
 // -------------------------------------------------------------------- session
+
+const READ_PERMISSION_TOOLS = new Set(
+  Object.values(DESK_TOOL_CEILINGS).flatMap(tools => Object.entries(tools))
+    .filter(([, ceiling]) => ceiling === 'read')
+    .map(([name]) => `mcp__harnessdesk__${name}`),
+)
 
 const NO_TOKENS: TokenUsage = {
   totalTokens: 0,
