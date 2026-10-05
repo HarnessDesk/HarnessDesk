@@ -2,7 +2,7 @@ import { editOf } from '@harnessdesk/protocol'
 
 import type { AgentItem, FileChange, Session } from '@harnessdesk/protocol'
 
-import { HANDOFF_PREFIX, isHandoffSource, splitContext, wrapContext } from './context-envelope'
+import { HANDOFF_PREFIX, isHandoffSource, splitContextContent, wrapContext } from './context-envelope'
 import { countFileChange } from './diff'
 import { relativeTo } from './paths'
 import { applyPlanEdits, type PlanEdit } from './plan-edits'
@@ -82,11 +82,7 @@ const textOf = (item: AgentItem): Exchange | null => {
     // What the user typed, without the envelopes the desk itself injected —
     // a git note or a previous hand-off quoted back inside this one is both
     // noise and a `<context>` nested in a `<context>`.
-    const text = item.content
-      .filter((part) => part.type === 'text')
-      .map((part) => (part.type === 'text' ? splitContext(part.text).text : ''))
-      .join(' ')
-      .trim()
+    const text = splitContextContent(item.content).text.trim()
     return text ? { role: 'user', text } : null
   }
   if (item.type === 'assistantMessage' && item.phase !== 'commentary' && item.text.trim()) {
@@ -135,13 +131,10 @@ const carriedGoal = (session: Session): string | null => {
   for (const turn of session.turns) {
     for (const item of turn.items) {
       if (item.type !== 'userMessage') continue
-      for (const part of item.content) {
-        if (part.type !== 'text') continue
-        for (const block of splitContext(part.text).injections) {
-          if (!isHandoffSource(block.label)) continue
-          const goal = /## Goal\n([\s\S]*?)(?=\n## |$)/.exec(block.text)?.[1]?.trim()
-          if (goal) return goal
-        }
+      for (const block of splitContextContent(item.content).injections) {
+        if (!isHandoffSource(block.label)) continue
+        const goal = /## Goal\n([\s\S]*?)(?=\n## |$)/.exec(block.text)?.[1]?.trim()
+        if (goal) return goal
       }
       // Only the first user message can have started the conversation.
       return null

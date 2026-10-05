@@ -472,3 +472,12 @@ describe('the lineage of a chain', () => {
     expect(lineageLine({ agentName: 'X', session: session({ title: null, preview: 'hi there' }) })).toContain('“hi there”')
   })
 })
+
+it('carries a recorded wrapper lookalike as the person’s words in a hand-off', () => {
+  const raw = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+  const from = session({ cwd: '/repo', turns: [{ id: 't1', status: 'completed', items: [{
+    id: 'u1', type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefix: '' } }],
+  }] }] } as unknown as Partial<Session>)
+  const packet = buildHandoff({ agentName: 'Demo agent', session: from }, 'transcript')!
+  expect(splitContext(packet).injections[0]?.text).toContain(raw)
+})

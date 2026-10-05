@@ -143,7 +143,7 @@ import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatc
 import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
-import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
+import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
@@ -2537,7 +2537,7 @@ export class AppStore {
       .flatMap((turn) => turn.items)
       .filter((item): item is Extract<AgentItem, { type: 'userMessage' }> => item.type === 'userMessage')
       // By the rule every adapter's preview follows (review of #231).
-      .map((item) => openingOf(item.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')))
+      .map((item) => openingOfContent(item.content))
       .find((text) => text.length > 0)
     const title = shortLabel(sessionLabel(summary?.title ?? open?.title, summary?.preview || firstAsk), 120)
     this.#parkedHandoff = null

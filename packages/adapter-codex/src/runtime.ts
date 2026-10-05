@@ -1455,6 +1455,10 @@ export class CodexRuntime implements AgentRuntime {
       case 'item/started':
       case 'item/completed': {
         const item = notification.params.item
+        if (item.type === 'userMessage') {
+          this.#sessions.get(notification.params.threadId)?.noteUserInput(item.id,
+            item.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n'))
+        }
         if (item.type === 'fileChange') {
           this.#sessions
             .get(notification.params.threadId)
@@ -1491,7 +1495,9 @@ export class CodexRuntime implements AgentRuntime {
     if (event.type !== 'item/started' && event.type !== 'item/completed') return event
     if (event.item.type !== 'userMessage') return event
     const session = this.#sessions.get(event.sessionId)
-    if (!session?.isSilentTurn(event.turnId)) return event
+    if (!session?.isSilentTurn(event.turnId)) {
+      return session ? { ...event, item: session.recordedUserInput(event.item) } : event
+    }
     return { ...event, item: noticeFromUserMessage(event.item, session.noticeKindOf(event.turnId)) }
   }
 

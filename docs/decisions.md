@@ -2007,3 +2007,20 @@ SkillList/SkillRow, accepting the former crowded identity column.
 
 **The rule:** switch a comparison to its list form before trailing facts
 consume the width its identity and sentences need.
+
+
+## Context authorship is recorded beside the transcript
+
+*Issue #1181.* The desk’s marked context wrapper is also text a person can
+paste. Its marker identifies a layout, not who wrote it. Each newly sent text
+part now carries the exact prefix the desk composed beside its text; an empty
+prefix records that none was added. Adapters carry that record into the host’s
+own transcript, and richer runtime reads retain the recorded content even
+when the runtime has already folded its wrappers. The window, queue and
+hand-off reader all use the protocol’s same prefix parser with that record.
+A second marked block after the recorded prefix is still the person’s words.
+
+Agent-owned history and older desk transcripts have no such record. Their
+readers keep the start-anchored layout rule as a compatibility fallback, and
+never infer a new provenance record from that text. This lets the host remember
+what it composed without modifying the agent’s own history.

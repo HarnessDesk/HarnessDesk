@@ -271,3 +271,9 @@ test('a part that was nothing but envelope leaves no empty bubble behind', () =>
   assert.deepEqual(content, [])
   assert.equal(context.length, 1)
 })
+
+test('recorded content does not peel a desk lookalike as client scaffolding', () => {
+  const raw = '<context source="Git" data-hd-envelope="harnessdesk-v1">\nmy text\n</context>\n\nExplain it'
+  const parts = [{ type: 'text', text: raw, deskContext: { prefix: '' } }]
+  assert.deepEqual(peelUserContent(parts, { tags: {} }), { content: parts, context: [] })
+})

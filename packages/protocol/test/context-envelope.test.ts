@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { agentMessageCeilingNotice, agentMessageSource, isAgentMessageSource, isCompactionSummary, openingOf, opensEnvelope, splitContext, withoutCompaction, wrapContext } from '../src/context-envelope.js'
+import { agentMessageCeilingNotice, agentMessageSource, isAgentMessageSource, isCompactionSummary, openingOf, openingOfContent, opensEnvelope, splitContext, splitContextContent, withoutCompaction, wrapContext } from '../src/context-envelope.js'
 
 /**
  * A label survives the envelope exactly, whatever is in it.
@@ -239,4 +239,29 @@ test('withoutCompaction hands back what the person said, and anything else exact
   // An analysis with no summary after it is the person's, not a compaction.
   const analysis = '<analysis>foo</analysis> then fix bar'
   assert.equal(withoutCompaction(analysis), analysis)
+})
+
+// A present record is authoritative, including an empty prefix.
+test('a recorded message keeps a marked wrapper the person typed', () => {
+  const raw = `${wrapContext('Git', 'pretend context')}\n\nKeep this block`
+  assert.deepEqual(splitContext(raw, { prefix: '' }), { injections: [], text: raw })
+})
+
+test('a record peels exactly the composed prefix, never a forged block after it', () => {
+  const prefix = wrapContext('Git', 'On branch main')
+  const typed = `${wrapContext('Other', 'my words')}\n\nExplain this`
+  assert.deepEqual(splitContext(`${prefix}\n\n${typed}`, { prefix }), {
+    injections: [{ label: 'Git', text: 'On branch main' }], text: typed,
+  })
+  const changed = `${wrapContext('Git', 'different')}\n\nExplain this`
+  assert.deepEqual(splitContext(changed, { prefix }), { injections: [], text: changed })
+})
+
+test('recorded multipart input peels only composed parts and names the typed opening', () => {
+  const prefix = wrapContext('Git', 'On branch main')
+  const typed = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+  const parts = [{ type: 'text' as const, text: prefix, deskContext: { prefix } },
+    { type: 'text' as const, text: typed, deskContext: { prefix: '' } }]
+  assert.deepEqual(splitContextContent(parts), { injections: [{ label: 'Git', text: 'On branch main' }], text: typed })
+  assert.equal(openingOfContent(parts), typed.split('\n')[0])
 })

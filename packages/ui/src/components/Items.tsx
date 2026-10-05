@@ -114,7 +114,7 @@ import {
 } from './Icons'
 import { surfaceFor } from '../lib/notice-policy'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
-import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-envelope'
+import { isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
@@ -482,11 +482,7 @@ const UserText = ({ text }: { text: string }) => {
 }
 
 const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number }) => {
-  const raw = item.content
-    .filter((part) => part.type === 'text')
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('\n')
-  const { injections, text } = splitContext(raw)
+  const { injections, text } = splitContextContent(item.content)
   const attachments = item.content.filter((part) => part.type !== 'text')
   const images = imagesOf(item)
   const singleImage = images.length === 1

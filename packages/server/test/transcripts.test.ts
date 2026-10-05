@@ -14,6 +14,7 @@ import {
   type TurnInsightContext,
   type Turn,
   wrapContext,
+  splitContextContent,
 } from '@harnessdesk/protocol'
 
 import { errnoOf } from '../src/errno.js'
@@ -901,5 +902,61 @@ test('cold notice preservation does not copy a row already read into a vendor tu
     await store.flush()
     const read = session([turn('vendor', [notice])])
     assert.deepEqual((await store.enrich(read)).turns, read.turns)
+  })
+})
+
+test('a cold richer read restores the recorded user content even after the backend peeled it', async () => {
+  await withStore(async (store, dir) => {
+    const forged = `${wrapContext('Other', 'typed words')}\n\nKeep it`
+    const prefix = wrapContext('Git', 'On branch main')
+    const recorded = { ...item('u', 'userMessage'), type: 'userMessage', content: [
+      { type: 'text', text: `${prefix}\n\n${forged}`, deskContext: { prefix } },
+    ] } as AgentItem
+    store.record(session([turn('t1', [recorded])]), { now: true })
+    await store.flush()
+    const cold = new TranscriptStore(dir)
+    const replay = { ...item('u', 'userMessage'), type: 'userMessage', content: [{ type: 'text', text: 'Keep it' }],
+      context: [{ label: 'Git', text: 'On branch main' }, { label: 'Other', text: 'typed words' }] } as AgentItem
+    const result = await cold.enrich(session([turn('t1', [replay, item('a', 'assistantMessage')])]))
+    assert.deepEqual(result.turns[0]?.items[0], recorded)
+    assert.equal(result.turns[0]?.items.length, 2)
+  })
+})
+
+test('a cold resegmented read retains provenance when turn and user item ids change', async () => {
+  await withStore(async (store, dir) => {
+    const raw = `${wrapContext('Other', 'typed words')}\n\nKeep it`
+    const recorded: AgentItem = { ...item('sent-user', 'userMessage'), type: 'userMessage',
+      content: [{ type: 'text', text: raw, deskContext: { prefix: '' } }] }
+    store.record(session([turn('sent-turn', [recorded])]), { now: true })
+    await store.flush()
+    const replay: AgentItem = { ...item('replayed-user', 'userMessage'), type: 'userMessage',
+      content: [{ type: 'text', text: 'Keep it' }], context: [{ label: 'Other', text: 'typed words' }] }
+    const cold = new TranscriptStore(dir)
+    const result = await cold.enrich(session([turn('replayed-turn', [replay, item('answer', 'assistantMessage')])]))
+    const user = result.turns[0]?.items[0]
+    assert.ok(user?.type === 'userMessage')
+    assert.equal(user.id, replay.id, 'replay keeps its segmentation and ids')
+    assert.deepEqual(splitContextContent(user.content), { injections: [], text: raw })
+    assert.equal(result.turns.length, 1)
+    assert.equal(result.turns[0]?.items.length, 2)
+  })
+})
+
+test('recording an ACP replay before a cold read cannot overwrite stored context provenance', async () => {
+  await withStore(async (store, dir) => {
+    const raw = `${wrapContext('Other', 'typed words')}\n\nKeep it`
+    const recorded: AgentItem = { ...item('user', 'userMessage'), type: 'userMessage',
+      content: [{ type: 'text', text: raw, deskContext: { prefix: '' } }] }
+    store.record(session([turn('t1', [recorded])]), { now: true })
+    await store.flush()
+    const cold = new TranscriptStore(dir)
+    const replay: AgentItem = { ...recorded, content: [{ type: 'text', text: 'Keep it' }],
+      context: [{ label: 'Other', text: 'typed words' }] }
+    cold.record(session([turn('t1', [replay])]))
+    const read = await cold.enrich(session([turn('t1', [replay])]))
+    const user = read.turns[0]?.items[0]
+    assert.ok(user?.type === 'userMessage')
+    assert.deepEqual(splitContextContent(user.content), { injections: [], text: raw })
   })
 })

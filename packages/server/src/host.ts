@@ -11,6 +11,7 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  deskContextContent,
   approvalId as makeApprovalId,
   FLOW_BOARD_TOOL_NAMES,
   ceilingOfPermission,
@@ -1041,8 +1042,8 @@ export class Host {
           () => this.#teamLive(runtime, id),
           async (live) => {
             this.#assertDispatchable({ runtime, sessionId: makeSessionId(id) })
-            if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
-            else await live.send([{ type: 'text', text }])
+            if (from) await this.#startTurn(runtime, id, from, () => live.send([deskContextContent(text)]))
+            else await live.send([deskContextContent(text)])
           },
         ), id))
       },
@@ -1052,7 +1053,7 @@ export class Host {
           () => this.#teamLive(runtime, id),
           async (live) => {
             this.#assertDispatchable({ runtime, sessionId: makeSessionId(id) })
-            await live.steer([{ type: 'text', text }])
+            await live.steer([deskContextContent(text)])
             if (from) this.#markRunningTurn(runtime, id, this.#messageCause(from))
           },
         ))

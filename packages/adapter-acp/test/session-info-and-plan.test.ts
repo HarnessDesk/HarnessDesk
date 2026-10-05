@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent } from '@harnessdesk/protocol'
+import { wrapContext, type AgentEvent } from '@harnessdesk/protocol'
 
 import { AcpRuntime } from '../src/index.js'
 
@@ -95,4 +95,21 @@ test('a plan update keeps only entries with words and a status this client draws
     { step: 'ship the fix', status: 'inProgress', priority: 'high' },
     { step: 'write the tests', status: 'pending' },
   ])
+})
+
+test('locally sent wrapper lookalikes carry a record through ACP turns', async t => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/tmp/acp-context-record' })
+  const raw = `${wrapContext('Git', 'typed words')}\n\nExplain it`
+  await live.send([{ type: 'text', text: raw }])
+  const opening = events.find(event => event.type === 'turn/started')
+  assert.ok(opening?.type === 'turn/started')
+  const item = opening.turn.items[0]
+  assert.ok(item?.type === 'userMessage')
+  assert.deepEqual(item.content, [{ type: 'text', text: raw, deskContext: { prefix: '' } }])
+  assert.equal(item.context?.length ?? 0, 0)
 })

@@ -1,6 +1,7 @@
+import { splitContext } from './context-envelope.js'
 import type { AgentEvent } from './events.js'
 import type { ItemId, TurnId } from './ids.js'
-import type { AgentItem, FileChange, ItemDelta } from './items.js'
+import type { AgentItem, FileChange, ItemDelta, UserMessageItem } from './items.js'
 import type { Session, Turn } from './session.js'
 
 /**
@@ -67,11 +68,42 @@ export const applyDelta = (item: AgentItem, delta: ItemDelta): AgentItem => {
   }
 }
 
+/** A runtime replay cannot erase the desk's record of the input it sent.
+ * User item ids are stable where available; resegmented replay also matches
+ * the text and folded context, never just the position of a message. */
+export const preserveDeskContext = (items: readonly AgentItem[], stored: readonly AgentItem[]): readonly AgentItem[] => {
+  const recorded = stored.filter((item): item is UserMessageItem => item.type === 'userMessage' &&
+    item.content.some(part => part.type === 'text' && part.deskContext !== undefined))
+  if (recorded.length === 0) return items
+  let changed = false
+  const next = items.map(item => {
+    if (item.type !== 'userMessage') return item
+    const matches = (candidate: UserMessageItem): boolean => {
+      const original = candidate.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
+      const replay = item.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
+      if (original === replay) return true
+      const fallback = splitContext(original)
+      return fallback.text === replay && fallback.injections.length > 0 &&
+        JSON.stringify(fallback.injections) === JSON.stringify(item.context ?? [])
+    }
+    let at = recorded.findIndex(candidate => candidate.id === item.id && matches(candidate))
+    if (at === -1) at = recorded.findIndex(matches)
+    if (at === -1) return item
+    const held = recorded.splice(at, 1)[0]
+    if (!held || item.content.some(part => part.type === 'text' && part.deskContext !== undefined)) return item
+    changed = true
+    const { context: _context, ...rest } = item
+    return { ...rest, content: held.content, ...(held.context ? { context: held.context } : {}) }
+  })
+  return changed ? next : items
+}
+
 const replaceItem = (items: readonly AgentItem[], next: AgentItem): AgentItem[] => {
   const index = items.findIndex((item) => item.id === next.id)
   if (index === -1) return [...items, next]
   const copy = items.slice()
   const previous = items[index] as AgentItem
+  next = preserveDeskContext([next], [previous])[0] ?? next
   // A completion carries the item's final shape but not always when it
   // began; the start is known from the earlier event and stays.
   copy[index] =
@@ -184,7 +216,7 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       // streamed items are richer than the summary the runtime sends back.
       return mapTurn(session, event.turn.id, (turn) => {
         const items = withoutRepeatedError(event.turn.items.length > turn.items.length
-          ? preserveNoticeItems(event.turn.items, turn.items, true)
+          ? preserveDeskContext(preserveNoticeItems(event.turn.items, turn.items, true), turn.items)
           : turn.items, event.turn)
         return { ...turn, ...event.turn, items }
       })
@@ -320,7 +352,7 @@ export const mergeRead = (
     const plan = turn.plan ?? mine.plan
     const items = withoutRepeatedError(mine.items.length > turn.items.length
       ? mine.items
-      : preserveNoticeItems(turn.items, mine.items, true), turn)
+      : preserveDeskContext(preserveNoticeItems(turn.items, mine.items, true), mine.items), turn)
     if (items === turn.items && diff === turn.diff && plan === turn.plan) return turn
     return {
       ...turn,

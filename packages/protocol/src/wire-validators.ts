@@ -49,6 +49,7 @@ export const userContentValidator: Validator<UserContent> = taggedUnion('type', 
   text: shape({
     type: literalUnion('text'),
     text: isString,
+    deskContext: optional(shape({ prefix: isString })),
     spans: optional(
       arrayOf(
         shape({
