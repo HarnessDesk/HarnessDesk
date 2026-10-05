@@ -106,7 +106,7 @@ for (const theme of ['light', 'dark'] as const) {
         const subject = el.querySelector('[role="gridcell"]:has([data-role="row"])')!.getBoundingClientRect()
         const text = el.querySelector('[data-role="row"]')!.getBoundingClientRect()
         const chips = [...el.querySelectorAll('[data-slot="chip"]')].map(chip => chip.getBoundingClientRect())
-        return text.width > 0 && chips.every(chip => chip.left >= subject.left && chip.right <= subject.right)
+        return text.width >= 40 && chips.every(chip => chip.left >= subject.left && chip.right <= subject.right)
       })).toBe(true)
     })
   }
