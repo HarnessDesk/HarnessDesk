@@ -263,7 +263,7 @@ it('keeps a shorter lane blocked until the account-wide window resets', () => {
  })
  act(() => triggers()[0]?.click())
  const lane = [...document.querySelectorAll('[data-slot="usage-meter-row"]')].find(row => row.textContent?.startsWith('Session'))
- expect(lane?.textContent).toContain('blocked for 3 d')
+ expect(lane?.textContent).toContain('blocked 3d')
  expect(lane?.textContent).not.toContain('in 1 h')
 })
 

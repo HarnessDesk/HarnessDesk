@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { describeStrip, type StripMeter, type StripRest } from '../lib/plan-strip'
-import { describeLane, formatAge, formatMoney, formatResetCountdown } from '../lib/usage'
+import { describeLane, formatAge, formatMoney } from '../lib/usage'
 import { useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { RosterIcon, SignInIcon, UsageIcon } from './Icons'
@@ -182,7 +182,7 @@ const Meter = ({
             {view.report.lanes.map((raw) => {
               const lane = describeLane(raw, now, view.report.lanes)
               return (
-                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : formatResetCountdown(lane.gatedUntil - now).replace(/^in /, 'blocked for ')} tone={toneOf(lane.tone)} standalone />
+                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} tone={toneOf(lane.tone)} standalone />
               )
             })}
           </div>

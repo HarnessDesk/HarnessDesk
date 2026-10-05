@@ -269,5 +269,5 @@ const Row = ({
 const WindowRow = ({ window }: { window: UsageWindow }) => {
   const left = Math.min(100, Math.max(0, Math.round(100 - window.usedPercent)))
   const tone = left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'
-  return <UsageMeterRow name={window.label} percent={left} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} tone={toneOf(tone)} standalone />
+  return <div className={styles.window}><UsageMeterRow name={window.label} percent={left} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} tone={toneOf(tone)} standalone /></div>
 }
