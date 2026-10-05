@@ -1184,7 +1184,7 @@ export class Publications implements FindingPublisher {
   #publicationState(entries: readonly PublicationEntry[]): Exclude<FindingRoundPublication['state'], 'none'> {
     if (entries.length === 0) return 'local'
     if (entries.some((entry) => entry.state === 'uncertain')) return 'uncertain'
-    if (entries.some((entry) => entry.state === 'started' || (entry.state === 'prepared' && entry.reason === null))) return 'pending'
+    if (entries.some((entry) => entry.state === 'started' || (entry.state === 'prepared' && (entry.reason === null || entry.dispatchHeld === true)))) return 'pending'
     if (entries.every((entry) => entry.state === 'posted')) return 'posted'
     return 'partial'
   }

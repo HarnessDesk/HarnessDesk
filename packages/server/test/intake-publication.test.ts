@@ -278,9 +278,21 @@ for (const summary of [false, true]) {
     assert.ok(r.entries().every((entry) => entry.state === 'prepared' && entry.reason === gate.value))
     assert.equal((await r.pub.needs(r.f.run)).items.length, r.entries().length)
     assert.deepEqual(r.forge.calls, [])
+    const assertWaiting = async (): Promise<void> => {
+      assert.deepEqual(await r.pub.status(r.f.run), { publication: 'pending', reason: gate.value })
+      const round = (await r.pub.rounds(r.f.run)).find((one) => one.round === r.round)
+      assert.equal(round?.state, 'pending', 'an unsent dispatch hold is still waiting to post')
+      assert.equal(round.reason, gate.value, 'the round keeps the hold explanation')
+    }
+    await assertWaiting()
+    await r.restart()
+    await assertWaiting()
+    assert.deepEqual(r.forge.calls, [], 'restart keeps an unsent hold pending without a forge call')
     gate.value = null
     await r.restart()
     assert.ok(r.entries().every((entry) => entry.state === 'posted' && entry.reason === null))
+    assert.deepEqual(await r.pub.status(r.f.run), { publication: 'posted', reason: null })
+    assert.equal((await r.pub.rounds(r.f.run)).find((one) => one.round === r.round)?.state, 'posted')
     assert.equal(summary ? r.forge.summaries.length : r.forge.sends.length, summary ? 1 : 4)
   })
 

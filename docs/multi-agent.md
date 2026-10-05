@@ -450,7 +450,8 @@ other pull requests cannot block later rounds, and a latest closed or merged
 pull request leaves no open binding. Restored observations do not bind it. A
 round already prepared for posting keeps its original target; rebinding does
 not repost it. A dispatch hold records its reason on each unsent posting and
-retries automatically when the gate allows it, including after a restart. A
+retries automatically when the gate allows it, including after a restart. Its
+Run and round stay **Waiting to post**, with that reason visible, while held. A
 readiness check that cannot finish leaves a stated reason and waits for a
 person to post again.
 
