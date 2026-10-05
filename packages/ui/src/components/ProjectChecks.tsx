@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { ProjectChecks as Checks } from '@harnessdesk/protocol'
 
-import { Chip, CodeText, Note, Row, Rows, RowValue, Section } from '../design'
+import { Chip, CodeText, EmptyState, ListRow, ListRows, Note, Row, Rows, Section, Text } from '../design'
 import { shortSha } from '../lib/evidence'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
@@ -43,13 +43,6 @@ export const ProjectChecks = ({ root }: { readonly root: string }) => {
   return read.checks.exists ? <ProjectChecksView checks={read.checks} /> : null
 }
 
-const seenWords = (seen: 'yes' | 'no' | 'changed'): string =>
-  seen === 'yes'
-    ? 'Approved on this Mac'
-    : seen === 'changed'
-      ? 'Changed since approved here'
-      : 'Not approved on this Mac'
-
 export const ProjectChecksView = ({ checks }: { readonly checks: Checks }) => {
   const snapshot = useSnapshot()
   return (
@@ -63,25 +56,28 @@ export const ProjectChecksView = ({ checks }: { readonly checks: Checks }) => {
           change for a card to offer it.
         </Note>
       )}
-      <Rows>
-        {checks.checks.length === 0 && checks.problems.length === 0 && <Row title="It names no checks" />}
+      <ListRows>
+        {checks.checks.length === 0 && checks.problems.length === 0 && <EmptyState variant="row" title="No checks" />}
         {checks.checks.map((check) => (
-          <Row
+          <ListRow
+            density="compact"
             key={check.name}
             title={check.name}
-            desc={<CodeText>{check.run}</CodeText>}
-            control={<RowValue>{seenWords(check.seen)}</RowValue>}
+            subtitle={<CodeText>{check.run}</CodeText>}
+            trail={check.seen === 'changed' ? <Chip tone="warning">Changed</Chip> : <Text role="meta">{check.seen === 'yes' ? 'Approved' : 'Not approved'}</Text>}
           />
         ))}
         {checks.problems.map((problem) => (
-          <Row
+          <ListRow
+            density="compact"
             key={`${problem.at}:${problem.text}`}
             title={problem.at === '' ? 'The file' : problem.at}
-            desc={problem.text}
-            control={<Chip state="broken" label="Not offered" />}
+            subtitle={problem.text}
+            wrapSubtitle
+            trail={<Chip tone="danger">Not offered</Chip>}
           />
         ))}
-      </Rows>
+      </ListRows>
     </Section>
   )
 }

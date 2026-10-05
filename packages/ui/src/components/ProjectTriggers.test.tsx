@@ -62,7 +62,7 @@ const mount = (overrides: Partial<AppStore> = {}, snapshotOverrides: Partial<App
 }
 
 const button = (label: string): HTMLButtonElement => {
-  const found = [...container.querySelectorAll('button')].find((one) => one.textContent?.trim().startsWith(label))
+  const found = [...container.querySelectorAll('button')].find((one) => one.getAttribute('aria-label') === label || one.textContent?.trim().startsWith(label))
   if (!found) throw new Error(`no button reading “${label}”`)
   return found
 }
@@ -95,13 +95,14 @@ it('describes every source, its arm state, and the last thing that happened, inc
   mount({ projectTriggers: vi.fn(async () => view) })
   await settle()
   const text = container.textContent ?? ''
-  expect(text).toContain('When a pull request opens or is pushed, open review-pr, at most 4 at once.')
-  expect(text).toContain('When an issue is labelled, open triager, once at a time.')
+  expect(text).toContain('When a pull request opens or is pushed, review it')
+  expect(text).toContain('When an issue is labelled, triage it')
   expect(text).toContain('Every 24 hours')
   expect(text).toContain('Out of budget for today.')
-  expect(text).toContain('Armed')
-  expect(text).toContain('Off')
-  expect(text).toContain('Refused')
+  expect(text).toContain('review-pr · at most 4 at once')
+  expect(text).not.toContain('Armed')
+  expect(text).not.toContain('Off')
+  expect(container.querySelectorAll('[role="switch"]')).toHaveLength(4)
   expect(text).toContain('A pull request from a fork was seen')
 })
 
@@ -259,4 +260,28 @@ it('a firing set aside says so in history, and links no Goal it never made', asy
   await settle()
   expect(container.textContent).toContain('so it was set aside for you and will not run on its own')
   expect([...container.querySelectorAll('button')].some((one) => one.textContent?.startsWith('#9'))).toBe(false)
+})
+
+it('shows arm state once, through the switch, and offers History as a named clock button', async () => {
+  mount({ projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView(), triggerView({ id: 'nightly-sweep', definition: scheduleDefinition(), armed: true, state: 'armed' })] })) })
+  await settle()
+  for (const toggle of container.querySelectorAll('[role="switch"]')) {
+    const row = toggle.closest('[data-slot="list-row"]')!
+    expect(row.querySelector('[data-slot="chip"]')).toBeNull()
+    const history = row.querySelector('button[aria-label="History"]')!
+    expect(history.getAttribute('title')).toBe('History')
+    expect(history.querySelector('svg')).not.toBeNull()
+    expect(history.textContent).toBe('')
+  }
+})
+
+it('names the history shown by the pagination row and reads the next page', async () => {
+  const triggerHistory = vi.fn(async (_root: string, _id: string, cursor?: string) => triggerHistoryPage({ items: [triggerFiring({ id: cursor ? 'f2' : 'f1' })], next: cursor ? null : 'older' }))
+  mount({ projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView()] })), triggerHistory })
+  await settle()
+  act(() => button('History').click())
+  await settle()
+  act(() => button('Show more firings').click())
+  await settle()
+  expect(triggerHistory).toHaveBeenLastCalledWith(ROOT, 'review-pr', 'older')
 })

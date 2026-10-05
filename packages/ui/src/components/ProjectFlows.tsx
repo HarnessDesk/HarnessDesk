@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { AuthoringDocument, FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
 
-import { Button, Chip, Note, Row, Rows, Section, SectionHead } from '../design'
+import { Button, Chip, GroupLine, ListRow, ListRows, Note, Row, Rows, Section } from '../design'
 import { useStore } from '../state/context'
 import { FlowUpdate } from './FlowUpdate'
 import { ShapeEditor } from './ShapeEditor'
@@ -89,12 +89,12 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
       {!problem && entries && LAYERS.map(({ origin, label }) => {
         const layer = entries.filter((entry) => entry.origin === origin)
         return layer.length === 0 ? null : [
-          <SectionHead key={`${origin}-head`} name={label} />,
-          <Rows key={origin} aria-label={label}>
+          <GroupLine key={`${origin}-head`} left={`${label} · ${layer.length}`} />,
+          <ListRows key={origin} aria-label={label}>
             {layer.map((entry) => (
               <FlowRow key={entry.id} root={root} entry={entry} onOpen={(mode) => setDialog({ id: entry.id, mode })} onEdit={() => void openEditor(entry.id)} />
             ))}
-          </Rows>,
+          </ListRows>,
         ]
       })}
       {!current && entries && entries.length > 0 && <Note>Open this project to start its flow.</Note>}
@@ -160,10 +160,11 @@ const FlowRow = ({
         : <Button size="sm" variant="outline" onClick={() => onOpen('customize')}>Customize…</Button>
 
   return (
-    <Row
+    <ListRow
+      density="compact"
       title={entry.name}
-      {...(desc ? { desc } : {})}
-      control={(
+      {...(desc ? { subtitle: desc, wrapSubtitle: true } : {})}
+      trail={(
         <span className="inline-flex items-center gap-(--hd-space-2)">
           {editable && <Button size="sm" variant="outline" onClick={onEdit}>Edit shape…</Button>}
           {action}

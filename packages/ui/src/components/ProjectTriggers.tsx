@@ -2,28 +2,16 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
 
-import { Button, Chip, Dialog, EmptyState, Field, NativeSelect, Note, Row, RowButton, Rows, Section, Switch } from '../design'
-import { triggerProblemPlace, triggerSentence, triggerSkipWords } from '../lib/intake'
+import { Button, Chip, Dialog, EmptyState, Field, ListRow, ListRows, NativeSelect, Note, Row, Rows, Section, Switch } from '../design'
+import { triggerProblemPlace, triggerRowWords, triggerSkipWords } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
+import { ClockIcon } from './Icons'
 import { TriggerArm } from './TriggerArm'
 import { TriggerCreate } from './TriggerCreate'
 
 export interface ProjectTriggersProps {
   readonly root: string
-}
-
-type StateWords = { readonly label: string; readonly tone: 'neutral' | 'brand' | 'success' | 'warning' | 'danger' | 'info' }
-
-/* Armed is the resting, nothing-to-report state a trigger is meant to be
-   in — health takes no tone, so it reads untoned like Off, and Changed and
-   Refused are what stand out. */
-const STATE_WORDS: Readonly<Record<TriggerView['state'], StateWords>> = {
-  off: { label: 'Off', tone: 'neutral' },
-  armed: { label: 'Armed', tone: 'neutral' },
-  changed: { label: 'Changed', tone: 'warning' },
-  refused: { label: 'Refused', tone: 'danger' },
-  paused: { label: 'Paused', tone: 'info' },
 }
 
 const switchId = (id: string): string => `trigger-arm-${id}`
@@ -184,13 +172,15 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           Your working copy of this file is not what is committed. Only the committed file can be armed.
         </Note>
       )}
-      <Rows>
+      <ListRows>
         {view.problems.map((problem) => (
-          <Row
+          <ListRow
+            density="compact"
             key={`${problem.at}:${problem.text}`}
             title={<span title={problem.at}>{triggerProblemPlace(problem.at)}</span>}
-            desc={`${problem.text} ${problem.fix}`}
-            control={<Chip tone="danger">Will not run</Chip>}
+            subtitle={`${problem.text} ${problem.fix}`}
+            wrapSubtitle
+            trail={<Chip tone="danger">Will not run</Chip>}
           />
         ))}
         {view.triggers.map((trigger) => (
@@ -214,7 +204,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
             onWatchFromNow={() => void watchFromNow(trigger.id)}
           />
         ))}
-      </Rows>
+      </ListRows>
       <Button variant="secondary" onClick={() => store.openFile(view.path)}>Open file</Button>
       {dialog && (
         <TriggerArm
@@ -311,30 +301,31 @@ const TriggerRowGroup = ({
   readonly onRearm: () => void
   readonly onWatchFromNow: () => void
 }) => {
-  const words = STATE_WORDS[trigger.state]
-  const title = trigger.definition ? triggerSentence(trigger.definition) : trigger.id
+  const words = trigger.definition ? triggerRowWords(trigger.definition) : null
+  const title = words?.title ?? trigger.id
   const desc = rowProblem
     ?? (trigger.reason ? `${trigger.reason}${trigger.fix ? ` ${trigger.fix}` : ''}` : null)
     ?? (trigger.last ? triggerSkipWords(trigger.last) : null)
+    ?? words?.facts
   // On is anything this machine has not switched off: a changed or refused arm is switched off here too.
   const on = trigger.state !== 'off'
   const stale = trigger.state === 'changed' || trigger.state === 'refused'
   const gap = trigger.source?.state === 'gap' ? trigger.source : null
   return (
     <>
-      <Row
+      <ListRow
+        density="compact"
         title={title}
-        {...(desc ? { desc } : {})}
-        control={(
+        {...(desc ? { subtitle: desc, wrapSubtitle: true } : {})}
+        trail={(
           <span className="inline-flex items-center gap-(--hd-space-2)">
-            <Chip tone={words.tone}>{words.label}</Chip>
             {stale && trigger.definition && (
               <Button variant="ghost" size="sm" disabled={busy} onClick={onRearm} title="Review what it runs now, and arm it again">
                 Review
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={onToggleHistory} aria-expanded={expanded}>
-              History
+            <Button variant="ghost" size="icon-sm" onClick={onToggleHistory} aria-label="History" title="History" aria-expanded={expanded}>
+              <ClockIcon size={14} />
             </Button>
             <Switch
               id={switchId(trigger.id)}
@@ -347,10 +338,12 @@ const TriggerRowGroup = ({
         )}
       />
       {gap && (
-        <Row
+        <ListRow
+          density="compact"
           title="Its source stopped at a gap"
-          desc={`${gap.reason ?? ''} ${gap.fix ?? ''}`.trim()}
-          control={(
+          subtitle={`${gap.reason ?? ''} ${gap.fix ?? ''}`.trim()}
+          wrapSubtitle
+          trail={(
             <Button variant="secondary" size="sm" disabled={busy} onClick={onWatchFromNow}>
               Watch from now
             </Button>
@@ -392,16 +385,18 @@ const TriggerHistory = ({ root, id }: { readonly root: string; readonly id: stri
 
   if (problem) return <Row title="Its history could not be read" desc={problem} />
   if (!page) return <Row title="Reading its history…" />
-  if (page.items.length === 0) return <Row title="No firings yet" />
+  if (page.items.length === 0) return <EmptyState variant="row" title="No firings yet" />
 
   return (
     <>
       {page.items.map((firing) => <FiringRow key={firing.id} firing={firing} onOpen={() => store.openGoal(firing.goal!)} />)}
       {page.next && (
-        <RowButton
-          title={loadingMore ? 'Reading…' : 'Show more'}
-          chevron={false}
-          disabled={loadingMore}
+        <ListRow
+          density="compact"
+          as="button"
+          interactive
+          title={loadingMore ? 'Reading more firings…' : 'Show more firings'}
+          {...(loadingMore ? { 'aria-disabled': true } : {})}
           onClick={() => void more()}
         />
       )}
@@ -412,8 +407,8 @@ const TriggerHistory = ({ root, id }: { readonly root: string; readonly id: stri
 const FiringRow = ({ firing, onOpen }: { readonly firing: TriggerFiring; readonly onOpen: () => void }) => {
   const words = triggerSkipWords(firing)
   return firing.goal ? (
-    <RowButton title={`#${firing.subject}`} desc={words} onClick={onOpen} />
+    <ListRow density="compact" as="button" interactive title={`#${firing.subject}`} subtitle={words} wrapSubtitle onClick={onOpen} />
   ) : (
-    <Row title={`#${firing.subject}`} desc={words} />
+    <ListRow density="compact" title={`#${firing.subject}`} subtitle={words} wrapSubtitle />
   )
 }

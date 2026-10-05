@@ -1,3 +1,4 @@
+import { CompactPanelFrames, compactAgentsStore, compactChangesStore } from './compact-panels-fixture'
 import { TablesFamily } from '../design/explorer/tables-family'
 import { NoticesFrame } from './frames-notices'
 import { CatalogueRefusedUndo } from '../design/explorer/boards'
@@ -908,7 +909,7 @@ const Preview = () => {
                 sessionKey: PREVIEW_SESSION_KEY,
               }}
             >
-              <ChangesView />
+              <StoreProvider store={compactChangesStore}><ChangesView /></StoreProvider>
             </PaneProvider>
           </div>
         </Frame>
@@ -925,7 +926,7 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
-        <Frame id="panel-agents" title="Side panel — Agents, with the Seat record">
+        <Frame id="panel-agents" title="Side panel — Agents">
           <div className="h-[420px]">
             <PaneProvider
               scope={{
@@ -934,7 +935,7 @@ const Preview = () => {
                 sessionKey: PREVIEW_SESSION_KEY,
               }}
             >
-              <AgentsView />
+              <StoreProvider store={compactAgentsStore}><AgentsView /></StoreProvider>
             </PaneProvider>
           </div>
         </Frame>
@@ -980,6 +981,8 @@ const Preview = () => {
           </div>
         </Frame>
       </div>
+
+      {new URLSearchParams(window.location.search).has('compact-panels') && <CompactPanelFrames />}
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The sidebar at its real width, on the plate it really sits on:

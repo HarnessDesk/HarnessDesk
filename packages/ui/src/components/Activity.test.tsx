@@ -2,6 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { runtimeId } from '@harnessdesk/protocol'
+
+import { runtimeTint } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore, type AuditRow } from '../state/store'
 import { Activity } from './Activity'
@@ -74,6 +77,8 @@ it('draws the agent that acted as a face, which follows the shape chosen for fac
   await mountWith([{ id: 'codex', presentation: { name: 'Agent runtime' }, capabilities: {} }])
   const tile = container.querySelector('[data-slot="icon-tile"]')
   expect(tile?.className).toContain('rounded-(--hd-face-radius)')
+  const snapshot = emptySnapshot()
+  expect(tile?.getAttribute('data-tint')).toBe(runtimeTint(runtimeId('codex'), snapshot.accountsByRuntime, snapshot.accountPrefs))
 })
 
 it('keeps the event glyph a plain square when the agent cannot be named, so it is never taken for someone', async () => {
