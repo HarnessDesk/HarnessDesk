@@ -18,6 +18,7 @@ const RUNTIME = runtimeId('agent')
 const runtime = (): AgentRuntime =>
   ({
     info: { id: RUNTIME, name: 'agent', capabilities: { metered: false }, presentation: { name: 'agent' } },
+    health: () => ({ state: 'ready' }),
     getRateLimits: async () => null,
     getAccount: async () => ({ accounts: [], signInMethods: [] }),
   }) as unknown as AgentRuntime

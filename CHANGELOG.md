@@ -7,6 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Finished work releases its idle tools.** After a Team's Seats finish and
+  the agent is unused, the desk stops its helper process to release retained
+  tool servers. Working turns and terminals keep it running; conversations
+  and sign-in remain available, and new work starts it again. (Fixes #1397)
+
 - **A conversation that cannot open leaves a usable draft.** When its
   transcript cannot be read, the pane shows the error and returns to a fresh
   draft, so the next message starts a new conversation. Words and attachments

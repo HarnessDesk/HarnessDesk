@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { membersOf, type GoalView, type RuntimeHealth, type SeatRecord } from '@harnessdesk/protocol'
+import { membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -182,6 +182,143 @@ test('cached skills are served from an idle runtime without restarting it', asyn
   const skills = await host.call('runtime/skills', { runtime: runtime.info.id, cwd: '/w' })
   assert.deepEqual(skills, [{ name: 'cached', description: '', enabled: true, toggleable: false }])
   assert.equal(runtime.starts, 1)
+})
+
+test('cached reads join a restart already triggered by an unobserved history page', async (t) => {
+  class SnapshotRuntime extends IdleRuntime {
+    canReadWhileIdle(read: IdleRuntimeRead): boolean {
+      return read.method !== 'listSessions' || !read.query?.cursor
+    }
+    override async start(): Promise<void> {
+      if (this.starts > 0) this.setHealth({ state: 'starting' })
+      await super.start()
+    }
+  }
+  const runtime = new SnapshotRuntime({ id: 'read-start-test' as never, name: 'Read Start Test' })
+  Object.assign(runtime, { listSkills: async () => [] })
+  for (const method of ['listSessions', 'listModels', 'listOptions', 'defaultSessionOptions', 'getAccount', 'listSkills'] as const) {
+    const read = Reflect.get(runtime, method) as (...args: unknown[]) => Promise<unknown>
+    Object.assign(runtime, { [method]: (...args: unknown[]) => {
+      assert.notEqual(runtime.health().state, 'starting', 'the host must wait for startup before reading')
+      return Reflect.apply(read, runtime, args)
+    } })
+  }
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => {
+    runtime.continueStart()
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  assert.equal(runtime.health().state, 'idle')
+  runtime.holdNextStart()
+  const history = host.call('session/list', { runtime: runtime.info.id, cursor: 'unread' })
+  while (runtime.starts < 2) await new Promise((resolve) => setTimeout(resolve, 1))
+  let settled = false
+  const reads = Promise.allSettled([
+    host.call('session/list', { runtime: runtime.info.id }),
+    host.call('runtime/models', { runtime: runtime.info.id }),
+    host.call('runtime/options', { runtime: runtime.info.id }),
+    host.call('runtime/sessionDefaults', { runtime: runtime.info.id, cwd: '/w' }),
+    host.call('runtime/account', { runtime: runtime.info.id }),
+    host.call('runtime/skills', { runtime: runtime.info.id }),
+  ]).then((results) => { settled = true; return results })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(settled, false, 'a concurrent cached read waits on the same startup')
+  runtime.continueStart()
+  await history
+  assert.ok((await reads).every((read) => read.status === 'fulfilled'))
+  assert.equal(runtime.starts, 2)
+})
+
+test('account activity waits for a held restart before usage refresh reads it', async (t) => {
+  class ActivityRuntime extends IdleRuntime {
+    canReadWhileIdle(read: IdleRuntimeRead): boolean {
+      return read.method !== 'listSessions' || !read.query?.cursor
+    }
+    override async start(): Promise<void> {
+      if (this.starts > 0) this.setHealth({ state: 'starting' })
+      await super.start()
+    }
+    override getAccountActivity = async () => {
+      if (this.health().state !== 'ready') return null
+      return { days: [], lifetimeTokens: 4200, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: null }
+    }
+  }
+  const runtime = new ActivityRuntime()
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => {
+    runtime.continueStart()
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  await until(() => runtime.health().state === 'idle')
+  runtime.holdNextStart()
+  const history = host.call('session/list', { runtime: runtime.info.id, cursor: 'unread' })
+  await until(() => runtime.starts === 2)
+  let settled = false
+  const usage = host.call('usage/refresh', { runtime: runtime.info.id }).then((value) => { settled = true; return value })
+  await pause(10)
+  assert.equal(settled, false, 'account activity joins the in-flight restart')
+  runtime.continueStart()
+  await history
+  assert.equal((await usage)[0]?.accountActivity?.lifetimeTokens, 4200)
+  assert.equal(runtime.starts, 2)
+})
+
+test('Dashboard usage polling every two minutes permits idle release and never wakes the runtime', async (t) => {
+  const runtime = new IdleRuntime({ capabilities: { metered: true } })
+  Object.assign(runtime, {
+    getAccountActivity: async () => ({ days: [], lifetimeTokens: 4200, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: null }),
+  })
+  const { host, stateDir } = await makeHost(runtime, 10 * 60_000)
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  await host.start()
+  t.mock.timers.tick(1_000)
+  await pause(5)
+  let observedAt = 0
+  for (let n = 0; n < 6; n++) {
+    const idle = runtime.health().state === 'idle'
+    const reports = await host.call('usage/refresh', { runtime: runtime.info.id })
+    assert.equal(reports[0]?.accountActivity?.lifetimeTokens, 4200)
+    if (idle) assert.equal(reports[0]?.fetchedAt, observedAt, 'an idle snapshot retains its observation time')
+    else observedAt = reports[0]!.fetchedAt
+    await host.call('session/list', { runtime: runtime.info.id })
+    await host.call('runtime/models', { runtime: runtime.info.id })
+    t.mock.timers.tick(120_000)
+    await pause(5)
+  }
+  assert.equal(runtime.stops, 1, 'scheduled observation does not restart the ten-minute quiet interval')
+  assert.equal(runtime.health().state, 'idle')
+  await host.call('usage/refresh', { runtime: runtime.info.id })
+  assert.equal(runtime.starts, 1, 'usage polls do not wake a resting runtime')
+})
+
+test('an in-flight account activity read delays idle release without resetting the quiet interval', async (t) => {
+  const runtime = new IdleRuntime()
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  let reading = false
+  Object.assign(runtime, { getAccountActivity: async () => { reading = true; await barrier; return null } })
+  const { host, stateDir } = await makeHost(runtime, 10 * 60_000)
+  t.after(async () => { release(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  await host.start()
+  t.mock.timers.tick(1_000)
+  await pause(5)
+  const usage = host.call('usage/refresh', { runtime: runtime.info.id })
+  await until(() => reading)
+  t.mock.timers.tick(11 * 60_000)
+  await pause(5)
+  assert.equal(runtime.stops, 0, 'a read still needs the live process')
+  release()
+  await usage
+  t.mock.timers.tick(1_000)
+  await pause(5)
+  assert.equal(runtime.stops, 1, 'completion permits shutdown at the original quiet deadline')
 })
 
 test('a room post resumes an idle-stopped member and delivers to it', async (t) => {
@@ -731,3 +868,58 @@ test('a history read in flight does not interrupt a finished Seat quiet interval
   release()
   await history
 })
+
+for (const surface of ['hooks', 'files', 'extensions', 'processes'] as const) {
+  test(`${surface} wait for idle stop and shared startup, and protect in-flight work`, async (t) => {
+    const runtime = new IdleRuntime({ id: `surface-${surface}` as never, name: 'Surface Test' })
+    const { host, stateDir } = await makeHost(runtime)
+    let releaseOperation: (() => void) | undefined
+    let entered = false
+    const operationBarrier = new Promise<void>((resolve) => { releaseOperation = resolve })
+    const enter = async () => {
+      assert.equal(runtime.health().state, 'ready', 'runtime-backed calls require completed startup')
+      entered = true
+      await operationBarrier
+    }
+    Object.assign(runtime, {
+      listHooks: async () => { await enter(); return [] },
+      files: { stat: async () => { await enter(); return { kind: 'file', size: 0, isSymlink: false, modifiedAt: null } } },
+      extensions: { catalog: async () => { await enter(); return { plugins: [], marketplaces: [], loadErrors: [], featured: [] } } },
+      processes: { spawn: async () => {
+        await enter()
+        return { id: 'process', onOutput: () => () => {}, onExit: () => () => {}, kill: async () => {}, write: async () => {}, resize: async () => {} }
+      } },
+    })
+    t.after(async () => {
+      releaseOperation?.(); runtime.continueStop(); runtime.continueStart()
+      await host.dispose()
+      await rm(stateDir, { recursive: true, force: true })
+    })
+    // This synthetic workspace is enough for the host's path confinement.
+    await host.call('workspace/open', { path: stateDir })
+    await host.start()
+    runtime.holdNextStop()
+    await until(() => runtime.stops === 1)
+    runtime.holdNextStart()
+    const call = surface === 'hooks' ? host.call('runtime/hooks', { runtime: runtime.info.id })
+      : surface === 'extensions' ? host.call('runtime/catalog', { runtime: runtime.info.id })
+      : surface === 'files' ? host.call('workspace/stat', { runtime: runtime.info.id, path: join(stateDir, 'fixture.txt') })
+      : host.call('terminal/open', { runtime: runtime.info.id, cwd: stateDir, size: { rows: 24, cols: 80 } })
+    const result = Promise.allSettled([call])
+    await pause(10)
+    assert.equal(entered, false, 'a surface cannot enter while the process is stopping')
+    assert.equal(runtime.starts, 1)
+    runtime.continueStop()
+    await until(() => runtime.starts === 2)
+    assert.equal(entered, false, 'a surface cannot enter during handshake')
+    const concurrent = host.call('session/list', { runtime: runtime.info.id })
+    runtime.continueStart()
+    await until(() => entered)
+    await pause(80)
+    assert.equal(runtime.stops, 1, 'the reaper preserves the in-flight surface call')
+    releaseOperation?.()
+    assert.equal((await result)[0]?.status, 'fulfilled')
+    await concurrent
+    assert.equal(runtime.starts, 2, 'the surface shares the normal restart')
+  })
+}
