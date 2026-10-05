@@ -375,14 +375,6 @@
     "pad": "0 10 0 10",
     "radius": 8
   },
-  "button/button/size/table-row": {
-    "h": 26,
-    "text": 13,
-    "weight": "500",
-    "line": 13,
-    "pad": "0 12 0 0",
-    "radius": 8
-  },
   "button/button/size/xs": {
     "h": 24,
     "text": 12,
@@ -921,6 +913,14 @@
   },
   "tile/icon-tile/size/lg": {
     "h": 40,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
+  "tile/icon-tile/size/navigation": {
+    "h": 16,
     "text": 14,
     "weight": "400",
     "line": 20,

@@ -525,7 +525,6 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-head-size` | `13px` | `12px` |
 | `--hd-table-lead-gap` | `12px` | `10px` |
 | `--hd-table-line-gap` | `2px` | `2px` |
-| `--hd-table-log-head-h` | `28px` | `28px` |
 | `--hd-table-name-size` | `14px` | `13px` |
 | `--hd-table-row-min` | `56px` | `40px` |
 | `--hd-table-row-min-bare` | `44px` | `32px` |
@@ -636,6 +635,14 @@ having written the judgement down.
 **Why** — The button keeps its own target, with a minimum width of 24px, and keyboard action; its hover fill defaults off, titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.
 
 ### Everything else with a rule
+
+### `identity badge`
+
+**Use** — IconTile.badge and AvatarStack members[].badge carry one identity qualifier at bottom-right, cut out with --stack-surface (page ground by default). Sub-agents wear the robot plus ↳ at every size; runtime faces use unique account initials when their runtime has two or more signed-in accounts, from 24px up. Smaller faces retain their account tint and a title naming the account.
+
+**Not** — An attention count at bottom-right, two badges in one corner, or a new runtime glyph for each account. Top-right is reserved for attention counts. The title or row text names the sub-agent’s parent; a badge is hidden from readers.
+
+**Why** — The face says who does the work. A corner qualifies that identity without spending another glyph or a line of row height, and the surface ring keeps it distinct in either theme.
 
 ### `Note · action`
 

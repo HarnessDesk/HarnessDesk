@@ -1036,6 +1036,7 @@
  * block and needs nothing inverted at night.
  */
 .rows {
+  --stack-surface: var(--hd-card-fill, var(--hd-card));
   border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
   border-radius: var(--hd-card-radius, var(--hd-radius-lg));
   background: var(--hd-card-fill, var(--hd-card));

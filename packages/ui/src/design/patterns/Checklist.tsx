@@ -11,7 +11,7 @@ import styles from './Checklist.module.css'
  * The state is carried by the mark and the ink, never by a word in a column
  * of its own — "in progress" beside a step took a third of a narrow column
  * and wrapped every step into a tower. Done is a check and struck, faded
- * ink; the step under way is the accent's dot at the subject's ink; a step
+ * ink; the step under way is the accent's arc at the subject's ink; a step
  * still to come is an empty ring in the quieter ink. The mark is centred on
  * the step's first line, never on the whole step, so a long step reads down
  * from its mark rather than around it.

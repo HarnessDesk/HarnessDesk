@@ -51,7 +51,7 @@ import groq from '@lobehub/icons-static-svg/icons/groq.svg?raw'
 import huggingface from '@lobehub/icons-static-svg/icons/huggingface.svg?raw'
 
 import { type Brand, brandForModel, brandForRuntime } from '../lib/brands'
-import { AgentIcon, ModelIcon } from './Icons'
+import { ServerIcon, ModelIcon } from './Icons'
 
 /**
  * The marks of the companies whose agents and models appear in the interface,
@@ -229,7 +229,7 @@ export const GitHubMark = ({
 GitHubMark.displayName = 'GitHubMark'
 
 /**
- * An agent's mark, or the generic agent glyph when it has none — the choice
+ * A runtime's mark, or the generic runtime glyph when it has none — the choice
  * every picker that lists runtimes would otherwise make for itself.
  */
 export const RuntimeMark = ({
@@ -245,7 +245,7 @@ export const RuntimeMark = ({
   return brand ? (
     <BrandMark brand={brand} size={size} {...(className ? { className } : {})} />
   ) : (
-    <AgentIcon size={size} {...(className ? { className } : {})} />
+    <ServerIcon size={size} {...(className ? { className } : {})} />
   )
 }
 

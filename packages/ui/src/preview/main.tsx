@@ -1,3 +1,4 @@
+import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
 import { CompactPanelFrames, compactAgentsStore, compactChangesStore } from './compact-panels-fixture'
 import { TablesFamily } from '../design/explorer/tables-family'
@@ -509,6 +510,7 @@ const Preview = () => {
   )
   const [dashboardScope, setDashboardScope] = useState<RuntimeId | null>(null)
   const dashboardStore = useMemo(() => usagePreviewStore(), [])
+  if (new URLSearchParams(window.location.search).has('icon-followups')) return <IconFollowupsFrames />
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <section aria-label="Provenance preview">

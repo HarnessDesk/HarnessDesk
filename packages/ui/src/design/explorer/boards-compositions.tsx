@@ -273,7 +273,7 @@ const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
-const ICON_TILE_CATALOG_SIZES = ['stack', 'xs', 'sm', 'default', 'lg'] as const
+const ICON_TILE_CATALOG_SIZES = ['navigation', 'stack', 'xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
 const ICON_TILE_CATALOG_SHAPE = ['square', 'round', 'face'] as const
 const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
@@ -699,6 +699,11 @@ const TileBoard = () => (
             <AgentIcon />
           </IconTile>
         ))}
+      </Case>
+      <Case label="identity badge — bottom-right; attention reserves top-right">
+        {ICON_TILE_CATALOG_SIZES.map(size => <IconTile key={size} size={size} shape="face" tint="blue" badge="↳"><AgentIcon /></IconTile>)}
+        <IconTile size="sm" shape="face" tint="violet" badge="AL"><AgentIcon /></IconTile>
+        <AvatarStack members={[{ id: 'writer', name: 'Writer', mark: <AgentIcon />, badge: '↳', tint: 'blue' }, { id: 'reviewer', name: 'Reviewer', mark: <AgentIcon />, badge: '↳', tint: 'rose' }]} />
       </Case>
       <Case label="size">
         {ICON_TILE_CATALOG_SIZES.map((size) => (

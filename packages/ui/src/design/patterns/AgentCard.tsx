@@ -146,6 +146,8 @@ export type AgentCardSubject = {
   readonly tint: Tint
   /** The harness's own mark. `aria-hidden`; the name above spells it. */
   readonly mark: ReactNode
+  /** Account qualifier in the crest, from the 24px face step up. */
+  readonly badge?: ReactNode
   /** Mid-turn. A light on the mark, never a word — the app's rule everywhere. */
   readonly working?: boolean
   /**
@@ -231,7 +233,7 @@ export const CardShell = ({
   kind?: string
   children: ReactNode
 }) => (
-  <div className="text-(--hd-card-foreground)" data-slot={slot} {...(kind ? { 'data-kind': kind } : {})}>
+  <div className="text-(--hd-card-foreground) [--stack-surface:var(--hd-popover)]" data-slot={slot} {...(kind ? { 'data-kind': kind } : {})}>
     {children}
   </div>
 )
@@ -312,7 +314,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
     <CardShell slot="agent-card" kind={subject.kind}>
       <CardCrest>
         <span className="relative flex-none">
-          <IconTile shape={CREST_SHAPE[subject.kind]} tint={subject.tint}>{subject.mark}</IconTile>
+          <IconTile shape={CREST_SHAPE[subject.kind]} tint={subject.tint} badge={subject.badge}>{subject.mark}</IconTile>
           {/* Working is a light, not a word — the same dot the rail draws, in
               the same corner. Announced in words on the name, where a screen
               reader gets a sentence rather than a colour. */}

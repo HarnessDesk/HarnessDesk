@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import { AppWindow, WindowGroup, WindowNav, WindowNavItem, WindowNavStateMark, WindowPage } from '../components/AppWindow'
 import { RuntimeMark } from '../components/BrandIcons'
-import { AlertIcon, BriefIcon, CheckIcon, CrossIcon, DiffIcon, FileIcon, FolderIcon, LibraryIcon, SearchIcon, ServerIcon, TodoPendingIcon, ToolIcon } from '../components/Icons'
+import { AlertIcon, SparkIcon, CheckIcon, CrossIcon, DiffIcon, FileIcon, FolderIcon, LibraryIcon, SearchIcon, ServerIcon, TodoPendingIcon, ToolIcon } from '../components/Icons'
 import { Button, Chip, CodeText, Dot, Monogram, Row, RowButton, Rows, Segmented, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption, Text } from '../design'
 import { REACH_NAME, REACH_SENTENCE } from '../lib/reach-states'
 import { Frame } from './main'
@@ -239,7 +239,7 @@ const OptionC = () => (
         <WindowNav onBack={noop}>
           <WindowNavItem icon={<AlertIcon size={14} />} label="Needs you" count={LIBRARY_NEEDS_YOU.length} selected onClick={noop} />
           <WindowGroup label="Kit">
-            <WindowNavItem icon={<BriefIcon size={14} />} label="Skills" count={42} selected={false} onClick={noop} />
+            <WindowNavItem icon={<SparkIcon size={14} />} label="Skills" count={42} selected={false} onClick={noop} />
             <WindowNavItem icon={<FileIcon size={14} />} label="Rules" count={6} selected={false} onClick={noop} />
             <WindowNavItem icon={<ServerIcon size={14} />} label="Servers" count={9} selected={false} onClick={noop} />
             <WindowNavItem icon={<ToolIcon size={14} />} label="Hooks" count={3} selected={false} onClick={noop} />
@@ -376,7 +376,7 @@ const OptionD = () => {
             <WindowNavItem icon={<LibraryIcon size={14} />} label="Overview" selected onClick={noop} />
             <WindowNavItem icon={<AlertIcon size={14} />} label="Needs you" count={LIBRARY_NEEDS_YOU.length} selected={false} onClick={noop} />
             <WindowGroup label="Kit">
-              <WindowNavItem icon={<BriefIcon size={14} />} label="Skills" count={42} selected={false} onClick={noop} />
+              <WindowNavItem icon={<SparkIcon size={14} />} label="Skills" count={42} selected={false} onClick={noop} />
               <WindowNavItem icon={<FileIcon size={14} />} label="Rules" count={6} selected={false} onClick={noop} />
               <WindowNavItem icon={<ServerIcon size={14} />} label="Servers" count={9} selected={false} onClick={noop} />
               <WindowNavItem icon={<ToolIcon size={14} />} label="Hooks" count={3} selected={false} onClick={noop} />

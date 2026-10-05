@@ -1,3 +1,4 @@
+import { FaceBadge } from '../ui/icon-tile'
 import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
@@ -1404,8 +1405,11 @@ export const RowMark = ({ children, className }: { children: ReactNode; classNam
   <span className={cx(styles.rowMark, className)}>{children}</span>
 )
 
-export const DetailMark = ({ children, className, shape = 'square' }: { children: ReactNode; className?: string; shape?: 'square' | 'face' }) => (
-  <span className={cx(styles.detailMark, className)} data-shape={shape}>{children}</span>
+export const DetailMark = ({ children, className, shape = 'square', badge }: { children: ReactNode; className?: string; shape?: 'square' | 'face'; badge?: ReactNode }) => (
+  <span className={cx(styles.detailMark, badge != null && 'relative overflow-visible', className)} data-shape={shape}>
+    {children}
+    {badge != null && <FaceBadge>{badge}</FaceBadge>}
+  </span>
 )
 
 /**
@@ -1467,6 +1471,7 @@ export const AccountMark = ({
   size,
   className,
   children,
+  badge,
   ...props
 }: Omit<HTMLAttributes<HTMLElement>, 'data-tint'> & {
   as?: 'span' | 'button'
@@ -1474,6 +1479,7 @@ export const AccountMark = ({
   size?: 'sm' | 'lg' | 'dot' | 'row'
   /** One of the accounts' own tints — never a design-system tint at large: #991 once shipped teal and orange, neither of which is a tint an account can wear. */
   'data-tint'?: AccountTint
+  badge?: ReactNode
   children: ReactNode
 }) => createElement(as, {
   ...props,
@@ -1481,8 +1487,8 @@ export const AccountMark = ({
   // the two apart on a screen that draws both.
   'data-shape': 'round',
   ...(as === 'button' ? { type: 'button' } : {}),
-  className: cx(styles.avatar, as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, className),
-}, children)
+  className: cx(styles.avatar, badge != null && 'relative overflow-visible', as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, className),
+}, children, badge != null && <FaceBadge>{badge}</FaceBadge>)
 
 export const FileButton = ({
   label,

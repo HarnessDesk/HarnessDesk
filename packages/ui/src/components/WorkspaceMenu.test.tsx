@@ -233,3 +233,11 @@ it('reads the project’s own capture, wherever it is homed, and not a clone’s
   mountCapture(subject, [captureHealth({ project: clone, state: 'stopped' }), captureHealth({ project: PROJECT })])
   expect(captureItems()).toHaveLength(0)
 })
+
+
+it('distinguishes resetting order from moving a project down', async () => {
+  mount(['/a', '/b', '/c'], group('/b', 'billing'))
+  const back = await moveRow('Back to automatic order')
+  expect(back.querySelector('svg')?.classList.contains('lucide-rotate-ccw')).toBe(true)
+  expect(row('Move down').querySelector('svg')?.classList.contains('lucide-move-down')).toBe(true)
+})

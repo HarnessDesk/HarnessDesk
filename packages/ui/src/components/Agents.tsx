@@ -4,9 +4,8 @@ import { allItems, type SessionId, type SubagentItem, type TokenUsage } from '@h
 
 import { defaultTint } from '../lib/accounts'
 import { formatTokensWithFloor } from '../lib/context-usage'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
+import { useActiveSession, useStore } from '../state/context'
 import type { ReportFoot } from './Details'
-import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
 import { IconTile } from '../design'
 import { PanelEmpty, PanelRow, RunDot } from './Panel'
@@ -18,8 +17,7 @@ import { PanelEmpty, PanelRow, RunDot } from './Panel'
  * several the transcript is the wrong place to answer "which agents are
  * running and what did I ask them". This is that answer.
  *
- * A sub-agent wears the mark of the runtime that started it — that is what it
- * is — ringed in a colour of its own, so three runs of the same agent are
+ * A sub-agent wears the robot with its delegation badge, tinted in a colour of its own, so three runs of the same agent are
  * three rows you can tell apart at a glance rather than three identical
  * glyphs.
  */
@@ -41,9 +39,7 @@ const RUNNING = new Set(['running', 'active', 'started', 'working'])
 
 export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot }) => {
   const store = useStore()
-  const snapshot = useSnapshot()
   const session = useActiveSession()
-  const info = snapshot.runtimes.find((entry) => entry.id === session?.runtime) ?? null
 
   const agents = useMemo(() => {
     if (!session) return []
@@ -114,8 +110,8 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
         <PanelRow
           key={agent.sessionId}
           mark={
-            <IconTile size="sm" shape="face" tint={defaultTint(agent.sessionId)}>
-              {info ? <RuntimeMark runtime={info} size={12} /> : <AgentIcon size={12} />}
+            <IconTile size="sm" shape="face" tint={defaultTint(agent.sessionId)} badge="↳" title={`Sub-agent of ${session?.title || 'this conversation'}`}>
+              <AgentIcon size={12} />
             </IconTile>
           }
           title={

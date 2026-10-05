@@ -2,11 +2,10 @@ import { useEffect } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
-import { runtimeTint } from '../lib/accounts'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
-import { RuntimeMark } from './BrandIcons'
-import { Button, Card, Chip, IconTile, ListRow, ListRows, Text } from '../design'
+import { Button, Card, Chip, ListRow, ListRows, Text } from '../design'
+import { RuntimeFace } from './RuntimeFace'
 import styles from './SetupDesk.module.css'
 
 /**
@@ -78,9 +77,7 @@ export const SetupDesk = ({
           return (
             <ListRow
               key={info.id}
-              lead={<IconTile shape="face" tint={runtimeTint(info.id, snapshot.accountsByRuntime, snapshot.accountPrefs)}>
-                <RuntimeMark runtime={info} size={16} />
-              </IconTile>}
+              lead={<RuntimeFace runtime={info} />}
               title={<span className={styles.rowName}>
                 <span className="truncate">{info.presentation.name}</span>
                 {which && <Chip tone="neutral" size="sm">{which}</Chip>}

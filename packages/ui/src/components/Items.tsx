@@ -95,7 +95,7 @@ import {
 } from '../lib/tool-names'
 import { DiffView } from './Diff'
 import {
-  AgentIcon,
+  SubagentIcon,
   AlertIcon,
   BrainIcon,
   TeamIcon,
@@ -1265,7 +1265,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
 
   return (
     <Row
-      icon={<AgentIcon size={14} />}
+      icon={<SubagentIcon size={14} />}
       title={
         item.members.length === 1
           ? `${title}: ${item.members[0]?.nickname ?? 'agent'}`
@@ -1297,7 +1297,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
                 variant="quiet" size="content" className={styles.fileHeader}
                 {...(openable
                   ? {
-                      title: `Open ${member.sessionId}`,
+                      title: `Sub-agent of ${session?.title || 'this conversation'} · Open ${member.sessionId}`,
                       onClick: () => {
                         if (session) void store.openSession(member.sessionId as SessionId, { runtime: session.runtime })
                       },
@@ -1307,7 +1307,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
                       title: 'This sub-agent ran inside the conversation; it has none of its own to open.',
                     })}
               >
-                <AgentIcon size={12} />
+                <SubagentIcon size={12} />
                 <Text role="muted" className={styles.filePath}>
                   {member.nickname ?? member.sessionId.slice(0, 8)}
                 </Text>

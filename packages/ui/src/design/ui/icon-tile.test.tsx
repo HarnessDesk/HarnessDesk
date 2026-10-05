@@ -67,3 +67,17 @@ it('declares the shape it drew, and a caller cannot say otherwise', () => {
 it('has a 20px stack face step, without a screen overriding its size', () => {
   expect(renderToStaticMarkup(<IconTile size="stack" shape="face">A</IconTile>)).toContain('size-(--hd-space-5)')
 })
+
+
+it('keeps the image crop inside a tile with one unclipped identity badge', () => {
+  const box = document.createElement('div')
+  box.innerHTML = renderToStaticMarkup(<IconTile shape="face" size="sm" badge="A"><img src="data:," alt="" /></IconTile>)
+  const tile = box.querySelector('[data-slot="icon-tile"]')!
+  expect(tile.className).toContain('overflow-visible')
+  expect(tile.querySelector('[data-slot="icon-tile-content"]')?.className).toContain('overflow-hidden')
+  const badge = tile.querySelector('[data-slot="face-badge"]')!
+  expect(badge.textContent).toBe('A')
+  expect(badge.getAttribute('aria-hidden')).toBe('true')
+  expect(badge.className).toContain('--stack-surface')
+  expect(badge.getAttribute('data-corner')).toBe('bottom-right')
+})

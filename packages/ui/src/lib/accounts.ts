@@ -95,9 +95,10 @@ export const accountName = (
   const nickname = prefs?.nickname?.trim()
   if (nickname) return nickname
   if (account.anonymous && agent) return agent
-  const email = account.email ?? (account.label.includes('@') ? account.label : null)
+  const label = account.label ?? ''
+  const email = account.email ?? (label.includes('@') ? label : null)
   if (email) return email.slice(0, email.indexOf('@'))
-  return account.label
+  return label
 }
 
 /** The line under the name: who it really is, and on what plan. */
@@ -188,4 +189,43 @@ export const agentGroups = (
     else groups.push({ info, siblings: [info] })
   }
   return groups
+}
+
+/**
+ * One account's qualifier among signed-in siblings of the same runtime.
+ * Single letters expand to two when they collide. Sorting stable account keys
+ * makes the final fallback independent of catalogue order, including identical
+ * nicknames. Size belongs to the face component, not to this identity reader.
+ */
+export const runtimeAccountBadge = (
+  info: RuntimeInfo,
+  runtimes: readonly RuntimeInfo[],
+  accounts: Readonly<Partial<Record<RuntimeId, { readonly accounts: readonly Account[] }>>>,
+  prefs: AccountPrefsMap,
+  target = accounts[info.id]?.accounts[0],
+): string | undefined => {
+  const signedIn = runtimes.filter(one => agentKey(one) === agentKey(info)).flatMap(one =>
+    (accounts[one.id]?.accounts ?? []).map(account => {
+      const key = accountKey(one.id, account)
+      const letters = Array.from(accountName(account, prefs[key], one.presentation.name).toUpperCase()).filter(letter => /[\p{L}\p{N}]/u.test(letter))
+      return { key, account, letters: letters.length ? letters : ['?'] }
+    }),
+  ).sort((a, b) => a.key.localeCompare(b.key))
+  if (signedIn.length < 2) return undefined
+  const used = new Set<string>()
+  const badges = new Map<string, string>()
+  for (const one of signedIn) {
+    const first = one.letters[0]!
+    const collision = signedIn.filter(other => other.letters[0] === first).length > 1
+    let badge = first
+    if (collision) {
+      const candidates = [one.letters[1] ?? first, ...Array.from(one.account.label.split('@')[0]!.toUpperCase()).filter(letter => /[\p{L}]/u.test(letter)), ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']
+      badge = candidates.map(second => first + second).find(candidate => !used.has(candidate))
+        ?? Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').flatMap(a => Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ', b => a + b)).find(candidate => !used.has(candidate))
+        ?? first + first
+    }
+    used.add(badge)
+    badges.set(one.key, badge)
+  }
+  return target ? badges.get(accountKey(info.id, target)) : undefined
 }
