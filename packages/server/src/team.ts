@@ -41,6 +41,7 @@ import {
   type PersonNoticeInput,
 } from '@harnessdesk/protocol'
 
+import { blockedByCaller, carryCardWork } from './card-claims.js'
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
@@ -856,9 +857,10 @@ export const DEFAULT_TEAM_SETTINGS: TeamSettings = {
  */
 export const cardsForWire = (intents: readonly Intent[]): readonly Intent[] =>
   intents.map((intent) => {
-    if (!intent.claim || intent.claim.dirtyPaths === undefined) return intent
-    const { dirtyPaths: _dirtyPaths, ...claim } = intent.claim
-    return { ...intent, claim }
+    const { previousClaim: _previousClaim, ...publicIntent } = intent
+    if (!intent.claim) return publicIntent
+    const { dirtyPaths: _dirtyPaths, cwd: _cwd, ...claim } = intent.claim
+    return { ...publicIntent, claim }
   })
 
 export class Team {
@@ -1529,6 +1531,7 @@ export class Team {
         claim: null,
         blockedReason: said,
         blockedBy: 'hand',
+        blockedByAgent: null,
       })
       this.#signal(board, by, 'blocked', intent, said ?? 'stopped by you')
     } else if (action === 'release') {
@@ -2059,7 +2062,7 @@ export class Team {
         [...board.intents]
           .filter(
             (intent) =>
-              intent.state === 'open' &&
+              (intent.state === 'open' || blockedByCaller(intent, caller)) &&
               !intent.claim &&
               this.#misaddressed(board, intent, caller) === null &&
               (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
@@ -2192,7 +2195,7 @@ export class Team {
     }
     return board.intents.some(
       (intent) =>
-        intent.state === 'open' &&
+        (intent.state === 'open' || blockedByCaller(intent, peer)) &&
         !intent.claim &&
         this.#misaddressed(board, intent, peer) === null &&
         (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
@@ -2359,7 +2362,7 @@ export class Team {
       return 'Refused: your review round is still open and blind, so you cannot take other work until it closes. Finish your review card.'
     }
     const ready = (intent: Intent): boolean =>
-      intent.state === 'open' &&
+      (intent.state === 'open' || blockedByCaller(intent, caller)) &&
       !intent.claim &&
       /* A card addressed to a role is not "the next card" for anybody else.
          Skipped rather than refused: `claim_next` is a member asking what it
@@ -2490,7 +2493,7 @@ export class Team {
     if (intent.state === 'done' || intent.state === 'abandoned') {
       return `Refused: #${intentId} is ${intent.state}.`
     }
-    if (intent.state === 'blocked' && intent.blockedBy === 'hand') {
+    if (intent.state === 'blocked' && intent.blockedBy === 'hand' && !blockedByCaller(intent, caller)) {
       return `Refused: #${intentId} was deliberately blocked${intent.blockedReason ? ` — ${intent.blockedReason}` : ''}. Only the user, or whoever blocked it, reopens it.`
     }
     const deps = Array.isArray(intent.dependsOn) ? intent.dependsOn : []
@@ -2521,12 +2524,14 @@ export class Team {
       claim: {
         runtime: caller.runtime,
         sessionId: caller.sessionId,
+        cwd: caller.cwd,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
         ...(start ? { head: start.head, upstream: start.upstream, dirtyPaths: start.dirtyPaths ?? null } : {}),
       },
       blockedReason: null,
       blockedBy: null,
+      blockedByAgent: null,
     })
     this.#signal(board, this.#actorOf(board, caller), 'claimed', intent, owned.join(', ') || null)
     this.#commit(board)
@@ -2554,7 +2559,9 @@ export class Team {
       inherited.length > 0
         ? `\n\nWhat the work this depends on left for you:\n\n${inherited.join('\n\n')}`
         : ''
-    return `Claimed #${intentId} — ${intent.title}.${ownership}${intent.detail ? `\n\n${intent.detail}` : ''}${carried}`
+    const preserved = board.intents.find((one) => one.id === intentId)?.claim?.resumed
+      ? ' Your preserved work predates this claim and remains this card’s to commit.' : ''
+    return `Claimed #${intentId} — ${intent.title}.${ownership}${preserved}${intent.detail ? `\n\n${intent.detail}` : ''}${carried}`
   }
 
   async conflicts(paths: readonly string[], scope: TeamCallScope): Promise<string> {
@@ -2815,6 +2822,7 @@ export class Team {
         // Blocked by a decision, not by the dependency graph: a completed
         // dependency must not silently put this back in play.
         blockedBy: 'hand',
+        blockedByAgent: { runtime: caller.runtime, sessionId: caller.sessionId },
       })
       this.#signal(board, this.#actorOf(board, caller), 'blocked', intent, reason)
       this.#commit(board)
@@ -4468,12 +4476,47 @@ export class Team {
     return intent
   }
 
+  /** Another card claiming this checkout ends any released card's exclusive ownership. */
+  #carryWork(board: Board, changed: readonly Intent[]): Intent[] {
+    const next = [...carryCardWork(board.intents, changed)]
+    const claimed = next.filter((card) => {
+      const old = board.intents.find((one) => one.id === card.id)?.claim
+      return card.claim && (!old || card.claim.at !== old.at || card.claim.runtime !== old.runtime || card.claim.sessionId !== old.sessionId)
+    })
+    const overlaps = (card: Intent): boolean => Boolean(card.previousClaim?.cwd && claimed.some((one) =>
+      one.claim?.cwd && sameCanonicalPath(one.claim.cwd, card.previousClaim!.cwd!),
+    ))
+    // A wrap's held snapshot cannot be changed, and no claim is installed on a refusal.
+    for (const other of this.#boards.values()) {
+      if (other.id !== board.id && this.#holds.has(other.id) && other.intents.some(overlaps)) this.#assertMutable(other)
+    }
+    for (const other of this.#boards.values()) {
+      if (other.id === board.id) continue
+      // Wrapped and restored boards cannot reclaim work and must stay read-only.
+      if (this.#port.canMutateBoard?.(other.id)?.ok === false) continue
+      let invalidated = false
+      other.intents = other.intents.map((card) => {
+        if (!overlaps(card)) return card
+        invalidated = true
+        return { ...card, previousClaim: null }
+      })
+      // Conservatively keep ownership discarded even if this claim's own save fails.
+      if (invalidated) this.#commit(other)
+      for (const [index, card] of next.entries()) {
+        if (card.previousClaim?.cwd && other.intents.some((one) => one.claim?.cwd && sameCanonicalPath(one.claim.cwd, card.previousClaim!.cwd!))) {
+          next[index] = { ...card, previousClaim: null }
+        }
+      }
+    }
+    return next
+  }
+
   #patchIntent(board: Board, id: number, patch: Partial<Intent>): void {
     this.#assertMutable(board)
     const before = board.intents.find((entry) => entry.id === id)
-    board.intents = board.intents.map((intent) =>
+    board.intents = this.#carryWork(board, board.intents.map((intent) =>
       intent.id === id ? { ...intent, ...patch, updatedAt: Date.now() } : intent,
-    )
+    ))
     if (before?.claim && 'claim' in patch && patch.claim === null) void this.#captureStop(board.id, id, before.claim)
   }
 
@@ -5143,7 +5186,7 @@ export class Team {
     const board = this.#boards.get(goal)
     if (!board || !this.#port.mutate) return false
     const before = new Map(board.intents.map((one) => [one.id, one]))
-    const next = [...patch(board.intents)]
+    const next = this.#carryWork(board, patch(board.intents))
     const ids = next.filter((one) => before.get(one.id) !== one).map((one) => one.id)
     // Nothing moved: nothing to save, and nothing of this engine's rides along.
     if (ids.length === 0 && next.length === board.intents.length) return true

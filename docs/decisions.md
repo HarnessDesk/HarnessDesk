@@ -1328,6 +1328,26 @@ handed its card again instead, as any relaunch hands it.
 an answer that comes late is delivered, never dropped and never read as a
 refusal.
 
+## A resumed card retains its own work, and its Seat can undo its own block
+
+A restart or a released claim does not make a writer's unfinished work somebody
+else's pre-existing dirt. Replacing its dirty-path snapshot at the next claim
+hid that work from both the commit tool and the finish check (#1403). A card
+now keeps the earlier claim's snapshot when it is released, and reuses it only
+for the same conversation in the same checkout. Another card claiming that
+checkout discards the retained ownership, even on another board; a simultaneous
+claim there also prevents retaining it. Unknown snapshots remain unknown.
+The snapshot and checkout identity stay inside the host, and a hand-back and
+commit say plainly that the preserved work predates the new claim.
+
+A deliberate agent block records its conversation. That conversation can
+claim the card again, subject to the same dependency, role and file checks.
+This is the existing board's recovery route, so no new person-answer surface
+is needed. A person's block stays held. A Flow hands a Seat its own blocked
+card back with a claim before sending its order, and that hand-back does not
+spend the stall budget for unfinished turns. Ordinary unfinished turns keep
+their existing limit.
+
 ## Seats that may commit in one round are isolated by the file, never by the desk
 
 Every Seat of a round is seated and handed its card at once. Without

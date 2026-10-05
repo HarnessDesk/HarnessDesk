@@ -88,8 +88,10 @@ export interface IntentClaim {
   readonly upstream?: string | null
   /**
    * Paths the checkout already showed changed or untracked the moment this
-   * claim began — a shared checkout's own pre-existing dirt, kept only so a
-   * finish can tell it apart from what this card's own holder left behind.
+   * ownership began — a shared checkout's own pre-existing dirt, kept only so
+   * a finish can tell it apart from what this card's own holder left behind.
+   * A released card reclaimed by the same conversation in the same checkout
+   * keeps this earlier snapshot unless another card claimed the checkout.
    *
    * Host-only: it is stored with the claim so it survives a restart, but it
    * is never a value a renderer sees. `Team`'s own projection (`#stateOf`)
@@ -110,6 +112,10 @@ export interface IntentClaim {
    * is later added inside it.
    */
   readonly dirtyPaths?: readonly string[] | null
+  /** Host-only checkout identity for retaining this card's work on a hand-back. */
+  readonly cwd?: string
+  /** The dirty snapshot comes from this conversation's earlier claim of this card. */
+  readonly resumed?: boolean
 }
 
 /**
@@ -163,6 +169,10 @@ export interface Intent {
    */
   readonly outcome?: string | null
   readonly claim?: IntentClaim | null
+  /** Host-only ownership baseline retained when a claim is released, never sent over the wire. */
+  readonly previousClaim?: IntentClaim | null
+  /** The conversation that deliberately blocked the card; absent on a person's block. */
+  readonly blockedByAgent?: Pick<IntentClaim, 'runtime' | 'sessionId'> | null
   /**
    * The commit its checkout stood at the moment its claim last went from held
    * to nothing — finished, released, abandoned, blocked, taken over, or

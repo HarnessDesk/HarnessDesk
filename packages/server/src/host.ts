@@ -184,6 +184,7 @@ import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
+import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
@@ -3327,6 +3328,8 @@ export class Host {
        still queued behind another. Patched onto the document instead, that
        card was missing, the claim was refused, and the assignment stayed
        staged, refusing every later save of the Goal. */
+    const change = patch
+    patch = (intents) => carryCardWork(intents, change(intents))
     const staged = this.#goalStore.read(goal).operation?.kind === 'wrap'
     const save = staged
       ? async () => {
@@ -3424,7 +3427,7 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream, dirtyPaths },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
         updatedAt: at,

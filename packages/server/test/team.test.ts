@@ -2201,9 +2201,9 @@ test('a claim whose holder is gone and whose lease ran out can be taken over', a
   // Now the lease runs out too. Both halves true: it is taken over.
   const held = team.stateFor(room).intents.find((intent) => intent.id === 1)
   assert.ok(held?.claim?.leaseUntil, 'a claim carries a lease')
-  team.stateFor(room).intents.forEach(() => undefined)
-  const past = Date.now() - 1000
-  ;(held as { claim: { leaseUntil: number } }).claim.leaseUntil = past
+  const state = team.stateFor(room)
+  team.installProjection({ ...state, intents: state.intents.map((one) => one.id === 1
+    ? { ...one, claim: { ...one.claim!, leaseUntil: Date.now() - 1000 } } : one) })
 
   const taken = await team.claim(1, claude)
   assert.match(taken, /^Claimed #1/, `a stranded claim is taken over: ${taken}`)
@@ -2614,8 +2614,9 @@ test('workflow: a claim outlives its agent, and the work is recoverable', async 
 
   // The lease runs out. Now the work is free, the files it owned are free with
   // it, and the takeover is on the record rather than looking ordinary.
-  const held = team.stateFor(room).intents[0]
-  ;(held as { claim: { leaseUntil: number } }).claim.leaseUntil = Date.now() - 1
+  const state = team.stateFor(room)
+  team.installProjection({ ...state, intents: state.intents.map((one) => one.id === 1
+    ? { ...one, claim: { ...one.claim!, leaseUntil: Date.now() - 1 } } : one) })
   assert.match(await team.conflicts(['src/api/**'], asHaiku), /Clear to work there/)
   assert.match(await team.claim(1, asHaiku), /^Claimed #1/)
   assert.ok(
@@ -4394,4 +4395,111 @@ test('answering a done card the same way again is a quiet repeat, but a new cont
   // The same answer with a different note is not a repeat: the handoff is the new one.
   await team.intentAction(room, 1, 'done', undefined, 'picked', 'a better note')
   assert.equal(team.stateFor(room).intents[0]?.handoff, 'a better note')
+})
+
+test('a resumed card keeps its original dirty snapshot across release and restart (#1403)', async (t) => {
+  const { team, port, dir, teamPort, room } = await rig(t)
+  await twoAgents(port, team, room)
+  let dirty = ['.env']
+  teamPort.startOf = async () => ({ head: 'base', upstream: null, dirtyPaths: dirty })
+  await team.addIntent({ title: 'Preserved work' }, codex)
+  await team.claim(1, codex)
+  dirty = ['.env', 'notes.md']
+  await team.release(1, {}, codex)
+  await team.flush()
+  const reborn = new Team(dir, teamPort)
+  try {
+    await reborn.load()
+    assert.match(await reborn.claim(1, codex), /predates this claim/)
+    assert.deepEqual(reborn.dirtyPathsOf(room, 1), ['.env'])
+    assert.equal(JSON.stringify(reborn.stateFor(room)).includes('.env'), false, 'snapshots stay host-only')
+  } finally {
+    await reborn.flush()
+  }
+})
+
+test('the Seat that blocked its card can claim_next and complete it after restart (#1403)', async (t) => {
+  const { team, port, dir, teamPort, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.addIntent({ title: 'Publish it' }, codex)
+  await team.claim(1, codex)
+  await team.release(1, { blocked: true, reason: 'waiting for a commit' }, codex)
+  await team.flush()
+  const reborn = new Team(dir, teamPort)
+  try {
+    await reborn.load()
+    assert.match(await reborn.claim(1, claude), /deliberately blocked/)
+    assert.equal(reborn.hasWorkFor(room, codex.runtime, codex.sessionId), true)
+    assert.match(await reborn.claimNext(codex), /^Claimed #1/)
+    assert.match(await reborn.complete(1, { outcome: 'published' }, codex), /^Completed #1/)
+  } finally {
+    await reborn.flush()
+  }
+})
+
+test('a person block cannot be undone by the previous holder (#1403)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.addIntent({ title: 'Wait' }, codex)
+  await team.claim(1, codex)
+  await team.release(1, { blocked: true }, codex)
+  await team.intentAction(room, 1, 'block', 'stopped by the person')
+  assert.match(await team.claim(1, codex), /deliberately blocked/)
+})
+
+test('another card claiming the same checkout discards retained work ownership (#1403)', async (t) => {
+  const { team, port, room, teamPort } = await rig(t)
+  await twoAgents(port, team, room)
+  let dirty: string[] = []
+  teamPort.startOf = async () => ({ head: 'base', upstream: null, dirtyPaths: dirty })
+  await team.addIntent({ title: 'First' }, codex)
+  await team.claim(1, codex)
+  dirty = ['notes.md']
+  await team.release(1, {}, codex)
+  await team.addIntent({ title: 'Second' }, claude)
+  await team.claim(2, claude)
+  dirty = ['notes.md', 'other.md']
+  await team.release(2, {}, claude)
+  assert.doesNotMatch(await team.claim(1, codex), /predates this claim/)
+  assert.deepEqual(team.dirtyPathsOf(room, 1), dirty)
+})
+
+test('a claim on another board in the same checkout discards retained work (#1403)', async (t) => {
+  const { team, port, room, teamPort } = await rig(t)
+  await twoAgents(port, team, room)
+  let dirty: string[] = []
+  teamPort.startOf = async () => ({ head: 'base', upstream: null, dirtyPaths: dirty })
+  await team.addIntent({ title: 'Original' }, codex)
+  await team.claim(1, codex)
+  dirty = ['notes.md']
+  await team.release(1, {}, codex)
+  const otherRoom = (await team.createRoom('/repo', 'Other board')).id
+  const other = peer({ sessionId: 'c2' })
+  port.peers.push(other)
+  await team.joinRoom(otherRoom, other.runtime, other.sessionId)
+  await team.addIntent({ title: 'Other work' }, other)
+  await team.claim(1, other)
+  dirty = ['notes.md', 'other.md']
+  await team.complete(1, {}, other)
+  assert.doesNotMatch(await team.claim(1, codex), /predates this claim/)
+  assert.deepEqual(team.dirtyPathsOf(room, 1), dirty)
+})
+
+test('retained ownership on a held board is not mutated by a claim on another board (#1403)', async (t) => {
+  const { team, port, room, teamPort } = await rig(t)
+  await twoAgents(port, team, room)
+  teamPort.startOf = async () => ({ head: 'base', upstream: null, dirtyPaths: [] })
+  await team.addIntent({ title: 'Original' }, codex)
+  await team.claim(1, codex)
+  await team.release(1, {}, codex)
+  const release = team.holdBoard(room, 'wrap barrier')
+  const otherRoom = (await team.createRoom('/repo', 'Other board')).id
+  const other = peer({ sessionId: 'c2' })
+  port.peers.push(other)
+  await team.joinRoom(otherRoom, other.runtime, other.sessionId)
+  await team.addIntent({ title: 'Other work' }, other)
+  await assert.rejects(team.claim(1, other), /wrap barrier/)
+  assert.equal(team.stateFor(otherRoom).intents[0]!.state, 'open')
+  release()
+  assert.match(await team.claim(1, codex), /predates this claim/)
 })

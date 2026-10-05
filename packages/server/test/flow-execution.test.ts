@@ -1708,3 +1708,51 @@ test('stopping a run that already settled tells the stop listeners, and leaves i
   assert.deepEqual(told, [run.id], 'but what it had not yet sent is still cancelled')
   assert.deepEqual(rig.flows.executionOf(run.id), settled)
 })
+
+test('hand-backs of a Seat’s own block reclaim it without spending the stall budget (#1403)', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(`
+version: 2
+name: Self-block recovery
+roles:
+  author: { kind: agent, uses: writer, grant: edit }
+seed: { role: author, title: Publish it }
+rules: []
+`, [agent('writer', ['published'])])
+  await rig.flows.flush()
+  const scope = rig.sessionOf('seat-1')
+  for (let turn = 0; turn < 5; turn++) {
+    if (rig.board(run.goal).intents[0]!.state === 'claimed') {
+      assert.match(await rig.team.release(1, { blocked: true, reason: 'waiting for a commit' }, scope), /^Released/)
+    }
+    await rig.flows.reArm(scope.runtime, scope.sessionId)
+    await rig.flows.flush()
+  }
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
+  assert.equal(rig.board(run.goal).intents[0]!.state, 'claimed', 'handed back with a live claim')
+  assert.equal(orders(rig.events).length, 6)
+  assert.match(await rig.team.complete(1, { outcome: 'published' }, scope), /^Completed/)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'settled')
+})
+
+test('a person block is held across a relaunch without handing it to its Seat (#1403)', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(`
+version: 2
+name: Person block
+roles:
+  author: { kind: agent, uses: writer }
+seed: { role: author, title: Wait }
+rules: []
+`, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.intentAction(run.goal, 1, 'block', 'stopped by the person')
+  const before = orders(rig.events).length
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.equal(orders(rig.events).length, before)
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
+  assert.equal(rig.board(run.goal).intents[0]!.state, 'blocked')
+})
