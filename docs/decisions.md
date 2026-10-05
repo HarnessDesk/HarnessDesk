@@ -1084,6 +1084,35 @@ without them having read the file.
 onto the existing seating path, not a second enforcement mechanism, and it
 never quietly becomes an asked run to make a demonstration succeed.
 
+## An ACP read ceiling needs a native guard as well as host permission refusal
+
+ACP delegates file access and execution to the agent. A tool notification
+arrives after the work, so refusing a notification cannot hold read. The
+adapter reports `ceilings.read` only when the bridge's initialization handshake
+declares its native read guard. The bundled bridge installs its pre-tool guard
+before opening a read session, persists the ceiling across loads and resumes,
+blocks file mutation tools and unknown MCP tools, and admits shell commands
+only from its narrow read-only allowlist. Its permission mode cannot bypass
+that guard; plan mode alone is not a held ceiling.
+
+The host also remembers a requested read ceiling, including across handle
+closure and reload. Write, execution, mode-change and unknown permission
+requests are cancelled before they reach a person or an automatic approval
+policy. Read and search requests retain their ordinary approval path. Trusted
+desk-tool provenance uses the shared tool ceiling table rather than the
+generic ACP tool kind; questions remain questions.
+
+Host refusal alone does not constrain an agent's native tools, and does not
+earn a ceiling for a peer without the native guard. This is tool enforcement,
+not an operating-system sandbox for the peer process. Other ACP peers remain
+ineligible for held read roles until their own enforcement exists. When none
+can be offered, the dry run names the missing ceiling for that role. Provider
+independence is still checked from the providers read for the actual Seats,
+never inferred from a runtime's name.
+
+**The rule:** an ACP capability reports enforcement the bridge holds, not a
+mode label or the host's ability to decline a permission request.
+
 ## A shape's `layout:` is a shortcut a person can trust to be inert
 
 `layout.frontDoor` and `layout.positions` are the same reserved key the
