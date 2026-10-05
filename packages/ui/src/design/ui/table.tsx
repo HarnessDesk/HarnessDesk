@@ -8,10 +8,13 @@ const Table = ({
   className,
   containerClassName,
   variant = 'default',
+  inset,
   ...props
 }: React.ComponentProps<'table'> & {
   containerClassName?: string
   variant?: 'default' | 'framed' | 'panel'
+  /** The table and its replacement list keep the same row-content edge. */
+  inset?: 'row'
 }) => (
   <div
     data-slot="table-container"
@@ -25,7 +28,7 @@ const Table = ({
   >
     <table
       data-slot="table"
-      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', className)}
+      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', inset === 'row' && '[&_th]:px-(--hd-inset-row) [&_td]:px-(--hd-inset-row)', className)}
       {...props}
     />
   </div>

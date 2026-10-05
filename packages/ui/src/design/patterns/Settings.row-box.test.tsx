@@ -139,3 +139,10 @@ it('a row wraps its control under a title that keeps a readable width', () => {
   expect(rule('.rowCtl')).toMatch(/flex:\s*0 1 auto/)
   expect(rule('.rowCtl')).toMatch(/max-width:\s*100%/)
 })
+
+it('a mark keeps its private size when a registry card uses it outside a row', () => {
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  const markSize = rules.find(([, selectors, body]) => selectors!.split(',').some(selector => selector.trim() === '.rowMark')
+    && /--mark-size:\s*[^;]+;/.test(body!))
+  expect(markSize, 'RowMark also appears directly in registry cards').toBeDefined()
+})

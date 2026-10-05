@@ -33,7 +33,7 @@ export interface RunInspectorProps {
   attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, Chip, CodeText, GroupLabel, PaneColumn, PanelBody, PanelFrame, PanelTools, Text } from '../design'
+import { Button, Chip, CodeText, GroupLabel, PanelBody, PanelFrame, PanelTools, Text } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
 import { lifecycleWords } from '../lib/findings'
@@ -183,10 +183,10 @@ export const RunInspector = ({ input, selectedRow, seats, onAbandon, onStop, onA
     </>
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
-    <PanelFrame><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
+    <PanelFrame inset="reading"><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
       {card && selected?.status && <Text role="meta">{sanitizeText(selected.status)}</Text>}
     </PanelTools>
-      <PanelBody><PaneColumn inset="reading" className="flex min-w-0 flex-col gap-4">{body}</PaneColumn></PanelBody>
+      <PanelBody><div className="flex min-w-0 flex-col gap-4">{body}</div></PanelBody>
     </PanelFrame>
   </div>
 }

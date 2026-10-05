@@ -21,7 +21,7 @@ export type RunViewTab = 'timeline' | 'flow'
 const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ model, number, selectedRow, selectedRows, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber }: {
+export const RunView = ({ model, number, selectedRow, selectedRows, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber, onDetails }: {
   model: ReturnType<typeof runTimeline>
   number: number
   selectedRow: string | null
@@ -44,6 +44,8 @@ export const RunView = ({ model, number, selectedRow, selectedRows, onSelect, fa
   onBoard?: () => void
   onReviewCheck?: () => void
   runChooser?: ReactNode
+  /** Opens the Run summary from its header tool row. */
+  onDetails?: () => void
   continuesNumber?: number
 }) => {
   const [kept, keep] = useState<RunViewTab>('timeline')
@@ -67,6 +69,7 @@ export const RunView = ({ model, number, selectedRow, selectedRows, onSelect, fa
       {header.continues && <Text role="meta">Continues {continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</Text>}
       {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
       {header.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
+      {showing === 'timeline' && onDetails && <Button variant="link" size="inline-link" onClick={onDetails}>Run details</Button>}
       {flow && <span className="ml-auto"><Segmented label="Show the Run as" value={showing} options={TABS}
         onChange={showView} /></span>}
     </PaneColumn>

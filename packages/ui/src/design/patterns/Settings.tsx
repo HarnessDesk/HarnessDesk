@@ -1033,7 +1033,7 @@ export const RowButton = ({
           end on either line. */}
       {control || (chevron && !fold && !action) ? (
         <span className={styles.rowEnd}>
-          {control ? <span className={styles.rowCtl}>{control}</span> : null}
+          {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
           {chevron && !fold && !action ? (
             <span className={styles.rowChev}>
               <ChevronIcon size={ROW_CHEVRON} />

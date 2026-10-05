@@ -14,6 +14,10 @@ move is real work and is not news to a person weighing an upgrade.
   Xcode's iOS build tools need an explicit `DEVELOPER_DIR`, existing choices
   stay intact, and removing the setting and restarting undoes it. (Fixes #1221)
 
+- **Content keeps its surface’s inset.** Team Chat activity lines keep their
+  faces inside the filled strip; cards, content rows and modal questions use
+  the system’s inset tiers, with equal padding above and below.
+
 - **Read the same Run in a terminal and the window.** `run show` uses the
   shared timeline for rounds, cards, check results, findings and the ending,
   while keeping attendance and seat overrides. Its JSON remains the saved

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
-  Button, Card, CardContent, Chip, DisclosureChevron, EmptyState, GroupLabel,
+  Button, Card, Chip, DisclosureChevron, EmptyState, Section,
   IconTile, ListRow, ListRows, PaneColumn, Table, TableBody, TableCell,
   TableHead, TableHeader, TableRow, Text,
 } from '../design'
@@ -99,7 +99,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
         {run && (
-          <Card><CardContent>
+          <Card spacing="compact">
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
@@ -122,11 +122,10 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               {publication?.needsYou && run.findingRun?.reason && (statusLine || run.findingRun.reason !== runReason) && <Text role="meta" as="div">{words(run.findingRun.reason)}</Text>}
               {statusLine ? statusLine(now) : runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
             </section>
-          </CardContent></Card>
+          </Card>
         )}
         {model.needsYou.length > 0 && (
-          <section aria-label="Needs you">
-            <GroupLabel>Needs you</GroupLabel>
+          <Section title="Needs you" inset="row" className="mt-0">
             <ListRows>
               {model.needsYou.map((item, index) => (
                 <NeedsYouRow key={item.approval !== undefined
@@ -135,10 +134,9 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                   name={model.seats.find(one => one.seat === item.seat)?.name ?? null} answers={answers} onOpenSeat={onOpen} />
               ))}
             </ListRows>
-          </section>
+          </Section>
         )}
-        <section aria-label="Seats" className="min-w-0">
-          <GroupLabel>Agents · {model.seats.length}</GroupLabel>
+        <Section title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0">
           {model.seats.length === 0 ? <EmptyState title="No agents in this Team yet" /> : rows.length === 0 ? null : narrow ? (
             <ListRows>
               {rows.map(row => (
@@ -148,7 +146,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               ))}
             </ListRows>
           ) : (
-            <Table variant="framed" className="table-fixed">
+            <Table variant="framed" inset="row" className="table-fixed">
               <TableHeader><TableRow>
                 <TableHead className="w-36">Agent</TableHead>
                 <TableHead className="w-40">Card</TableHead>
@@ -188,7 +186,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               <DisclosureChevron open={expanded} />{done.length} done
             </Button>
           )}
-        </section>
+        </Section>
       </PaneColumn>
     </div>
   )

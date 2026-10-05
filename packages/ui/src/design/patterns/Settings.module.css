@@ -832,7 +832,7 @@
 /* A page head that names a card of rows sits outside that card, but its words
    still land on the same text inset as the card's rows. */
 .pageHead:has(+ [data-slot='rows']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-row)); /* desk: heading edge 17 → 13 to match row content (#1363) */
 }
 
 .pageHeadText {
@@ -906,10 +906,10 @@
    Earned only when a card of rows is what the head is actually naming
    (`:has(+ […])` reads the very next sibling `Rows` renders): a head over a
    `Note`, a plain button, or ProjectTriggers' own body has no such card to
-   answer to, and the same inset put its label 17px right of a body that
+   answer to, and the same inset put its label a row inset right of a body that
    starts flush with the page instead. */
 .sectionHead:has(+ [data-slot='rows']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-row)); /* desk: heading edge 17 → 13 to match row content (#1363) */
 }
 
 .sectionHead:first-child {
@@ -942,7 +942,7 @@
 
 /* The sticky form is still the head of the rows card directly below it. */
 .sectionHead[data-sticky]:has(+ [data-slot='rows']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-row)); /* desk: heading edge 17 → 13 to match row content (#1363) */
 }
 
 /* The ground a stuck head paints over the window's title strip, so rows that
@@ -1021,6 +1021,13 @@
    need different answers: on Desk's white card `--hd-border` at 4% black is
    exactly right, and on Studio's tinted one the same line disappeared — three
    settings rows ran together into a single block of text. */
+/* Registry cards also use a mark outside a row. The same size pays the
+   row’s first-line clearance and keeps that standalone mark intact. */
+.row,
+.rowMark {
+  --mark-size: 34px;
+}
+
 .row {
   position: relative;
   display: flex;
@@ -1030,9 +1037,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
-  padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
+  padding: var(--hd-inset-row); /* desk: row inline 16 → 12; vertical 12 stays (#1363) */
   border-bottom: 0; /* desk: separator lives in ::after so row rules do not read as surfaces */
-  padding-bottom: calc(var(--hd-space-3) + var(--hd-border-width));
+  padding-bottom: calc(var(--hd-inset-row) + var(--hd-border-width));
 }
 
 .row::after {
@@ -1058,7 +1065,7 @@
 }
 
 .row:last-child {
-  padding-bottom: var(--hd-space-3);
+  padding-bottom: var(--hd-inset-row);
 }
 
 .row:last-child::after {
@@ -1131,14 +1138,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline-end: var(--hd-card-padding);
+  padding-inline-end: var(--hd-inset-row); /* desk: trailing control edge 16 → row 12 (#1363) */
 }
 
 .rowFoldEnd {
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline-end: var(--hd-card-padding);
+  padding-inline-end: var(--hd-inset-row); /* desk: trailing control edge 16 → row 12 (#1363) */
 }
 
 /* The fold is a toggle, not a menu: the row's hover, and no fill for open —
@@ -1280,10 +1287,9 @@
 
 .rowMark {
   /* A private size, not `--hd-*`: this tile answers to no other component,
-     so it is named once here rather than typed out twice (the box below,
+     so it is named once for the row and mark rather than typed out twice (the box below,
      and its own nudge's formula) — two literals agreeing is luck, one
      variable is a fact. */
-  --mark-size: 34px;
   flex: none;
   display: inline-grid;
   place-items: center;
@@ -1302,6 +1308,16 @@
    instead of the block's middle. */
 .row:has(.rowDesc) .rowMark {
   margin-top: calc((var(--hd-line-sm) - var(--mark-size)) / 2);
+}
+
+/* Keep the first-line alignment without spending the surface's inset on
+   a mark's or button's upward nudge. The mark, words and control move together. */
+.row:has(.rowDesc):not(:has(.rowMark)):has(.rowCtl button) {
+  padding-top: calc(var(--hd-inset-row) + (var(--hd-btn-h-sm) - var(--hd-line-sm)) / 2); /* desk: control clearance repays its first-line nudge (#1363) */
+}
+
+.row:has(.rowDesc):has(.rowMark) {
+  padding-top: calc(var(--hd-inset-row) + (var(--mark-size) - var(--hd-line-sm)) / 2);
 }
 
 .rowChev {

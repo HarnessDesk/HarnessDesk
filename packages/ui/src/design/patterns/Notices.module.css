@@ -154,9 +154,9 @@
   display: contents;
 }
 
-.tail > * {
+.tail[data-slot='composer-tail'] > * {
   min-height: var(--hd-control-h);
-  padding-inline: var(--hd-space-3);
+  padding: var(--hd-inset-row);
   border-radius: var(--hd-radius);
   background: var(--hd-muted);
   color: var(--hd-secondary-foreground);

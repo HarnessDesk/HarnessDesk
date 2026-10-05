@@ -108,6 +108,7 @@ const ListRow = ({
   return (
   <Element
     data-slot="list-row"
+    data-size={size}
     {...(as === 'button' ? { type: 'button' as const } : {})}
     /* `aria-current` rather than a class alone: a screen reader moving down a
        roster is told which conversation is open, which is the whole reason the
@@ -123,7 +124,7 @@ const ListRow = ({
       'flex',
       wrapTitle || subtitle != null || meta != null ? 'items-start' : 'items-center',
       as === 'button' && 'w-full text-left',
-      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-3 px-4 py-2.5',
+      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-3 p-(--hd-inset-row)',
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
       selected && 'bg-(--hd-selected) hover:bg-(--hd-selected)',

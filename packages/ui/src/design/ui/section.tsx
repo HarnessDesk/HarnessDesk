@@ -52,7 +52,7 @@ const sectionVariants = cva('flex flex-col', {
          taller than the column allots its panels (`--panel-max`, which the
          column sets), so a long one scrolls inside itself instead of taking
          the column's list away. */
-      panel: 'max-h-(--panel-max,none) gap-2 border-t border-(--hd-border) px-2.5 py-2',
+      panel: 'max-h-(--panel-max,none) gap-2 border-t border-(--hd-border) p-(--hd-inset-row)',
       /* A section of a page, with its label outside and over its card. Drawn
          only through `title` (below), which is what gives it its head. */
       page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-space-2) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-4)! [&>button]:self-start',
@@ -103,6 +103,8 @@ type PageSectionProps = Omit<React.ComponentProps<'section'>, 'title'> & {
   title: string
   description?: React.ReactNode
   action?: React.ReactNode
+  /** Match a row or card body without adding a second inset to that body. */
+  inset?: 'row' | 'card'
   variant?: never
 }
 
@@ -128,7 +130,7 @@ const useInPageSection = (): boolean => useContext(InPageSection)
 
 const Section = (props: SectionProps) => {
   if (isPageSection(props)) {
-    const { className, title, description, action, children, ...rest } = props
+    const { className, title, description, action, inset, children, ...rest } = props
     return (
       <section
         data-slot="section"
@@ -141,7 +143,7 @@ const Section = (props: SectionProps) => {
           data-slot="section-head"
           /* The head sits above the card it names rather than inside it, so
              without an inset of its own its label started at the column's
-             edge while the card's border and `--hd-inset-card` put every row
+             edge while the card's border and `--hd-inset-row` put every row
              a border-width and a card-padding in — a `SectionAction`'s own
              `justify-self-end` line answers a different question (the card's
              own header) and does not reach a page section's plain card.
@@ -150,8 +152,11 @@ const Section = (props: SectionProps) => {
              sits over (`has-[+…]` reads the next sibling): a section whose
              body is a `Note` or a plain button — ProjectTriggers' own body,
              say — has no such card to answer to, and the same inset put its
-             label 17px right of a body that starts flush with the page. */
-          className="flex min-w-0 items-end gap-(--hd-space-3) has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-inset-card))]"
+             label a row inset right of a body that starts flush with the page. */
+          className={cn('flex min-w-0 items-end gap-(--hd-space-3)',
+            inset === 'row' ? 'px-(--hd-inset-row)' : inset === 'card' ? 'px-(--hd-inset-card)'
+              : 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-inset-row))]',
+          )}
         >
           <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
             <GroupLabel as="h2">{title}</GroupLabel>

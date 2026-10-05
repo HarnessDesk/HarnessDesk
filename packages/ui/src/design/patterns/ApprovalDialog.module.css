@@ -7,6 +7,7 @@
 }
 
 .scope {
+  --approval-edge-inset: var(--hd-inset-dialog);
   --approval-text-inset: calc(var(--hd-space-4) + var(--hd-space-2));
   z-index: var(--hd-z-dialog);
   pointer-events: none;
@@ -56,6 +57,7 @@
    whole. It grows with its question up to a share of the pane and scrolls
    inside past that, so a long command never pushes the thread off screen. */
 .docked {
+  --approval-edge-inset: var(--hd-inset-card);
   --approval-text-inset: calc(var(--hd-space-4) + var(--hd-space-2));
   display: flex;
   flex-direction: column;
@@ -74,7 +76,7 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2);
-  padding: var(--hd-space-4) var(--hd-space-4) var(--hd-space-2);
+  padding: var(--approval-edge-inset) var(--approval-edge-inset) var(--hd-space-2); /* desk: overlay edge 16 → 24; docked 16 stays, internal header gap stays 8 (#1363) */
 }
 
 .icon {
@@ -101,8 +103,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 var(--hd-space-4) var(--hd-space-3);
-  padding-left: calc(var(--hd-space-4) + var(--approval-text-inset));
+  padding: 0 var(--approval-edge-inset) var(--hd-inset-row); /* desk: overlay inline 16 → 24; docked inline 16 stays, internal bottom stays 12 (#1363) */
+  padding-left: calc(var(--approval-edge-inset) + var(--approval-text-inset)); /* desk: overlay hanging text 40 → 48; docked stays 40 (#1363) */
 }
 
 .reason {
@@ -112,7 +114,7 @@
 }
 
 .code {
-  padding: var(--hd-space-2-5) var(--hd-space-3);
+  padding: var(--hd-inset-row); /* desk: code block 10/12 → row 12 all sides (#1363) */
   border-radius: var(--hd-radius-sm);
   background: var(--hd-muted);
   box-shadow: inset 0 0 0 var(--hd-border-width) var(--hd-border-strong);
@@ -179,7 +181,7 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2);
-  padding: var(--hd-space-3) var(--hd-space-4);
+  padding: var(--approval-edge-inset); /* desk: footer 12/16 → overlay 24 or docked 16 all sides (#1363) */
   border-top: var(--hd-border-width) solid var(--hd-border);
 }
 

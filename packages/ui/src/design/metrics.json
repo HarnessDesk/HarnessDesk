@@ -720,11 +720,11 @@
     "radius": 0
   },
   "message/bubble/variant/secondary": {
-    "h": 40,
+    "h": 52,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "10 16 10 16",
+    "pad": "16 16 16 16",
     "radius": 16
   },
   "readings/key-value/variant/default": {
@@ -784,11 +784,11 @@
     "radius": 0
   },
   "section/section/variant/panel": {
-    "h": 109,
+    "h": 117,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "8 10 8 10",
+    "pad": "12 12 12 12",
     "radius": 0
   },
   "section/section/variant/plain": {

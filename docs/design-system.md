@@ -887,8 +887,8 @@ reference it is, when the card has one.
 The top of a card: a mark at rest, then a text column beside it.
 
 Not `AgentCard`'s alone — `Publication.tsx`'s forge card was redrawing this
-exact `flex items-start gap-2.5 px-3 pt-3 pb-2.5` by hand, down to the
-pixel, until this crest gave both a single place to read it from.
+same mark-and-text crest by hand until both shared this anatomy.
+The row inset belongs to the crest, including its bottom edge.
 
 ### `CardCrestBody`
 
