@@ -44,7 +44,6 @@ import {
   KeyIcon,
   LibraryIcon,
   ModelIcon,
-  MoreIcon,
   RetryIcon,
   SearchIcon,
   PluginIcon,
@@ -57,7 +56,6 @@ import {
   SlidersIcon,
   SparkIcon,
   ThemeSystemIcon,
-  TrashIcon,
   UserIcon,
 } from './Icons'
 import { humanizeLabel } from '../lib/identity'
@@ -82,11 +80,6 @@ import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
   BackLink,
-  BoardMenuButton,
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
   Button,
   Chip,
   CodeText,
@@ -100,9 +93,7 @@ import {
   FileButton,
   Note,
   PageHead,
-  Popover,
-  Menu,
-  MenuItem,
+  SettingsRowMenu,
   Row,
   RowButton,
   RowChoice,
@@ -310,6 +301,7 @@ const RoutesRows = () => {
         {snapshot.routes.map((route) => (
           <Row
             key={route.id}
+            kind="record"
             className={route.usable === false ? styles.rowUnusable : undefined}
             mark={<RouteIcon size={15} />}
             title={
@@ -331,9 +323,7 @@ const RoutesRows = () => {
               )}
             </>}
             control={
-              <Popover title={`More actions for ${route.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
-                {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(route)} /></Menu>}
-              </Popover>
+              <SettingsRowMenu name={route.name} onRemove={() => setRemoving(route)} />
             }
           />
         ))}
@@ -437,6 +427,7 @@ const KeysRows = () => {
           return (
             <Row
               key={key.ref}
+              kind="record"
               mark={<KeyIcon size={15} />}
               title={key.name}
               desc={
@@ -445,9 +436,7 @@ const KeysRows = () => {
                   : `No endpoint uses it · stored ${storedOn(key.createdAt)}`
               }
               control={
-                <Popover title={`More actions for ${key.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
-                  {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(key)} /></Menu>}
-                </Popover>
+                <SettingsRowMenu name={key.name} onRemove={() => setRemoving(key)} />
               }
             />
           )
@@ -866,6 +855,7 @@ const PresetsRows = () => {
         {presets.map((preset) => (
           <Row
             key={preset.id}
+            kind="record"
             mark={<PresetIcon size={15} />}
             title={preset.name}
             desc={preset.description || 'Saved preset'}
@@ -874,9 +864,7 @@ const PresetsRows = () => {
                 <Button variant="outline" size="sm" disabled={!session} onClick={() => void store.applyPreset(preset)}>
                   Apply
                 </Button>
-                <Popover title={`More actions for ${preset.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
-                  {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(preset)} /></Menu>}
-                </Popover>
+                <SettingsRowMenu name={preset.name} onRemove={() => setRemoving(preset)} />
               </>
             }
           />
@@ -999,19 +987,21 @@ const ModelsSection = () => {
         {listed.map((model) => (
           <Row
             key={model.id}
+            kind="record"
             // A model wears the mark of whoever trained it, not of the agent
             // reselling it: Cursor offers Claude and GPT and Grok side by
             // side, and its own cube beside "GPT-5.2" would say the wrong
             // thing. The generic glyph is what "we do not know this one"
             // looks like.
             mark={<ModelMark model={`${model.id} ${model.displayName}`} agent={agentBrand} size={15} />}
-            title={
+            title={model.displayName}
+            // No badge, no chip slot: an empty one still takes its gap from the title.
+            titleChip={model.isDefault || model.thinking ? (
               <>
-                <Text role="subject">{model.displayName}</Text>
                 {model.isDefault && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>Default</Chip>}
                 {model.thinking && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>{model.thinking === 'always' ? 'Always thinks' : 'Thinking'}</Chip>}
               </>
-            }
+            ) : undefined}
             desc={[
               model.description,
               model.reasoningLevels.map(level => level.label.charAt(0).toUpperCase() + level.label.slice(1)).join(', '),
@@ -1286,9 +1276,10 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
               return (
                 <RowButton
                   key={skill.name}
+                  kind="record"
                   onClick={() => setOpenName(skill.name)}
                   mark={hasFaces ? <SkillMark skill={skill} tile="default" glyphSize={15} /> : undefined}
-                  title={<Text role="subject">{skillTitle(skill)}</Text>}
+                  title={skillTitle(skill)}
                   desc={<span className={styles.skillDesc}>{skill.shortDescription ?? skill.description}</span>}
                   control={
                     <>
@@ -1696,12 +1687,7 @@ const WorktreeRows = () => {
             title={worktree.branch ?? '(detached)'}
             desc={shortPath(worktree.path, snapshot.home)} truncateDesc
             control={
-              <DropdownMenu>
-                <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${worktree.branch ?? 'Worktree'} actions · ${shortPath(worktree.path, snapshot.home)}`} />} />
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem variant="destructive" onClick={() => setRemoving(worktree)}>Remove…</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <SettingsRowMenu name={worktree.branch ?? 'Worktree'} location={shortPath(worktree.path, snapshot.home)} onRemove={() => setRemoving(worktree)} />
             }
           />
         ))}

@@ -109,6 +109,13 @@ export const shortcutFor = (event: {
   )
 }
 
+/** One part per keycap: modifier glyphs and a whole named key. */
+export const chordParts = (shortcut: Shortcut): readonly string[] => {
+  const key = shortcut.key === 'enter' ? '↵'
+    : shortcut.key.length === 1 ? shortcut.key.toUpperCase()
+      : shortcut.key.charAt(0).toUpperCase() + shortcut.key.slice(1).toLowerCase()
+  return [...(shortcut.alt ? ['⌥'] : []), ...(shortcut.shift ? ['⇧'] : []), '⌘', key]
+}
+
 /** How a chord is written where a person reads it: ⌥⌘1, ⇧⌘D, ⌘,. */
-export const chordOf = (shortcut: Shortcut): string =>
-  `${shortcut.alt ? '⌥' : ''}${shortcut.shift ? '⇧' : ''}⌘${shortcut.key === ',' ? ',' : shortcut.key === 'enter' ? '↵' : shortcut.key.toUpperCase()}`
+export const chordOf = (shortcut: Shortcut): string => chordParts(shortcut).join('')
