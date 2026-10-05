@@ -73,7 +73,7 @@ export const SetupDesk = ({
                   ? 'Its plan window is spent; it comes back when the window resets.'
                   : state === 'unknown'
                     ? 'Has not answered yet whether it needs a sign-in.'
-                    : 'Ready'
+                    : info.presentation.tagline
           const which = whichOf(info)
           return (
             <ListRow
