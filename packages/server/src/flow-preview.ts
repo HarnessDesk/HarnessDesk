@@ -18,6 +18,7 @@ import {
   type StartContext,
 } from '@harnessdesk/protocol'
 
+import type { SeatOptionsProblem } from './seat-options.js'
 import type { CheckRetry } from './flow-execution.js'
 import { sentenceOf } from './agent-seating.js'
 import { rolesAtPredecessor } from './flow-handed.js'
@@ -56,7 +57,7 @@ export interface FlowPreviewPort {
   /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
   pluginToolsProblem?(runtime: string, root: string, lane: boolean): Promise<string | null>
   /** The selected model's actual effort and thinking controls, using the runtime's session-opening refusal. */
-  seatOptionsProblem?(seat: FlowSeat, cwd: string): Promise<string | null>
+  seatOptionsProblem?(seat: FlowSeat, cwd: string): Promise<SeatOptionsProblem | null>
   /** Whether this runtime asks per MCP tool and the host cannot answer for it. */
   perToolMcpApproval?(runtime: string): boolean
   /**
@@ -442,7 +443,7 @@ export class FlowPreviews {
         })
         if (!plan.blocked && selected && this.#port.seatOptionsProblem) {
           const problem = await this.#port.seatOptionsProblem(selected.seat, cwd)
-          if (problem) problems.push({ level: 'error', at: `roles.${role.id}.seat[${binding.index}]`, text: problem })
+          if (problem) problems.push({ level: 'error', at: `roles.${role.id}.seat[${binding.index}]`, ...problem })
         }
         if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
           const selected = plan.candidates[plan.winner]!

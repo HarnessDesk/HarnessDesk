@@ -1,0 +1,91 @@
+name: Repeat Node test
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_file:
+        description: Node test source or built test file
+        type: string
+        default: packages/server/test/provenance-observer.test.ts
+        required: true
+      runs:
+        description: Number of runs (1–200)
+        type: number
+        default: 30
+        required: true
+      copies:
+        description: Concurrent copies (1–16)
+        type: number
+        default: 4
+        required: true
+  pull_request:
+    paths: [.github/workflows/repeat-test.yml]
+
+permissions:
+  contents: read
+
+# Keep both measurements when a fix follows the workflow-only commit.
+# This workflow never cancels an earlier run on the same pull request.
+jobs:
+  repeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:node
+      - name: Repeat the test and report failures
+        env:
+          TEST_FILE: ${{ inputs.test_file || 'packages/server/test/provenance-observer.test.ts' }}
+          RUNS: ${{ inputs.runs || '30' }}
+          COPIES: ${{ inputs.copies || '4' }}
+        shell: python
+        run: |
+          import concurrent.futures
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import time
+
+          source = os.environ['TEST_FILE']
+          if not re.fullmatch(r'(packages/[a-z0-9-]+/(?:dist/)?test/[a-zA-Z0-9_/-]+\.test\.(?:ts|js)|script/[a-zA-Z0-9_-]+\.test\.mjs)', source):
+              raise SystemExit('Expected a repository Node test file')
+          test_file = source
+          if source.endswith('.ts'):
+              test_file = source.replace('/test/', '/dist/test/', 1).removesuffix('.ts') + '.js'
+          if not Path(test_file).is_file():
+              raise SystemExit('Test file was not built: ' + test_file)
+          runs, copies = int(os.environ['RUNS']), int(os.environ['COPIES'])
+          if not (1 <= runs <= 200 and 1 <= copies <= 16):
+              raise SystemExit('Runs must be 1–200 and copies 1–16')
+          logs = Path('output/repeat-test')
+          logs.mkdir(parents=True, exist_ok=True)
+
+          def run(index):
+              started = time.monotonic()
+              with (logs / f'run-{index}.log').open('w') as log:
+                  result = subprocess.run(['node', '--test', '--test-timeout=120000', test_file], stdout=log, stderr=subprocess.STDOUT)
+              return index, result.returncode, time.monotonic() - started
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=copies) as pool:
+              results = list(pool.map(run, range(1, runs + 1)))
+          failures = [index for index, code, elapsed in results if code != 0]
+          for index in failures:
+              print(f'Failed run {index}:\n' + (logs / f'run-{index}.log').read_text())
+          slowest = max(elapsed for index, code, elapsed in results)
+          print(f'runs={runs} failures={len(failures)} slowest={slowest:.2f}s', flush=True)
+          raise SystemExit(1 if failures else 0)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: repeat-test-logs
+          path: output/repeat-test/
+          retention-days: 7
