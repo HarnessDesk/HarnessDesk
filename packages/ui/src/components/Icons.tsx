@@ -1,4 +1,6 @@
-import { IconTile } from '../design'
+// The shared glyph facade is below patterns: importing their barrel here
+// makes notice and flow glyph tables capture icons before they initialize.
+import { IconTile } from '../design/ui/icon-tile'
 import type { LucideIcon, LucideProps } from 'lucide-react'
 import {
   Activity,

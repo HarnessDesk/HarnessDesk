@@ -379,3 +379,14 @@ test('does not let global app styles bypass the private token boundary', () => {
   ])
   assert.equal(findings[0]?.rule, 'private-platform-token')
 })
+
+test('the shared icon facade reaches only its badge tile, never the pattern barrel', () => {
+  const path = 'packages/ui/src/components/Icons.tsx'
+  assert.deepEqual(scanUiArchitecture([{ path, source: "import { IconTile } from '../design/ui/icon-tile'" }]), [])
+  for (const specifier of ['../design', '../design/index', '@/design', '../design/patterns/Notices', '../design/ui/button']) {
+    assert.ok(scanUiArchitecture([{ path, source: `import { Something } from '${specifier}'` }]).length > 0, specifier)
+  }
+  assert.ok(scanUiArchitecture([{
+    path: 'packages/ui/src/components/Screen.tsx', source: "import { IconTile } from '../design/ui/icon-tile'",
+  }]).some(finding => finding.rule === 'nonpublic-design-import'), 'screens still compose the public entrypoint')
+})

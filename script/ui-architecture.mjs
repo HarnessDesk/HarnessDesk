@@ -15,6 +15,11 @@ const ALTERNATE_HEADLESS = /^(?:radix-ui$|@radix-ui\/)/
 const LEGACY = /(?:^|\/)(?:primitives\/(?:Kit|Dialog)|components\/(?:Menu|Popover))$/
 const RETIRED_SIBLING = /^(?:\.\/|\.\.\/)(?:Menu|Popover)$/
 const INTERNAL_DESIGN_API = /(?:^@\/design\/|(?:^|\/)design\/)(?:ui|patterns|primitives)(?:\/|$)/
+// Icons is shared system infrastructure. Its badge composition reaches one
+// leaf primitive; reaching the pattern barrel creates an initialization cycle.
+const ICON_FACADE = 'packages/ui/src/components/Icons.tsx'
+const ICON_TILE_IMPORT = '../design/ui/icon-tile'
+const DESIGN_API = /^(?:@\/design|\.\.\/design)(?:\/|$)/
 const RAW_STYLE_EXPORT = /export\s*\{\s*styles\s+as\s+[A-Za-z_$][\w$]*\s*\}/
 const TEST_SOURCE = /\.(?:spec|test)\.[cm]?[jt]sx?$/
 const PRIVATE_TOKEN_AUTHORITIES = new Set([
@@ -388,10 +393,14 @@ export const scanUiArchitecture = (files) => {
       if (ALTERNATE_HEADLESS.test(specifier)) {
         findings.push({ path: file.path, rule: 'alternate-headless-foundation', detail: specifier })
       }
+      if (file.path === ICON_FACADE && DESIGN_API.test(specifier) && specifier !== ICON_TILE_IMPORT) {
+        findings.push({ path: file.path, rule: 'icon-facade-cycle', detail: specifier })
+      }
       if (
         INTERNAL_DESIGN_API.test(specifier) &&
         file.path.startsWith(UI_SOURCE) &&
         !file.path.startsWith('packages/ui/src/design/') &&
+        !(file.path === ICON_FACADE && specifier === ICON_TILE_IMPORT) &&
         !(file.path.endsWith('.test.ts') || file.path.endsWith('.test.tsx'))
       ) {
         findings.push({ path: file.path, rule: 'nonpublic-design-import', detail: specifier })
