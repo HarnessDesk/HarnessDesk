@@ -1,19 +1,53 @@
 import assert from 'node:assert/strict'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
-import { AcpRuntime } from '@harnessdesk/adapter-acp'
+import { AcpRuntime, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import type { AgentRuntime } from '@harnessdesk/protocol'
 
-import { Host } from '../src/host.js'
+import { Host, builtinFlowRoot } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { seatOptionsProblem } from '../src/seat-options.js'
 import { openedOtherwise, runningOf } from '../src/agent-seating.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
+
+test('the native rig previews Independent review through the Task step and starts its held build Seat', async (t) => {
+  const base = tempDir('hd-front-door-rig-')
+  const home = join(base, 'home')
+  const work = join(base, 'work')
+  const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+  await promisify(execFile)(process.execPath, [join(repoRoot, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '1' },
+  })
+  const host = new Host({ logger: silent, state: new StateStore(join(home, 'state.json')), catalogRefreshMs: 0 })
+  const codex = new CodexRuntime({ binaryPath: join(repoRoot, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'), codexHome: join(home, 'codex-home') })
+  host.register(codex)
+  const agents = JSON.parse(await readFile(join(home, 'agents.json'), 'utf8')) as { agents: AcpAgentConfig[] }
+  for (const config of agents.agents) host.register(new AcpRuntime(config))
+  t.after(() => host.dispose())
+  await host.start()
+  const root = join(work, 'storefront')
+  await host.call('workspace/open', { path: root })
+  const source = await readFile(join(builtinFlowRoot(), 'independent-review.yml'), 'utf8')
+  // The dialog first learns the shape's inputs with no values, then reads
+  // again after Task is filled. A refusal still has to return those inputs.
+  const learn = await host.call('authoring/start/preview', { context: { kind: 'project', root }, source, vars: {} })
+  assert.equal(learn.flow.compiled?.document.format, 'agents')
+  if (learn.flow.compiled?.document.format === 'agents') assert.deepEqual(learn.flow.compiled.document.flow.inputs.map(({ id, label }) => ({ id, label })), [{ id: 'task', label: 'Task' }])
+  const preview = await host.call('authoring/start/preview', { context: { kind: 'project', root }, source, vars: { task: 'Add 502 to the retryable status set' } })
+  assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
+  assert.deepEqual(preview.flow.seats.find((seat) => seat.role === 'build')?.plan.ceiling, { level: 'edit', hold: 'held' })
+  const run = await host.call('flow/start-goal', { root, source, token: preview.flow.token, sentence: 'Ship it once every specialist approves', vars: preview.vars })
+  assert.notEqual(run.state, 'stopped', JSON.stringify(run))
+  assert.equal(run.requireHeld, true)
+  assert.equal((await host.call('goal/read', { goal: run.goal })).board.intents[0]?.state, 'claimed')
+})
 
 const source = (seat: string) => `
 version: 2
@@ -37,7 +71,7 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
   await mkdir(join(stateDir, 'agents', 'writer'), { recursive: true })
   await writeFile(join(stateDir, 'agents', 'writer', 'AGENT.md'), '---\nname: Writer\nceiling: edit\nanswers: [done]\n---\nCompare the change.\n')
   const runtime: AgentRuntime = kind === 'codex'
-    ? new CodexRuntime({ binaryPath: fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url)), clientName: 'harnessdesk-test' })
+    ? new CodexRuntime({ binaryPath: fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url)), codexHome: join(base, 'codex-home'), clientName: 'harnessdesk-test' })
     : new AcpRuntime({ id: 'claude-code', name: 'Claude', command: process.execPath, args: [fileURLToPath(new URL(kind === 'variant' ? '../../../adapter-acp/dist/test/fixtures/variant-acp-agent.mjs' : kind === 'controls' ? '../../../adapter-acp/dist/test/fixtures/option-controls-acp.mjs' : './fixtures/seat-options-acp.mjs', import.meta.url))], env,
       ...(kind === 'controls' ? { secrets: [{ env: 'EXAMPLE_API_KEY', label: 'Example API key' }] } : {}),
       toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } })
@@ -46,8 +80,26 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
   t.after(() => host.dispose())
   await host.start()
   await host.call('workspace/open', { path: root })
-  return { host, root, runtime }
+  return { host, root, runtime, stateDir }
 }
+
+test('a later unregistered candidate with explicit options returns a preview problem', async (t) => {
+  const { host, root, stateDir } = await rig(t, 'codex')
+  await writeFile(join(stateDir, 'agents', 'writer', 'AGENT.md'), '---\nname: Writer\nceiling: edit\nanswers: [done]\nprefer: [codex, missing=model/high]\n---\nCompare the change.\n')
+  const source = `
+version: 2
+name: Review
+roles:
+  build: { kind: agent, uses: writer, seats: [codex], grant: edit }
+  review: { kind: agent, uses: writer, grant: read, independentOf: [build] }
+seed: { role: build, title: Build the change }
+rules: [{ id: review, on: build, then: { role: review, title: Review the change } }]
+`
+  const preview = await host.call('flow/preview', { root, source })
+  assert.equal(preview.token, null)
+  assert.ok(preview.problems.some((problem) => problem.at.startsWith('roles.review.seat[') && problem.availability && /missing is not available/.test(problem.text)), JSON.stringify(preview.problems))
+  assert.deepEqual(await host.call('flow/executions', {}), [])
+})
 
 test('ACP preview accepts thinking revealed by effort, as opening does', async (t) => {
   const { host, root, runtime } = await rig(t, 'controls')
