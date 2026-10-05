@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { watch } from 'node:fs'
+import fs from 'node:fs/promises'
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { join, relative } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -72,6 +74,33 @@ test('a failed scan can retry and close aborts active work without requeue', asy
   await closing
   assert.equal(calls, 2)
   assert.equal(queue.controller.signal.aborted, true)
+})
+
+test('a wake during a failed scan survives without retrying a failure on its own', async () => {
+  const entered = deferred()
+  const release = deferred()
+  let calls = 0
+  const errors: unknown[] = []
+  const queue = new Coalesced(async () => {
+    calls += 1
+    if (calls === 1) {
+      entered.resolve()
+      await release.promise
+    }
+    throw new Error('scan-failed')
+  }, (error) => errors.push(error))
+  try {
+    queue.wake()
+    await entered.promise
+    queue.wake()
+    release.resolve()
+    await queue.idle()
+    assert.equal(calls, 2, 'the pending wake retries once; a failure alone does not loop')
+    assert.equal(errors.length, 2)
+  } finally {
+    release.resolve()
+    await queue.close()
+  }
 })
 
 test('settled scans keep existing metadata watches attached', async (t) => {
@@ -187,6 +216,79 @@ test('real watches capture external branches, tags, rewinds and rapid round trip
     (entry.value as { ref: string; after: string | null }).ref === 'refs/heads/topic' &&
     (entry.value as { after: string | null }).after === null), 'branch deletion')
   assert.ok(f.changed() > 1)
+})
+
+test('a coalesced watch during loose-ref pruning survives the failed scan and captures round trips', async (t) => {
+  const listeners: (() => void)[] = []
+  const fakeWatch = ((_path: string, listener: () => void) => {
+    listeners.push(listener)
+    const watcher = { on: () => watcher, close: () => {} }
+    return watcher
+  }) as unknown as typeof watch
+  const f = await observed(t, { watch: fakeWatch })
+  const next = await f.repo.commitTree(f.base, { one: 'changed\n' }, 'next')
+  await f.repo.git('update-ref', 'refs/heads/main', next)
+  f.observer.wake()
+  await f.observer.idle()
+  await f.repo.git('update-ref', 'refs/heads/topic', next)
+
+  const release = deferred()
+  const open = fs.open
+  let held = false
+  let delivered = false
+  let failedOpen: string | undefined
+  const opening = t.mock.method(fs, 'open', async (...args: Parameters<typeof open>) => {
+    if (!held && args[0] === join(f.repo.dir, '.git/refs/heads/topic')) {
+      held = true
+      await release.promise
+    }
+    try {
+      return await open(...args)
+    } catch (error) {
+      if (args[0] === join(f.repo.dir, '.git/refs/heads/topic')) failedOpen = (error as NodeJS.ErrnoException).code
+      throw error
+    }
+  })
+  syncBuiltinESMExports()
+  t.after(() => { opening.mock.restore(); syncBuiltinESMExports() })
+  // Guard a broken reproduction as well as the promises held by the test.
+  t.after(() => release.resolve())
+  f.observer.wake()
+  try {
+    await waitUntil(() => held, 'loose topic open after its metadata check')
+    await f.repo.git('update-ref', '-m', 'first rewind', 'refs/heads/main', f.base)
+    await f.repo.git('update-ref', 'refs/heads/main', next)
+    await f.repo.git('update-ref', '-m', 'second rewind', 'refs/heads/main', f.base)
+    await f.repo.git('tag', 'light', next)
+    await f.repo.git('tag', '-a', 'annotated', '-m', 'tag', next)
+    await f.repo.git('pack-refs', '--all')
+    const wake = f.observer.wake.bind(f.observer)
+    t.mock.method(f.observer, 'wake', () => { wake(); delivered = true })
+    // A busy watcher can coalesce all of these writes into one notification.
+    listeners[0]!()
+    await waitUntil(() => delivered, 'coalesced watch delivery during the blocked scan')
+  } finally {
+    release.resolve()
+  }
+  await f.observer.idle()
+  assert.equal(failedOpen, 'ENOENT', 'pack-refs removed the loose ref between lstat and open')
+  assert.ok(f.problems.includes('history-gap'), 'pruning really failed the in-flight read')
+  const entries = (await f.journal.read()).entries
+  const checkpoint = readCheckpoint(entries) as WorkerCheckpoint
+  assert.ok(checkpoint.refs.some(([ref]) => ref === 'refs/heads/topic'), 'the queued watch must capture the packed topic')
+  for (const ref of ['refs/tags/light', 'refs/tags/annotated']) {
+    assert.ok(checkpoint.refs.some(([name]) => name === ref), `capture ${ref}`)
+  }
+  assert.equal(entries.filter((entry) => entry.kind === 'ref' &&
+    (entry.value as { ref: string }).ref === 'refs/heads/main' &&
+    (entry.value as { before: string }).before === next &&
+    (entry.value as { after: string }).after === f.base &&
+    (entry.value as { recordedAt: number | null }).recordedAt !== null).length, 2, 'retain both rewinds from the reflog')
+  await f.repo.git('update-ref', '-d', 'refs/heads/topic')
+  listeners[0]!()
+  await waitUntil(async () => (await f.journal.read()).entries.some((entry) => entry.kind === 'ref' &&
+    (entry.value as { ref: string; after: string | null }).ref === 'refs/heads/topic' &&
+    (entry.value as { after: string | null }).after === null), 'packed topic deletion')
 })
 
 test('detached HEAD, atomic ref replacement and a newly admitted linked HEAD are observed', async (t) => {
