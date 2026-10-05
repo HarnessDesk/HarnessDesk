@@ -56,7 +56,7 @@ jobs:
           import time
 
           source = os.environ['TEST_FILE']
-          if not re.fullmatch(r'(packages/[a-z0-9-]+/(?:dist/)?test/[a-zA-Z0-9_/-]+\.test\.(?:ts|js)|packages/desktop/(?:electron|script)/[a-zA-Z0-9_-]+\.test\.mjs|script/[a-zA-Z0-9_-]+\.test\.mjs)', source):
+          if not re.fullmatch(r'(packages/[a-z0-9-]+/(?:dist/)?test/[a-zA-Z0-9_/-]+\.test\.(?:ts|js)|packages/desktop/(?:electron|script)/[a-zA-Z0-9_.-]+\.test\.mjs|script/[a-zA-Z0-9_-]+\.test\.mjs)', source):
               raise SystemExit('Expected a repository Node test file')
           test_file = source
           test_cwd = None

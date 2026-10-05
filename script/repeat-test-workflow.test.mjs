@@ -21,6 +21,7 @@ test('repeat-test accepts Node package and gate test paths', () => {
 test('repeat-test accepts desktop Electron and script tests from source', () => {
   for (const path of [
     'packages/desktop/electron/waiters.test.mjs',
+    'packages/desktop/electron/waiters.unit.test.mjs',
     'packages/desktop/script/smoke.test.mjs',
   ]) {
     assert.match(path, allowedPath)
@@ -32,6 +33,7 @@ test('repeat-test refuses absolute, traversing, and unlisted paths', () => {
     '/tmp/outside.test.mjs',
     'C:/tmp/outside.test.mjs',
     'packages/server/test/../../outside.test.ts',
+    'packages/desktop/electron/../script/smoke.test.mjs',
     'packages/desktop/electron/../../../../tmp/outside.test.mjs',
     'packages/desktop/preload.test.mjs',
     'packages/desktop/electron/nested/waiters.test.mjs',
