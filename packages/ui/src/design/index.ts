@@ -125,6 +125,7 @@ export { ConfirmDialog } from './patterns/ConfirmDialog'
 export { ConversationEmptyState } from './patterns/ConversationEmptyState'
 export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
 export { FlowGraph, type FlowGraphProps } from './patterns/FlowGraph'
+export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export {

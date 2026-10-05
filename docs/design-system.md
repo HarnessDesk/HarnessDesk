@@ -1415,6 +1415,18 @@ back where it started.
 
 The frozen Flow's measured drawing and accessible list. A Run overlays recorded state, seated faces, motion and shared Timeline selection; a blueprint stays still.
 
+### `RunStateChip`
+
+`packages/ui/src/design/patterns/FlowStepRow.tsx`
+
+A recorded step or Seat state, toned once for the Flow list and Run dock. Unknown outcomes stay neutral.
+
+### `FlowStepRow`
+
+`packages/ui/src/design/patterns/FlowStepRow.tsx`
+
+A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
+
 ### `Lightbox`
 
 `packages/ui/src/design/patterns/Lightbox.tsx`
