@@ -24,6 +24,21 @@ export interface AccountPrefs {
 /** Every account's preferences, keyed by `accountKey`. */
 export type AccountPrefsMap = Readonly<Record<string, AccountPrefs>>
 
+/** The account represented by one usage report, when its identity is known. */
+export const accountForUsage = (
+  runtime: RuntimeId,
+  accountLabel: string | null | undefined,
+  accounts: Readonly<Partial<Record<RuntimeId, AccountStatus>>>,
+): Account | undefined => {
+  const known = accounts[runtime]?.accounts ?? []
+  const label = accountLabel?.trim() ?? ''
+  return label
+    ? known.find((entry) => entry.label?.trim() === label)
+    : known.length === 1
+      ? known[0]
+      : undefined
+}
+
 /** Preferences for the account represented by one usage report. */
 export const prefsForUsage = (
   runtime: RuntimeId,
@@ -31,13 +46,7 @@ export const prefsForUsage = (
   accounts: Readonly<Partial<Record<RuntimeId, AccountStatus>>>,
   prefs: AccountPrefsMap,
 ): AccountPrefs | undefined => {
-  const known = accounts[runtime]?.accounts ?? []
-  const label = accountLabel?.trim() ?? ''
-  const account = label
-    ? known.find((entry) => entry.label?.trim() === label)
-    : known.length === 1
-      ? known[0]
-      : undefined
+  const account = accountForUsage(runtime, accountLabel, accounts)
   return account ? prefs[accountKey(runtime, account)] : undefined
 }
 
@@ -180,4 +189,3 @@ export const agentGroups = (
   }
   return groups
 }
-

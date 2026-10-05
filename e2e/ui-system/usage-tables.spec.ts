@@ -27,8 +27,8 @@ const stageWindows = async (page: Page) => {
     } }).__hdPreview
     const snapshot = store.getSnapshot()
     const windows = [
-      { id: 'session', label: 'Session', usedPercent: 0, windowMinutes: 300, resetsAt: Date.now() + 23 * 3600000 + 59 * 60000 },
-      { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 6 * 86400000 + 23 * 3600000 },
+      { id: '5-hour', label: '5-hour', usedPercent: 0, windowMinutes: 300, resetsAt: Date.now() + 23 * 3600000 + 59 * 60000 },
+      { id: 'weekly-opus', label: 'Weekly · Opus', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 6 * 86400000 + 23 * 3600000 },
     ]
     store.patch({
       runtimes: snapshot.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } })),
@@ -39,24 +39,26 @@ const stageWindows = async (page: Page) => {
 }
 
 const wholeMeterNames = async (rows: Locator) => {
+  for (const row of await rows.all()) await row.locator(':scope > span').first().hover()
   const readings = await rows.evaluateAll(nodes => nodes.map(node => {
     const name = node.firstElementChild as HTMLElement
     const reset = node.lastElementChild as HTMLElement
-    const reading = node.children[2] as HTMLElement
+    const hasBar = Boolean(node.querySelector('[data-slot="progress"]'))
+    const reading = node.children[hasBar ? 2 : 1] as HTMLElement
     const range = document.createRange()
     range.selectNodeContents(reading)
     const lines = new Set([...range.getClientRects()].map(box => Math.round(box.top)))
     return { name: name.textContent, width: node.getBoundingClientRect().width,
-      nameWidth: name.clientWidth, nameScroll: name.scrollWidth, title: name.title,
+      nameWidth: name.clientWidth, nameScroll: name.scrollWidth, title: name.getAttribute('title'), hasBar,
       resetWidth: reset.clientWidth, resetScroll: reset.scrollWidth, readingLines: lines.size }
   }))
   for (const reading of readings) {
     expect(reading.nameScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.nameWidth)
-    expect(reading.title).toBe(reading.name)
+    expect(reading.title).toBe(reading.nameScroll > reading.nameWidth ? reading.name : null)
+    expect(reading.hasBar).toBe(false)
     expect(reading.readingLines, JSON.stringify(reading)).toBe(1)
     expect(reading.resetScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.resetWidth)
   }
-  await alignedMeters(rows)
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -123,15 +125,20 @@ for (const theme of ['light', 'dark'] as const) {
       const response = await route.fetch()
       // Exercise the longest real qualifier, with both cost bases and an
       // unknown portion, while retaining the preview's known figures.
-      await route.fulfill({ response, body: (await response.text()).replaceAll('coverage: "partial"', 'coverage: "partial", basis: "mixed"') })
+      await route.fulfill({ response, body: (await response.text()).replaceAll('coverage: "partial"', 'coverage: "partial", quality: "estimate", basis: "mixed"') })
     })
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const frame = page.locator('[data-frame-id="insight-partial"]')
     await frame.evaluate(node => { (node as HTMLElement).style.width = '632px' })
     await expect(frame.getByText('Amounts are incomplete for this range', { exact: true })).toBeVisible()
-    await expect(frame.getByText('Vendor- or list-price cost; another portion is unknown', { exact: true }).first()).toBeVisible()
-    await expect(frame.getByText('Estimated known subtotal', { exact: true }).first()).toBeVisible()
+    await expect(frame.getByText('Estimate', { exact: true }).first()).toBeVisible()
+    await expect(frame.getByText('Known subtotal', { exact: true }).first()).toBeVisible()
+    await expect(frame.getByText('Vendor- or list-price cost; another portion is unknown', { exact: true })).toHaveCount(0)
+    await expect(frame.locator('[title*="Vendor- or list-price cost; another portion is unknown"]').first()).toHaveAttribute('title', expect.stringContaining('Vendor- or list-price cost; another portion is unknown'))
+    const rowHeights = await frame.locator('tbody tr').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height))
+    expect(rowHeights.length).toBeGreaterThan(0)
+    expect(rowHeights.every(height => height <= 96), JSON.stringify(rowHeights)).toBe(true)
     const cells = await frame.locator('th, td').evaluateAll(nodes => nodes.map(node => ({
       text: node.textContent, width: node.clientWidth, scroll: node.scrollWidth,
     })))
@@ -140,6 +147,14 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await container.evaluate(node => node.scrollWidth)).toBe(await container.evaluate(node => node.clientWidth))
   })
 }
+
+test('Dashboard Project preview counts its retained Run through the batch history loader', async ({ page }) => {
+  await page.goto('/preview.html?view=projects')
+  const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+  const row = dashboard.getByRole('row', { name: /Storefront/ })
+  await expect(row.locator('td').nth(1)).toHaveText('1')
+  await expect(dashboard.getByText('Run counts are unavailable for some Teams.')).toHaveCount(0)
+})
 
 for (const theme of ['light', 'dark'] as const) {
   test(`narrow Plans disclosure keeps its position and name in ${theme}`, async ({ page }) => {

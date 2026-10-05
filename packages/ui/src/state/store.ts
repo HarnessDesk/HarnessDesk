@@ -4669,6 +4669,53 @@ export class AppStore {
       .map(one => this.readFlowExecution(one.id)))
   }
 
+  /** Restore several Teams' history with one observable state patch. */
+  async loadTeamRunsBatch(teams: readonly string[]): Promise<{ loaded: ReadonlySet<string>; unavailable: ReadonlySet<string> }> {
+    const ids = [...new Set(teams)]
+    const unavailable = new Set<string>()
+    const listed = await Promise.all(ids.map(async (team) => {
+      try {
+        return { team, summaries: await this.transport.request('flow/executions', { team, active: false }) }
+      } catch {
+        unavailable.add(team)
+        return { team, summaries: [] as FlowRun[] }
+      }
+    }))
+
+    const teamsByRun = new Map<string, Set<string>>()
+    for (const { team, summaries } of listed) {
+      for (const summary of summaries) {
+        if (this.#snapshot.flowExecutions.has(summary.id)) continue
+        const owners = teamsByRun.get(summary.id) ?? new Set<string>()
+        owners.add(team)
+        teamsByRun.set(summary.id, owners)
+      }
+    }
+
+    const runs = [...teamsByRun.keys()]
+    const executions = await Promise.allSettled(runs.map(run => this.transport.request('flow/execution', { run })))
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    let changed = false
+    executions.forEach((result, index) => {
+      const run = runs[index]!
+      if (result.status === 'rejected') {
+        for (const team of teamsByRun.get(run) ?? []) unavailable.add(team)
+        return
+      }
+      // A push may have supplied a newer copy while these reads were in flight.
+      if (!this.#snapshot.flowExecutions.has(result.value.id)) {
+        flowExecutions.set(result.value.id, result.value)
+        changed = true
+      }
+    })
+    if (changed) this.#patch({ flowExecutions })
+
+    return {
+      loaded: new Set(ids.filter(team => !unavailable.has(team))),
+      unavailable,
+    }
+  }
+
   /** One run's execution state, read fresh — the pull half of `flow/execution-changed`'s push. */
   async readFlowExecution(run: string): Promise<FlowExecution> {
     const execution = await this.transport.request('flow/execution', { run })

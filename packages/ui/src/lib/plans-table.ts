@@ -5,7 +5,7 @@ import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
 import { paidRatio } from './overview-strip'
 import { formatTokens } from './context-usage'
 import { balanceOf, DEFAULT_RANGE, describeReport, drawnReport, formatMoney, reportNeedsAttention, type ReportView } from './usage'
-import type { Tone } from './limits'
+import { paletteTone, type Tone } from './limits'
 
 /**
  * The Plans table: one row per account, sorted by what is left, and the six
@@ -171,8 +171,8 @@ export type RowStatus = 'ready' | 'low' | 'out' | 'overage' | 'unlimited' | 'not
 export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   ready: 'Ready',
   low: 'Low',
-  out: 'Spent',
-  overage: 'Low',
+  out: 'Out',
+  overage: 'On overage',
   unlimited: 'Ready',
   notReporting: 'Not reporting',
 }
@@ -185,6 +185,12 @@ export const STATUS_TONE: Readonly<Record<RowStatus, Tone>> = {
   unlimited: 'good',
   notReporting: 'good',
 }
+
+/** The same chip wording and tone in the Plans row and its expanded frame. */
+export const statusPresentation = (status: RowStatus): { readonly label: string; readonly tone: 'neutral' | 'warning' | 'danger' } => ({
+  label: STATUS_LABEL[status],
+  tone: paletteTone(STATUS_TONE[status]),
+})
 
 /**
  * The status chip, from the one needs-attention rule (`reportNeedsAttention`,

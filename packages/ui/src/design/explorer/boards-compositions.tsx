@@ -2434,7 +2434,7 @@ const UsageMeterRowBoard = () => (
           <div key={state} data-catalog-state={state}>
             <UsageMeterRow name={state === 'unknown' ? 'Unreported window' : 'Weekly'}
               percent={state === 'unknown' ? null : state === 'error' ? 0 : state === 'warning' ? 12 : 79}
-              countdown={state === 'unknown' ? '—' : state === 'error' ? 'blocked for 3 d' : 'in 2 h 14 m'}
+              countdown={state === 'unknown' ? '—' : state === 'error' ? 'blocked 3d' : 'in 2 h 14 m'}
               tone={state === 'warning' ? 'warning' : state === 'error' ? 'danger' : 'neutral'}
               standalone={state === 'warning' || state === 'error'} />
           </div>

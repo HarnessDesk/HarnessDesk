@@ -2,8 +2,9 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
-import { NO_CAPABILITIES, runtimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES, runtimeId, type Account, type AccountStatus, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
 import { emptySnapshot } from '../../state/store'
+import { accountKey } from '../../lib/accounts'
 import { PlansView } from './PlansView'
 
 it('counts a signed-out runtime with ledger history once and keeps sign-in in its detail', () => {
@@ -34,5 +35,30 @@ it('falls back to All when a selected shape no longer has any accounts', () => {
   expect(container.textContent).not.toContain('No account matches this filter')
   draw([{ ...base, billing: { kinds: ['free'] } }, base])
   expect(container.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('All · 2')
+ } finally { act(() => root.unmount()); container.remove() }
+})
+
+it('uses each report account’s own tint when one runtime has multiple accounts', () => {
+ const info = { id: runtimeId('alpha'), capabilities: NO_CAPABILITIES, presentation: { name: 'Alpha' } } as RuntimeInfo
+ const first: Account = { kind: 'oauth', label: 'first@example.com' }
+ const second: Account = { kind: 'oauth', label: 'second@example.com' }
+ const status = { accounts: [first, second], signInMethods: [] } as unknown as AccountStatus
+ const snapshot = {
+  ...emptySnapshot(),
+  accountsByRuntime: { [info.id]: status },
+  accountPrefs: {
+   [accountKey(info.id, first)]: { tint: 'rose' as const },
+   [accountKey(info.id, second)]: { tint: 'violet' as const },
+  },
+ }
+ const base: UsageReport = { runtime: info.id, account: null, plan: null, lanes: [], credits: null, spend: null, reached: null, source: { kind: 'ledger', label: 'Recorded tokens' }, fetchedAt: 1, staleAfterMs: 100, error: null }
+ const reports = [
+  { ...base, account: first.label },
+  { ...base, account: second.label },
+ ]
+ const container = document.createElement('div'); document.body.append(container); const root = createRoot(container)
+ try {
+  act(() => root.render(<PlansView reports={reports} byId={new Map([[info.id, info]])} snapshot={snapshot} now={1} summary={{} as never} scoped={null} silent={[]} untracked={[]} onRefreshAccount={() => {}} onStopTracking={() => {}} onTrack={() => {}} onOpenPlanSettings={() => {}} />))
+  expect([...container.querySelectorAll('[data-tint]')].map(node => node.getAttribute('data-tint'))).toEqual(['rose', 'violet'])
  } finally { act(() => root.unmount()); container.remove() }
 })

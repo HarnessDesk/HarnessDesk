@@ -30,8 +30,9 @@ it('loads By Goal on the Dashboard’s Projects view', async () => {
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal } as unknown as AppStore
   await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
   expect(readUsageInsight).toHaveBeenCalledOnce()
-  expect(container.textContent).toContain('Goal goal-1')
-  const goal = [...container.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Open Goal goal-1')
+  expect(container.textContent).toContain('Goal')
+  expect(container.textContent).not.toContain('goal-1')
+  const goal = [...container.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Open Goal')
   await act(async () => goal?.click())
   expect(openGoal).toHaveBeenCalledWith('goal-1')
 })
@@ -55,7 +56,8 @@ it('clears the previous project attribution while the next project loads', async
   const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
   await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
-  expect(container.textContent).toContain('Goal goal-1')
+  expect(container.textContent).toContain('Goal')
+  expect(container.textContent).not.toContain('goal-1')
   await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/other" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
   expect(container.textContent).toContain('Reading recorded usage…')
   expect(container.textContent).not.toContain('Goal goal-1')
@@ -111,6 +113,100 @@ it('keeps the unattributed reason on the table footer', async () => {
  const store={subscribe:()=>()=>{},getSnapshot:(() => { const snapshot=emptySnapshot(); return () => snapshot })()} as unknown as AppStore
  await act(async()=>root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={()=>{}} report={report()} /></StoreProvider>))
  expect(container.querySelector('tfoot td')?.getAttribute('title')).toBe('No unique historical Seat could be established.')
+ expect(container.querySelector('tfoot td')?.textContent).toContain('No unique historical Seat could be established.')
+})
+
+it('does not count an unassigned Seat as belonging to a null Goal row', async () => {
+ const base = report()
+ const goalRow = { ...base.breakdowns[0]!.rows[0]!, key: 'goal:unassigned', label: 'Unassigned usage', goal: null }
+ const unassignedSeat = { id: 'seat-unassigned', board: null, openedAt: 1, closed: null } as unknown as SeatRecord
+ const unassigned: InsightReport = {
+  ...base,
+  seats: [unassignedSeat],
+  breakdowns: [{ ...base.breakdowns[0]!, rows: [goalRow] }],
+ }
+ const snapshot = emptySnapshot()
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={unassigned} /></StoreProvider>))
+ expect(container.querySelector('tbody tr td:nth-child(3)')?.textContent).toBe('0')
+})
+
+it('uses a generic Goal label while Goal records are pending', async () => {
+ const base = report()
+ const privateBrief = 'A private instruction that is not a Goal title.'
+ const waiting = { ...base, breakdowns: [{ ...base.breakdowns[0]!, rows: [{ ...base.breakdowns[0]!.rows[0]!, label: privateBrief }] }] }
+ let finishLoading: (() => void) | undefined
+ const loading = new Promise<void>(resolve => { finishLoading = resolve })
+ const snapshot = emptySnapshot()
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals: vi.fn(() => loading), loadTeamRunsBatch: vi.fn(async (teams: readonly string[]) => ({ loaded: new Set(teams), unavailable: new Set<string>() })) } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={waiting} /></StoreProvider>))
+ expect(container.querySelector('tbody tr')?.textContent).toContain('Goal')
+ expect(container.textContent).not.toContain(privateBrief)
+ expect(container.textContent).not.toContain('goal-1')
+ await act(async () => { finishLoading?.(); await Promise.resolve(); await Promise.resolve() })
+})
+
+it('loads Runs only for Teams represented by the visible breakdown rows', async () => {
+ const base = report()
+ const otherSeat = { id: 'seat-hidden', board: 'hidden-team', openedAt: 1, closed: null } as unknown as SeatRecord
+ const selected = { ...base, seats: [otherSeat] }
+ const loadTeamRunsBatch = vi.fn(async (teams: readonly string[]) => ({ loaded: new Set(teams), unavailable: new Set<string>() }))
+ const snapshot = emptySnapshot()
+ const store = {
+  subscribe: () => () => {}, getSnapshot: () => snapshot,
+  loadGoals: vi.fn(async () => {}), loadTeamRunsBatch,
+ } as unknown as AppStore
+ await act(async () => {
+  root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={selected} /></StoreProvider>)
+  await Promise.resolve(); await Promise.resolve()
+ })
+ expect(loadTeamRunsBatch).toHaveBeenCalledWith(['goal-1'])
+})
+
+it('says visibly when Run counts could not be loaded', async () => {
+ const loadTeamRunsBatch = vi.fn(async () => ({ loaded: new Set<string>(), unavailable: new Set(['goal-1']) }))
+ const snapshot = emptySnapshot()
+ const store = {
+  subscribe: () => () => {}, getSnapshot: () => snapshot,
+  loadGoals: vi.fn(async () => {}), loadTeamRunsBatch,
+ } as unknown as AppStore
+ await act(async () => {
+  root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={report()} /></StoreProvider>)
+  await Promise.resolve(); await Promise.resolve()
+ })
+ expect(container.textContent).toContain('Run counts are unavailable for some Teams')
+ expect(container.querySelector('tbody tr td:nth-child(2)')?.textContent).toBe('—')
+})
+
+it('keeps row notes and the compact Cost qualification visible while leaving the basis in the title', async () => {
+ const base = report()
+ const row = base.breakdowns[0]!.rows[0]!
+ const basis = 'Vendor- or list-price cost; another portion is unknown'
+ const shown: InsightReport = {
+  ...base,
+  breakdowns: [{
+   ...base.breakdowns[0]!,
+   rows: [{
+    ...row,
+    note: 'Streaming usage remains a floor.',
+    amounts: { ...row.amounts, usd: { ...metric(2), basis: 'mixed', quality: 'estimate', coverage: 'partial' } },
+   }],
+   reason: 'No unique historical Seat could be established for this amount.',
+  }],
+ }
+ const snapshot = emptySnapshot()
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
+ const rowElement = container.querySelector('tbody tr')!
+ const costCell = rowElement.querySelector('td:nth-child(4)')!
+ expect(rowElement.textContent).toContain('Streaming usage remains a floor.')
+ expect(container.querySelector('tfoot')?.textContent).toContain('No unique historical Seat could be established for this amount.')
+ expect(costCell.textContent).toContain('Estimate')
+ expect(costCell.textContent).toContain('Known subtotal')
+ expect(costCell.textContent).not.toContain('Estimated known subtotal')
+ expect(costCell.textContent).not.toContain(basis)
+ expect(costCell.querySelector('[title]')?.getAttribute('title')).toContain(basis)
+ expect(costCell.querySelector('[title]')?.getAttribute('title')).toContain('Estimated known subtotal')
 })
 
 it('wraps the empty-state reason sentence instead of clipping it', async () => {
@@ -170,7 +266,7 @@ it('shows a budget-limited report as one whole-range warning', async () => {
   expect(container.textContent).toContain('Amounts are incomplete for this range')
   expect(container.textContent).not.toContain('Amounts are unknown')
   expect([...container.querySelectorAll('th')].map(cell => cell.textContent)).toContain('Cost')
-  expect(container.querySelector('tbody td:nth-child(4)')?.textContent).toContain('Estimated known subtotal')
+  expect(container.querySelector('tbody td:nth-child(4)')?.textContent).toContain('Known subtotal')
   expect(container.textContent).toContain('Reading stopped at 64 MiB')
   expect(container.querySelector('tbody')?.textContent).not.toContain('Partial')
   expect(container.textContent).not.toContain('Insight stopped at')
@@ -200,7 +296,8 @@ it('reads Team names and range-scoped Run counts without showing the Goal brief'
   ['recent',{goal:'goal-1',startedAt:5,document:{flow:{name:'Build'}},base:{branch:'feature/storefront'}} as never],
   ['older',{goal:'goal-1',startedAt:-1,document:{flow:{name:'Build'}}} as never],
  ])}
- const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,loadGoals:vi.fn(async()=>{}),loadTeamRuns:vi.fn(async()=>{})} as unknown as AppStore
+ const loadTeamRunsBatch=vi.fn(async (teams: readonly string[])=>({loaded:new Set(teams),unavailable:new Set<string>()}))
+ const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,loadGoals:vi.fn(async()=>{}),loadTeamRunsBatch} as unknown as AppStore
  await act(async()=>{root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={()=>{}} report={{...base,goals:[goal]}} /></StoreProvider>);await Promise.resolve();await Promise.resolve()})
  const row=container.querySelector('tbody tr')!
  expect(row.textContent).toContain('Storefront')
@@ -224,7 +321,8 @@ const showCounts = async (view: 'goal' | 'agent', runtime: string | null, from =
  ]) }
  const rows = base.breakdowns[0]!.rows.map(row => view === 'goal' ? row : { ...row, key: 'agent:project:builder', goal: null, label: 'Builder' })
  const selected: InsightReport = { ...base, query: { root: '/repo', from, to }, seats: runtime ? seats.filter(seat => seat.session.runtime === runtime) : seats, breakdowns: [{ ...base.breakdowns[0]!, dimension: view, rows }] }
- const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals: vi.fn(async () => {}), loadTeamRuns: vi.fn(async () => {}) } as unknown as AppStore
+ const loadTeamRunsBatch = vi.fn(async (teams: readonly string[]) => ({ loaded: new Set(teams), unavailable: new Set<string>() }))
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals: vi.fn(async () => {}), loadTeamRunsBatch } as unknown as AppStore
  await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={runtime as never} view={view} onGoal={() => {}} report={selected} /></StoreProvider>); await Promise.resolve(); await Promise.resolve() })
  return [...container.querySelectorAll('tbody tr:first-child td')].slice(1, 3).map(cell => cell.textContent)
 }

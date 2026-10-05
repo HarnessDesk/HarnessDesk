@@ -236,3 +236,32 @@ it('loads every historical Run for a Team, including settled Runs after reconnec
   expect(spy).not.toHaveBeenCalledWith('flow/execution', { run: 'run-1' })
   expect(store.getSnapshot().flowExecutions.get('old-run')).toEqual(older)
 })
+
+it('loads several Teams of Runs in one store patch and reports partial failures', async () => {
+  const first: FlowExecution = { ...EXECUTION, id: 'first-run', goal: 'team-one' }
+  const second: FlowExecution = { ...EXECUTION, id: 'second-run', goal: 'team-two' }
+  const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { team?: string; run?: string }) => {
+    if (method === 'flow/executions' && params.team === 'team-one') return [{ id: first.id }]
+    if (method === 'flow/executions' && params.team === 'team-two') throw new Error('Team history is unavailable.')
+    if (method === 'flow/execution' && params.run === first.id) return first
+    return null
+  }) as never)
+  const patches = vi.fn()
+  const unsubscribe = store.subscribe(patches)
+  const loadBatch = (store as unknown as {
+    loadTeamRunsBatch?: (teams: readonly string[]) => Promise<{ loaded: ReadonlySet<string>; unavailable: ReadonlySet<string> }>
+  }).loadTeamRunsBatch
+
+  expect(loadBatch).toBeTypeOf('function')
+  const result = await loadBatch!.call(store, ['team-one', 'team-two', 'team-one'])
+  await new Promise(resolve => setTimeout(resolve, 40))
+  unsubscribe()
+
+  expect(spy).toHaveBeenCalledWith('flow/executions', { team: 'team-one', active: false })
+  expect(spy).toHaveBeenCalledWith('flow/executions', { team: 'team-two', active: false })
+  expect(spy).toHaveBeenCalledWith('flow/execution', { run: 'first-run' })
+  expect(result.loaded).toEqual(new Set(['team-one']))
+  expect(result.unavailable).toEqual(new Set(['team-two']))
+  expect(store.getSnapshot().flowExecutions.get('first-run')).toEqual(first)
+  expect(patches).toHaveBeenCalledTimes(1)
+})

@@ -42,6 +42,8 @@ it('keeps total fixed while alternate views retain zero, floor, estimate and unk
   expect(container.textContent).toContain('$3.00')
   expect(container.textContent).toContain('Estimate')
   expect(container.textContent).toContain('Estimated known subtotal')
+  expect(container.textContent).toContain('No unique historical Seat could be established.')
+  expect(container.textContent).toContain('minutes since observation')
   expect(container.textContent).toContain('$0.00')
   expect(container.textContent).toContain('Unknown')
   const agent = [...container.querySelectorAll('button')].find((button) => button.textContent === 'By Agent')
@@ -50,6 +52,7 @@ it('keeps total fixed while alternate views retain zero, floor, estimate and unk
   expect(container.textContent).toContain('$3.00')
   expect(container.textContent).toContain('Agent one')
   expect(container.textContent).toContain('At least')
+  expect(container.textContent).toContain('Streaming usage remains a floor.')
   expect(container.textContent).toContain('Recorded usage')
   act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Sources')!.click())
   expect(document.body.textContent).toContain('minutes since observation')
@@ -107,7 +110,7 @@ it('receipt cost keeps its breakdown, total footer and refresh', () => {
   expect(refreshes).toBe(1)
 })
 
-it('keeps breakdown tabs above its numeric list and moves source facts to Sources', () => {
+it('keeps breakdown tabs above its numeric list and shows total source age beside the total', () => {
   const base = report()
   const common = metric(1, 'exact')
   const amounts = { ...base.totals, usd: common }
@@ -121,9 +124,9 @@ it('keeps breakdown tabs above its numeric list and moves source facts to Source
   expect(head.nextElementSibling?.nextElementSibling?.getAttribute('data-slot')).toBe('key-value')
   for (const row of container.querySelectorAll('[data-slot="key-value-row"]')) {
     if (!row.hasAttribute('data-footer')) expect(row.textContent).not.toContain('Recorded usage')
-    expect(row.textContent).not.toContain('minutes since observation')
   }
-  // In detailOnly these common facts are already beside the aggregate in Record.
+  expect(container.querySelector('[data-footer]')?.textContent).toContain('minutes since observation')
+  // In detailOnly the common source age is already beside the aggregate in Record.
   expect(container.textContent).toContain('read separately from the wrap')
 })
 
@@ -149,6 +152,6 @@ it('puts the recorded total after its numeric KeyValue parts and keeps source se
  expect(rows.map(r=>r.textContent)).toContain('Seat one$0.00')
  expect(rows.at(-1)?.textContent).toContain('Recorded usage')
  expect(rows.at(-1)?.textContent).toContain('$3.00')
- expect(container.querySelector('dl')?.textContent).not.toContain('minutes since observation')
+ expect(container.querySelector('dl')?.textContent).toContain('minutes since observation')
  expect(rows.find(r=>r.textContent?.includes('Unattributed'))?.getAttribute('title')).toContain('No unique historical Seat')
 })

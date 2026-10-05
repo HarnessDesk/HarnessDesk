@@ -123,7 +123,7 @@ const TableHead = ({
   pinned?: boolean
   align?: 'start' | 'center' | 'end'
   numeric?: boolean
-  /** Keep this column in the grid, but give it zero width below 640px. */
+  /** Collapse this column below 640px of the nearest size container; an ancestor must declare `container-type: inline-size`. */
   collapseBelow?: 'sm'
 }) => (
   <th
@@ -171,7 +171,7 @@ const TableCell = ({
   variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel'
   align?: 'start' | 'center' | 'end'
   numeric?: boolean
-  /** Keep this column in the grid, but give it zero width below 640px. */
+  /** Collapse this column below 640px of the nearest size container; an ancestor must declare `container-type: inline-size`. */
   collapseBelow?: 'sm'
   lead?: React.ReactNode
 }) => (

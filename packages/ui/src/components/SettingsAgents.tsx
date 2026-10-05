@@ -34,7 +34,7 @@ import {
   registryOrder,
   registrySentence,
 } from '../lib/acp-registry'
-import { describeLimits } from '../lib/limits'
+import { describeLimits, formatReset } from '../lib/limits'
 import { formatResetCountdown } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
@@ -267,7 +267,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
  */
 export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
-  return <Row title={<UsageMeterRow name={window.label} percent={remaining} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} label={`${window.label} remaining`} standalone />} />
+  return <Row title={<UsageMeterRow name={window.label} percent={remaining} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} countdownTitle={window.resetsAt === null ? undefined : `resets ${formatReset(window.resetsAt)}`} label={`${window.label} remaining`} standalone />} />
 }
 
 /**

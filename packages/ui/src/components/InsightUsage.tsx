@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { InsightDimension, InsightReport, RuntimeId } from '@harnessdesk/protocol'
 
 import { metricWords } from '../lib/insight'
@@ -39,28 +39,56 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   }, [store, root, runtime, owned, days])
   const report = owned ? ownReport : (suppliedReport ?? null)
   const problem = owned ? ownProblem : (suppliedProblem ?? null)
+  const dimension: InsightDimension = view
+  const breakdown = report?.breakdowns.find((entry) => entry.dimension === dimension)
   const [readTeams, setReadTeams] = useState<ReadonlySet<string>>(new Set())
+  const [unavailableTeams, setUnavailableTeams] = useState<ReadonlySet<string>>(new Set())
+  const teamIds = useMemo(() => {
+    if (!report || !breakdown) return []
+    const ids = new Set<string>()
+    for (const row of breakdown.rows) {
+      if (view === 'goal') {
+        if (row.goal) ids.add(row.goal)
+        continue
+      }
+      for (const seat of report.seats) {
+        if (seat.agent === null || row.key !== `agent:${seat.agent.origin}:${seat.agent.id}`) continue
+        if (seat.board) ids.add(seat.board)
+      }
+    }
+    return [...ids]
+  }, [report, breakdown, view])
   useEffect(() => {
-    if (!report || !root) return
+    if (!report || !root) {
+      setReadTeams(new Set())
+      setUnavailableTeams(new Set())
+      return
+    }
     let current = true
     setReadTeams(new Set())
+    setUnavailableTeams(new Set())
     void (async () => {
+      if (store.loadGoals) await store.loadGoals(root).catch(() => undefined)
+      if (!current) return
+      if (!store.loadTeamRunsBatch) {
+        if (teamIds.length > 0) setUnavailableTeams(new Set(teamIds))
+        return
+      }
       try {
-        if (!store.loadGoals || !store.loadTeamRuns) return
-        await store.loadGoals(root)
-        const ids = [...new Set([...report.seats.flatMap(seat => seat.board ? [seat.board] : []), ...report.breakdowns.flatMap(b => b.rows.flatMap(row => row.goal ? [row.goal] : []))])]
-        const loaded = new Set<string>()
-        for (const id of ids) { await store.loadTeamRuns(id); loaded.add(id) }
-        if (current) setReadTeams(loaded)
-      } catch { /* Names already read remain usable; unread counts stay a dash. */ }
+        const loaded = await store.loadTeamRunsBatch(teamIds)
+        if (current) {
+          setReadTeams(loaded.loaded)
+          setUnavailableTeams(loaded.unavailable)
+        }
+      } catch {
+        if (current) setUnavailableTeams(new Set(teamIds))
+      }
     })()
     return () => { current = false }
-  }, [store, report, root])
+  }, [store, report, root, teamIds])
   if (!root) return <Note>Choose a project to see its Goals.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
-  const dimension: InsightDimension = view
-  const breakdown = report.breakdowns.find((entry) => entry.dimension === dimension)
   const failedSources = report.sources.filter((source) => source.problem !== null)
   const hasAmounts = report.totals.usd.value !== null || (breakdown?.rows.some(row => row.amounts.usd.value !== null) ?? false) || breakdown?.unattributed.usd.value != null
   const incomplete = report.scan === 'partial'
@@ -70,7 +98,9 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   const shorter = () => { if (onShorterRange) onShorterRange(); else if (owned) setDays(1) }
   const cost = (value: InsightReport['totals']['usd']) => {
     const words = metricWords(value, report.sources, Date.now())
-    return <Text as="div" role="value" align="end" numeric title={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')}>{value.value === null ? <Text role="meta">—</Text> : <>{words.value}{words.qualifier && <Text as="div" role="meta" className="whitespace-normal">{words.qualifier}</Text>}{value.coverage !== 'complete' && words.coverage && <Text as="div" role="meta" className="whitespace-normal">{words.coverage}</Text>}</>}</Text>
+    const qualifier = value.quality === 'floor' ? 'At least' : value.quality === 'estimate' ? 'Estimate' : value.coverage === 'partial' ? 'Partial' : null
+    const coverage = value.coverage === 'partial' ? 'Known subtotal' : words.coverage
+    return <Text as="div" role="value" align="end" numeric title={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')}>{value.value === null ? <Text role="meta">—</Text> : <>{words.value}{qualifier && <Text as="div" role="meta" className="whitespace-normal">{qualifier}</Text>}{value.coverage !== 'complete' && coverage && <Text as="div" role="meta" className="whitespace-normal">{coverage}</Text>}</>}</Text>
   }
   return <>
     {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}
@@ -84,20 +114,21 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       </TableRow></TableHeader>
       <TableBody>{breakdown.rows.map(row => {
         const goal = row.goal ? snapshot.goals.get(row.goal) : undefined
-        const historicalSeats = report.seats.filter(seat => view === 'goal' ? seat.board === row.goal : seat.agent !== null && row.key === `agent:${seat.agent.origin}:${seat.agent.id}`)
+        const historicalSeats = report.seats.filter(seat => view === 'goal' ? Boolean(row.goal) && seat.board === row.goal : seat.agent !== null && row.key === `agent:${seat.agent.origin}:${seat.agent.id}`)
         const seats = historicalSeats.filter(seat => seat.openedAt <= report.query.to
           && (seat.closed === null || seat.closed.at > report.query.from))
-        const teams = new Set(view === 'goal' && row.goal ? [row.goal] : historicalSeats.flatMap(seat => seat.board ? [seat.board] : []))
+        const teams = new Set(view === 'goal' ? (row.goal ? [row.goal] : []) : historicalSeats.flatMap(seat => seat.board ? [seat.board] : []))
         const executions = [...snapshot.flowExecutions.values()].filter(run => teams.has(run.goal))
         const latest = executions.sort((a,b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0]
-        const name = view === 'goal' ? goal?.board.name ?? `Goal ${row.goal ?? row.key}` : row.label
+        const name = view === 'goal' ? goal?.board.name ?? 'Goal' : row.label
         const branch = row.goal ? snapshot.lanes.find(lane => lane.goal === row.goal)?.branch ?? latest?.base?.branch : null
         const facts = view === 'goal' && goal ? [`Team ${goal.board.name}`, latest ? `${latest.document.flow.name} flow` : null, branch ? `branch ${branch}` : null].filter(Boolean).join(' · ') : null
-        const runs = teams.size > 0 && [...teams].every(team => readTeams.has(team)) && executions.every(run => run.startedAt !== undefined) ? executions.filter(run => run.startedAt! >= report.query.from && run.startedAt! <= report.query.to && ((view === 'goal' && runtime === null) || run.rounds.some(round => round.seats.some(id => seats.some(seat => seat.id === id))))).length : null
+        const runs = teams.size > 0 && [...teams].every(team => readTeams.has(team) && !unavailableTeams.has(team)) && executions.every(run => run.startedAt !== undefined) ? executions.filter(run => run.startedAt! >= report.query.from && run.startedAt! <= report.query.to && ((view === 'goal' && runtime === null) || run.rounds.some(round => round.seats.some(id => seats.some(seat => seat.id === id))))).length : null
         const open = view === 'goal' && row.goal ? () => onGoal(row.goal!) : null
         return <TableRow key={row.key} interactive={open !== null} onClick={open ?? undefined}>
           <TableCell lead={view === 'goal' ? <IconTile shape="face" tone="neutral"><GoalIcon /></IconTile> : undefined}>
             <div className="min-w-0 flex-1"><Text as="div" role="subject" truncate>{name}</Text>
+            {row.note && <Text as="div" role="meta" className="whitespace-normal">{row.note}</Text>}
             {facts && <Text as="div" role="meta" truncate title={facts}>{facts}</Text>}</div>
           </TableCell>
           <TableCell numeric><Text role="muted" numeric>{runs ?? '—'}</Text></TableCell>
@@ -107,11 +138,12 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
         </TableRow>
       })}</TableBody>
       <TableFooter variant="plain"><TableRow>
-        <TableCell colSpan={3} title={breakdown.reason ?? 'No unique historical Seat could be established.'}><Text role="muted">{view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'}</Text></TableCell>
+        <TableCell colSpan={3} title={breakdown.reason ?? 'No unique historical Seat could be established.'}><div className="flex min-w-0 flex-col items-start"><Text role="muted">{view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'}</Text><Text as="div" role="meta" className="whitespace-normal">{breakdown.reason ?? 'No unique historical Seat could be established.'}</Text></div></TableCell>
         {hasAmounts && <TableCell numeric>{cost(breakdown.unattributed.usd)}</TableCell>}
         {view === 'goal' && <TableCell />}
       </TableRow></TableFooter>
     </Table>}
+    {unavailableTeams.size > 0 && <Note tone="warn">Run counts are unavailable for some Teams.</Note>}
     {failedSources.length > 0 && <Rows>{failedSources.map(source => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}</Rows>}
     {report.gaps.filter(gap => gap !== scanGap).map(gap => <Note key={gap} tone="warn">{gap}</Note>)}
   </>
