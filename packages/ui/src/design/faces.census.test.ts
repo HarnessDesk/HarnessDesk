@@ -157,7 +157,7 @@ const NOT_SOMEONE: readonly Exception[] = [
     shape: 'dynamic',
     identity: 'IconTile:CREST_SHAPE[subject.kind]',
     tiles: 1,
-    why: 'the crest follows what its subject is (a harness a square, an account a ring, a session or a member a face), and its mark arrives as a prop; AgentCard.test.tsx pins the shape of each kind',
+    why: 'the crest follows what its subject is (a runtime, session or member a face, an account a ring), and its mark arrives as a prop; AgentCard.test.tsx pins the shape of each kind',
   },
   {
     file: 'components/Activity.tsx',

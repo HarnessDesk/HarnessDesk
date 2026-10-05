@@ -1161,9 +1161,9 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
         {(templates ?? []).map((template) => (
           <Row
             key={template.key}
-            /* The square is the agent and the circle is an account, on this
-               page and on the list it comes back to. A template has no
-               account yet, so it can only be the square. */
+            /* A runtime wears the face shape, here and on the list it comes
+               back to; an account keeps its ring. A template has no account
+               yet, so it shows only the runtime's face. */
             kind="record"
             face={
               <IconTile shape="face" tint={runtimeTint(template.key as RuntimeId, {}, {})}>
