@@ -28,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(dial).toHaveValue('off')
   })
 
-  test(`real Flow endings retain their banners and doors in ${theme}`, async ({ page }) => {
+  test(`real Flow endings retain their reasons and doors in ${theme}`, async ({ page }) => {
     const cleanup: (() => Promise<void>)[] = []
     const rig = await goalRig({ after: fn => { cleanup.push(fn) } })
     try {
@@ -67,9 +67,10 @@ for (const theme of ['light', 'dark'] as const) {
         else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
         const frame = page.locator('#run-ending-rig')
         const banner = frame.locator('[data-slot="run-ending"]')
-        const titles = { complete: 'Settled', unrouted: 'Ended without a next step', 'person-stop': 'Stopped by you', 'desk-stop': 'Stopped by the desk', stalled: 'Needs you', rounds: 'Round budget reached', 'without-progress': 'Rounds without progress reached' }
+        const titles = { complete: 'Nothing waits.', unrouted: 'Ended without a next step', 'person-stop': 'By you', 'desk-stop': 'By the desk', stalled: 'End', rounds: 'Round budget reached', 'without-progress': 'Rounds without progress reached' }
         await expect(banner).toContainText(titles[scene])
-        await expect(banner.locator('[data-tone]')).toHaveAttribute('data-tone', ['complete', 'person-stop', 'desk-stop'].includes(scene) ? 'neutral' : 'warning')
+        await expect(banner.locator('[data-tone="warning"]')).toHaveCount(['complete', 'person-stop', 'desk-stop'].includes(scene) ? 0 : 1)
+        await expect(banner.locator('[data-slot="chip"]')).toHaveCount(0)
         const door = scene === 'complete' ? 'Wrap' : scene === 'stalled' ? 'Review and run again…' : 'Run again…'
         await expect(banner.getByRole('button', { name: door, exact: true })).toBeVisible()
         if (scene === 'complete') await expect(banner).toContainText('Nothing waits.')

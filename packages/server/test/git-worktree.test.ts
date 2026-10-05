@@ -6,8 +6,9 @@ import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { add, inventory, list, move, prune, remove, setLock } from '../src/git-worktree.js'
-import { worktreeHome } from '../src/worktree.js'
+import { add, inventory, inventoryOf, list, move, prune, remove, setLock } from '../src/git-worktree.js'
+import { list as sessionList, repositoryOf, worktreeHome } from '../src/worktree.js'
+import { captureShellProject, shellProjectUnchanged } from '../src/shell-project.js'
 
 /**
  * The client's worktree verbs against real repositories.
@@ -46,12 +47,12 @@ const tempDir = async (prefix = 'hd-git-worktree-'): Promise<string> => {
  * A one-commit repository inside a parent of its own, because "beside the
  * repository" is the rule under test: the parent is the whole allowed world.
  */
-const seedRepo = async (): Promise<{ repo: string; beside: string; state: string }> => {
+const seedRepo = async (name = 'repo'): Promise<{ repo: string; beside: string; state: string }> => {
   // Canonical: git reports real paths, and on macOS the temp dir is reached
   // through a symlink — so an expectation built on the raw path would fail
   // over /var vs /private/var rather than over anything this module does.
   const beside = await realpath(await tempDir())
-  const repo = join(beside, 'repo')
+  const repo = join(beside, name)
   await mkdir(repo)
   await git(repo, 'init', '-q', '-b', 'main')
   await writeFile(join(repo, 'a.txt'), 'one\n')
@@ -76,6 +77,95 @@ const gone = async (path: string): Promise<boolean> => {
 }
 
 // -------------------------------------------------------------------- list
+
+test('newline-containing checkout paths stay exact through both listings and shell identity', async () => {
+  const { repo, state } = await seedRepo('repo\n ')
+  const home = await worktreeHome(repo, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side\n ')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+
+  for (const from of [repo, side]) {
+    assert.deepEqual(await repositoryOf(from), { root: repo, worktree: from === side })
+    assert.deepEqual(
+      (await list(from, state)).map((row) => [row.path, row.isMain, row.isCurrent, row.managed, row.dirty]),
+      [[repo, true, from === repo, false, 0], [side, false, from === side, true, 0]],
+    )
+    assert.deepEqual(
+      (await sessionList(from, state)).map((row) => [row.path, row.isMain, row.managed]),
+      [[repo, true, false], [side, false, true]],
+    )
+    const identity = await captureShellProject(from)
+    assert.equal(identity.project, repo)
+    assert.equal(identity.checkoutRoot, from)
+    assert.equal(await shellProjectUnchanged(from, identity), true)
+  }
+})
+
+test('a resolved submodule main folder must belong to the repository before it can be listed or used', async () => {
+  const { repo: origin, beside, state } = await seedRepo()
+  const superproject = join(beside, 'super')
+  await mkdir(superproject)
+  await git(superproject, 'init', '-q', '-b', 'main')
+  await git(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+  const sub = join(superproject, 'sub')
+  const home = await worktreeHome(sub, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side')
+  await git(sub, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+  const common = join(superproject, '.git', 'modules', 'sub')
+  const config = join(common, 'config')
+  const alias = join(beside, 'sub-link')
+  await symlink(sub, alias, 'dir')
+
+  for (const valid of ['../../../sub', alias]) {
+    await git(beside, 'config', '--file', config, 'core.worktree', valid)
+    assert.deepEqual(await repositoryOf(side), { root: sub, worktree: true })
+    assert.equal((await list(side, state))[0]?.path, sub)
+    assert.equal((await captureShellProject(side)).project, sub)
+  }
+
+  const before = await git(origin, 'status', '--porcelain=v1', '-z')
+  const branches = await git(side, 'branch', '--list')
+  for (const invalid of [origin, join(beside, 'missing'), side]) {
+    await git(beside, 'config', '--file', config, 'core.worktree', invalid)
+    assert.equal(await repositoryOf(side), null)
+    await assert.rejects(list(side, state), /main checkout|repository/)
+    assert.deepEqual(await sessionList(side, state), [])
+    await assert.rejects(inventoryOf(side, invalid, state), /main checkout|repository/)
+    await assert.rejects(add(side, 'unwanted', { kind: 'new', branch: 'unwanted' }, state), /main checkout|repository/)
+    await assert.rejects(captureShellProject(side), /changed its repository/)
+    assert.equal(await shellProjectUnchanged(side, { project: side, checkoutRoot: side, gitCommonDir: common }), false)
+    assert.equal(await git(origin, 'status', '--porcelain=v1', '-z'), before)
+    assert.equal(await git(side, 'branch', '--list'), branches)
+    assert.equal(await gone(join(beside, 'unwanted')), true)
+  }
+})
+
+test('the listing preserves a main checkout path ending in whitespace', async () => {
+  const { repo, beside, state } = await seedRepo('repo ')
+  // A trimmed sibling must never supply the main row's status or location.
+  const sibling = join(beside, 'repo')
+  await mkdir(sibling)
+  await git(sibling, 'init', '-q', '-b', 'main')
+  await writeFile(join(sibling, 'untracked.txt'), 'sibling\n')
+  const home = await worktreeHome(repo, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+
+  for (const from of [repo, side]) {
+    const rows = await list(from, state)
+    assert.deepEqual(
+      rows.map((row) => [row.path, row.isMain, row.isCurrent, row.managed, row.dirty]),
+      [
+        [repo, true, from === repo, false, 0],
+        [side, false, from === side, true, 0],
+      ],
+      `read from ${from}`,
+    )
+  }
+})
 
 test('the listing names every checkout, which is main, and which one we are reading from', async () => {
   const { repo, state } = await seedRepo()
@@ -142,6 +232,59 @@ test('a checkout under HarnessDesk’s own directory reads as managed', async ()
   assert.equal(worktrees[0]?.managed, false)
   assert.equal(at(worktrees, '/task')?.managed, true)
   assert.equal(at(worktrees, '/task')?.branch, 'harnessdesk/task')
+})
+
+/**
+ * Git names a submodule's main checkout by its git directory, and one made with
+ * `--separate-git-dir` by the directory kept apart. The row for it carries the
+ * folder someone works in, as the session plane's listing does: it is what
+ * "Open" opens, what a new worktree lands beside, and what decides which of
+ * the others HarnessDesk made.
+ */
+test('the main checkout of a submodule, or of a separate git directory, is named by its folder', async () => {
+  const { repo: origin, beside, state } = await seedRepo()
+  const superproject = join(beside, 'super')
+  await mkdir(superproject)
+  await git(superproject, 'init', '-q', '-b', 'main')
+  await git(superproject, 'commit', '-q', '--allow-empty', '-m', 'root')
+  await git(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+  const sub = join(superproject, 'sub')
+  const home = await worktreeHome(sub, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side')
+  await git(sub, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+
+  for (const from of [sub, side]) {
+    const rows = await list(from, state)
+    assert.deepEqual(
+      rows.map((row) => [row.path, row.isMain, row.isCurrent, row.managed]),
+      [
+        [sub, true, from === sub, false],
+        [side, false, from === side, true],
+      ],
+      `read from ${from}`,
+    )
+  }
+  // The folder can be read, which a git directory with no working tree cannot.
+  assert.equal((await list(sub, state))[0]?.dirty, 0)
+
+  // Beside the repository is beside the folder, not inside the superproject's .git.
+  const made = await add(sub, 'feature', { kind: 'new', branch: 'feature' }, state)
+  assert.equal(made.path, join(superproject, 'feature'))
+})
+
+test('a checkout with a separate git directory is listed by its folder when asked from it', async () => {
+  const { beside, state } = await seedRepo()
+  const work = join(beside, 'work')
+  const apart = join(beside, 'apart.git')
+  await git(beside, 'init', '-q', '-b', 'main', `--separate-git-dir=${apart}`, work)
+  await git(work, 'commit', '-q', '--allow-empty', '-m', 'root')
+
+  const rows = await list(work, state)
+  assert.deepEqual(
+    rows.map((row) => [row.path, row.isMain, row.isCurrent, row.dirty]),
+    [[work, true, true, 0]],
+  )
 })
 
 // --------------------------------------------------------------------- add

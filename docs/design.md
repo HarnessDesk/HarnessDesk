@@ -1013,34 +1013,26 @@ had the card ground silently reporting the page's contrast as its own.
 
 ### Focus ring
 
-A focused button and a focused field each draw exactly one ring, and no
-wrapper repeats it — the other half of the claim "Dialog forms" above
-already makes about a popup surface drawing none of its own; the control
-inside is where the one ring belongs. `surface-focus.spec.ts` proves the
-surface half; `rules.spec.ts` ("rule: focus ring") proves the control half,
-on a fixture nested two wrapper divs deep, and mutates a wrapper's own
-`:focus-within` rule to prove a repeated ring is caught.
+Keyboard focus marks the control, and no wrapper repeats the indicator.
+A button uses the document outline: 2px solid with 2px clearance at Desk,
+3px solid with no clearance at Studio (`--hd-ring-width` and
+`--hd-ring-offset`). Pointer focus stays quiet, including focus returned
+from a menu or dialog; Escape preserves that input mode, while Tab, list
+navigation and keyboard activation enable the keyboard indicator.
 
-Measured rather than assumed: a button's ring is the document-level native
-`outline` (`styles/app.css`) — 2px solid, 2px clear at Desk, matching the
-programme's number, and 3px solid with no clearance at Studio (an
-owner-decided interface difference, `--hd-ring-width`/`--hd-ring-offset`). A
-field instead rings by `box-shadow` (`--hd-focus-ring`, `0 0 0
-var(--hd-ring-width) …`) — the same width, but flush against the field's own
-border with no gap to spend, because a box-shadow ring has no offset
-property. The rule's "2px clearance" is the button's number; the field's
-ring is one ring with a different, and equally real, shape.
+A field locates its caret with a border in `--hd-ring`, for pointer and
+keyboard use, without an offset outline or added shadow. Its normal
+`--hd-input-shadow` elevation stays in place. The command palette's only,
+always-focused field uses its caret alone. The composer's own
+`--hd-composer-ring` remains a separate contract.
 
-A field's *resting* `box-shadow` (`--hd-input-shadow`) is not nothing under
-Studio ("Dialog forms" above: "a transparent field with a hairline on a
-white page is a rectangle drawn on paper"), so the check reads the field
-before and after focusing it and asks whether focus *added* something,
-rather than asking whether `box-shadow` is merely not `'none'` — the second
-question is true at rest on that interface, and would have passed a field
-whose focus drew no ring at all. The same before/after read is how a
-wrapper's repeat is caught: not a copy of the control's own ring, but any
-outline or box-shadow that appears on an ancestor once the control is
-focused that was not there at rest.
+`surface-focus.spec.ts` proves that popup surfaces draw no ring of their
+own. `rules.spec.ts` ("rule: focus ring") checks the button outline and
+field border against their resting states on a fixture nested two wrappers
+deep. Positive controls remove the field's focus border and add a wrapper's
+`:focus-within` outline, proving both a missing cue and a repeated cue are
+caught. `focus-ring.spec.ts` checks pointer and keyboard paths through the
+sidebar, menus, dialogs and palette, and fields in both themes and interfaces.
 
 ### Monospace
 

@@ -136,3 +136,16 @@ for (const theme of ['light', 'dark'] as const) {
   }
  })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+ test(`Overview prioritizes task names over activity width in ${theme}`, async ({ page }) => {
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  const overview=page.locator('#team-overview-live-running [data-slot="team-overview"]')
+  const widths=await overview.locator('th').evaluateAll(heads=>heads.map(head=>head.getBoundingClientRect().width))
+  expect(widths[1]).toBeGreaterThan(widths[4]!)
+  const card=overview.locator('[data-seat="seat-0"] [data-slot="seat-card"]')
+  expect(await card.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+  await expect(card).toContainText('Retry the checkout call')
+  await expect(card).toHaveCSS('white-space','normal')
+ })
+}

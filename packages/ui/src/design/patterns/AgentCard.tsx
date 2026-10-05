@@ -498,20 +498,30 @@ AgentCard.displayName = 'AgentCard'
  *
  * `mark` is the caller's, a brand mark or the generic agent glyph, because the
  * pattern does not know which harness a member sits on, and must not.
+ * With `description`, the small face stays beside the name while the prose
+ * sits directly under the name, in that same text column. `meta` is the
+ * role or other recorded fact beside the name.
  */
 export const MemberName = ({
   name,
   mark,
   tint = 'blue',
+  meta,
+  description,
 }: {
   readonly name: string
   readonly mark: ReactNode
   readonly tint?: Tint
+  readonly meta?: ReactNode
+  readonly description?: ReactNode
 }) => (
-  <span data-slot="member-name" className="inline-flex items-center gap-(--hd-space-1) whitespace-nowrap align-bottom">
+  <span data-slot="member-name" className={`inline-flex max-w-full gap-(--hd-space-1) align-bottom ${description == null ? 'items-center whitespace-nowrap' : 'items-start'}`}>
     <IconTile aria-hidden="true" size="xs" shape="face" tint={tint}>
       {mark}
     </IconTile>
-    <Text role="member">{name}</Text>
+    {description == null ? <><Text role="member">{name}</Text>{meta}</> : <span className="min-w-0">
+      <span><Text role="member">{name}</Text>{meta}</span>
+      <span data-slot="member-description" className="block" style={{ overflowWrap: 'anywhere' }}>{description}</span>
+    </span>}
   </span>
 )

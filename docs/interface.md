@@ -455,15 +455,16 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 sidebar row lead with the Agent's name — once, while the conversation's title
 is still that name — the composer's agent chip names the Agent and the seat it
 took, and the name card adds an *Agent* band: what it is for, its ceiling
-(*Read · held* or *Read · asked*), where it came from, the seat and every seat passed over, and
+(*Read only* or *Read only · asked, not enforced*), where it came from, the seat and every seat passed over, and
 *The brief has changed since this started* once its file has moved on.
 
 The same ceiling vocabulary appears on six governed-seat surfaces: the
 conversation header, Agent name card, room rail, board holder, flow dry run and
 Agent roster. The chip is neutral whether the limit is held or asked — most
 runtimes have no control that holds one, so `asked` is the ordinary state, not
-a warning; the words *held* and *asked* and a hover explanation make colour
-unnecessary either way.
+a warning. A held ceiling names the level (*Read only*, *Edit*, *Publish* or
+*Merge*); an asked ceiling adds *asked, not enforced*. Those words and a hover
+explanation make colour unnecessary either way.
 The roster keeps two facts distinct: the Agent file's declared level and the
 effective would-be seat after the seating grant narrows it. A plain conversation
 has no ceiling chip.
@@ -522,6 +523,10 @@ by what their labels carry:
   turn that has them reads back open: the sentences are the record of a research
   turn, and a fold would hide what the reader came for. Closed by hand, such a
   turn's fold reads the sentences back as its receipt rather than a tally.
+
+A seated Agent’s brief starts as one closed **Agent brief** row in its
+conversation and in Side by side. Opening it shows the headings, lists and
+full standing order; other housekeeping notices stay on their plain rows.
 
 Opening any step shows the command under a prompt mark, then what it printed;
 the sentence never has the command glued to it, because a sentence in monospace
@@ -622,6 +627,12 @@ capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
 under a pointer already moving toward it.
 
+If adding a message to the running turn fails — the turn ended, the connection
+was lost, or the agent timed out — its words and chips stay in that
+conversation's Restore list. The failure reason stays beside them, including
+after reopening the view. Restore brings the message back to the composer and
+keeps any newer draft available in the same list.
+
 What is waiting shows in a strip above the composer, with the goal and the
 running jobs: the host's order, with reorder, remove, and edit in place. If an
 edit cannot be saved because the original was already sent, the changed words
@@ -683,15 +694,19 @@ An Agent's page also shows its Skills and Servers as an editable allowlist —
 an empty one reads "Runtime defaults", never "None" — with **Edit…**
 previewing the exact `skills:`/`mcp:` diff before it writes, and **Review &
 Approve…** showing the exact bytes a runtime would load before a person
-approves them once for that repository, Agent, runtime build and ceiling. Its
-Notes section reads and clears `NOTES.md` beside the Agent's file: private
+approves them once for that repository, Agent, runtime build and ceiling. The
+review wraps long commands and preserves their line breaks. Large reviews
+scroll inside the dialog body, with the question and Approve/Keep buttons
+remaining on screen so the whole command can be read before consent. The Agent's
+Notes section reads and clears `NOTES.md` beside its file: private
 working context, never system instructions. A Seat's own name card and the
 Library's Agent filter both read back what a Seat's runtime build actually
 loaded, by that Seat's own immutable id — "declared, not loaded" and "not
 recorded" are shown as different facts, never folded into one another.
 
-**Settings › Permissions › Ceilings** shows four held/asked chips for every
-installed runtime, using controls the runtime declares and reads back rather
+**Settings › Permissions › Ceilings** shows the same four ceiling levels and
+whether each is enforced for every installed runtime, using controls the
+runtime declares and reads back rather
 than a runtime-name table. It also chooses whether a watched conversation may
 open an unheld seat and say so, or pass it over, and a second, independent
 choice for a Goal a trigger opened — refuse by default, or seat it and say so
@@ -887,18 +902,27 @@ refused without moving it.
 Workspaces › Lanes controls the machine-wide defaults for new isolated Seats:
 port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
-Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
-partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+Wrapped Goals open an immutable receipt in the pane’s reading column. Its labelled
+card groups show What finished, titled Work, speaker-led prose Answers, and a final
+Record with findings status, recorded cost and wrap date. The total keeps its
+source, observation age and qualifications. Cost is read separately from the
+frozen wrap; Record and its breakdowns show the same read, and Refresh reads
+the sources again. Facts shared by every part are said once, while differing
+row facts remain beside that amount. Older cards show their
+number when no title was kept. Partial answers, gaps, unknown spend and dirty
+retained lanes remain visible; cost detail and Refresh use the same column.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
-rail. It opens there with or without a Run, and in a narrow pane too, where the
+rail. The header says **Wrapped** once, beside the project and wrap date,
+and draws no Wrap control or reason line. The wrapped rail hides Side by side
+and adding an Agent; Board omits its unclaimed count, and Agents show name and
+role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where the
 Agents list is one tap behind it. The Team’s Agents list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
-use a Seat's kept answer to find its conversation; a Seat without one says
-**Conversation not kept**, and a receipt whose every Seat lacks one lists them
+use a Seat's kept answer to find its conversation; a Seat without one keeps **Conversation not kept** in its hover title, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than
 once is one row, named by the last Seat that held it. Run details keep each
 Seat separately, including its recorded cost when its conversation was not kept. These conversations remain readable, with their
-composer disabled: **This Team is wrapped**. Adding, assigning, answering,
+composer disabled: **This Team is wrapped**. Assigning, answering,
 posting and running checks are disabled with that same reason, as are a
 conversation's **Compact now** and **Review uncommitted changes**. **Stop**
 stays on while a turn is still running in one, because stopping is not new
@@ -1020,6 +1044,9 @@ the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
+Empty Board and Chat content keeps one quiet sentence in the reading column.
+The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
+Board-only Chat keeps the consequence of its messaging mode on screen.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the agent's own choices. The command and its working folder, files a
@@ -1043,7 +1070,7 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
-The Run header, Overview strip, end banner and Findings summary show the Run's
+The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
 **Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
@@ -1053,7 +1080,9 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
-An ended Run has a banner above its end row. Finished work offers **Wrap**;
+An ended Run keeps its reason, time and next actions together in one End summary.
+Status and aggregate publication stay in the Run header; the ending uses a warning
+only when a consequence needs attention. Finished work offers **Wrap**;
 an answer no rule follows offers **Run again…** and **Board**; a person or desk
 stop offers **Run again…**. An interrupted check keeps **Review and run again…**
 and its recorded reason. A spent budget names the limit and how many rounds
@@ -1064,7 +1093,9 @@ were used. An unrouted answer, stall or spent budget keeps the Run and Team
 same start preview, with the seat preferences open to change. **Start**
 creates a fresh Run on the same Team and records which Run it continues; both
 stay in the chooser beside the Run’s name. This starts from the seed step.
-The Flow name and digest in the header open the frozen Flow tab.
+The Flow name and digest in the header open the frozen Flow tab. Check
+commands in the Flow drawing, Steps list, Timeline and inspector shorten the
+home folder to `~`; their hover titles keep the full command.
 
 Each Seat has its own preference; changing one keeps the others and the
 number of Seats. The preview shows checks in this Team’s retained checkout

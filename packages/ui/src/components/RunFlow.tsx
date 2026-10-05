@@ -7,7 +7,7 @@ import { flowOverlay, type OverlayCheckHistory } from '../lib/flow-overlay'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import type { Intent } from '@harnessdesk/protocol'
 import { ceilingsOfRun, flowModel } from '../lib/flow-model'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 
 const PLACE: Readonly<Record<FlowOrigin, string>> = {
   project: 'In the project',
@@ -48,8 +48,9 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   doing?: ReadonlyMap<string, string | null>
 }) => {
   const store = useStore()
+  const { home } = useSnapshot()
   const flow = execution.document.flow
-  const model = useMemo(() => flowModel(flow, { ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats])
+  const model = useMemo(() => flowModel(flow, { home, ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats, home])
   const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions }), [execution, model, cards, attempts, sessions])
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())

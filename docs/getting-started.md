@@ -228,6 +228,39 @@ the release notes for that version.
 
 ## Troubleshooting
 
+**macOS keeps asking to install command line developer tools during agent
+commands, although they are installed** — when Xcode is the selected developer
+directory, its Git shim can run a first-launch check that an agent's sandbox
+cannot complete. If `/Library/Developer/CommandLineTools` is installed, you can
+opt in to using those tools for agent processes by starting HarnessDesk with
+`HARNESSDESK_COMMAND_LINE_TOOLS=1` in its environment. From a source checkout:
+
+```bash
+HARNESSDESK_COMMAND_LINE_TOOLS=1 pnpm app
+```
+
+For the installed app, quit it first and start its executable from a terminal
+with the same setting:
+
+```bash
+HARNESSDESK_COMMAND_LINE_TOOLS=1 /Applications/HarnessDesk.app/Contents/MacOS/HarnessDesk
+```
+
+The setting applies only on macOS, when Xcode is selected and the Command Line
+Tools directory exists. It supplies `DEVELOPER_DIR` to native and ACP agent
+processes, including their new accounts, and records the choice in the host
+log. It does not change the system's selection or the host's own tools.
+An explicit `DEVELOPER_DIR` in the app's environment or an ACP agent's `env`
+entry wins, including an empty value.
+
+**Trade-off:** Command Line Tools do not include Xcode's iOS build tools. For an
+Xcode build, set `DEVELOPER_DIR` to your Xcode developer directory for that
+command or agent. To undo the workaround for all agents, quit HarnessDesk,
+remove `HARNESSDESK_COMMAND_LINE_TOOLS` from its launch environment, and restart
+it. Leaving the setting off preserves your developer environment by default.
+Agents can filter inherited variables; this workaround does not certify the
+behavior of every agent's sandbox.
+
 **"Codex is not installed on this machine"** (or older than 0.145.0) — the
 binary was not found or is below the minimum supported version. The message
 carries the fix (`brew install codex` or `npm i -g @openai/codex`). HarnessDesk

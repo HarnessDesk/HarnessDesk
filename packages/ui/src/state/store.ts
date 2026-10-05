@@ -5811,13 +5811,19 @@ export class AppStore {
     }
   }
 
-  async steer(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
+  /** A caller recovering the message can keep its failure beside that draft. */
+  async steer(
+    input: readonly UserContent[],
+    key = this.#snapshot.activeSessionKey,
+    onFailure?: (message: string) => void,
+  ): Promise<boolean> {
     if (!key) return false
     try {
       await this.transport.request('turn/steer', { ...address(key), input })
       return true
     } catch (error) {
-      this.resultNotice('error', describe(error))
+      if (onFailure) onFailure(describe(error))
+      else this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -6782,8 +6788,9 @@ export class AppStore {
   }
 
   #setInbox(inbox: readonly InboxEntry[]): void {
+    const noticeBase = { inbox: this.#snapshot.inbox }
     this.#patch({ inbox })
-    void this.#writePreference({ inbox }, 'The inbox')
+    void this.#writeNoticePreference({ inbox }, noticeBase, 'The inbox')
   }
 
   /** One macOS notification switch — `enabled` is the master, the rest are kinds. */
@@ -6794,8 +6801,26 @@ export class AppStore {
   }
 
   #setNoticePolicy(noticePolicy: NoticePolicy): void {
+    const noticeBase = { noticePolicy: this.#snapshot.noticePolicy }
     this.#patch({ noticePolicy })
-    void this.#writePreference({ noticePolicy }, 'The message settings')
+    void this.#writeNoticePreference({ noticePolicy }, noticeBase, 'The message settings')
+  }
+
+  #noticeRevision = 0
+
+  #applyNoticePreferences(preferences: Readonly<Record<string, unknown>>, revision: number): void {
+    if (!preferences || revision !== this.#noticeRevision) return
+    this.#patch({ inbox: readInbox(preferences['inbox']), noticePolicy: readNoticePolicy(preferences['noticePolicy']) })
+  }
+
+  async #writeNoticePreference(patch: Record<string, unknown>, noticeBase: Record<string, unknown>, what: string): Promise<void> {
+    const revision = ++this.#noticeRevision
+    try {
+      const preferences = await this.transport.request('app/state/set', { patch, noticeBase })
+      this.#applyNoticePreferences(preferences, revision)
+    } catch (error) {
+      this.resultNotice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
+    }
   }
 
   setBrowserPrefs(patch: Partial<AppSnapshot['browserPrefs']>): void {
@@ -6894,13 +6919,13 @@ export class AppStore {
     }
     const kind = event.kind ?? 'runtime:warning'
     const policy = this.#snapshot.noticePolicy
-    if (surfaceFor(policy, kind) === null) return
     const detail = event.detail
     const key = event.contentKey ?? (runtime ? runtimeNoticeKey(runtime, event) : contentKeyFor('info', kind, [event.level, event.message]))
     const old = this.#snapshot.inbox.find(entry => entry.id === key)
-    if ((!old && wasKept(policy, key)) || (event.id && old?.lastEvent === event.id)) return
-    // A preference read may include a later occurrence than events queued while it loaded.
-    if (old && event.id && event.count !== undefined && event.at !== undefined && event.at <= old.at && event.count <= (old.count ?? 1)) return
+    // Cached policy can decide the optimistic paint, never the host's decision.
+    const skipPaint = surfaceFor(policy, kind) === null || (!old && wasKept(policy, key)) ||
+      (event.id && old?.lastEvent === event.id) ||
+      (old && event.id && event.count !== undefined && event.at !== undefined && event.at <= old.at && event.count <= (old.count ?? 1))
     const name = this.#snapshot.runtimes.find(info => info.id === runtime)?.presentation.name ?? 'The agent'
     const settings = detail?.settings ?? []
     const title = kind === 'runtime:config' && settings.length > 0
@@ -6912,15 +6937,17 @@ export class AppStore {
       ...(event.count ? { count: event.count } : {}),
       tone: event.level === 'error' ? 'danger' : event.level === 'warning' ? 'warning' : 'info',
       ...(detail?.details ? { body: detail.details } : {}),
-      ...(kind === 'runtime:config' && settings.length > 0 ? { body: `${name} runs without these settings.${detail?.details ? ` ${detail.details}` : ''}` } : {}),
+      ...(kind === 'runtime:config' && settings.length > 0 ? { body: [detail?.summary ?? event.message, `${name} runs without these settings.`, detail?.details].filter(Boolean).join(' ') } : {}),
       ...(detail?.file ? { file: detail.file } : {}),
       ...(settings.length ? { settings } : {}),
       at: event.at ?? Date.now(),
     })
     const noticePolicy = withKept(policy, key)
-    this.#patch({ inbox, noticePolicy })
-    // One host write: a restart cannot observe a content key without its row.
-    void this.#writePreference({ inbox, noticePolicy }, 'The inbox', false)
+    if (!skipPaint) this.#patch({ inbox, noticePolicy })
+    // Send only this occurrence. Another window may already have read, cleared or muted it.
+    const { read: _read, ...entry } = inbox[0]!
+    const revision = ++this.#noticeRevision
+    void this.transport.request('app/inbox/keepInfo', { entry: { ...entry, contentKey: key, kind, count: event.count ?? entry.count ?? 1 } }).then(preferences => this.#applyNoticePreferences(preferences, revision)).catch(() => {})
   }
 
   dismissNotice(id: string): void {

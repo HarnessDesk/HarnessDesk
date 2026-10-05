@@ -120,7 +120,8 @@ export const receiptOf = (value: unknown, goal: string, id: unknown): value is G
     !Array.isArray(value.answers) || !Array.isArray(value.lanes) ||
     !Array.isArray(value.revisions) || !Array.isArray(value.citations) || !strings(value.gaps)) return false
   if (!value.cards.every((card) => object(card) && Number.isSafeInteger(card.id) && Number(card.id) > 0 &&
-    ['finished', 'dropped'].includes(String(card.resolution)) && (card.reason === null || typeof card.reason === 'string'))) return false
+    ['finished', 'dropped'].includes(String(card.resolution)) && (card.reason === null || typeof card.reason === 'string') &&
+    (card.title === undefined || typeof card.title === 'string') && (card.seat === undefined || typeof card.seat === 'string'))) return false
   if (!value.answers.every((answer) => object(answer) && typeof answer.seat === 'string' &&
     object(answer.session) && typeof answer.session.runtime === 'string' && typeof answer.session.sessionId === 'string' &&
     (answer.turn === null || typeof answer.turn === 'string') && typeof answer.text === 'string' &&
@@ -129,6 +130,7 @@ export const receiptOf = (value: unknown, goal: string, id: unknown): value is G
   if (value.members !== undefined && (!Array.isArray(value.members) || !value.members.every((member) =>
     object(member) && typeof member.seat === 'string' &&
     (member.agent === null || typeof member.agent === 'string') && typeof member.seatLabel === 'string' &&
+    (member.role === undefined || member.role === null || typeof member.role === 'string') &&
     (member.session === undefined || (object(member.session) && typeof member.session.runtime === 'string' && member.session.runtime.length > 0 &&
       typeof member.session.sessionId === 'string' && member.session.sessionId.length > 0))))) return false
   if (value.evidenceSeats !== undefined && (!Array.isArray(value.evidenceSeats) || !value.evidenceSeats.every((ref) =>

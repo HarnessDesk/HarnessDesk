@@ -258,7 +258,7 @@ test('turn/completed cannot turn a streamed notice back into a user message when
       type: 'item/started',
       sessionId: SESSION,
       turnId: TURN,
-      item: { id: opening, type: 'notice', text: 'the standing order' },
+      item: { id: opening, type: 'notice', kind: 'agentBrief', text: 'the standing order' },
     },
   ])
   session = reduceSession(session, {
@@ -275,6 +275,7 @@ test('turn/completed cannot turn a streamed notice back into a user message when
   })
 
   assert.deepEqual(allItems(session).map((entry) => entry.type), ['notice', 'assistantMessage'])
+  assert.equal((allItems(session)[0] as { kind?: string }).kind, 'agentBrief')
 })
 
 // --------------------------------------------------------------- mergeRead
@@ -317,7 +318,7 @@ test('a read that starts at a reopen keeps the history held ahead of it', () => 
 test('a fuller read cannot turn a held notice back into a user message', () => {
   const opening = itemId('opening')
   const held = readOf([
-    { id: turnId('t1'), status: 'completed', items: [{ id: opening, type: 'notice', text: 'the standing order' }] },
+    { id: turnId('t1'), status: 'completed', items: [{ id: opening, type: 'notice', kind: 'agentBrief', text: 'the standing order' }] },
   ])
   const read = readOf([
     {
@@ -331,6 +332,7 @@ test('a fuller read cannot turn a held notice back into a user message', () => {
   ])
 
   assert.deepEqual(allItems(mergeRead(held, read)).map((entry) => entry.type), ['notice', 'assistantMessage'])
+  assert.equal((allItems(mergeRead(held, read))[0] as { kind?: string }).kind, 'agentBrief')
 })
 
 test('a plan the read is silent about is the one we watched arrive', () => {

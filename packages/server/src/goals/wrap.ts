@@ -8,7 +8,7 @@ import { Serial } from './assignments.js'
 
 export interface WrapInput {
   goal: Goal
-  cards: readonly { id: number; state: string }[]
+  cards: readonly { id: number; state: string; title?: string; seat?: string }[]
   dependencies: readonly { id: string; state: string }[]
   busy: boolean
   flow: boolean
@@ -87,7 +87,10 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       goal: input.goal.id,
       sentence: input.goal.sentence,
       summary: choices.summary.trim(),
-      cards: choices.cards,
+      cards: choices.cards.map(({ id, resolution, reason }) => {
+        const card = input.cards.find((one) => one.id === id)!
+        return { id, resolution, reason, ...(card.title !== undefined ? { title: card.title } : {}), ...(card.seat !== undefined ? { seat: card.seat } : {}) }
+      }),
       seats: input.seats,
       members: input.members,
       evidence: input.evidence,

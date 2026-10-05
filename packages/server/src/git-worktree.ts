@@ -8,7 +8,7 @@ import { isRevisionName } from './git-revision.js'
 
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
 
-import { changes, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
+import { changes, mainEntryFolder, repositoryRoot, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
 
 import { parsePorcelain } from './porcelain.js'
 
@@ -235,29 +235,45 @@ const dirtyCount = async (path: string): Promise<number | null> => {
  * Every checkout of the repository `root` belongs to. Git lists the main
  * worktree first, which is how `isMain` is known; `managed` is asked of the
  * session plane's own directory, so a row can say what it is about to remove.
+ *
+ * The main row carries the folder someone works in, as the session plane's
+ * listing does, where git names a git directory instead — a submodule's
+ * `.git/modules/<name>`, the directory a `--separate-git-dir` checkout keeps
+ * apart. That row is what "Open" opens, what a new worktree is made beside,
+ * and the key the session plane's own directory is found by, so naming git's
+ * bookkeeping there opened it as a workspace, put new worktrees inside
+ * `.git/modules`, and read HarnessDesk's own as foreign.
  */
 export const list = async (root: string, stateDir: string): Promise<GitWorktree[]> => {
   const records = parseList(await git(root, ['worktree', 'list', '--porcelain', '-z']))
   if (records.length === 0) return []
   const here = await canonical(root)
-  const main = records[0]!.path
+  const listed = records[0]!.path
+  // Only a path that is not the folder is replaced, so an ordinary repository
+  // answers byte for byte as git does.
+  const folder = await repositoryRoot(root)
+  if (folder === null && !records[0]!.bare) throw new Error('This repository has no valid main checkout to sit beside.')
+  const main = folder === null ? listed : await mainEntryFolder(listed, folder)
   const home = await worktreeHome(main, stateDir)
   return Promise.all(
-    records.map(async (record, index) => ({
-      path: record.path,
-      branch: record.branch,
-      head: record.head,
-      isMain: index === 0,
-      isCurrent: samePath(await canonical(record.path), here),
-      bare: record.bare,
-      detached: record.detached,
-      locked: record.locked,
-      prunable: record.prunable,
-      managed: under(record.path, home),
-      // A bare repository has no working tree to be dirty, and a prunable
-      // entry has no directory left to read; neither is worth a git call.
-      dirty: record.bare || record.prunable ? null : await dirtyCount(record.path),
-    })),
+    records.map(async (record, index) => {
+      const path = index === 0 ? main : record.path
+      return {
+        path,
+        branch: record.branch,
+        head: record.head,
+        isMain: index === 0,
+        isCurrent: samePath(await canonical(path), here),
+        bare: record.bare,
+        detached: record.detached,
+        locked: record.locked,
+        prunable: record.prunable,
+        managed: under(path, home),
+        // A bare repository has no working tree to be dirty, and a prunable
+        // entry has no directory left to read; neither is worth a git call.
+        dirty: record.bare || record.prunable ? null : await dirtyCount(path),
+      }
+    }),
   )
 }
 

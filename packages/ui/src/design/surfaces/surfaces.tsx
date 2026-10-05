@@ -275,7 +275,7 @@ export const ConversationSurface = () => (
           </PaneProvider>
         </Mount>
       </HeaderCase>
-      <HeaderCase id="conversation-header-ceiling" label="Ceiling chip (Read · held)">
+      <HeaderCase id="conversation-header-ceiling" label="Ceiling chip (Read only)">
         <Mount>
           <PaneProvider
             scope={{

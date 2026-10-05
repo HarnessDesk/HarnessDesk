@@ -251,6 +251,8 @@ export interface NoticeItem extends ItemBase {
   readonly lastEventId?: string
   readonly contentKey?: string
   readonly text: string
+  /** Host-marked standing order; other housekeeping keeps its plain row. */
+  readonly kind?: 'agentBrief'
 }
 
 /** Entering or leaving a runtime-managed review sub-mode. */
