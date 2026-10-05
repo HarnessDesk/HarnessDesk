@@ -1556,11 +1556,9 @@ One slim line above a pane, one message at a time.
 `packages/ui/src/design/patterns/Notices.tsx`
 
 The inbox: messages kept until they are cleared, newest first, under
-"Today" and "Earlier". Each is a flat row — the sender's tile, the title
-with its time at the right, who and why under it, at most one thing to do.
-The whole row is one press: it marks the message read and, when the
-message has a place (`go`), goes there. Unread rows carry a dot and the
-heavier title; "Unread" narrows the list to them. New rows rise in.
+day headings. A compact title row expands into details and actions,
+marking unread content read. Repeated information updates its count and
+last time; actions name their destination.
 
 ### `InboxPanel`
 

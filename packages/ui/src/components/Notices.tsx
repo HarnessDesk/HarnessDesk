@@ -26,6 +26,7 @@ import {
   type NoticeMessage,
   type NoticeTone,
 } from '../design'
+import { shortPath } from '../lib/paths'
 import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
@@ -46,6 +47,7 @@ export const Notices = () => {
 
   useEffect(() => {
     for (const notice of notices) {
+      if (notice.class !== 'result') { store.dismissNotice(notice.id); continue }
       showToast(
         {
           // A toast with an action is really about the thing it undoes — two
@@ -56,10 +58,10 @@ export const Notices = () => {
           // deliberate retry of a failing action used to do.
           id: notice.action ? notice.id : `${notice.level}:${notice.message}`,
           tone: TOAST_TONE[notice.level] ?? 'neutral',
-          title: notice.message,
+          title: shortenNoticeText(notice.message, store.getSnapshot().home),
           ...(notice.action ? { action: { label: notice.action.label, onSelect: () => notice.action?.run() } } : {}),
         },
-        notice.level === 'error' ? { persist: true } : {},
+        notice.level !== 'info' ? { persist: true } : {},
       )
       store.dismissNotice(notice.id)
     }
@@ -751,14 +753,24 @@ export const useInboxMessages = (): InboxMessage[] => {
     return {
       id: entry.id,
       tone: entry.tone,
-      title: entry.title,
-      ...(entry.body ? { body: entry.body } : {}),
+      title: shortenNoticeText(entry.title, snapshot.home),
+      ...(entry.count ? { count: entry.count } : {}),
+      ...(entry.body ? { body: shortenNoticeText(entry.body, snapshot.home) } : {}),
+      ...(entry.file ? { file: shortPath(entry.file, snapshot.home) } : {}),
+      ...(entry.settings ? { settings: entry.settings } : {}),
       at: entry.at,
       read: entry.read,
       ...(entry.from ? { from: entry.from.name } : {}),
       ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
-      ...(go ? { go } : {}),
+      ...(go ? { go, goLabel: sessionGo ? 'Open the conversation' : entry.open === 'settings:library' ? 'Open the Library' : 'Sign in' } : {}),
+      ...(entry.kind && entry.contentKey ? { actions: [
+        ...(entry.file ? [{ label: 'Open the file', onSelect: () => void store.revealWorkspace(entry.file!) }] : []),
+        ...(!snapshot.noticePolicy.muted.includes(entry.kind) ? [{ label: "Don't show this again", onSelect: () => store.setNoticeMuted(entry.kind!, true) }] : []),
+      ] } : {}),
       ...(entry.task ? { action: { label: 'Start as a task', onSelect: () => void store.startSuggestedTask(entry.id) } } : {}),
     }
   })
 }
+
+/** A home path is a private location, never useful spelling in a message. */
+const shortenNoticeText = (text: string, home: string): string => home ? text.split(`${home}/`).join('~/') : text

@@ -660,9 +660,10 @@ export const NotificationsSection = () => {
       <Rows>
         <Row title="Something stops a turn" desc="Shown on the composer of the conversation it stops, and nowhere else." />
         <Row title="Something to do later" desc="Waits at the foot of the sidebar, one at a time, until you act or dismiss it." />
+        <Row title="About one conversation" desc="A quiet line in that conversation, with no toast or Inbox entry." />
         <Row title="Worth keeping" desc="Goes to the inbox in your seat menu and stays until you clear it." />
         <Row title="An Agent writes to you" desc="Kept in the inbox, or on its own conversation when it is waiting on your decision." />
-        <Row title="The result of what you did" desc="A toast in the corner that leaves on its own. Always on." />
+        <Row title="The result of what you did" desc="A toast in the corner. Success leaves on its own; failure stays until closed. Always on." />
         <Row title="The connection drops" desc="Shown in the strip above the composer, or under a pane's bar, until it is back. Always on." />
       </Rows>
 
