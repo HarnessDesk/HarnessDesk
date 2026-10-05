@@ -51,6 +51,15 @@ describe('describeQueued', () => {
       { kind: 'skill', name: 'review', path: '/w/.skills/review' },
     ])
   })
+
+  it('keeps typed lookalikes beside a recorded context part', () => {
+    const prefix = wrapContext('Git', 'On branch main')
+    const typed = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+    expect(describeQueued([
+      { type: 'text', text: prefix, deskContext: { prefix } },
+      { type: 'text', text: typed },
+    ])).toEqual({ text: typed, context: [{ label: 'Git', text: 'On branch main' }], attachments: [] })
+  })
 })
 
 describe('queuedLabel', () => {
