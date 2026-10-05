@@ -1,21 +1,8 @@
 /* What only Settings draws inside the shared window chrome (AppWindow.module.css).
    Every generic control comes from the public design API; these are the
-   page-specific odds and ends — a model's effort chips, a skill's tile, a note
+   page-specific odds and ends — a skill's body, an unavailable route, a note
    under a section head. */
 
-/*
- * A skill's own description, as the agent wrote it. Claude Code's run to a
- * paragraph — the trigger list a model is meant to read — so the row shows
- * the first two lines and keeps the rest in the tooltip; a list where one
- * entry is twelve lines tall cannot be scanned.
- */
-.skillDesc {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
 /* The full description, exactly as the skill wrote it. */
 .skillBody {
   margin: 6px 0 0;
@@ -39,20 +26,12 @@
 .inlineBadge {
   margin-left: 8px;
 }
-/* A route the selected backend cannot speak: shown, not hidden, with the
-   reason on its own line — hiding it would look like it had been deleted. */
+/* A route the selected backend cannot speak: faded, with its reason on the
+   title's quiet chip — hiding it would look like it had been deleted. */
 .rowUnusable {
   opacity: 0.55;
 }
 .extTabs {
   margin-bottom: var(--hd-space-4); /* desk: canonical One UI System scale */
 }
-/* The efforts a model can be asked for, as a row of small tags under its name. */
-.efforts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--hd-space-1);
-  margin-top: var(--hd-space-1);
-}
-
 /* @design-owners Extensions */

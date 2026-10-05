@@ -1,3 +1,5 @@
+import { StoreProvider } from '../state/context'
+import { capabilityListsStore } from './capability-lists-fixture'
 import { useState } from 'react'
 
 import { runtimeId, type AgentEntry } from '@harnessdesk/protocol'
@@ -68,6 +70,7 @@ type DialogOption = (typeof DIALOG_OPTIONS)[number]
  * "All" tab findings.spec.ts reaches for on the Goal rail.
  */
 export const SettingsFrames = () => {
+  const [listsStore] = useState(capabilityListsStore)
   const [dialog, setDialog] = useState<DialogOption>('off')
   return (
     <>
@@ -109,7 +112,7 @@ export const SettingsFrames = () => {
       </Frame>
       <Frame id="settings-extensions" title="Settings › Extensions">
         <div className="max-h-[560px] overflow-y-auto p-4">
-          <ExtensionsSection />
+          <StoreProvider store={listsStore}><ExtensionsSection /></StoreProvider>
         </div>
       </Frame>
       <Frame id="settings-ceilings" title="Settings › Ceilings">

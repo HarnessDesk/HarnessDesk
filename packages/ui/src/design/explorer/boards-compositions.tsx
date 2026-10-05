@@ -1,3 +1,5 @@
+import { LibrarySection } from '../../components/Library'
+import { previewStore } from '../../preview/harness'
 import { TablesFamily } from './tables-family'
 import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunControlsBoard } from '../../preview/frames-run-controls'
@@ -269,7 +271,7 @@ const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
-const ICON_TILE_CATALOG_SIZES = ['xs', 'sm', 'default', 'lg'] as const
+const ICON_TILE_CATALOG_SIZES = ['stack', 'xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
 const ICON_TILE_CATALOG_SHAPE = ['square', 'round', 'face'] as const
 const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
@@ -2836,7 +2838,13 @@ const PlansTableBoard = () => {
   )
 }
 
+const LibraryBoard = () => {
+  const [store] = useState(previewStore)
+  return <StoreProvider store={store}><LibrarySection /></StoreProvider>
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
     id: 'tables',
     title: 'Tables',

@@ -1,3 +1,4 @@
+import { capabilityListsStore } from './capability-lists-fixture'
 import { TablesFamily } from '../design/explorer/tables-family'
 import { NoticesFrame } from './frames-notices'
 import { CatalogueRefusedUndo } from '../design/explorer/boards'
@@ -129,6 +130,7 @@ const SIDEBAR_VARIANT_PARAM = new URLSearchParams(window.location.search).get('s
 /* Painted only when asked for: the fixture draws its two pictures at load. */
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
+const settingsListsStore = capabilityListsStore()
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
@@ -688,12 +690,12 @@ const Preview = () => {
           {/* The page is the caller's, so the dial drives it directly and the
               sheet's own nav rail writes back to the same state — no remount,
               and clicking around in here moves the dial with it. */}
-          <Settings
+          <StoreProvider store={settingsListsStore}><Settings
             section={settingsSection}
             onSection={setSettingsSection}
             onClose={() => {}}
             onSignIn={() => {}}
-          />
+          /></StoreProvider>
         </div>
       </Frame>
       <div className="my-4 flex flex-wrap items-center gap-3">

@@ -927,11 +927,7 @@ const cards = (): readonly HTMLElement[] => [
 ]
 
 it('opens on a list, one row per entry, each carrying what the thing is for', async () => {
-  // The description stays on the row and is clamped to one line, which is the
-  // shape every settings row in the app now takes. Two lines was the earlier
-  // reading, done against a fixture of six; a real machine holds 125, and two
-  // lines on each is a page you scroll rather than scan. One line scans and
-  // still says what the skill is for; the sheet holds the paragraph.
+  // The earned sentence stays whole on the row; the sheet reads the definition.
   await mount(
     library([
       entry('code-review', ['reaches', 'reaches'], {
@@ -952,36 +948,19 @@ it('writes a skill’s name as the command that fires it', async () => {
   expect(cards()[0]?.textContent).toContain('/brainstorming')
 })
 
-it('a row says who loads it without a table, and names each state for readers', async () => {
+it('Loaded by shows only the agents that load it, with their accessible names', async () => {
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
-  // Each agent's mark on a round IconTile: the neutral ground where it loads,
-  // the same tile faded for every other "not this one".
-  const faces = [...document.body.querySelectorAll('[data-reach][data-tone]')].map((node) => ({
-    state: node.getAttribute('data-reach'),
-    tone: node.getAttribute('data-tone'),
-    faded: node.classList.contains('opacity-40'),
-    label: node.getAttribute('aria-label'),
-  }))
-  expect(faces).toEqual([
-    { state: 'reaches', tone: 'neutral', faded: false, label: 'First Agent: Loads it' },
-    {
-      state: 'unscanned',
-      tone: 'neutral',
-      faded: true,
-      label: 'Second Agent: Installed where this agent does not look',
-    },
-  ])
+  const faces = [...container.querySelectorAll('[data-shape="face"]')]
+  expect(faces.map(node => node.getAttribute('aria-label'))).toEqual(['First Agent'])
+  expect(faces[0]?.classList.contains('size-5')).toBe(true)
+  expect(faces[0]?.hasAttribute('data-tint')).toBe(true)
 })
 
-it('a problem wears the warning ground on the same small round tile', async () => {
+it('a problem is a warning in State, while Loaded by keeps only healthy faces', async () => {
   await mount(library([entry('alpha', ['hollow', 'reaches'])]))
-  const [problem] = [...document.body.querySelectorAll<HTMLElement>('[data-reach][data-tone]')]
-  expect(problem?.dataset['reach']).toBe('hollow')
-  expect(problem?.dataset['tone']).toBe('warning')
-  expect(problem?.hasAttribute('data-problem')).toBe(true)
-  expect(problem?.classList.contains('size-4.5')).toBe(true)
-  expect(problem?.classList.contains('rounded-full')).toBe(true)
-  expect(problem?.classList.contains('opacity-40')).toBe(false)
+  const row = cards()[0]!
+  expect(row.querySelector('[data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Empty on disk')
+  expect(row.querySelector('[data-shape="face"]')?.getAttribute('aria-label')).toBe('Second Agent')
 })
 
 it('a row’s finding names the defect, never the symptom it causes', async () => {
@@ -1847,4 +1826,28 @@ it('an Agent whose attachments view could not be read is treated as nothing decl
   // Agent A's own, real declaration must survive Agent B's unreadable one —
   // never blanked out by a sibling that could not be read.
   expect(document.body.textContent).toContain('shared-skill')
+})
+
+it('the List compares Skill, State and Loaded by without a repeated monogram', async () => {
+  await mount(library([entry('alpha', ['reaches', 'absent']), entry('empty', ['hollow', 'absent'])]))
+  const table = container.querySelector('table')!
+  expect(table).not.toBeNull()
+  expect([...table.querySelectorAll('thead th')].map((head) => head.textContent)).toEqual(['Skill', 'State', 'Loaded by'])
+  const rows = [...table.querySelectorAll('tbody tr')]
+  expect(rows[0]?.querySelector('[data-slot="row-mark"]')).toBeNull()
+  expect(rows[0]?.textContent).toContain('Ready')
+  expect(rows[0]?.querySelectorAll('[data-shape="face"]')).toHaveLength(1)
+  expect(rows[0]?.querySelector('[data-shape="face"]')?.getAttribute('aria-label')).toBe('First Agent')
+  expect(rows[1]?.textContent).toContain('Empty on disk')
+  expect(rows[1]?.textContent).toContain('None')
+})
+
+it('the server List uses the same labelled columns, without a skill invocation', async () => {
+  await mount(library([entry('workspace-tools', ['reaches', 'absent'], { kind: 'mcp' })]))
+  const kind = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(node => node.textContent?.startsWith('MCP servers'))!
+  await act(async () => kind.click())
+  expect([...container.querySelectorAll('thead th')].map(head => head.textContent)).toEqual(['Server', 'State', 'Loaded by'])
+  const row = container.querySelector('tbody tr')!
+  expect(row.textContent).not.toContain('/workspace-tools')
+  expect(row.textContent).toContain('Ready')
 })

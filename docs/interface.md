@@ -669,6 +669,14 @@ where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
+The Library’s List view compares Skill (or Server), State and Loaded by in
+three labelled columns. Descriptions wrap, a warning names a needed fix, and
+only agents that load the entry appear as faces; Matrix and the entry’s sheet
+keep the per-agent detail. Skills and Plugins omit a repeated generic face.
+Model efforts are words beside the description, and endpoint, key and preset
+removals live in their row’s actions menu. Keyboard shortcuts show one keycap
+per key, with the four focus-tile shortcuts grouped as 1 – 4.
+
 Every form — a custom endpoint, a permission rule, a custom runtime, a gateway
 account, a preset — is a dialog with labelled fields, never a stack of
 placeholder-only inputs inline in the page; and every removal confirms in a

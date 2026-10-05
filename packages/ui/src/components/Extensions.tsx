@@ -6,7 +6,7 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, ExtensionIcon, PluginIcon, ServerIcon } from './Icons'
-import { Button, Chip, IconTile, Monogram, Note, PageHead, Row, Rows, Search, SectionHead } from '../design'
+import { Button, Chip, EmptyState, IconTile, Monogram, Note, PageHead, Row, Rows, Search, SectionHead } from '../design'
 import { Tabs, TabsList, TabsTrigger } from '../design'
 import styles from './Settings.module.css'
 
@@ -146,7 +146,7 @@ export const ExtensionsSection = () => {
               <SectionHead name={`Installed · ${installed.length}`} />
               <Rows>
                 {installed.length === 0 ? (
-                  <Row title={query ? 'No installed plugin matches' : 'Nothing installed yet'} />
+                  <EmptyState variant="row" title={query ? 'No installed plugin matches' : 'Nothing installed yet'} />
                 ) : (
                   installed.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} />)
                 )}
@@ -154,7 +154,7 @@ export const ExtensionsSection = () => {
               <SectionHead name={`Available · ${available.length}`} />
               <Rows>
                 {available.length === 0 ? (
-                  <Row title="Nothing more to add" />
+                  <EmptyState variant="row" title="Nothing more to add" />
                 ) : (
                   available.slice(0, shown).map((plugin) => (
                     <PluginRow key={plugin.id} plugin={plugin} />
@@ -227,7 +227,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
       title={
         <>
           {plugin.name}
-          {plugin.category && <span className={styles.inlineBadge}>{plugin.category}</span>}
+          {plugin.category && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>{plugin.category}</Chip>}
         </>
       }
       desc={
@@ -238,7 +238,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
       }
       control={
         plugin.external ? (
-          <Button variant="secondary"
+          <Button variant="outline"
             size="sm"
             disabled={!plugin.installUrl}
             onClick={() => plugin.installUrl && openExternal(plugin.installUrl)}
@@ -255,11 +255,11 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
                 offers a verb that turns one back on, so the honest control
                 is a word, and the removal button beside it. */}
             {plugin.installed && !plugin.enabled && (
-              <Chip state="broken" label={plugin.disabledReason ?? 'off'} />
+              <Chip state="broken" label={plugin.disabledReason ?? 'Off'} />
             )}
             <Button
               size="sm"
-              variant={plugin.installed ? 'ghost' : 'secondary'}
+              variant={plugin.installed ? 'ghost' : 'outline'}
               disabled={busy}
               onClick={() => void toggle()}
             >
@@ -312,7 +312,7 @@ const AppDirectory = () => {
         {apps === null ? (
           <Row title="Type to search" />
         ) : apps.length === 0 ? (
-          <Row title="No apps match" />
+          <EmptyState variant="row" title="No apps match" />
         ) : (
           apps.slice(0, 20).map((app) => <PluginRow key={app.id} plugin={app} />)
         )}
@@ -360,16 +360,14 @@ const McpServers = () => {
         {servers === null ? (
           <Row title="Loading…" />
         ) : servers.length === 0 ? (
-          <Row title="None configured" />
+          <EmptyState variant="row" title="None configured" />
         ) : (
           servers.map((server) => (
             <Row
               key={server.name}
               mark={<ServerIcon size={15} />}
               title={server.name}
-              desc={`${server.tools.length} tool${server.tools.length === 1 ? '' : 's'}${
-                server.resources > 0 ? ` · ${server.resources} resources` : ''
-              }`}
+              desc={`${server.tools.length} tools · ${server.resources} resources`}
               control={
                 server.auth === 'needsLogin' ? (
                   <Button size="sm" variant="default" onClick={() => void store.mcpLogin(server.name)}>

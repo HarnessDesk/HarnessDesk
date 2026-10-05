@@ -43,6 +43,7 @@ import {
   Chip,
   CodeText,
   DetailMark,
+  EmptyState,
   DetailHead,
   PageHead,
   Row,
@@ -160,7 +161,7 @@ export const stateLabel = (state: PluginState): string => {
     case 'pending':
       return state.waitingFor.length > 0 ? `waiting for ${state.waitingFor.join(', ')}` : 'waiting'
     case 'failed':
-      return 'failed'
+      return 'Failed'
     default:
       return state.type
   }
@@ -236,15 +237,14 @@ const SupersededRow = ({ plugin }: { plugin: PluginInstance }) => {
   const where = plugin.identity.source.kind === 'local' ? plugin.identity.source.path : null
   return (
     <Row
-      mark={pluginGlyph(plugin, 16)}
-      title={plugin.identity.name}
+      title={<Text role="subject">{plugin.identity.name}</Text>}
       desc={`Superseded by the built-in ${plugin.identity.name}, which does the same job. This copy is switched off${
         where ? ` and still on disk, installed from ${where}` : ''
       }.`}
       control={
         <>
           <RowValue>Superseded</RowValue>
-          <Button variant="secondary"
+          <Button variant="outline" size="sm"
             disabled={busy}
             onClick={() => {
               setBusy(true)
@@ -472,7 +472,7 @@ export const PluginsSection = () => {
             .toLowerCase()
             .includes(query.toLowerCase()),
         )
-        .sort((a, b) => a.identity.name.localeCompare(b.identity.name)),
+        .sort((a, b) => a.identity.name.localeCompare(b.identity.name, undefined, { numeric: true })),
     [snapshot.plugins, query],
   )
   const plugins = matching.filter((plugin) => !supersededIds.has(plugin.instanceId))
@@ -603,18 +603,17 @@ export const PluginsSection = () => {
       {tab === 'list' ? (
         <Rows>
           {plugins.length === 0 ? (
-            <Row title={query ? 'No plugin matches' : 'No plugins are loaded'} />
+            <EmptyState variant="row" title={query ? 'No plugin matches' : 'No plugins are loaded'} />
           ) : (
             plugins.map((plugin) => (
               <RowButton
                 key={plugin.instanceId}
                 onClick={() => setOpenId(plugin.instanceId)}
-                mark={pluginGlyph(plugin, 16)}
-                title={plugin.identity.name}
+                title={<Text role="subject">{plugin.identity.name}</Text>}
                 {...(plugin.identity.description ? { desc: plugin.identity.description } : {})}
                 control={
                   <>
-                    {plugin.state.type === 'failed' && <Chip state="broken" label="failed" />}
+                    {plugin.state.type === 'failed' && <Chip state="broken" label="Failed" />}
                     <RowValue>{originLabel(plugin)}</RowValue>
                     <PluginToggle plugin={plugin} />
                   </>
@@ -666,7 +665,7 @@ export const PluginsSection = () => {
           </div>
           {byKind.length === 0 && (
             <Rows>
-              <Row
+              <EmptyState variant="row"
                 title={
                   capWhere === 'here' && capHere === null
                     ? 'Asking the host…'
@@ -694,15 +693,10 @@ export const PluginsSection = () => {
                     }}
                     mark={contributionIcon(contribution.kind, 15)}
                     title={contributionSentence(contribution)}
-                    /* Whose it is, and where it applies. The scope was on
-                       every contribution the whole time and on no row: a tool
-                       offered to one workspace read exactly like one offered
-                       to all of them. Only said when it narrows something —
-                       "everywhere" under every row is a word nobody reads. */
+                    /* Whose it is and where it applies, including global
+                       scope, so every capability has the same two facts. */
                     desc={
-                      contribution.scope.kind === 'global'
-                        ? pluginName(contribution.owner)
-                        : `${pluginName(contribution.owner)} · ${scopeSentence(contribution.scope)}`
+                      `${pluginName(contribution.owner)} · ${scopeSentence(contribution.scope)}`
                     }
                     control={
                       contribution.kind === 'tool' ? (
@@ -713,7 +707,7 @@ export const PluginsSection = () => {
                         // host knows, without declaring the tool lost.
                         <Chip
                           state={pluginToolsReach ? 'ready' : 'available'}
-                          label={pluginToolsReach ? 'reaches agent' : 'own config only'}
+                          label={pluginToolsReach ? 'Reaches agent' : 'Own config only'}
                         />
                       ) : undefined
                     }

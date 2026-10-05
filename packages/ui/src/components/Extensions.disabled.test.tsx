@@ -122,7 +122,7 @@ it('a plugin off for a reason the runtime will not name still reads as off', asy
      does not. */
   mount([plugin({ id: 'off@openai', name: 'Blocked plugin', enabled: false })])
   await act(async () => {})
-  expect(rowFor('Blocked plugin').textContent).toContain('off')
+  expect(rowFor('Blocked plugin').textContent).toContain('Off')
 })
 
 it('removing an installed plugin is an uninstall, and the method says so', async () => {

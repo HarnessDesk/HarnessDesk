@@ -1,9 +1,5 @@
 /* A skill row owns only placement. Visible roles come from the design system. */
 
-.list {
-  margin-bottom: 0;
-}
-
 .name,
 .faces {
   display: flex;
@@ -13,8 +9,13 @@
 .name {
   gap: var(--hd-space-2);
   min-width: 0;
+  width: 100%;
 }
 
 .faces {
-  gap: var(--hd-space-1);
+  gap: 0; /* desk: loaded-agent faces overlap as a stack instead of spaced reach markers */
+}
+
+.faces > * + * {
+  margin-left: calc(-1 * var(--hd-space-1));
 }

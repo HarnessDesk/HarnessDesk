@@ -150,3 +150,15 @@ it("draws a skill's colour and its logo as the plugin rows do, on the icon tile"
   expect(logo).toBeDefined()
   expect(logo?.querySelector('img')?.getAttribute('style')).toBeNull()
 })
+
+it('omits repeated sparks and keeps the entire earned description', () => {
+  mount()
+  expect(container.querySelectorAll('[data-slot="row-mark"]')).toHaveLength(0)
+  expect(container.querySelector('[data-slot="row-desc"]')?.getAttribute('data-wrap')).toBe('true')
+  expect(container.querySelector('[class*="skillDesc"]')).toBeNull()
+})
+
+it('a list with a manifest mark gives every skill a face', () => {
+  mount([...SKILLS, { name: 'marked', description: 'Own identity', enabled: true, brandColor: '#7a5af8' }])
+  expect(container.querySelectorAll('[data-slot="row-mark"]')).toHaveLength(3)
+})
