@@ -250,6 +250,10 @@ export const Popover = ({
             align={sideAlign ?? (align === 'left' ? 'start' : 'end')}
             sideOffset={sideOffset}
             collisionPadding={8}
+            // Base UI nests this portal beside the window's popup. Its
+            // clipping ancestors therefore miss the window itself: a menu
+            // near the bottom can open beyond it, under another surface.
+            collisionBoundary={trigger.current?.closest('[data-slot="app-window"]') ?? undefined}
             /* A row unfolded may flip to the row's other side, never off to a
                third one: short of room it scrolls under `--available-height`,
                the way Base UI's own dropdowns do. */

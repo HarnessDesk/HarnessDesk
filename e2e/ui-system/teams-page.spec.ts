@@ -40,6 +40,19 @@ for(const theme of ['light','dark'] as const) {
   await expect(frame.locator('[data-team-row="team-4"] [data-slot="team-detail"]')).toHaveCount(0)
   const ready=frame.locator('[data-team-row="team-3"]')
   await ready.getByTitle('More',{exact:true}).click()
+  const hide=page.getByRole('menuitem',{name:'Hide',exact:true})
+  await expect(hide).toBeVisible()
+  // A nested menu must collide with its window, not the larger catalogue
+  // viewport: a taller row can otherwise put Hide under the next window.
+  await expect.poll(async()=>{
+   const menu=await hide.boundingBox(),win=await frame.locator('[data-slot="app-window"]').boundingBox()
+   return !!menu&&!!win&&menu.y>=win.y&&menu.y+menu.height<=win.y+win.height
+  }).toBe(true)
+  await expect.poll(()=>hide.evaluate(el=>{
+   const box=el.getBoundingClientRect()
+   return el.contains(document.elementFromPoint(box.x+box.width/2,box.y+box.height/2))
+  })).toBe(true)
+  await frame.locator(':scope > div').screenshot({path:`output/playwright/teams-page/hide-menu-${theme}.png`})
   await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(4)
   await frame.getByRole('button',{name:'Settled',exact:true}).click()

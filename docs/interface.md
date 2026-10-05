@@ -1056,6 +1056,8 @@ sidebar. A dependency or unfinished follow-up keeps a Team active even after
 its Run settles. **Hide** folds settled work out of Active until it changes;
 **Settled** still holds it and offers **Show in Active**. These choices and
 read marks stay on this Mac. Neither changes the Team or what Wrap does.
+Menus stay within their owning window, flipping above a row when there is
+no room below it.
 At a narrow width, this page's short navigation rail becomes a top row,
 then one column when that row no longer fits. Its readings move beneath
 the sentence, leaving a waiting reason whole.
