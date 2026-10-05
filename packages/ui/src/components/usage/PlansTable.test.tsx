@@ -1,3 +1,4 @@
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -63,7 +64,7 @@ const mount = (element: React.ReactElement): void => {
 
 const rowFor = (name: string): HTMLElement => {
   const found = [...document.querySelectorAll<HTMLElement>('button[aria-expanded]')].find((node) =>
-    node.textContent?.includes(name),
+    (node.getAttribute('aria-label') ?? node.textContent)?.includes(name),
   )
   expect(found).toBeDefined()
   return found as HTMLElement
@@ -82,13 +83,13 @@ describe('ShapeFilters', () => {
     )
     mount(<ShapeFilters counts={counts} value="all" onChange={() => {}} />)
     const text = host.textContent ?? ''
-    expect(text).toContain('All 6')
-    expect(text).toContain('Windows 2')
-    expect(text).toContain('Allowances 1')
-    expect(text).toContain('Balances 1')
-    expect(text).toContain('Keys 0')
-    expect(text).toContain('Free 0')
-    expect(text).toContain('Not reporting 2')
+    expect(text).toContain('All · 6')
+    expect(text).toContain('Windows · 2')
+    expect(text).toContain('Allowances · 1')
+    expect(text).toContain('Balances · 1')
+    expect(text).not.toContain('Keys')
+    expect(text).not.toContain('Free')
+    expect(text).toContain('Not reporting · 2')
   })
 
   it('reports the picked filter on change', () => {
@@ -502,15 +503,15 @@ describe('PlansTable', () => {
     )
     for (const account of ['free@example.com', 'nobudget@example.com']) {
       const cells = rowFor(account).closest('tr')?.querySelectorAll('td') ?? []
-      const leftCell = cells[3]
+      const leftCell = cells[2]
       expect(leftCell?.querySelector('[data-slot="segment-meter"]')).toBeNull()
-      expect(leftCell?.textContent).toBe('—')
+      expect(leftCell?.textContent).toBe('No limit')
     }
   })
 
   // A spent balance is a real zero, not "nothing to report" — its track
   // still draws, in the danger tone, unlike Free/Key-no-budget above.
-  it('still draws the meter, at zero, for a spent Balance row', () => {
+  it('shows the amount and Spent status for a spent Balance row', () => {
     const balance = info('balance-agent', 'Balance Agent')
     const reports = [report({ runtime: balance.id, account: 'spent@example.com', billing: billing(['balance']), credits: { remaining: 0, unit: 'USD' } })]
     mount(
@@ -526,8 +527,9 @@ describe('PlansTable', () => {
       />,
     )
     const cells = rowFor('spent@example.com').closest('tr')?.querySelectorAll('td') ?? []
-    expect(cells[3]?.querySelector('[data-slot="segment-meter"]')).not.toBeNull()
-    expect(cells[4]?.textContent).toBe('0%')
+    expect(cells[2]?.querySelector('[role="progressbar"]')).toBeNull()
+    expect(cells[2]?.textContent).toBe('$0')
+    expect(cells[1]?.textContent).toBe('Spent')
   })
 
   // A not-reporting row (`primaryShapeOf` is `'none'`) reads its own status —
@@ -550,19 +552,16 @@ describe('PlansTable', () => {
       />,
     )
     const cells = rowFor('nothing@example.com').closest('tr')?.querySelectorAll('td') ?? []
-    const [, shapeCell, statusCell, leftCell, percentCell, amountCell, , resetsCell] = cells
+    const [, statusCell, leftCell, resetsCell] = cells
     expect(statusCell?.textContent).toBe('Not reporting')
-    expect(shapeCell?.textContent).toBe('—')
     expect(leftCell?.textContent).toBe('—')
-    expect(percentCell?.textContent).toBe('—')
-    expect(amountCell?.textContent).toBe('—')
     expect(resetsCell?.textContent).toBe('—')
 
     const counts = shapeCountsOf(rowsFor(reports).map((row) => row.shape))
     expect(counts.none).toBe(1)
   })
 
-  it('builds real table semantics — column headers, and a row whose first cell holds the disclosure', () => {
+  it('builds real table semantics — column headers, and a row whose trailing cell holds the disclosure', () => {
     const codex = info('codex', 'OpenAI Codex')
     const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]
     mount(
@@ -579,7 +578,7 @@ describe('PlansTable', () => {
     )
     expect(host.querySelector('table')).not.toBeNull()
     const headers = [...host.querySelectorAll('th')].map((node) => node.textContent)
-    expect(headers).toEqual(['Account', 'Shape', 'Status', 'Left', '%', 'Amount', '≈ Turns', 'Resets'])
+    expect(headers).toEqual(['Account', 'Status', 'Left', 'Resets', 'Details'])
     const row = rowFor('me@example.com')
     expect(row.closest('td')?.parentElement?.tagName).toBe('TR')
     expect(row.getAttribute('aria-controls')).toBeTruthy()
@@ -707,11 +706,40 @@ describe('NotReportingList', () => {
     expect(onRefresh).toHaveBeenCalledWith(codex.id)
   })
 
-  it('draws a word rather than a button when there is nothing to do', () => {
+  it('draws no control when there is nothing to do', () => {
     const codex = info('codex', 'OpenAI Codex')
     const entries = entriesFromSilent([{ info: codex, reason: 'It reports its plan once an account is connected.' }])
     mount(<NotReportingList entries={entries} />)
-    expect(host.textContent ?? '').toContain('—')
+    expect(host.querySelector('[data-slot="row-ctl"]')).toBeNull()
     expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Sign in'))).toBe(false)
   })
+})
+
+it('combines each shape into one Left cell and moves disclosure to the trailing cell', () => {
+ const reports = [
+  report({ account:'window@example.com', billing:billing(['windows']), lanes:[lane({id:'Weekly',usedPercent:21})] }),
+  report({ account:'balance@example.com', billing:billing(['balance']), credits:{remaining:14,unit:'USD'}, turns:{unitsPerTurn:0.1,count:10,since:NOW-DAY} }),
+  report({ account:'free@example.com', billing:billing(['free']) }),
+ ]
+ mount(<PlansTable rows={rowsFor(reports)} byId={byIdOf(info('a','Alpha'))} now={NOW} filter="all" preferenceFor={()=>({})} onRefreshAccount={()=>{}} onStopTracking={()=>{}} onOpenPlanSettings={()=>{}} />)
+ expect([...host.querySelectorAll('th')].map(n=>n.textContent)).toEqual(['Account','Status','Left','Resets','Details'])
+ const cells=(name:string)=>rowFor(name).closest('tr')!.querySelectorAll('td')
+ expect(cells('window@example.com')[2]!.textContent).toBe('79%')
+ expect(cells('window@example.com')[2]!.querySelector('[data-slot="progress"]')).not.toBeNull()
+ expect(cells('balance@example.com')[2]!.textContent).toContain('$14')
+ expect(cells('balance@example.com')[2]!.textContent).toContain('≈ 140 turns')
+ expect(cells('balance@example.com')[2]!.querySelector('[role="progressbar"]')).toBeNull()
+ expect(cells('free@example.com')[2]!.textContent).toBe('No limit')
+ expect(cells('window@example.com')[0]!.querySelector('button')).toBeNull()
+ expect(rowFor('window@example.com').closest('td')).toBe(cells('window@example.com')[4])
+})
+
+it('keeps a plain account row and does not repeat the runtime when it is the title', () => {
+ const agent = info('alpha', 'Alpha')
+ mount(<PlansTable rows={rowsFor([report({ runtime: agent.id, billing: billing(['free']) })])} byId={byIdOf(agent)} now={NOW} filter="all" preferenceFor={() => ({})} onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />)
+ const row = host.querySelector('tbody tr')!
+ expect(row.hasAttribute('data-interactive')).toBe(false)
+ const texts = row.querySelectorAll('td:first-child [data-slot="text"]')
+ expect(texts[0]?.textContent).toBe('Alpha')
+ expect(texts[1]?.textContent).toBe('free tier')
 })

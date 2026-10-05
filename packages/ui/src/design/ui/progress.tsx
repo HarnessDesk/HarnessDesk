@@ -21,6 +21,8 @@ import styles from './progress.module.css'
 type ProgressProps = Omit<React.ComponentProps<'div'>, 'children'> & {
   /** Where the fill reaches, out of `max`. Clamped. */
   value: number | null
+  /** Phrasing content when a meter is inside a button. */
+  as?: 'div' | 'span'
   max?: number
   /** The reading, shown after the track. `false` hides it. */
   label?: React.ReactNode | false
@@ -35,6 +37,7 @@ type ProgressProps = Omit<React.ComponentProps<'div'>, 'children'> & {
 
 const Progress = ({
   className,
+  as: Component = 'div',
   value,
   max = 100,
   label,
@@ -68,7 +71,7 @@ const Progress = ({
       : tone
 
   return (
-    <div
+    <Component
       data-slot="progress"
       data-measure={measure}
       data-tone={resolvedTone}
@@ -80,7 +83,7 @@ const Progress = ({
       aria-valuemax={safeMax}
       {...props}
     >
-      <div
+      <Component
         data-slot="progress-track"
         {...(measure === 'remaining' && known && announced <= dangerAt ? { 'data-empty': '' } : {})}
         className={cn(
@@ -90,22 +93,22 @@ const Progress = ({
           !known && 'border border-dashed border-(--hd-border) bg-transparent opacity-50',
         )}
       >
-        <div
+        <Component
           data-slot="progress-fill"
           /* `tone="neutral"` draws the foreground, not the grey the track is
              already painted in: a fill the same colour as its track reports
              nothing. Only a stated verdict reaches for a state colour. */
           className={cn(
-            'h-full rounded-full transition-[width] duration-(--hd-duration) ease-(--hd-ease)',
+            'block h-full rounded-full transition-[width] duration-(--hd-duration) ease-(--hd-ease)',
             resolvedTone === 'neutral' ? 'bg-(--hd-muted-foreground)' : dotTone({ tone: resolvedTone }),
           )}
           style={{ width: `${percent}%` }}
         />
-      </div>
+      </Component>
       {reading != null && (
         <span className="shrink-0 text-xs tabular-nums text-(--hd-muted-foreground)">{reading}</span>
       )}
-    </div>
+    </Component>
   )
 }
 

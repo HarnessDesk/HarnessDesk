@@ -5,12 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runtimeId, type LedgerReport } from '@harnessdesk/protocol'
 
 import { Ranked } from './Usage'
-import styles from './usage/usage.module.css'
 
 /**
  * "Where it went"'s change chip is by-agent only, and only real for an agent
  * the previous period actually saw — an agent with nothing recorded before
- * gets no chip. Both shapes have to emit the same six grid cells, or the row
+ * gets no chip. Both shapes have to emit the same six table cells, or the row
  * without a chip slides its share, tokens and amount one column left (review
  * #1011, B3) — confirmed in `after-where-it-went-light.png`.
  */
@@ -48,7 +47,7 @@ const ALPHA = runtimeId('claude')
 const BETA = runtimeId('codex')
 
 describe('Ranked row alignment', () => {
-  it('emits the same number of grid cells whether or not a row has a change chip', () => {
+  it('emits the same number of table cells whether or not a row has a change chip', () => {
     const ledger: LedgerReport = {
       days: 3,
       currency: 'USD',
@@ -100,14 +99,14 @@ describe('Ranked row alignment', () => {
       />,
     )
 
-    const rows = [...container.querySelectorAll(`.${styles.rank}`)]
+    const rows = [...container.querySelectorAll('tbody tr')]
     expect(rows).toHaveLength(2)
     // Alpha has a real previous total and gets a chip; Beta's previous total
     // is zero and gets none — but the row itself still emits every cell.
     expect(rows[0]?.textContent).toContain('Alpha')
-    expect(rows[0]?.children).toHaveLength(6)
+    expect(rows[0]?.children).toHaveLength(5)
     expect(rows[1]?.textContent).toContain('Beta')
-    expect(rows[1]?.children).toHaveLength(6)
+    expect(rows[1]?.children).toHaveLength(5)
   })
 
   it('reserves no chip column at all on the model or project pivots', () => {
@@ -143,11 +142,11 @@ describe('Ranked row alignment', () => {
       />,
     )
 
-    const row = container.querySelector(`.${styles.rank}`)
+    const row = container.querySelector('tbody tr')
     // No `previousByRuntime` on this pivot, so no chip is ever computed —
     // the row draws five cells, and the grid it sits in is keyed on the
     // pivot so that fifth column never reserves a dead 72px track.
-    expect(row?.children).toHaveLength(5)
-    expect(row?.getAttribute('data-pivot')).toBe('model')
+    expect(row?.children).toHaveLength(4)
+    expect([...container.querySelectorAll('th')].map(node => node.textContent)).toEqual(['Name', 'Share', 'Tokens', 'Cost'])
   })
 })

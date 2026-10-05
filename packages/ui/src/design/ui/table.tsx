@@ -95,12 +95,18 @@ const TableRow = ({
   />
 )
 
+/** Collapse a narrow column without removing it from the semantic grid.
+ * A spanning detail row must see the same columns before and after it opens.
+ * The important width overrides a caller's normal column geometry. */
+const collapsedColumn = '@max-[640px]:w-0! @max-[640px]:p-0! @max-[640px]:border-0! @max-[640px]:overflow-hidden'
+
 const TableHead = ({
   className,
   variant = 'default',
   pinned = false,
   align = 'start',
   numeric = false,
+  collapseBelow,
   scope = variant === 'row' ? 'row' : 'col',
   ...props
 }: Omit<React.ComponentProps<'th'>, 'align'> & {
@@ -108,12 +114,15 @@ const TableHead = ({
   pinned?: boolean
   align?: 'start' | 'center' | 'end'
   numeric?: boolean
+  /** Keep this column in the grid, but give it zero width below 640px. */
+  collapseBelow?: 'sm'
 }) => (
   <th
     scope={scope}
     data-slot="table-head"
     data-variant={variant}
     data-align={numeric ? 'end' : align}
+    data-collapse-below={collapseBelow}
     {...(pinned ? { 'data-pinned': '' } : {})}
     className={cn(
       'h-(--hd-table-head-h) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) text-left align-middle text-(length:--hd-table-head-size) font-medium text-(--hd-table-head-ink)',
@@ -126,6 +135,7 @@ const TableHead = ({
       pinned && 'bg-(--hd-background) group-data-[interactive]/matrix:group-hover/matrix:[background:linear-gradient(var(--hd-hover),var(--hd-hover)),var(--hd-background)] group-data-[state=selected]/matrix:[background:linear-gradient(var(--hd-selected),var(--hd-selected)),var(--hd-background)] group-data-[state=selected]/matrix:group-data-[interactive]/matrix:group-hover/matrix:[background:linear-gradient(var(--hd-selected),var(--hd-selected)),var(--hd-background)]',
       !numeric && align === 'center' && 'text-center',
       (numeric || align === 'end') && 'text-right',
+      collapseBelow === 'sm' && collapsedColumn,
       className,
     )}
     {...props}
@@ -144,18 +154,22 @@ const TableCell = ({
   align = 'start',
   lead,
   numeric = false,
+  collapseBelow,
   children,
   ...props
 }: Omit<React.ComponentProps<'td'>, 'align'> & {
   variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel'
   align?: 'start' | 'center' | 'end'
   numeric?: boolean
+  /** Keep this column in the grid, but give it zero width below 640px. */
+  collapseBelow?: 'sm'
   lead?: React.ReactNode
 }) => (
   <td
     data-slot="table-cell"
     data-variant={variant}
     data-align={numeric ? 'end' : align}
+    data-collapse-below={collapseBelow}
     className={cn(
       variant === 'default' && 'py-1.5 whitespace-nowrap',
       variant === 'matrix' && 'py-0 text-center',
@@ -166,6 +180,7 @@ const TableCell = ({
       'h-(--hd-table-row-min) in-data-[rows=bare]:h-(--hd-table-row-min-bare) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) align-middle',
       !numeric && align === 'center' && 'text-center',
       (numeric || align === 'end') && 'text-right tabular-nums',
+      collapseBelow === 'sm' && collapsedColumn,
       className,
     )}
     {...props}

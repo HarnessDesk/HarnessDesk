@@ -43,7 +43,7 @@ for (const theme of ['light','dark'] as const) {
    const summary=el.querySelector('[data-slot="goal-receipt"] [data-section-head]')!
    const cost=el.querySelector('section[aria-label="Cost"]')!
    const heading=cost.querySelector('[data-slot="section-name"]')!
-   const title=[...cost.querySelectorAll('[data-slot="row-title"]')].find(node=>node.textContent==='Alpha')!
+   const title=[...cost.querySelectorAll('[data-slot="key-value-row"] dt')].find(node=>node.textContent==='Alpha')!
    const answer=[...el.querySelectorAll('[data-slot="goal-receipt"] [data-slot="row"]')].find(node=>node.textContent?.includes('The change was checked'))!
    return {top:box(summary).top-box(column).top, cost:box(heading).left-box(title).left,
     answerMark:answer.querySelector('[data-slot="row-mark"]')!==null,

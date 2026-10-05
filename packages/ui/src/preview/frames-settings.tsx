@@ -11,6 +11,7 @@ import { InstallPlugin } from '../components/InstallPlugin'
 import { PluginsSection } from '../components/PluginsSection'
 import { SchemaForm } from '../components/SchemaForm'
 import { SetupDesk } from '../components/SetupDesk'
+import { UsageSection } from '../components/SettingsAgents'
 import { SkillSheet } from '../components/SkillSheet'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
@@ -105,6 +106,14 @@ export const SettingsFrames = () => {
       <Frame id="settings-archive" title="Settings › Archive">
         <div className="p-4">
           <ArchiveSection />
+        </div>
+      </Frame>
+      <Frame id="settings-account-usage" title="Settings › Account › Usage">
+        <div className="p-4" data-hd-density="comfortable">
+          <UsageSection name="Preview" limits={{ hasCredits: true, balance: 5, windows: [
+            { label: '5-hour', usedPercent: 10, windowMinutes: 300, resetsAt: Date.now() + 2 * 3_600_000 + 14 * 60_000 },
+            { label: 'Weekly', usedPercent: 88, windowMinutes: 10080, resetsAt: Date.now() + 3 * 86_400_000 },
+          ] }} />
         </div>
       </Frame>
       <Frame id="settings-extensions" title="Settings › Extensions">

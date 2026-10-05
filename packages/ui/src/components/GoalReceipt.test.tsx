@@ -247,20 +247,21 @@ it('renders labelled card groups, titled work and speaker-led prose with old-car
   expect(container.textContent).not.toContain('Alpha · Alpha')
 })
 
-it('Record retains the aggregate source and observation age, including an unknown observation time', () => {
+it('Cost retains the total footer and Sources retains observation age', () => {
   const base = overviewReport()
   const report = { ...base, totals: { ...base.totals, usd: { ...base.totals.usd, value: 3, sourceIds: ['total-source'] } },
     sources: [{ id: 'total-source', kind: 'corpus' as const, label: 'Recorded agent usage', observedAt: 0, checkedAt: Date.now(), stale: true, problem: null }] }
   const insight = { report, loading: false, problem: null, onRefresh: () => {} }
   act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" insight={insight} />))
-  const record = container.querySelector('[data-slot="summary-list"]')!
+  const record = container.querySelector('[data-footer]')!
   expect(record.textContent).toContain('$3.00')
-  expect(record.textContent).toContain('recorded usage')
-  expect(record.textContent).toContain('Recorded agent usage')
-  expect(record.textContent).toContain('minutes since observation')
+  expect(record.textContent).toContain('Recorded usage')
+  act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Sources')!.click())
+  expect(document.body.textContent).toContain('Recorded agent usage')
+  expect(document.body.textContent).toContain('minutes since observation')
   const unknown = { ...report, sources: [{ ...report.sources[0]!, observedAt: null }] }
   act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" insight={{ ...insight, report: unknown }} />))
-  expect(record.textContent).toContain('Observation time unavailable')
+  expect(document.body.textContent).toContain('Observation time unavailable')
   const partial = { ...unknown, totals: { ...unknown.totals, usd: { ...unknown.totals.usd, quality: 'floor' as const, coverage: 'partial' as const } } }
   act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" insight={{ ...insight, report: partial }} />))
   expect(record.textContent).toContain('At least')

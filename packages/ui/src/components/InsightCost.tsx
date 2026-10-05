@@ -1,14 +1,14 @@
 import { useState } from 'react'
-import type { InsightBreakdown, InsightDimension, InsightReport, MessageCharge, SessionPointer } from '@harnessdesk/protocol'
+import type { InsightMetric, InsightBreakdown, InsightDimension, InsightReport, MessageCharge, SessionPointer } from '@harnessdesk/protocol'
 
 import { metricWords, receiptMetricWords, type MetricWords } from '../lib/insight'
-import { Button, Chip, Dialog, Note, Row, RowValue, Rows, SectionHead, Tabs, TabsList, TabsTrigger } from '../design'
+import { Button, Chip, Dialog, KeyValue, KeyValueRow, Note, Row, Rows, Text, SectionHead, Tabs, TabsList, TabsTrigger } from '../design'
 
 export interface InsightCostProps {
   readonly report: InsightReport | null
   readonly loading: boolean
   readonly problem: string | null
-  /** Receipt presents the total in its Record card. */
+  /** Receipt uses plain accounting words and explains that the read is separate from wrap. */
   readonly detailOnly?: boolean
   readonly onRefresh: () => void
   readonly onSeat?: (seat: string) => void
@@ -42,40 +42,32 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
   const now = Date.now()
   const describe = detailOnly ? receiptMetricWords : metricWords
   const words = describe(report.totals.usd, report.sources, now)
-  const fields = ['qualifier', 'coverage', 'source', 'freshness'] as const
-  const parts = selected ? [...selected.rows.map(row => describe(row.amounts.usd, report.sources, now)), describe(selected.unattributed.usd, report.sources, now)] : []
-  const shared = fields.filter(field => parts.length > 0 && parts.every(part => part[field] === parts[0]![field]))
-  // Shared facts are already beside the total when equal to it; otherwise
-  // they belong to this group. A row only carries the facts that vary.
-  const groupFacts = shared.map(field => parts[0]![field] === words[field] ? null : parts[0]![field]).filter(Boolean)
-  const rowFacts = (part: MetricWords) => fields.filter(field => !shared.includes(field) && part[field] !== words[field]).map(field => part[field]).filter(Boolean)
+  const facts = (part: MetricWords) => [part.qualifier, part.coverage, part.source, part.freshness].filter(Boolean).join(' · ')
+  const reading = (part: MetricWords, metric: InsightMetric) => {
+    const qualifier = metric.quality === 'floor' ? 'At least' : metric.quality === 'estimate' ? 'Estimate' : null
+    return <div className="flex flex-col items-end">{part.value}{[qualifier, part.coverage].filter(Boolean).length > 0 && <Text as="div" role="meta">{[qualifier, part.coverage].filter(Boolean).join(' · ')}</Text>}</div>
+  }
+
   return (
     <section aria-label="Cost">
-      <SectionHead name={detailOnly ? "Cost detail" : "Cost"} description={[detailOnly ? 'Recorded usage is read separately from the wrap. Refresh reads it again.' : null, ...groupFacts].filter(Boolean).join(' · ') || undefined} action={<Button size="sm" variant="outline" onClick={onRefresh}>Refresh</Button>} />
-      {!detailOnly && <Rows>
-        <Row title="Recorded usage" desc={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')} control={<RowValue numeric>{words.value}</RowValue>} />
-      </Rows>}
-      {(selected || report.breakdowns.length > 1) && <Rows>
-      {report.breakdowns.length > 1 && <Row title={
-        <Tabs value={selected?.dimension ?? ''} onValueChange={(next) => setDimension(next as InsightDimension)}>
-          <TabsList aria-label="Cost breakdown">
-            {report.breakdowns.map((breakdown) => <TabsTrigger key={breakdown.dimension} value={breakdown.dimension}>{labelFor(breakdown.dimension)}</TabsTrigger>)}
-          </TabsList>
-        </Tabs>
-      } />}
-      {selected && <>
-        {selected.rows.map((row) => {
+      <SectionHead name="Cost" description={detailOnly ? 'Recorded usage is read separately from the wrap. Refresh reads it again.' : undefined} action={<Button size="sm" variant="outline" onClick={onRefresh}>Refresh</Button>} />
+      {report.breakdowns.length > 1 && <Tabs value={selected?.dimension ?? ''} onValueChange={next => setDimension(next as InsightDimension)}>
+        <TabsList aria-label="Cost breakdown">{report.breakdowns.map(breakdown => <TabsTrigger key={breakdown.dimension} value={breakdown.dimension}>{labelFor(breakdown.dimension)}</TabsTrigger>)}</TabsList>
+      </Tabs>}
+      <KeyValue className="items-center gap-y-(--hd-space-3)">
+        {selected?.rows.map(row => {
           const rowWords = describe(row.amounts.usd, report.sources, now)
           const { seat, message, session } = row
           const action = seat !== null && onSeat ? () => onSeat(seat) : message !== null && onMessage ? () => onMessage(message) : session !== null && onSession ? () => onSession(session) : undefined
-          return <Row key={row.key} title={row.label} {...(action ? { onClick: action } : {})} desc={[row.note, ...rowFacts(rowWords)].filter(Boolean).join(' · ') || undefined} control={<RowValue numeric>{rowWords.value}</RowValue>} />
+          return <KeyValueRow key={row.key} numeric label={action ? <Button variant="link" size="sm" onClick={action}>{row.label}</Button> : row.label} title={[row.note, rowWords.qualifier, rowWords.coverage].filter(Boolean).join(' · ') || undefined}>{reading(rowWords, row.amounts.usd)}</KeyValueRow>
         })}
-        <Row title="Unattributed" desc={[selected.reason ?? 'No unique historical Seat could be established.', ...rowFacts(describe(selected.unattributed.usd, report.sources, now))].filter(Boolean).join(' · ')} control={<RowValue numeric>{describe(selected.unattributed.usd, report.sources, now).value}</RowValue>} />
-      </>}
-      </Rows>}
+        {selected && <KeyValueRow numeric label="Unattributed" title={selected.reason ?? 'No unique historical Seat could be established.'}>{reading(describe(selected.unattributed.usd, report.sources, now), selected.unattributed.usd)}</KeyValueRow>}
+        <KeyValueRow numeric emphasis label="Recorded usage" footer>{reading(words, report.totals.usd)}</KeyValueRow>
+      </KeyValue>
       {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
       <Button size="sm" variant="outline" onClick={() => setShowSources(true)}>Sources</Button>
       {showSources && <Dialog title="Recorded usage sources" onClose={() => setShowSources(false)} footer={<Button variant="default" onClick={() => setShowSources(false)}>Close</Button>}>
+        <KeyValue>{selected?.rows.map(row => <KeyValueRow key={row.key} label={row.label}>{[row.note, facts(describe(row.amounts.usd, report.sources, now))].filter(Boolean).join(' · ')}</KeyValueRow>)}{selected && <KeyValueRow label="Unattributed">{[selected.reason, facts(describe(selected.unattributed.usd, report.sources, now))].filter(Boolean).join(' · ')}</KeyValueRow>}<KeyValueRow label="Recorded usage">{facts(words)}</KeyValueRow></KeyValue>
         <Rows>{report.sources.map((source) => <Row key={source.id} title={source.stale ? 'Stale source' : source.label} desc={sourceWords(source)} control={<Chip tone={source.problem ? 'warning' : 'neutral'}>{source.problem ? 'Problem' : 'Recorded'}</Chip>} />)}</Rows>
       </Dialog>}
     </section>

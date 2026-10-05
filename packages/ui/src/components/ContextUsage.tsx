@@ -10,7 +10,8 @@ import {
   type ContextComposition,
   type ContextFill,
 } from '../lib/context-usage'
-import { describeLimits, formatReset } from '../lib/limits'
+import { describeLimits } from '../lib/limits'
+import { formatResetCountdown } from '../lib/usage'
 import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
 import { ComposerTrack } from './ComposerControls'
 import styles from './ContextUsage.module.css'
@@ -22,6 +23,7 @@ import {
   MenuLabel,
   MenuNote,
   Popover,
+  UsageMeterRow,
   Progress,
   ProgressRing,
   ProgressStack,
@@ -267,24 +269,5 @@ const Row = ({
 const WindowRow = ({ window }: { window: UsageWindow }) => {
   const left = Math.min(100, Math.max(0, Math.round(100 - window.usedPercent)))
   const tone = left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'
-  const reset = formatReset(window.resetsAt)
-  return (
-    <div className={styles.window}>
-      <Row
-        label={window.label}
-        value={`${left}% left`}
-        hint={reset ? `resets ${reset}` : null}
-        tone={toneOf(tone)}
-      />
-      <Progress
-        className={styles.windowProgress}
-        value={left}
-        measure="remaining"
-        size="sm"
-        label={false}
-        aria-label={`${window.label} — what is left`}
-        {...(tone === 'good' ? { tone: 'brand' as const } : {})}
-      />
-    </div>
-  )
+  return <div className={styles.window}><UsageMeterRow name={window.label} percent={left} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} tone={toneOf(tone)} standalone /></div>
 }

@@ -63,7 +63,7 @@ export const TablesFamily = () => (
           </TableBody>
         </Table>
         <SectionHead name="Key-value" />
-        <KeyValue><KeyValueRow label="Owner">Jane Doe</KeyValueRow><KeyValueRow label="Host">acme.dev</KeyValueRow><KeyValueRow label="Recorded cost" numeric>$12.34</KeyValueRow></KeyValue>
+        <KeyValue><KeyValueRow label="Owner">Jane Doe</KeyValueRow><KeyValueRow label="Host">acme.dev</KeyValueRow><KeyValueRow label="Recorded cost" numeric footer emphasis>$12.34</KeyValueRow></KeyValue>
         <SectionHead name="Empty list" />
         <Rows><EmptyState variant="row" title="No projects" description="Projects appear here after you choose a folder." /></Rows>
         <p className="text-(length:--hd-text-xs) text-(--hd-muted-foreground)">Log: see the Git surface for its fixed 26px row pitch. Hover the first project to see the interactive row.</p>

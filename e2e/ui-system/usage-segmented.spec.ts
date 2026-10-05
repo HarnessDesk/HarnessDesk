@@ -321,21 +321,14 @@ for (const [look, theme] of [
     expect(sticky.offset).toBeLessThanOrEqual(sticky.strip + 4)
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
     expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
-    // Overview lists only the accounts that need attention (#1057); the
-    // healthy account's reading is judged where every account is, on Plans —
-    // now a table, one row per account (claude/plans-table), whose own
-    // percent column carries the same rule the card's headline figure did:
-    // a plain reading takes no judgement colour, only low and spent are
-    // claims (`usageReadingTone`).
+    // Overview lists accounts needing attention; Plans carries every account.
+    // Left keeps neutral healthy text; its continuous bar carries the status tone.
     await dashboard.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]', { hasText: 'Plans' }).click()
     const plansTable = dashboard.getByRole('table')
     await expect(plansTable).toBeVisible()
-    // The percent column is the table's own reading: a header now names it
-    // ("%"), so the cell is found by role and column rather than a
-    // test-only marker (claude/plans-table review, N1) — one cell per row,
-    // scoped under the row that carries this account's own name.
+    // Left is the third column, with the continuous meter and percent.
     const percentCellFor = (account: string) =>
-      plansTable.getByRole('row', { name: new RegExp(account) }).getByRole('cell').nth(4)
+      plansTable.getByRole('row', { name: new RegExp(account) }).getByRole('cell').nth(2)
     // `data-tone` is set synchronously with the render — no CSS transition to
     // settle before it can be read, unlike the computed colour it selects
     // (see `inkOf`'s own long comment on why a colour read cannot be trusted

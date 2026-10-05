@@ -921,8 +921,10 @@ card groups show What finished, titled Work, speaker-led prose Answers, and a fi
 Record with findings status, recorded cost and wrap date. The total keeps its
 source, observation age and qualifications. Cost is read separately from the
 frozen wrap; Record and its breakdowns show the same read, and Refresh reads
-the sources again. Facts shared by every part are said once, while differing
-row facts remain beside that amount. Older cards show their
+the sources again. Cost lists one numeric row per part, with Recorded usage
+as its footer beneath a strong rule. The Sources dialog keeps each row's source,
+observation age and qualifications; differing amount qualifications remain
+beside that amount. Older cards show their
 number when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
