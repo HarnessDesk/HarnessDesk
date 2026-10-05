@@ -22,6 +22,7 @@ const SILENT = runtimeId('silent')
 const runtime = (id: RuntimeId): AgentRuntime =>
   ({
     info: { id, name: String(id), capabilities: { metered: false }, presentation: { name: String(id) } },
+    health: () => ({ state: 'ready' }),
     getRateLimits: async () => null,
     getAccount: async () => ({ accounts: [], signInMethods: [] }),
   }) as unknown as AgentRuntime
