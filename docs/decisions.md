@@ -1825,6 +1825,12 @@ skill list that was never observed restarts through the same host barrier;
 `canReadWhileIdle` distinguishes a missing snapshot from a real empty answer.
 Concurrent reads, including account status, join any restart already in flight
 before asking the adapter, so handshake time cannot erase their answers.
+Runtime-backed filesystem, process and extension calls, and hook reads, use
+that same stop/start barrier and count as activity until they finish. A live
+filesystem watch, like a terminal, keeps the process until unsubscribed.
+Deleting, archiving, renaming or updating a conversation invalidates retained
+history pages of every size and side. A page fetched across such a change is
+not retained; an unobserved page is read afresh through the host barrier.
 
 Both existing intervals stay ten minutes: a finished Seat first releases
 its handle after its quiet interval, then a wholly unused runtime stops after

@@ -119,6 +119,26 @@ try {
   const allChildren = await children()
   await until(async () => await health() === 'idle' && allChildren.every((child) => !running(child.pid)), 'Flow resources released')
   assert.ok((await host.call('goal/read', { goal: run.goal })).members.some((seat) => seat.closed === null), 'rest preserves membership')
+  // Each runtime-backed surface can be the first operation after idle stop.
+  const hooks = await host.call('runtime/hooks', { runtime, cwd: repo })
+  assert.ok(hooks.some((hook) => hook.id === 'guard-1'), 'hooks remain available after idle restart')
+  await rest()
+  const catalog = await host.call('runtime/catalog', { runtime, cwd: repo })
+  assert.ok(catalog.plugins.length > 0, 'extensions restart before reading the catalogue')
+  await rest()
+  const mcp = await host.call('runtime/mcp/list', { runtime, cwd: repo })
+  assert.ok(mcp.length > 0, 'configured tool servers can be read after idle stop')
+  await rest()
+  const file = await host.call('workspace/readFile', { runtime, path: join(repo, 'README.md') })
+  assert.equal(file.kind, 'text', 'file reads restart before entering the runtime filesystem')
+  await rest()
+  const terminal = await host.call('terminal/open', { runtime, cwd: repo, size: { rows: 24, cols: 80 },
+    command: [process.execPath, '-e', 'process.stdin.resume()'] })
+  await tick()
+  await tick(11 * 60_000)
+  assert.equal(await health(), 'ready', 'the restarted terminal keeps the process alive')
+  await host.call('terminal/close', { terminalId: terminal.terminalId })
+  await rest()
 } finally {
   mock.timers.reset()
   Date.now = realNow

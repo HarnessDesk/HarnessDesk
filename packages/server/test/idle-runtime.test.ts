@@ -779,3 +779,58 @@ test('a history read in flight does not interrupt a finished Seat quiet interval
   release()
   await history
 })
+
+for (const surface of ['hooks', 'files', 'extensions', 'processes'] as const) {
+  test(`${surface} wait for idle stop and shared startup, and protect in-flight work`, async (t) => {
+    const runtime = new IdleRuntime({ id: `surface-${surface}` as never, name: 'Surface Test' })
+    const { host, stateDir } = await makeHost(runtime)
+    let releaseOperation: (() => void) | undefined
+    let entered = false
+    const operationBarrier = new Promise<void>((resolve) => { releaseOperation = resolve })
+    const enter = async () => {
+      assert.equal(runtime.health().state, 'ready', 'runtime-backed calls require completed startup')
+      entered = true
+      await operationBarrier
+    }
+    Object.assign(runtime, {
+      listHooks: async () => { await enter(); return [] },
+      files: { stat: async () => { await enter(); return { kind: 'file', size: 0, isSymlink: false, modifiedAt: null } } },
+      extensions: { catalog: async () => { await enter(); return { plugins: [], marketplaces: [], loadErrors: [], featured: [] } } },
+      processes: { spawn: async () => {
+        await enter()
+        return { id: 'process', onOutput: () => () => {}, onExit: () => () => {}, kill: async () => {}, write: async () => {}, resize: async () => {} }
+      } },
+    })
+    t.after(async () => {
+      releaseOperation?.(); runtime.continueStop(); runtime.continueStart()
+      await host.dispose()
+      await rm(stateDir, { recursive: true, force: true })
+    })
+    // This synthetic workspace is enough for the host's path confinement.
+    await host.call('workspace/open', { path: stateDir })
+    await host.start()
+    runtime.holdNextStop()
+    await until(() => runtime.stops === 1)
+    runtime.holdNextStart()
+    const call = surface === 'hooks' ? host.call('runtime/hooks', { runtime: runtime.info.id })
+      : surface === 'extensions' ? host.call('runtime/catalog', { runtime: runtime.info.id })
+      : surface === 'files' ? host.call('workspace/stat', { runtime: runtime.info.id, path: join(stateDir, 'fixture.txt') })
+      : host.call('terminal/open', { runtime: runtime.info.id, cwd: stateDir, size: { rows: 24, cols: 80 } })
+    const result = Promise.allSettled([call])
+    await pause(10)
+    assert.equal(entered, false, 'a surface cannot enter while the process is stopping')
+    assert.equal(runtime.starts, 1)
+    runtime.continueStop()
+    await until(() => runtime.starts === 2)
+    assert.equal(entered, false, 'a surface cannot enter during handshake')
+    const concurrent = host.call('session/list', { runtime: runtime.info.id })
+    runtime.continueStart()
+    await until(() => entered)
+    await pause(80)
+    assert.equal(runtime.stops, 1, 'the reaper preserves the in-flight surface call')
+    releaseOperation?.()
+    assert.equal((await result)[0]?.status, 'fulfilled')
+    await concurrent
+    assert.equal(runtime.starts, 2, 'the surface shares the normal restart')
+  })
+}

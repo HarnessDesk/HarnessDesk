@@ -269,6 +269,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly #lastDefaults = new Map<string, { readonly config: CodexProtocol.v2.Config; readonly catalog: Catalog }>()
   readonly #knownCwds = new Set<string>()
   readonly #lastListings = new Map<string, Page<SessionSummary>>()
+  #listingEpoch = 0
   readonly #lastSkills = new Map<string, readonly SkillInfo[]>()
   readonly #lastSkillProblems = new Map<string, readonly SkillProblem[]>()
 
@@ -486,7 +487,7 @@ export class CodexRuntime implements AgentRuntime {
    * discarded here. Its stop barrier also keeps new opens behind these reads.
    */
   async stopForIdle(): Promise<boolean> {
-    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.processes.busy) return false
+    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.processes.busy || this.files.busy) return false
     // Keep the observations readable even if nobody opened their menus yet.
     // A failed snapshot leaves the process running, rather than inventing a
     // signed-out account or an empty catalogue when it rests.
@@ -495,7 +496,7 @@ export class CodexRuntime implements AgentRuntime {
       this.listSessions(), this.listSessions({ archived: 'only' }),
       this.defaultSessionOptions(), ...[...this.#knownCwds].map((cwd) => this.defaultSessionOptions(cwd)),
     ])
-    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.processes.busy) return false
+    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.processes.busy || this.files.busy) return false
     this.#idleStopped = true
     await this.#server.stop()
     return true
@@ -874,6 +875,11 @@ export class CodexRuntime implements AgentRuntime {
     return automaticContext(this.#capabilities)
   }
 
+  #invalidateHistory(): void {
+    this.#listingEpoch += 1
+    this.#lastListings.clear()
+  }
+
   #listingKey(query: ListSessionsQuery = {}): string {
     return JSON.stringify([query.archived === 'only', query.cursor ?? null, query.pageSize ?? 40])
   }
@@ -898,6 +904,7 @@ export class CodexRuntime implements AgentRuntime {
       if (!page) throw new Error('This history page has not been read; start the runtime first.')
       return inFolder(page)
     }
+    const epoch = this.#listingEpoch
     const response = await this.#server.request('thread/list', {
       cursor: query.cursor ?? null,
       limit: query.pageSize ?? 40,
@@ -921,7 +928,7 @@ export class CodexRuntime implements AgentRuntime {
       ...stored.filter((row) => !live.some((summary) => summary.id === row.id)),
     ]
     const result = { data: data.sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: response.nextCursor }
-    this.#lastListings.set(key, result)
+    if (epoch === this.#listingEpoch) this.#lastListings.set(key, result)
     return inFolder(result)
   }
 
@@ -983,6 +990,7 @@ export class CodexRuntime implements AgentRuntime {
     // the live overlay would put it straight back.
     if (archived) this.#archived.add(id)
     else this.#archived.delete(id)
+    this.#invalidateHistory()
   }
 
   async deleteSession(id: SessionId): Promise<void> {
@@ -995,6 +1003,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#approvals.abandonSession(id, 'The conversation was deleted.')
     await this.#server.request('thread/delete', { threadId: id })
     this.#archived.delete(id)
+    this.#invalidateHistory()
   }
 
   /** Threads archived while open here, so the overlay below leaves them out. */
@@ -1618,7 +1627,7 @@ export class CodexRuntime implements AgentRuntime {
         this.#catalog.forgetWarning()
         this.#lastDefaults.clear()
         this.#knownCwds.clear()
-        this.#lastListings.clear()
+        this.#invalidateHistory()
         this.#lastSkills.clear()
         this.#lastSkillProblems.clear()
       }
@@ -1634,6 +1643,11 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   #emit(event: AgentEvent): void {
+    if (event.type === 'session/started' || event.type === 'session/closed' ||
+        event.type === 'session/title' || event.type === 'session/status' ||
+        event.type === 'session/settings' || event.type === 'turn/started' || event.type === 'turn/completed') {
+      this.#invalidateHistory()
+    }
     for (const listener of this.#eventListeners) listener(event)
   }
 }

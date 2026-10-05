@@ -391,6 +391,9 @@ const startLogin = (type) => {
   return response
 }
 const deletedThreads = new Set()
+const archivedThreads = new Set()
+const threadNames = new Map()
+let pendingHistoryPage = null
 
 /**
  * The three purely canned rows below are never started or resumed by
@@ -426,7 +429,7 @@ const storedThreads = () => [
     preview:
       '<context source="Git" data-hd-envelope="harnessdesk-v1">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes" data-hd-envelope="harnessdesk-v1">\nStatus: ## main\n</context>',
   }),
-].filter((t) => !deletedThreads.has(t.id))
+].filter((t) => !deletedThreads.has(t.id)).map((t) => threadNames.has(t.id) ? { ...t, name: threadNames.get(t.id) } : t)
 
 /**
  * What Codex has stored of each thread's history, kept the two ways Codex
@@ -1111,6 +1114,7 @@ const FILES = {
   '/w/src/user_service.ts': 'export const x = 1\n',
   '/w/src/index.ts': '',
   '/etc/hosts': '127.0.0.1 localhost\n',
+  ...(process.env['FAKE_CODEX_FILE_ROOT'] ? { [`${process.env['FAKE_CODEX_FILE_ROOT']}/README.md`]: 'Synthetic workspace file\n' } : {}),
 }
 const DIRECTORIES = ['/', '/w', '/w/src', '/etc']
 const childrenOf = (dir) => {
@@ -1899,6 +1903,16 @@ rl.on('line', (line) => {
     }
 
     case 'thread/list':
+      if (process.env['FAKE_CODEX_HOLD_HISTORY_PAGE'] === '1' && params.limit === 20) {
+        // Finish this older read only after deletion has changed the store.
+        pendingHistoryPage = { id, result: { data: storedThreads(), nextCursor: null, backwardsCursor: null } }
+        return
+      }
+      if (process.env['FAKE_CODEX_MUTABLE_HISTORY'] === '1') {
+        send({ id, result: { data: storedThreads().filter((t) => archivedThreads.has(t.id) === Boolean(params.archived)),
+          nextCursor: null, backwardsCursor: null } })
+        return
+      }
       if (process.env['FAKE_CODEX_PAGED_HISTORY'] === '1') {
         send({ id, result: { data: params.cursor ? [thread({ id: 'thread-older' })] : storedThreads(),
           nextCursor: params.cursor ? null : 'next-history', backwardsCursor: null } })
@@ -2274,9 +2288,25 @@ rl.on('line', (line) => {
     case 'thread/delete':
       if (params?.threadId) deletedThreads.add(params.threadId)
       send({ id, result: {} })
+      if (pendingHistoryPage) {
+        const page = pendingHistoryPage
+        pendingHistoryPage = null
+        setImmediate(() => send(page))
+      }
+      return
+
+    case 'thread/archive':
+      archivedThreads.add(params.threadId)
+      send({ id, result: {} })
+      return
+
+    case 'thread/unarchive':
+      archivedThreads.delete(params.threadId)
+      send({ id, result: {} })
       return
 
     case 'thread/name/set':
+      if (process.env['FAKE_CODEX_MUTABLE_HISTORY'] === '1') threadNames.set(params.threadId, params.name)
       send({ id, result: {} })
       notify('thread/name/updated', { threadId: params.threadId, threadName: params.name })
       return

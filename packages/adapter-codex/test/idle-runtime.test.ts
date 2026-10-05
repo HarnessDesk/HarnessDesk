@@ -19,12 +19,12 @@ const until = async (condition: () => boolean | Promise<boolean>): Promise<void>
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
-const rig = async (t: TestContext, mode = 'hold') => {
+const rig = async (t: TestContext, mode = 'hold', env: Readonly<Record<string, string>> = {}) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-idle-'))
   const ledger = join(dir, 'children.ndjson')
   await writeFile(ledger, '')
   const runtime = new CodexRuntime({ binaryPath: FAKE, codexHome: dir,
-    env: { FAKE_CODEX_MCP_CHILDREN: ledger, FAKE_CODEX_MODE: mode } })
+    env: { FAKE_CODEX_MCP_CHILDREN: ledger, FAKE_CODEX_MODE: mode, ...env } })
   t.after(async () => { await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))
@@ -109,4 +109,70 @@ test('a standalone terminal keeps an otherwise unused runtime running', async (t
   await terminal.kill()
   await exited
   assert.equal(await d.stop(), true)
+})
+
+test('an active file watch prevents idle shutdown until unsubscribed', async (t) => {
+  const d = await rig(t)
+  const unwatch = await d.runtime.files.watch(d.dir, () => {})
+  assert.equal(await d.stop(), false, 'a live file subscription still needs this process')
+  unwatch()
+  assert.equal(await d.stop(), true)
+})
+
+test('deletion invalidates retained alternate history pages before idle snapshots', async (t) => {
+  const d = await rig(t)
+  const query = { pageSize: 20 }
+  const before = await d.runtime.listSessions(query)
+  const id = before.data.find((row) => row.id === 'thread-2')!.id
+  await d.runtime.deleteSession(id)
+  assert.equal(await d.stop(), true)
+  assert.ok(!(await d.runtime.listSessions()).data.some((row) => row.id === id))
+  assert.equal(d.runtime.canReadWhileIdle({ method: 'listSessions', query }), false,
+    'the stale page must be fetched through the host start barrier')
+  await assert.rejects(() => d.runtime.listSessions(query), /not been read/)
+})
+
+for (const archived of [true, false]) {
+  test(`${archived ? 'archiving' : 'unarchiving'} invalidates both sides of retained history`, async (t) => {
+    const d = await rig(t, 'hold', { FAKE_CODEX_MUTABLE_HISTORY: '1' })
+    const id = 'thread-2' as never
+    if (!archived) await d.runtime.archiveSession(id, true)
+    const active = { pageSize: 20 }
+    const archive = { pageSize: 20, archived: 'only' as const }
+    await d.runtime.listSessions(active)
+    await d.runtime.listSessions(archive)
+    await d.runtime.archiveSession(id, archived)
+    assert.equal(await d.stop(), true)
+    for (const query of [active, archive]) {
+      assert.equal(d.runtime.canReadWhileIdle({ method: 'listSessions', query }), false)
+      await assert.rejects(() => d.runtime.listSessions(query), /not been read/)
+    }
+    assert.equal((await d.runtime.listSessions()).data.some((row) => row.id === id), !archived)
+    assert.equal((await d.runtime.listSessions({ archived: 'only' })).data.some((row) => row.id === id), archived)
+  })
+}
+
+test('renaming a conversation invalidates retained history titles', async (t) => {
+  const d = await rig(t, 'hold', { FAKE_CODEX_MUTABLE_HISTORY: '1' })
+  const session = await d.runtime.resumeSession('thread-2' as never, { cwd: d.dir })
+  const query = { pageSize: 20 }
+  await d.runtime.listSessions(query)
+  await session.setTitle('Updated title')
+  await until(() => d.events.some((event) => event.type === 'session/title' && event.title === 'Updated title'))
+  assert.equal(d.runtime.canReadWhileIdle({ method: 'listSessions', query }), false, 'the title notification invalidates the page immediately')
+  await session.close()
+  assert.equal(await d.stop(), true)
+  assert.equal(d.runtime.canReadWhileIdle({ method: 'listSessions', query }), false)
+  assert.equal((await d.runtime.listSessions()).data.find((row) => row.id === session.id)?.title, 'Updated title')
+})
+
+test('a history read completed after deletion cannot refill the invalidated cache', async (t) => {
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_HISTORY_PAGE: '1' })
+  const query = { pageSize: 20 }
+  const listing = d.runtime.listSessions(query)
+  await d.runtime.deleteSession('thread-2' as never)
+  assert.ok((await listing).data.some((row) => row.id === 'thread-2'), 'the controlled read captured the older store')
+  assert.equal(d.runtime.canReadWhileIdle({ method: 'listSessions', query }), false)
+  assert.equal(await d.stop(), true)
+  await assert.rejects(() => d.runtime.listSessions(query), /not been read/)
 })

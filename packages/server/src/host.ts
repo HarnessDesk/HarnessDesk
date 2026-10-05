@@ -586,7 +586,7 @@ const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
   'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
   'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
-  'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits',
+  'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits', 'listHooks',
 ])
 const CACHED_RUNTIME_READ_METHODS = new Set<PropertyKey>([
   'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions', 'getAccount',
@@ -2014,9 +2014,29 @@ export class Host {
       this.#catalogs.forget(id)
       this.#updates.delete(id)
     }
+    // These async surfaces belong to the same process as the runtime verbs.
+    // Keep their receiver (including private fields) and share its lifecycle.
+    const surfaces = new WeakMap<object, object>()
     const managed = new Proxy(runtime, {
       get: (target, key) => {
         const member = Reflect.get(target, key, target) as unknown
+        if ((key === 'files' || key === 'processes' || key === 'extensions') && member && typeof member === 'object') {
+          let surface = surfaces.get(member)
+          if (!surface) {
+            surface = new Proxy(member, {
+              get: (plane, method) => {
+                const operation = Reflect.get(plane, method, plane) as unknown
+                if (typeof operation !== 'function') return operation
+                return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+                  await this.#ensureStarted(target)
+                  return Reflect.apply(operation, plane, args)
+                })
+              },
+            })
+            surfaces.set(member, surface)
+          }
+          return surface
+        }
         if (typeof member !== 'function') return member
         if (key === 'listSessions') {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
@@ -2045,10 +2065,10 @@ export class Host {
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
-            if (typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
+            if (key !== 'listHooks' && typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
             return Reflect.apply(member, target, args)
-          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' ? args[0] : undefined)
+          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
         }
         return member.bind(target)
       },

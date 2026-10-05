@@ -15,7 +15,7 @@ test('the production host releases finished-seat MCP processes, protects work, a
     HD_STATE: root, HD_REPO: repo.dir, HD_BOOTSTRAP: new URL('../src/bootstrap.js', import.meta.url).href,
     HD_FAKE: fileURLToPath(new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url)),
     FAKE_CODEX_MODE: 'hold', FAKE_CODEX_MCP_CHILDREN: join(root, 'children.ndjson'),
-    FAKE_CODEX_PAGED_HISTORY: '1',
+    FAKE_CODEX_PAGED_HISTORY: '1', FAKE_CODEX_FILE_ROOT: repo.dir,
   }
   delete env['SHELL']
   delete env['CODEX_HOME']
