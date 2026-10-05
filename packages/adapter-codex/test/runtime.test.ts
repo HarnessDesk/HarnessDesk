@@ -1127,10 +1127,10 @@ test('checkInstallation moves an idle runtime onto an upgraded binary, and waits
 
     // "Upgrade" the binary: discovery probes `--version` in this process's
     // environment, so the fixture reports the new number from here on.
+    const session = await runtime.createSession({ cwd: '/tmp/repo' })
     process.env['FAKE_CODEX_VERSION'] = '0.200.0'
 
-    // Busy: a turn in flight means the change is reported but not acted on.
-    const session = await runtime.createSession({ cwd: '/tmp/repo' })
+    // Busy: the existing conversation stays on its original build while its turn runs.
     await session.send([{ type: 'text', text: 'hello' }])
     await until((seen) => seen.some((event) => event.type === 'turn/started'))
     const deferred = await runtime.checkInstallation()

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -340,3 +343,48 @@ test('a restarted Codex runtime requires a fresh child registration before prote
     else process.env['FAKE_CODEX_VERSION'] = saved
   }
 })
+
+for (const retirement of ['close', 'crash'] as const) {
+  test(`a conversation ${retirement} requires fresh delegated registrations after resume`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-codex-delegation-'))
+    const version = join(dir, 'version')
+    const claims = join(dir, 'servers')
+    await writeFile(version, '0.149.0')
+    const kernel = new ExtensionKernel()
+    const executed: string[] = []
+    await loadPlugin(kernel, 'desk', (ctx) => {
+      for (const name of ['publish', 'merge']) ctx.tools.register({
+        name, description: name, inputSchema: { type: 'object' },
+        execute: () => { executed.push(name); return `${name} ran` },
+      })
+    })
+    const runtime = new CodexRuntime({ binaryPath: FAKE, capabilities: kernel,
+      env: { FAKE_CODEX_MODE: 'delegated-tools-restart-epoch', FAKE_CODEX_VERSION_FILE: version,
+        FAKE_CODEX_CLAIMS: claims } })
+    t.after(async () => { await runtime.dispose(); await kernel.dispose(); await rm(dir, { recursive: true, force: true }) })
+    const events: AgentEvent[] = []
+    runtime.subscribe((event) => events.push(event))
+    await runtime.start()
+    const root = await runtime.createSession({ cwd: '/w' })
+    await root.send([{ type: 'text', text: 'Register the child' }])
+    await waitFor(() => notices(events).some((message) => message.startsWith('TOOL_ANSWER')), 'the initial rooted call')
+    assert.deepEqual(executed, ['publish'])
+    await root.interrupt()
+    if (retirement === 'close') await root.close()
+    else {
+      const pid = (await readFile(claims, 'utf8')).trim().split('\n').map(Number)[1]!
+      process.kill(pid, 'SIGKILL')
+      await waitFor(() => events.some((event) => event.type === 'session/detached' && event.sessionId === root.id), 'the detached root')
+    }
+    await writeFile(version, '0.200.0')
+    const resumed = await runtime.resumeSession(root.id)
+    const before = notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).length
+    await resumed.send([{ type: 'text', text: 'Call the stale child' }])
+    await waitFor(() => notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).length >= before + 2, 'the stale child calls')
+    assert.deepEqual(executed, ['publish'], 'retired registrations cannot authorize calls in the new owner')
+    assert.ok(notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).slice(before).every((message) => /success=false/.test(message)))
+    await resumed.send([{ type: 'text', text: 'Register the child again' }])
+    await waitFor(() => notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).length >= before + 4, 'the fresh child calls')
+    assert.deepEqual(executed, ['publish', 'publish', 'merge'])
+  })
+}
