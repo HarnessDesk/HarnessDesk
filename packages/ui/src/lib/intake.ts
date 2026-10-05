@@ -44,25 +44,18 @@ const scheduleWords = (everyMinutes: number): string => {
   return `${everyMinutes} minute${everyMinutes === 1 ? '' : 's'}`
 }
 
-/** What a trigger declares, as one sentence: "When a pull request opens or is pushed, open review-pr, at most 4 at once." */
-export const triggerSentence = (definition: TriggerDefinition): string => {
-  const opens = 'flow' in definition.opens ? definition.opens.flow : definition.opens.agent
-  const times = definition.concurrency === 1 ? 'once at a time' : `at most ${definition.concurrency} at once`
-  return `${triggerWhenWords(definition)}, open ${opens}, ${times}.`
-}
-
 const triggerWhenWords = (definition: TriggerDefinition): string => definition.on.kind === 'schedule'
   ? `Every ${scheduleWords(definition.on.everyMinutes)}`
   : definition.on.kind === 'pull-request'
     ? `When a pull request ${joinEither(definition.on.events.map((event) => PR_EVENT_WORDS[event]))}`
     : `When an issue ${joinEither(definition.on.events.map((event) => ISSUE_EVENT_WORDS[event]))}`
 
-/** The compact project row names its work, with the exact target and concurrency below. */
+/** The list and both reviews name the target once, with the trigger id and concurrency below. */
 export const triggerRowWords = (definition: TriggerDefinition): { readonly title: string; readonly facts: string } => {
   const opens = 'flow' in definition.opens ? definition.opens.flow : definition.opens.agent
   const action = opens === 'review-pr' ? `review it (${opens})` : opens === 'triager' ? `triage it (${opens})` : opens === 'sweep' ? `run a sweep (${opens})` : `open ${opens}`
   const times = definition.concurrency === 1 ? 'once at a time' : `at most ${definition.concurrency} at once`
-  return { title: `${triggerWhenWords(definition)}, ${action}`, facts: `${opens} · ${times}` }
+  return { title: `${triggerWhenWords(definition)}, ${action}`, facts: `${definition.id} · ${times}` }
 }
 
 /** A trigger's budget, in one line: "Up to $5, 3 rounds, 4 hours; stops after 2 rounds with no progress." */

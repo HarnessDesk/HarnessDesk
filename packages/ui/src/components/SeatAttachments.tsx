@@ -91,13 +91,13 @@ export const SeatAttachments = ({
         <>
           {skills.length > 0 && (
             <>
-              <GroupLine left="Skills" />
+              <GroupLine as="h3" left="Skills" />
               {skills.map(declarationRow)}
             </>
           )}
           {servers.length > 0 && (
             <>
-              <GroupLine left="Servers" />
+              <GroupLine as="h3" left="Servers" />
               {servers.map(declarationRow)}
             </>
           )}

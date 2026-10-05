@@ -319,13 +319,14 @@ export const Block = ({ block }: { block: UiBlock }) => {
                 <TableRow key={index} variant="panel">
                   {block.columns.map((column) => {
                     const cell = row[column.key]
-                    const text = typeof cell === 'string' ? cell : cell == null ? '' : String(cell)
+                    const text = typeof cell === 'string' ? cell
+                      : typeof cell === 'number' || typeof cell === 'boolean' || typeof cell === 'bigint' ? String(cell) : ''
                     return <TableCell
                       key={column.key}
                       variant="panel"
                       align={column.align === 'end' ? 'end' : 'start'}
                     >
-                      {/* Keyed, not positional: a cell the row omits is empty, never the next column's. */}
+                      {/* Keyed, not positional: a missing or unsupported cell gets the empty reading, never the next column's. */}
                       {text.trim() ? text : <Text role="meta">—</Text>}
                     </TableCell>
                   })}
