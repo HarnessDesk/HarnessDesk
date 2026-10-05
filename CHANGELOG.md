@@ -12,6 +12,14 @@ move is real work and is not news to a person weighing an upgrade.
   tool servers. Working turns and terminals keep it running; conversations
   and sign-in remain available, and new work starts it again. (Fixes #1397)
 
+- **A comparison keeps the attempt its judge picked.** Findings on the other
+  attempt no longer hold the person’s keep step; they stay open and explain
+  why they were not kept, including advisory findings and after later reviews.
+  An open list or detail updates when the pick continues, keeping a typed
+  reason. Later steps honour the pick too. A blocker on the picked attempt still holds it.
+  Reviewers can withdraw a mistaken finding from the card that raised it,
+  with a reason kept in its history. (Fixes #1382)
+
 - **An Agent’s brief starts folded.** A newly seated conversation and its
   Side by side tile open on one **Agent brief** row. Open it to read the
   standing order with its headings and lists intact. (Fixes #1379)
