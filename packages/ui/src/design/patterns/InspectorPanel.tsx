@@ -1,10 +1,11 @@
-import { createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createContext, useContext, createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { cn } from '../../lib/utils'
 import { Bar } from '../ui/bar'
 import { ToolbarGap } from '../ui/section'
 import { Button, buttonVariants } from '../ui/button'
 import { ChangeStats } from './Change'
+import { PaneColumn } from './PaneColumn'
 import { Chip, Dot, Search, Text } from './Settings'
 
 /**
@@ -17,23 +18,28 @@ import { Chip, Dot, Search, Text } from './Settings'
  * drift back into a fifth spelling.
  */
 
-const PanelFrame = ({ children, testId }: { children: ReactNode; testId?: string }) => (
-  <div data-slot="inspector-panel" data-testid={testId} className="flex h-full min-w-0 flex-col">
-    {children}
-  </div>
+/** A prose inspector owns one reading gutter in both its bar and body. */
+const PanelInset = createContext<'dense' | 'reading'>('dense')
+const PanelFrame = ({ children, testId, inset = 'dense' }: { children: ReactNode; testId?: string; inset?: 'dense' | 'reading' }) => (
+  <PanelInset.Provider value={inset}>
+    <div data-slot="inspector-panel" data-inset={inset} data-testid={testId} className="flex h-full min-w-0 flex-col">
+      {children}
+    </div>
+  </PanelInset.Provider>
 )
 
 const PanelTools = ({ children }: { children: ReactNode }) => (
-  <Bar data-slot="inspector-tools" rule="bottom">
+  <Bar data-slot="inspector-tools" rule="bottom" className={useContext(PanelInset) === 'reading' ? 'px-(--hd-space-6)' : undefined}>
     {children}
   </Bar>
 )
 
-const PanelBody = ({ children }: { children: ReactNode }) => (
-  <div data-slot="inspector-body" className="min-h-0 flex-1 overflow-y-auto p-2">
-    {children}
+const PanelBody = ({ children }: { children: ReactNode }) => {
+  const reading = useContext(PanelInset) === 'reading'
+  return <div data-slot="inspector-body" className={cn('min-h-0 flex-1 overflow-y-auto', !reading && 'p-(--hd-inset-dense)')}>
+    {reading ? <PaneColumn inset="reading">{children}</PaneColumn> : children}
   </div>
-)
+}
 
 /** The quiet facts line under the list: a bar whose two readings are the meta role. */
 const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
@@ -56,7 +62,7 @@ const GroupLine = ({ left, right, sticky = false }: { left: ReactNode; right?: R
   <div
     data-slot="inspector-group"
     {...(sticky ? { 'data-sticky': '' } : {})}
-    className={cn('flex items-center gap-2 px-3 pt-2 pb-1', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
+    className={cn('flex items-center gap-2 p-(--hd-inset-dense) px-(--hd-inset-row)', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
   >
     <Text role="meta" weight="medium" ink="secondary">{left}</Text>
     <span className="flex-1" />

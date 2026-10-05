@@ -117,6 +117,7 @@ const ListRow = ({
   <Element
     data-slot="list-row"
     data-hd-table={density}
+    data-size={size}
     {...(as === 'button' ? { type: 'button' as const } : {})}
     /* `aria-current` rather than a class alone: a screen reader moving down a
        roster is told which conversation is open, which is the whole reason the
@@ -125,7 +126,7 @@ const ListRow = ({
     className={cn(
       'flex items-center',
       as === 'button' && 'w-full text-left',
-      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : cn('gap-(--hd-table-lead-gap) px-(--hd-table-edge)', density === 'compact' ? 'py-px' : 'py-(--hd-space-2-5)'),
+      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : cn('gap-(--hd-table-lead-gap) px-(--hd-table-edge)', density === 'compact' ? 'py-px' : 'py-(--hd-inset-row)'),
       size === 'default' && (lead != null || subtitle != null || meta != null ? 'min-h-(--hd-table-row-min)' : 'min-h-(--hd-table-row-min-bare)'),
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',

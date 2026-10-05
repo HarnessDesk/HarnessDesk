@@ -69,6 +69,35 @@ describe('Icons', () => {
     expect(glyph(Icons.NewWorktreeIcon)).not.toBe(glyph(Icons.BranchIcon))
     expect(glyph(Icons.NewWorktreeIcon)).not.toBe(glyph(Icons.LocalIcon))
   })
+
+  it('uses the chosen glyphs for conversations, active work, movement and handoff', () => {
+    const glyph = (Icon: (props: Icons.IconProps) => JSX.Element): string =>
+      renderToStaticMarkup(<Icon />).match(/lucide-([a-z0-9-]+)/)?.[1] ?? ''
+
+    expect(glyph(Icons.SessionIcon)).toBe('messages-square')
+    expect(glyph(Icons.TodoActiveIcon)).toBe('loader-circle')
+    expect(glyph(Icons.StaleIcon)).toBe('clock-alert')
+    expect(glyph(Icons.CollapseIcon)).toBe('shrink')
+    expect(glyph(Icons.MoveUpIcon)).toBe('move-up')
+    expect(glyph(Icons.MoveDownIcon)).toBe('move-down')
+    expect(glyph(Icons.HandoffIcon)).toBe('forward')
+  })
+
+  it('does not export the retired glyphs', () => {
+    for (const name of [
+      'SplitIcon',
+      'SplitDownIcon',
+      'QuestionIcon',
+      'ExportIcon',
+      'PullRequestDraftIcon',
+      'PullRequestClosedIcon',
+      'CardsIcon',
+      'ThemeLightIcon',
+      'ThemeDarkIcon',
+    ]) {
+      expect(Icons).not.toHaveProperty(name)
+    }
+  })
 })
 
 describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', () => {

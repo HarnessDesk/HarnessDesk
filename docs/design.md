@@ -142,6 +142,61 @@ ratios are gone and Tailwind's own steps now name their pair too, `text-xs`
 and `text-xl` included: those two agreed with the table by coincidence across
 a hundred and fifty call sites, and a coincidence does not follow a change.
 
+## Content insets
+
+A filled or bordered content surface earns an inset by its role, not by the
+screen drawing it. Use the tier token on every slot; top and bottom match.
+A border adds its width outside the inset. A larger gap left by short content
+is free space, not a larger padding tier. A settings row's mark and control
+stay centred on the whole row; its visible boxes keep the row tier. A row's
+bottom hairline is additional to its content inset.
+
+| Container role | Tier | Token | Slots that own it |
+| --- | --- | --- | --- |
+| Card and board card, chart's inner card, sent-message bubble | card · 16px | `--hd-inset-card` | A card's header, content and footer share its inline inset; its outer top and bottom share the same tier. A standalone board card, chart card or bubble owns all four sides. |
+| Settings row, summary fact, default list row, compact report card, agent/publication card band and crest, approval's code block | row · 12px | `--hd-inset-row` | Each row owns its inset, including inside a flush outer card. A label over a `Rows` card aligns with the row tier plus the card's border. |
+| Activity lines above a composer | row · 12px | `--hd-inset-row` | Each filled line in `ComposerTail` owns all four sides, overriding the unframed live line's smaller rhythm. Faces are content too. |
+| Board column around its cards, inspector group band, tool-pane content aligned with its bar | dense · 8px | `--hd-inset-dense` | The filled inspector band keeps symmetric vertical air; a non-bleeding tool body shares its header's leading edge. |
+| Compact panel section | row · 12px | `--hd-inset-row` | The section owns all four sides. |
+| Modal question or sheet | dialog · 24px | `--hd-inset-dialog` | Header, body and footer; a bare primitive dialog owns the outer inset instead. A flush list body delegates to its rows. A subhead is a bar, keeping the same inline edge. |
+| Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
+| Bar and navigation rail | bar · 8px | `--hd-bar-pad`, `--hd-rail-inset` | The bar owns the control-box edge; `--hd-bar-ink` includes the control's own inset for labels. Native window controls may add clearance. |
+
+An approval's outer edge uses the dialog tier in an overlay and the card
+tier when docked beside a composer. Its warning mark hangs before the text
+column; title and body keep that same column in both placements.
+
+A prose inspector chooses `PanelFrame inset="reading"`: its tool bar and body
+share one `PaneColumn` gutter, rather than adding dense body padding before it.
+A page section can name its body tier (`Section inset="row"` or `"card"`);
+its label shares that edge. An unframed empty body uses `SectionBody spacing="inline"`,
+leaving its vertical rhythm to the inline empty state. The table family's
+`--hd-table-edge` follows the row inset in both densities; its minimum row
+heights, face sizes and centring remain the family's own geometry.
+A responsive framed table uses `Table inset="row"`
+to keep the same inline cell inset as the list replacing it. The table retains
+its existing head and data-cell pitch; this contract only sets the content edge. Borders stay outside
+those content insets. A board column's state dot hangs before its card-text
+edge; the heading and empty line derive that edge from the card tier and
+border. `ToolPaneHeader contentInset="board"` derives the same text column
+through the dense body and column, and the card tier, rather than fixing their old numbers.
+
+The tier rule judges **content containers**. Buttons, inputs, chips, compact
+navigation targets and menu panels keep their own measured control rhythm;
+their glyph is not a card's content. A scroll viewport, an editor, a full-bleed
+row highlight, a chart's 2px matte and a graph's positioned marks also have
+named geometry rather than four content insets. Do not add a second gutter to
+these: measure the content-owning slot inside them. Preview frames are a rig's
+outer boundary, not another product card.
+
+`e2e/ui-system/container-insets.spec.ts` checks the known slots in both themes
+at wide and narrow widths. It reads the tier from the loaded foundation,
+checks padding and symmetry, and measures the union of visible text, faces and
+painted controls. Transparent hit targets contribute their visible ink instead
+of their invisible hit region. Ellipsized and clamped text is clipped to its viewport; a floating
+overlay belongs to its own surface. A figure set on `line-height: 1` is measured
+by its line box, because a text Range includes unused font-em space outside it.
+
 ## Named text roles
 
 A size and a weight together name a *role*. A role describes what the words

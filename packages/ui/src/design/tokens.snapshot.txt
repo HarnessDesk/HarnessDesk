@@ -280,7 +280,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)
@@ -809,7 +809,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)
@@ -1350,7 +1350,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)
@@ -1891,7 +1891,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)

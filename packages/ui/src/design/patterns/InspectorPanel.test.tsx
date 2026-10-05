@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import tokenSheet from '../foundation/tokens.css?raw'
-import { GroupLine, PanelPill, PanelRow } from './InspectorPanel'
+import { GroupLine, PanelBody, PanelFrame, PanelPill, PanelRow, PanelTools } from './InspectorPanel'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -82,4 +82,12 @@ it.each([
   expect(mark.className).toContain('size-(--hd-table-face)')
   expect(mark.className).not.toContain('mt-px')
   expect(row.querySelector('[data-role="row"]')?.textContent).toBe('Review')
+})
+
+it('a reading inspector gives its tools and body one reading gutter', () => {
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<PanelFrame inset="reading"><PanelTools>Title</PanelTools><PanelBody>Words</PanelBody></PanelFrame>)
+  expect(host.querySelector('[data-slot="inspector-tools"]')!.className).toContain('px-(--hd-space-6)')
+  expect(host.querySelector('[data-slot="inspector-body"] [data-slot="pane-column"]')!.getAttribute('data-inset')).toBe('reading')
+  expect(host.querySelector('[data-slot="inspector-body"]')!.className).not.toContain('p-2')
 })

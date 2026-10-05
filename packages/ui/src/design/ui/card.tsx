@@ -39,7 +39,7 @@ const Card = <T extends React.ElementType = 'div'>({
       data-radius={radius}
       data-spacing={spacing}
       className={cn(
-        'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4',
+        'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-(--hd-inset-card)',
         variant === 'muted' && 'border-dashed bg-(--hd-muted)',
         variant === 'flush' && 'gap-0 overflow-hidden py-0',
         /* A card that stands on a canvas of its own, a step in a drawing of a
@@ -49,7 +49,7 @@ const Card = <T extends React.ElementType = 'div'>({
           'overflow-hidden rounded-(--hd-card-radius,var(--hd-radius-lg)) border-0 bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]',
         radius === 'sm' && 'rounded-(--hd-radius-sm)',
         radius === 'lg' && 'rounded-(--hd-radius-lg)',
-        spacing === 'compact' && 'gap-2 p-3',
+        spacing === 'compact' && 'gap-2 p-(--hd-inset-row)',
         spacing === 'flush' && 'gap-0 py-0',
         className,
       )}
@@ -62,7 +62,7 @@ const CardHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="card-header"
     className={cn(
-      '@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1 px-4 has-data-[slot=card-action]:grid-cols-[1fr_auto]',
+      '@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1 px-(--hd-inset-card) has-data-[slot=card-action]:grid-cols-[1fr_auto]',
       className,
     )}
     {...props}
@@ -90,11 +90,11 @@ const CardAction = ({ className, ...props }: React.ComponentProps<'div'>) => (
 )
 
 const CardContent = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="card-content" className={cn('px-4', className)} {...props} />
+  <div data-slot="card-content" className={cn('px-(--hd-inset-card)', className)} {...props} />
 )
 
 const CardFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="card-footer" className={cn('flex items-center px-4', className)} {...props} />
+  <div data-slot="card-footer" className={cn('flex items-center px-(--hd-inset-card)', className)} {...props} />
 )
 
 /**

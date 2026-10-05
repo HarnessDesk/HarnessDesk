@@ -9,8 +9,8 @@ import styles from './explorer.module.css'
  * The IconTile board next to this one shows the *tile* — its tone, tint, size
  * and shape — using two or three sample glyphs, which is the right way to
  * judge a container and no way at all to judge a set. Until this board there
- * were eleven icons anywhere in the catalogue against a hundred and forty-eight
- * in `components/Icons.tsx`, so "look at the icons" was not a thing the design
+ * were eleven icons anywhere in the catalogue against the full set in
+ * `components/Icons.tsx`, so "look at the icons" was not a thing the design
  * page could be asked to do, and any judgement about the set as a whole — is it
  * one weight, does it have three different arrows, is there a duplicate — had
  * to be made by reading the source.

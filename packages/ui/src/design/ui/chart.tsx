@@ -70,7 +70,7 @@ const ChartCard = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="chart-card"
     className={cn(
-      'rounded-(--hd-radius-matted) bg-(--hd-card) px-4 py-3',
+      'rounded-(--hd-radius-matted) bg-(--hd-card) p-(--hd-inset-card)',
       className,
     )}
     {...props}
