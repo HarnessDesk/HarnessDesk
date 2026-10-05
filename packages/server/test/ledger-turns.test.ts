@@ -645,6 +645,7 @@ test('a completed desk scan restates the cached UsageReport turns and emits usag
   })
   const agent = {
     info: { id: runtimeId('cursor'), name: 'Demo agent', capabilities: { metered: true }, presentation: { name: 'Demo agent' } },
+    health: () => ({ state: 'ready' }),
     getRateLimits: async () => null,
     getAccount: async () => ({ accounts: [], signInMethods: [] }),
   } as unknown as AgentRuntime

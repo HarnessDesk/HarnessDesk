@@ -467,7 +467,7 @@ export interface HostOptions {
    * waiting for it. See `START_TIMEOUT_MS`.
    */
   readonly startTimeoutMs?: number
-  /** How long an ACP helper can remain unused before its process is stopped. */
+  /** How long a runtime can remain unused before its process is stopped. */
   readonly idleStopMs?: number
   /** How long a finished Seat stays quiet before its live handle is released. */
   readonly seatRestMs?: number
@@ -590,10 +590,11 @@ const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
   'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
   'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
-  'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits',
+  'logout', 'refreshCatalog', 'checkInstallation', 'listHooks',
 ])
 const CACHED_RUNTIME_READ_METHODS = new Set<PropertyKey>([
-  'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions',
+  'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions', 'getAccount',
+  'getRateLimits', 'getAccountActivity',
 ])
 
 /** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
@@ -628,6 +629,7 @@ export class Host {
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
+  readonly #runtimeReads = new Map<string, number>()
   readonly #sessionActivity = new Map<string, number>()
   readonly #idleSince = new Map<string, number>()
   readonly #seatQuietSince = new Map<string, { since: number; changedAt: number }>()
@@ -2028,29 +2030,61 @@ export class Host {
       this.#catalogs.forget(id)
       this.#updates.delete(id)
     }
+    // These async surfaces belong to the same process as the runtime verbs.
+    // Keep their receiver (including private fields) and share its lifecycle.
+    const surfaces = new WeakMap<object, object>()
     const managed = new Proxy(runtime, {
       get: (target, key) => {
         const member = Reflect.get(target, key, target) as unknown
+        if ((key === 'files' || key === 'processes' || key === 'extensions') && member && typeof member === 'object') {
+          let surface = surfaces.get(member)
+          if (!surface) {
+            surface = new Proxy(member, {
+              get: (plane, method) => {
+                const operation = Reflect.get(plane, method, plane) as unknown
+                if (typeof operation !== 'function') return operation
+                return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+                  await this.#ensureStarted(target)
+                  return Reflect.apply(operation, plane, args)
+                })
+              },
+            })
+            surfaces.set(member, surface)
+          }
+          return surface
+        }
         if (typeof member !== 'function') return member
         if (key === 'listSessions') {
-          return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
+            const starting = this.#startingRuntimes.get(String(target.info.id))
+            if (starting) await starting
+            if (target.health().state === 'idle' && target.canReadWhileIdle?.({
+              method: 'listSessions', query: args[0] as ListSessionsQuery | undefined,
+            }) === false) await this.#ensureStarted(target)
             const page = await Reflect.apply(member, target, args) as Page<SessionSummary>
             return this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined)
           })
         }
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
-          return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
+            const starting = this.#startingRuntimes.get(String(target.info.id))
+            if (starting) await starting
+            if (target.health().state === 'idle' &&
+                (key === 'defaultSessionOptions' || key === 'listSkills' || key === 'listSkillProblems') &&
+                target.canReadWhileIdle?.({ method: key, cwd: args[0] as string | undefined }) === false) {
+              await this.#ensureStarted(target)
+            }
             return Reflect.apply(member, target, args)
           })
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
-            if (typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
+            if (key !== 'listHooks' && typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
             return Reflect.apply(member, target, args)
-          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' ? args[0] : undefined)
+          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
         }
         return member.bind(target)
       },
@@ -2458,6 +2492,19 @@ export class Host {
     if (stopping) await stopping
   }
 
+  /** Observation protects its in-flight read without becoming new work. */
+  async #withRuntimeRead<T>(runtime: AgentRuntime, operation: () => Promise<T>): Promise<T> {
+    const id = String(runtime.info.id)
+    this.#runtimeReads.set(id, (this.#runtimeReads.get(id) ?? 0) + 1)
+    try {
+      return await operation()
+    } finally {
+      const reads = (this.#runtimeReads.get(id) ?? 1) - 1
+      if (reads === 0) this.#runtimeReads.delete(id)
+      else this.#runtimeReads.set(id, reads)
+    }
+  }
+
   async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>, session?: string): Promise<T> {
     const id = String(runtime.info.id)
     this.#runtimeActivity.set(id, (this.#runtimeActivity.get(id) ?? 0) + 1)
@@ -2493,8 +2540,9 @@ export class Host {
     this.#idleReaper.unref?.()
   }
 
-  #runtimeIsIdle(id: RuntimeId): boolean {
+  #runtimeIsIdle(id: RuntimeId, includeReads = true): boolean {
     if ((this.#runtimeActivity.get(String(id)) ?? 0) > 0) return false
+    if (includeReads && (this.#runtimeReads.get(String(id)) ?? 0) > 0) return false
     if (this.registry.all().some((record) => record.runtime === id && (
       record.live !== null || record.running.size > 0 || record.approvals.size > 0 ||
       record.tasks.some((task) => task.state === 'running')
@@ -2592,12 +2640,14 @@ export class Host {
   async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
     await this.#restSeats(runtime)
     const id = String(runtime.info.id)
-    if (!runtime.stopForIdle || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id)) {
+    if (!runtime.stopForIdle || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id, false)) {
       this.#idleSince.delete(id)
       return
     }
     const since = this.#idleSince.get(id) ?? Date.now()
     this.#idleSince.set(id, since)
+    // A poll spanning the deadline defers stop, but preserves the deadline.
+    if ((this.#runtimeReads.get(id) ?? 0) > 0) return
     if (Date.now() - since < delay || this.#stoppingRuntimes.has(id)) return
     // Publish the barrier before the process stop can yield. A live operation
     // arriving now waits for this reap, then shares the next start.

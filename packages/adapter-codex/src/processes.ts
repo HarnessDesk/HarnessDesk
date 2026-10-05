@@ -51,6 +51,9 @@ export class CodexProcesses implements RuntimeProcesses {
   /** Exited processes, oldest first, still inside their drain window. */
   readonly #drained = new Map<string, CodexProcess>()
 
+  /** Integrated terminals use the app-server even without an open thread. */
+  get busy(): boolean { return this.#running.size > 0 }
+
   constructor(
     private readonly server: CodexAppServer,
     /** The permission profile a conversation is on, so its terminal matches. */

@@ -1,0 +1,24 @@
+/* Site-only composition. The production graph and overlay keep their drawing. */
+.site-run-demo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100dvh;
+  background: var(--hd-background);
+  color: var(--hd-foreground);
+}
+.site-run-pane { display: flex; flex: 1; min-height: 0; }
+.site-run-pane > * { flex: 1; min-width: 0; }
+.site-run-poster { height: auto; min-height: 100dvh; }
+.site-poster { display: flex; flex: 1; flex-direction: column; gap: var(--hd-space-6); padding-block: var(--hd-space-8); }
+.site-poster-graph { display: flex; flex: 1; align-items: center; padding-block: var(--hd-space-12); container: site-poster / inline-size; }
+.site-poster-graph > * { flex: 1; }
+@container site-poster (min-width: 38rem) {
+  .site-poster-graph [data-slot="flow-drawing"] { display: flex; }
+  .site-poster-graph [data-slot="flow-stage"] { flex: none; margin-inline: auto; }
+  /* The drawing stands alone, but its text alternative remains in the accessibility tree. */
+  .site-poster-graph [data-slot="flow-list"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
+@media (max-width: 41rem) {
+  .site-poster-graph { padding-block: var(--hd-space-2); }
+}
