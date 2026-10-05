@@ -57,7 +57,6 @@ import {
   CardHeader,
   Chip,
   EmptyState,
-  Progress,
   UsageMeterRow,
   IconTile,
   Table, TableHeader, TableHead, TableBody, TableRow, TableCell,
