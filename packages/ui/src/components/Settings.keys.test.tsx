@@ -84,13 +84,14 @@ const route: RouteInfo = {
   credentialRef: 'cred_a',
 }
 
-const mount = (keys: readonly StoredCredential[], routes: readonly RouteInfo[] = [route]) => {
+const mount = (keys: readonly StoredCredential[], routes: readonly RouteInfo[] = [route], models: AppSnapshot['models'] = []) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     activeRuntime: runtime.id,
     runtimes: [runtime],
     routes: [...routes],
+    models,
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -122,14 +123,16 @@ const button = (label: string): HTMLButtonElement | undefined =>
  * lookup by label alone opened the endpoint's dialog and the assertion about
  * the key's could not pass. Found by the row whose title is the key's name.
  */
-const removeOn = (name: string): HTMLButtonElement | undefined => {
+const removeOn = async (name: string): Promise<HTMLButtonElement | undefined> => {
   const row = [...container.querySelectorAll<HTMLElement>('div[class*="_row_"]')].find((one) =>
     one.querySelector('[class*="_rowTitle_"]')?.textContent?.includes(name),
   )
   expect(row, `a row for ${name}`).toBeTruthy()
-  return [...(row?.querySelectorAll('button') ?? [])].find(
-    (one) => one.textContent?.trim() === 'Remove…',
-  )
+  const more = row?.querySelector<HTMLButtonElement>(`button[title="More actions for ${name}"]`)
+  expect(more).toBeTruthy()
+  expect(row?.textContent).not.toContain('Remove…')
+  await act(async () => more?.click())
+  return [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.trim() === 'Remove…')
 }
 
 it('names each key by the endpoint that uses it, and the one nothing uses', async () => {
@@ -158,7 +161,11 @@ it('forgetting a key confirms first, says what breaks, and drops the row', async
   const store = mount([KEY])
   await act(async () => {})
 
-  act(() => removeOn('Proxy key')?.click())
+  const remove = await removeOn('Proxy key')
+  expect(remove).toBeTruthy()
+  expect(remove?.getAttribute('data-danger')).toBe('')
+  expect(remove?.querySelector('svg')).toBeTruthy()
+  act(() => remove?.click())
   /* The consequence differs by whether anything still names it, and this key
      is named: an endpoint is about to stop working. */
   expect(document.body.textContent).toContain('Acme proxy will stop working')
@@ -174,7 +181,9 @@ it('a key nothing names is housekeeping, and says so instead', async () => {
   mount([UNUSED], [])
   await act(async () => {})
 
-  act(() => removeOn('Spare proxy key')?.click())
+  const remove = await removeOn('Spare proxy key')
+  expect(remove).toBeTruthy()
+  act(() => remove?.click())
   expect(document.body.textContent).toContain('cannot be recovered')
   expect(document.body.textContent).not.toContain('will stop working')
 })
@@ -188,7 +197,9 @@ it('a refused delete leaves the row where it is', async () => {
     false,
   )
 
-  act(() => removeOn('Proxy key')?.click())
+  const remove = await removeOn('Proxy key')
+  expect(remove).toBeTruthy()
+  act(() => remove?.click())
   act(() => button('Forget key')?.click())
   await act(async () => {})
 
@@ -243,4 +254,34 @@ it('a key nothing here can name is listed nowhere, rather than offered for delet
   // The control: the section is drawn, with the endpoint's key in it.
   expect(container.textContent).toContain('Proxy key')
   expect(container.textContent).not.toContain('Plugin key')
+})
+
+
+it('puts model efforts in the description, with Default and Always thinks on line one', async () => {
+  mount([], [], [{ id: 'model-a', displayName: 'Model A', description: 'Everyday tasks.', isDefault: true, supportsImages: true, thinking: 'always', reasoningLevels: [{ id: 'low', label: 'Low' }, { id: 'xhigh', label: 'Extra high' }] }])
+  await act(async () => {})
+  const row = [...container.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.includes('Model A'))!
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Everyday tasks. · Low, Extra high')
+  expect([...row.querySelectorAll('[data-slot="chip"]')].map(chip => chip.textContent)).toEqual(['Default', 'Always thinks'])
+  expect(row.querySelector('[class*="efforts"]')).toBeNull()
+})
+
+it('an unavailable endpoint keeps endpoint and model on line two and its reason visibly below it', async () => {
+  mount([], [{ ...route, usable: false, reason: 'The protocol is not supported', model: 'Model A' }])
+  await act(async () => {})
+  const row = [...container.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.includes('Acme proxy'))!
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('https://proxy.acme.dev/v1 · Model ANot available with OpenAI Codex: The protocol is not supported.')
+  const chip = row.querySelector('[data-slot="chip"]')!
+  expect(chip.textContent).toBe('Not available')
+  expect(chip.hasAttribute('title')).toBe(false)
+})
+
+
+it('an unavailable endpoint without a reason does not invent a cause', async () => {
+  mount([], [{ ...route, usable: false }])
+  await act(async () => {})
+  const row = [...container.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.includes('Acme proxy'))!
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('https://proxy.acme.dev/v1')
+  expect(row.querySelector('[data-slot="chip"]')?.hasAttribute('title')).toBe(false)
+  expect(row.textContent).not.toContain('Not supported')
 })

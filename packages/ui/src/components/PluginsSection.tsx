@@ -43,6 +43,7 @@ import {
   Chip,
   CodeText,
   DetailMark,
+  EmptyState,
   DetailHead,
   PageHead,
   Row,
@@ -160,7 +161,7 @@ export const stateLabel = (state: PluginState): string => {
     case 'pending':
       return state.waitingFor.length > 0 ? `waiting for ${state.waitingFor.join(', ')}` : 'waiting'
     case 'failed':
-      return 'failed'
+      return 'Failed'
     default:
       return state.type
   }
@@ -230,21 +231,21 @@ const PluginToggle = ({ plugin }: { plugin: PluginInstance }) => {
  * older revision. The one honest action is to remove it, and the row says why
  * it is here so that removing it does not feel like guesswork.
  */
-const SupersededRow = ({ plugin }: { plugin: PluginInstance }) => {
+const SupersededRow = ({ plugin, marked }: { plugin: PluginInstance; marked: boolean }) => {
   const store = useStore()
   const [busy, setBusy] = useState(false)
   const where = plugin.identity.source.kind === 'local' ? plugin.identity.source.path : null
   return (
     <Row
-      mark={pluginGlyph(plugin, 16)}
-      title={plugin.identity.name}
+      mark={marked ? pluginGlyph(plugin, 16) : undefined}
+      title={<Text role="subject">{plugin.identity.name}</Text>}
       desc={`Superseded by the built-in ${plugin.identity.name}, which does the same job. This copy is switched off${
         where ? ` and still on disk, installed from ${where}` : ''
       }.`}
       control={
         <>
           <RowValue>Superseded</RowValue>
-          <Button variant="secondary"
+          <Button variant="outline" size="sm"
             disabled={busy}
             onClick={() => {
               setBusy(true)
@@ -472,11 +473,12 @@ export const PluginsSection = () => {
             .toLowerCase()
             .includes(query.toLowerCase()),
         )
-        .sort((a, b) => a.identity.name.localeCompare(b.identity.name)),
+        .sort((a, b) => a.identity.name.localeCompare(b.identity.name, undefined, { numeric: true })),
     [snapshot.plugins, query],
   )
   const plugins = matching.filter((plugin) => !supersededIds.has(plugin.instanceId))
   const superseded = matching.filter((plugin) => supersededIds.has(plugin.instanceId))
+  const marked = matching.some((plugin) => Boolean(PLUGIN_GLYPH[plugin.identity.id]))
 
   const open = openId ? (snapshot.plugins.find((plugin) => plugin.instanceId === openId) ?? null) : null
   // A plugin removed while its page is up goes back to the list.
@@ -603,18 +605,18 @@ export const PluginsSection = () => {
       {tab === 'list' ? (
         <Rows>
           {plugins.length === 0 ? (
-            <Row title={query ? 'No plugin matches' : 'No plugins are loaded'} />
+            <EmptyState variant="row" title={query ? 'No plugin matches' : 'No plugins are loaded'} />
           ) : (
             plugins.map((plugin) => (
               <RowButton
                 key={plugin.instanceId}
+                mark={marked ? pluginGlyph(plugin, 16) : undefined}
                 onClick={() => setOpenId(plugin.instanceId)}
-                mark={pluginGlyph(plugin, 16)}
-                title={plugin.identity.name}
+                title={<Text role="subject">{plugin.identity.name}</Text>}
                 {...(plugin.identity.description ? { desc: plugin.identity.description } : {})}
                 control={
                   <>
-                    {plugin.state.type === 'failed' && <Chip state="broken" label="failed" />}
+                    {plugin.state.type === 'failed' && <Chip state="broken" label="Failed" />}
                     <RowValue>{originLabel(plugin)}</RowValue>
                     <PluginToggle plugin={plugin} />
                   </>
@@ -623,7 +625,7 @@ export const PluginsSection = () => {
             ))
           )}
           {superseded.map((plugin) => (
-            <SupersededRow key={plugin.instanceId} plugin={plugin} />
+            <SupersededRow key={plugin.instanceId} plugin={plugin} marked={marked} />
           ))}
         </Rows>
       ) : (
@@ -666,7 +668,7 @@ export const PluginsSection = () => {
           </div>
           {byKind.length === 0 && (
             <Rows>
-              <Row
+              <EmptyState variant="row"
                 title={
                   capWhere === 'here' && capHere === null
                     ? 'Asking the host…'
@@ -694,11 +696,7 @@ export const PluginsSection = () => {
                     }}
                     mark={contributionIcon(contribution.kind, 15)}
                     title={contributionSentence(contribution)}
-                    /* Whose it is, and where it applies. The scope was on
-                       every contribution the whole time and on no row: a tool
-                       offered to one workspace read exactly like one offered
-                       to all of them. Only said when it narrows something —
-                       "everywhere" under every row is a word nobody reads. */
+                    /* A narrowed scope varies; global rows only name their owner. */
                     desc={
                       contribution.scope.kind === 'global'
                         ? pluginName(contribution.owner)
@@ -713,7 +711,7 @@ export const PluginsSection = () => {
                         // host knows, without declaring the tool lost.
                         <Chip
                           state={pluginToolsReach ? 'ready' : 'available'}
-                          label={pluginToolsReach ? 'reaches agent' : 'own config only'}
+                          label={pluginToolsReach ? 'Reaches agent' : 'Own config only'}
                         />
                       ) : undefined
                     }

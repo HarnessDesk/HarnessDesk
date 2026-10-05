@@ -1062,6 +1062,11 @@
   padding-bottom: var(--hd-inset-row);
 }
 
+/* Bare rows keep the family's pitch and balanced insets, including the last row. */
+.row:not(:has(.rowDesc, .rowMark, .rowFace)) {
+  padding-block: var(--hd-inset-dense); /* desk: bare rows use 8px blocks; face rows retain the full 12px tier */
+}
+
 .row:last-child::after {
   display: none;
 }

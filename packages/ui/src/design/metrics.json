@@ -888,7 +888,7 @@
     "radius": 14
   },
   "tables/rows/size/compact": {
-    "h": 264,
+    "h": 256,
     "text": 14,
     "weight": "400",
     "line": 20,

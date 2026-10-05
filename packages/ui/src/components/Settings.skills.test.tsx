@@ -12,8 +12,8 @@ import { SkillsSection } from './Settings'
  * The skills list, readable.
  *
  * A skill's wire name and its full trigger paragraph are what the model
- * reads; a person scanning a list of 116 needs the display name, one clamped
- * line, and where it came from — with the full text one click away rather
+ * reads; a person scanning a list of 116 needs the display name, up to three wrapped
+ * lines, and where it came from — with the full text one click away rather
  * than twelve lines tall in the row. Codex ships all of that metadata
  * (displayName, shortDescription, scope) and the page now uses it.
  */
@@ -149,4 +149,60 @@ it("draws a skill's colour and its logo as the plugin rows do, on the icon tile"
   const logo = tiles.find((tile) => tile.querySelector('img'))
   expect(logo).toBeDefined()
   expect(logo?.querySelector('img')?.getAttribute('style')).toBeNull()
+})
+
+it('omits repeated sparks and limits list descriptions to three wrapped lines', () => {
+  mount()
+  expect(container.querySelectorAll('[data-slot="row-mark"]')).toHaveLength(0)
+  expect(container.querySelector('[data-slot="row-desc"]')?.getAttribute('data-wrap')).toBe('true')
+  expect(container.querySelector('[class*="skillDesc"]')).not.toBeNull()
+})
+
+it('a list with a manifest mark gives every skill a face', () => {
+  mount([...SKILLS, { name: 'marked', description: 'Own identity', enabled: true, brandColor: '#7a5af8' }])
+  expect(container.querySelectorAll('[data-slot="row-mark"]')).toHaveLength(3)
+})
+
+it('keeps the switch slot empty in the list and explains Always on on the detail page', () => {
+  mount([{ name: 'always-loaded', description: 'Available for every conversation.', enabled: true, toggleable: false }])
+  expect(container.querySelector('[role="switch"]')).toBeNull()
+  expect(container.textContent).not.toContain('Always on')
+  expect(container.querySelector('[title="Always on"], [aria-label="Always on"]')).toBeNull()
+  const row = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Always Loaded'))!
+  act(() => row.click())
+  expect(container.textContent).toContain('Always on')
+  expect(container.querySelector('[role="switch"]')).toBeNull()
+})
+
+
+it('mixed marked, unmarked and broken icons keep a 15px fallback glyph', () => {
+  mount([
+    { name: 'marked', description: 'A local logo.', enabled: true, iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>' },
+    { name: 'unmarked', description: 'A generic mark.', enabled: true },
+    { name: 'broken', description: 'An undecodable logo.', enabled: true, iconUrl: 'data:image/png;base64,AA==' },
+  ])
+  const marks = [...container.querySelectorAll('[data-slot="row-mark"]')]
+  expect(marks).toHaveLength(3)
+  const broken = marks[2]!.querySelector('img')!
+  act(() => broken.dispatchEvent(new Event('error')))
+  for (const mark of [marks[1]!, marks[2]!]) {
+    expect(mark.querySelector('svg')?.getAttribute('width')).toBe('15')
+    expect(mark.querySelector('svg')?.getAttribute('height')).toBe('15')
+  }
+  const marked = [...container.querySelectorAll('button')].find(row => row.textContent?.includes('Marked'))!
+  act(() => marked.click())
+  expect(container.querySelector('[data-slot="icon-tile"]')?.classList.contains('size-6')).toBe(true)
+})
+
+it('keeps the fallback glyph at 15px in the list and 22px in the detail head', () => {
+  mount([
+    { name: 'generic', description: 'A generic mark.', enabled: true },
+    { name: 'marked', description: 'A named mark.', enabled: true, brandColor: '#7a5af8' },
+  ])
+  const row = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Generic'))!
+  expect(row.querySelector('[data-slot="row-mark"] svg')?.getAttribute('width')).toBe('15')
+  act(() => row.click())
+  const detailGlyph = container.querySelector('[data-shape="square"] svg')
+  expect(detailGlyph?.getAttribute('width')).toBe('22')
+  expect(detailGlyph?.getAttribute('height')).toBe('22')
 })

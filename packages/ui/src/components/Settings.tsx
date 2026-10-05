@@ -44,6 +44,7 @@ import {
   KeyIcon,
   LibraryIcon,
   ModelIcon,
+  MoreIcon,
   RetryIcon,
   SearchIcon,
   PluginIcon,
@@ -99,6 +100,9 @@ import {
   FileButton,
   Note,
   PageHead,
+  Popover,
+  Menu,
+  MenuItem,
   Row,
   RowButton,
   RowChoice,
@@ -301,26 +305,35 @@ const RoutesRows = () => {
       />
       <Rows>
         {snapshot.routes.length === 0 && (
-          <Row
-            title="No custom endpoints"
-            desc="Run conversations through a proxy, a gateway or another provider."
-          />
+          <EmptyState variant="row" title="No custom endpoints" description="Run conversations through a proxy, a gateway or another provider." />
         )}
         {snapshot.routes.map((route) => (
           <Row
             key={route.id}
             className={route.usable === false ? styles.rowUnusable : undefined}
             mark={<RouteIcon size={15} />}
-            title={route.name}
-            desc={
-              route.usable === false && route.reason
-                ? `Not available with ${runtime.presentation.name}: ${route.reason}.`
-                : `${route.endpoint}${route.model ? ` · ${route.model}` : ''}`
+            title={
+              <>
+                <span data-slot="endpoint-name">{route.name}</span>
+                {route.usable === false && (
+                  <Chip tone="neutral" size="sm" className={styles.inlineBadge}>
+                    Not available
+                  </Chip>
+                )}
+              </>
             }
+            desc={<>
+              {route.endpoint}{route.model ? ` · ${route.model}` : ''}
+              {route.usable === false && route.reason && (
+                <Text as="span" role="muted" ink="muted" className="block whitespace-normal">
+                  Not available with {runtime.presentation.name}: {route.reason}{/[.!?]$/.test(route.reason) ? '' : '.'}
+                </Text>
+              )}
+            </>}
             control={
-              <Button size="sm" variant="ghost" onClick={() => setRemoving(route)}>
-                Remove…
-              </Button>
+              <Popover title={`More actions for ${route.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+                {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(route)} /></Menu>}
+              </Popover>
             }
           />
         ))}
@@ -432,9 +445,9 @@ const KeysRows = () => {
                   : `No endpoint uses it · stored ${storedOn(key.createdAt)}`
               }
               control={
-                <Button size="sm" variant="ghost" onClick={() => setRemoving(key)}>
-                  Remove…
-                </Button>
+                <Popover title={`More actions for ${key.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+                  {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(key)} /></Menu>}
+                </Popover>
               }
             />
           )
@@ -858,12 +871,12 @@ const PresetsRows = () => {
             desc={preset.description || 'Saved preset'}
             control={
               <>
-                <Button variant="secondary" size="sm" disabled={!session} onClick={() => void store.applyPreset(preset)}>
+                <Button variant="outline" size="sm" disabled={!session} onClick={() => void store.applyPreset(preset)}>
                   Apply
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setRemoving(preset)}>
-                  Remove…
-                </Button>
+                <Popover title={`More actions for ${preset.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+                  {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(preset)} /></Menu>}
+                </Popover>
               </>
             }
           />
@@ -994,25 +1007,15 @@ const ModelsSection = () => {
             mark={<ModelMark model={`${model.id} ${model.displayName}`} agent={agentBrand} size={15} />}
             title={
               <>
-                {model.displayName}
+                <Text role="subject">{model.displayName}</Text>
                 {model.isDefault && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>Default</Chip>}
-                {(model.reasoningLevels.length > 0 || model.thinking) && (
-                  <span className={styles.efforts}>
-                    {model.thinking && (
-                      <Chip tone="brand" size="sm">
-                        {model.thinking === 'always' ? 'Always thinks' : 'Thinking'}
-                      </Chip>
-                    )}
-                    {model.reasoningLevels.map((level) => (
-                      <Chip key={level.id} tone="neutral" size="sm">
-                        {level.label}
-                      </Chip>
-                    ))}
-                  </span>
-                )}
+                {model.thinking && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>{model.thinking === 'always' ? 'Always thinks' : 'Thinking'}</Chip>}
               </>
             }
-            desc={model.description}
+            desc={[
+              model.description,
+              model.reasoningLevels.map(level => level.label.charAt(0).toUpperCase() + level.label.slice(1)).join(', '),
+            ].filter(Boolean).join(' · ')}
             control={
               <Switch
                 aria-label={`Show ${model.displayName} in the composer`}
@@ -1054,7 +1057,7 @@ const HooksList = () => {
   if (!runtime.capabilities.hooks || !hooks || hooks.length === 0) return null
   return (
     <>
-      <SectionHead name={`Hooks · ${hooks.length}`} />
+      <SectionHead name={withCount('Hooks', hooks.length)} />
       <Note>Run by {runtime.presentation.name} around the agent’s work, configured on disk.</Note>
       <Rows>
         {hooks.map((hook) => (
@@ -1109,11 +1112,9 @@ const skillScopeLabel = (scope: string | undefined): string | null => {
  * `iconUrl` is a `data:` URI inlined from the installed skill; the adapter
  * drops remote ones, so nothing here reaches the network.
  */
-const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) => {
+const SkillMark = ({ skill, tile, glyphSize }: { skill: SkillInfo; tile: 'default' | 'sm'; glyphSize: number }) => {
   const [broken, setBroken] = useState(false)
-  // The plugin row's drawing: the logo cropped in an icon tile, else the
-  // listing's colour under its initial, at the tile step the glyph matches.
-  const tile = size >= 20 ? 'sm' : 'xs'
+  // Logos use the caller's tile step; the row supplies the fallback's ground.
   if (skill.iconUrl && !broken) {
     return (
       <IconTile size={tile}>
@@ -1128,7 +1129,7 @@ const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) =>
       </IconTile>
     )
   }
-  return <SparkIcon size={size} />
+  return <SparkIcon size={glyphSize} />
 }
 
 const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
@@ -1150,7 +1151,7 @@ const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
   )
 }
 
-/** One skill, in full: the list clamps its description, this page keeps it. */
+/** One skill, in full, with its availability beside the heading. */
 const SkillPage = ({
   skill,
   listLabel,
@@ -1170,7 +1171,7 @@ const SkillPage = ({
       <DetailHead
         mark={
           <DetailMark>
-            <SkillMark skill={skill} size={20} />
+            <SkillMark skill={skill} tile="sm" glyphSize={22} />
           </DetailMark>
         }
         name={skillTitle(skill)}
@@ -1220,6 +1221,7 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
   const [query, setQuery] = useState('')
   const [openName, setOpenName] = useState<string | null>(null)
   const label = runtime.presentation.skillsLabel ?? 'Skills'
+  const hasFaces = snapshot.skills.some(skill => skill.iconUrl || skill.brandColor)
 
   const skills = useMemo(
     () =>
@@ -1260,9 +1262,9 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
 
       {snapshot.skills.length === 0 ? (
         <Rows>
-          <Row
+          <EmptyState variant="row"
             title="No skills found"
-            desc={`${runtime.presentation.name} looks for them in the project${
+            description={`${runtime.presentation.name} looks for them in the project${
               runtime.presentation.configLocation
                 ? ` and in ${runtime.presentation.configLocation}`
                 : ''
@@ -1278,24 +1280,22 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
             onChange={setQuery}
           />
           <Rows>
-            {skills.length === 0 && <Row title="Nothing matches" />}
+            {skills.length === 0 && <EmptyState variant="row" title="Nothing matches" />}
             {skills.map((skill) => {
               const scope = skillScopeLabel(skill.scope)
               return (
                 <RowButton
                   key={skill.name}
                   onClick={() => setOpenName(skill.name)}
-                  mark={<SkillMark skill={skill} />}
-                  title={skillTitle(skill)}
-                  desc={
-                    <Text role="muted" className={styles.skillDesc}>
-                      {skill.shortDescription ?? skill.description}
-                    </Text>
-                  }
+                  mark={hasFaces ? <SkillMark skill={skill} tile="default" glyphSize={15} /> : undefined}
+                  title={<Text role="subject">{skillTitle(skill)}</Text>}
+                  desc={<span className={styles.skillDesc}>{skill.shortDescription ?? skill.description}</span>}
                   control={
                     <>
-                      {scope && <RowValue>{scope}</RowValue>}
-                      <SkillToggle skill={skill} />
+                      <span className="w-16 text-right">{scope && <RowValue>{scope}</RowValue>}</span>
+                      {skill.toggleable === false
+                        ? <span className="inline-flex w-(--hd-toggle-width) justify-center" />
+                        : <SkillToggle skill={skill} />}
                     </>
                   }
                 />
@@ -2043,11 +2043,8 @@ export const Settings = ({
         )}
       </WindowNav>
 
-      {/* Every page in this window stands on one measure, including the library.
-          It was the one exception, taken when its captions still wrapped and
-          twelve agent marks had to sit beside a paragraph; the caption is one
-          clamped line now, so the marks have their room at the ordinary width
-          and the window stops having a page that is a different shape. */}
+      {/* Every Settings page shares one measure. Library descriptions wrap;
+          State and Loaded by keep the space their contents need. */}
       <WindowPage key={section}>
             {section === 'profile' && <ProfileSection />}
             {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
