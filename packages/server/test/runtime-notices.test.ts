@@ -153,6 +153,31 @@ test('runtime Inbox writes merge with current host read, clear and mute memory',
 })
 
 
+test('reads and clears from a stale window remain effective after runtime content repeats', async t => {
+  const base = tempDir('hd-inbox-content-repeat-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const first = { id: 'content:config', contentKey: 'content:config', kind: 'runtime:config', title: 'Ignored setting', tone: 'warning' as const, at: 1, count: 1, lastEvent: 'first' }
+  const keep = (entry: typeof first) => host.call('app/inbox/keepInfo', { entry })
+  await keep(first)
+  await keep({ ...first, at: 2, count: 2, lastEvent: 'second' })
+  await host.call('app/state/set', {
+    patch: { inbox: [{ ...first, read: true }] },
+    noticeBase: { inbox: [{ ...first, read: false }] },
+  })
+  assert.deepEqual(state.state.preferences['inbox'], [{ ...first, at: 2, count: 2, lastEvent: 'second', read: true }], 'a read from the first copy applies to the repeated content')
+  await keep({ ...first, at: 3, count: 3, lastEvent: 'third' })
+  assert.deepEqual(state.state.preferences['inbox'], [{ ...first, at: 3, count: 3, lastEvent: 'third', read: true }], 'another repeat keeps the read state')
+
+  await host.call('app/state/set', { patch: { inbox: [] }, noticeBase: { inbox: [{ ...first, read: false }] } })
+  assert.deepEqual(state.state.preferences['inbox'], [], 'a clear from the first copy removes the repeated content')
+  await keep({ ...first, at: 4, count: 4, lastEvent: 'fourth' })
+  assert.deepEqual(state.state.preferences['inbox'], [], 'another repeat does not restore cleared content')
+})
+
+
 test('a malformed stored Inbox count does not poison a new occurrence', () => {
   const entry = { id: 'content:warning', contentKey: 'content:warning', kind: 'runtime:warning', title: 'Warning', tone: 'warning' as const, at: 2, count: 2 }
   const patch = keepRuntimeInboxEntry({ inbox: [{ ...entry, at: 1, count: 'invalid', read: true }] }, entry)
