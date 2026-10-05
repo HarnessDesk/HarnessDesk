@@ -188,9 +188,9 @@ test('opening a stale Inbox row cannot restore cleared content or erase newer ro
   const latest = { ...old, at: 3, count: 3 }
   await state.setPreferences({ inbox: [latest, newer] })
   await host.call('app/state/set', { patch: { inbox: [{ ...old, read: true }] }, noticeBase: { inbox: [old] } })
-  assert.deepEqual(state.state.preferences['inbox'], [{ ...latest, read: true }, newer], 'a read preserves newer occurrence details')
+  assert.deepEqual(state.state.preferences['inbox'], [latest, newer], 'a stale read cannot mark the newer occurrence read')
   await host.call('app/state/set', { patch: { inbox: [] }, noticeBase: { inbox: [old] } })
-  assert.deepEqual(state.state.preferences['inbox'], [newer], 'a clear affects only rows the window had seen')
+  assert.deepEqual(state.state.preferences['inbox'], [latest, newer], 'a stale clear cannot remove the newer occurrence')
 })
 
 
@@ -218,4 +218,71 @@ test('cached standing-message writes preserve newer-first order and a read on th
 test('a delayed standing-message copy preserves a read on the same occurrence', () => {
   const refreshed = { id: 'goal', title: 'Goal finished', at: 3, read: false }
   assert.deepEqual(mergeNoticePreferences({ inbox: [{ ...refreshed, read: true }] }, { inbox: [refreshed] }, { inbox: [] })['inbox'], [{ ...refreshed, read: true }], 'another window cannot make the identical occurrence unread')
+})
+
+test('a recurring standing notice is unread after another window read its earlier occurrence', async t => {
+  const base = tempDir('hd-inbox-recur-read-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const earlier = { id: 'signin:demo', title: 'Agent is not signed in', at: 1, read: false }
+  const later = { ...earlier, at: 2 }
+  const runtimeTombstone = 'content:runtime-warning'
+  await state.setPreferences({ inbox: [earlier], noticePolicy: { kept: ['signin:demo', runtimeTombstone] } })
+
+  // Window A ends the previous condition and has read its row. Window B still
+  // has the old row as its baseline when the same notice id recurs.
+  await host.call('app/state/set', {
+    patch: { inbox: [{ ...earlier, read: true }], noticePolicy: { kept: [runtimeTombstone] } },
+    noticeBase: { inbox: [earlier], noticePolicy: { kept: ['signin:demo', runtimeTombstone] } },
+  })
+  await host.call('app/state/set', { patch: { inbox: [later] }, noticeBase: { inbox: [earlier] } })
+  assert.deepEqual(state.state.preferences['inbox'], [later], 'the later occurrence is new and unread')
+  await state.setPreferences({ noticePolicy: { kept: [runtimeTombstone, 'signin:demo'] } })
+  await host.call('app/state/set', { patch: { inbox: [{ ...later, at: 3 }] }, noticeBase: { inbox: [earlier] } })
+  assert.deepEqual(state.state.preferences['inbox'], [later], 'another window cannot replay the active occurrence as a newer one')
+
+  // A delayed read or clear from Window A belongs to the earlier occurrence.
+  await host.call('app/state/set', { patch: { inbox: [{ ...earlier, read: true }] }, noticeBase: { inbox: [earlier] } })
+  await host.call('app/state/set', { patch: { inbox: [] }, noticeBase: { inbox: [earlier] } })
+  assert.deepEqual(state.state.preferences['inbox'], [later], 'stale edits cannot read or remove the later occurrence')
+  assert.deepEqual(state.state.preferences['noticePolicy'], { kept: [runtimeTombstone, 'signin:demo'] }, 'Inbox edits preserve host tombstones')
+})
+
+test('a recurring standing notice can return after a clear, while a replay of it stays cleared', async t => {
+  const base = tempDir('hd-inbox-recur-clear-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const earlier = { id: 'signin:demo', title: 'Agent is not signed in', at: 1, read: false }
+  const later = { ...earlier, at: 2 }
+  const runtimeTombstone = 'content:runtime-warning'
+  await state.setPreferences({ inbox: [earlier], noticePolicy: { kept: ['signin:demo', runtimeTombstone] } })
+
+  // Window A clears the earlier row. Window B still has its earlier snapshot
+  // when it delivers the genuinely newer occurrence.
+  await host.call('app/state/set', {
+    patch: { inbox: [], noticePolicy: { kept: [runtimeTombstone] } },
+    noticeBase: { inbox: [earlier], noticePolicy: { kept: ['signin:demo', runtimeTombstone] } },
+  })
+  await host.call('app/state/set', { patch: { inbox: [later] }, noticeBase: { inbox: [earlier] } })
+  assert.deepEqual(state.state.preferences['inbox'], [later], 'the new occurrence is admitted unread')
+  await state.setPreferences({ noticePolicy: { kept: [runtimeTombstone, 'signin:demo'] } })
+
+  // Clearing that occurrence leaves its identity behind so a delayed replay
+  // from Window B cannot put it back.
+  await host.call('app/state/set', { patch: { inbox: [] }, noticeBase: { inbox: [later] } })
+  await host.call('app/state/set', {
+    patch: { noticePolicy: { kept: [runtimeTombstone] } },
+    noticeBase: { noticePolicy: { kept: [runtimeTombstone, 'signin:demo'] } },
+  })
+  await host.call('app/state/set', { patch: { inbox: [later] }, noticeBase: { inbox: [earlier] } })
+  assert.deepEqual(state.state.preferences['inbox'], [], 'the identical replay remains cleared')
+  assert.deepEqual((state.state.preferences['noticePolicy'] as { kept: string[] }).kept, [runtimeTombstone], 'the replay does not remove host tombstones')
+
+  const next = { ...later, at: 3 }
+  await host.call('app/state/set', { patch: { inbox: [next] }, noticeBase: { inbox: [later] } })
+  assert.deepEqual(state.state.preferences['inbox'], [next], 'a later occurrence can be admitted after the clear')
 })

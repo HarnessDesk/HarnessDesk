@@ -806,6 +806,9 @@ after a restart. The host retains startup information before a window connects.
 Configuration warnings keep the runtime's summary, settings and file as separate
 facts. Expanding the row reveals guidance, a home-shortened path, Open the file
 and Don't show this again. Settings › Notifications offers Inbox only or Off.
+When a standing condition ends and later returns, its Inbox row is unread again;
+an older read or clear from another window affects only the occurrence that
+window saw.
 
 Conversation warnings, context compaction and model changes stay as quiet
 transcript lines outside the work fold. Errors keep one inline explanation and

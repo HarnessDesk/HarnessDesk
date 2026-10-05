@@ -13,6 +13,10 @@ move is real work and is not news to a person weighing an upgrade.
   launches. Conversation notices stay inline, and only action results open
   toasts. Notifications settings includes every new kind.
 
+- **A recurring standing notice returns unread when its condition returns.**
+  Reading or clearing an earlier occurrence in another window cannot hide the
+  new one, and a delayed copy cannot undo a read or clear.
+
 - **A comparison keeps the attempt its judge picked.** Findings on the other
   attempt no longer hold the person’s keep step; they stay open and explain
   why they were not kept, including advisory findings and after later reviews.
