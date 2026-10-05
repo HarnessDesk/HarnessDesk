@@ -139,3 +139,15 @@ it('a row wraps its control under a title that keeps a readable width', () => {
   expect(rule('.rowCtl')).toMatch(/flex:\s*0 1 auto/)
   expect(rule('.rowCtl')).toMatch(/max-width:\s*100%/)
 })
+
+it('centres a described row’s mark and control on the whole row', () => {
+  expect(css).not.toMatch(/\.row:has\(\.rowDesc\)\s*\{[^}]*align-items:\s*flex-start/s)
+  expect(css).not.toMatch(/\.row:has\(\.rowDesc\) \.(rowMark|rowCtl|choiceMark)[^{]*\{[^}]*margin-top:/s)
+  expect(css).toMatch(/\.rowMark\s*\{[^}]*width:\s*var\(--hd-table-face\)/s)
+  expect(css).toMatch(/\.rowDesc\s*\{[^}]*font-size:\s*var\(--hd-text-sm\)/s)
+  expect(css).toMatch(/\.rowDesc\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
+})
+
+it('leaves exactly one full-width divider to the action or fold wrapper', () => {
+  expect(css).toMatch(/\.rowFolding > \.rowButton::after\s*\{[^}]*display:\s*none/s)
+})

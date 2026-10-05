@@ -26,14 +26,11 @@ for (const theme of ['light', 'dark'] as const) {
     expect(geometry.width).toBeLessThan(400)
     expect(geometry.scroll).toBeLessThanOrEqual(geometry.width + 1)
     expect(geometry.overflowing).toBe(false)
+    // Wrapped timeline copy shares the whole row centre with its lead.
     const leadDeltas = await narrow.locator('[data-row]:has([data-slot="list-row-lead"])').evaluateAll(rows => rows.map(row => {
       const lead = row.querySelector('[data-slot="list-row-lead"]')!.getBoundingClientRect()
-      const walker = document.createTreeWalker(row.querySelector('[data-slot="list-row-title"]')!, NodeFilter.SHOW_TEXT)
-      walker.nextNode()
-      const range = document.createRange()
-      range.selectNodeContents(walker.currentNode)
-      const line = range.getClientRects()[0]!
-      return Math.abs((lead.top + lead.bottom - line.top - line.bottom) / 2)
+      const bounds = row.getBoundingClientRect()
+      return Math.abs((lead.top + lead.bottom - bounds.top - bounds.bottom) / 2)
     }))
     expect(leadDeltas.every(delta => delta < 1.5)).toBe(true)
     await expect(narrow.getByText('Editing src/checkout/retry.ts')).toBeVisible()

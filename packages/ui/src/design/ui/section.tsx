@@ -151,7 +151,7 @@ const Section = (props: SectionProps) => {
              body is a `Note` or a plain button — ProjectTriggers' own body,
              say — has no such card to answer to, and the same inset put its
              label 17px right of a body that starts flush with the page. */
-          className="flex min-w-0 items-end gap-(--hd-space-3) has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-inset-card))]"
+          className="flex min-w-0 items-end gap-(--hd-space-3) has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))] has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]"
         >
           <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
             <GroupLabel as="h2">{title}</GroupLabel>

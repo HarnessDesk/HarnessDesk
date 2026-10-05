@@ -1130,7 +1130,7 @@ export const RowChoice = ({
     onClick={onClick}
     onKeyDown={stepRadio}
   >
-    <span className={styles.choiceMark}>{selected ? <CheckIcon size={15} /> : null}</span>
+    <span className={styles.choiceMark} data-slot="row-choice-mark">{selected ? <CheckIcon size={15} /> : null}</span>
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}

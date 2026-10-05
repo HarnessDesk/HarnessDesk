@@ -2,14 +2,18 @@ import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
-/* Vendored from shadcn/ui (table), tightened one step for desktop density. */
+/* Vendored from shadcn/ui (table), with the app's shared row anatomy. */
 
 const Table = ({
   className,
   containerClassName,
   variant = 'default',
+  density = variant === 'panel' ? 'compact' : 'comfortable',
+  rows = 'default',
   ...props
 }: React.ComponentProps<'table'> & {
+  density?: 'comfortable' | 'compact'
+  rows?: 'default' | 'bare'
   containerClassName?: string
   variant?: 'default' | 'framed' | 'panel'
 }) => (
@@ -25,6 +29,8 @@ const Table = ({
   >
     <table
       data-slot="table"
+      data-hd-table={density}
+      data-rows={rows}
       className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', className)}
       {...props}
     />
@@ -32,7 +38,7 @@ const Table = ({
 )
 
 const TableHeader = ({ className, ...props }: React.ComponentProps<'thead'>) => (
-  <thead data-slot="table-header" className={cn('[&_tr]:border-b', className)} {...props} />
+  <thead data-slot="table-header" className={cn('[&_tr]:border-b [&_tr]:border-(--hd-border-strong)', className)} {...props} />
 )
 
 const TableBody = ({ className, ...props }: React.ComponentProps<'tbody'>) => (
@@ -75,10 +81,11 @@ const TableRow = ({
     data-variant={variant}
     {...(interactive ? { 'data-interactive': '' } : {})}
     className={cn(
-      variant === 'default' && 'hover:bg-accent/50 data-[state=selected]:bg-muted',
       variant === 'matrix' && 'group/matrix',
-      variant === 'matrix' && interactive && 'hover:bg-(--hd-hover) data-[state=selected]:bg-(--hd-hover)',
-      'border-b transition-colors',
+      interactive && 'hover:bg-(--hd-hover)',
+      'data-[state=selected]:bg-(--hd-selected)',
+      interactive && 'data-[state=selected]:hover:bg-(--hd-selected)',
+      'border-b border-(--hd-card-divider,var(--hd-border)) transition-colors',
       className,
     )}
     {...props}
@@ -90,26 +97,32 @@ const TableHead = ({
   variant = 'default',
   pinned = false,
   align = 'start',
+  numeric = false,
+  scope = variant === 'row' ? 'row' : 'col',
   ...props
 }: Omit<React.ComponentProps<'th'>, 'align'> & {
   variant?: 'default' | 'matrix' | 'row' | 'footer' | 'panel'
   pinned?: boolean
   align?: 'start' | 'center' | 'end'
+  numeric?: boolean
 }) => (
   <th
+    scope={scope}
     data-slot="table-head"
     data-variant={variant}
-    data-align={align}
+    data-align={numeric ? 'end' : align}
     {...(pinned ? { 'data-pinned': '' } : {})}
     className={cn(
-      variant === 'default' && 'text-muted-foreground h-8 px-2 text-left align-middle text-xs font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0',
-      variant === 'matrix' && 'bg-(--hd-background) px-2.5 py-2 text-left align-middle text-xs font-medium whitespace-nowrap text-(--hd-muted-foreground)',
-      variant === 'row' && 'bg-(--hd-background) p-0 text-left align-middle text-sm font-normal text-(--hd-foreground) group-hover/matrix:bg-(--hd-hover) group-data-[state=selected]/matrix:bg-(--hd-hover)',
+      'h-(--hd-table-head-h) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) text-left align-middle text-(length:--hd-table-head-size) font-medium text-(--hd-table-head-ink)',
+      variant === 'default' && 'whitespace-nowrap',
+      variant === 'matrix' && 'bg-(--hd-background) whitespace-nowrap',
+      variant === 'row' && 'text-(length:--hd-table-name-size) font-medium text-(--hd-foreground)',
       variant === 'footer' && 'px-2.5 py-2 text-left text-xs font-medium whitespace-nowrap text-(--hd-muted-foreground)',
-      variant === 'panel' && 'sticky top-0 bg-(--hd-card) px-2 py-1 text-left align-middle text-xs font-semibold whitespace-nowrap text-(--hd-secondary-foreground)',
-      pinned && 'bg-(--hd-background)',
-      align === 'center' && 'text-center',
-      align === 'end' && 'text-right',
+      variant === 'panel' && 'sticky top-0 bg-(--hd-card) whitespace-nowrap',
+      variant === 'row' && 'h-(--hd-table-row-min) in-data-[rows=bare]:h-(--hd-table-row-min-bare)',
+      pinned && 'bg-(--hd-background) group-data-[interactive]/matrix:group-hover/matrix:[background:linear-gradient(var(--hd-hover),var(--hd-hover)),var(--hd-background)] group-data-[state=selected]/matrix:[background:linear-gradient(var(--hd-selected),var(--hd-selected)),var(--hd-background)] group-data-[state=selected]/matrix:group-data-[interactive]/matrix:group-hover/matrix:[background:linear-gradient(var(--hd-selected),var(--hd-selected)),var(--hd-background)]',
+      !numeric && align === 'center' && 'text-center',
+      (numeric || align === 'end') && 'text-right',
       className,
     )}
     {...props}
@@ -120,40 +133,43 @@ const TableHead = ({
  * `align` is the cell's half of the column's alignment, which `TableHead`
  * already carries: a column the head sets flush right is a column of figures,
  * so its cells are set flush right in tabular digits and line up under it.
- * A `lead` centres a face or mark on the first text line, even when the cell
- * carries metadata beneath its label.
+ * A `lead` centres a face on the whole row, including wrapped text.
  */
 const TableCell = ({
   className,
   variant = 'default',
   align = 'start',
   lead,
+  numeric = false,
   children,
   ...props
 }: Omit<React.ComponentProps<'td'>, 'align'> & {
   variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel'
-  align?: 'start' | 'end'
+  align?: 'start' | 'center' | 'end'
+  numeric?: boolean
   lead?: React.ReactNode
 }) => (
   <td
     data-slot="table-cell"
     data-variant={variant}
-    data-align={align}
+    data-align={numeric ? 'end' : align}
     className={cn(
-      variant === 'default' && 'px-2 py-1.5 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0',
-      variant === 'matrix' && 'p-0 text-center align-middle',
-      variant === 'flush' && 'bg-(--hd-background) p-0 align-middle',
+      variant === 'default' && 'py-1.5 whitespace-nowrap',
+      variant === 'matrix' && 'py-0 text-center',
+      variant === 'flush' && 'bg-(--hd-background) py-0',
       variant === 'detail' && 'bg-(--hd-background) px-3 pt-2.5 pb-3 align-middle',
       variant === 'footer' && 'px-1.5 py-2 text-center text-xs tabular-nums whitespace-nowrap text-(--hd-muted-foreground)',
-      variant === 'panel' && 'px-2 py-1 align-top whitespace-normal [overflow-wrap:anywhere]',
-      align === 'end' && 'text-right tabular-nums',
+      variant === 'panel' && 'py-1 whitespace-normal [overflow-wrap:anywhere]',
+      'h-(--hd-table-row-min) in-data-[rows=bare]:h-(--hd-table-row-min-bare) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) align-middle',
+      !numeric && align === 'center' && 'text-center',
+      (numeric || align === 'end') && 'text-right tabular-nums',
       className,
     )}
     {...props}
   >
     {lead != null ? (
-      <div className="flex items-start gap-2">
-        <span data-slot="table-cell-lead" className="inline-flex h-(--hd-line-sm) shrink-0 items-center">{lead}</span>
+      <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap)">
+        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) [&>*]:size-full [&>*]:rounded-[inherit]">{lead}</span>
         {children}
       </div>
     ) : children}

@@ -1846,6 +1846,39 @@ work, keeps its handle. A continuously working shared runtime retains finished
 threads' children until a quiet opportunity arrives. This chooses the measured
 release boundary without interrupting work or changing any configured server.
 
+## One family of tables
+
+Tables, lists and settings rows centre the face and the control on the whole
+row, however many lines the copy takes. This reverses the first-line pinning
+recorded in ListRow and Settings: it needed separate height boxes and negative
+vertical nudges and made controls float above the other cells. One centre
+survives a wrapping sentence and gives every arrangement the same anatomy.
+The system, catalogue and preview change together; individual screen content
+follows separately. The windowed Git pitch and its table-row button stay 26px.
+
+Each decision has its own token. Values are comfortable / compact; unchanged
+values apply to both. To roll back a token independently, set it to the value
+in this table's rollback column in both density scopes. To restore the previous
+anatomy, revert this commit, including the alignment census's row-centre rule.
+
+| Token | Value | Rollback |
+| --- | --- | --- |
+| `--hd-table-head-h` | 40px / 32px | Set back to 32px. |
+| `--hd-table-head-size` | `var(--hd-text-sm)` / `var(--hd-text-xs)` | Set back to `var(--hd-text-xs)`. |
+| `--hd-table-head-ink` | `var(--hd-secondary-foreground)` | Set back to `var(--hd-muted-foreground)`. |
+| `--hd-table-row-min` | 56px / 40px | Revert this commit; previous cells had no shared floor. |
+| `--hd-table-row-min-bare` | 44px / 32px | Revert this commit; previous cells had no shared floor. |
+| `--hd-table-cell-x` | `var(--hd-inset-row)` / `var(--hd-inset-dense)` | Set back to `var(--hd-inset-dense)`. |
+| `--hd-table-edge` | `var(--hd-card-padding)` / `var(--hd-inset-row)` | Set back to `var(--hd-inset-dense)` for tables; revert this commit for the former separate row insets. |
+| `--hd-table-face` | 32px / 24px | Set back to 24px for table faces; revert this commit for the former private 34px settings tile. |
+| `--hd-table-face-radius` | `calc(var(--hd-face-radius) * 4 / 3)` / `var(--hd-face-radius)` | Set back to `var(--hd-face-radius)`. |
+| `--hd-table-lead-gap` | `var(--hd-space-3)` / `var(--hd-space-2-5)` | Set back to `var(--hd-space-2)` for tables; revert this commit for the former 24px settings gap. |
+| `--hd-table-name-size` | `var(--hd-text)` / `var(--hd-text-sm)` | Set back to `var(--hd-text-sm)` for table names. |
+| `--hd-table-fact-size` | `var(--hd-text-xs)` | Revert this commit; the former value was already 12px. |
+| `--hd-table-sentence-size` | `var(--hd-text-sm)` / `var(--hd-text-xs)` | Set back to `var(--hd-text-xs)` for lists. |
+| `--hd-table-line-gap` | `var(--hd-space-0-5)` | Set back to zero for lists. |
+| `--hd-table-end-gap` | `var(--hd-space-3)` / `var(--hd-space-2)` | Set back to `var(--hd-space-2)`. |
+
 ## Messages follow what caused them — 2026-10-04
 
 Runtime information arriving at launch is neither a failed action nor a reason
