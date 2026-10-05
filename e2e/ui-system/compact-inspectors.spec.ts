@@ -1,8 +1,4 @@
 import { expect, test } from '@playwright/test'
-import { mkdir } from 'node:fs/promises'
-
-const capturePhase = process.env.HD_TABLES_FRAMES_PHASE
-const captureDirectory = '/tmp/tables-f1/repair-frames'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`long check commands remain fully readable at narrow width in ${theme}`, async ({ page }) => {
@@ -13,17 +9,6 @@ for (const theme of ['light', 'dark'] as const) {
     const frame = page.locator('[data-frame-id="project-checks-long-command"]')
     const command = frame.locator('[data-slot="code-text"]').nth(1)
     await expect(command).toContainText('--reporter verbose')
-    if (capturePhase) {
-      await mkdir(captureDirectory, { recursive: true })
-      await expect(page.locator('[data-frame-id="project-checks"] [data-slot="list-row"]')).toHaveCount(4)
-      await page.evaluate(() => {
-        const preview = (window as unknown as { __hdPreview: { store: { patch(value: unknown): void } } }).__hdPreview
-        preview.store.patch({ home: '/home/dev' })
-      })
-      for (const id of ['project-checks', 'project-checks-long-command']) {
-        await page.locator(`[data-frame-id="${id}"]`).screenshot({ path: `${captureDirectory}/${capturePhase}-${id}-${theme}.png` })
-      }
-    }
     const reading = await command.evaluate(node => {
       const subtitle = node.parentElement!
       const box = subtitle.getBoundingClientRect()
@@ -52,10 +37,6 @@ for (const theme of ['light', 'dark'] as const) {
     const frame = page.locator('[data-frame-id="panel-seat-attachments"]')
     const reason = frame.locator('[data-role="meta"]').filter({ hasText: 'Refused attachment:' })
     await expect(reason).toContainText('narrow_inspector.')
-    if (capturePhase) {
-      await mkdir(captureDirectory, { recursive: true })
-      await frame.screenshot({ path: `${captureDirectory}/${capturePhase}-panel-seat-attachments-${theme}.png` })
-    }
     const reading = await reason.evaluate(node => {
       const row = node.closest('[data-slot="inspector-row"]')!
       const box = node.getBoundingClientRect()
