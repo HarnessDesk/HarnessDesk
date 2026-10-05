@@ -112,12 +112,22 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       if (!reactUrl) throw new Error('preview React import missing')
       await route.fulfill({ response, body: `${source}
         import insetReact from ${JSON.stringify(reactUrl)};
-        import { SummaryList as InsetSummary, SummaryItem as InsetFact, ApprovalDialog as InsetApproval, ApprovalReason as InsetReason, ApprovalCode as InsetCode } from '/src/design/index.ts';
+        import { SummaryList as InsetSummary, SummaryItem as InsetFact, AgentCard as InsetAgentCard, ApprovalDialog as InsetApproval, ApprovalReason as InsetReason, ApprovalCode as InsetCode } from '/src/design/index.ts';
         import { AlertIcon as InsetWarning } from '/src/components/Icons.tsx';
         const insetHost = document.createElement('section');
         insetHost.style.width = '360px'; document.body.append(insetHost);
         createRoot(insetHost).render(insetReact.createElement(InsetSummary, null,
           insetReact.createElement(InsetFact, { label: 'Plan' }, 'Monthly')));
+        const cautionHost = document.createElement('section');
+        cautionHost.style.width = '360px'; document.body.append(cautionHost);
+        createRoot(cautionHost).render(insetReact.createElement(InsetAgentCard, { subject: {
+          kind: 'member', name: 'Alpha', tint: 'blue', mark: insetReact.createElement(InsetWarning),
+          cautions: [
+            { tone: 'danger', text: 'Cannot take jobs until the board tools are available.' },
+            { tone: 'warning', text: 'The context budget is nearly full.' },
+            { tone: 'quiet', text: 'Has not taken a job in this Run.' },
+          ],
+        } }));
         for (const placement of ['overlay', 'docked']) {
           const approvalHost = document.createElement('section');
           approvalHost.style.cssText = 'position:relative;width:580px;max-width:100%;height:400px';
@@ -134,6 +144,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await page.evaluate(() => document.fonts.ready)
     await expect(page.locator('[data-frame-id="goal-roster"] [data-slot="composer-tail"]')).toBeAttached()
     await expect(page.locator('[data-slot=approval-dialog-scope] [role=dialog]')).toBeVisible()
+    await expect(page.locator('[data-slot="agent-card-band"]').filter({ hasText: 'The context budget is nearly full.' })).toBeVisible()
     const readings = await page.evaluate(readInsets, contracts)
     const faults: string[] = []
     for (const { selector, minimum, boxes } of readings) {

@@ -434,7 +434,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           <div
             key={caution.text}
             data-slot="agent-card-band"
-            className={`flex items-start gap-2 border-t border-(--hd-border-strong) px-3 py-2 text-xs leading-(--hd-line-sm) ${CAUTION_STYLE[caution.tone]}`}
+            className={`flex items-start gap-2 border-t border-(--hd-border-strong) p-(--hd-inset-row) text-xs leading-(--hd-line-sm) ${CAUTION_STYLE[caution.tone]}`}
           >
             <Glyph size={13} className="mt-px flex-none" />
             <span>{caution.text}</span>
