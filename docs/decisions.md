@@ -1828,6 +1828,13 @@ before asking the adapter, so handshake time cannot erase their answers.
 Runtime-backed filesystem, process and extension calls, and hook reads, use
 that same stop/start barrier and count as activity until they finish. A live
 filesystem watch, like a terminal, keeps the process until unsubscribed.
+Account activity and rate-limit reads wait for those barriers too. Passive
+history, catalogue and usage reads protect their in-flight calls without
+resetting the runtime's quiet interval: a read spanning its deadline delays
+shutdown only until it finishes. Dashboard usage polls keep the last observed
+rate limits and account activity readable while idle, without restarting the
+process or refreshing their recorded observation time. New account
+notifications invalidate those usage observations.
 Deleting, archiving, renaming or updating a conversation invalidates retained
 history pages of every size and side. A page fetched across such a change is
 not retained; an unobserved page is read afresh through the host barrier.

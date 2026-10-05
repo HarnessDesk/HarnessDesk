@@ -100,6 +100,7 @@ test('a source that fails keeps the last good reading, with the failure beside i
   let failing = false
   const flaky: AgentRuntime = {
     info: { id: METERED, name: 'metered', capabilities: { metered: true }, presentation: { name: 'metered' } },
+    health: () => ({ state: 'ready' }),
     getRateLimits: async () => {
       if (failing) throw new Error('the provider is down')
       return { planType: 'Pro', windows: [{ label: 'Weekly', usedPercent: 30, windowMinutes: 10_080, resetsAt: null }] }
@@ -129,6 +130,7 @@ test('a source that fails keeps the last good reading, with the failure beside i
 test('synchronous runtime throws are isolated and do not prevent the usage report', async () => {
   const throwing: AgentRuntime = {
     info: { id: METERED, name: 'metered', capabilities: { metered: true }, presentation: { name: 'metered' } },
+    health: () => ({ state: 'ready' }),
     getRateLimits: () => { throw new Error('sync limits failure') },
     getAccountActivity: () => { throw new Error('sync activity failure') },
     getAccount: async () => ({ accounts: [], signInMethods: [] }),

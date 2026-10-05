@@ -111,6 +111,18 @@ test('a standalone terminal keeps an otherwise unused runtime running', async (t
   assert.equal(await d.stop(), true)
 })
 
+test('idle usage reads retain the observed rate limits and account activity without restarting', async (t) => {
+  const d = await rig(t, 'hold', { FAKE_CODEX_WINDOWS: '1' })
+  const limits = await d.runtime.getRateLimits()
+  const activity = await d.runtime.getAccountActivity()
+  assert.ok(limits?.windows?.length)
+  assert.equal(activity?.lifetimeTokens, 4200)
+  assert.equal(await d.stop(), true)
+  assert.deepEqual(await d.runtime.getRateLimits(), limits)
+  assert.deepEqual(await d.runtime.getAccountActivity(), activity)
+  assert.equal(d.runtime.health().state, 'idle')
+})
+
 test('an active file watch prevents idle shutdown until unsubscribed', async (t) => {
   const d = await rig(t)
   const unwatch = await d.runtime.files.watch(d.dir, () => {})

@@ -310,6 +310,12 @@ export class UsageService {
         }
       }
       accountActivity = activityResult.activity ?? undefined
+      // An idle runtime returns observations, not a fresh account reading.
+      // A file-backed meter below can still supply its own newer timestamp.
+      if (runtime.health().state === 'idle' && previous?.source.kind === 'runtime') {
+        fetchedAt = previous.fetchedAt
+        staleAfterMs = previous.staleAfterMs
+      }
     }
 
     // A meter fills in for a runtime that cannot answer; it never overwrites

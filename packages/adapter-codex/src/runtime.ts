@@ -265,6 +265,8 @@ export class CodexRuntime implements AgentRuntime {
   #disposeServer: Unsubscribe[] = []
   #idleStopped = false
   #lastAccount: AccountStatus | null = null
+  #lastRateLimits: RateLimits | null = null
+  #lastAccountActivity: AccountActivity | null = null
   #lastFeatures: CodexProtocol.v2.ExperimentalFeature[] = []
   readonly #lastDefaults = new Map<string, { readonly config: CodexProtocol.v2.Config; readonly catalog: Catalog }>()
   readonly #knownCwds = new Set<string>()
@@ -817,11 +819,14 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   async getRateLimits(): Promise<RateLimits | null> {
+    if (this.#idleStopped) return this.#lastRateLimits
     try {
       const response = await this.#server.request('account/rateLimits/read', undefined)
       const snapshot = (response as unknown as { rateLimits?: CodexProtocol.v2.RateLimitSnapshot })
         .rateLimits
-      return snapshot ? mapRateLimits(snapshot) : null
+      const limits = snapshot ? mapRateLimits(snapshot) : null
+      this.#lastRateLimits = limits
+      return limits
     } catch {
       // Rate limits are advisory; a provider that does not meter should not
       // make the whole settings pane fail to load.
@@ -831,9 +836,12 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Codex's account-wide activity, across machines; advisory and unavailable on older servers. */
   async getAccountActivity(): Promise<AccountActivity | null> {
+    if (this.#idleStopped) return this.#lastAccountActivity
     try {
       const response = await this.#server.request('account/usage/read', {})
-      return mapAccountActivity(response)
+      const activity = mapAccountActivity(response)
+      this.#lastAccountActivity = activity
+      return activity
     } catch {
       // This account-wide endpoint is advisory; older servers and signed-out
       // accounts may not provide it, and must not affect the usage report.
@@ -1429,6 +1437,8 @@ export class CodexRuntime implements AgentRuntime {
           ?.noteUsage(notification.params.tokenUsage)
         return
       case 'account/updated':
+        this.#lastRateLimits = null
+        this.#lastAccountActivity = null
         void this.#refreshCatalog()
         return
       case 'fs/changed':

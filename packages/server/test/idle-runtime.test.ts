@@ -232,6 +232,95 @@ test('cached reads join a restart already triggered by an unobserved history pag
   assert.equal(runtime.starts, 2)
 })
 
+test('account activity waits for a held restart before usage refresh reads it', async (t) => {
+  class ActivityRuntime extends IdleRuntime {
+    canReadWhileIdle(read: IdleRuntimeRead): boolean {
+      return read.method !== 'listSessions' || !read.query?.cursor
+    }
+    override async start(): Promise<void> {
+      if (this.starts > 0) this.setHealth({ state: 'starting' })
+      await super.start()
+    }
+    override getAccountActivity = async () => {
+      if (this.health().state !== 'ready') return null
+      return { days: [], lifetimeTokens: 4200, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: null }
+    }
+  }
+  const runtime = new ActivityRuntime()
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => {
+    runtime.continueStart()
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  await until(() => runtime.health().state === 'idle')
+  runtime.holdNextStart()
+  const history = host.call('session/list', { runtime: runtime.info.id, cursor: 'unread' })
+  await until(() => runtime.starts === 2)
+  let settled = false
+  const usage = host.call('usage/refresh', { runtime: runtime.info.id }).then((value) => { settled = true; return value })
+  await pause(10)
+  assert.equal(settled, false, 'account activity joins the in-flight restart')
+  runtime.continueStart()
+  await history
+  assert.equal((await usage)[0]?.accountActivity?.lifetimeTokens, 4200)
+  assert.equal(runtime.starts, 2)
+})
+
+test('Dashboard usage polling every two minutes permits idle release and never wakes the runtime', async (t) => {
+  const runtime = new IdleRuntime({ capabilities: { metered: true } })
+  Object.assign(runtime, {
+    getAccountActivity: async () => ({ days: [], lifetimeTokens: 4200, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: null }),
+  })
+  const { host, stateDir } = await makeHost(runtime, 10 * 60_000)
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  await host.start()
+  t.mock.timers.tick(1_000)
+  await pause(5)
+  let observedAt = 0
+  for (let n = 0; n < 6; n++) {
+    const idle = runtime.health().state === 'idle'
+    const reports = await host.call('usage/refresh', { runtime: runtime.info.id })
+    assert.equal(reports[0]?.accountActivity?.lifetimeTokens, 4200)
+    if (idle) assert.equal(reports[0]?.fetchedAt, observedAt, 'an idle snapshot retains its observation time')
+    else observedAt = reports[0]!.fetchedAt
+    await host.call('session/list', { runtime: runtime.info.id })
+    await host.call('runtime/models', { runtime: runtime.info.id })
+    t.mock.timers.tick(120_000)
+    await pause(5)
+  }
+  assert.equal(runtime.stops, 1, 'scheduled observation does not restart the ten-minute quiet interval')
+  assert.equal(runtime.health().state, 'idle')
+  await host.call('usage/refresh', { runtime: runtime.info.id })
+  assert.equal(runtime.starts, 1, 'usage polls do not wake a resting runtime')
+})
+
+test('an in-flight account activity read delays idle release without resetting the quiet interval', async (t) => {
+  const runtime = new IdleRuntime()
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  let reading = false
+  Object.assign(runtime, { getAccountActivity: async () => { reading = true; await barrier; return null } })
+  const { host, stateDir } = await makeHost(runtime, 10 * 60_000)
+  t.after(async () => { release(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  await host.start()
+  t.mock.timers.tick(1_000)
+  await pause(5)
+  const usage = host.call('usage/refresh', { runtime: runtime.info.id })
+  await until(() => reading)
+  t.mock.timers.tick(11 * 60_000)
+  await pause(5)
+  assert.equal(runtime.stops, 0, 'a read still needs the live process')
+  release()
+  await usage
+  t.mock.timers.tick(1_000)
+  await pause(5)
+  assert.equal(runtime.stops, 1, 'completion permits shutdown at the original quiet deadline')
+})
+
 test('a room post resumes an idle-stopped member and delivers to it', async (t) => {
   const runtime = new IdleRuntime({ id: 'room-idle-test' as never, name: 'Room Idle Test' })
   const { host, stateDir } = await makeHost(runtime, 0)

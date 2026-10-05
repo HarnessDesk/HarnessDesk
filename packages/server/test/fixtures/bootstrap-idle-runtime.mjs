@@ -64,8 +64,16 @@ try {
   await tick()
   await tick(11 * 60_000)
   await until(() => active.record.live === null, 'last finished seat released')
-  await tick(11 * 60_000)
+  // Match the Dashboard's cadence while released threads still retain helpers.
+  for (let n = 0; n < 6; n++) {
+    const usage = await host.call('usage/refresh', { runtime })
+    assert.equal(usage[0]?.accountActivity?.lifetimeTokens, 4200, 'usage stays readable during rest')
+    await tick(120_000)
+  }
   await until(async () => await health() === 'idle' && firstChildren.every((child) => !running(child.pid)), 'all finished-seat children exit')
+  const idleUsage = await host.call('usage/refresh', { runtime })
+  assert.equal(idleUsage[0]?.accountActivity?.lifetimeTokens, 4200)
+  assert.equal(await health(), 'idle', 'Dashboard polling does not restart released helpers')
   const history = await host.call('session/list', { runtime, archived: 'exclude' })
   assert.ok(seats.every((seat) => history.data.some((row) => row.id === seat.session.id)))
   const models = await host.call('runtime/models', { runtime })
