@@ -97,7 +97,7 @@ export const Usage = ({
    */
   const [wideLedger, setWideLedger] = useState<LedgerReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [insightDays, setInsightDays] = useState(30)
+  const [insightRange, setInsightRange] = useState<{ root: string | null; days: number }>({ root: null, days: 30 })
   const [insightView, setInsightView] = useState<'goal' | 'agent'>('goal')
   /**
    * "When it ran"'s own query and toggles, owned here rather than by the
@@ -171,6 +171,10 @@ export const Usage = ({
   }, [store, scope, snapshot.scan?.finishedAt])
 
   const projectRoot = snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null
+  // A range belongs to its project. Reset before its new read, rather than
+  // querying the new project once with the previous project's shorter range.
+  if (insightRange.root !== projectRoot) setInsightRange({ root: projectRoot, days: 30 })
+  const insightDays = insightRange.root === projectRoot ? insightRange.days : 30
 
   // Project usage, loaded once per scope/root — not per `insightView` — so
   // switching Projects' own By Goal/By Agent toggle, or switching away and
@@ -476,7 +480,8 @@ export const Usage = ({
               onGoal={(goal) => store.openGoal(goal)}
               insightReport={insightReport}
               insightProblem={insightProblem}
-              onShorterRange={() => setInsightDays(1)}
+              rangeDays={insightDays}
+              onRangeChange={days => setInsightRange({ root: projectRoot, days })}
             />
           )}
         </div>

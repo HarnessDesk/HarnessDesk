@@ -163,9 +163,14 @@ it('keeps a group-level gap note outside the Rows card rather than flush against
 })
 
 it('shows a budget-limited report as one whole-range warning', async () => {
-  const partial = Object.assign(report(), { scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'] })
+  const base = report()
+  const partial: InsightReport = { ...base, scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'], breakdowns: base.breakdowns.map(b => ({ ...b, rows: b.rows.map(row => ({ ...row, amounts: { ...row.amounts, usd: { ...metric(2), quality: 'estimate', coverage: 'partial' } } })) })) }
   const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot = emptySnapshot(); return () => snapshot })() } as unknown as AppStore
   await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={partial} /></StoreProvider>) })
+  expect(container.textContent).toContain('Amounts are incomplete for this range')
+  expect(container.textContent).not.toContain('Amounts are unknown')
+  expect([...container.querySelectorAll('th')].map(cell => cell.textContent)).toContain('Cost')
+  expect(container.querySelector('tbody td:nth-child(4)')?.textContent).toContain('Estimated known subtotal')
   expect(container.textContent).toContain('Reading stopped at 64 MiB')
   expect(container.querySelector('tbody')?.textContent).not.toContain('Partial')
   expect(container.textContent).not.toContain('Insight stopped at')
@@ -238,4 +243,29 @@ it('applies both runtime and range to Agent counts', async () => {
 
 it('shows observed zero counts when an Agent has no Seats or Runs in the range', async () => {
  expect(await showCounts('agent', 'alpha', -100, -1)).toEqual(['0', '0'])
+})
+
+it('labels Project usage’s range, restores it and resets it on a project switch', async () => {
+  const base = report()
+  const unknown = { ...base, totals: { ...base.totals, usd: metric(null) }, breakdowns: base.breakdowns.map(b => ({ ...b, rows: b.rows.map(row => ({ ...row, amounts: { ...row.amounts, usd: metric(null) } })) })) }
+  const readUsageInsight = vi.fn(async () => unknown)
+  let snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
+  const listeners = new Set<() => void>()
+  const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
+  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
+  const span = () => { const query = readUsageInsight.mock.calls.at(-1)![0] as unknown as { from: number; to: number }; return query.to - query.from }
+  const click = async (text: string) => { await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === text)!.click(); await Promise.resolve() }) }
+  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 30 days')
+  expect(span()).toBe(30 * 86400000)
+  await click('Last 24 hours')
+  expect(span()).toBe(86400000)
+  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 24 hours')
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Last 24 hours')).toBe(false)
+  await click('Last 30 days')
+  expect(span()).toBe(30 * 86400000)
+  await click('Last 24 hours')
+  await act(async () => { snapshot = { ...snapshot, workspace: { path: '/other', name: 'other', lastOpenedAt: 0, repo: { root: '/other' } } }; listeners.forEach(listener => listener()); await Promise.resolve() })
+  expect(span()).toBe(30 * 86400000)
+  expect(readUsageInsight).toHaveBeenLastCalledWith(expect.objectContaining({ root: '/other' }))
+  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 30 days')
 })

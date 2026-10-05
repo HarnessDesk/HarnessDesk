@@ -21,9 +21,10 @@ export interface InsightUsageProps {
   readonly report?: InsightReport | null
   readonly problem?: string | null
   readonly onShorterRange?: () => void
+  readonly rangeDays?: number
 }
 
-export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedReport, problem: suppliedProblem, onShorterRange }: InsightUsageProps) => {
+export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedReport, problem: suppliedProblem, onShorterRange, rangeDays }: InsightUsageProps) => {
   const snapshot = useSnapshot()
   const [days, setDays] = useState(30)
   const store = useStore(); const [ownReport, setOwnReport] = useState<InsightReport | null>(null); const [ownProblem, setOwnProblem] = useState<string | null>(null)
@@ -62,16 +63,17 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   const breakdown = report.breakdowns.find((entry) => entry.dimension === dimension)
   const failedSources = report.sources.filter((source) => source.problem !== null)
   const hasAmounts = report.totals.usd.value !== null || (breakdown?.rows.some(row => row.amounts.usd.value !== null) ?? false) || breakdown?.unattributed.usd.value != null
-  const unknown = !hasAmounts || report.scan === 'partial'
+  const incomplete = report.scan === 'partial'
+  const rangeWarning = !hasAmounts || incomplete
   const scanGap = report.gaps.find(gap => gap.startsWith('Insight stopped'))
   const reason = scanGap?.replace(/^Insight stopped/, 'Reading stopped').replace(/\. Choose a narrower range\.$/, '') ?? report.totals.usd.missing[0] ?? failedSources[0]?.problem ?? 'The sources do not report amounts for this range.'
   const shorter = () => { if (onShorterRange) onShorterRange(); else if (owned) setDays(1) }
   const cost = (value: InsightReport['totals']['usd']) => {
     const words = metricWords(value, report.sources, Date.now())
-    return <Text as="div" role="value" align="end" numeric title={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')}>{value.value === null ? <Text role="meta">—</Text> : <>{words.value}{words.qualifier && <Text as="div" role="meta">{words.qualifier}</Text>}</>}</Text>
+    return <Text as="div" role="value" align="end" numeric title={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')}>{value.value === null ? <Text role="meta">—</Text> : <>{words.value}{words.qualifier && <Text as="div" role="meta">{words.qualifier}</Text>}{value.coverage !== 'complete' && words.coverage && <Text as="div" role="meta">{words.coverage}</Text>}</>}</Text>
   }
   return <>
-    {unknown ? <Banner tone="warning" title="Amounts are unknown for this range" actions={(owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}
+    {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}
     {!breakdown || breakdown.rows.length === 0 ? <Rows><EmptyState variant="row" title={!breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} description={breakdown?.reason ?? 'Unknown historical usage remains unassigned.'} /></Rows> : null}
     {breakdown && <Table variant="framed" className="table-fixed">
       <TableHeader><TableRow>
