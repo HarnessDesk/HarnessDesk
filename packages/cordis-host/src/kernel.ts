@@ -448,7 +448,12 @@ export class ExtensionKernel implements CapabilityRegistry {
       // is really an agent's. See `provenance.ts` and the editor-plane decision.
       const profile = inherited === undefined ? this.#browserResolver(scope) : inherited?.profile
       const identity = inherited ?? (profile ? { invocation: randomUUID(), profile } : null)
-      const execute = () => inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope)))
+      // Every workspace capability follows the calling conversation's checkout, exactly as context resolution does
+      // below: `ctx.fs` paths and their boundary, `ctx.workspace` (whose branch is unknown for any checkout but the
+      // open one) and `ctx.shell`. With several Teams open, a relative read resolved against the open folder read
+      // another Team's files.
+      const execute = () => this.#runtime.withContextWorkspace(workspaceRoot, () =>
+        inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope))))
       return identity ? await runBrowserInvocation(identity, execute) : await execute()
     } catch (error) {
       if (error instanceof PermissionDenied) {
