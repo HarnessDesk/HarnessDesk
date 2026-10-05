@@ -23,6 +23,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
+  ServerIcon,
   ArchiveIcon,
   BranchIcon,
   DiffIcon,
@@ -55,7 +56,7 @@ import type { Section } from './Settings'
  * (#104).
  */
 const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: React.ReactNode; keywords: string }> = {
-  runtimes: { label: 'Runtimes', icon: <AgentIcon size={14} />, keywords: 'runtimes installed agents accounts sign in' },
+  runtimes: { label: 'Runtimes', icon: <ServerIcon size={14} />, keywords: 'runtimes installed agents accounts sign in' },
   profile: { label: 'Profile', icon: <UserIcon size={14} />, keywords: 'profile you name picture avatar photo face identity' },
   general: { label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },
   appearance: { label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },

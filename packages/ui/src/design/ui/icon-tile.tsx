@@ -40,6 +40,7 @@ const tileVariants = cva(
   {
     variants: {
       size: {
+        navigation: 'size-4 [&_svg]:size-4',
         stack: 'size-(--hd-space-5) [&_svg]:size-3',
         xs: 'size-4.5 [&_svg]:size-3',
         sm: 'size-6 [&_svg]:size-3.5',
@@ -59,14 +60,17 @@ const tileVariants = cva(
 /* Tone or tint, and the type says so: passing both is a compile error rather
    than a colour someone has to notice is wrong. */
 type IconTileProps = React.ComponentProps<'span'> &
-  VariantProps<typeof tileVariants> &
+  VariantProps<typeof tileVariants> & {
+    /** One identity qualifier at bottom-right. Top-right is reserved for attention. */
+    badge?: React.ReactNode
+  } &
   (
     | { tone?: Tone; tint?: never; color?: never }
     | { tint: Tint; tone?: never; color?: never }
     | { color: string; tone?: never; tint?: never }
   )
 
-const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }: IconTileProps) => (
+const IconTile = ({ className, size, shape, tone, tint, color, style, badge, children, ...props }: IconTileProps) => (
   <span
     data-slot="icon-tile"
     {...(color ? { 'data-color': '' } : {})}
@@ -74,6 +78,7 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }
     {...(!color && !tint ? { 'data-tone': tone ?? 'neutral' } : {})}
     className={cn(
       tileVariants({ size, shape }),
+      badge != null && "relative overflow-visible",
       color
         ? 'bg-(--tile-color) text-(--hd-accent-foreground)'
         : tint
@@ -87,7 +92,20 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }
        every place someone is drawn without guessing from a class. After the
        spread, so a caller's attribute cannot hide a face from it. */
     data-shape={shape ?? 'square'}
-  />
+  >
+    {badge == null ? children : <>
+      <span data-slot="icon-tile-content" className="inline-flex size-full items-center justify-center overflow-hidden rounded-[inherit] [&>img]:size-full [&>img]:object-contain">{children}</span>
+      <FaceBadge>{badge}</FaceBadge>
+    </>}
+  </span>
 )
 
-export { IconTile, tileVariants }
+/** Shared by tiles and stack members; the caller supplies the words in its title. */
+const FaceBadge = ({ children }: { children: React.ReactNode }) => (
+  <span data-slot="face-badge" data-corner="bottom-right" aria-hidden="true"
+    className="absolute -bottom-1 -right-1 flex min-w-3 h-3 items-center justify-center rounded-full bg-(--hd-foreground) px-0.5 text-xs leading-none font-medium text-(--hd-background) ring-2 ring-[var(--stack-surface,var(--hd-background))]">
+    {children}
+  </span>
+)
+
+export { IconTile, tileVariants, FaceBadge }

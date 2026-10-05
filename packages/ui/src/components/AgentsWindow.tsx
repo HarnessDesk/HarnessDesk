@@ -92,7 +92,6 @@ const AgentNavRow = ({
   const reason = refused ? firstReason(plan!) : null
   return (
     <WindowNavItem
-      icon={undefined}
       label={agentName(entry)}
       selected={selected}
       onClick={onClick}

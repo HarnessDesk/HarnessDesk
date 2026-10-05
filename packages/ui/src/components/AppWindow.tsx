@@ -157,7 +157,7 @@ export const WindowNavItem = ({
   selected,
   onClick,
 }: {
-  icon: ReactNode
+  icon?: ReactNode
   label: ReactNode
   count?: number
   /** Anything after the count — a readiness dot, say. */

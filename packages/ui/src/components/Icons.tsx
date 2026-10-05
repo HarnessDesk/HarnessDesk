@@ -1,3 +1,6 @@
+// The shared glyph facade is below patterns: importing their barrel here
+// makes notice and flow glyph tables capture icons before they initialize.
+import { IconTile } from '../design/ui/icon-tile'
 import type { LucideIcon, LucideProps } from 'lucide-react'
 import {
   Activity,
@@ -35,7 +38,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   ChevronsDownUp,
   ChevronsUpDown,
   GripVertical,
@@ -205,7 +207,6 @@ export const PanelIcon = icon(LayoutPanelLeft, 'PanelIcon')
 export const CheckIcon = icon(Check, 'CheckIcon')
 export const CrossIcon = icon(X, 'CrossIcon')
 export const AlertIcon = icon(TriangleAlert, 'AlertIcon')
-/** The agent stopped to ask something. */
 /** A statement about the app's own state, rather than a warning about it. */
 export const InfoIcon = icon(Info, 'InfoIcon')
 /** The messages the app makes outside a conversation, as a settings page. */
@@ -247,8 +248,7 @@ export const FolderOpenIcon = icon(FolderOpen, 'FolderOpenIcon')
 export const FolderGoneIcon = icon(FolderX, 'FolderGoneIcon')
 /** Bringing something in from elsewhere on the machine. */
 export const ImportIcon = icon(Import, 'ImportIcon')
-/* Saving something out of the app. Was `FileIcon`, which is what a *file* is
-   — and sat a few pixels from a tab wearing the same glyph for that reason. */
+/** Copying text or a path to the clipboard. */
 export const CopyIcon = icon(Copy, 'CopyIcon')
 
 /** The copy control's Lucide marks for trusted HTML that React does not own. */
@@ -318,8 +318,14 @@ export const BackgroundIcon = icon(Activity, 'BackgroundIcon')
 export const ToolIcon = icon(Wrench, 'ToolIcon')
 /** The agent's own reasoning. */
 export const BrainIcon = icon(Brain, 'BrainIcon')
-/** The agent itself — a runtime, or a sub-agent it spawned. */
+/** A saved Agent: its brief, ceiling and preferred seats. Sub-agents qualify this robot with ↳; runtimes use their own marks. */
 export const AgentIcon = icon(Bot, 'AgentIcon')
+/** The robot with its delegation qualifier, including at navigation size. */
+export const SubagentIcon = ({ size = 16, className, style, ...rest }: IconProps) => (
+  <IconTile size="navigation" shape="face" badge="↳" title="Sub-agent of this conversation" className={className} style={{ width: size, height: size, color: 'inherit' }}>
+    <AgentIcon size={size} {...rest} style={{ ...style, width: size, height: size }} />
+  </IconTile>
+)
 /** An Agent's written brief — its instructions, distinct from the Agent itself. */
 export const BriefIcon = icon(BookText, 'BriefIcon')
 /** A skill, or anything else the agent is handed to work with. */
@@ -401,14 +407,7 @@ export const TeamIcon = icon(UsersRound, 'TeamIcon')
 /** Fold every group in a list shut, and open every one again. */
 export const CollapseAllIcon = icon(ChevronsDownUp, 'CollapseAllIcon')
 export const ExpandAllIcon = icon(ChevronsUpDown, 'ExpandAllIcon')
-/**
- * The two ways to show the same list, as a pair.
- *
- * Both live in view switchers where the alternative is the other one, so the
- * glyphs have to be distinguishable at 13px side by side — a grid of four
- * squares against a ruled table. Anything subtler than that reads as one
- * button pressed twice.
- */
+/** A ruled matrix; the loose and tight rows offer two list densities. */
 export const MatrixIcon = icon(Table2, 'MatrixIcon')
 export const RowsLooseIcon = icon(Rows3, 'RowsLooseIcon')
 export const RowsTightIcon = icon(Rows4, 'RowsTightIcon')

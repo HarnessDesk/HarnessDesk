@@ -1,3 +1,4 @@
+import { RuntimeFace } from './RuntimeFace'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
@@ -26,6 +27,7 @@ import {
   TINTS,
   tintOf,
   runtimeTint,
+  runtimeAccountBadge,
   type Tint,
 } from '../lib/accounts'
 import {
@@ -497,7 +499,7 @@ const AgentRow = ({
       data-slot="agent-row"
       onClick={onOpen}
       kind="record"
-      face={<IconTile shape="face" tint={runtimeTint(info.id, snapshot.accountsByRuntime, snapshot.accountPrefs)}><RuntimeMark runtime={info} size={16} /></IconTile>}
+      face={<RuntimeFace runtime={info} />}
       title={
         <span className={styles.headName} title={info.presentation.tagline}>
           <span data-slot="runtime-name" className="truncate">{info.presentation.name}</span>
@@ -692,7 +694,7 @@ const AgentAccounts = ({
               onClick={() => onOpenAccount(entry.id, key)}
               kind="record"
               face={
-                <AccountMark size="row" data-tint={tintOf(key, snapshot.accountPrefs)}>
+                <AccountMark size="row" data-tint={tintOf(key, snapshot.accountPrefs)} badge={runtimeAccountBadge(entry, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, account)}>
                   <RuntimeMark runtime={info} size={14} />
                 </AccountMark>
               }
@@ -1366,6 +1368,7 @@ const AccountDetail = ({
         mark={
           <AccountMark
             size="lg"
+            badge={runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, account)}
             data-tint={tintOf(key, snapshot.accountPrefs)}
           >
             <RuntimeMark runtime={info} size={20} />
@@ -1901,7 +1904,7 @@ const AgentDetail = ({
       <BackLink to="Runtimes" onClick={onBack} />
       <DetailHead
         mark={
-          <DetailMark shape="face">
+          <DetailMark shape="face" badge={runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)}>
             <RuntimeMark runtime={info} size={22} />
           </DetailMark>
         }

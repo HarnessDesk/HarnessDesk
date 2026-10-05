@@ -23,7 +23,7 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { accountIdentity, accountKey, accountName, runtimeTint } from '../lib/accounts'
+import { accountIdentity, accountKey, accountName, runtimeAccountBadge, runtimeTint } from '../lib/accounts'
 import { originWords, passedWords, projectOfAgent, seatCautions } from '../lib/agents'
 import { elapsedSince } from '../lib/clock'
 import { describeContext, formatTokens } from '../lib/context-usage'
@@ -973,6 +973,7 @@ const MemberCardBody = ({
       also: member.title,
       identity: identityOf(snapshot, info, member.peer.agent),
       tint: tintFor(snapshot, member.peer.runtime),
+      badge: info ? runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs) : undefined,
       mark: info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />,
       agent,
       working: member.busy,
@@ -1072,6 +1073,7 @@ const SessionCardBody = ({
       name: session.title?.trim() || session.preview?.trim() || 'Untitled session',
       identity: identityOf(snapshot, info, agentName),
       tint: tintFor(snapshot, session.runtime),
+      badge: info ? runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs) : undefined,
       mark: info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />,
       agent,
       working: busy,
@@ -1196,6 +1198,7 @@ const AccountCardBody = ({
         ? `${info.presentation.name} · ${accountIdentity(account)}`
         : `${info.presentation.name} · not signed in`,
       tint: tintFor(snapshot, info.id),
+      badge: runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs),
       mark: <RuntimeMark runtime={info} size={16} />,
       /* No `Running` band, and the version goes with it. Review found this
          passing `running: { version }` and never drawing it: the band asks for

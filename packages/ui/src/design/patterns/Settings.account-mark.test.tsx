@@ -70,3 +70,8 @@ it('leaves a tinted mark that is not off its colour — the control for the test
   expect(style.boxShadow).not.toBe('none')
   expect(style.color).not.toBe('var(--hd-muted-foreground)')
 })
+
+it('qualifies a large account ring with the shared identity badge', () => {
+  const mark = render(<AccountMark size="lg" badge="AL">A</AccountMark>)
+  expect(mark.querySelector('[data-slot="face-badge"]')?.textContent).toBe('AL')
+})

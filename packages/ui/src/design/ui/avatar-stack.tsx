@@ -1,6 +1,7 @@
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { FaceBadge } from './icon-tile'
 import { Avatar, AvatarFallback, AvatarImage } from './avatar'
 import { softTint, solidTint, tintFor, type Tint } from './tone'
 
@@ -42,6 +43,8 @@ export type StackMember = {
    * they already know from the sign-in screen and the model picker.
    */
   mark?: React.ReactNode
+  /** One identity qualifier at bottom-right, cut out on --stack-surface. */
+  badge?: React.ReactNode
 }
 
 /*
@@ -113,8 +116,9 @@ const AvatarStack = ({
           aria-label={member.name}
           data-tint={member.tint ?? tintFor(member.name ?? member.id)}
           data-shape={shape}
-          className={cn(box, corner, shape === 'face' ? solidTint({tint:member.tint ?? tintFor(member.name ?? member.id)}) : softTint({tint:member.tint ?? tintFor(member.name ?? member.id)}), 'ring-2 ring-[var(--stack-surface,var(--hd-background))]')}
+          className={cn(box, corner, member.badge != null && 'overflow-visible', shape === 'face' ? solidTint({tint:member.tint ?? tintFor(member.name ?? member.id)}) : softTint({tint:member.tint ?? tintFor(member.name ?? member.id)}), 'ring-2 ring-[var(--stack-surface,var(--hd-background))]')}
         >
+          <span className="size-full overflow-hidden rounded-[inherit]">
           {/* The root carries the name, so the image must not repeat it. */}
           {member.src && <AvatarImage src={member.src} alt="" />}
           <AvatarFallback
@@ -127,6 +131,8 @@ const AvatarStack = ({
           >
             {member.mark ?? member.initials ?? initialsFor(member.name ?? '')}
           </AvatarFallback>
+          </span>
+          {member.badge != null && <FaceBadge>{member.badge}</FaceBadge>}
         </Avatar>
       ))}
       </span>

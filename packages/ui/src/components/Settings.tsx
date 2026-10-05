@@ -29,7 +29,7 @@ import {
 } from './AppWindow'
 import { dismissOverlays, useEscapeSurface } from '../design'
 import {
-  AgentIcon,
+  ServerIcon,
   ArchiveIcon,
   BellIcon,
   BranchIcon,
@@ -1902,7 +1902,7 @@ export const Settings = ({
         {
           id: 'runtimes',
           label: 'Runtimes',
-          icon: <AgentIcon size={14} />,
+          icon: <ServerIcon size={14} />,
           ...(accountCount > 0 ? { count: accountCount } : {}),
           ...(agentsState ? { state: agentsState } : {}),
           keywords: ['runtimes', 'installed', 'cli', 'accounts', 'sign in', 'sign out', 'add runtime', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
