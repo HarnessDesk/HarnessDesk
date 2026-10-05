@@ -317,16 +317,18 @@ export const Block = ({ block }: { block: UiBlock }) => {
             <TableBody>
               {block.rows.map((row, index) => (
                 <TableRow key={index} variant="panel">
-                  {block.columns.map((column) => (
-                    <TableCell
+                  {block.columns.map((column) => {
+                    const cell = row[column.key]
+                    const text = typeof cell === 'string' ? cell : cell == null ? '' : String(cell)
+                    return <TableCell
                       key={column.key}
                       variant="panel"
                       align={column.align === 'end' ? 'end' : 'start'}
                     >
                       {/* Keyed, not positional: a cell the row omits is empty, never the next column's. */}
-                      {row[column.key]?.trim() ? row[column.key] : <Text role="meta">—</Text>}
+                      {text.trim() ? text : <Text role="meta">—</Text>}
                     </TableCell>
-                  ))}
+                  })}
                 </TableRow>
               ))}
             </TableBody>

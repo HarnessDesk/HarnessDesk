@@ -129,6 +129,11 @@ describe('table', () => {
     expect(cells(rows[1]!)).toEqual(['beta', '—'])
   })
 
+  it('renders numeric cells from plugin JSON without treating them as strings', () => {
+    mount([{ type: 'table', columns, rows: [{ name: 'alpha', count: 12 as unknown as string }, { name: 'zero', count: 0 as unknown as string }] }])
+    expect([...container.querySelectorAll('tbody td:last-child')].map(cell => cell.textContent)).toEqual(['12', '0'])
+  })
+
   it('renders a supplied blank string as the same quiet empty reading', () => {
     mount([{ type: 'table', columns, rows: [{ name: 'beta', count: '' }] }])
     const empty = container.querySelector('tbody td:last-child span')
