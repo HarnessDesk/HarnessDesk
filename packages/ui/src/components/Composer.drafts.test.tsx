@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runtimeId, sessionId, sessionKey, type RuntimeInfo, type Session, type SessionKey } from '@harnessdesk/protocol'
 
 import { PaneProvider, StoreProvider, useSnapshot } from '../state/context'
-import { draftsOf } from '../state/drafts'
+import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import { panes, sessionOf } from '../state/layout'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Composer } from './Composer'
@@ -82,8 +82,8 @@ beforeEach(() => {
       draftsOf(store).addRecoverable(key, draft)
       currentSnapshot = { ...currentSnapshot, recoverableDrafts: draftsOf(store).recoverableSnapshot() }
     },
-    restoreRecoverableDraft: (key: SessionKey, id: number) => {
-      const restored = draftsOf(store).restore(key, id)
+    restoreRecoverableDraft: (key: SessionKey, id: number, destination: Parameters<AppStore['restoreRecoverableDraft']>[2]) => {
+      const restored = draftsOf(store).restore(key, id, destination)
       currentSnapshot = { ...currentSnapshot, recoverableDrafts: draftsOf(store).recoverableSnapshot() }
       return restored
     },
@@ -133,6 +133,117 @@ const restoreMessage = (text: string): void => {
 }
 
 describe('a failed conversation read preserves typing in the fresh composer (#800)', () => {
+  const mountPendingRead = async (lateSendRefusal = false) => {
+    store = new AppStore('ws://localhost:0/')
+    let refuse!: (error: Error) => void
+    let accept!: (value: Session) => void
+    let readAccepted = false
+    let refuseSend: (() => void) | undefined
+    const read = new Promise<Session>((resolve, reject) => { accept = resolve; refuse = reject })
+    const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params?: { sessionId?: string }) => {
+      if (method === 'session/read') return read
+      if (method === 'session/resume') return session('missing')
+      if (method === 'runtime/health') return { state: 'ready' }
+      if (method === 'workspace/recent') return [{ path: '/w', name: 'project', lastOpenedAt: 0 }]
+      if (method === 'session/create') return session('fresh')
+      if (method === 'session/list') return { data: [], cursor: null }
+      if (method === 'turn/queue' && params?.sessionId === 'missing' && !readAccepted) {
+        return new Promise((_, reject) => {
+          refuseSend = () => reject(new Error('No conversation missing is open.'))
+          if (!lateSendRefusal) refuseSend()
+        })
+      }
+      return []
+    }) as never)
+    await store.selectRuntime(runtime.id)
+    await store.loadWorkspaces()
+    const pending = store.openSession(sessionId('missing'), { runtime: runtime.id })
+    const LiveComposer = () => {
+      const state = useSnapshot()
+      const pane = panes(state.layout.root)[0]!
+      return <PaneProvider scope={{ paneId: pane.id, view: pane.view, sessionKey: sessionOf(pane) }}>
+        <Composer onChooseProject={() => {}} />
+      </PaneProvider>
+    }
+    act(() => root.render(<StoreProvider store={store}><LiveComposer /></StoreProvider>))
+    return { request, pending, refuse, refuseSend: () => refuseSend?.(), accept: (value: Session) => {
+      readAccepted = true
+      accept(value)
+    } }
+  }
+
+  const attachFile = (name: string) => act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+    detail: { text: '', attachments: [{ name, path: `/w/${name}`, kind: 'file' }] },
+  })))
+  const painted = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  const enter = async (metaKey = false) => act(async () => {
+    textarea().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey, bubbles: true, cancelable: true }))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  })
+
+  it.each(['fresh draft', 'another conversation'])('Restore keeps newer input in %s available to swap back', async (destination) => {
+    const { pending, refuse } = await mountPendingRead()
+    type('Typed while opening.')
+    attachFile('old.md')
+    await act(async () => { refuse(new Error('No stored conversation missing.')); await pending; await painted() })
+    if (destination === 'another conversation') {
+      await act(async () => { await store.newSession(); await painted() })
+    }
+    type('Newer input.')
+    attachFile('new.md')
+
+    restoreMessage('Typed while opening.')
+    expect(container.textContent).toContain('old.md')
+    expect([...store.getSnapshot().recoverableDrafts.values()].flat().map((draft) => draft.text)).toEqual(['Newer input.'])
+    restoreMessage('Newer input.')
+    expect(container.textContent).toContain('new.md')
+    expect([...store.getSnapshot().recoverableDrafts.values()].flat().map((draft) => draft.text)).toEqual(['Typed while opening.'])
+    restoreMessage('Typed while opening.')
+    expect(container.textContent).toContain('old.md')
+    // An unscoped recovery must not keep a phantom live draft that a later
+    // Restore swaps instead of the text actually in the destination.
+    expect(store.drafts.live(UNSCOPED_RECOVERY_KEY)).toBeNull()
+  })
+
+  it.each([
+    { meta: false, lateRefusal: false }, { meta: true, lateRefusal: false },
+    { meta: false, lateRefusal: true }, { meta: true, lateRefusal: true },
+  ])('keeps pending input with meta=$meta and refusal after cleanup=$lateRefusal', async ({ meta, lateRefusal }) => {
+    const { request, pending, refuse, refuseSend } = await mountPendingRead(lateRefusal)
+    type('Keep this pending message.')
+    attachFile('pending.md')
+    await enter(meta)
+    expect(textarea().value).toBe('Keep this pending message.')
+    expect(request.mock.calls.filter(([method]) => method === 'turn/queue')).toEqual([])
+    const send = container.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!
+    expect(send.disabled).toBe(true)
+    expect(send.title).toBe('Waiting for the conversation to open')
+    await act(async () => { refuse(new Error('No stored conversation missing.')); await pending; await painted() })
+    await act(async () => { refuseSend(); await painted() })
+    expect(store.drafts.recoverable(sessionKey(runtime.id, sessionId('missing')))).toEqual([])
+    restoreMessage('Keep this pending message.')
+    expect(container.textContent).toContain('pending.md')
+    await enter()
+    expect(request.mock.calls.filter(([method]) => method === 'turn/queue').map(([, params]) => params))
+      .toEqual([expect.objectContaining({ sessionId: sessionId('fresh') })])
+  })
+
+  it('enables sending the waiting draft once the conversation loads', async () => {
+    const { request, pending, accept } = await mountPendingRead()
+    type('Send after opening.')
+    attachFile('pending.md')
+    await enter()
+    expect(request.mock.calls.filter(([method]) => method === 'turn/queue')).toEqual([])
+    await act(async () => { accept(session('missing')); await pending; await painted() })
+    expect(textarea().value).toBe('Send after opening.')
+    await enter()
+    expect(request.mock.calls.filter(([method]) => method === 'turn/queue').map(([, params]) => params))
+      .toEqual([expect.objectContaining({ sessionId: sessionId('missing'), input: [
+        { type: 'mention', name: 'pending.md', path: '/w/pending.md' },
+        { type: 'text', text: 'Send after opening.' },
+      ] })])
+  })
+
   it('restores text and a file typed during the read, then sends to a new conversation', async () => {
     store = new AppStore('ws://localhost:0/')
     let refuse!: (error: Error) => void

@@ -5863,8 +5863,12 @@ export class AppStore {
   }
 
   /** Restore one refusal and retain the displaced live draft as another entry. */
-  restoreRecoverableDraft(key: SessionKey, id: number): import('./drafts').Draft | null {
-    return this.drafts.restore(key, id)
+  restoreRecoverableDraft(
+    key: SessionKey,
+    id: number,
+    destination?: Parameters<Drafts['restore']>[2],
+  ): import('./drafts').Draft | null {
+    return this.drafts.restore(key, id, destination)
   }
 
   /**

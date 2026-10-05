@@ -10,7 +10,9 @@ move is real work and is not news to a person weighing an upgrade.
 - **A conversation that cannot open leaves a usable draft.** When its
   transcript cannot be read, the pane shows the error and returns to a fresh
   draft, so the next message starts a new conversation. Words and attachments
-  entered while it was opening remain available to restore. (Fixes #800)
+  entered while it was opening remain available to restore. Send waits for
+  the conversation to load, and Restore keeps newer text and attachments
+  available to swap back. (Fixes #800)
 
 - **A comparison keeps the attempt its judge picked.** Findings on the other
   attempt no longer hold the person’s keep step; they stay open and explain
