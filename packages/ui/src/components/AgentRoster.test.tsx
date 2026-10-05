@@ -162,8 +162,8 @@ it('lists three sections in precedence order, each naming the folder it reads', 
   mount()
   const headings = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
   expect(headings).toEqual(['In storefront', 'Yours', 'Built in'])
-  expect(sectionText('In storefront')).toContain('in this project')
-  expect(sectionText('Yours')).toContain('on this Mac only')
+  expect(sectionText('In storefront')).toContain('Read from /w/storefront/.harnessdesk/agents')
+  expect(sectionText('Yours')).toContain('Read from ~/.harnessdesk/agents')
   expect(sectionText('Built in')).toContain('Ships with HarnessDesk')
 })
 
@@ -340,4 +340,10 @@ it('gives each roster record one reading, and moves its seat and refusal reason 
   expect(refused.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
   expect(refused.querySelector('[data-slot="chip"]')?.textContent).toBe("Can't seat here")
   expect(refused.querySelector('[data-slot="row-desc"]')?.textContent).toContain('Cursor is signed out')
+})
+
+it('names the linked checkout that was actually read rather than the main checkout', () => {
+  mount({ agentsProject: '/w/review-copy', workspace: { path: '/w/review-copy', checkoutRoot: '/w/review-copy', name: 'storefront', lastOpenedAt: 1, repo: { root: '/w/main', worktree: true, key: 'root:/w/main' } } as AppSnapshot['workspace'] })
+  expect(container.textContent).toContain('/w/review-copy/.harnessdesk/agents')
+  expect(container.textContent).not.toContain('/w/main/.harnessdesk/agents')
 })

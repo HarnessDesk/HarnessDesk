@@ -143,7 +143,7 @@ const faceReport = (page: Page, exceptions: Excused) =>
       faces += 1
       const cs = getComputedStyle(el)
       // Only the face leads that read this token gain the family corner.
-      const familyLead = el.parentElement?.matches('[data-slot="list-row-lead"], [data-slot="table-cell-lead"]')
+      const familyLead = el.parentElement?.matches('[data-slot="list-row-lead"], [data-slot="table-cell-lead"], [data-slot="row-face"]')
       const wanted = familyLead ? [...corners, probe('--hd-table-face-radius', el.parentElement!)] : corners
       if (!wanted.includes(cs.borderTopLeftRadius)) {
         findings.push({ rule: 'corner', where: where(el), slot: slot(el), detail: `${cs.borderTopLeftRadius}, wanted ${wanted.join(' or ')}` })
@@ -313,4 +313,26 @@ for (const theme of ['light','dark'] as const) {
    }
   }
  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`runtime and Agent detail heads follow Faces in ${theme}`, async ({ page }) => {
+    await open(page, '/preview.html', PREVIEW_READY)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('runtimes')
+    await page.locator('[data-frame-id="settings-sheet"] [data-slot="agent-row"]').first().click()
+    await page.getByRole('combobox', { name: 'agents focus', exact: true }).selectOption('code-reviewer')
+    const corners: Record<string, string[]> = { square: [], round: [] }
+    for (const faces of ['square', 'round'] as const) {
+      await page.getByRole('combobox', { name: 'faces', exact: true }).selectOption(faces)
+      for (const frame of ['settings-sheet', 'agents-roster']) {
+        const head = page.locator(`[data-frame-id="${frame}"] [class*="_detailHead_"]`)
+        const mark = head.locator('[data-shape="face"]')
+        await expect(mark).toHaveCount(1)
+        corners[faces]!.push(await mark.evaluate(el => getComputedStyle(el).borderTopLeftRadius))
+      }
+      expect((await faceReport(page, [])).findings).toEqual([])
+    }
+    for (const [index, corner] of corners.square!.entries()) expect(corners.round![index]).not.toBe(corner)
+  })
 }

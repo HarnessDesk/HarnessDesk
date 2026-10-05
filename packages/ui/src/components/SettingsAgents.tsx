@@ -58,11 +58,7 @@ import {
 import {
   AccountMark,
   IconTile,
-  BoardMenuButton,
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
+  SettingsRowMenu,
   BackLink,
   Button,
   Card,
@@ -422,14 +418,6 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
 
 /* --- the list ------------------------------------------------------------ */
 
-const AccountRemoveMenu = ({ name, location, label = 'Remove…', onRemove }: { name: string; location: string; label?: 'Remove' | 'Remove…'; onRemove: () => void }) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${name} actions · ${location}`} />} />
-    <DropdownMenuContent align="end">
-      <DropdownMenuItem variant="destructive" onClick={onRemove}>{label}</DropdownMenuItem>
-    </DropdownMenuContent>
-  </DropdownMenu>
-)
 
 /**
  * One agent on the list, as one line: its mark, its name and build, who it is
@@ -735,7 +723,7 @@ const AgentAccounts = ({
             desc={entry.slot?.gateway?.endpoint}
             truncateDesc
             control={
-              <AccountRemoveMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.slot?.gateway?.name ?? 'Gateway'} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
+              <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.slot?.gateway?.name ?? 'Gateway'} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
             }
           />
         ))}
@@ -758,7 +746,7 @@ const AgentAccounts = ({
             {...(entry.slot?.home ? { desc: shortPath(entry.slot.home, snapshot.home) } : {})}
             truncateDesc
             control={
-              <AccountRemoveMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} onRemove={() => setRemoving(entry)} />
+              <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} onRemove={() => setRemoving(entry)} />
             }
           />
         ))}
@@ -778,7 +766,7 @@ const AgentAccounts = ({
                   <SignInIcon size={13} />
                   Sign in
                 </Button>
-                <AccountRemoveMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
+                <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
               </>
             }
           />
@@ -1446,7 +1434,7 @@ const AccountDetail = ({
                 </Button>
               ) : (
                 info.slot?.removable
-                  ? <AccountRemoveMenu location={credentialHome(info) ?? info.id} name={accountName(account, prefs, info.presentation.name)} onRemove={() => setConfirmingSignOut(true)} />
+                  ? <SettingsRowMenu location={credentialHome(info) ?? info.id} name={accountName(account, prefs, info.presentation.name)} onRemove={() => setConfirmingSignOut(true)} />
                   : <Button variant="outline" size="sm" onClick={() => setConfirmingSignOut(true)}><SignOutIcon size={13} />Sign out…</Button>
               )
             }

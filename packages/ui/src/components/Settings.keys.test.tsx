@@ -123,16 +123,16 @@ const button = (label: string): HTMLButtonElement | undefined =>
  * lookup by label alone opened the endpoint's dialog and the assertion about
  * the key's could not pass. Found by the row whose title is the key's name.
  */
-const removeOn = async (name: string): Promise<HTMLButtonElement | undefined> => {
+const removeOn = async (name: string): Promise<HTMLElement | undefined> => {
   const row = [...container.querySelectorAll<HTMLElement>('div[class*="_row_"]')].find((one) =>
     one.querySelector('[class*="_rowTitle_"]')?.textContent?.includes(name),
   )
   expect(row, `a row for ${name}`).toBeTruthy()
-  const more = row?.querySelector<HTMLButtonElement>(`button[title="More actions for ${name}"]`)
+  const more = row?.querySelector<HTMLButtonElement>(`button[aria-label="${name} actions"]`)
   expect(more).toBeTruthy()
   expect(row?.textContent).not.toContain('Remove…')
   await act(async () => more?.click())
-  return [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.trim() === 'Remove…')
+  return [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.trim() === 'Remove…')
 }
 
 it('names each key by the endpoint that uses it, and the one nothing uses', async () => {
@@ -163,7 +163,7 @@ it('forgetting a key confirms first, says what breaks, and drops the row', async
 
   const remove = await removeOn('Proxy key')
   expect(remove).toBeTruthy()
-  expect(remove?.getAttribute('data-danger')).toBe('')
+  expect(remove?.getAttribute('data-variant')).toBe('destructive')
   expect(remove?.querySelector('svg')).toBeTruthy()
   act(() => remove?.click())
   /* The consequence differs by whether anything still names it, and this key

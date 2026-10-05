@@ -735,14 +735,14 @@ its mark or initials. Other tinted tiles, including square and round ones,
 keep the soft tint wash.
 
 A new surface cannot draw someone in a fixed corner without a test failing.
-`IconTile`, `AvatarStack`, `Face`, `AccountMark` and a notice's face each declare
-what they drew with `data-shape` (`face`, `round`, `square`), and two tests read
+`IconTile`, `DetailMark`, `AvatarStack`, `Face`, `AccountMark` and a notice’s
+face each declare what they drew with `data-shape` (`face`, `round`, `square`), and two tests read
 the result:
 
 - `design/faces.census.test.ts` reads the source of every screen and refuses an
-  agent's mark (`BrandMark`, `RuntimeMark`, `AgentIcon`) in an `IconTile` that is
-  not a `face`, an `AvatarStack` that is not, and an `IconTile` whose shape is
-  decided at run time (its mark may arrive as a prop, so it has to be named). It
+  agent's mark (`BrandMark`, `RuntimeMark`, `AgentIcon`) in an `IconTile` or
+  `DetailMark` that is not a `face`, an `AvatarStack` that is not, and a tile
+  or detail mark whose shape is decided at run time (its mark may arrive as a prop, so it has to be named). It
   reaches the screens a page cannot mount, such as the Agents panel's rows. A
   tile on its exception list is a claim that it is not someone, or that another
   test pins its shape, with the reason beside it; the entry also counts the tiles

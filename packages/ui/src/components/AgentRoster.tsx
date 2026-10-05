@@ -10,6 +10,7 @@ import {
   projectName,
   seatTaken,
 } from '../lib/agents'
+import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
 import { AgentIcon } from './Icons'
@@ -39,11 +40,12 @@ const EMPTY: Readonly<Record<AgentOrigin, string>> = {
   builtin: 'None ship with this build',
 }
 
-/** The origin names where an Agent is kept, without exposing a home path. */
-const footnote = (origin: AgentOrigin): string => {
+/** The checkout actually read, never the main checkout a linked worktree belongs to. */
+const footnote = (origin: AgentOrigin, folder: string | null, home: string | null): string => {
   if (origin === 'builtin') return 'Ships with HarnessDesk, and changes only when HarnessDesk does.'
-  if (origin === 'user') return 'Read from your Agents folder — yours, on this Mac only.'
-  return 'Read from the Agents folder in this project, and committed with the code: everyone who clones it has these.'
+  const where = folder ? shortPath(`${folder}/agents`, home) : 'the Agents folder'
+  if (origin === 'user') return `Read from ${where} — yours, on this Mac only.`
+  return `Read from ${where}, and committed with the code: everyone who clones it has these.`
 }
 
 export const AgentsRosterSection = ({
@@ -132,7 +134,7 @@ export const AgentsRosterSection = ({
                 />
               ))}
             </Rows>
-            <Note ink="muted" inset="row">{footnote(origin)}</Note>
+            <Note ink="muted" inset="row">{footnote(origin, origin === 'user' ? snapshot.stateDir : `${snapshot.workspace?.checkoutRoot ?? snapshot.agentsProject ?? snapshot.workspace?.path}/.harnessdesk`, snapshot.home)}</Note>
           </Section>
         )
       })}

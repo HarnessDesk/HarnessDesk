@@ -238,7 +238,8 @@ const SupersededRow = ({ plugin, marked }: { plugin: PluginInstance; marked: boo
   return (
     <Row
       mark={marked ? pluginGlyph(plugin, 16) : undefined}
-      title={<Text role="subject">{plugin.identity.name}</Text>}
+      kind="record"
+      title={plugin.identity.name}
       desc={`Superseded by the built-in ${plugin.identity.name}, which does the same job. This copy is switched off${
         where ? ` and still on disk, installed from ${where}` : ''
       }.`}
@@ -478,7 +479,7 @@ export const PluginsSection = () => {
   )
   const plugins = matching.filter((plugin) => !supersededIds.has(plugin.instanceId))
   const superseded = matching.filter((plugin) => supersededIds.has(plugin.instanceId))
-  const marked = matching.some((plugin) => Boolean(PLUGIN_GLYPH[plugin.identity.id]))
+  const marked = snapshot.plugins.some((plugin) => Boolean(PLUGIN_GLYPH[plugin.identity.id]))
 
   const open = openId ? (snapshot.plugins.find((plugin) => plugin.instanceId === openId) ?? null) : null
   // A plugin removed while its page is up goes back to the list.
@@ -612,7 +613,8 @@ export const PluginsSection = () => {
                 key={plugin.instanceId}
                 mark={marked ? pluginGlyph(plugin, 16) : undefined}
                 onClick={() => setOpenId(plugin.instanceId)}
-                title={<Text role="subject">{plugin.identity.name}</Text>}
+                kind="record"
+                title={plugin.identity.name}
                 {...(plugin.identity.description ? { desc: plugin.identity.description } : {})}
                 control={
                   <>
@@ -694,6 +696,7 @@ export const PluginsSection = () => {
                       )
                       if (owner) setOpenId(owner.instanceId)
                     }}
+                    kind="record"
                     mark={contributionIcon(contribution.kind, 15)}
                     title={contributionSentence(contribution)}
                     /* A narrowed scope varies; global rows only name their owner. */

@@ -124,7 +124,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
   </Text>
   const faces = <span className={styles.faces}>
     {narrow && <span className="sr-only">Loaded by </span>}
-    {loaded.length === 0 ? <Text role="muted" ink="muted">None</Text> : loaded.map(reach => {
+    {loaded.length === 0 ? <Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text> : loaded.map(reach => {
       const column = columns.find(column => column.id === reach.runtime)
       if (!column) return null
       return (

@@ -1875,6 +1875,7 @@ it('the List responds to its container and retains definition access in the narr
   expect(emptyRow?.textContent).toContain('Empty on disk')
   expect(emptyRow?.textContent).toContain('Loaded by ')
   expect(emptyRow?.textContent).toContain('None')
+  expect(emptyRow?.querySelector('[title="Loaded by none"]')?.textContent).toBe('None')
   await act(async () => row.click())
   expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(description)
   await setWidth(600)

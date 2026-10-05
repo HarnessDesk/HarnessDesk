@@ -85,7 +85,7 @@ export const SetupDesk = ({
                 <span className="truncate">{info.presentation.name}</span>
                 {which && <Chip tone="neutral" size="sm">{which}</Chip>}
               </span>}
-              subtitle={<Text role="meta" ink="muted">{sentence}</Text>}
+              subtitle={sentence ? <Text role="meta" ink="muted">{sentence}</Text> : undefined}
               wrapSubtitle
               trail={state === 'signin' ? (
                   <Button size="sm" variant="outline" onClick={() => onSignIn(info.id)}>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import appSource from '../app/App.tsx?raw'
-import { SHORTCUTS, chordOf, shortcutFor } from './shortcuts'
+import { chordParts, SHORTCUTS, chordOf, shortcutFor } from './shortcuts'
 
 /**
  * The one table, and the handler that is supposed to dispatch from it.
@@ -144,4 +144,10 @@ describe('a chord the focused surface already answered', () => {
 it('writes the expand chord with the return glyph', () => {
   const expand = SHORTCUTS.find((shortcut) => shortcut.action === 'tile-expand')!
   expect(chordOf(expand)).toBe('⌥⌘↵')
+})
+
+it('keeps a named key in one keycap and joins the same parts for plain text', () => {
+  const tab = { action: 'next', label: 'Next', key: 'tab', alt: true, shift: true, group: 'Window' as const }
+  expect(chordParts(tab)).toEqual(['⌥', '⇧', '⌘', 'Tab'])
+  expect(chordOf(tab)).toBe(chordParts(tab).join(''))
 })
