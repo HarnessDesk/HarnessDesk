@@ -30,6 +30,7 @@ import { clampColumn, GIT_COLUMNS, type GitColumnName } from '../lib/git-columns
 import { branchTree, commitDate, inFolder, refChips, shortSha, type RefChip as RefChipData } from '../lib/git-refs'
 import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
+import { withCount } from '../lib/with-count'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
@@ -113,8 +114,6 @@ const ROW = 26
 const LANE_W = 12
 /** Lanes drawn before the gutter stops growing; deeper ones clip. */
 const LANE_CAP = 10
-
-const withCount = (label: string, count: number): string => count > 0 ? `${label} · ${count}` : label
 
 const OVERSCAN = 12
 
