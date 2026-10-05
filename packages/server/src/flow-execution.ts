@@ -568,7 +568,7 @@ export type FlowSubjectLike = FlowSubject
 /** A dependency walk's answer: the writers' revisions, the writers with none, and every card the walk crossed. */
 export interface FlowClosure {
   readonly subjects: readonly FlowSubject[]
-  readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+  readonly unsettled: FlowEvidenceContext['unsettled']
   readonly cards: readonly number[]
 }
 
@@ -1648,7 +1648,7 @@ export class FlowExecutions {
 
   async #heads(run: StoredFlowExecution, cards: readonly number[]): Promise<Omit<FlowClosure, 'cards'>> {
     const subjects: FlowSubject[] = []
-    const unsettled: { card: number; why: string }[] = []
+    const unsettled: FlowClosure['unsettled'][number][] = []
     for (const card of cards) {
       const found = this.#cardOf(run.goal, card)
       const round = found?.run.id === run.id ? found.round : null
@@ -1662,8 +1662,8 @@ export class FlowExecutions {
         continue
       }
       const head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
-      if (!head.at) unsettled.push({ card, why: 'its checkout has no commit to judge' })
-      else if (head.dirty) unsettled.push({ card, why: 'its checkout has changes that are not committed' })
+      if (!head.at) unsettled.push({ card, why: 'its checkout has no commit to judge', checkout: seat.checkout })
+      else if (head.dirty) unsettled.push({ card, why: 'its checkout has changes that are not committed', checkout: seat.checkout })
       else subjects.push({ card, round: round.n, checkout: { cwd: seat.checkout.cwd, branch: seat.checkout.branch }, at: head.at })
     }
     return { subjects, unsettled }

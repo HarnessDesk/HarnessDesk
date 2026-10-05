@@ -323,3 +323,24 @@ rules:
   assert.equal(after.rounds.length, 5, 'five rounds, past a three-round default it never had')
   assert.equal(after.findings, undefined)
 })
+
+test('a selected review subject excludes only readable blockers on the other current subjects', () => {
+  const facts = [view({ kind: 'review', card: 5, round: 3, at: A.at })]
+  const context = judged([A, B], facts)
+  const gate = { blockers: 2, byCheckout: { [B.checkout.cwd]: 2 }, pending: false, unreadable: false }
+  assert.equal(readyGuard([{ review: 'picked' }], context, gate).state, 'matched')
+  assert.deepEqual(readyGuard([{ review: 'picked' }], context, { ...gate, blockers: 3 }), { state: 'waiting', reason: WAITING_FINDINGS(1) }, 'picked, carried, or damaged blockers stay in the total')
+  assert.deepEqual(readyGuard([{ review: 'picked' }], context, { ...gate, unreadable: true }), { state: 'waiting', reason: WAITING_LEDGER })
+  assert.deepEqual(readyGuard([{ review: 'picked' }], context, { ...gate, pending: true }), { state: 'waiting', reason: WAITING_EXCEPTION })
+  assert.deepEqual(readyGuard([{ review: 'picked' }], judged([B], []), gate), { state: 'waiting', reason: WAITING_FINDINGS(2) }, 'no selected subject means no exemption')
+  assert.deepEqual(readyGuard([{ check: 'pnpm verify' }], context, gate), { state: 'waiting', reason: WAITING_FINDINGS(2) }, 'an ordinary guard still counts every blocker')
+  assert.deepEqual(readyGuard([{ review: 'picked' }], judged([A], facts), { ...gate, byCheckout: { [A.checkout.cwd]: 2 } }), { state: 'waiting', reason: WAITING_FINDINGS(2) }, 'a single-subject review still blocks')
+})
+
+test('a selected review also excludes a known unselected checkout that became dirty', () => {
+  const facts = [view({ kind: 'review', card: 5, round: 3, at: A.at })]
+  const dirty = { card: B.card, why: 'its checkout has changes that are not committed', checkout: B.checkout }
+  const context = judged([A], facts, { unsettled: [dirty] })
+  const gate = { blockers: 1, byCheckout: { [B.checkout.cwd]: 1 }, pending: false, unreadable: false }
+  assert.equal(readyGuard([{ review: 'picked' }], context, gate).state, 'matched')
+})
