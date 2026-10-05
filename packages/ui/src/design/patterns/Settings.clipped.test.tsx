@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Clipped, Row, RowButton } from './Settings'
+import { Chip, Clipped, Row, RowButton } from './Settings'
 
 /**
  * `Clipped`: a line that says itself whole on hover only while it is cut, so
@@ -72,4 +72,21 @@ it.each(['row', 'button'] as const)('a record %s says its cut title whole on hov
   sized(label!, 80, 100)
   hover(label!)
   expect(label!.hasAttribute('title')).toBe(false)
+})
+
+it.each(['row', 'button'] as const)('a record %s keeps its title chip outside the cut name', (kind) => {
+  const name = 'Jane Doe, Keeper of Several Long Names'
+  const chip = <Chip tone="neutral" size="sm">Default</Chip>
+  act(() => root.render(kind === 'row'
+    ? <Row kind="record" title={name} titleChip={chip} />
+    : <RowButton kind="record" title={name} titleChip={chip} onClick={() => {}} />))
+  const title = container.querySelector<HTMLElement>('[data-slot="row-title"]')!
+  const mark = title.querySelector('[data-slot="chip"]')
+  expect(mark).not.toBeNull()
+  const label = title.firstElementChild as HTMLElement
+  expect(label.contains(mark)).toBe(false)
+  sized(label, 400, 100)
+  hover(label)
+  expect(label.getAttribute('title')).toBe(name)
+  expect(mark!.textContent).toBe('Default')
 })

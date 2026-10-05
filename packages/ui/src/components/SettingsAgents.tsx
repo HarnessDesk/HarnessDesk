@@ -696,8 +696,8 @@ const AgentAccounts = ({
           const report = own.find((item) => usageAccount(item) === account.label.trim()) ?? own[0]
           // What is left is the account's binding window — the tightest of the
           // *account-wide* lanes, which is what `bindingLane` picks. Taking the
-          // tightest of every lane instead read `0% left` beside a chip that
-          // correctly says the account is fine, because a spent model-scoped
+          // tightest of every lane instead read `0% left` beside a row with
+          // no limit mark, because a spent model-scoped
           // week is the tightest lane and is not the account's figure. Rounded
           // the way `describeLane` rounds, so this row and the Dashboard cannot
           // disagree about the same account.
@@ -716,14 +716,8 @@ const AgentAccounts = ({
                   <RuntimeMark runtime={info} size={14} />
                 </AccountMark>
               }
-              title={
-                <span className={styles.rowName}>
-                  {name}
-                  {entry.id === info.id && rows.length > 1 && (
-                    <Chip tone="neutral" size="sm">Default</Chip>
-                  )}
-                </span>
-              }
+              title={name}
+              titleChip={entry.id === info.id && rows.length > 1 ? <Chip tone="neutral" size="sm">Default</Chip> : undefined}
               /* The plan used to ride along in this line as "…@acme.dev · Pro".
                  It is the one word that answers "what am I paying for", so it
                  moved to the right where the other answers are, and the line
@@ -756,12 +750,8 @@ const AgentAccounts = ({
             key={entry.id}
             kind="record"
             face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
-            title={
-              <span className={styles.rowName}>
-                {entry.slot?.gateway?.name}
-                <Chip tone="neutral" size="sm">Gateway</Chip>
-              </span>
-            }
+            title={entry.slot?.gateway?.name}
+            titleChip={<Chip tone="neutral" size="sm">Gateway</Chip>}
             desc={entry.slot?.gateway?.endpoint}
             truncateDesc
             control={
@@ -1931,7 +1921,7 @@ const AgentDetail = ({
       <BackLink to="Runtimes" onClick={onBack} />
       <DetailHead
         mark={
-          <DetailMark>
+          <DetailMark shape="face">
             <RuntimeMark runtime={info} size={22} />
           </DetailMark>
         }

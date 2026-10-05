@@ -919,11 +919,22 @@ const RowDesc = ({ truncate, children }: { truncate: boolean; children: ReactNod
   </span>
 )
 
+/* A title's chip keeps its own width; only the record name is clipped. */
+const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: ReactNode; chip?: ReactNode }) => (
+  <span className={cx(styles.rowTitle, Boolean(chip) && styles.rowTitleWithChip)} data-slot="row-title">
+    {kind === 'record'
+      ? <Clipped className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
+      : chip ? <span className={styles.rowTitleName}>{title}</span> : title}
+    {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip">{chip}</span> : null}
+  </span>
+)
+
 export const Row = ({
   mark,
   face,
   kind = 'setting',
   title,
+  titleChip,
   desc,
   truncateDesc = false,
   control,
@@ -936,6 +947,8 @@ export const Row = ({
   /** Records use the table family name and fact roles; controls retain settings labels. */
   kind?: 'setting' | 'record'
   title: ReactNode
+  /** A chip beside the title, kept visible while a record name gives way. */
+  titleChip?: ReactNode
   desc?: ReactNode
   /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
   truncateDesc?: boolean
@@ -945,7 +958,7 @@ export const Row = ({
   <div className={cx(styles.row, className)} data-slot="row" data-kind={kind} {...props}>
     {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
-      <span className={styles.rowTitle} data-slot="row-title">{kind === 'record' ? <Clipped className={styles.rowClippedTitle}>{title}</Clipped> : title}</span>
+      <RowTitle kind={kind} title={title} chip={titleChip} />
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
     {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
@@ -993,6 +1006,7 @@ export const RowButton = ({
   face,
   kind = 'setting',
   title,
+  titleChip,
   layout = 'default',
   desc,
   truncateDesc = false,
@@ -1010,6 +1024,8 @@ export const RowButton = ({
   /** Records use the table family name and fact roles; controls retain settings labels. */
   kind?: 'setting' | 'record'
   title: ReactNode
+  /** A chip beside the title, kept visible while a record name gives way. */
+  titleChip?: ReactNode
   /** A record keeps its human title whole; narrow rows put metadata and state below it. */
   layout?: 'default' | 'record'
   desc?: ReactNode
@@ -1041,7 +1057,7 @@ export const RowButton = ({
     >
       {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
       <span className={styles.rowText}>
-        <span className={styles.rowTitle} data-slot="row-title">{kind === 'record' ? <Clipped className={styles.rowClippedTitle}>{title}</Clipped> : title}</span>
+        <RowTitle kind={kind} title={title} chip={titleChip} />
         {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
       </span>
       {/* The control and the chevron are one trailing item, so a row too narrow
@@ -1374,8 +1390,8 @@ export const RowMark = ({ children, className }: { children: ReactNode; classNam
   <span className={cx(styles.rowMark, className)}>{children}</span>
 )
 
-export const DetailMark = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cx(styles.detailMark, className)}>{children}</span>
+export const DetailMark = ({ children, className, shape = 'square' }: { children: ReactNode; className?: string; shape?: 'square' | 'face' }) => (
+  <span className={cx(styles.detailMark, className)} data-shape={shape}>{children}</span>
 )
 
 /**

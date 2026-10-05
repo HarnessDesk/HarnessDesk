@@ -121,7 +121,7 @@ for (const theme of ['light', 'dark'] as const) {
       if (!reactUrl) throw new Error('preview React import missing')
       await route.fulfill({ response, body: `${source}
         import recordReact from ${JSON.stringify(reactUrl)};
-        import { Row, RowButton, Rows } from '/src/design/patterns/Settings.tsx';
+        import { Chip, Row, RowButton, Rows } from '/src/design/patterns/Settings.tsx';
         const recordFrame = document.createElement('section');
         recordFrame.setAttribute('data-frame-id', 'record-title-repair');
         recordFrame.style.cssText = 'position:fixed;inset:0 auto auto 0;width:320px;background:var(--hd-background);z-index:99999;padding:16px';
@@ -131,16 +131,28 @@ for (const theme of ['light', 'dark'] as const) {
           h(Row, { kind: 'record', title: ${JSON.stringify(name)} }),
           h(RowButton, { kind: 'record', title: ${JSON.stringify(name)}, onClick: () => {} }),
           h(RowButton, { kind: 'record', layout: 'record', title: ${JSON.stringify(name)}, onClick: () => {} }),
-          h(RowButton, { layout: 'record', title: ${JSON.stringify(name)}, onClick: () => {} })
+          h(RowButton, { layout: 'record', title: ${JSON.stringify(name)}, onClick: () => {} }),
+          h(Row, { kind: 'record', title: ${JSON.stringify(name)}, titleChip: h(Chip, { tone: 'neutral', size: 'sm' }, 'Gateway') }),
+          h(RowButton, { kind: 'record', title: ${JSON.stringify(name)}, titleChip: h(Chip, { tone: 'neutral', size: 'sm' }, 'Current'), onClick: () => {} })
         ));` })
     })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html')
     const titles = page.locator('[data-frame-id="record-title-repair"] [data-slot="row-title"]')
-    await expect(titles).toHaveCount(4)
+    await expect(titles).toHaveCount(6)
     for (const index of [0, 1]) {
       const label = titles.nth(index).locator(':scope > span')
       expect(await label.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+      await label.hover()
+      await expect(label).toHaveAttribute('title', name)
+    }
+    for (const index of [4, 5]) {
+      const title = titles.nth(index)
+      const chip = title.locator('[data-slot="chip"]')
+      const column = await title.boundingBox()
+      const mark = await chip.boundingBox()
+      expect(mark!.x + mark!.width).toBeLessThanOrEqual(column!.x + column!.width + 1)
+      const label = title.locator(':scope > span').first()
       await label.hover()
       await expect(label).toHaveAttribute('title', name)
     }

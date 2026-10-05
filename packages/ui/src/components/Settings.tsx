@@ -1521,7 +1521,8 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
             key={workspace.path}
             kind="record"
             mark={<FolderIcon size={16} />}
-            title={<span className="inline-flex min-w-0 items-center gap-(--hd-space-2)"><span className="truncate">{workspace.name}</span>{workspace.path === snapshot.workspace?.path && <Chip tone="neutral" size="sm">Current</Chip>}</span>}
+            title={workspace.name}
+            titleChip={workspace.path === snapshot.workspace?.path ? <Chip tone="neutral" size="sm">Current</Chip> : undefined}
             desc={shortPath(workspace.path, snapshot.home)} truncateDesc
             onClick={() => setOpen(workspace.path)}
           />

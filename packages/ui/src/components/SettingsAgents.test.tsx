@@ -1263,3 +1263,11 @@ it('unanswered extra account menus name the credential homes that distinguish th
   const names = [...container.querySelectorAll('button[aria-label^="Alpha actions"]')].map(node => node.getAttribute('aria-label'))
   expect(names).toEqual(['Alpha actions · /tmp/alpha-2', 'Alpha actions · /tmp/alpha-3'])
 })
+
+it('a runtime detail mark follows the Faces setting through the shared detail pattern', async () => {
+  await mountList()
+  await act(async () => line('Alpha').click())
+  const title = container.querySelector('[data-slot="detail-title"]')!
+  expect(title.textContent).toBe('Alpha')
+  expect(title.parentElement?.parentElement?.parentElement?.querySelector('[data-shape="face"]')).not.toBeNull()
+})
