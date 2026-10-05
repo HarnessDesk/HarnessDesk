@@ -1066,8 +1066,11 @@ the Overview folds them into a disclosure such as **3 done**, above the rows.
 Agent names stretch, while the numeric columns align to the end. Now disappears
 when no Seat is live, and Cost disappears when every amount is unknown. A done
 Seat's Time is its recorded working duration, fixed when its last turn ended.
-An evidence wait gives the person and reviewer a row leading to Findings;
-routing ids stay out of the reason. Below 800px Seats become list rows. A question,
+A findings wait gives the person and reviewer a row leading to Findings;
+other evidence waits lead to Run with their recorded reason. A review waiting
+to be posted keeps its own reason and Findings action, alongside any evidence
+wait. The live line keeps pending release and trigger actions while these rows
+are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.

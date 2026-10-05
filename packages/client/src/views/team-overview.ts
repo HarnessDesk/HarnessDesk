@@ -41,6 +41,7 @@ import {
   type TeamSignal,
   sessionKey,
 } from '@harnessdesk/protocol'
+import { runNeedsAttention, waitingForEvidence } from './run-attention.js'
 
 export type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'
 
@@ -290,8 +291,8 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   const run: RunStrip | null = execution && input.run ? {
     run: execution.id, state: execution.state, round: lastRound?.n ?? null, role: lastRound?.role ?? null,
     startedAt: input.run.startedAt,
-    waitingEvidence: execution.state === 'running' && rounds.some(round => round.state === 'waiting-evidence'),
-    needsYou: Boolean(reviewNeedsYou) || (execution.state === 'running' && rounds.some(round => round.state === 'waiting-evidence')) || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget',
+    waitingEvidence: waitingForEvidence(execution),
+    needsYou: runNeedsAttention(execution, Boolean(reviewNeedsYou)),
     ...(findingRun ? { findingRun, publicationOn: input.publicationOn !== false } : {}),
     reviewRounds: execution.findings ? {
       used: execution.findings.closedRounds.length,

@@ -2560,6 +2560,24 @@ const wait = (over: Record<string, unknown>) => ({
   createdAt: 1, resolvedAt: null, notification: 'delivered', ...over,
 })
 
+it('keeps a trigger action and pending release in Overview alongside an actionable findings wait',async()=>{
+  const evidenceReason='Waiting for 3 open blocking findings to be confirmed resolved.'
+  const triggerReason='Review this project’s trigger permission before the next firing.'
+  const releaseReason='Waiting for a Seat to finish before releasing its checkout.'
+  const execution:FlowExecution={version:2,id:'run-1',goal:ROOM,document:FLOW_DOCUMENT,state:'running',
+    rounds:[{n:1,role:'writer',cards:[1],seats:[],state:'waiting-evidence',cause:'seed',evidence:[]}],
+    operations:[],legacyRun:null,reason:`Rule after-review: ${evidenceReason}`,pendingReleaseNote:releaseReason}
+  const {store}=triggerRig([],{},[wait({sentence:triggerReason,action:'open-permissions'})],new Map([[execution.id,execution]]))
+  const askSettings=vi.fn();Object.assign(store,{askSettings})
+  await render(store)
+  const overview=container.querySelector('[data-slot="team-overview"]')!
+  for(const sentence of [evidenceReason,triggerReason,releaseReason])expect(overview.textContent?.split(sentence)).toHaveLength(2)
+  const action=overview.querySelector<HTMLButtonElement>('[data-slot="room-live-line"] button')!
+  expect(action.textContent).toBe('Open')
+  act(()=>action.click());expect(askSettings).toHaveBeenCalledWith('permissions','ceilings')
+  expect(overview.querySelector('[aria-label="Needs you"]')?.textContent).toContain('Open findings')
+})
+
 /**
  * A trigger's own named waits — a held message, a held action, a question
  * nobody answered — have one home in the new design: the thread's live line

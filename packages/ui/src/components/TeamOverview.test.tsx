@@ -23,6 +23,20 @@ it('uses the ended Run card state and fixed time for the current step and its Se
  expect(box.textContent).not.toMatch(/Working|so far|Editing the retry/)
  expect(box.querySelector('[data-slot="seat-state"] [data-slot="chip"]')).toBeNull()
 })
+it.each(['start','end'] as const)('keeps a stopped duration unknown when its %s is missing as time advances',missing=>{
+ vi.useFakeTimers();vi.setSystemTime(Date.UTC(2026,9,4))
+ const fixture=runFixture('running')
+ const execution={...fixture.execution,state:'stopped' as const,currentEndedAt:missing==='end'?null:Date.now()-10_000}
+ const cards=fixture.cards.map(card=>card.id===4&&missing==='start'?{...card,claim:null}:card)
+ const timeline=runTimeline({...fixture,execution,cards,signals:[]})
+ const summary=overviewModel('running')
+ const seat=row('Alpha',{card:{id:4,title:'Answer the review'},state:'working',since:Date.now()-60_000})
+ act(()=>root.render(<TeamOverview model={{...summary,needsYou:[],seats:[seat],run:{...summary.run!,state:'stopped',round:4}}} timeline={timeline}/>))
+ const time=()=>[...box.querySelectorAll('[data-seat="Alpha"] td[data-align="end"]')].at(-1)?.textContent
+ expect(time()).toBe('—')
+ act(()=>vi.advanceTimersByTime(120_000))
+ expect(time()).toBe('—')
+})
 it('offers Stop run… in the running Overview strip and withdraws it when the Run ends',()=>{
  const onStop=vi.fn()
  act(()=>root.render(<TeamOverview model={overviewModel('running')} onStop={onStop} />))
@@ -96,7 +110,7 @@ it('keeps completed time fixed when the clock advances and opens the whole row',
 })
 it('shows an evidence wait once with a Findings action and no engine id',()=>{
  const summary=overviewModel('idle');const onFindings=vi.fn()
- act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true}}} runReason="Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved." onFindings={onFindings}/>))
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,waitingEvidence:true}}} runReason="Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved." onFindings={onFindings}/>))
  expect(box.textContent).not.toContain('to-referee')
  expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain('You or the reviewer')
  const action=[...box.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Open findings')!
@@ -130,4 +144,35 @@ it('puts a publication wait only in its actionable Findings row',()=>{
  act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,findingRun}}} statusLine={()=> <span>Agents are idle</span>} onFindings={()=>{}}/>))
  expect(box.textContent?.split(reason)).toHaveLength(2)
  expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain(reason)
+})
+it('keeps distinct execution and posting reasons with the Findings action',()=>{
+ const reason='This review is waiting to be posted.'
+ const runReason='The Run ended without a next step.'
+ const summary=overviewModel('done')
+ const findingRun={run:summary.run!.run,goal:'overview-team',publication:'local',reason,boundPr:{repo:'acme/widgets',pr:7},rounds:[{round:3,state:'local',reason,pr:7,cards:[3]}]} as unknown as import('@harnessdesk/protocol').FindingRunView
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,findingRun}}} runReason={runReason} onFindings={()=>{}}/>))
+ for(const sentence of [reason,runReason])expect(box.textContent?.split(sentence)).toHaveLength(2)
+ expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain(reason)
+})
+it('preserves the supplied live line and its actions during a findings wait',()=>{
+ const statusLine=vi.fn(()=> <span>Waiting for a Seat to finish before releasing its checkout.<button>Open trigger</button></span>)
+ act(()=>root.render(<TeamOverview model={overviewModel('comparison')} runReason="Rule after-review: Waiting for 3 open blocking findings to be confirmed resolved." statusLine={statusLine} onFindings={()=>{}}/>))
+ expect(box.textContent).toContain('Waiting for a Seat to finish before releasing its checkout.')
+ expect([...box.querySelectorAll('button')].some(one=>one.textContent==='Open trigger')).toBe(true)
+ expect(statusLine).toHaveBeenCalled()
+})
+it.each(['Waiting for its evidence.','Waiting for a passing check at this revision.','Waiting for CI to go green at this revision.','Waiting for a structured review at this revision.','Waiting for the pull request to reach that state.','Waiting for an observed diff at this revision.','Waiting for card #7: findings-check has not passed.'])('routes the evidence wait %s to Run rather than promising Findings can resolve it',reason=>{
+ const summary=overviewModel('idle');const onRun=vi.fn();const onFindings=vi.fn()
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,waitingEvidence:true}}} runReason={`Rule after-review: ${reason}`} onRun={onRun} onFindings={onFindings}/>))
+ const attention=box.querySelector('[aria-label="Needs you"]')!
+ expect(attention.textContent).toContain(reason)
+ expect(attention.textContent).not.toContain('Findings')
+ const action=[...attention.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Open run')!
+ expect(action).toBeDefined()
+ act(()=>action.click());expect(onRun).toHaveBeenCalledOnce();expect(onFindings).not.toHaveBeenCalled()
+})
+it('does not infer a live evidence wait from an ended Run’s older rule reason',()=>{
+ const summary=overviewModel('done')
+ act(()=>root.render(<TeamOverview model={summary} runReason="Rule after-review: Waiting for its evidence." onFindings={()=>{}}/>))
+ expect(box.querySelector('[aria-label="Needs you"]')).toBeNull()
 })

@@ -126,13 +126,37 @@ for (const theme of ['light', 'dark'] as const) {
   const waiting=page.locator('#team-overview-live-waiting-evidence [data-slot="team-overview"]')
   await expect(waiting.locator('[aria-label="Needs you"]')).toContainText('Waiting for its evidence.')
   await expect(waiting).not.toContainText('Rule after-review:')
-  await waiting.getByRole('button',{name:'Open findings',exact:true}).click()
-  await expect(page.locator('#team-overview-live-waiting-evidence [aria-label="Findings"]').first()).toBeVisible()
+  await expect(waiting.locator('[aria-label="Needs you"]')).not.toContainText('Findings')
+  await expect(waiting.locator('[data-slot="room-pending-release-line"]')).toHaveText('Waiting for a Seat to finish before releasing its checkout.')
+  expect((await waiting.textContent())?.split('Waiting for its evidence.')).toHaveLength(2)
+  await waiting.getByRole('button',{name:'Open run',exact:true}).click()
+  await expect(page.locator('#team-overview-live-waiting-evidence [data-slot="run-view"]').first()).toBeVisible()
   const reason='"Review the change" (#2) answered revise; no rule continues from it, so this waits for you'
   const run=page.locator('#team-overview-live-unrouted [aria-label="Run"]')
   await expect(run.locator('[data-slot="room-run-reason"]')).toHaveText(reason)
   expect((await run.textContent())?.split(reason)).toHaveLength(2)
 
+})
+}
+
+for(const theme of ['light','dark'] as const) {
+ test(`Overview keeps unknown stopped timing as a dash in ${theme}`,async({page})=>{
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  const overview=page.locator('#team-overview-live-stopped-unknown [data-slot="team-overview"]')
+  expect(await overview.locator('th').allTextContents()).not.toContain('Now')
+  await expect(overview.locator('[data-slot="seat-state"]')).toHaveText(['Stopped','Stopped'])
+  for(const seat of await overview.locator('[data-seat]').all())await expect(seat.locator('td[data-align="end"]').nth(1)).toHaveText('—')
+  await expect(overview).not.toContainText('is working')
+ })
+ test(`Overview keeps findings, posting and pending release reasons once in ${theme}`,async({page})=>{
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  const overview=page.locator('#team-overview-live-findings-and-posting [data-slot="team-overview"]')
+  const text=await overview.textContent()
+  for(const reason of ['Waiting for 3 open blocking findings to be confirmed resolved.','This review is waiting to be posted.','Waiting for a Seat to finish before releasing its checkout.'])expect(text?.split(reason)).toHaveLength(2)
+  await expect(overview).not.toContainText('after-review')
+  await expect(overview.getByRole('button',{name:'Open findings',exact:true})).toHaveCount(2)
+  await overview.getByRole('button',{name:'Open findings',exact:true}).first().click()
+  await expect(page.locator('#team-overview-live-findings-and-posting [aria-label="Findings"]').first()).toBeVisible()
  })
 }
 

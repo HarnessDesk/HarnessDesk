@@ -7,6 +7,8 @@ export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled',
 export type OverviewScene = typeof OVERVIEW_STATES[number]
 export const OVERVIEW_RUN_REASONS = {
  'waiting-evidence': 'Rule after-review: Waiting for its evidence.',
+ 'findings-and-posting': 'Rule after-review: Waiting for 3 open blocking findings to be confirmed resolved.',
+ 'stopped-unknown': 'The Run stopped; its ending time was not recorded.',
  unrouted: '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you',
 } as const
 const at = Date.now() - 120_000
@@ -29,16 +31,19 @@ export const overviewModel = (scene:OverviewScene) => teamOverview(overviewInput
 
 /** Membership shape measured on the host rig, with the older list emptied to cover #1278. */
 export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
- const input=overviewInput(scene==='waiting-evidence'?'idle':scene==='unrouted'?'done':scene)
+ const evidenceWait=scene==='waiting-evidence'||scene==='findings-and-posting'
+ const input=overviewInput(evidenceWait?'idle':scene==='stopped-unknown'?'running':scene==='unrouted'?'done':scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
  const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}
  const goal:GoalView={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:scene==='done'?'ready-to-wrap':null}
- const baseRun=overviewRun(scene==='done'||scene==='unrouted'?'settled':scene==='stalled'?'stalled':'running')
- const run:FlowExecution=scene==='waiting-evidence'
-  ? {...baseRun,reason:OVERVIEW_RUN_REASONS[scene],rounds:baseRun.rounds.map(round=>round.n===2?{...round,state:'waiting-evidence'}:round)}
-  : scene==='unrouted'?{...baseRun,reason:OVERVIEW_RUN_REASONS[scene],end:{kind:'unrouted',card:2,outcome:'revise'}}:baseRun
+ const baseRun=overviewRun(scene==='done'||scene==='unrouted'?'settled':scene==='stopped-unknown'?'stopped':scene==='stalled'?'stalled':'running')
+ const run:FlowExecution=evidenceWait
+  ? {...baseRun,reason:OVERVIEW_RUN_REASONS[scene],pendingReleaseNote:'Waiting for a Seat to finish before releasing its checkout.',rounds:baseRun.rounds.map(round=>round.n===2?{...round,state:'waiting-evidence'}:round)}
+  : scene==='stopped-unknown'?{...baseRun,reason:OVERVIEW_RUN_REASONS[scene],currentEndedAt:null}
+    : scene==='unrouted'?{...baseRun,reason:OVERVIEW_RUN_REASONS[scene],end:{kind:'unrouted',card:2,outcome:'revise'}}:baseRun
  const sessions=new Map(input.seats.slice(0,2).map(one=>[sessionKey(one.record.session.runtime,one.record.session.sessionId),one.session!]))
  const approvals=scene==='needs-you'?input.seats.flatMap(one=>one.approvals.map(approval=>({key:sessionKey(one.record.session.runtime,one.record.session.sessionId),approval}))):[]
- const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
+ const findingRun:import('@harnessdesk/protocol').FindingRunView={run:run.id,goal:board.id,round:2,finished:1,total:1,embargoed:false,open:3,blocking:3,reason:'This review is waiting to be posted.',ceilingStop:false,stamp:'preview-posting',publication:'local',rounds:[{round:2,state:'local',reason:'This review is waiting to be posted.',pr:7,cards:[2]}],reviewersFinished:1,reviewersTotal:1,pendingExceptions:[],repair:null,boundPr:{repo:'acme/storefront',pr:7},unbound:null,undecidable:null}
+ const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),findingRuns:scene==='findings-and-posting'?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
  return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();return Reflect.get(target,key)}})
 }

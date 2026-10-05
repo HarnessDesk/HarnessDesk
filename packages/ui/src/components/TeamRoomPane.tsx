@@ -1513,7 +1513,7 @@ export const TeamRoomPane = ({
               runtimeNames={new Map(seats.flatMap(seat => { const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime); return runtime ? [[seat.record.id, runtime.presentation.name]] : [] }))}
               timeline={overviewTimeline}
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
-              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason stoppingSessions={stoppingSessions} />}
+              statusLine={(now, includeRunReason) => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason={includeRunReason} stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">

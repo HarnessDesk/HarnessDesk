@@ -7,6 +7,20 @@ const openTeams=async(page:Page,theme:'light'|'dark')=>{
 }
 
 for(const theme of ['light','dark'] as const) {
+ test(`Teams page: the whole stack and remainder fit inside the table lead in ${theme}`,async({page})=>{
+  await openTeams(page,theme)
+  const row=page.locator('#teams-page-active [data-team-row="team-2"]')
+  await expect(row.locator('[data-slot="face-stack"]')).toHaveAccessibleName('6 seats')
+  await expect(row.locator('[data-slot="face-stack"] [data-shape="face"]')).toHaveCount(4)
+  await expect(row.locator('[data-slot="face-stack"]')).toContainText('+2')
+  expect(await row.evaluate(row=>{
+   const lead=row.querySelector('[data-slot="table-cell-lead"]')!.getBoundingClientRect()
+   const stack=row.querySelector('[data-slot="face-stack"]')!
+   return [...stack.querySelectorAll('[data-shape="face"]'),stack.lastElementChild!].every(el=>{
+    const box=el.getBoundingClientRect();return box.left>=lead.left-1&&box.right<=lead.right+1&&box.top>=lead.top-1&&box.bottom<=lead.bottom+1
+   })
+  })).toBe(true)
+ })
  test(`Teams page: precedence, folding, Hide, face geometry and complete reasons in ${theme}`,async({page})=>{
   await openTeams(page,theme)
   const frame=page.locator('#teams-page-active')

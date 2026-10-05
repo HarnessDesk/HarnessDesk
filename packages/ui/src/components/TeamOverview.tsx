@@ -61,8 +61,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   onStop?: (() => void) | undefined
   runName?: string
   runReason?: string | null
-  /** The Team's shared live line, using this view's ticking clock. */
-  statusLine?: (now: number) => ReactNode
+  /** The Team's shared live line. Omit only the Run reason when an attention row owns it. */
+  statusLine?: (now: number, includeRunReason: boolean) => ReactNode
   defaultExpanded?: boolean
   runNeedsYou?: boolean
 }) => {
@@ -101,11 +101,20 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const opens = (row: SeatRow) => Boolean(onOpen && !unavailable?.has(row.seat))
   const showNow = model.seats.some(row => row.state === 'working' && !cardState(row))
   const showCost = model.seats.some(row => row.cost !== null)
-  const elapsed = (row: SeatRow) => cardState(row)?.durationMs ?? (row.done ? row.durationMs ?? null : elapsedSince(row.since, now))
+  const elapsed = (row: SeatRow) => {
+    const stopped = cardState(row)
+    return stopped ? stopped.durationMs : row.done ? row.durationMs ?? null : elapsedSince(row.since, now)
+  }
   const run = model.run
   const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
-  const evidenceWait = Boolean(run?.needsYou && onFindings && (run.waitingEvidence || /^Rule /.test(runReason ?? '') || publication?.needsYou))
-  const reason = runReason ? words(runReasonWords(runReason)) : run?.findingRun?.reason ? words(run.findingRun.reason) : evidenceWait ? 'The next step is waiting for its evidence.' : null
+  const evidenceWait = run?.waitingEvidence === true
+  const reason = runReason ? words(runReasonWords(runReason)) : evidenceWait ? 'The next step is waiting for its evidence.' : null
+  // Only the host's findings waits promise a Findings action. Other guards
+  // (checks, CI, reviews, PR state, diffs) keep their recorded reason in Run.
+  const findingsWait = evidenceWait && /^Waiting for (?:\d+ open blocking findings?\b|a person to review a new regression or security finding\b)/i.test(reason ?? '')
+  const publicationReason = run?.findingRun?.reason ? words(run.findingRun.reason) : null
+  const publicationWait = Boolean(publication?.needsYou && onFindings)
+  const reasonInWait = evidenceWait || (publicationWait && reason === publicationReason)
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
@@ -132,17 +141,20 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               {[...stoppedCards.values()].filter(row => row.round === run.round).map(row => <div key={row.id} data-slot="run-current-step"><Text role="meta">
                 {words(row.title)} · {row.status}{row.durationMs !== null ? ` · ${formatDuration(row.durationMs)}` : ''}
               </Text></div>)}
-              {!evidenceWait && publication?.needsYou && run.findingRun?.reason && (statusLine || run.findingRun.reason !== runReason) && <Text role="meta" as="div">{words(run.findingRun.reason)}</Text>}
-              {!evidenceWait && (statusLine ? statusLine(now) : reason && <Text role="meta" as="div">{reason}</Text>)}
+              {!publicationWait && publication?.needsYou && publicationReason && (statusLine || publicationReason !== reason) && <Text role="meta" as="div">{publicationReason}</Text>}
+              {statusLine ? statusLine(now, !reasonInWait) : !reasonInWait && reason && <Text role="meta" as="div">{reason}</Text>}
             </section>
           </CardContent></Card>
         )}
-        {(model.needsYou.length > 0 || evidenceWait) && (
+        {(model.needsYou.length > 0 || evidenceWait || publicationWait) && (
           <section aria-label="Needs you">
             <GroupLabel>Needs you</GroupLabel>
             <ListRows>
-              {evidenceWait && <ListRow title="Review the findings" subtitle={reason} wrapSubtitle
-                meta={<Text role="meta">You or the reviewer can resolve this wait in Findings.</Text>}
+              {evidenceWait && <ListRow title={findingsWait ? 'Review the findings' : 'Review the evidence'} subtitle={reason} wrapSubtitle
+                meta={<Text role="meta">{findingsWait ? 'You or the reviewer can resolve this wait in Findings.' : 'The next step needs recorded evidence. Open the Run to inspect the wait.'}</Text>}
+                trail={findingsWait ? onFindings && <Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>
+                  : onRun && <Button variant="outline" size="sm" onClick={onRun}>Open run</Button>} />}
+              {publicationWait && <ListRow title="Post the review" subtitle={evidenceWait && publicationReason === reason ? null : publicationReason} wrapSubtitle
                 trail={<Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>} />}
               {model.needsYou.map((item, index) => (
                 <NeedsYouRow key={item.approval !== undefined
