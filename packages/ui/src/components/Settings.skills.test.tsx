@@ -162,3 +162,13 @@ it('a list with a manifest mark gives every skill a face', () => {
   mount([...SKILLS, { name: 'marked', description: 'Own identity', enabled: true, brandColor: '#7a5af8' }])
   expect(container.querySelectorAll('[data-slot="row-mark"]')).toHaveLength(3)
 })
+
+it('keeps the switch slot empty in the list and explains Always on on the detail page', () => {
+  mount([{ name: 'always-loaded', description: 'Available for every conversation.', enabled: true, toggleable: false }])
+  expect(container.querySelector('[role="switch"]')).toBeNull()
+  expect(container.textContent).not.toContain('Always on')
+  const row = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Always Loaded'))!
+  act(() => row.click())
+  expect(container.textContent).toContain('Always on')
+  expect(container.querySelector('[role="switch"]')).toBeNull()
+})

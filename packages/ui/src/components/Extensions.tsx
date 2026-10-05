@@ -367,7 +367,7 @@ const McpServers = () => {
               key={server.name}
               mark={<ServerIcon size={15} />}
               title={server.name}
-              desc={`${server.tools.length} tools · ${server.resources} resources`}
+              desc={`${server.tools.length} ${server.tools.length === 1 ? 'tool' : 'tools'} · ${server.resources} ${server.resources === 1 ? 'resource' : 'resources'}`}
               control={
                 server.auth === 'needsLogin' ? (
                   <Button size="sm" variant="default" onClick={() => void store.mcpLogin(server.name)}>

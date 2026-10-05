@@ -135,7 +135,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
           </Text>
         </Button>
       </TableCell>
-      <TableCell>
+      <TableCell className="whitespace-normal [overflow-wrap:anywhere]">
         {finding?.tone === 'warn'
           ? <Chip tone="warning" size="sm">{finding.text}</Chip>
           : <Text role="muted" ink="muted">{finding?.text ?? 'Ready'}</Text>}

@@ -26,7 +26,7 @@ export const capabilityListsStore = () => {
   own.loadMcpServers = async () => [
     { name: 'Workspace tools', tools: ['read', 'search'], resources: 3, auth: 'none' },
     { name: 'Project docs', tools: ['find'], resources: 0, auth: 'token' },
-    { name: 'Team notes', tools: ['read'], resources: 2, auth: 'oauth' },
+    { name: 'Team notes', tools: ['read'], resources: 1, auth: 'oauth' },
   ]
   own.listCredentials = async () => [
     { ref: 'cred_r1', name: 'Team proxy key', createdAt: Date.UTC(2026, 8, 15), owner: { kind: 'endpoint' } },

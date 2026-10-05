@@ -1131,7 +1131,7 @@ const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
   return skill.toggleable === false ? (
     // Nothing to switch: the agent declares what it offers and keeps the
     // on/off to itself, so the row is a list entry.
-    <span className="inline-flex w-(--hd-toggle-width) justify-center" title="Always on" aria-label="Always on" />
+    <RowValue>Always on</RowValue>
   ) : (
     <span onClick={(event) => event.stopPropagation()}>
       <Switch
@@ -1145,7 +1145,7 @@ const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
   )
 }
 
-/** One skill, in full: the list clamps its description, this page keeps it. */
+/** One skill, in full, with its availability beside the heading. */
 const SkillPage = ({
   skill,
   listLabel,
@@ -1287,7 +1287,9 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
                   control={
                     <>
                       <span className="w-16 text-right">{scope && <RowValue>{scope}</RowValue>}</span>
-                      <SkillToggle skill={skill} />
+                      {skill.toggleable === false
+                        ? <span className="inline-flex w-(--hd-toggle-width) justify-center" title="Always on" aria-label="Always on" />
+                        : <SkillToggle skill={skill} />}
                     </>
                   }
                 />

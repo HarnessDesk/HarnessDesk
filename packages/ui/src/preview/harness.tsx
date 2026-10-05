@@ -560,7 +560,7 @@ export const LIBRARY = {
       reach: [
         { runtime: runtimeId('codex'), state: 'absent', basis: 'scanned' },
         { runtime: runtimeId('claude'), state: 'absent', basis: 'scanned' },
-        { runtime: runtimeId('cursor'), state: 'reaches', basis: 'scanned' },
+        { runtime: runtimeId('cursor'), state: 'stale', basis: 'reported' },
       ],
     },
     {

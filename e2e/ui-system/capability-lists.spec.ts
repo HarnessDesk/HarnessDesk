@@ -1,6 +1,37 @@
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`Library quiet state sentences stay inside their column in ${theme}`, async ({ page }) => {
+    await page.goto('/preview.html')
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
+    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    await expect(sheet.getByText('Not read yet by Gamma', { exact: true })).toBeVisible()
+    await expect(sheet.getByText('Off in Alpha', { exact: true })).toBeVisible()
+    for (const width of [1440, 1024]) {
+      await page.setViewportSize({ width, height: 900 })
+      for (const state of ['Ready', 'Off in Alpha', 'Not read yet by Gamma']) {
+        const reading = sheet.getByText(state, { exact: true }).first()
+        const bounds = await reading.evaluate(node => {
+          const cell = node.closest('td')!
+          const rect = cell.getBoundingClientRect()
+          const style = getComputedStyle(cell)
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          return {
+            left: rect.left + parseFloat(style.paddingLeft),
+            right: rect.right - parseFloat(style.paddingRight),
+            text: [...range.getClientRects()].map(line => ({ left: line.left, right: line.right })),
+          }
+        })
+        for (const line of bounds.text) {
+          expect(line.left, state).toBeGreaterThanOrEqual(bounds.left - 1)
+          expect(line.right, state).toBeLessThanOrEqual(bounds.right + 1)
+        }
+      }
+    }
+  })
+
   test(`capability lists keep the table anatomy in ${theme}`, async ({ page }) => {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
@@ -36,6 +67,8 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await description.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('none')
     await expect(sheet.getByText('Hooks · 2', { exact: true })).toBeVisible()
     await expect(sheet.getByText('Trusted', { exact: true })).toBeVisible()
+    await sheet.getByRole('button', { name: /Playwright/ }).click()
+    await expect(sheet.getByText('Always on', { exact: true })).toBeVisible()
 
     await dial.selectOption('models')
     await expect(sheet.getByText('Always thinks', { exact: true })).toBeVisible()
@@ -52,6 +85,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(sheet.getByText('Off', { exact: true })).toBeVisible()
     await sheet.getByRole('tab', { name: 'MCP servers', exact: true }).click()
     await expect(sheet.getByText('2 tools · 3 resources', { exact: true })).toBeVisible()
+    await expect(sheet.getByText('1 tool · 0 resources', { exact: true })).toBeVisible()
+    await expect(sheet.getByText('1 tool · 1 resource', { exact: true })).toBeVisible()
     await expect(sheet.getByText('Authorised', { exact: true })).toBeVisible()
     await expect(sheet.getByText('Signed in', { exact: true })).toBeVisible()
 

@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { RuntimeCatalog, RuntimeInfo, RuntimePlugin } from '@harnessdesk/protocol'
+import type { McpServer, RuntimeCatalog, RuntimeInfo, RuntimePlugin } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -58,7 +58,7 @@ const runtime = {
   presentation: { name: 'Codex' },
 } as unknown as RuntimeInfo
 
-const mount = (plugins: readonly RuntimePlugin[]) => {
+const mount = (plugins: readonly RuntimePlugin[], servers: readonly McpServer[] = []) => {
   const catalog: RuntimeCatalog = { plugins, marketplaces: ['openai'], loadErrors: [], featured: [] }
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -72,7 +72,7 @@ const mount = (plugins: readonly RuntimePlugin[]) => {
     loadCatalog: vi.fn().mockResolvedValue(catalog),
     setRuntimePluginInstalled: vi.fn().mockResolvedValue(undefined),
     searchApps: vi.fn().mockResolvedValue({ apps: [] }),
-    loadMcpServers: vi.fn().mockResolvedValue([]),
+    loadMcpServers: vi.fn().mockResolvedValue(servers),
   } as unknown as AppStore
   act(() => {
     root.render(
@@ -83,6 +83,18 @@ const mount = (plugins: readonly RuntimePlugin[]) => {
   })
   return store
 }
+
+it('pluralises tool and resource counts independently for zero, one and many', async () => {
+  mount([], [
+    { name: 'One tool', tools: ['read'], resources: 0, auth: 'none' },
+    { name: 'One resource', tools: [], resources: 1, auth: 'none' },
+    { name: 'Many', tools: ['read', 'search'], resources: 3, auth: 'none' },
+  ])
+  const tab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button => button.textContent === 'MCP servers')!
+  await act(async () => tab.click())
+  const descriptions = [...container.querySelectorAll('[data-slot="row-desc"]')].map(node => node.textContent)
+  expect(descriptions).toEqual(['1 tool · 0 resources', '0 tools · 1 resource', '2 tools · 3 resources'])
+})
 
 /* One `Kit.Row`, by its own class. `[class*="row"]` matched both the list
    wrapper above it and the title span inside it — the first made an assertion
