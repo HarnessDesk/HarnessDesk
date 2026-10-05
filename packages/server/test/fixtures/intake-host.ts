@@ -95,6 +95,7 @@ export const intakeDesk = async (options: {
   /** Runs on the fake agent after it is registered and before the host starts. */
   readonly before?: (runtime: FakeRuntime) => void
   /** The timers an unattended Seat's question wait runs on, so a test ends the wait when it says. */
+  readonly seatReadDeadlineMs?: number
   readonly questionTimers?: QuestionTimers
 } = {}): Promise<IntakeDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')
@@ -110,6 +111,7 @@ export const intakeDesk = async (options: {
     builtinAgents: tempDir('hd-intake-host-builtins-'),
     builtinFlows: tempDir('hd-intake-host-flows-'),
     catalogRefreshMs: 0,
+    ...(options.seatReadDeadlineMs !== undefined ? { seatReadDeadlineMs: options.seatReadDeadlineMs } : {}),
     intake: {
       gh: forge.runner,
       now: () => clocks.wall,
