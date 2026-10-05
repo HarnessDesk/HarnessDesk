@@ -352,14 +352,18 @@ export class Drafts {
     this.#writeImmediately()
   }
 
-  /** Swap one recoverable draft with the current live draft without losing either. */
-  restore(key: SessionKey, id: number): Draft | null {
-    if (this.#forgotten.has(key)) return null
+  /** Swap a recovery into the chosen composer, retaining its current draft. */
+  restore(
+    key: SessionKey,
+    id: number,
+    destination: { readonly key: SessionKey | null; readonly draft: Draft | null } = { key, draft: this.live(key) },
+  ): Draft | null {
+    if (this.#forgotten.has(key) || (destination.key && this.#forgotten.has(destination.key))) return null
     const entry = this.#entries.get(key)
     const selected = entry?.recoverable.find((draft) => draft.id === id)
     if (!entry || !selected) return null
-    const displaced = entry.live
-    entry.live = {
+    const displaced = destination.draft
+    const restored: Draft = {
       text: selected.text,
       attachments: selected.attachments.map((attachment, index) => ({
         ...attachment,
@@ -370,8 +374,12 @@ export class Drafts {
         : {}),
     }
     entry.recoverable = entry.recoverable.filter((draft) => draft.id !== id)
+    // Fresh composers keep their live text locally. Only a conversation can
+    // own a live draft; its displaced text can still use the unscoped list.
+    const target = this.#entry(destination.key ?? UNSCOPED_RECOVERY_KEY)
+    if (destination.key) target.live = restored
     if (displaced && !empty(displaced)) {
-      entry.recoverable.push({
+      target.recoverable.push({
         id: ++this.#nextId,
         createdAt: Date.now(),
         reason: 'saved',
@@ -380,9 +388,11 @@ export class Drafts {
         detail: 'Restore it to swap with the current draft.',
       })
     }
+    this.#prune(key, entry)
+    this.#prune(destination.key ?? UNSCOPED_RECOVERY_KEY, target)
     this.#emitRecoverableChange()
     this.#writeImmediately()
-    return entry.live ?? null
+    return restored
   }
 
   /** Compatibility name used by the composer: a failed send is a Restore entry. */
