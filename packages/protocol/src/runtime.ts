@@ -119,6 +119,11 @@ export interface AuthMethod {
   readonly keyLabel?: string
 }
 
+/** Reads whose observed answers can be retained across an idle stop. */
+export type IdleRuntimeRead =
+  | { readonly method: 'listSessions'; readonly query?: ListSessionsQuery }
+  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string }
+
 export interface AccountStatus {
   readonly accounts: readonly Account[]
   /** How to sign in from here. Empty when the runtime has nothing it can drive. */
@@ -994,6 +999,12 @@ export interface AgentRuntime {
   start(): Promise<void>
   /** Stop an idle helper process while preserving the runtime's learned state. */
   stopForIdle?(): Promise<boolean>
+  /**
+   * Whether a cached read has an observed answer while idle. False asks the
+   * host to restart through its existing start barrier before making the read.
+   * Absent: the runtime's ordinary read handles its idle state itself.
+   */
+  canReadWhileIdle?(read: IdleRuntimeRead): boolean
   dispose(): Promise<void>
   /**
    * Re-asks the agent what it offers — models, modes, reasoning levels —
