@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Runtime information waits quietly in the Inbox.** Configuration warnings
+  and retiring settings show their details, a file action and a mute option.
+  Repeats update one row's count and time; unchanged content stays read across
+  launches. Conversation notices stay inline, and only action results open
+  toasts. Notifications settings includes every new kind.
+
 - **Read what each room member is doing.** Conversation titles wrap beneath
   the nickname alongside the task or reason, instead of being cut off on
   the name's line. (Fixes #1185)

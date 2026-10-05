@@ -290,6 +290,8 @@ export const mapNotification = (
           ...(notification.params.threadId
             ? { sessionId: sessionId(notification.params.threadId) }
             : {}),
+          class: notification.params.threadId ? 'conversation' : 'info',
+          kind: notification.params.threadId ? 'conversation:warning' : 'runtime:warning',
           level: 'warning',
           message: notification.params.message,
         },
@@ -300,7 +302,10 @@ export const mapNotification = (
         {
           type: 'notice',
           level: 'warning',
-          message: joinDetail(notification.params.summary, notification.params.details),
+          class: 'info',
+          kind: 'runtime:config',
+          message: notification.params.summary,
+          detail: configurationDetail(notification.params.summary, notification.params.details, notification.params.path),
         },
       ]
 
@@ -309,7 +314,10 @@ export const mapNotification = (
         {
           type: 'notice',
           level: 'info',
-          message: joinDetail(notification.params.summary, notification.params.details),
+          class: 'info',
+          kind: 'runtime:deprecation',
+          message: notification.params.summary,
+          detail: configurationDetail(notification.params.summary, notification.params.details),
         },
       ]
 
@@ -319,6 +327,8 @@ export const mapNotification = (
           type: 'notice',
           sessionId: sessionId(notification.params.threadId),
           level: 'info',
+          class: 'conversation',
+          kind: 'conversation:compacted',
           message: 'Context was compacted to make room for more of this conversation.',
         },
       ]
@@ -329,7 +339,9 @@ export const mapNotification = (
           type: 'notice',
           sessionId: sessionId(notification.params.threadId),
           level: 'info',
-          message: `Codex switched from ${notification.params.fromModel} to ${notification.params.toModel}.`,
+          class: 'conversation',
+          kind: 'conversation:rerouted',
+          message: `The model switched from ${notification.params.fromModel} to ${notification.params.toModel}.`,
         },
       ]
 
@@ -341,8 +353,19 @@ export const mapNotification = (
   }
 }
 
-const joinDetail = (summary: string, details: string | null): string =>
-  details ? `${summary} — ${details}` : summary
+/** Native summaries/details are retained; recognized settings and paths are separate facts. */
+const configurationDetail = (summary: string, details: string | null, path?: string | null): import('@harnessdesk/protocol').NoticeDetail => {
+  const text = `${summary}\n${details ?? ''}`
+  const names: string[] = []
+  // A dotted word in prose can be a domain. Only explicit key statements count.
+  for (const match of text.matchAll(/(?:(?:unrecognized|unknown|ignored|deprecated|unsupported)\s+(?:config\s+)?(?:key|setting)\s*:?|config\s+key\s*:?|(?:key|setting)\s*:)\s*[`'"]?([a-zA-Z_][\w-]*(?:\.[a-zA-Z_][\w-]*)*)|[`'"]?([a-zA-Z_][\w-]*(?:\.[a-zA-Z_][\w-]*)*)[`'"]?\s+(?:is|was|will be)\s+(?:ignored|deprecated|unrecognized|unsupported)/gi)) {
+    const name = match[1] ?? match[2]
+    if (name) names.push(name)
+  }
+  const settings = [...new Set(names)]
+  const file = path ?? /(?:user|project)\(([^)]+)\)/.exec(details ?? '')?.[1]
+  return { summary, ...(details ? { details } : {}), settings, ...(file ? { file } : {}) }
+}
 
 const delta = (
   params: { threadId: string; turnId: string; itemId: string },
