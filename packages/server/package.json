@@ -26,10 +26,10 @@
     "@harnessdesk/plugins": "workspace:*",
     "@harnessdesk/protocol": "workspace:*",
     "@harnessdesk/responses-gateway": "workspace:*",
-    "ws": "^8.18.0"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.13",
+    "@types/ws": "^8.18.2",
     "@harnessdesk/adapter-testkit": "workspace:*"
   },
   "files": [
