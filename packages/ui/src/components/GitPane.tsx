@@ -31,10 +31,11 @@ import { branchTree, commitDate, inFolder, refChips, shortSha, type RefChip as R
 import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { withCount } from '../lib/with-count'
+import { cn } from '../lib/utils'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
-import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
+import { Button, buttonVariants, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
@@ -960,7 +961,8 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
                 />
               )}
               <span role="columnheader" className={styles.headCell} data-flex="">
-                <Text role="meta" weight="medium">Description</Text>
+                {/* desk: tertiary → secondary, log labels share the table header ink */}
+                <Text role="meta" weight="medium" ink="secondary">Description</Text>
               </span>
               {fit.sha && (
                 <HeadCell
@@ -995,8 +997,9 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               className={styles.list}
               ref={listRef}
               onScroll={onScroll}
-              role="rowgroup"
-              tabIndex={-1}
+              // A rowgroup is only promised when it owns rows; keep the scroll ref mounted in every state.
+              role={total > 0 ? 'rowgroup' : undefined}
+              tabIndex={total > 0 ? -1 : undefined}
             >
               {total === 0 && !loading ? (
                 <EmptyState
@@ -1532,7 +1535,8 @@ const HeadCell = ({
     hidden > 0 ? `${hidden} more ${hidden === 1 ? 'lane' : 'lanes'} — widen this column to see them` : null
   return (
     <span role="columnheader" className={styles.headCell} style={{ width }}>
-      <Text role="meta" weight="medium" className={styles.headLabel}>{GIT_COLUMNS[name].label}</Text>
+      {/* desk: tertiary → secondary, resizeable labels share the table header ink */}
+      <Text role="meta" weight="medium" ink="secondary" className={styles.headLabel}>{GIT_COLUMNS[name].label}</Text>
       {hidden > 0 && width >= LANE_W && (
         <Badge title={missing ?? undefined}>+{hidden}</Badge>
       )}
@@ -1772,12 +1776,8 @@ const CommitRow = ({
   const chips = refChips(commit.refs, remotes)
   const merge = commit.parents.length > 1
   return (
-    <Button
-      type="button"
-      variant="row"
-      size="log-row"
-      cursor="default"
-      className={styles.row}
+    <div
+      className={cn(buttonVariants({ variant: 'row', size: 'log-row' }), 'cursor-default', styles.row)}
       style={{ top }}
       {...(selected ? { 'data-selected': '' } : {})}
       {...(merge ? { 'data-merge': '' } : {})}
@@ -1795,7 +1795,8 @@ const CommitRow = ({
       </span>}
       <span role="gridcell" className={styles.subject}>
         {chips.map((chip) => <RefChip key={`${chip.kind}-${chip.name}`} chip={chip} />)}
-        <Text role="row" ink={merge ? 'muted' : undefined} className={styles.subjectText} title={commit.subject}>
+        {/* desk: tertiary/medium → secondary/normal, restore merge subjects as sentences */}
+        <Text role="row" ink={merge ? 'secondary' : undefined} weight={merge ? 'normal' : undefined} className={styles.subjectText} title={commit.subject}>
           {commit.subject}
         </Text>
         <CommitSeatLabels value={provenance} />
@@ -1820,7 +1821,7 @@ const CommitRow = ({
           <Text role="meta">{commit.author}</Text>
         </span>
       )}
-    </Button>
+    </div>
   )
 }
 

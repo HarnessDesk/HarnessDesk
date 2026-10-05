@@ -7,6 +7,7 @@ import radioSource from './radio-group.tsx?raw'
 import switchSource from './switch.tsx?raw'
 import buttonSource from './button.tsx?raw'
 import { Button, buttonVariants } from './button'
+import { CATALOG_ENTRIES } from '../catalog/manifest'
 
 /**
  * One button implementation, with every visual decision sourced from the
@@ -264,12 +265,11 @@ it('gives the windowed table row the shared selected fill and divider without mo
   expect(classes).toContain('border-b-(--hd-card-divider,var(--hd-border))')
 })
 
-it('keeps the shared table-row size about pitch, with rounded control corners', () => {
-  const classes = buttonVariants({ variant: 'row', size: 'table-row' })
-  expect(classes).toContain('h-(--hd-table-row-h)')
-  expect(classes).not.toContain('rounded-none')
-  expect(classes).not.toContain('border-b')
-  expect(classes).not.toContain('data-[selected]:bg-(--hd-selected)')
+it('catalogues only the log-row size for the windowed row pitch', () => {
+  expect(buttonSource.includes("'table-row':")).toBe(false)
+  const entry = CATALOG_ENTRIES.find(entry => entry.id === 'primitive.button')!
+  expect(entry.sizes).toContain('log-row')
+  expect(entry.sizes).not.toContain('table-row')
 })
 
 it('marks the positioned row without intercepting its readings or duplicating hover and focus',()=>{

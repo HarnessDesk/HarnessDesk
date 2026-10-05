@@ -34,7 +34,7 @@ const Table = ({
       data-slot="table"
       data-hd-table={density}
       data-rows={rows}
-      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', inset === 'row' && '[&_th]:px-(--hd-inset-row) [&_td]:px-(--hd-inset-row)', className)}
+      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', inset === 'row' && '[&_tr>:first-child]:ps-(--hd-inset-row) [&_tr>:last-child]:pe-(--hd-inset-row)', className)}
       {...props}
     />
   </div>
@@ -181,13 +181,13 @@ const TableCell = ({
     data-align={numeric ? 'end' : align}
     data-collapse-below={collapseBelow}
     className={cn(
+      'h-(--hd-table-row-min) in-data-[rows=bare]:h-(--hd-table-row-min-bare) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) align-middle',
       variant === 'default' && 'py-1.5 whitespace-nowrap',
       variant === 'matrix' && 'py-0 text-center',
       variant === 'flush' && 'bg-(--hd-background) py-0',
       variant === 'detail' && 'bg-(--hd-background) px-3 pt-2.5 pb-3 align-middle',
       variant === 'footer' && 'px-1.5 py-2 text-center text-xs tabular-nums whitespace-nowrap text-(--hd-muted-foreground)',
       variant === 'panel' && 'py-1 whitespace-normal [overflow-wrap:anywhere]',
-      'h-(--hd-table-row-min) in-data-[rows=bare]:h-(--hd-table-row-min-bare) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) align-middle',
       !numeric && align === 'center' && 'text-center',
       (numeric || align === 'end') && 'text-right tabular-nums',
       collapseBelow === 'sm' && collapsedColumn,
