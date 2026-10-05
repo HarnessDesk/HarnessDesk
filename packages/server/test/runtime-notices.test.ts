@@ -190,7 +190,7 @@ test('opening a stale Inbox row cannot restore cleared content or erase newer ro
   await host.call('app/state/set', { patch: { inbox: [{ ...old, read: true }] }, noticeBase: { inbox: [old] } })
   assert.deepEqual(state.state.preferences['inbox'], [latest, newer], 'a stale read cannot mark the newer occurrence read')
   await host.call('app/state/set', { patch: { inbox: [] }, noticeBase: { inbox: [old] } })
-  assert.deepEqual(state.state.preferences['inbox'], [latest, newer], 'a stale clear cannot remove the newer occurrence')
+  assert.deepEqual(state.state.preferences['inbox'], [newer], 'clearing the content-keyed row preserves other newer rows')
 })
 
 

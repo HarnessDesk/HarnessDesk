@@ -1852,7 +1852,9 @@ only the changed rows or kinds, retaining other windows’ edits. A late respons
 cannot undo a newer local action.
 
 For a standing Inbox row, `id` names the condition and `at` names its
-occurrence. The host keeps the latest occurrence time after a row is cleared:
+occurrence. Content-keyed runtime rows instead keep the same row as their
+count and last time advance. The host keeps the latest standing occurrence
+time after a row is cleared:
 the same or an older copy stays cleared, while a later occurrence is admitted
 unread. A read or clear from a window whose snapshot predates that occurrence
 cannot change it. These receipts are host-owned and bounded, with live rows

@@ -16,6 +16,9 @@ export const retainRuntimeNotice = (raw: unknown, runtime: RuntimeId, event: Ext
 const object = (value: unknown): Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
 const inboxAt = (row: Record<string, unknown>): number | undefined => typeof row['at'] === 'number' && Number.isFinite(row['at']) ? row['at'] : undefined
+// Content-keyed runtime information keeps one row as its count and last time
+// advance. Only a standing row's `at` distinguishes a new occurrence of its id.
+const inboxOccurrenceAt = (row: Record<string, unknown>): number | undefined => typeof row['contentKey'] === 'string' ? undefined : inboxAt(row)
 
 // A cleared row is gone from `inbox`, but its occurrence identity must remain
 // so a delayed copy cannot put that same occurrence back. The inbox itself is
@@ -57,7 +60,7 @@ export const mergeNoticePreferences = (preferences: Readonly<Record<string, unkn
     }
     const remember = (row: Record<string, unknown>): void => {
       if (typeof row['id'] !== 'string') return
-      const at = inboxAt(row)
+      const at = inboxOccurrenceAt(row)
       if (at === undefined || (occurrences[row['id']] !== undefined && occurrences[row['id']]! >= at)) return
       delete occurrences[row['id']]
       occurrences[row['id']] = at
@@ -70,10 +73,10 @@ export const mergeNoticePreferences = (preferences: Readonly<Record<string, unkn
 
     const added = after.filter(row => {
       if (typeof row['id'] !== 'string') return false
-      const at = inboxAt(row)
+      const at = inboxOccurrenceAt(row)
       const old = before.find(entry => entry['id'] === row['id'])
       const currentRow = current.find(entry => entry['id'] === row['id'])
-      const priorAt = occurrences[row['id']] ?? (old ? inboxAt(old) : undefined) ?? (currentRow ? inboxAt(currentRow) : undefined)
+      const priorAt = occurrences[row['id']] ?? (old ? inboxOccurrenceAt(old) : undefined) ?? (currentRow ? inboxOccurrenceAt(currentRow) : undefined)
       if (at === undefined || (priorAt !== undefined && at <= priorAt)) return false
       // The standing key remains kept for the life of the condition, even if
       // its row was read or cleared. A second window's copy is still that
@@ -87,8 +90,8 @@ export const mergeNoticePreferences = (preferences: Readonly<Record<string, unkn
     const inbox = [...added, ...current.filter(row => {
       const deletion = removed.find(old => old['id'] === row['id'])
       if (deletion) {
-        const removedAt = inboxAt(deletion)
-        const currentAt = inboxAt(row)
+        const removedAt = inboxOccurrenceAt(deletion)
+        const currentAt = inboxOccurrenceAt(row)
         if (removedAt === undefined || currentAt === undefined || currentAt <= removedAt) return false
       }
       return !addedIds.has(row['id'])
