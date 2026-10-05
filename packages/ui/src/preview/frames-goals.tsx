@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { AuthoringSaveInput, FindingPublicationsView, FindingRunView, Intent } from '@harnessdesk/protocol'
 
@@ -28,12 +28,14 @@ import { ShapeStep } from '../components/ShapeStep'
 import { TriggerCreate } from '../components/TriggerCreate'
 import { TriggerMenu } from '../components/TriggerMenu'
 import { defaultAgentRole, defaultRule } from '../lib/shapes'
+import { StoreProvider } from '../state/context'
+import type { AppSnapshot } from '../state/store'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { PREVIEW_FLOW_SOURCE } from './flow-fixture'
 import { PREVIEW_FINDINGS, findingDetail } from './findings-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS } from './goal-fixture'
-import { insightReportFor, PREVIEW_AGENTS } from './harness'
+import { insightReportFor, PREVIEW_AGENTS, previewStore } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
 /** `goal-wrapped`'s own receipt, given the one thing it does not otherwise carry: unresolved findings for `FindingCarry` to offer forward. */
@@ -116,7 +118,7 @@ const INSIGHT_REPORT = insightReportFor(PREVIEW_GOAL.goal.id)
 
 const DIALOG_OPTIONS = [
   'off', 'goal create', 'goal assign', 'goal wrap', 'finding carry', 'finding decision',
-  'finding detail', 'finding publications', 'finding backfill', 'finding backfill wrapped',
+  'finding detail', 'finding before selection', 'finding not kept', 'finding publications', 'finding backfill', 'finding backfill wrapped',
   'add member', 'add work', 'hand out', 'shape save',
   'shape editor', 'trigger create', 'front door', 'findings rail',
 ] as const
@@ -137,6 +139,39 @@ type DialogOption = (typeof DIALOG_OPTIONS)[number]
  * default doubled the "Open" tab and `finding-open-1` row the existing
  * findings.spec.ts reaches for expecting one.
  */
+/** A public frame mounts only the finding's synthetic surface, without unrelated preview tooltips. */
+export const FindingFrames = ({ scene }: { readonly scene: string | null }) => scene === 'live' ? <LiveComparisonFinding /> : scene === 'rail' ? (
+  <Frame id="goal-findings-rail" title="Goal — its findings rail">
+    <div className="max-h-[480px] overflow-y-auto p-4"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></div>
+  </Frame>
+) : (
+  <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={scene === 'before' ? 'finding-before-selection' : scene === 'advisory-before' ? 'finding-before-advisory-selection' : scene === 'advisory' ? 'finding-not-kept-advisory' : 'finding-not-kept-1'} decide={RUN_VIEW} onClose={() => {}} />
+)
+
+/** The comparison is accepted while the same finding dialog and reason draft stay open. */
+const LiveComparisonFinding = () => {
+  const rig = useMemo(() => {
+    const own = previewStore({ flowExecutions: new Map() })
+    const mutable = own as unknown as { patch(partial: Partial<AppSnapshot>): void }
+    let accepted = false
+    own.readFinding = async () => {
+      const page = findingDetail(accepted ? 'finding-not-kept-1' : 'finding-before-selection')
+      return { ...page, finding: { ...page.finding, id: 'finding-before-selection' } }
+    }
+    return { store: own, accept: () => {
+      accepted = true
+      mutable.patch({ flowExecutions: new Map([['run-preview', {
+        id: 'run-preview', goal: PREVIEW_GOAL.goal.id, rounds: [{ n: 3, evidence: ['preview-picked-review'] }],
+      } as never]]) })
+    } }
+  }, [])
+  useEffect(() => {
+    window.addEventListener('finding-comparison-accepted', rig.accept)
+    return () => window.removeEventListener('finding-comparison-accepted', rig.accept)
+  }, [rig])
+  return <StoreProvider store={rig.store}><FindingDetail goal={PREVIEW_GOAL.goal.id} finding="finding-before-selection" decide={RUN_VIEW} onClose={() => {}} /></StoreProvider>
+}
+
 export const GoalFrames = () => {
   const [dialog, setDialog] = useState<DialogOption>('off')
   return (
@@ -153,8 +188,8 @@ export const GoalFrames = () => {
         {dialog === 'goal wrap' && <GoalWrap view={PREVIEW_GOAL} onClose={() => setDialog('off')} />}
         {dialog === 'finding carry' && <FindingCarry source={CARRY_SOURCE} />}
         {dialog === 'finding decision' && <FindingDecision goal={PREVIEW_GOAL.goal.id} view={RUN_VIEW} onClose={() => setDialog('off')} />}
-        {dialog === 'finding detail' && (
-          <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={findingDetail('finding-open-1').finding.id} decide={RUN_VIEW} onClose={() => setDialog('off')} />
+        {(dialog === 'finding detail' || dialog === 'finding before selection' || dialog === 'finding not kept') && (
+          <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={findingDetail(dialog === 'finding not kept' ? 'finding-not-kept-1' : dialog === 'finding before selection' ? 'finding-before-selection' : 'finding-open-1').finding.id} decide={RUN_VIEW} onClose={() => setDialog('off')} />
         )}
         {dialog === 'finding publications' && <FindingPublications goal={PREVIEW_GOAL.goal.id} run="run-preview" stamp="preview-stamp" />}
         {(dialog === 'finding backfill' || dialog === 'finding backfill wrapped') && (

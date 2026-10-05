@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 
-import type { FindingPage, FindingView, GoalView, HostMethodName, WireNotification } from '@harnessdesk/protocol'
+import type { FindingPage, FindingView, FlowExecution, GoalView, HostMethodName, WireNotification } from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
 
@@ -146,4 +146,34 @@ it('refreshes a first finding/run read invalidated before it answered, and rejec
  answers[0]!({...view,publication:'local',stamp:'old'})
  await first
  expect(store.getSnapshot().findingRuns.get('run-1')?.publication).toBe('posted')
+})
+
+it('accepted route evidence refreshes cached findings once, while routine Run pushes preserve paging', async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: 'g1', state: 'running', reason: null, operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { version: 2, name: 'Compare', inputs: [], roles: [], rules: [], seed: { role: 'judge', title: 'Compare' }, messaging: 'board-only', wait: 240 } },
+    rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
+  }
+  notify(store, { method: 'flow/execution-changed', params: { execution } })
+  let calls = 0
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method !== 'finding/list') throw new Error(`unexpected ${method}`)
+    calls += 1
+    return page([{ ...findingView('loser'), ...(calls > 1 ? { activeBlocking: false, inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.' } : {}) }], 'cursor-1')
+  }) as never)
+  await store.loadFindings('g1', 'open')
+  notify(store, { method: 'flow/execution-changed', params: { execution: { ...execution, operations: [{ key: 'close:1', kind: 'round', state: 'finished', card: null, seat: null }] } } })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  expect(calls).toBe(1)
+  expect(store.getSnapshot().findings.get('g1')?.next).toBe('cursor-1')
+
+  const accepted: FlowExecution = { ...execution, rounds: [...execution.rounds, { n: 2, role: 'keep', cards: [2], seats: [], evidence: ['pick-1'], state: 'opening', cause: 'to-keep' }] }
+  notify(store, { method: 'flow/execution-changed', params: { execution: accepted } })
+  notify(store, { method: 'flow/execution-changed', params: { execution: { ...accepted, rounds: accepted.rounds.map(one => ({ ...one, state: 'running' })) } } })
+  notify(store, { method: 'flow/execution-changed', params: { execution: { ...accepted, id: 'run-not-open', goal: 'g-not-open' } } })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  expect(calls).toBe(2)
+  expect(store.getSnapshot().findings.get('g1')?.filter).toBe('open')
+  expect(store.getSnapshot().findings.get('g1')?.rows[0]?.inactiveReason).toContain('The review selected revision')
+  expect(store.getSnapshot().findings.get('g1')?.rows[0]?.activeBlocking).toBe(false)
 })

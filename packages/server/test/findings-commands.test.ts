@@ -125,16 +125,16 @@ test('historical Agent attribution survives fresh review Seat', async (t) => {
  * guessed at. `decidableNow` must agree with `decide`'s own refusals exactly,
  * or a Seat is told a finding is decidable and then refused for it.
  */
-test('a listing marks a Seat’s own findings, and only a later fresh Seat of the same Agent as able to decide them now', async (t) => {
+test('a listing marks a Seat’s own findings, and its raising card or a later fresh Seat as able to withdraw them now', async (t) => {
   const f = await findingsRig(t)
   await f.finishFixer()
   const [review] = f.cards('reviewer')
   const raised = await f.plane.raise(raiseInput(review!.id, (await f.candidate(review!.id, 'seat-2')).id), f.scope('seat-2'))
-  // The raiser's own card, same round: raised by its Agent, but not decidable from the raising Seat itself.
+  // The raiser's own card can withdraw a mistake, but cannot confirm a repair.
   const own = await f.plane.readForSeat({ intent: review!.id }, f.scope('seat-2'))
   const ownRow = own.find((one) => one.id === raised.id)!
   assert.equal(ownRow.raisedByYou, true)
-  assert.equal(ownRow.decidableNow, false)
+  assert.equal(ownRow.decidableNow, true)
 
   await f.finishReviews('request-changes')
   const [, repairCard] = f.cards('fixer')
@@ -251,4 +251,26 @@ test('a plain conversation and a Goal with no finding commands read and write no
   await f.plane.recover()
   const folders: string[] = await readdir(join(f.rig.dir)).catch(() => [] as string[])
   assert.equal(folders.includes('evidence'), false, 'the evidence store was never created by the findings plane')
+})
+
+test('the raising review card can withdraw its own mistaken finding with a durable reason', async (t) => {
+  const f = await findingsRig(t)
+  await f.finishFixer()
+  const [review] = f.cards('reviewer')
+  const candidate = await f.candidate(review!.id, 'seat-2')
+  const raised = await f.plane.raise(raiseInput(review!.id, candidate.id), f.scope('seat-2'))
+  const input = { intent: review!.id, candidate: candidate.id, finding: raised.id, request: 'withdraw-1', expected: 1, state: 'withdrawn' as const, note: 'The retry already has a bound; this finding was mistaken.' }
+  await assert.rejects(f.plane.decide({ ...input, note: '  ' }, f.scope('seat-2')), /why it is withdrawn/)
+  await assert.rejects(f.plane.decide({ ...input, state: 'repaired' }, f.scope('seat-2')), /later review card/)
+  await assert.rejects(f.plane.decide({ ...input, state: 'open' }, f.scope('seat-2')), /later review card/)
+  const withdrawn = await f.plane.decide(input, f.scope('seat-2'))
+  assert.equal(withdrawn.lifecycle.state, 'withdrawn')
+  assert.equal(withdrawn.lifecycle.confirmed, true)
+  assert.equal((await f.plane.decide(input, f.scope('seat-2'))).sequence, 2, 'a retry records no second withdrawal')
+  const records = await f.records()
+  assert.equal(records.length, 2)
+  assert.deepEqual(records[1]!.finding!.event, { kind: 'verdict', state: 'withdrawn', note: input.note, by: 'seat' })
+  assert.equal(records[1]!.card?.id, review!.id)
+  await f.finishReviews('approve')
+  await assert.rejects(f.plane.decide({ ...input, request: 'after-close' }, f.scope('seat-2')), /do not hold|open|closed/)
 })
