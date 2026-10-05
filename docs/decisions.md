@@ -1902,6 +1902,17 @@ Reads, clears and policy edits carry their prior snapshot so the host applies
 only the changed rows or kinds, retaining other windows’ edits. A late response
 cannot undo a newer local action.
 
+For a standing Inbox row, `id` names the condition and `at` names its
+occurrence. Content-keyed runtime rows instead keep the same row as their
+count and last time advance. The host keeps the latest standing occurrence
+time after a row is cleared:
+the same or an older copy stays cleared, while a later occurrence is admitted
+unread. A read or clear from a window whose snapshot predates that occurrence
+cannot change it. These receipts are host-owned and bounded, with live rows
+retained ahead of recent cleared ids. If a cleared receipt is eventually
+evicted and its kept key has also been released, a very delayed insertion can
+be admitted again.
+
 Host-created transcript notices survive richer reads of their own turn and
 unmatched synthetic notice turns survive cold reads. They never get copied
 into unrelated fork turns or preserve work turns removed by rollback. Repeated

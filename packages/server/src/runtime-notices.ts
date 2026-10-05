@@ -15,6 +15,15 @@ export const retainRuntimeNotice = (raw: unknown, runtime: RuntimeId, event: Ext
 
 const object = (value: unknown): Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+const inboxAt = (row: Record<string, unknown>): number | undefined => typeof row['at'] === 'number' && Number.isFinite(row['at']) ? row['at'] : undefined
+// Content-keyed runtime information keeps one row as its count and last time
+// advance. Only a standing row's `at` distinguishes a new occurrence of its id.
+const inboxOccurrenceAt = (row: Record<string, unknown>): number | undefined => typeof row['contentKey'] === 'string' ? undefined : inboxAt(row)
+
+// A cleared row is gone from `inbox`, but a recent occurrence receipt keeps a
+// delayed copy from putting it back. Receipts are bounded with live rows and
+// recent cleared ids prioritized; a sufficiently old cleared receipt expires.
+const INBOX_OCCURRENCE_LIMIT = 200
 
 /** Apply only the new occurrence; a window never supplies read or policy state. */
 export const keepRuntimeInboxEntry = (preferences: Readonly<Record<string, unknown>>, entry: RuntimeInboxEntry): Record<string, unknown> | null => {
@@ -35,6 +44,8 @@ export const keepRuntimeInboxEntry = (preferences: Readonly<Record<string, unkno
 /** Merge the edits a window made, rather than replacing another window's memory. */
 export const mergeNoticePreferences = (preferences: Readonly<Record<string, unknown>>, patch: Readonly<Record<string, unknown>>, base?: Readonly<Record<string, unknown>>): Record<string, unknown> => {
   const merged = { ...patch }
+  // Receipts are host-owned. A renderer can edit an Inbox row, not its history.
+  delete merged['inboxOccurrences']
   if (base && 'inbox' in patch && 'inbox' in base) {
     const rows = (value: unknown) => Array.isArray(value) ? value.map(object) : []
     const before = rows(base['inbox'])
@@ -42,23 +53,89 @@ export const mergeNoticePreferences = (preferences: Readonly<Record<string, unkn
     const current = rows(preferences['inbox'])
     const removed = before.filter(row => !after.some(next => next['id'] === row['id']))
     const kept = strings(object(preferences['noticePolicy'])['kept'])
-    const added = after.filter(row => !before.some(old => old['id'] === row['id']) &&
-      !current.some(old => old['id'] === row['id'] && Number(row['at']) <= Number(old['at'])) &&
-      !(typeof row['contentKey'] === 'string' && kept.includes(row['contentKey']) && !current.some(old => old['id'] === row['id'])))
-    merged['inbox'] = [...added, ...current.filter(row => !removed.some(old => old['id'] === row['id']) && !added.some(next => next['id'] === row['id'])).map(row => {
+    const occurrences: Record<string, number> = {}
+    for (const [id, at] of Object.entries(object(preferences['inboxOccurrences']))) {
+      if (typeof at === 'number' && Number.isFinite(at)) occurrences[id] = at
+    }
+    const remember = (row: Record<string, unknown>): void => {
+      if (typeof row['id'] !== 'string') return
+      const at = inboxOccurrenceAt(row)
+      if (at === undefined || (occurrences[row['id']] !== undefined && occurrences[row['id']]! >= at)) return
+      delete occurrences[row['id']]
+      occurrences[row['id']] = at
+    }
+    // Older saved preferences have no receipt yet; seed it from the baseline
+    // and the host's current rows. A newer host receipt always wins.
+    for (const row of before) remember(row)
+    for (const row of current) remember(row)
+    for (const row of removed) remember(row)
+
+    const added = after.filter(row => {
+      if (typeof row['id'] !== 'string') return false
+      const at = inboxOccurrenceAt(row)
+      const old = before.find(entry => entry['id'] === row['id'])
+      const currentRow = current.find(entry => entry['id'] === row['id'])
+      const priorAt = occurrences[row['id']] ?? (old ? inboxOccurrenceAt(old) : undefined) ?? (currentRow ? inboxOccurrenceAt(currentRow) : undefined)
+      if (at === undefined || (priorAt !== undefined && at <= priorAt)) return false
+      // The standing key remains kept for the life of the condition, even if
+      // its row was read or cleared. A second window's copy is still that
+      // occurrence; a recurrence can enter only after the key was released.
+      if (kept.includes(row['id'] as string)) return false
+      if (typeof row['contentKey'] === 'string' && kept.includes(row['contentKey']) && !currentRow) return false
+      remember(row)
+      return true
+    })
+    const addedIds = new Set(added.map(row => row['id']))
+    const inbox = [...added, ...current.filter(row => {
+      const deletion = removed.find(old => old['id'] === row['id'])
+      if (deletion) {
+        const removedAt = inboxOccurrenceAt(deletion)
+        const currentAt = inboxOccurrenceAt(row)
+        if (removedAt === undefined || currentAt === undefined || currentAt <= removedAt) return false
+      }
+      return !addedIds.has(row['id'])
+    }).map(row => {
       const old = before.find(entry => entry['id'] === row['id'])
       const next = after.find(entry => entry['id'] === row['id'])
       // A read edits a row only if it still exists; never restore a cleared row.
       if (!old || !next) return row
+      // Every edit is scoped to the occurrence the window saw. In particular,
+      // an old read must not mark a later occurrence read, and an old row must
+      // not overwrite the newer occurrence's details.
+      const currentAt = inboxAt(row)
+      const oldAt = inboxAt(old)
+      const nextAt = inboxAt(next)
+      const currentOccurrenceAt = inboxOccurrenceAt(row)
+      const oldOccurrenceAt = inboxOccurrenceAt(old)
+      const nextOccurrenceAt = inboxOccurrenceAt(next)
+      if (currentOccurrenceAt !== undefined && nextOccurrenceAt !== undefined && nextOccurrenceAt < currentOccurrenceAt) return row
+      if (currentOccurrenceAt !== undefined && typeof row['id'] === 'string' && kept.includes(row['id']) && oldOccurrenceAt !== undefined && nextOccurrenceAt !== undefined && nextOccurrenceAt > oldOccurrenceAt) return row
+      const sameContent = typeof row['contentKey'] === 'string' && row['contentKey'] === old['contentKey'] && row['contentKey'] === next['contentKey']
+      const staleContentCopy = sameContent && currentAt !== undefined && nextAt !== undefined && nextAt < currentAt
       const changed = { ...row }
       for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
         if (JSON.stringify(old[key]) === JSON.stringify(next[key])) continue
-        if (key !== 'read' && Number(next['at']) < Number(row['at'])) continue
+        // A content row's later `at` is a repeat of the same content, not a
+        // new occurrence. Keep its newer details, but merge a read from an
+        // older window because that read still applies to the same content.
+        if (staleContentCopy) {
+          if (key === 'read' && next['read'] === true) changed['read'] = true
+          continue
+        }
         if (key in next) changed[key] = next[key]
         else delete changed[key]
       }
       return changed
     })].sort((left, right) => Number(right['at']) - Number(left['at'])).slice(0, 100)
+    for (const row of inbox) remember(row)
+    const liveIds = new Set(inbox.map(row => row['id']).filter((id): id is string => typeof id === 'string'))
+    const receiptEntries = Object.entries(occurrences).sort(([leftId, leftAt], [rightId, rightAt]) => {
+      const leftLive = liveIds.has(leftId)
+      const rightLive = liveIds.has(rightId)
+      return Number(rightLive) - Number(leftLive) || rightAt - leftAt
+    }).slice(0, INBOX_OCCURRENCE_LIMIT)
+    merged['inbox'] = inbox
+    merged['inboxOccurrences'] = Object.fromEntries(receiptEntries)
   }
   if (base && 'noticePolicy' in patch && 'noticePolicy' in base) {
     const before = object(base['noticePolicy'])

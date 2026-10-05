@@ -25,6 +25,11 @@ move is real work and is not news to a person weighing an upgrade.
   launches. Conversation notices stay inline, and only action results open
   toasts. Notifications settings includes every new kind.
 
+- **A recurring standing notice returns unread when its condition returns.**
+  Reading or clearing an earlier occurrence in another window cannot hide the
+  new one. The host retains recent occurrence history, so a delayed copy cannot
+  undo a read or clear while that history is retained.
+
 - **Read what each room member is doing.** Conversation titles wrap beneath
   the nickname alongside the task or reason, instead of being cut off on
   the name's line. (Fixes #1185)
