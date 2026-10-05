@@ -207,6 +207,129 @@ const weekly = (usedPercent: number, fetchedAt: number): MeterReading => ({
   staleAfterMs: 60_000,
 })
 
+test('a meter going silent removes its cached account and tells clients once', async () => {
+  const removed: { runtime: RuntimeId; account: string | null }[] = []
+  const reading = { ...weekly(30, 1_000), account: 'dev@example.com' }
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([reading, 'the quota service is down', null, null, reading])]]),
+    onReport: () => undefined,
+    onRemoved: (runtime, account) => removed.push({ runtime, account }),
+  })
+  try {
+    await usage.refresh(METERED)
+    const [failed] = await usage.refresh(METERED)
+    assert.equal(failed?.error?.message, 'the quota service is down')
+    assert.deepEqual(removed, [], 'an outage retains its reading')
+
+    assert.deepEqual(await usage.refresh(METERED), [])
+    assert.equal(usage.cached(METERED), null)
+    assert.deepEqual(removed, [{ runtime: METERED, account: 'dev@example.com' }])
+    await usage.refresh(METERED)
+    assert.equal(removed.length, 1, 'continued silence does not repeat the removal')
+
+    const [returned] = await usage.refresh(METERED)
+    assert.equal(returned?.lanes[0]?.usedPercent, 30, 'a new reading restores the report')
+    assert.equal(returned?.error, null, 'the previous failure is gone')
+  } finally { usage.dispose() }
+})
+
+test('an expired cached runtime reading going silent tells clients on an ordinary read', async () => {
+  let now = 1_000
+  let limits: Awaited<ReturnType<AgentRuntime['getRateLimits']>> = {
+    windows: [{ label: 'Weekly', usedPercent: 30, windowMinutes: 10_080, resetsAt: null }],
+  }
+  const metered = {
+    ...runtime(METERED),
+    info: { ...runtime(METERED).info, capabilities: { metered: true } },
+    getRateLimits: async () => limits,
+  } as unknown as AgentRuntime
+  const removed: RuntimeId[] = []
+  const usage = new UsageService({
+    runtimes: () => [metered], meters: new Map(), onReport: () => undefined,
+    onRemoved: (runtime) => removed.push(runtime),
+    now: () => now,
+  })
+  try {
+    await usage.reports()
+    limits = null
+    now += 5 * 60_000
+    assert.deepEqual(await usage.reports(), [])
+    assert.deepEqual(removed, [METERED])
+  } finally { usage.dispose() }
+})
+
+test('silence with no cached report or with ledger spend emits no removal', async () => {
+  const removed: RuntimeId[] = []
+  let spend: SpendSummary | null = null
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)], meters: new Map(),
+    spend: { spendFor: () => spend }, onReport: () => undefined,
+    onRemoved: (runtime) => removed.push(runtime),
+  })
+  try {
+    assert.deepEqual(await usage.refresh(), [])
+    spend = money(3)
+    assert.equal((await usage.refresh())[0]?.spend?.windowCost, 3)
+    assert.equal((await usage.refresh())[0]?.spend?.windowCost, 3)
+    assert.deepEqual(removed, [])
+  } finally { usage.dispose() }
+})
+
+test('silence replaces a named quota report with ledger spend, removing its old account first', async () => {
+  const events: (UsageReport | { runtime: RuntimeId; account: string | null })[] = []
+  const reading = { ...weekly(30, 1_000), account: 'dev@example.com' }
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([reading, 'the quota service is down', null, null, reading])]]),
+    spend: { spendFor: () => money(3) },
+    onReport: (report) => events.push(report),
+    onRemoved: (runtime, account) => events.push({ runtime, account }),
+  })
+  try {
+    await usage.refresh()
+    await usage.refresh()
+    events.length = 0
+    const [ledger] = await usage.refresh()
+    assert.equal(ledger?.source.kind, 'ledger')
+    assert.equal(ledger?.account, null)
+    assert.deepEqual(ledger?.lanes, [])
+    assert.equal(ledger?.error, null)
+    assert.equal(ledger?.spend?.windowCost, 3)
+    assert.deepEqual(events, [{ runtime: METERED, account: reading.account }, ledger])
+    assert.equal(usage.cached(METERED), ledger)
+
+    events.length = 0
+    const [again] = await usage.refresh()
+    assert.deepEqual(events, [again], 'continued silence keeps only the ledger report')
+    events.length = 0
+    const [returned] = await usage.refresh()
+    assert.deepEqual(events, [{ runtime: METERED, account: null }, returned])
+    assert.equal(returned?.lanes[0]?.usedPercent, 30)
+  } finally { usage.dispose() }
+})
+
+test('a pending silent read emits no removal after disposal', async () => {
+  let finish: (reading: MeterReading | null) => void = () => undefined
+  const removed: RuntimeId[] = []
+  let waiting = false
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, { ...meter, read: () => waiting
+      ? new Promise<MeterReading | null>((resolve) => { finish = resolve })
+      : Promise.resolve(weekly(30, 1_000)) }]]),
+    onReport: () => undefined,
+    onRemoved: (runtime) => removed.push(runtime),
+  })
+  await usage.refresh()
+  waiting = true
+  const pending = usage.refresh()
+  usage.dispose()
+  finish(null)
+  assert.deepEqual(await pending, [])
+  assert.deepEqual(removed, [])
+})
+
 test('a meter that fails keeps its last good reading, with the failure beside it', async () => {
   // It used to be dropped as silence however recently it had answered, so a
   // single 503 took the card back to "no source available".

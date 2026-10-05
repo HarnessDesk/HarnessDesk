@@ -341,6 +341,8 @@ export class AppStore {
    * newer root or a fresh connection already answered.
    */
   #flowGeneration = 0
+  /** Usage pushes land per runtime, before a slow sibling lets the batch reply return. */
+  readonly #usageEvents = new Map<RuntimeId, number>()
 
   #keepCaptureHealth(health: import('@harnessdesk/protocol').CaptureHealth): void {
     if (health.revision < (this.#snapshot.provenanceRevision.get(health.project) ?? -1)) return
@@ -731,6 +733,7 @@ export class AppStore {
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
           const { report } = notification.params
+          this.#usageEvents.set(report.runtime, (this.#usageEvents.get(report.runtime) ?? 0) + 1)
           const before = this.#snapshot.usage
           // One account however it is spelled: `null` and `"  "` are the same none (review of #216).
           const rest = before.filter(
@@ -739,6 +742,15 @@ export class AppStore {
           const usage = [...rest, report]
           this.#patch({ usage })
           this.#announceUsage(before, usage)
+        }
+        if (notification.method === 'usage/removed') {
+          const { runtime, account } = notification.params
+          this.#usageEvents.set(runtime, (this.#usageEvents.get(runtime) ?? 0) + 1)
+          this.#patch({
+            usage: this.#snapshot.usage.filter(
+              (entry) => entry.runtime !== runtime || usageAccount(entry) !== usageAccount({ account }),
+            ),
+          })
         }
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
@@ -1924,8 +1936,14 @@ export class AppStore {
    * screen can ask on open without thinking about it.
    */
   async loadUsage(): Promise<void> {
+    const events = new Map(this.#usageEvents)
     try {
-      this.#patch({ usage: await this.transport.request('usage/reports', {}) })
+      const reports = await this.transport.request('usage/reports', {})
+      const unchanged = (runtime: RuntimeId): boolean => this.#usageEvents.get(runtime) === events.get(runtime)
+      this.#patch({ usage: [
+        ...this.#snapshot.usage.filter((report) => !unchanged(report.runtime)),
+        ...reports.filter((report) => unchanged(report.runtime)),
+      ] })
     } catch {
       // A host that cannot answer leaves the last reading in place; the cards
       // show their own age, which is the honest thing to show.
@@ -1976,11 +1994,15 @@ export class AppStore {
 
   /** Asks the sources again — one agent, or all of them. */
   async refreshUsage(runtime?: RuntimeId): Promise<void> {
+    const events = new Map(this.#usageEvents)
     try {
-      const reports = await this.transport.request(
+      const reply = await this.transport.request(
         'usage/refresh',
         runtime ? { runtime } : {},
       )
+      // A newer push owns that runtime, even if this older batch still has
+      // its former account. Unrelated runtimes in the reply still land.
+      const reports = reply.filter((report) => this.#usageEvents.get(report.runtime) === events.get(report.runtime))
       /* One account however it is spelled, as in `usage/updated` (review of
          #216). The account is quoted, for the reason `laneKey` quotes it: a
          `:` in a name would otherwise let one account's key read as another's

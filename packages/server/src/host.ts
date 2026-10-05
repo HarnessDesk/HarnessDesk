@@ -2223,6 +2223,7 @@ export class Host {
         history: (runtime, account, since) => this.#ledgerService.balanceHistory(runtime, account, since),
       },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
+      onRemoved: (runtime, account) => this.#push({ method: 'usage/removed', params: { runtime, account } }),
       log: (message, details) => this.#logger.warn(message, details),
       // Every report — cached, returned or pushed as `usage/updated` — folds
       // a stored plan fee/budget in right here, the one seam `UsageService`
