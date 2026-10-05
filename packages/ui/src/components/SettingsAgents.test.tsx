@@ -585,7 +585,7 @@ it("an extra account that has not answered is not \"waiting to be signed in\"", 
   // Its line is where its credential lives, the one fact that varies.
   expect(document.body.textContent).toContain('/tmp/alpha-2')
   expect(document.body.textContent).not.toContain('Waiting to be signed in')
-  expect(container.querySelector('button[aria-label="Alpha actions"]')).toBeTruthy()
+  expect(container.querySelector('button[aria-label="Alpha actions · /tmp/alpha-2"]')).toBeTruthy()
 })
 
 it('an extra account that could not start says so on its page, as the list does (#1038)', async () => {
@@ -634,7 +634,7 @@ it('removing an extra account that has not answered asks first — it may be sig
     store: { removeAccount: async (id: string) => void removed.push(id) },
   })
   await act(async () => line('Alpha').click())
-  await act(async () => (container.querySelector('button[aria-label="Alpha actions"]') as HTMLButtonElement).click())
+  await act(async () => (container.querySelector('button[aria-label="Alpha actions · /tmp/alpha-2"]') as HTMLButtonElement).click())
   await act(async () => (document.body.querySelector('[role="menuitem"]') as HTMLElement).click())
   expect(removed).toEqual([])
   const confirm = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Remove account')
@@ -657,7 +657,7 @@ it('keeping an unanswered extra account removes nothing, and its confirm names w
   // The row's line is the credential home, shortened against the host's home.
   expect(document.body.textContent).toContain('~/alpha-2')
   expect(document.body.textContent).not.toContain('/tmp/alpha-2')
-  await act(async () => (container.querySelector('button[aria-label="Alpha actions"]') as HTMLButtonElement).click())
+  await act(async () => (container.querySelector('button[aria-label="Alpha actions · ~/alpha-2"]') as HTMLButtonElement).click())
   await act(async () => (document.body.querySelector('[role="menuitem"]') as HTMLElement).click())
   expect(document.body.textContent).toContain('Its sign-in at ~/alpha-2 is forgotten')
   const keep = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Keep')
@@ -1252,4 +1252,14 @@ it('the signed-in account page labels Remove with an ellipsis and asks before re
   const confirm = [...document.body.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Remove account')!
   await act(async () => confirm.click())
   expect(removeAccount).toHaveBeenCalledWith('alpha#2')
+})
+
+it('unanswered extra account menus name the credential homes that distinguish them', async () => {
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  const extra = runtime({ id: 'alpha#3', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true } })
+  await mountList({ runtimes: [...ROSTER.runtimes, extra], accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  const names = [...container.querySelectorAll('button[aria-label^="Alpha actions"]')].map(node => node.getAttribute('aria-label'))
+  expect(names).toEqual(['Alpha actions · /tmp/alpha-2', 'Alpha actions · /tmp/alpha-3'])
 })

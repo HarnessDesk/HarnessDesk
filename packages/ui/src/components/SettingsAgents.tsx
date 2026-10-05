@@ -38,6 +38,7 @@ import { describeLimits, formatReset } from '../lib/limits'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
+import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
@@ -69,7 +70,6 @@ import {
   CodeText,
   DetailMark,
   DetailHead,
-  Dot,
   Field,
   FormStack,
   Input,
@@ -442,7 +442,15 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
 
 /* --- the list ------------------------------------------------------------ */
 
-/** What this agent's accounts look like as rows, plus how to add one. */
+const AccountRemoveMenu = ({ name, location, label = 'Remove…', onRemove }: { name: string; location: string; label?: 'Remove' | 'Remove…'; onRemove: () => void }) => (
+  <DropdownMenu>
+    <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${name} actions · ${location}`} />} />
+    <DropdownMenuContent align="end">
+      <DropdownMenuItem variant="destructive" onClick={onRemove}>{label}</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+)
+
 /**
  * One agent on the list, as one line: its mark, its name and build, who it is
  * signed in as — the fact a person scans this list for — and at the end only
@@ -453,17 +461,6 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
  * account" nine times is one fact said nine times, and a method is the
  * agent's definition, which its page and Sign in show where it is chosen.
  */
-const withCount = (label: string, count: number): string => count > 0 ? `${label} · ${count}` : label
-
-const AccountRemoveMenu = ({ name, label = 'Remove…', onRemove }: { name: string; label?: 'Remove' | 'Remove…'; onRemove: () => void }) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${name} actions`} />} />
-    <DropdownMenuContent align="end">
-      <DropdownMenuItem variant="destructive" onClick={onRemove}>{label}</DropdownMenuItem>
-    </DropdownMenuContent>
-  </DropdownMenu>
-)
-
 const AgentRow = ({
   info,
   siblings,
@@ -768,7 +765,7 @@ const AgentAccounts = ({
             desc={entry.slot?.gateway?.endpoint}
             truncateDesc
             control={
-              <AccountRemoveMenu name={entry.slot?.gateway?.name ?? 'Gateway'} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
+              <AccountRemoveMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.slot?.gateway?.name ?? 'Gateway'} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
             }
           />
         ))}
@@ -791,7 +788,7 @@ const AgentAccounts = ({
             {...(entry.slot?.home ? { desc: shortPath(entry.slot.home, snapshot.home) } : {})}
             truncateDesc
             control={
-              <AccountRemoveMenu name={entry.name} onRemove={() => setRemoving(entry)} />
+              <AccountRemoveMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} onRemove={() => setRemoving(entry)} />
             }
           />
         ))}
@@ -811,7 +808,7 @@ const AgentAccounts = ({
                   <SignInIcon size={13} />
                   Sign in
                 </Button>
-                <AccountRemoveMenu name={entry.name} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
+                <AccountRemoveMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
               </>
             }
           />
@@ -1479,7 +1476,7 @@ const AccountDetail = ({
                 </Button>
               ) : (
                 info.slot?.removable
-                  ? <AccountRemoveMenu name={accountName(account, prefs, info.presentation.name)} onRemove={() => setConfirmingSignOut(true)} />
+                  ? <AccountRemoveMenu location={credentialHome(info) ?? info.id} name={accountName(account, prefs, info.presentation.name)} onRemove={() => setConfirmingSignOut(true)} />
                   : <Button variant="outline" size="sm" onClick={() => setConfirmingSignOut(true)}><SignOutIcon size={13} />Sign out…</Button>
               )
             }

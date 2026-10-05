@@ -12,6 +12,7 @@ import type {
   Worktree,
 } from '@harnessdesk/protocol'
 
+import { withCount } from '../lib/with-count'
 import { desktop, hasInlineBrowser } from '../lib/desktop'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
@@ -173,10 +174,6 @@ export const resolveSection = (name: string | null | undefined, fallback: Sectio
   name && (SECTIONS as readonly string[]).includes(name)
     ? (name as Section)
     : (name && MOVED[name]) || fallback
-
-/** A section head with its count, the one way every page writes one. */
-const withCount = (label: string, count: number): string => (count > 0 ? `${label} · ${count}` : label)
-
 
 /**
  * A custom endpoint: this agent's conversations run against another
@@ -1524,7 +1521,7 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
             key={workspace.path}
             kind="record"
             mark={<FolderIcon size={16} />}
-            title={<span className="inline-flex min-w-0 items-center gap-(--hd-space-2)"><span className="truncate">{workspace.name}</span>{workspace.path === snapshot.workspace?.path && <Chip tone="success" size="sm">Current</Chip>}</span>}
+            title={<span className="inline-flex min-w-0 items-center gap-(--hd-space-2)"><span className="truncate">{workspace.name}</span>{workspace.path === snapshot.workspace?.path && <Chip tone="neutral" size="sm">Current</Chip>}</span>}
             desc={shortPath(workspace.path, snapshot.home)} truncateDesc
             onClick={() => setOpen(workspace.path)}
           />
@@ -1699,7 +1696,7 @@ const WorktreeRows = () => {
             desc={shortPath(worktree.path, snapshot.home)} truncateDesc
             control={
               <DropdownMenu>
-                <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${worktree.branch ?? 'Worktree'} actions`} />} />
+                <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${worktree.branch ?? 'Worktree'} actions · ${shortPath(worktree.path, snapshot.home)}`} />} />
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem variant="destructive" onClick={() => setRemoving(worktree)}>Remove…</DropdownMenuItem>
                 </DropdownMenuContent>

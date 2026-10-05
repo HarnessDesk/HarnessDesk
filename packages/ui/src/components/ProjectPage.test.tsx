@@ -111,13 +111,14 @@ const TRIGGERS = (path: string): TriggerProjectView => ({
   problems: [],
 })
 
-const mount = (node: React.ReactNode) => {
+const mount = (node: React.ReactNode, over: Partial<AppSnapshot> = {}) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
     home: '/home/dev',
     workspace: STOREFRONT,
     workspaces: [STOREFRONT, DOCS, SCRATCH],
+    ...over,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -330,4 +331,16 @@ it('the project’s flows are read lazily, only once its page is open, and never
   expect(store.flowCatalog).toHaveBeenCalledWith(STOREFRONT.path)
   const text = container.querySelector('section[aria-label="Flows"]')?.textContent ?? ''
   expect(text).toContain('Fix')
+})
+
+it('Current is a neutral selection and detached worktree menus include their paths', async () => {
+  mount(<WorkspacesSection />, { worktrees: [
+    { path: '/home/dev/work/one', branch: null, managed: true, head: 'abc123', isMain: false },
+    { path: '/home/dev/work/two', branch: null, managed: true, head: 'abc123', isMain: false },
+  ] })
+  await settle()
+  const current = [...container.querySelectorAll('[data-slot="chip"]')].find(node => node.textContent === 'Current')
+  expect(current?.getAttribute('data-tone')).toBe('neutral')
+  const names = [...container.querySelectorAll('button[aria-label^="Worktree actions"]')].map(node => node.getAttribute('aria-label'))
+  expect(names).toEqual(['Worktree actions · ~/work/one', 'Worktree actions · ~/work/two'])
 })
