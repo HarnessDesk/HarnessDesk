@@ -12,7 +12,8 @@ for (const theme of ['light', 'dark'] as const) {
         const firstCell = root.querySelector('[data-slot="table-cell"]')!
         const lead = firstCell.querySelector('[data-slot="table-cell-lead"]')!
         const list = root.querySelector('[data-slot="list-row"]')!
-        const settings = root.querySelector('[data-slot="row"]')!
+        const settings = root.querySelector('[data-slot="row"]:has([data-slot="row-ctl"])')!
+        const record = root.querySelector('[data-slot="row"][data-kind="record"]')!
         const action = root.querySelector('[data-slot="row-folding"]')!
         const rule = action.querySelector('button')!
         return {
@@ -30,6 +31,9 @@ for (const theme of ['light', 'dark'] as const) {
           innerDivider: getComputedStyle(rule, '::after').display,
           description: getComputedStyle(settings.querySelector('[data-slot="row-desc"]')!).fontSize,
           name: getComputedStyle(list.querySelector('[data-slot="list-row-title"]')!).fontSize,
+          recordFace: record.querySelector('[data-slot="row-face"]')!.getBoundingClientRect().width,
+          recordName: getComputedStyle(record.querySelector('[data-slot="row-title"]')!).fontSize,
+          recordFact: getComputedStyle(record.querySelector('[data-slot="row-desc"]')!).fontSize,
           numeric: getComputedStyle(root.querySelector('[data-slot="table-cell"][data-align="end"]')!).textAlign,
         }
       })
@@ -41,6 +45,9 @@ for (const theme of ['light', 'dark'] as const) {
       expect(geometry.radius).toBe(density === 'compact' ? '6px' : '8px')
       expect(geometry.centreAlign).toBe('center')
       expect(geometry.description).toBe('13px')
+      expect(geometry.recordFace).toBe(density === 'compact' ? 24 : 32)
+      expect(geometry.recordName).toBe(density === 'compact' ? '13px' : '14px')
+      expect(geometry.recordFact).toBe('12px')
       expect(geometry.name).toBe(density === 'compact' ? '13px' : '14px')
       for (const delta of [geometry.cellCentre, geometry.listCentre, geometry.controlCentre]) expect(delta).toBeLessThan(1)
       expect(geometry.divider).toBe('1px')

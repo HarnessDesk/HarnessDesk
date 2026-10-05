@@ -1054,7 +1054,7 @@
 }
 
 /* Face, copy and controls share the whole row's centre, even with a sentence. */
-.row:has(.rowDesc, .rowMark) {
+.row:has(.rowDesc, .rowMark, .rowFace) {
   min-height: var(--hd-table-row-min);
 }
 
@@ -1668,4 +1668,41 @@
   .rowRecord .rowCtl {
     margin-inline-start: 0;
   }
+}
+
+/* Record identity follows the table family; settings controls keep their label role. */
+.row[data-kind='record'] .rowTitle {
+  font-size: var(--hd-table-name-size);
+  line-height: var(--hd-line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row[data-kind='record'] .rowDescTruncate {
+  font-size: var(--hd-table-fact-size);
+  line-height: var(--hd-line-xs);
+}
+
+.rowFace {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+  margin-inline-end: calc(var(--hd-table-lead-gap) - var(--hd-space-6));
+}
+
+.rowFace > * {
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+}
+
+.avatarRow {
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+}
+
+.note[data-inset='row'] {
+  padding-inline: var(--hd-table-edge);
 }
