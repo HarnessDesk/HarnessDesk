@@ -65,7 +65,7 @@ export const TeamBoardList = ({ intents, placed, renderRow }: {
         </Menu>}
       </Popover>
     </div>
-    <div className="overflow-hidden rounded-(--hd-radius) shadow-(--hd-hairline)">
+    <div className="overflow-hidden">
       <Table variant="framed" aria-label="Jobs">
         <TableHeader><TableRow>
           <TableHead>Job</TableHead>
