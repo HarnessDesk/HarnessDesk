@@ -21,7 +21,7 @@ import { expect, test } from '@playwright/test'
  */
 test('every target on the page clears the floor', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1200 })
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?empty')
   await page.evaluate(async () => { await document.fonts.ready })
   // The preview mounts its screens as their modules resolve; the floor is
   // about boxes, so wait until the boxes stop appearing.
@@ -29,6 +29,9 @@ test('every target on the page clears the floor', async ({ page }) => {
     .poll(async () => page.locator('button, a[href], [role="button"], [role="tab"], [role="radio"]').count(), { timeout: 15_000 })
     .toBeGreaterThan(80)
   await page.waitForTimeout(600)
+  const empty = page.locator('[data-frame-id="conversation-empty"]')
+  await expect(empty.getByRole('button', { name: 'Start with a team…' })).toBeVisible()
+  await expect(empty.getByRole('button', { name: 'Add another runtime…' })).toBeVisible()
 
   const { floor, under, counted } = await page.evaluate(() => {
     const probe = document.body.appendChild(document.createElement('div'))
@@ -68,6 +71,63 @@ test('every target on the page clears the floor', async ({ page }) => {
   expect(floor).toBeGreaterThan(0)
   expect(counted).toBeGreaterThan(80)
   expect(under.join('\n') || `every target clears ${floor}px`).toBe(`every target clears ${floor}px`)
+})
+
+test('empty-conversation links keep the sentence layout and respond across the expanded target', async ({ page }) => {
+  await page.goto('/preview.html?empty')
+  await page.evaluate(async () => { await document.fonts.ready })
+  const frame = page.locator('[data-frame-id="conversation-empty"]')
+  for (const theme of ['light', 'dark'] as const) {
+    await page.locator('label').filter({ hasText: /^theme/ }).locator('select').first().selectOption(theme)
+    for (const name of ['Start with a team…', 'Add another runtime…']) {
+      const link = frame.getByRole('button', { name, exact: true })
+      await expect(link).toBeVisible()
+      const geometry = await link.evaluate(button => {
+        const paragraph = button.parentElement!
+        const read = () => {
+          const range = document.createRange()
+          range.selectNodeContents(button)
+          return {
+            paragraphH: paragraph.getBoundingClientRect().height,
+            textY: range.getBoundingClientRect().top - paragraph.getBoundingClientRect().top,
+          }
+        }
+        const padded = read()
+        const style = button.getAttribute('style')
+        Object.assign(button.style, { paddingTop: '0', paddingBottom: '0', marginTop: '0', marginBottom: '0', minHeight: '0' })
+        const unpadded = read()
+        if (style === null) button.removeAttribute('style')
+        else button.setAttribute('style', style)
+        return { padded, unpadded }
+      })
+      expect(geometry.padded).toEqual(geometry.unpadded)
+      await link.scrollIntoViewIfNeeded()
+      const box = (await link.boundingBox())!
+      expect(box.height).toBeGreaterThanOrEqual(24)
+      await link.evaluate(button => {
+        button.dataset.clicks = '0'
+        button.addEventListener('click', event => {
+          event.stopImmediatePropagation()
+          button.dataset.clicks = String(Number(button.dataset.clicks) + 1)
+        }, { capture: true })
+      })
+      // The padded edges, above and below the glyphs, are part of the real
+      // button. A decorative extension that cannot be clicked would fail.
+      await page.mouse.click(box.x + box.width / 2, box.y + 2)
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height - 2)
+      await expect(link).toHaveAttribute('data-clicks', '2')
+      await link.focus()
+      await page.keyboard.press('Enter')
+      await expect(link).toHaveAttribute('data-clicks', '3')
+      await link.evaluate(button => { button.setAttribute('disabled', '') })
+      await page.mouse.click(box.x + box.width / 2, box.y + 2)
+      await expect(link).toHaveAttribute('data-clicks', '3')
+      await link.evaluate(button => { button.removeAttribute('disabled') })
+    }
+    // Reload for the next theme so each button has only one event observer.
+    await page.reload()
+    await page.evaluate(async () => { await document.fonts.ready })
+  }
 })
 
 /**
