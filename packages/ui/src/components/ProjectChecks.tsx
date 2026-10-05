@@ -64,6 +64,7 @@ export const ProjectChecksView = ({ checks }: { readonly checks: Checks }) => {
             key={check.name}
             title={check.name}
             subtitle={<CodeText>{check.run}</CodeText>}
+            wrapSubtitle
             trail={check.seen === 'changed' ? <Chip tone="warning">Changed</Chip> : <Text role="meta">{check.seen === 'yes' ? 'Approved' : 'Not approved'}</Text>}
           />
         ))}

@@ -129,7 +129,7 @@ const PanelRow = ({
             {sub}
           </Text>
         ) : null}
-        {ask ? <Text role="meta" className="mt-(--hd-table-line-gap)">{ask}</Text> : null}
+        {ask ? <Text role="meta" className="mt-(--hd-table-line-gap) [overflow-wrap:anywhere]">{ask}</Text> : null}
         {meta ? <Text role="meta" numeric className="mt-1">{meta}</Text> : null}
       </span>
       {trail}

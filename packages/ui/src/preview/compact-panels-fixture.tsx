@@ -2,12 +2,14 @@ import { itemId } from '@harnessdesk/protocol'
 import type { BackgroundTask, SeatAttachmentsRecord, SeatId, SubagentItem } from '@harnessdesk/protocol'
 
 import { BackgroundTasksView } from '../components/BackgroundTasks'
+import { ProjectChecksView } from '../components/ProjectChecks'
 import { SeatAttachments } from '../components/SeatAttachments'
 import { PanelBody, PanelFrame } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { PluginPanelTableExample } from './plugin-panel-table'
 import { PREVIEW_SESSION_KEY, previewStore, store } from './harness'
 import { Frame } from './main'
+import { PREVIEW_CHECKS } from './evidence-fixture'
 
 const session = store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!
 const delegation: SubagentItem = {
@@ -45,7 +47,16 @@ export const compactChangesStore = previewStore({
 const seat = 'compact-seat' as SeatId
 const skill = { kind: 'skill' as const, name: 'review', digest: 'a'.repeat(64), source: 'library' as const, pathLabel: '~/.skills/review' }
 const server = { kind: 'mcp' as const, name: 'search', digest: 'b'.repeat(64), source: 'library' as const, pathLabel: '~/.mcp/search' }
-const reason = 'This attachment could not be loaded for this Seat. Review its declaration before starting again.'
+const reason = 'This attachment could not be loaded for this Seat. Review its declaration before starting again. Refused attachment: attachment_with_a_long_unbroken_catalogue_identifier_that_must_remain_readable_in_a_narrow_inspector.'
+const longChecks = {
+  ...PREVIEW_CHECKS,
+  project: '/preview/code/project',
+  file: '/preview/code/project/.harnessdesk/checks.yml',
+  checks: PREVIEW_CHECKS.checks.map(check => check.name === 'lint' ? {
+    ...check,
+    run: 'pnpm lint --max-warnings 0 --filter ./packages/project-with-a-long-name/src/checks-and-declarations --reporter verbose',
+  } : check),
+}
 const attachments: SeatAttachmentsRecord = {
   version: 1, seat, agentDigest: 'd'.repeat(64), runtime: String(session.runtime), build: '1.0.0', epoch: 0,
   observedAt: 1, skillsMode: 'allowlist', mcpMode: 'allowlist', restored: false,
@@ -69,6 +80,11 @@ panelStore.refreshTasks = async () => {}
 
 export const CompactPanelFrames = () => (
   <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
+    <Frame id="project-checks-long-command" title="Project — long check commands">
+      <div className="w-[380px] p-4">
+        <StoreProvider store={panelStore}><ProjectChecksView checks={longChecks} /></StoreProvider>
+      </div>
+    </Frame>
     <Frame id="panel-background-tasks" title="Side panel — Background tasks">
       <div className="h-[420px]">
         <StoreProvider store={panelStore}>

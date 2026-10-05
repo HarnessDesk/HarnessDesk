@@ -1,6 +1,78 @@
 import { expect, test } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
+
+const capturePhase = process.env.HD_TABLES_FRAMES_PHASE
+const captureDirectory = '/tmp/tables-f1/repair-frames'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`long check commands remain fully readable at narrow width in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.setViewportSize({ width: 412, height: 1000 })
+    await page.goto('/preview.html?compact-panels')
+    await page.evaluate(() => document.fonts.ready)
+    const frame = page.locator('[data-frame-id="project-checks-long-command"]')
+    const command = frame.locator('[data-slot="code-text"]').nth(1)
+    await expect(command).toContainText('--reporter verbose')
+    if (capturePhase) {
+      await mkdir(captureDirectory, { recursive: true })
+      await expect(page.locator('[data-frame-id="project-checks"] [data-slot="list-row"]')).toHaveCount(4)
+      await page.evaluate(() => {
+        const preview = (window as unknown as { __hdPreview: { store: { patch(value: unknown): void } } }).__hdPreview
+        preview.store.patch({ home: '/home/dev' })
+      })
+      for (const id of ['project-checks', 'project-checks-long-command']) {
+        await page.locator(`[data-frame-id="${id}"]`).screenshot({ path: `${captureDirectory}/${capturePhase}-${id}-${theme}.png` })
+      }
+    }
+    const reading = await command.evaluate(node => {
+      const subtitle = node.parentElement!
+      const box = subtitle.getBoundingClientRect()
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rects = [...range.getClientRects()]
+      return {
+        whiteSpace: getComputedStyle(subtitle).whiteSpace,
+        size: getComputedStyle(node).fontSize,
+        lines: new Set(rects.map(rect => rect.top)).size,
+        contained: rects.every(rect => rect.left >= box.left - 1 && rect.right <= box.right + 1 && rect.bottom <= box.bottom + 1),
+      }
+    })
+    expect(reading.whiteSpace).toBe('normal')
+    expect(reading.size).toBe('12px')
+    expect(reading.lines).toBeGreaterThan(1)
+    expect(reading.contained).toBe(true)
+    await expect(frame.locator('[data-slot="list-row-trail"]')).toHaveText(['Approved', 'Changed', 'Not approved', 'Not offered'])
+  })
+
+  test(`unbroken attachment refusal tokens wrap inside their row in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.setViewportSize({ width: 412, height: 1000 })
+    await page.goto('/preview.html?compact-panels')
+    await page.evaluate(() => document.fonts.ready)
+    const frame = page.locator('[data-frame-id="panel-seat-attachments"]')
+    const reason = frame.locator('[data-role="meta"]').filter({ hasText: 'Refused attachment:' })
+    await expect(reason).toContainText('narrow_inspector.')
+    if (capturePhase) {
+      await mkdir(captureDirectory, { recursive: true })
+      await frame.screenshot({ path: `${captureDirectory}/${capturePhase}-panel-seat-attachments-${theme}.png` })
+    }
+    const reading = await reason.evaluate(node => {
+      const row = node.closest('[data-slot="inspector-row"]')!
+      const box = node.getBoundingClientRect()
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rects = [...range.getClientRects()]
+      return {
+        overflowWrap: getComputedStyle(node).overflowWrap,
+        contained: rects.every(rect => rect.left >= box.left - 1 && rect.right <= box.right + 1 && rect.bottom <= box.bottom + 1),
+        rowFits: row.scrollWidth <= row.clientWidth,
+      }
+    })
+    expect(reading.overflowWrap).toBe('anywhere')
+    expect(reading.contained).toBe(true)
+    expect(reading.rowFits).toBe(true)
+  })
+
   test(`compact inspectors keep their faces and readings centred in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize({ width: 412, height: 1000 })
