@@ -51,7 +51,7 @@ import {
   AgentIcon,
   OverviewIcon,
   CommentIcon,
-  SplitIcon,
+  SideBySideIcon,
   ClockIcon,
   ArrowLeftIcon,
   CrossIcon,
@@ -1319,7 +1319,7 @@ export const TeamRoomPane = ({
                 : 'Side by side'}
               lead={
                 <IconTile size="sm">
-                  <SplitIcon />
+                  <SideBySideIcon />
                 </IconTile>
               }
               trail={grid.tiles.length > 0 ? <Text role="meta" numeric className={styles.count}>{grid.tiles.length}</Text> : undefined}

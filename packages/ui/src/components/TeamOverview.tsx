@@ -166,7 +166,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
           </Section>
         )}
         <Section title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
-          action={done.length > 0 && <Button variant="quiet" size="content" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+          action={done.length > 0 && <Button variant="outline" size="sm" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             <DisclosureChevron open={expanded} />{done.length} done
           </Button>}>
           {model.seats.length === 0 ? (

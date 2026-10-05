@@ -85,6 +85,13 @@ it('folds three done Seats and keeps an Idle Seat visible',()=>{
  expect(box.querySelectorAll('[data-seat]')).toHaveLength(4)
  expect(box.querySelectorAll('[data-slot="seat-state"][data-resting]')).toHaveLength(4)
 })
+it('keeps the done disclosure in the inset section header with its shared action style',()=>{
+ render([row('Done',{done:true})])
+ const section=box.querySelector('[aria-label="Seats"]')!
+ const action=section.querySelector('[data-slot="section-head"] [data-slot="section-action"] button')!
+ expect(action?.getAttribute('data-variant')).toBe('outline')
+ expect(action?.getAttribute('aria-expanded')).toBe('false')
+})
 it('renders agent text without executable markup',()=>{
  render([row('<img src=x onerror="alert(1)">')])
  expect(box.querySelector('img')).toBeNull()

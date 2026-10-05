@@ -45,6 +45,7 @@ import {
   Clock,
   ClockAlert,
   Code,
+  Columns2,
   Table2,
   Copy,
   Cpu,
@@ -194,6 +195,8 @@ export const ArrowRightIcon = icon(ChevronRight, 'ArrowRightIcon')
 export const ZoomInIcon = icon(ZoomIn, 'ZoomInIcon')
 export const ZoomOutIcon = icon(ZoomOut, 'ZoomOutIcon')
 export const SidebarIcon = icon(PanelLeft, 'SidebarIcon')
+/** Watch the Team's conversations side by side. */
+export const SideBySideIcon = icon(Columns2, 'SideBySideIcon')
 /** A plugin's panel contribution. */
 export const PanelIcon = icon(LayoutPanelLeft, 'PanelIcon')
 
