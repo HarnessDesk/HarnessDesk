@@ -1069,7 +1069,8 @@ the Overview folds them into a disclosure such as **3 done**, above the rows.
 Agent names stretch, while the numeric columns align to the end. Now disappears
 when no Seat has work or a reason to show, and Cost disappears when every amount is unknown. A done
 Seat's Time is its recorded working duration, fixed when its last turn ended.
-A findings wait gives the person and reviewer a row leading to Findings.
+A findings wait, including a ledger that could not be read, raises **Needs you**
+and gives the person and reviewer a row leading to Findings.
 Other evidence waits stay neutral, reading **Waiting** with their recorded
 reason in the Run strip; they do not raise Needs you in the Team or Run. A review waiting
 to be posted keeps its own reason and Findings action, alongside any evidence

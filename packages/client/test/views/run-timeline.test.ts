@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { WAITING_FINDINGS, WAITING_EXCEPTION, runtimeId, sessionId, sessionKey, turnId, type Session, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { WAITING_FINDINGS, WAITING_EXCEPTION, WAITING_LEDGER, runtimeId, sessionId, sessionKey, turnId, type Session, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from '../../src/views/run-timeline.js'
 import { teamOverview } from '../../src/views/team-overview.js'
 
@@ -21,7 +21,7 @@ const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused:
 
 describe('runTimeline', () => {
   it('shares evidence-wait attention with Overview and clears it when the wait closes or the Run ends', () => {
-    for (const wait of [WAITING_FINDINGS(1), WAITING_FINDINGS(3), WAITING_EXCEPTION]) for (const state of ['running','settled','stopped'] as const) for (const roundState of ['waiting-evidence','closed'] as const) {
+    for (const wait of [WAITING_FINDINGS(1), WAITING_FINDINGS(3), WAITING_EXCEPTION, WAITING_LEDGER]) for (const state of ['running','settled','stopped'] as const) for (const roundState of ['waiting-evidence','closed'] as const) {
       const execution=run({state,reason:`Rule after-review: ${wait}`,rounds:[{...run().rounds[0]!,state:roundState}]})
       const overview=teamOverview({team:execution.goal,seats:[],cards:[],run:{execution,startedAt:null},report:null})
       const timeline=runTimeline({execution,cards:[]})
