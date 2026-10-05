@@ -15,6 +15,8 @@ import { afterDismiss, emptyNoticePolicy, withKept, withMuted, withoutKept, with
 import { kept as keptInInbox, type InboxEntry } from '../lib/inbox'
 import { ShellProvider } from '../panels/views'
 import { ComposerMountsProvider, ComposerNotices, NoticeStripFallback, Notices, NoticeStripOutlet, observeNoticeLayout, useInboxMessages } from './Notices'
+import { CatalogueRefusedUndo } from '../design/explorer/boards'
+import { showToast as renderToast } from '../design/patterns/Notices'
 
 const showToast = vi.fn()
 vi.mock('../design', async (importOriginal) => ({
@@ -876,6 +878,19 @@ it('a conversation composer with no pane context still speaks for the window’s
   expect(container.textContent).toContain('A or B?')
   act(() => (store as unknown as { dismissAgentNotice(id: string): void }).dismissAgentNotice('d1'))
   expect(container.textContent).not.toContain('A or B?')
+})
+
+it('shows the whole refused Undo reason immediately and keeps it until dismissed', async () => {
+  const reason = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
+  showToast.mockImplementationOnce(renderToast)
+
+  await act(async () => root.render(<CatalogueRefusedUndo />))
+
+  expect(showToast).toHaveBeenCalledWith(expect.objectContaining({ tone: 'danger', title: reason }), { persist: true })
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-sonner-toast] [data-title]')?.textContent).toBe(reason)
+    expect(container.querySelector('[data-sonner-toast] [data-close-button]')).not.toBeNull()
+  })
 })
 
 it('a deliberate retry of the same failing action replaces the toast on screen instead of stacking a second one', () => {
