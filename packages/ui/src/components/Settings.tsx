@@ -1112,7 +1112,7 @@ const skillScopeLabel = (scope: string | undefined): string | null => {
  * `iconUrl` is a `data:` URI inlined from the installed skill; the adapter
  * drops remote ones, so nothing here reaches the network.
  */
-const SkillMark = ({ skill, tile }: { skill: SkillInfo; tile: 'default' | 'sm' }) => {
+const SkillMark = ({ skill, tile, glyphSize }: { skill: SkillInfo; tile: 'default' | 'sm'; glyphSize: number }) => {
   const [broken, setBroken] = useState(false)
   // Logos use the caller's tile step; the row supplies the fallback's ground.
   if (skill.iconUrl && !broken) {
@@ -1129,7 +1129,7 @@ const SkillMark = ({ skill, tile }: { skill: SkillInfo; tile: 'default' | 'sm' }
       </IconTile>
     )
   }
-  return <SparkIcon size={15} />
+  return <SparkIcon size={glyphSize} />
 }
 
 const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
@@ -1171,7 +1171,7 @@ const SkillPage = ({
       <DetailHead
         mark={
           <DetailMark>
-            <SkillMark skill={skill} tile="sm" />
+            <SkillMark skill={skill} tile="sm" glyphSize={22} />
           </DetailMark>
         }
         name={skillTitle(skill)}
@@ -1287,7 +1287,7 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
                 <RowButton
                   key={skill.name}
                   onClick={() => setOpenName(skill.name)}
-                  mark={hasFaces ? <SkillMark skill={skill} tile="default" /> : undefined}
+                  mark={hasFaces ? <SkillMark skill={skill} tile="default" glyphSize={15} /> : undefined}
                   title={<Text role="subject">{skillTitle(skill)}</Text>}
                   desc={<span className={styles.skillDesc}>{skill.shortDescription ?? skill.description}</span>}
                   control={

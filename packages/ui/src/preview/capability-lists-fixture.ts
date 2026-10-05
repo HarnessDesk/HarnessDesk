@@ -27,7 +27,7 @@ export const capabilityListsStore = (stress = false) => {
       runtimes: agents,
       entries: [
         ...LIBRARY.entries,
-        { ...example, name: 'four-agents', title: 'Shared review', reach: loaded },
+        { ...example, name: 'four-agents', title: 'Shared review', description: `Long unbroken token: ${'x'.repeat(120)}`, reach: loaded },
         { ...example, name: 'refused', reach: [{ ...loaded[0]!, state: 'rejected', note: 'Invalid metadata.' }, ...loaded.slice(1)] },
         { ...example, name: 'unloaded', copies: [], reach: agents.map(id => ({ runtime: id, state: 'absent', basis: 'scanned' })) },
       ],

@@ -26,8 +26,9 @@
 .inlineBadge {
   margin-left: 8px;
 }
-/* A route the selected agent cannot use keeps its reason visible below the address. */
-.rowUnusable {
+/* A route's reason is why the row exists, so only its mark and title fade. */
+.rowUnusable [data-slot='row-mark'],
+.rowUnusable [data-slot='row-title'] {
   opacity: 0.55;
 }
 .extTabs {

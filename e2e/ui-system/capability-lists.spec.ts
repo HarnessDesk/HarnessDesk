@@ -74,6 +74,18 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(sheet.getByText('Always thinks', { exact: true })).toBeVisible()
     await expect(sheet.locator('[data-slot="row-desc"]').first()).toContainText('Low, Medium, High, Extra high')
     await expect(sheet.getByText('Not available', { exact: true })).toBeVisible()
+    const unavailable = sheet.locator('[data-slot="row"]').filter({ hasText: 'Not available with' })
+    const opacity = await unavailable.evaluate(row => {
+      const read = (selector: string) => getComputedStyle(row.querySelector(selector)!).opacity
+      return {
+        row: getComputedStyle(row).opacity,
+        mark: read('[data-slot="row-mark"]'),
+        title: read('[data-slot="row-title"]'),
+        description: read('[data-slot="row-desc"]'),
+        reason: read('[data-slot="row-desc"] span'),
+      }
+    })
+    expect(opacity).toEqual({ row: '1', mark: '0.55', title: '0.55', description: '1', reason: '1' })
     await expect(sheet.getByRole('button', { name: 'Remove…', exact: true })).toHaveCount(0)
     await sheet.locator('button[title="More actions for Team proxy"]').click()
     await page.getByRole('menuitem', { name: 'Remove…', exact: true }).click()
@@ -134,13 +146,13 @@ for (const theme of ['light', 'dark'] as const) {
         const canvas = document.createElement('canvas').getContext('2d')!
         canvas.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
         const ellipsis = name.scrollWidth > name.clientWidth ? canvas.measureText('…').width : 0
-        return { name: name.textContent, prefixRight: prefix.getBoundingClientRect().right, nameRight: nameBox.right - ellipsis, lines: [...lines.values()], clamp: getComputedStyle(description).webkitLineClamp }
+        return { name: name.textContent, prefixRight: prefix.getBoundingClientRect().right, nameRight: nameBox.right - ellipsis, lines: [...lines.values()], clamp: getComputedStyle(description).webkitLineClamp, unbroken: text.textContent!.includes('x'.repeat(120)) }
       }))
       for (const reading of readability) {
         expect(reading.prefixRight, reading.name ?? '').toBeLessThanOrEqual(reading.nameRight)
         expect(reading.clamp).toBe(narrow ? '2' : 'none')
         expect(reading.lines.length).toBeGreaterThan(0)
-        if (narrow) {
+        if (narrow && !reading.unbroken) {
           expect(reading.lines.length).toBeLessThanOrEqual(2)
           for (const line of reading.lines) expect(line.length, line.join(' ')).toBeGreaterThanOrEqual(3)
         }
@@ -164,11 +176,31 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await rows.evaluateAll(rows => rows.some(row => row.hasAttribute('data-problem')))).toBe(false)
       const loaded = rows.filter({ hasText: 'Shared review' })
       await expect(loaded.locator('[data-shape="face"]')).toHaveCount(4)
+      if (!narrow) {
+        const descriptionBounds = await loaded.locator('[data-skill-description]').evaluate(node => {
+          const cell = node.closest('td')!
+          const rect = cell.getBoundingClientRect()
+          const style = getComputedStyle(cell)
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          return {
+            left: rect.left + parseFloat(style.paddingLeft),
+            right: rect.right - parseFloat(style.paddingRight),
+            lines: [...range.getClientRects()].map(line => ({ left: line.left, right: line.right })),
+          }
+        })
+        expect(descriptionBounds.lines.length).toBeGreaterThan(1)
+        for (const line of descriptionBounds.lines) {
+          expect(line.left).toBeGreaterThanOrEqual(descriptionBounds.left - 1)
+          expect(line.right).toBeLessThanOrEqual(descriptionBounds.right + 1)
+        }
+      }
       expect(await rows.first().evaluate(node => node.parentElement!.scrollWidth <= node.parentElement!.clientWidth)).toBe(true)
       if (!narrow) expect(await loaded.locator('td').first().evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(192)
       const opener = narrow ? loaded : loaded.locator('button').first()
       await opener.hover()
       expect(await opener.evaluate(node => getComputedStyle(node).textDecorationLine)).toBe('none')
+      if (!narrow) expect(await opener.evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
       expect(await opener.evaluate(node => node.closest('[data-slot="skill-row"]')!.hasAttribute('data-problem'))).toBe(false)
       await sheet.getByRole('button', { name: /brainstorming/ }).click()
       const detail = sheet.locator('[data-slot="dialog-description"]').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })

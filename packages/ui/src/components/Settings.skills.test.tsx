@@ -193,3 +193,16 @@ it('mixed marked, unmarked and broken icons keep a 15px fallback glyph', () => {
   act(() => marked.click())
   expect(container.querySelector('[data-slot="icon-tile"]')?.classList.contains('size-6')).toBe(true)
 })
+
+it('keeps the fallback glyph at 15px in the list and 22px in the detail head', () => {
+  mount([
+    { name: 'generic', description: 'A generic mark.', enabled: true },
+    { name: 'marked', description: 'A named mark.', enabled: true, brandColor: '#7a5af8' },
+  ])
+  const row = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Generic'))!
+  expect(row.querySelector('[data-slot="row-mark"] svg')?.getAttribute('width')).toBe('15')
+  act(() => row.click())
+  const detailGlyph = container.querySelector('[data-shape="square"] svg')
+  expect(detailGlyph?.getAttribute('width')).toBe('22')
+  expect(detailGlyph?.getAttribute('height')).toBe('22')
+})

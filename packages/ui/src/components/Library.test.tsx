@@ -1844,17 +1844,21 @@ it('the List compares Skill, State and Loaded by without a repeated monogram', a
 })
 
 it('the List responds to its container and retains definition access in the narrow form', async () => {
-  let resize!: ResizeObserverCallback
+  const observers: { callback: ResizeObserverCallback; target?: Element }[] = []
   const disconnect = vi.fn()
   vi.stubGlobal('ResizeObserver', class {
-    constructor(callback: ResizeObserverCallback) { resize = callback }
-    observe() {}
+    constructor(callback: ResizeObserverCallback) { observers.push({ callback }) }
+    observe(target: Element) { observers.at(-1)!.target = target }
     disconnect = disconnect
   })
   const description = 'A complete description that remains available in the definition.'
   await mount(library([entry('code-review', ['reaches', 'absent'], { description }), entry('empty', ['hollow', 'absent'])]))
-  expect(resize, 'the list must observe its own container').toBeTypeOf('function')
-  const setWidth = async (width: number) => act(async () => resize([{ contentRect: { width } }] as ResizeObserverEntry[], {} as ResizeObserver))
+  const list = container.querySelector('[data-slot="skill-list"]')!
+  const listObserver = observers.find(observer => observer.target === list)
+  expect(listObserver, 'the list must observe its own container').toBeDefined()
+  const unrelatedObserver = new ResizeObserver(() => {})
+  unrelatedObserver.observe(document.createElement('div'))
+  const setWidth = async (width: number) => act(async () => listObserver!.callback([{ target: list, contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver))
   await setWidth(599)
   expect(container.querySelector('table')).toBeNull()
   const row = container.querySelector<HTMLButtonElement>('[data-slot="skill-row"]')!
@@ -1863,6 +1867,9 @@ it('the List responds to its container and retains definition access in the narr
   expect(row.querySelector('[data-slot="list-row-subtitle"]')?.textContent).toBe(description)
   expect(row.querySelector('[data-slot="chip"]')?.textContent).toBe('Ready')
   expect(row.querySelector('[data-slot="list-row-trail"] [data-shape="face"]')?.getAttribute('aria-label')).toBe('First Agent')
+  const loadedBy = row.querySelector('[data-slot="list-row-trail"] [role="group"]')
+  expect(loadedBy?.getAttribute('aria-label')).toBe('Loaded by')
+  expect(loadedBy?.getAttribute('title')).toBe('Loaded by')
   expect(container.querySelectorAll('[data-slot="skill-row"]')[1]?.textContent).toContain('Empty on disk')
   await act(async () => row.click())
   expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(description)

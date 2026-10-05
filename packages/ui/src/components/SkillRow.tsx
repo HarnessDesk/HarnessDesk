@@ -119,10 +119,10 @@ export const SkillRow = ({ entry, columns, onOpen }: {
       <CodeText as="code" size="inherit">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
     </Text>
   </span>
-  const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal ${narrow ? 'line-clamp-2 text-balance' : 'block'}`}>
+  const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal ${narrow ? 'line-clamp-2 text-balance' : 'block [overflow-wrap:anywhere]'}`}>
     {entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')}
   </Text>
-  const faces = <span className={styles.faces}>
+  const faces = <span className={styles.faces} role={narrow ? 'group' : undefined} aria-label={narrow ? 'Loaded by' : undefined} title={narrow ? 'Loaded by' : undefined}>
     {loaded.length === 0 ? <Text role="muted" ink="muted">None</Text> : loaded.map(reach => {
       const column = columns.find(column => column.id === reach.runtime)
       if (!column) return null
@@ -166,6 +166,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
         <Button
           variant="ghost"
           size="content"
+          hoverFill={false}
           onClick={event => { event.stopPropagation(); onOpen() }}
           className="w-0 min-w-full flex-col items-start justify-start gap-0 text-left"
         >
