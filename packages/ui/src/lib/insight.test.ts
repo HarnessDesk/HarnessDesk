@@ -36,8 +36,9 @@ it('deduplicates corpus labels and retains the oldest of four file observations'
   expect(words.freshness).toBe('4 minutes since observation')
 })
 
-it('keeps missing brief exceptions attached to their Seats even when every brief is missing', () => {
-  expect(commonRowNote([{ note: 'Brief cohort unavailable' }, { note: 'Brief cohort unavailable' }])).toBeNull()
+it('hoists an unavailable brief cohort when every Seat shares it', () => {
+  expect(commonRowNote([{ note: 'Brief cohort unavailable' }, { note: 'Brief cohort unavailable' }])).toBe('Brief cohort unavailable')
+  expect(commonRowNote([{ note: 'Brief cohort unavailable' }, { note: null }])).toBeNull()
 })
 
 
