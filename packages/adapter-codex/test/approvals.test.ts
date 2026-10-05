@@ -271,6 +271,8 @@ test('a user-verification elicitation (0.155.0) is cancelled and said, never dra
   assert.deepEqual(events, [
     {
       type: 'notice',
+      class: 'conversation',
+      kind: 'conversation:verification',
       sessionId: 't1',
       level: 'warning',
       message:

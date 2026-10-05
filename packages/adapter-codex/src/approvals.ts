@@ -129,6 +129,8 @@ export class ApprovalRouter {
     } satisfies CodexProtocol.v2.McpServerElicitationRequestResponse)
     this.emit({
       type: 'notice',
+        class: 'conversation',
+        kind: 'conversation:verification',
       sessionId: makeSessionId(params.threadId),
       level: 'warning',
       message: `${params.serverName} asked to verify it is you ("${params.title}"). HarnessDesk cannot do that, so the request was cancelled.`,
