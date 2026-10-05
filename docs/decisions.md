@@ -1809,6 +1809,11 @@ is about which attempt continues, not whether a claim was correct, so the
 findings stay open. The accepted route’s durable review evidence explains
 **Not kept** in their list and detail; no new lifecycle event or verdict is
 invented. An ordinary single-subject review excludes nothing.
+The explanation is tied to the claim’s raising review round and immutable
+checkout, including advisory claims outside the frozen blocking set. Later
+reviews of the kept attempt do not replace that accepted selection. The open
+list reloads when a route’s evidence changes, while routine Run updates keep
+its paging position.
 
 A reviewer can also correct a mistaken claim before finishing its raising
 card: a reasoned withdrawal is allowed there. Confirming or rejecting a

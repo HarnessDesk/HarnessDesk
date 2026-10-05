@@ -46,6 +46,13 @@ export const PREVIEW_FINDINGS: readonly FindingView[] = [
     activeBlocking: false,
     inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.',
   }),
+  finding('finding-not-kept-advisory', {
+    title: 'Repeated status text on the unselected attempt',
+    body: 'This attempt repeats the same status in its summary and detail.',
+    blocking: false,
+    activeBlocking: false,
+    inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.',
+  }),
   finding('finding-claim-1', {
     title: 'Race between two writers on the same lane',
     body: 'Two lanes wrote the same file at once; the later write silently won.',
@@ -139,6 +146,10 @@ export const FAILED_FINDINGS_STATE: FindingsListState = {
 }
 
 export const findingDetail = (id: string): FindingDetailPage => {
+  if (id === 'finding-before-advisory-selection') {
+    const { inactiveReason: _reason, ...before } = PREVIEW_FINDINGS.find((one) => one.id === 'finding-not-kept-advisory')!
+    return { finding: { ...before, id }, records: [], seat: null, next: null, problem: null }
+  }
   if (id === 'finding-before-selection') {
     const { activeBlocking: _active, inactiveReason: _reason, ...before } = PREVIEW_FINDINGS.find((one) => one.id === 'finding-not-kept-1')!
     return { finding: { ...before, id }, records: [], seat: null, next: null, problem: null }

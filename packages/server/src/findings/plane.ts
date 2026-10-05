@@ -1121,22 +1121,27 @@ export class FindingsPlane {
   }
 
   /** An accepted review route keeps its selected subject, without pretending the other claims were repaired. */
-  #inactiveReasons(ledger: { readonly views: readonly FindingView[] }, facts: readonly EvidenceView[]): ReadonlyMap<string, string> {
+  #inactiveReasons(ledger: { readonly views: readonly FindingView[]; readonly records: readonly EvidenceRecord[] }, facts: readonly EvidenceView[]): ReadonlyMap<string, string> {
     const reasons = new Map<string, string>()
     for (const view of ledger.views) {
       if (view.problem !== null || view.restored || isResolved(view) || view.ownerGoal !== view.origin.goal) continue
       const snapshot = this.#port.flows.run?.(view.origin.run)
-      const review = snapshot?.rounds.findLast((one) => one.reviews)
+      // The claim belongs to the review that raised it. A later review of the
+      // kept attempt cannot erase this earlier route's accepted selection.
+      const review = snapshot?.rounds.find((one) => one.n === view.origin.round && one.reviews)
       if (!snapshot || !review || review.state !== 'closed') continue
+      if (snapshot.findings?.series.some(one => one.pending.includes(view.id))) continue
       const after = snapshot.rounds.filter((one) => one.n > review.n)
       const accepted = new Set(after.flatMap((one) => one.evidence))
       const choices = facts.filter((one) => accepted.has(one.record.id) && !one.record.restored &&
         one.record.fact.kind === 'review' && one.record.card?.board === snapshot.goal && review.cards.includes(one.record.card.id))
       const kept = new Set(choices.map((one) => one.record.checkout?.cwd).filter((cwd): cwd is string => Boolean(cwd)))
       if (kept.size !== 1) continue
-      const series = snapshot.findings?.series.find((one) => one.role === review.role &&
-        (one.initial.includes(view.id) || one.exceptions.includes(view.id)))
-      if (!series || kept.has(series.checkout.cwd)) continue
+      // A series freezes blockers only; advisory claims need the same losing
+      // attribution. Read the subject from the immutable raise instead.
+      const cwd = ledger.records.find((one) => one.fact.kind === 'finding' && one.fact.id === view.id &&
+        one.finding?.event.kind === 'raise')?.checkout?.cwd
+      if (!cwd || kept.has(cwd)) continue
       const at = choices[0]?.record.fact.kind === 'review' ? choices[0].record.fact.at : null
       if (at) reasons.set(view.id, `The review selected revision ${at.slice(0, 12)} for the next step.`)
     }

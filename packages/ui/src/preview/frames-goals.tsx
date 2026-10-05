@@ -143,7 +143,7 @@ export const FindingFrames = ({ scene }: { readonly scene: string | null }) => s
     <div className="max-h-[480px] overflow-y-auto p-4"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></div>
   </Frame>
 ) : (
-  <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={scene === 'before' ? 'finding-before-selection' : 'finding-not-kept-1'} decide={RUN_VIEW} onClose={() => {}} />
+  <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={scene === 'before' ? 'finding-before-selection' : scene === 'advisory-before' ? 'finding-before-advisory-selection' : scene === 'advisory' ? 'finding-not-kept-advisory' : 'finding-not-kept-1'} decide={RUN_VIEW} onClose={() => {}} />
 )
 
 export const GoalFrames = () => {
