@@ -332,15 +332,21 @@ export const mergeRead = (
   // A read that starts partway — a reopen that replayed nothing — is silent
   // about what came before its first turn: every settled turn held ahead of
   // the first one it shares with us is history, and stays ahead of it.
+  const noticeIds = new Set(turns.flatMap(turn => turn.items.flatMap(item => item.type === 'notice' ? [item.id] : [])))
+  const unrepresented = (turn: Turn): boolean =>
+    !String(turn.id).startsWith('notice:') || !turn.items.every(item => noticeIds.has(item.id))
   const firstShared = held.turns.findIndex((turn) => readIds.has(turn.id))
   const earlier = read.partialHistory
     ? held.turns.slice(0, firstShared === -1 ? held.turns.length : firstShared)
-        .filter((turn) => turn.status !== 'inProgress')
+        .filter((turn) => turn.status !== 'inProgress' && unrepresented(turn))
     : []
   const earlierIds = new Set(earlier.map((turn) => turn.id))
   // Ours that the read has not caught up with, in the order we hold them —
   // the turn in flight is the last of them, which is where it belongs.
-  const missing = held.turns.filter((turn) => !readIds.has(turn.id) && !earlierIds.has(turn.id) && (keep(turn) || String(turn.id).startsWith('notice:')))
+  // A pending notice may now live in a real turn. Its synthetic turn is no
+  // longer missing history, even when the caller keeps all watched turns.
+  const missing = held.turns.filter((turn) => !readIds.has(turn.id) && !earlierIds.has(turn.id) &&
+    unrepresented(turn) && (keep(turn) || String(turn.id).startsWith('notice:')))
   return keepUsage({ ...read, turns: [...earlier, ...turns, ...missing] })
 }
 

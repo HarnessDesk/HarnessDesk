@@ -1917,6 +1917,12 @@ Host-created transcript notices survive richer reads of their own turn and
 unmatched synthetic notice turns survive cold reads. They never get copied
 into unrelated fork turns or preserve work turns removed by rollback. Repeated
 conversation updates are counted within the turn they accompany.
+Scoped notices heard before registration wait under the runtime and conversation
+id until real metadata arrives. The host folds them into registration and cold
+snapshots, so a window that missed their arrival still receives them. The window
+uses the same pending-notice fold; content already counted in a host snapshot
+is not counted again. Reads keep a synthetic notice turn only while its items
+are absent from the real turns, so its old row cannot return after it moves.
 Retrying errors preserve live state; an error already carried by a failed turn
 uses that turn's existing explanation.
 

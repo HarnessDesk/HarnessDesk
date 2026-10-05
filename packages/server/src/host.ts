@@ -6496,7 +6496,9 @@ export class Host {
       if (settings !== event.settings) outgoing = { ...event, settings }
     }
     if (event.type === 'session/started') {
-      const session = seatedSession(event.session, record?.seatedAs ?? null)
+      // Registration carries the host fold, including notices heard before a
+      // window connected. The adapter's summary has never seen those rows.
+      const session = record?.session ?? seatedSession(event.session, null)
       if (session !== event.session) outgoing = { ...event, session }
     }
     if (record && event.type === 'turn/completed' && published.length > 0) {
