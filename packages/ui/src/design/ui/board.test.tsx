@@ -232,7 +232,7 @@ describe('a card under content that does not fit', () => {
     )
     expect(container.querySelector('[data-slot="board-column"] header > span')?.className).toContain('size-1.5')
     const empty = container.querySelector<HTMLElement>('[data-slot="board-empty"]')
-    expect(empty?.className).toContain('ps-3')
+    expect(empty?.className).toContain('ps-[calc(var(--hd-inset-card)+var(--hd-border-width))]')
     expect(empty?.className).toContain('text-left')
   })
 })

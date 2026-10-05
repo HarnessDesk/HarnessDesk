@@ -8,6 +8,7 @@ const Table = ({
   className,
   containerClassName,
   variant = 'default',
+  inset,
   density = variant === 'panel' ? 'compact' : 'comfortable',
   rows = 'default',
   ...props
@@ -16,6 +17,8 @@ const Table = ({
   rows?: 'default' | 'bare'
   containerClassName?: string
   variant?: 'default' | 'framed' | 'panel'
+  /** The table and its replacement list keep the same row-content edge. */
+  inset?: 'row'
 }) => (
   <div
     data-slot="table-container"
@@ -31,7 +34,7 @@ const Table = ({
       data-slot="table"
       data-hd-table={density}
       data-rows={rows}
-      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', className)}
+      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', inset === 'row' && '[&_th]:px-(--hd-inset-row) [&_td]:px-(--hd-inset-row)', className)}
       {...props}
     />
   </div>

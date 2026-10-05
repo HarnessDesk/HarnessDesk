@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('evidence chips show their whole fact on one line, inside a 185px board card', async ({ page }) => {
+test('evidence chips show their whole fact on one line, inside a 191px board card', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 })
   await page.goto('/preview.html')
 
@@ -10,8 +10,8 @@ test('evidence chips show their whole fact on one line, inside a 185px board car
 
   await card.scrollIntoViewIfNeeded()
   await expect(evidence).toContainText('verify ✓')
-  // The card this was measured on: at 700px the board draws it 185px wide.
-  expect(Math.round((await card.boundingBox())?.width ?? 0)).toBe(185)
+  // The card this was measured on: at 700px the board draws it 191px wide.
+  expect(Math.round((await card.boundingBox())?.width ?? 0)).toBe(191)
 
   const cardBox = await card.boundingBox()
   const evidenceBox = await evidence.boundingBox()
@@ -28,7 +28,7 @@ test('evidence chips show their whole fact on one line, inside a 185px board car
     expect(chipBox.x).toBeGreaterThanOrEqual(cardBox.x)
     expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
 
-    // The fact is whole: the words before any "—" are never cut on a 185px card.
+    // The fact is whole: the words before any "—" are never cut on a 191px card.
     const words = chip.locator('[data-slot="chip-words"] > span')
     expect(await words.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
     expect((await words.textContent())?.includes('—')).toBe(false)

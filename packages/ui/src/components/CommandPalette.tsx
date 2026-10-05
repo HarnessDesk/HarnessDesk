@@ -25,7 +25,6 @@ import {
   AgentIcon,
   ArchiveIcon,
   BranchIcon,
-  BriefIcon,
   DiffIcon,
   FileIcon,
   FolderOpenIcon,
@@ -372,7 +371,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         id: 'agents-window',
         group: 'Actions',
         label: 'Agents',
-        icon: <BriefIcon size={14} />,
+        icon: <AgentIcon size={14} />,
         keywords: 'agents who roster brief reviewer implementer judge researcher seats ceiling',
         run: () => {
           close()
@@ -446,7 +445,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           group: 'Agents' as const,
           label: `Start as ${definition.name}`,
           hint: seat ? seat.label : plan ? 'Can’t seat here' : undefined,
-          icon: seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} /> : <BriefIcon size={14} />,
+          icon: seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} /> : <AgentIcon size={14} />,
           keywords: `agent new conversation ${definition.description ?? ''}`,
           run: () => {
             close()
@@ -457,7 +456,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           id: `open-agent-${entry.id}`,
           group: 'Agents' as const,
           label: `Open ${definition.name}`,
-          icon: <BriefIcon size={14} />,
+          icon: <AgentIcon size={14} />,
           keywords: 'agent brief seats ceiling this mac',
           run: () => {
             close()

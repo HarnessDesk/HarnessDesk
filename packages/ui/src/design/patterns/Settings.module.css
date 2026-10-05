@@ -906,16 +906,16 @@
    Earned only when a card of rows is what the head is actually naming
    (`:has(+ […])` reads the very next sibling `Rows` renders): a head over a
    `Note`, a plain button, or ProjectTriggers' own body has no such card to
-   answer to, and the same inset put its label 17px right of a body that
+   answer to, and the same inset put its label a row inset right of a body that
    starts flush with the page instead. */
 .sectionHead:has(+ [data-slot='rows']),
 .sectionHead:has(+ [role='radiogroup']) {
   padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
 }
 
-/* The summary card owns its padding token rather than the Rows inset. */
+/* Summary facts own the row inset rather than the table family's density. */
 .sectionHead:has(+ [data-slot='summary-list']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-card-padding));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-row)); /* desk: summary label inset 17 → 13, matching the row-tier facts (#1363) */
 }
 
 .sectionHead:first-child {
@@ -1037,9 +1037,9 @@
   align-items: center;
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   min-height: var(--hd-table-row-min-bare);
-  padding: var(--hd-space-3) var(--hd-table-edge);
+  padding: var(--hd-inset-row) var(--hd-table-edge); /* desk: row inset 12/16 → 12 on all sides (#1363) */
   border-bottom: 0; /* desk: separator lives in ::after so row rules do not read as surfaces */
-  padding-bottom: calc(var(--hd-space-3) + var(--hd-border-width));
+  padding-bottom: calc(var(--hd-inset-row) + var(--hd-border-width));
 }
 
 .row::after {
@@ -1059,7 +1059,7 @@
 }
 
 .row:last-child {
-  padding-bottom: var(--hd-space-3);
+  padding-bottom: var(--hd-inset-row);
 }
 
 .row:last-child::after {

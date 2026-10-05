@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
-  Button, Card, CardContent, Chip, DisclosureChevron, EmptyState, GroupLabel,
+  Button, Card, Chip, DisclosureChevron, EmptyState, Section, SectionBody,
   IconTile, ListRow, ListRows, PaneColumn, Table, TableBody, TableCell,
   TableHead, TableHeader, TableRow, Text,
 } from '../design'
@@ -120,7 +120,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
         {run && (
-          <Card><CardContent>
+          <Card spacing="compact">
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
@@ -145,11 +145,10 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               {!publicationWait && publication?.needsYou && publicationReason && (statusLine || publicationReason !== reason) && <Text role="meta" as="div">{publicationReason}</Text>}
               {statusLine ? statusLine(now, !reasonInWait) : !reasonInWait && reason && <Text role="meta" as="div">{reason}</Text>}
             </section>
-          </CardContent></Card>
+          </Card>
         )}
         {(model.needsYou.length > 0 || evidenceWait || publicationWait) && (
-          <section aria-label="Needs you">
-            <GroupLabel>Needs you</GroupLabel>
+          <Section title="Needs you" inset="row" className="mt-0">
             <ListRows>
               {evidenceWait && <ListRow title={findingsWait ? 'Review the findings' : 'Review the evidence'} subtitle={reason} wrapSubtitle
                 meta={<Text role="meta">{findingsWait ? 'You or the reviewer can resolve this wait in Findings.' : 'The next step needs recorded evidence. Open the Run to inspect the wait.'}</Text>}
@@ -164,16 +163,17 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                   name={model.seats.find(one => one.seat === item.seat)?.name ?? null} answers={answers} onOpenSeat={onOpen} />
               ))}
             </ListRows>
-          </section>
+          </Section>
         )}
-        <section aria-label="Seats" className="min-w-0">
-          <div className="flex items-center gap-3">
-          <GroupLabel>Agents · {model.seats.length}</GroupLabel>
-          {done.length > 0 && <Button variant="quiet" size="content" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        <Section title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
+          action={done.length > 0 && <Button variant="quiet" size="content" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             <DisclosureChevron open={expanded} />{done.length} done
-          </Button>}
-          </div>
-          {model.seats.length === 0 ? <EmptyState variant="inline" align="start" title="No agents in this Team yet" /> : rows.length === 0 ? null : narrow ? (
+          </Button>}>
+          {model.seats.length === 0 ? (
+            <SectionBody spacing="inline">
+              <EmptyState variant="inline" align="start" title="No agents in this Team yet" />
+            </SectionBody>
+          ) : rows.length === 0 ? null : narrow ? (
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} as={opens(row) ? "button" : "div"} interactive={opens(row)} onClick={opens(row) ? () => onOpen?.(row.seat) : undefined} lead={face(row)}
@@ -181,7 +181,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               ))}
             </ListRows>
           ) : (
-            <Table variant="framed" className="table-auto">
+            <Table variant="framed" inset="row" className="table-auto">
               <TableHeader><TableRow>
                 <TableHead>Agent</TableHead>
                 <TableHead className="w-[1%]">Card</TableHead>
@@ -213,7 +213,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               </TableBody>
             </Table>
           )}
-        </section>
+        </Section>
       </PaneColumn>
     </div>
   )
