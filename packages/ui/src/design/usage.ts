@@ -61,6 +61,13 @@ export type UsageRule = {
 export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
+    variant: 'stretched',
+    when: 'A positioned row opens something through a named Button with size="content-min" and bordered={false}; use hoverFill={false} when the row paints its hover.',
+    never: 'Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.',
+    because: 'The button keeps its own target and keyboard action; titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.',
+  },
+  {
+    family: 'button',
     variant: 'default',
     when: 'The one action a surface exists to perform — the thing you came to do. At most one per screen, and often none.',
     never: 'A second one on the same surface. Two ink buttons is two primaries, which is none.',
@@ -341,7 +348,7 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'table',
     variant: 'face',
-    when: 'A face tells rows apart, centred beside the whole text block in either density. A table lead keeps a AvatarStack at its full width, including the remainder count.',
+    when: 'A face tells rows apart, centred beside the whole text block in either density. A table lead keeps an AvatarStack at its full width, including the remainder count.',
     never: 'The same decorative glyph repeated on every row. Leave the face out when it identifies nothing.',
     because: 'A face is an identity column, and centring it with the control keeps one anatomy as sentences wrap.',
   },

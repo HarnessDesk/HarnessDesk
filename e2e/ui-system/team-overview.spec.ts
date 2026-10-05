@@ -115,6 +115,18 @@ for (const theme of ['light', 'dark'] as const) {
     })
     expect(delta.face).toBeLessThan(1.5)
     expect(delta.column).toBeLessThan(1.5)
+    const opener=row.getByRole('button',{name:/^Open /})
+    const box=await opener.boundingBox()
+    expect(box!.width).toBeGreaterThanOrEqual(24)
+    expect(box!.height).toBeGreaterThanOrEqual(24)
+    await opener.hover()
+    await expect(opener).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+    for(const title of await row.locator('[title]').all()) {
+     expect(await title.evaluate(el=>{
+      const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)
+      return hit!==null&&el.contains(hit)
+     })).toBe(true)
+    }
    }
   }
  })

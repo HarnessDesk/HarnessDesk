@@ -293,3 +293,24 @@ test('rule: faces — table corners are scoped to the family lead', async ({ pag
   await page.locator('[data-slot="list-row-lead"]').evaluate(el => el.removeAttribute('data-slot'))
   expect((await faceReport(page, [])).findings.filter(f => f.rule === 'corner')).toHaveLength(1)
 })
+
+
+for (const theme of ['light','dark'] as const) {
+ test(`Board assignee rings follow the card surface in ${theme}`,async({page})=>{
+  await page.emulateMedia({colorScheme:theme})
+  await page.goto('/design.html?view=kanban')
+  const faces=page.locator('[data-slot="board-card"] [data-slot="avatar"]')
+  await expect(faces.first()).toBeVisible()
+  for(const palette of ['harnessdesk','editorial']) {
+   await page.evaluate(palette=>document.body.setAttribute('data-hd-palette',palette),palette)
+   for(const face of await faces.all()) {
+    expect(await face.evaluate(el=>{
+     const card=el.closest('[data-slot="board-card"]')!
+     const probe=document.createElement('span');probe.style.backgroundColor='var(--stack-surface,var(--hd-background))';el.append(probe)
+     const ring=getComputedStyle(probe).backgroundColor;probe.remove()
+     return {matched:ring===getComputedStyle(card).backgroundColor,painted:getComputedStyle(el).boxShadow.includes(ring)}
+    })).toEqual({matched:true,painted:true})
+   }
+  }
+ })
+}

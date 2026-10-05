@@ -155,7 +155,7 @@ const TableHead = ({
  * `align` is the cell's half of the column's alignment, which `TableHead`
  * already carries: a column the head sets flush right is a column of figures,
  * so its cells are set flush right in tabular digits and line up under it.
- * A `lead` centres a face on the whole row, including wrapped text. A
+ * A `lead` centres a face on the whole row, including wrapped text. An
  * AvatarStack keeps its intrinsic width, including its remainder reading.
  */
 const TableCell = ({

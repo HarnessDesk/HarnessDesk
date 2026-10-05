@@ -124,7 +124,7 @@ it('a carried finding names the issue first, then its id and blocking reading', 
   expect(container.querySelector('.select-all')?.textContent).toBe('finding-carried')
   const renderedRow = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('finding-carried'))!
   expect(renderedRow.querySelector('[data-slot="row-title"]')?.textContent).toBe('Title of finding-carried')
-  expect([...renderedRow.querySelectorAll('[data-slot="meta-list"] > *')].map(one => one.textContent)).toEqual(['#finding-carried', 'Blocking', 'Raised in round 5 · earlier run'])
+  expect([...renderedRow.querySelectorAll('[data-slot="meta-list"] > *')].map(one => one.textContent)).toEqual(['#finding-carried', 'Blocking', 'Raised in round 5 · of another Goal'])
 })
 
 it('a carried finding not yet admitted on its target agrees with the header: Advisory, never Blocking, when the header counts it out', async () => {
@@ -598,7 +598,7 @@ it('a dropped run’s open finding says where it came from, and is decided again
     decideFindingRun,
   })
   await render(store)
-  expect(container.textContent).toContain('1 open finding here was raised by an earlier run of this Goal')
+  expect(container.textContent).toContain('1 open finding here was raised by another run of this Goal')
   const opener = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-old'))!
   act(() => opener.click())
   await act(async () => {})

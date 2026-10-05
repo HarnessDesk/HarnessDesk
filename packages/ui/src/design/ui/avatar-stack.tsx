@@ -96,7 +96,7 @@ const AvatarStack = ({
       /* Cards supply their own surface; a plain row falls back to the page. */
       className={cn('inline-flex shrink-0 items-center', compact ? 'gap-2' : size === 'sm' ? '-space-x-1' : '-space-x-1.5', className)}
       role="group"
-      aria-label={`${members.length} seats`}
+      aria-label={`${members.length} ${members.length === 1 ? 'member' : 'members'}`}
       {...props}
     >
       <span className={cn('inline-flex', compact ? '-space-x-2' : size === 'sm' ? '-space-x-1' : '-space-x-1.5')}>

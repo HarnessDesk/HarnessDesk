@@ -156,21 +156,55 @@ for(const theme of ['light','dark'] as const) {
 }
 
 for(const theme of ['light','dark'] as const) {
- test(`Teams row buttons cover the readings and keep menu targets independent in ${theme}`,async({page})=>{
+ test(`Teams row readings remain hit targets and buttons keep one hover and focus mark in ${theme}`,async({page})=>{
   await openTeams(page,theme)
   for(const scene of ['active','narrow']) {
    const row=page.locator(`#teams-page-${scene} [data-team-row="team-0"]`)
    const open=row.getByRole('button',{name:'Open Review the checkout retry',exact:true})
    await expect(open).toBeVisible()
+   await row.scrollIntoViewIfNeeded()
+   for(const titled of await row.locator('[title]').all()) {
+    const report=await titled.evaluate(el=>{
+     const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)
+     return {reached:hit!==null && el.contains(hit),title:el.getAttribute('title'),hit:hit?.outerHTML.slice(0,200),box:{x:box.x,y:box.y,width:box.width,height:box.height}}
+    })
+    expect(report.reached,JSON.stringify(report)).toBe(true)
+   }
    await expect(row).not.toHaveAttribute('tabindex')
    await expect(row.locator('[data-slot="list-row-trail"] > span:empty')).toHaveCount(0)
    await open.focus();await expect(open).toBeFocused()
    const point=await row.evaluate(e=>{
-    const reading=e.querySelector('[data-slot="team-detail"]')!.getBoundingClientRect()
+    const detail=e.querySelector('[data-slot="team-detail"]')!
+    const range=document.createRange();range.selectNodeContents(detail)
+    const reading=range.getClientRects()[0]!
     const x=reading.x+reading.width/2,y=reading.y+reading.height/2
-    return {x,y,button:document.elementFromPoint(x,y)?.closest('button')?.getAttribute('aria-label')}
+    return {x,y,reading:Boolean(document.elementFromPoint(x,y)?.closest('[data-slot="team-detail"]'))}
    })
-   expect(point.button).toBe('Open Review the checkout retry')
+   expect(point.reading).toBe(true)
+   const box=await open.boundingBox()
+   expect(box!.height).toBeGreaterThanOrEqual(24)
+   expect(box!.width).toBeGreaterThanOrEqual(24)
+   await open.hover()
+   await expect(open).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+   const markBox=()=>open.evaluate(el=>{
+    const mark=getComputedStyle(el,'::after')
+    return {width:mark.width,height:mark.height}
+   })
+   const beforePress=await markBox()
+   expect(parseFloat(beforePress.width)).toBeGreaterThan(box!.width)
+   await page.mouse.down()
+   expect(await markBox()).toEqual(beforePress)
+   expect(await open.evaluate(el=>({translate:getComputedStyle(el).translate,events:getComputedStyle(el,'::after').pointerEvents}))).toEqual({translate:'none',events:'none'})
+   await page.mouse.up()
+   await open.focus()
+   await expect(open).toHaveCSS('outline-style','none')
+   await page.keyboard.press('Tab')
+   await page.keyboard.press('Shift+Tab')
+   await expect(open).toBeFocused()
+   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).not.toBe('none')
+   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toContain('inset')
+   await page.mouse.click(point.x,point.y)
+   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toBe('none')
    await page.mouse.click(point.x,point.y)
    await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
   }
