@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { isAbsolute, relative, sep } from 'node:path'
 
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -9,6 +10,7 @@ import {
 
 import { PermissionGate } from './permissions.js'
 import type { ContributionStore } from './store.js'
+import { canonicalRoot } from './workspace-scope.js'
 
 /**
  * State every service shares, plus the answer to "which plugin is calling?".
@@ -38,6 +40,8 @@ export interface RegisteredPlugin {
 export class HostRuntime {
   readonly #byInstance = new Map<string, RegisteredPlugin>()
   #workspace: WorkspaceState = { root: null, branch: null }
+  /** The open folder's real path, resolved once: the host admits a call's checkout by its real path. */
+  #openReal: string | null = null
   readonly #contextWorkspace = new AsyncLocalStorage<WorkspaceState>()
 
   constructor(readonly store: ContributionStore) {}
@@ -48,14 +52,26 @@ export class HostRuntime {
 
   setWorkspace(state: WorkspaceState): void {
     this.#workspace = state
+    this.#openReal = state.root === null ? null : canonicalRoot(state.root)
   }
 
-  /** Context resolves in the directory supplied for this conversation or draft. */
+  /**
+   * Context resolution and tool calls run in the checkout the host admitted for the conversation they serve. That
+   * checkout is the open project's when it is the open folder or holds it — the host admits a project's real path, and
+   * the repository itself for a project opened at one of its subfolders — and then the open folder's branch is its
+   * branch. Any other checkout's branch is unknown here.
+   */
   withContextWorkspace<T>(root: string | undefined, run: () => T): T {
-    const workspace = root === undefined || root === this.#workspace.root
+    const workspace = root === undefined
       ? this.#workspace
-      : { root, branch: null }
+      : { root, branch: this.#holdsOpenFolder(root) ? this.#workspace.branch : null }
     return this.#contextWorkspace.run(workspace, run)
+  }
+
+  #holdsOpenFolder(root: string): boolean {
+    if (this.#openReal === null) return false
+    const inside = relative(canonicalRoot(root), this.#openReal)
+    return inside === '' || (inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside))
   }
 
   /** Records a plugin and returns the context metadata that identifies it. */

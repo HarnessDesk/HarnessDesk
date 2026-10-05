@@ -1,61 +1,54 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
-import { ExtensionKernel, type HarnessContext, type HarnessPlugin } from '../src/index.js'
+import { ExtensionKernel, setEditorEngine, type HarnessContext, type HarnessPlugin } from '../src/index.js'
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 60))
 const missing = async (path: string): Promise<boolean> => stat(path).then(() => false, () => true)
 
-test('a tool call reads, lists, writes and names the root of its own checkout, and stays inside it', async (t) => {
-  // The real path: the host compares a call's checkout with the open folder after resolving links (macOS's /var).
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'hd-fs-lanes-')))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const project = join(root, 'project')
-  const one = join(root, 'one')
-  const two = join(root, 'two')
-  await Promise.all([mkdir(project), mkdir(one), mkdir(two)])
-  // The same relative name in every folder with different contents, and one file only that folder has: a read, a
-  // listing or an existence check answered from the wrong folder shows in the answer.
-  await Promise.all([project, one, two].flatMap((folder) => [
-    writeFile(join(folder, 'brief.md'), `${basename(folder)} brief`),
-    writeFile(join(folder, `only-${basename(folder)}.md`), ''),
-  ]))
-  const kernel = new ExtensionKernel()
-  t.after(() => kernel.dispose())
-  kernel.setWorkspace({ root: project, branch: 'main' })
-  await kernel.load({
-    manifest: { id: 'fs-lanes', name: 'File lanes', permissions: { workspace: { read: true, write: true } } },
-    plugin: {
-      name: 'fs-lanes', inject: ['tools', 'fs', 'workspace', 'harness'],
-      apply(ctx: HarnessContext) {
-        ctx.tools.register({
-          name: 'probe', description: '', inputSchema: { type: 'object' },
-          execute: async (args: { delay?: boolean; read?: string; write?: string }) => {
-            if (args.delay) await new Promise((resolve) => setTimeout(resolve, 40))
-            if (args.read !== undefined) return await ctx.fs.read(args.read)
-            if (args.write !== undefined) {
-              await ctx.fs.write(args.write, basename(ctx.workspace.root ?? ''))
-              return 'written'
-            }
-            return JSON.stringify({
-              root: basename(ctx.workspace.root ?? ''),
-              harness: basename(ctx.harness.workspaceRoot ?? ''),
-              branch: ctx.workspace.branch,
-              brief: await ctx.fs.read('brief.md'),
-              names: (await ctx.fs.list('.')).map((entry) => entry.name).sort(),
-              hasOne: await ctx.fs.exists('only-one.md'),
-            })
-          },
-        })
-      },
+type Probe = { delay?: boolean; read?: string; write?: string; open?: string }
+
+/** One tool that reports, through every workspace capability, where its call ran. */
+const probePlugin = {
+  manifest: { id: 'fs-lanes', name: 'File lanes', permissions: { workspace: { read: true, write: true }, editor: true } },
+  plugin: {
+    name: 'fs-lanes', inject: ['tools', 'fs', 'workspace', 'harness', 'editor'],
+    apply(ctx: HarnessContext) {
+      ctx.tools.register({
+        name: 'probe', description: '', inputSchema: { type: 'object' },
+        execute: async (args: Probe) => {
+          if (args.delay) await new Promise((resolve) => setTimeout(resolve, 40))
+          if (args.read !== undefined) return await ctx.fs.read(args.read)
+          if (args.write !== undefined) {
+            await ctx.fs.write(args.write, basename(ctx.workspace.root ?? ''))
+            return 'written'
+          }
+          if (args.open !== undefined) {
+            await ctx.editor.open(args.open)
+            await ctx.editor.decorate(args.open, [])
+            return 'opened'
+          }
+          return JSON.stringify({
+            root: basename(ctx.workspace.root ?? ''),
+            harness: basename(ctx.harness.workspaceRoot ?? ''),
+            branch: ctx.workspace.branch,
+            brief: await ctx.fs.read('brief.md'),
+            names: (await ctx.fs.list('.')).map((entry) => entry.name).sort(),
+            hasOne: await ctx.fs.exists('only-one.md'),
+          })
+        },
+      })
     },
-  } as HarnessPlugin)
+  },
+} as unknown as HarnessPlugin
+
+const probing = async (kernel: ExtensionKernel) => {
+  await kernel.load(probePlugin)
   await settle()
   const id = kernel.list('tool')[0]!.id
-  type Probe = { delay?: boolean; read?: string; write?: string }
   const run = (workspaceRoot: string | undefined, args: Probe = {}) => kernel.invokeTool(id, args, workspaceRoot ? { workspaceRoot } : {})
   const answer = async (workspaceRoot: string | undefined, args: Probe = {}) => {
     const result = await run(workspaceRoot, args)
@@ -64,6 +57,43 @@ test('a tool call reads, lists, writes and names the root of its own checkout, a
     if (part?.type !== 'text') assert.fail('the probe answers in text')
     return JSON.parse(part.text)
   }
+  return { run, answer }
+}
+
+/** A folder per name under one real temp root, each with the same relative name and contents of its own. */
+const folders = async (t: { after: (fn: () => unknown) => void }, ...names: string[]) => {
+  // The real path: the host admits a call's checkout by its real path (macOS's /var is a link).
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'hd-fs-lanes-')))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  for (const name of names) {
+    const folder = join(root, name)
+    await mkdir(folder, { recursive: true })
+    // The same relative name in every folder with different contents, and one file only that folder has: a read, a
+    // listing or an existence check answered from the wrong folder shows in the answer.
+    await writeFile(join(folder, 'brief.md'), `${basename(folder)} brief`)
+    await writeFile(join(folder, `only-${basename(folder)}.md`), '')
+  }
+  return root
+}
+
+test('a tool call reads, lists, writes, shows and names the root of its own checkout, and stays inside it', async (t) => {
+  const root = await folders(t, 'project', 'one', 'two')
+  const [project, one, two] = ['project', 'one', 'two'].map((name) => join(root, name)) as [string, string, string]
+  const shown: string[] = []
+  setEditorEngine({
+    open: async (path: string) => { shown.push(`open ${path}`) },
+    decorate: async (path: string) => { shown.push(`decorate ${path}`) },
+    close: async () => {},
+    applyEdits: async () => ({ hash: '' }),
+    drain: async () => [],
+  })
+  const kernel = new ExtensionKernel()
+  t.after(() => {
+    kernel.dispose()
+    setEditorEngine(null)
+  })
+  kernel.setWorkspace({ root: project, branch: 'main' })
+  const { run, answer } = await probing(kernel)
 
   // Two seats at once, each in its own checkout, while the desk has a third folder open. The first is still working
   // when the second starts, so a root shared between calls would hand the first the second's answers.
@@ -77,9 +107,19 @@ test('a tool call reads, lists, writes and names the root of its own checkout, a
   assert.equal(await readFile(join(one, 'note.md'), 'utf8'), 'one')
   assert.equal(await missing(join(project, 'note.md')), true)
 
-  // The caller's checkout is the boundary, for reading and for writing: the open workspace and a sibling are outside it.
+  // The editor shows the caller's file, so a seat working in its own clone puts that clone's file in front of the
+  // person; with no checkout it is the open workspace's, as before.
+  assert.deepEqual(await run(one, { open: 'brief.md' }), { ok: true, content: [{ type: 'text', text: 'opened' }] })
+  assert.deepEqual(await run(undefined, { open: 'brief.md' }), { ok: true, content: [{ type: 'text', text: 'opened' }] })
+  assert.deepEqual(shown, [
+    `open ${join(one, 'brief.md')}`, `decorate ${join(one, 'brief.md')}`,
+    `open ${join(project, 'brief.md')}`, `decorate ${join(project, 'brief.md')}`,
+  ])
+
+  // The caller's checkout is the boundary, for reading, writing and showing: the open workspace and a sibling are
+  // outside it.
   for (const path of [join(two, 'brief.md'), '../two/brief.md', join(project, 'brief.md')]) {
-    for (const args of [{ read: path }, { write: path.replace('brief.md', 'escaped.md') }]) {
+    for (const args of [{ read: path }, { write: path.replace('brief.md', 'escaped.md') }, { open: path }]) {
       const refused = await run(one, args)
       assert.equal(refused.ok, false, JSON.stringify(args))
       assert.match(refused.ok ? '' : refused.error, /outside the open workspace/)
@@ -87,8 +127,36 @@ test('a tool call reads, lists, writes and names the root of its own checkout, a
   }
   assert.equal(await missing(join(two, 'escaped.md')), true)
   assert.equal(await missing(join(project, 'escaped.md')), true)
+  assert.equal(shown.length, 4)
 
   // A call whose checkout is the open folder knows its branch; a call with no checkout is the open workspace, as before.
   assert.equal((await answer(project)).branch, 'main')
   assert.deepEqual(await answer(undefined), { root: 'project', harness: 'project', branch: 'main', brief: 'project brief', names: ['brief.md', 'only-project.md'], hasOne: false })
+})
+
+test('a call in the open project keeps its branch when the folder was opened through a link or at a subfolder', async (t) => {
+  const root = await folders(t, 'repo', join('repo', 'app'), 'other')
+  const [repo, app, other] = ['repo', join('repo', 'app'), 'other'].map((name) => join(root, name)) as [string, string, string]
+  const alias = join(root, 'alias')
+  await symlink(repo, alias)
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  // As the host admits it: a lane's own checkout when the conversation has one, and otherwise the open project's
+  // checkout by its real path, which for a folder opened inside a repository is the repository itself.
+  let admitted = repo
+  kernel.setShellWorkspaceResolver(async (scope) => scope.workspaceRoot ?? admitted)
+  const { answer } = await probing(kernel)
+
+  kernel.setWorkspace({ root: alias, branch: 'main' })
+  assert.deepEqual(await answer(undefined), { root: 'repo', harness: 'repo', branch: 'main', brief: 'repo brief', names: ['app', 'brief.md', 'only-repo.md'], hasOne: false })
+
+  // Opened at a subfolder, the call runs in the repository, as the shell and the agent do: relative paths resolve from
+  // there, and the branch is still the open folder's.
+  kernel.setWorkspace({ root: app, branch: 'main' })
+  assert.deepEqual(await answer(undefined), { root: 'repo', harness: 'repo', branch: 'main', brief: 'repo brief', names: ['app', 'brief.md', 'only-repo.md'], hasOne: false })
+
+  // A checkout that neither is the open folder nor holds it is another one, whose branch is unknown here.
+  assert.equal((await answer(other)).branch, null)
+  admitted = other
+  assert.equal((await answer(undefined)).branch, null)
 })

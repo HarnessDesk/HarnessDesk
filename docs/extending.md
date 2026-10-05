@@ -107,15 +107,19 @@ day runs through it.
 During a tool call or context resolution, every workspace capability follows
 the calling conversation's checkout, including an isolated lane outside the open
 project: `ctx.shell.run` runs there by default, `ctx.fs` resolves relative
-paths against it and refuses a path outside it, and `ctx.workspace.root` and
-`ctx.harness.workspaceRoot` name it. `ctx.workspace.branch` is `null` in any
-checkout but the open one, because the branch is a fact the host knows only
-about the folder it opened. The host supplies that root through the invocation
-scope; tool arguments cannot replace it. An explicit `cwd` is resolved against
-that root and must remain inside it, with the same manifest grants and symlink
-checks. Without a checkout in the invocation scope, and in hooks and slash
-commands (which do not enter the caller's checkout yet), the open workspace
-remains the default and boundary.
+paths against it and refuses a path outside it, `ctx.editor` shows and marks
+files there, and `ctx.workspace.root` and `ctx.harness.workspaceRoot` name it.
+The host names a checkout by its real path. A checkout that is the open folder,
+or holds it, is the open project's: `ctx.workspace.branch` is the open folder's
+branch there, and for a project opened at a subfolder of its repository the
+call runs in the repository, as the shell and the agent do, so relative paths
+resolve from the repository. In any other checkout the branch is `null`,
+because it is a fact the host knows only about the project it opened. The host
+supplies that root through the invocation scope; tool arguments cannot replace
+it. An explicit `cwd` is resolved against that root and must remain inside it,
+with the same manifest grants and symlink checks. Without a checkout in the
+invocation scope, and in hooks and slash commands (which do not enter the
+caller's checkout yet), the open workspace remains the default and boundary.
 
 The host admits managed lanes and the particular linked checkout the person
 opened, using the project identity captured at open. A new Seat whose requested
@@ -587,8 +591,9 @@ Five things worth knowing:
 - **Showing needs read; editing needs write.** Showing a file displays its
   content, so `open` and `decorate` require `workspace: { read: true }` alongside
   `editor: true`. `applyEdits` needs `workspace: { write: true }` on top — the
-  editor is not a second road to the disk. Paths are confined to the open
-  workspace either way.
+  editor is not a second road to the disk. Paths resolve and are confined as
+  `ctx.fs` paths are: to the checkout the call runs in, and otherwise to the open
+  workspace.
 - **There is no way to read a file's text here.** Use `ctx.fs`, under the same
   gate as your every other read. Opening a file in the editor is not a way to
   see files your manifest did not ask for.
