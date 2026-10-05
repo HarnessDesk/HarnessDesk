@@ -149,7 +149,7 @@ const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
  * account, and how many of those there are is not this test's business. A
  * document-order lookup would have gone stale the moment the header changed.
  */
-const rows = (): { label: string; figure: string | null; state: string | null }[] =>
+const rows = (): { label: string; figure: string | null; extraReadings: number }[] =>
   [...container.querySelectorAll('button, a')]
     .filter((node) => /@acme\.dev/.test(node.textContent ?? ''))
     .map((node) => ({
@@ -158,7 +158,7 @@ const rows = (): { label: string; figure: string | null; state: string | null }[
         [...node.querySelectorAll('[data-slot="text"]')].find((el) =>
           el.textContent?.includes('% left'),
         )?.textContent ?? null,
-      state: node.querySelector('[class*="dot"]')?.getAttribute('data-state') ?? null,
+      extraReadings: node.querySelectorAll('[class*="dot"]').length,
     }))
 
 describe('an account row in Settings', () => {
@@ -166,14 +166,14 @@ describe('an account row in Settings', () => {
     await mount([fableSpent])
     const olivia = rows().find((row) => row.label === 'olivia@acme.dev')
     expect(olivia?.figure).toBe('88% left')
-    expect(olivia?.state).toBe('ready')
+    expect(olivia?.extraReadings).toBe(0)
   })
 
   it('still says out when the account own window is the one that is gone', async () => {
     await mount([reallySpent])
     const work = rows().find((row) => row.label === 'work@acme.dev')
     expect(work?.figure).toBe('0% left')
-    expect(work?.state).toBe('limit')
+    expect(work?.extraReadings).toBe(0)
   })
 
   it('gives each row its own account reading, whatever order they arrive in', async () => {
@@ -183,11 +183,11 @@ describe('an account row in Settings', () => {
     const listed = rows()
     expect(listed.find((row) => row.label === 'olivia@acme.dev')).toMatchObject({
       figure: '88% left',
-      state: 'ready',
+      extraReadings: 0,
     })
     expect(listed.find((row) => row.label === 'work@acme.dev')).toMatchObject({
       figure: '0% left',
-      state: 'limit',
+      extraReadings: 0,
     })
     // And the reverse order says exactly the same thing.
     await act(async () => root.unmount())
@@ -195,7 +195,7 @@ describe('an account row in Settings', () => {
     await mount([fableSpent, reallySpent])
     expect(rows().find((row) => row.label === 'work@acme.dev')).toMatchObject({
       figure: '0% left',
-      state: 'limit',
+      extraReadings: 0,
     })
   })
 

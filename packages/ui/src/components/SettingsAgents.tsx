@@ -25,6 +25,7 @@ import {
   credentialHome,
   TINTS,
   tintOf,
+  runtimeTint,
   type Tint,
 } from '../lib/accounts'
 import {
@@ -54,6 +55,12 @@ import {
 } from './Icons'
 import {
   AccountMark,
+  IconTile,
+  BoardMenuButton,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
   BackLink,
   Button,
   Card,
@@ -75,7 +82,6 @@ import {
   Progress,
   Row,
   RowButton,
-  RowMark,
   RowValue,
   Rows,
   Section,
@@ -447,6 +453,17 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
  * account" nine times is one fact said nine times, and a method is the
  * agent's definition, which its page and Sign in show where it is chosen.
  */
+const withCount = (label: string, count: number): string => count > 0 ? `${label} · ${count}` : label
+
+const AccountRemoveMenu = ({ name, onRemove }: { name: string; onRemove: () => void }) => (
+  <DropdownMenu>
+    <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${name} actions`} />} />
+    <DropdownMenuContent align="end">
+      <DropdownMenuItem variant="destructive" onClick={onRemove}>Remove…</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+)
+
 const AgentRow = ({
   info,
   siblings,
@@ -502,36 +519,23 @@ const AgentRow = ({
     <RowButton
       data-slot="agent-row"
       onClick={onOpen}
-      mark={<RuntimeMark runtime={info} size={17} />}
+      kind="record"
+      face={<IconTile shape="face" tint={runtimeTint(info.id, snapshot.accountsByRuntime, snapshot.accountPrefs)}><RuntimeMark runtime={info} size={16} /></IconTile>}
       title={
         <span className={styles.headName} title={info.presentation.tagline}>
-          <Text role="subject">{info.presentation.name}</Text>
+          <span data-slot="runtime-name" className="truncate">{info.presentation.name}</span>
           {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
+          {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
         </span>
       }
-      {...(who ? { desc: who, truncateDesc: true } : {})}
-      control={
-        /* The default's chip wears the agent's own state: a default that has
-           crashed is not a green one (#131) — and it still names the state
-           beside it, or an amber "Default" leaves why unsaid. A state chip
-           only where the state is not fine, not beside a Sign in that
-           already says it, and not under a heading that already says it:
-           every agent in the "Not answered yet" group is exactly that, so a
-           chip repeating it on each row belongs to the group, as the lack of
-           one does under "Ready". */
-        snapshot.activeRuntime === info.id || (state !== 'ready' && state !== 'unknown' && !signIn) ? (
-          <>
-            {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
-            {state !== 'ready' && state !== 'unknown' && !signIn && <Chip state={state} />}
-          </>
-        ) : undefined
-      }
+      desc={who ?? 'Not signed in'} truncateDesc
+      control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {
             action: (
               <Button
                 size="sm"
-                variant="default"
+                variant="outline"
                 disabled={waiting}
                 onClick={() => (needsField ? onSignIn(info.id) : void store.signInAgent(info.id))}
               >
@@ -703,18 +707,15 @@ const AgentAccounts = ({
           const binding = report ? bindingLane(report.lanes, snapshot.accountPrefs[key]) : null
           const remaining = binding === null ? null : remainingOf(binding)
           const left = remaining === null ? null : Math.round(remaining)
-          // Account-wide only: a spent model-scoped window is a limit you
-          // can step around, and this chip speaks for the whole account.
-          const accountState: Readiness =
-            report && isBlocked(report) ? 'limit' : state === 'broken' ? 'broken' : 'ready'
           const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name)
           const identity = account.email ?? account.label
           return (
             <RowButton
               key={key}
               onClick={() => onOpenAccount(entry.id, key)}
-              mark={
-                <AccountMark data-tint={tintOf(key, snapshot.accountPrefs)}>
+              kind="record"
+              face={
+                <AccountMark size="row" data-tint={tintOf(key, snapshot.accountPrefs)}>
                   <RuntimeMark runtime={info} size={14} />
                 </AccountMark>
               }
@@ -731,7 +732,7 @@ const AgentAccounts = ({
                  moved to the right where the other answers are, and the line
                  is the address again — and is dropped when it would only
                  repeat the name above it, as "API key" over "API key" did. */
-              {...(identity && identity !== name ? { desc: identity } : {})}
+              {...(identity && identity !== name ? { desc: identity, truncateDesc: true } : {})}
               control={
                 <>
                   {account.planType && (
@@ -742,8 +743,7 @@ const AgentAccounts = ({
                   {/* Said, not implied: a bare "48%" reads as spent to half the
                       people who see it, and the meters this comes from fill
                       with what is left. */}
-                  {left !== null && <Text role="muted" numeric className="whitespace-nowrap">{left}% left</Text>}
-                  <Dot state={accountState} />
+                  {left !== null && <Text role="muted" ink="muted" numeric className="whitespace-nowrap">{left}% left</Text>}
                 </>
               }
             />
@@ -756,11 +756,8 @@ const AgentAccounts = ({
         {gateways.map((entry) => (
           <Row
             key={entry.id}
-            mark={
-              <AccountMark>
-                <RuntimeMark runtime={info} size={14} />
-              </AccountMark>
-            }
+            kind="record"
+            face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
             title={
               <span className={styles.rowName}>
                 {entry.slot?.gateway?.name}
@@ -770,9 +767,7 @@ const AgentAccounts = ({
             desc={entry.slot?.gateway?.endpoint}
             truncateDesc
             control={
-              <Button size="sm" variant="ghost" onClick={() => void store.removeAccount(entry.id)}>
-                Remove
-              </Button>
+              <AccountRemoveMenu name={entry.slot?.gateway?.name ?? 'Gateway'} onRemove={() => void store.removeAccount(entry.id)} />
             }
           />
         ))}
@@ -785,6 +780,8 @@ const AgentAccounts = ({
         {pending.map((entry) => (
           <Row
             key={entry.id}
+            kind="record"
+            face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
             title={
               snapshot.healthByRuntime[entry.id]?.state === 'unavailable'
                 ? READINESS_LABEL.broken
@@ -793,9 +790,7 @@ const AgentAccounts = ({
             {...(entry.slot?.home ? { desc: shortPath(entry.slot.home, snapshot.home) } : {})}
             truncateDesc
             control={
-              <Button variant="secondary" size="sm" onClick={() => setRemoving(entry)}>
-                Remove
-              </Button>
+              <AccountRemoveMenu name={entry.name} onRemove={() => setRemoving(entry)} />
             }
           />
         ))}
@@ -805,17 +800,17 @@ const AgentAccounts = ({
         {empties.map((entry) => (
           <Row
             key={entry.id}
+            kind="record"
+            face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
             title="Waiting to be signed in"
             desc="Added, but the sign-in never finished."
             control={
               <>
-                <Button size="sm" variant="default" onClick={() => void store.signInAgent(entry.id)}>
+                <Button size="sm" variant="outline" onClick={() => void store.signInAgent(entry.id)}>
                   <SignInIcon size={13} />
                   Sign in
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => void store.removeAccount(entry.id)}>
-                  Remove
-                </Button>
+                <AccountRemoveMenu name={entry.name} onRemove={() => void store.removeAccount(entry.id)} />
               </>
             }
           />
@@ -826,15 +821,15 @@ const AgentAccounts = ({
              "runs without an account" about an agent that could not start —
              a true sentence about the wrong subject. The page's own "Why it
              will not start" says why, above; here it is only named. */
-          <Row title="Unavailable" desc="Its accounts show once it starts." />
+          <EmptyState variant="row" title="Unavailable" description="Its accounts show once it starts." />
         ) : rows.length === 0 && gateways.length === 0 && info.capabilities.account && status === undefined ? (
           /* Not answered yet (#986): the agent has not said who is signed in,
              so "Not signed in" would be a guess. */
-          <Row title={READINESS_LABEL.unknown} desc="Its accounts show once it answers." />
+          <EmptyState variant="row" title={READINESS_LABEL.unknown} description="Its accounts show once it answers." />
         ) : (
           rows.length === 0 &&
           gateways.length === 0 && (
-            <Row
+            <EmptyState variant="row"
               title={
                 info.capabilities.account
                   ? 'Not signed in'
@@ -845,7 +840,7 @@ const AgentAccounts = ({
               /* The command differs per agent and is the only thing here
                  anyone can act on, so it is earned — and it is set as code,
                  which is what it is. */
-              desc={
+              description={
                 info.capabilities.account ? (
                   /* Whether a session would start is the whole agent's
                      answer, and an extra account still answering may yet
@@ -872,11 +867,11 @@ const AgentAccounts = ({
                  an agent nobody can sign in from this app — a green mark at
                  the end of a sentence explaining that, which is the header's
                  job and was already done there. */
-              control={
+              children={
                 info.capabilities.account && canSignIn ? (
                   <Button
                     size="sm"
-                    variant="default"
+                    variant="outline"
                     onClick={() => (needsField ? onSignIn(info.id) : void store.signInAgent(info.id))}
                   >
                     <SignInIcon size={13} />
@@ -1171,8 +1166,9 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
             /* The square is the agent and the circle is an account, on this
                page and on the list it comes back to. A template has no
                account yet, so it can only be the square. */
-            mark={
-              <RowMark>
+            kind="record"
+            face={
+              <IconTile shape="face" tint={runtimeTint(template.key as RuntimeId, {}, {})}>
                 <RuntimeMark
                   runtime={{
                     id: template.key,
@@ -1181,9 +1177,9 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                       ...(template.brand ? { brand: template.brand } : {}),
                     },
                   }}
-                  size={17}
+                  size={16}
                 />
-              </RowMark>
+              </IconTile>
             }
             title={template.name}
             desc={
@@ -1223,11 +1219,11 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
             }
             control={
               template.registered ? (
-                <Chip state="ready" label="Added" />
+                <RowValue>Added</RowValue>
               ) : (
                 <Button
                   size="sm"
-                  variant="default"
+                  variant="outline"
                   disabled={!template.available || busy !== null}
                   onClick={() => void add(template.key)}
                 >
@@ -1270,12 +1266,12 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                 className={`${styles.registryCell} flex-row`}
                 {...(agent.available ? {} : { 'data-blocked': '' })}
               >
-                <RowMark>
+                <IconTile shape="face" tint={runtimeTint(agent.id as RuntimeId, {}, {})}>
                   <RuntimeMark
                     runtime={{ id: agent.id, presentation: { name: agent.name } }}
-                    size={17}
+                    size={16}
                   />
-                </RowMark>
+                </IconTile>
                 <span className={styles.registryCellText}>
                   <Text role={agent.available ? 'row' : 'muted'} ink={agent.available ? undefined : 'muted'} className={styles.registryCellName}>
                     {agent.name}
@@ -1290,11 +1286,11 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                   {line && <Text role="meta" className={styles.registryCellLine}>{line}</Text>}
                 </span>
                 {agent.registered ? (
-                  <Chip state="ready" label="Added" />
+                  <RowValue>Added</RowValue>
                 ) : agent.available ? (
                   <Button
                     size="sm"
-                    variant="default"
+                    variant="outline"
                     disabled={busy !== null}
                     onClick={() => void addFromRegistry(agent.id)}
                   >
@@ -1481,10 +1477,9 @@ const AccountDetail = ({
                   Manage key…
                 </Button>
               ) : (
-                <Button variant="secondary" size="sm" onClick={() => setConfirmingSignOut(true)}>
-                  <SignOutIcon size={13} />
-                  {info.slot?.removable ? 'Remove…' : 'Sign out…'}
-                </Button>
+                info.slot?.removable
+                  ? <AccountRemoveMenu name={accountName(account, prefs, info.presentation.name)} onRemove={() => setConfirmingSignOut(true)} />
+                  : <Button variant="outline" size="sm" onClick={() => setConfirmingSignOut(true)}><SignOutIcon size={13} />Sign out…</Button>
               )
             }
           >
@@ -2213,8 +2208,7 @@ export const RuntimesSection = ({
              label beside it was announced twice. */
           <div key={section.name} data-group={section.name}>
             <SectionHead
-              name={section.name}
-              action={<Text role="meta" numeric>{section.agents.length}</Text>}
+              name={withCount(section.name, section.agents.length)}
             />
             <Rows>
               {section.agents.map(({ info, siblings, state }) => (

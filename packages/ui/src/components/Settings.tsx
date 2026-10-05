@@ -80,6 +80,11 @@ import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
   BackLink,
+  BoardMenuButton,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
   Button,
   Chip,
   CodeText,
@@ -1512,17 +1517,15 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
       <SectionHead name={withCount('Folders', snapshot.workspaces.length)} />
       <Rows>
         {snapshot.workspaces.length === 0 && (
-          <Row title="No folders opened yet" desc="Open one from File › Open Folder, or ⌘O." />
+          <EmptyState variant="row" title="No folders opened yet" description="Open one from File › Open Folder, or ⌘O." />
         )}
         {snapshot.workspaces.map((workspace) => (
           <RowButton
             key={workspace.path}
-            mark={<FolderIcon size={15} />}
-            title={workspace.name}
+            kind="record"
+            mark={<FolderIcon size={16} />}
+            title={<span className="inline-flex min-w-0 items-center gap-(--hd-space-2)"><span className="truncate">{workspace.name}</span>{workspace.path === snapshot.workspace?.path && <Chip tone="success" size="sm">Current</Chip>}</span>}
             desc={shortPath(workspace.path, snapshot.home)} truncateDesc
-            {...(workspace.path === snapshot.workspace?.path
-              ? { control: <Chip state="ready" label="Current" /> }
-              : {})}
             onClick={() => setOpen(workspace.path)}
           />
         ))}
@@ -1690,13 +1693,17 @@ const WorktreeRows = () => {
         {managed.map((worktree) => (
           <Row
             key={worktree.path}
-            mark={<BranchIcon size={15} />}
+            kind="record"
+            mark={<BranchIcon size={16} />}
             title={worktree.branch ?? '(detached)'}
-            desc={worktree.path} truncateDesc
+            desc={shortPath(worktree.path, snapshot.home)} truncateDesc
             control={
-              <Button size="sm" variant="ghost" onClick={() => setRemoving(worktree)}>
-                Remove…
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${worktree.branch ?? 'Worktree'} actions`} />} />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem variant="destructive" onClick={() => setRemoving(worktree)}>Remove…</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             }
           />
         ))}

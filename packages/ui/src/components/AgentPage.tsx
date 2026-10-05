@@ -420,7 +420,7 @@ export const AgentPage = ({
               title="Remove"
               desc="Moves its folder to the Trash. It can be put back."
               control={
-                <Button variant="destructive" onClick={() => setRemoving(true)}>
+                <Button variant="destructive" size="sm" onClick={() => setRemoving(true)}>
                   Remove…
                 </Button>
               }

@@ -684,7 +684,7 @@ const Preview = () => {
           frame. It is the only way to see the settings surface at the 980px
           it actually opens at. */}
       <Frame id="settings-sheet" title="Settings — the sheet, its nav, and a page">
-        <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
+        <div className="relative h-[940px]" style={{ transform: 'translateZ(0)' }}>
           {/* The page is the caller's, so the dial drives it directly and the
               sheet's own nav rail writes back to the same state — no remount,
               and clicking around in here moves the dial with it. */}
@@ -714,7 +714,7 @@ const Preview = () => {
           top-level screen, never a Settings page — the same containment
           trick as Settings and Usage, both `AppWindow`s too. */}
       <Frame id="agents-roster" title="Agents — the roster, and a selected Agent">
-        <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
+        <div className="relative h-[940px]" style={{ transform: 'translateZ(0)' }}>
           <AgentsWindow
             focus={agentsFocus === 'overview' ? null : agentsFocus}
             onClose={() => {}}
@@ -736,12 +736,12 @@ const Preview = () => {
         />
       </div>
       <Frame id="workspace-project" title="Settings › Workspaces — a project">
-        <div className="max-h-[560px] overflow-y-auto p-4">
+        <div className="p-4">
           <WorkspacesSection focus={PREVIEW_ROOT} />
         </div>
       </Frame>
       <Frame id="workspace-triggers" title="Settings › Workspaces — Triggers on this Mac">
-        <div className="max-h-[560px] overflow-y-auto p-4">
+        <div className="p-4">
           <WorkspacesSection />
         </div>
       </Frame>

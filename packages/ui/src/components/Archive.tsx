@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 
 import type { RuntimeId, RuntimeInfo, SessionId, SessionSummary } from '@harnessdesk/protocol'
 
@@ -8,7 +8,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { Button, EmptyState, Note, PageDescription, PageHead, RefusedAction, Row, Rows, Search, SectionHead } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead } from '../design'
 import styles from './Archive.module.css'
 
 /**
@@ -38,6 +38,7 @@ import styles from './Archive.module.css'
  * greyed for agents that cannot do it. Same pairing as the session row.
  */
 export const ArchiveSection = () => {
+  const refusalId = useId()
   const store = useStore()
   const snapshot = useSnapshot()
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
@@ -149,7 +150,7 @@ export const ArchiveSection = () => {
               name={
                 <>
                   <span className={styles.mark}>
-                    <RuntimeMark runtime={runtime} size={15} />
+                    <RuntimeMark runtime={runtime} size={13} />
                   </span>
                   {runtime.presentation.name} · {rows.length}
                 </>
@@ -162,7 +163,8 @@ export const ArchiveSection = () => {
                 return (
                   <Row
                     key={`${summary.runtime}-${summary.id}`}
-                    mark={<FolderIcon size={15} />}
+                    kind="record"
+                    mark={<FolderIcon size={16} />}
                     title={sessionLabel(summary.title, summary.preview)}
                     desc={`${folderName(summary.cwd)} · last active ${new Date(
                       summary.updatedAt,
@@ -171,28 +173,25 @@ export const ArchiveSection = () => {
                       day: 'numeric',
                       year: 'numeric',
                     })}`}
+                    truncateDesc
                     control={
                       <>
-                        <Button variant="secondary" size="sm" onClick={() => void restore(summary)}>
+                        <Button variant="outline" size="sm" onClick={() => void restore(summary)}>
                           <UndoIcon size={13} />
                           Restore
                         </Button>
-                        <RefusedAction
-                          reason={
-                            deletable
-                              ? undefined
-                              : `${runtime.presentation.name} keeps no way to delete one.`
-                          }
-                        >
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={!deletable}
-                            onClick={() => setDeleting(summary)}
-                          >
-                            Delete…
-                          </Button>
-                        </RefusedAction>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${sessionLabel(summary.title, summary.preview)} actions`} />} />
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem variant="destructive"
+                              disabled={!deletable}
+                              aria-describedby={deletable ? undefined : `${refusalId}-${runtime.id}`}
+                              title={deletable ? undefined : `${runtime.presentation.name} keeps no way to delete one.`}
+                              closeOnClick={deletable}
+                              onClick={() => { if (deletable) setDeleting(summary) }}>Delete…</DropdownMenuItem>
+                            {!deletable && <span className="sr-only" id={`${refusalId}-${runtime.id}`}>{runtime.presentation.name} keeps no way to delete one.</span>}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </>
                     }
                   />

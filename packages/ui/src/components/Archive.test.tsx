@@ -144,38 +144,31 @@ it('offers Restore to everyone and Delete only where it is real', async () => {
     dsh: [summary('b', 'dsh', '/repo/other')],
   })
 
-  const rows = [...document.body.querySelectorAll('button')].filter((node) =>
-    node.textContent?.includes('Delete'),
-  )
-  expect(rows).toHaveLength(2)
-  // One agent can, one cannot, and the one that cannot says so rather than
-  // offering a button that throws after the confirmation promised otherwise.
-  const refused = rows.filter((node) => node.getAttribute('aria-disabled') === 'true')
-  expect(refused).toHaveLength(1)
-  const deleteButton = refused[0]!
-  expect(deleteButton.disabled).toBe(false)
-  expect(deleteButton.tabIndex).toBe(0)
-  expect(deleteButton.textContent).toBe('Delete…')
-  expect(document.getElementById(deleteButton.getAttribute('aria-describedby')!)?.textContent)
+  expect(button('Restore')?.getAttribute('data-variant')).toBe('outline')
+  expect(button('Delete…')).toBeUndefined()
+  await act(async () => (container.querySelector('button[aria-label="Conversation a actions"]') as HTMLButtonElement).click())
+  const allowed = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(allowed.textContent).toBe('Delete…')
+  expect(allowed.getAttribute('aria-disabled')).not.toBe('true')
+  await act(async () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  await act(async () => (container.querySelector('button[aria-label="Conversation b actions"]') as HTMLButtonElement).click())
+  const refused = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(refused.getAttribute('aria-disabled')).toBe('true')
+  expect(refused.hasAttribute('data-disabled')).toBe(true)
+  expect(document.getElementById(refused.getAttribute('aria-describedby')!)?.textContent)
     .toBe('DeepSeek Harness keeps no way to delete one.')
-  await act(async () => {
-    deleteButton.focus()
-    deleteButton.click()
-    deleteButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
-  })
-  expect(document.activeElement).toBe(deleteButton)
+  await act(async () => refused.click())
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(document.body.textContent).not.toContain('Delete conversation')
-  expect(
-    [...document.body.querySelectorAll('button')].filter((n) => n.textContent?.includes('Restore')),
-  ).toHaveLength(2)
+  expect([...container.querySelectorAll('button')].filter(node => node.textContent?.includes('Restore'))).toHaveLength(2)
 })
 
 it('does not offer "Archive instead" for something already archived', async () => {
   const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: true })
   await mount([codex], { codex: [summary('a', 'codex')] })
 
-  act(() => button('Delete…')?.click())
+  await act(async () => (container.querySelector('button[aria-label="Conversation a actions"]') as HTMLButtonElement).click())
+  await act(async () => (document.body.querySelector('[role="menuitem"]') as HTMLElement).click())
   expect(document.body.textContent).toContain('Delete conversation')
   // A button that would do nothing reads as one that failed.
   expect(button('Archive instead')).toBeUndefined()
