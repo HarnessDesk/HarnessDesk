@@ -2444,7 +2444,7 @@ const UsageMeterRowBoard = () => (
               countdown={state === 'unknown' ? '—' : state === 'error' ? 'blocked 3d' : 'in 2 h 14 m'}
               tone={state === 'warning' ? 'warning' : state === 'error' ? 'danger' : 'neutral'}
               standalone={state === 'warning' || state === 'error'} barless={variant === 'barless'}
-              countdownTitle={state === 'unknown' ? undefined : state === 'error' ? 'blocked until Thu, Oct 8, 12:00 PM' : 'resets Mon, Oct 5, 2:14 PM'} />
+              countdownTitle={state === 'unknown' ? undefined : state === 'error' ? 'blocked until Thu 12:00 PM' : 'resets 2:14 PM'} />
           </div>
         ))}
       </div>

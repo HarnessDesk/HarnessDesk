@@ -142,7 +142,7 @@ export const ELEMENTS: readonly UsageRule[] = [
 
   {
     family: 'note',
-    variant: 'action',
+    variant: 'Note · action',
     when: 'One recovery action for the group note: pass action to Note so it follows the sentence and wraps beneath it when narrow.',
     never: 'A button embedded in the sentence, or a separate screen layout for the same note and action.',
     because: 'The explanation stays whole while its recovery control remains reachable at narrow widths.',

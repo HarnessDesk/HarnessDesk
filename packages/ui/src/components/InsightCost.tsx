@@ -34,7 +34,7 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
   const [dimension, setDimension] = useState<InsightDimension | null>(null)
   const [showSources, setShowSources] = useState(false)
   if (loading) return <Note>Reading recorded usage…</Note>
-  if (problem) return <Note tone="warn">Recorded usage could not be read. {problem} <Button size="sm" variant="outline" onClick={onRefresh}>Retry</Button></Note>
+  if (problem) return <Note tone="warn" action={<Button size="sm" variant="outline" onClick={onRefresh}>Retry</Button>}>Recorded usage could not be read. {problem}</Note>
   if (!report) return null
   const selected: InsightBreakdown | null = dimension === null
     ? (report.breakdowns.find((one) => one.dimension === 'seat') ?? report.breakdowns[0] ?? null)

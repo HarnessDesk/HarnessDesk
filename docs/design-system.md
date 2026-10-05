@@ -645,7 +645,7 @@ having written the judgement down.
 
 **Why** — The face says who does the work. A corner qualifies that identity without spending another glyph or a line of row height, and the surface ring keeps it distinct in either theme.
 
-### `action`
+### `Note · action`
 
 **Use** — One recovery action for the group note: pass action to Note so it follows the sentence and wraps beneath it when narrow.
 
