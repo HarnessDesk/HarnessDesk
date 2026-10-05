@@ -185,3 +185,26 @@ newer Codex started, opened after a downgrade):
   is not supported yet", which it leaves to the transcript the host holds;
 - 0.145.0 has no `thread/revert` (0.148.0 added it). It pages a paginated
   thread but refuses to read one whole, and refuses to fork one.
+
+## `mcp-release.mjs`
+
+Starts one thread with one synthetic MCP server in a newly created, isolated
+agent home, unsubscribes as the desk does, then stops the app-server. It runs
+no turn and does not read or edit the person's agent configuration.
+
+```bash
+node script/probe/mcp-release.mjs
+```
+
+Build the Node packages first if this checkout has no compiled client. Measured
+2026-10-04 on codex-cli 0.160.0:
+
+```text
+children after start: 1
+unsubscribe: unsubscribed
+children one second after unsubscribe: 1
+children after app-server exit: 0
+```
+
+The retained child belongs to the runtime process, so idle recycling is the
+release path ([decision](../../docs/decisions.md#finished-seats-release-handles-and-idle-runtimes-release-retained-tools)).
