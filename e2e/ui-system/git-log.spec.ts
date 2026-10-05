@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
+import { emptyGitFixture } from './git-table-fixture'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Page Up and Page Down scroll only the Git history (${theme})`, async ({ page }) => {
@@ -53,6 +55,14 @@ for (const theme of ['light', 'dark'] as const) {
       const style = getComputedStyle(el.querySelector('[data-slot="text"]')!)
       return [style.fontSize, style.fontWeight]
     })).toEqual(['12px', '500'])
+    expect(await header.getByRole('columnheader').first().locator('[data-slot="text"]').evaluate(el => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--hd-table-head-ink)'
+      el.append(probe)
+      const matches = getComputedStyle(el).color === getComputedStyle(probe).color
+      probe.remove()
+      return matches
+    })).toBe(true)
     expect(await rows.first().evaluate(el => getComputedStyle(el).borderBottomWidth)).toBe('1px')
     await rows.nth(1).click()
     await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
@@ -66,7 +76,14 @@ for (const theme of ['light', 'dark'] as const) {
     })).toBe(true)
     expect(await rows.first().locator('[data-role="row"]').evaluate(el => getComputedStyle(el).fontSize)).toBe('13px')
     const merge = rows.locator('[data-role="row"]').filter({ hasText: "Merge branch" })
-    expect(await merge.evaluate(el => getComputedStyle(el).color)).toBe(await rows.first().locator('[data-role="meta"]').last().evaluate(el => getComputedStyle(el).color))
+    expect(await merge.evaluate(el => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--hd-secondary-foreground)'
+      el.append(probe)
+      const matches = getComputedStyle(el).color === getComputedStyle(probe).color
+      probe.remove()
+      return [matches, getComputedStyle(el).fontWeight]
+    })).toEqual([true, '400'])
     const chips = rows.locator('[data-slot="chip"]')
     for (const chip of await chips.all()) {
       expect(await chip.evaluate(el => [el.getBoundingClientRect().height, getComputedStyle(el).borderRadius])).toEqual([18, '5px'])
@@ -91,6 +108,26 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(dialog.getByText(label, { exact: true })).toBeVisible()
     }
   })
+
+  for (const empty of [false, true]) {
+    test(`Git ${empty ? 'empty' : 'populated'} history has valid grid roles (${theme})`, async ({ page }) => {
+      if (empty) await emptyGitFixture(page)
+      await page.goto(`/preview.html?theme=${theme}`)
+      await page.locator('select').filter({ has: page.locator('option[value="git tools"]') }).selectOption('git tools')
+      const frame = page.locator('[data-frame-id="tools-git"]')
+      const grid = frame.getByRole('grid', { name: 'Commits' })
+      if (empty) {
+        await expect(frame.getByText('No commits yet — the history starts with the first one.')).toBeVisible()
+        await expect(grid.getByRole('rowgroup')).toHaveCount(0)
+      } else {
+        await expect(grid.locator('[role="row"][aria-selected]')).toHaveCount(9)
+        expect(await grid.locator('[role="row"][aria-selected]').evaluateAll(rows => rows.every(row => row.tagName === 'DIV'))).toBe(true)
+      }
+      const result = await new AxeBuilder({ page }).include('[data-frame-id="tools-git"]')
+        .withRules(['aria-allowed-role', 'aria-required-children', 'aria-required-parent', 'aria-valid-attr', 'aria-valid-attr-value']).analyze()
+      expect(result.violations).toEqual([])
+    })
+  }
 }
 
 for (const theme of ['light', 'dark'] as const) {

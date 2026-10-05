@@ -1,4 +1,26 @@
 import { expect, test } from '@playwright/test'
+import { framedTableFixture } from './git-table-fixture'
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`framed tables keep interior detail and footer padding (${theme})`, async ({ page }) => {
+    await framedTableFixture(page)
+    await page.goto(`/preview.html?tables&theme=${theme}`)
+    for (const density of ['comfortable', 'compact']) {
+      const table = page.locator(`#table-inset-fixture [data-density="${density}"] table`)
+      await expect(table).toBeVisible()
+      const insets = await table.evaluate(el => {
+        const padding = (cell: Element) => {
+          const css = getComputedStyle(cell)
+          return [parseFloat(css.paddingLeft), parseFloat(css.paddingRight)]
+        }
+        return { head: [...el.querySelectorAll('th')].map(padding), cells: [...el.querySelectorAll('td')].map(padding) }
+      })
+      const interior = density === 'compact' ? 8 : 12
+      expect(insets.head).toEqual([[12, interior], [interior, interior], [interior, interior], [interior, 12]])
+      expect(insets.cells).toEqual([[12, interior], [12, 12], [6, 6], [interior, 12]])
+    }
+  })
+}
 
 /** Surface edges, rather than a snapshot of one utility spelling. Full-bleed
  * viewports and small controls have their own geometry; these are content

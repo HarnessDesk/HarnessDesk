@@ -525,7 +525,6 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-head-size` | `13px` | `12px` |
 | `--hd-table-lead-gap` | `12px` | `10px` |
 | `--hd-table-line-gap` | `2px` | `2px` |
-| `--hd-table-log-head-h` | `28px` | `28px` |
 | `--hd-table-name-size` | `14px` | `13px` |
 | `--hd-table-row-min` | `56px` | `40px` |
 | `--hd-table-row-min-bare` | `44px` | `32px` |

@@ -260,6 +260,7 @@ it('keeps the windowed commit row divided and marks the graph column edge', asyn
   })
   const rows = [...container.querySelectorAll<HTMLElement>('[role="row"][aria-selected]')]
   expect(rows).toHaveLength(2)
+  expect(rows.map(row => row.tagName)).toEqual(['DIV', 'DIV'])
   expect(rows.every((row) => row.className.includes('border-b-(--hd-card-divider,var(--hd-border))'))).toBe(true)
   expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
   expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
@@ -267,6 +268,26 @@ it('keeps the windowed commit row divided and marks the graph column edge', asyn
   expect(rows.every((row) => row.className.includes('pr-(--hd-space-3)'))).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
+})
+
+it('keeps merge subjects in secondary ink at normal weight and headers in secondary ink', async () => {
+  await mount({ log: [commit('aaaa111', 'Merge branch', { parents: ['bbbb222', 'cccc333'] })] })
+  const subject = container.querySelector('[data-merge] [data-role="row"]')!
+  expect(subject.getAttribute('data-ink')).toBe('secondary')
+  expect(subject.getAttribute('data-weight')).toBe('normal')
+  const labels = [...container.querySelectorAll('[role="columnheader"] [data-slot="text"]')]
+  expect(labels.length).toBeGreaterThan(1)
+  expect(labels.every(label => label.getAttribute('data-ink') === 'secondary')).toBe(true)
+})
+
+it('keeps an empty history outside any rowgroup while retaining the grid header', async () => {
+  await mount({ log: [] })
+  const grid = container.querySelector('[role="grid"][aria-label="Commits"]')!
+  expect(grid.getAttribute('aria-rowcount')).toBe('1')
+  expect(grid.querySelectorAll('[role="row"]')).toHaveLength(1)
+  expect(grid.querySelector('[role="rowgroup"]')).toBeNull()
+  expect(grid.querySelector('[data-slot="empty-state"]')?.parentElement?.hasAttribute('tabindex')).toBe(false)
+  expect(container.textContent).toContain('No commits yet')
 })
 
 it('keeps a loaded history Seat actionable in selected detail when the refresh is refused', async () => {

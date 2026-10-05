@@ -201,9 +201,6 @@ const boxedVariants = cva(
            arithmetic assumes (`--hd-table-row-h`), with only the right inset
            a table row keeps clear of its own scrollbar. Distinct from `row`
            earlier in this list, which is a navigation destination sized off `--hd-nav-h`. */
-        'table-row': 'h-(--hd-table-row-h) p-0 pr-(--hd-space-3) whitespace-normal',
-        /* A selectable log row owns square dividers and the table selection
-           fill; an embedded disclosure using only the pitch keeps its corners. */
         'log-row': 'h-(--hd-table-row-h) p-0 pr-(--hd-space-3) whitespace-normal',
         /* The box belongs to a design-system pattern's own stylesheet — a
            settings `RowButton`, `RowChoice` — and the button brings only its
