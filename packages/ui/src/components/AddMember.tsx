@@ -7,7 +7,7 @@ import { agentName, firstReason, inForce, markFor, seatTaken } from '../lib/agen
 import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { BriefIcon } from './Icons'
+import { AgentIcon } from './Icons'
 import styles from './AddMember.module.css'
 
 /** Goal membership has one door: seat an Agent and persist its Seat before its order. */
@@ -105,7 +105,7 @@ export const AddMember = ({
                     title: name,
                     ...(reason ? { description: <Text role="meta" tone="warning">{`Can't seat here · ${reason}`}</Text> } : {}),
                     refused: Boolean(reason),
-                    icon: taken ? <RuntimeMark runtime={markFor(taken, snapshot.runtimes)} size={14} /> : <BriefIcon size={14} />,
+                    icon: taken ? <RuntimeMark runtime={markFor(taken, snapshot.runtimes)} size={14} /> : <AgentIcon size={14} />,
                     trailing: taken ? <Text role="meta">{taken.label}</Text> : reason ? undefined : <Text role="meta">Checking…</Text>,
                   }
                 )

@@ -37,7 +37,7 @@ import { ceilingTitle, flagWords, runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
-import { BriefIcon, PlusIcon, TrashIcon } from './Icons'
+import { AgentIcon, BriefIcon, PlusIcon, TrashIcon } from './Icons'
 import {
   BackLink,
   Banner,
@@ -225,7 +225,7 @@ export const AgentPage = ({
       <DetailHead
         mark={
           <DetailMark>
-            <BriefIcon size={22} />
+            <AgentIcon size={22} />
           </DetailMark>
         }
         name={name}
@@ -851,7 +851,7 @@ const AddSeatDialog = ({
   return (
     <Dialog
       title={`A seat for ${agentName(entry)} on this Mac`}
-      icon={<BriefIcon size={15} />}
+      icon={<AgentIcon size={15} />}
       size="sm"
       onClose={onClose}
       footer={

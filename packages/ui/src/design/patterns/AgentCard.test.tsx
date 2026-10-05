@@ -291,9 +291,7 @@ it('CardShell, CardCrest and CardCrestBody draw the anatomy on their own, for a 
   expect(shell?.dataset['kind']).toBe('pullRequest')
   expect(shell?.className).toContain('text-(--hd-card-foreground)')
   const crest = shell?.firstElementChild as HTMLElement | null
-  expect(crest?.className).toContain('px-3')
-  expect(crest?.className).toContain('pt-3')
-  expect(crest?.className).toContain('pb-2.5')
+  expect(crest?.className).toContain('p-(--hd-inset-row)')
   const lead = crest?.firstElementChild as HTMLElement | null
   expect(lead?.className).toContain('h-(--hd-line)')
   expect(lead?.querySelector('svg')).toBeTruthy()

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { approvalId, runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type SessionQueue, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
+import { AgentIcon, AlertIcon, BranchIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
 import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
@@ -749,7 +749,7 @@ const AppWindowBoard = () => (
           <WindowNavIdentity face={<UserIcon size={20} />} name="Jane Doe with a deliberately long display name" selected={false} onClick={() => {}} />
           <WindowGroup label="Settings">
             <WindowNavItem icon={<SettingsIcon size={14} />} label="Settings" selected onClick={() => {}} />
-            <WindowNavItem icon={<BriefIcon size={14} />} label="Agents" count={3} trail={<WindowNavStateMark><Dot state="signin" /></WindowNavStateMark>} selected={false} onClick={() => {}} />
+            <WindowNavItem icon={<AgentIcon size={14} />} label="Agents" count={3} trail={<WindowNavStateMark><Dot state="signin" /></WindowNavStateMark>} selected={false} onClick={() => {}} />
             <WindowNavItem icon={<UsageIcon size={14} />} label="Usage" count={2} selected={false} onClick={() => {}} />
           </WindowGroup>
         </WindowNav>

@@ -19,7 +19,7 @@ import { Slot } from '../slots/registry'
 import { Composer } from './Composer'
 import {
   BranchIcon,
-  BriefIcon,
+  AgentIcon,
   CheckIcon,
   CommitIcon,
   CompactIcon,
@@ -386,7 +386,7 @@ const ConversationMenu = () => {
               }}
             >
               <PopoverOptionMark>
-                <BriefIcon size={13} />
+                <AgentIcon size={13} />
               </PopoverOptionMark>
               <PopoverOptionBody>
                 <PopoverOptionLabel>Save as an Agent…</PopoverOptionLabel>

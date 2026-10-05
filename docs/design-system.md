@@ -227,7 +227,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-row-min` | `56px` |
 | `--hd-table-row-min-bare` | `44px` |
 | `--hd-table-cell-x` | `12px` |
-| `--hd-table-edge` | `16px` |
+| `--hd-table-edge` | `12px` |
 | `--hd-table-face` | `32px` |
 | `--hd-table-face-radius` | `calc(6px * 4 / 3)` |
 | `--hd-table-lead-gap` | `12px` |
@@ -511,7 +511,7 @@ A table scope owns its density, including list and settings examples. Restating 
 | token | comfortable | compact |
 | --- | --- | --- |
 | `--hd-table-cell-x` | `12px` | `8px` |
-| `--hd-table-edge` | `16px` | `12px` |
+| `--hd-table-edge` | `12px` | `12px` |
 | `--hd-table-end-gap` | `12px` | `8px` |
 | `--hd-table-face` | `32px` | `24px` |
 | `--hd-table-face-radius` | `calc(6px * 4 / 3)` | `6px` |
@@ -948,8 +948,8 @@ reference it is, when the card has one.
 The top of a card: a mark at rest, then a text column beside it.
 
 Not `AgentCard`'s alone — `Publication.tsx`'s forge card was redrawing this
-exact `flex items-start gap-2.5 px-3 pt-3 pb-2.5` by hand, down to the
-pixel, until this crest gave both a single place to read it from.
+same mark-and-text crest by hand until both shared this anatomy.
+The row inset belongs to the crest, including its bottom edge.
 
 ### `CardCrestBody`
 

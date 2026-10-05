@@ -22,10 +22,6 @@
 .back {
   display: none;
 }
-.summary {
-  display: flex;
-  justify-content: flex-end;
-}
 @container (width < 48rem) {
   .detail { display: none; width: 100%; }
   .workspace[data-detail] > .timeline { display: none; }
