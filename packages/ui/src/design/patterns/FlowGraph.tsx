@@ -1,11 +1,11 @@
 import { useId, useMemo, type ReactNode } from 'react'
 
-import { AgentIcon, TerminalIcon, RetryIcon, UserIcon } from '../../components/Icons'
+import { RetryIcon } from '../../components/Icons'
 import {
   FLOW_FAN_INSET, FLOW_FAN_RISE, FLOW_GRID, FLOW_MARGIN, flowLayout,
   type FlowEdge, type FlowLabel, type FlowNode,
 } from '../../lib/flow-layout'
-import { stepName, type FlowModel, type FlowStep, type StepKind } from '../../lib/flow-model'
+import { stepName, type FlowModel, type FlowStep } from '../../lib/flow-model'
 import { ROLE_KIND_WORDS } from '../../lib/shapes'
 import { Card } from '../ui/card'
 import { FlowBaton, FlowStepSurface, FlowFaces, FlowRouteLabel, FlowDoingLine } from '../ui/flow-step'
@@ -15,7 +15,8 @@ import { formatDuration } from '../../components/TurnTail'
 import { IconTile } from '../ui/icon-tile'
 import type { Tint } from '../ui/tone'
 import { EmptyState } from '../ui/empty-state'
-import { ListRow, ListRows } from '../ui/list-row'
+import { ListRows } from '../ui/list-row'
+import { FLOW_STEP_KINDS, FlowStepRow } from './FlowStepRow'
 import { Chip, Row, Rows, SectionHead, Text } from './Settings'
 
 /**
@@ -50,12 +51,6 @@ import { Chip, Row, Rows, SectionHead, Text } from './Settings'
  * says the same live state and supports the step selection shared with the
  * Timeline, so repeated steps keep all their history selected.
  */
-
-const KIND: Readonly<Record<StepKind, { readonly tint: Tint; readonly Mark: typeof AgentIcon }>> = {
-  agent: { tint: 'violet', Mark: AgentIcon },
-  check: { tint: 'sky', Mark: TerminalIcon },
-  person: { tint: 'amber', Mark: UserIcon },
-}
 
 /** Lines, arrowheads and the dots of the grid: tokens, never a colour of their own. */
 const INK = 'var(--hd-muted-foreground)'
@@ -101,7 +96,7 @@ const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, a
   node: FlowNode; step: FlowStep; run?: FlowStepRun; selected: boolean; faces?: ReadonlyMap<string, ReactNode>
   faceTints?: ReadonlyMap<string, Tint>; activity: { text: string; object: string }; now: number; onSelect?: (step: string) => void
 }) => {
-  const { tint, Mark } = KIND[step.kind]
+  const { tint, Mark } = FLOW_STEP_KINDS[step.kind]
   return (
     <div
       data-slot="flow-step"
@@ -212,23 +207,13 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
           <SectionHead name="Steps" />
           <ListRows>
             {model.steps.map((step) => {
-              const { tint, Mark } = KIND[step.kind]
               const run = overlay?.steps.get(step.id)
               const activity = activities.get(step.id)!
               const more = [...(step.count > 1 ? [`${step.count} at once`] : []), ...step.agents]
-              return <ListRow key={step.id} data-step-row={step.id} data-state={run?.state}
-                as={onSelectStep ? 'button' : 'div'} interactive={Boolean(onSelectStep)} selected={selectedStep === step.id}
-                onClick={onSelectStep ? () => onSelectStep(step.id) : undefined}
-                lead={<FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints}
-                  fallback={<IconTile shape={step.kind === 'check' ? 'square' : 'face'} tint={tint}><Mark /></IconTile>} />}
-                title={<span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate">{step.name}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
+              return <FlowStepRow key={step.id} step={step} run={run} selected={selectedStep === step.id}
+                onSelect={onSelectStep} faces={faces} faceTints={faceTints} now={now}
                 subtitle={<span title={titleOf(step, run, activity.object)}>{[step.kind === 'agent' && (run?.state === 'stopped' || run?.state === 'stopping') ? step.line : lineOf(step, run, activity.object), activity.text, ...more].filter(Boolean).join(' · ')}</span>}
-                wrapSubtitle
-                trail={run && run.state !== 'future' ? <>
-                  {run.state === 'working' || run.state === 'waiting' ? <Chip tone={run.state === 'waiting' ? 'warning' : 'info'}>{statusOf(run)}</Chip> : <Text role="meta">{statusOf(run)}</Text>}
-                  <Text role="meta" numeric title={durationOf(run, now) === null ? 'Time not recorded' : undefined}>{durationOf(run, now) ?? '—'}</Text>
-                  <Text role="meta" numeric title={run.runs === null ? 'Run count unavailable' : undefined}>{run.runs === null ? '—' : `${run.runs} ${run.runs === 1 ? 'run' : 'runs'}`}</Text>
-                </> : undefined} />
+              />
             })}
           </ListRows>
         </section>

@@ -35,7 +35,7 @@ const DockedRunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
   }, [store, inspector.input.execution.id, focused])
   useLayoutEffect(() => dock.publish(owner, {
     inspector: { ...inspector, selectedRow: view.selectedRow },
-    steps: { input: inspector.input, selectedRow: view.selectedRow, faces: view.faces,
+    steps: { input: inspector.input, selectedRow: view.selectedRow, faces: view.faces, faceTints: inspector.faceTints,
       selectedStep: view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : null,
       onSelect: view.onSelect, onSelectStep: id => view.onSelect(`step:${id}`) },
   }), [dock, owner, inspector, view.selectedRow, view.faces, view.onSelect])

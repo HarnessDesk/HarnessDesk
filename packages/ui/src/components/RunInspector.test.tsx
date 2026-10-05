@@ -567,15 +567,44 @@ it('shortens the selected check command and keeps the full command on hover', ()
   } finally { view.close() }
 })
 
-it('uses inspector groups, face rows and two-column facts for the Run summary', () => {
+it('uses cards, toned Seat states and two-column facts for the Run summary', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
-    expect(view.container.querySelector('[data-slot="inspector-group"]')?.textContent).toContain('Brief')
-    expect(view.container.querySelector('[data-slot="inspector-row-mark"]')).not.toBeNull()
+    expect([...view.container.querySelectorAll('[data-slot="card-title"]')].map(one => one.textContent)).toEqual(['Brief', 'Seats 2', 'Run'])
+    expect(view.container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tint')).toBe('violet')
+    expect(view.container.querySelector('[data-slot="chip"][data-tone="info"]')?.textContent).toBe('Working')
     expect(view.container.querySelector('[data-slot="key-value"]')).not.toBeNull()
     expect(view.container.querySelector('[data-slot="inspector-footer"]')).not.toBeNull()
+  } finally { view.close() }
+})
+it('gives the observed pull request its state and check counts, and the recorded budgets labelled meters', () => {
+  const fixture = runFixture()
+  const facts = [
+    { kind: 'pr' as const, number: 412, head: 'abc123', state: 'open' as const, url: 'https://example.com/pull/412' },
+    { kind: 'ci' as const, at: 'abc123', checks: [{ name: 'Verify', state: 'failed' as const, url: null }, { name: 'Build', state: 'passed' as const, url: null }] },
+    { kind: 'diff' as const, files: 3, added: 177, removed: 82, from: 'base123', to: 'abc123' },
+  ]
+  const input = { ...fixture, execution: { ...fixture.execution, findings: { version: 1 as const, budget: { rounds: 24, withoutProgress: 3 }, closedRounds: [1, 2, 3], idleRounds: 1, progress: [], series: [], stopped: null, extraRound: null, overrides: [], lastDecision: null } },
+    evidence: { ...fixture.evidence, cards: [{ card: 1, running: [], facts: facts.map((fact, n) => ({ by: null, freshness: { state: 'fresh' as const }, record: { id: `summary-${n}`, observedAt: n, round: 1, fact, checkout: { root: '/work/demo', cwd: '/work/demo', commonDir: '/work/demo/.git', head: 'abc123', branch: 'fix/checkout' } } })) }] } }
+  const view = render({ input, flowFile: <button>Flow file</button> })
+  try {
+    const cards = [...view.container.querySelectorAll('[data-slot="card"]')]
+    expect(cards.map(one => one.querySelector('[data-slot="card-title"]')?.textContent)).toEqual(['Brief', 'Seats 2', 'Pull request #412Open', 'Run'])
+    const pr = cards[2]!
+    expect(pr.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Open')
+    expect(pr.querySelector('[data-slot="card-action"]')?.textContent).toBe('Open')
+    expect(pr.querySelector('[data-slot="code-text"]')?.textContent).toBe('fix/checkout')
+    expect(pr.querySelector('[data-slot="text"][data-tone="danger"]')?.textContent).toBe('1 failed')
+    expect(pr.querySelector('[data-slot="change-stats"]')).not.toBeNull()
+    for (const [label, value, max, reading] of [['Budget', 3, 24, '3 of 24 rounds'], ['Without progress', 1, 3, '1 of 3 rounds']] as const) {
+      const meter = view.container.querySelector(`[role="progressbar"][aria-label="${label}"]`)
+      expect(meter?.getAttribute('aria-valuenow')).toBe(String(value))
+      expect(meter?.getAttribute('aria-valuemax')).toBe(String(max))
+      expect(meter?.textContent).toContain(reading)
+    }
+    expect(cards[3]!.querySelector('[data-slot="card-action"]')?.textContent).toBe('Flow file')
   } finally { view.close() }
 })
 it('omits unavailable summary facts and names the missing recordings once', () => {

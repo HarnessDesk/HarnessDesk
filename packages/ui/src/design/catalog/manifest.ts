@@ -337,7 +337,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   FlowGraph: ['default', 'empty', 'working', 'needs-you', 'loading', 'error'],
-  FlowStepRow: ['default', 'working', 'needs-you', 'done', 'not-reached'],
+  FlowStepRow: ['default', 'working', 'needs-you', 'success', 'inactive'],
   'heat-grid': ['default', 'empty', 'populated'],
   sidebar: [
     'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',

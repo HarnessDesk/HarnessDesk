@@ -1,4 +1,4 @@
-import { AgentIcon } from './Icons'
+import { AgentIcon, PullRequestIcon } from './Icons'
 import { openExternal } from '../lib/desktop'
 import type { FindingRoundPublication, FlowCheckAttempt } from '@harnessdesk/protocol'
 import { attemptWords, runTimeline, type RunTimelineInput } from '../lib/run-timeline'
@@ -16,6 +16,7 @@ export interface RunInspectorProps {
   selectedRow: string | null
   seats: readonly InspectorSeat[]
   faces?: ReadonlyMap<string, ReactNode>
+  faceTints?: ReadonlyMap<string, Tint>
   pullRequest?: { number: number; url: string | null } | null
   flowFile?: ReactNode
   /** Abandons a card; rejects with the host's refusal. Without it a card offers no abandoning. */
@@ -39,7 +40,7 @@ export interface RunInspectorProps {
   attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, Chip, CodeText, GroupLabel, GroupLine, IconTile, KeyValue, KeyValueRow, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, PanelTools, Text } from '../design'
+import { Button, Card, CardHeader, CardTitle, CardAction, CardContent, Chip, CodeText, GroupLabel, IconTile, KeyValue, KeyValueRow, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, PanelTools, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
 import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
@@ -91,7 +92,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, pullRequest, flowFile }: RunInspectorProps) => {
+export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -171,7 +172,7 @@ export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onSto
       {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
     </>
   } else {
-    return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} pullRequest={pullRequest} flowFile={flowFile} />
+    return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} faceTints={faceTints} pullRequest={pullRequest} flowFile={flowFile} />
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <PanelFrame inset="reading"><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
@@ -183,7 +184,7 @@ export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onSto
 }
 
 /** The Run's summary keeps only recorded facts, with one explanation for gaps. */
-const RunSummary = ({ input, seats, faces, pullRequest, flowFile }: RunInspectorProps) => {
+const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution } = input
   const rows = runTimeline(input).rows
   const budget = execution.findings?.budget
@@ -208,39 +209,62 @@ const RunSummary = ({ input, seats, faces, pullRequest, flowFile }: RunInspector
   const diff = facts.find(one => one.record.fact.kind === 'diff' && one.record.fact.to === pr?.head && !one.record.fact.dirty && one.freshness.state === 'fresh')?.record.fact
   const gaps = [!execution.brief && 'brief', !execution.revision && 'Flow revision', !execution.base && 'base', !budget && 'budget',
     recorded.length !== ids.length && 'Seat details', costs.length !== ids.length && 'Seat costs'].filter(Boolean)
+  const closed = execution.findings?.closedRounds.length ?? execution.rounds.filter(one => one.state === 'closed').length
+  const idle = execution.findings?.idleRounds ?? 0
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <PanelFrame>
-      <PanelBody>
-        {execution.brief && <section><GroupLine left="Brief" /><SectionBody spacing="inline"><Words>{execution.brief}</Words></SectionBody></section>}
-        <section><GroupLine left={`Seats ${ids.length}`} />
-          {recorded.map(one => {
-            const state = [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
-            return <PanelRow key={one.id} mark={<IconTile shape="face" size="sm">{faces?.get(one.id) ?? <AgentIcon />}</IconTile>}
-              title={sanitizeText(one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
-              trail={state ? <Text role="meta">{sanitizeText(state)}</Text> : undefined} onClick={one.onOpen} />
-          })}
-          {ids.length === 0 && <SectionBody spacing="inline"><Text role="meta">No Seats opened</Text></SectionBody>}
-        </section>
-        {request && <section><GroupLine left={`Pull request #${request.number}`} right={request.url ? <Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button> : undefined} />
-          <SectionBody spacing="inline"><KeyValue variant="panel">
-            {branch && <KeyValueRow label="Branch" variant="panel" kind="path">{sanitizeText(branch)}</KeyValueRow>}
-            {pr && <KeyValueRow label="State" variant="panel">{wordOf(pr.state)}{prRecord?.freshness.state !== 'fresh' ? ' · Earlier observation' : ''}</KeyValueRow>}
-            {ci?.kind === 'ci' && <KeyValueRow label="Checks" variant="panel">{[...new Set(ci.checks.map(one => one.state))].map(state => `${ci.checks.filter(one => one.state === state).length} ${state}`).join(', ') || 'No checks'}</KeyValueRow>}
+      <PanelBody><div className="flex min-w-0 flex-col gap-(--hd-inset-dense)">
+        {execution.brief && <Card as="section">
+          <CardHeader><CardTitle><Text role="section">Brief</Text></CardTitle></CardHeader>
+          <CardContent><Words>{execution.brief}</Words></CardContent>
+        </Card>}
+        <Card as="section">
+          <CardHeader><CardTitle><Text role="section">{`Seats ${ids.length}`}</Text></CardTitle></CardHeader>
+          <CardContent>
+            {recorded.map(one => {
+              const state = [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
+              return <PanelRow key={one.id} mark={<IconTile shape="face" tint={faceTints?.get(one.id) ?? 'violet'}>{faces?.get(one.id) ?? <AgentIcon />}</IconTile>}
+                title={sanitizeText(one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
+                trail={state ? <RunStateChip state={state} /> : undefined} onClick={one.onOpen} />
+            })}
+            {ids.length === 0 && <SectionBody spacing="inline"><Text role="meta">No Seats opened</Text></SectionBody>}
+          </CardContent>
+        </Card>
+        {request && <Card as="section">
+          <CardHeader>
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2"><PullRequestIcon /><Text role="section">{`Pull request #${request.number}`}</Text>
+              {pr && <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip>}
+            </CardTitle>
+            {request.url && <CardAction><Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button></CardAction>}
+          </CardHeader>
+          <CardContent><KeyValue variant="panel">
+            {branch && <KeyValueRow label="Branch" variant="panel"><CodeText wrap>{sanitizeText(branch)}</CodeText></KeyValueRow>}
+            {pr && prRecord?.freshness.state !== 'fresh' && <KeyValueRow label="Observation" variant="panel">Earlier observation</KeyValueRow>}
+            {ci?.kind === 'ci' && <KeyValueRow label="Checks" variant="panel"><span className="inline-flex flex-wrap items-center gap-1">
+              {[...new Set(ci.checks.map(one => one.state))].map((state, index) => <span key={state} className="inline-flex items-center gap-1">
+                {index > 0 && <Text role="meta">·</Text>}
+                <Text role="meta" numeric tone={state === 'pending' ? 'info' : state === 'cancelled' ? 'neutral' : stateTone(state).tone}>{`${ci.checks.filter(one => one.state === state).length} ${state}`}</Text>
+              </span>)}
+              {ci.checks.length === 0 && <Text role="meta">No checks</Text>}
+            </span></KeyValueRow>}
             {diff?.kind === 'diff' && <KeyValueRow label="Changes" variant="panel" numeric><ChangeStats added={diff.added} removed={diff.removed} /></KeyValueRow>}
-          </KeyValue></SectionBody>
-        </section>}
-        <section><GroupLine left="Run" right={flowFile} /><SectionBody spacing="inline"><KeyValue variant="panel">
-          <KeyValueRow label="Flow" variant="panel">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</KeyValueRow>
-          {execution.base && <KeyValueRow label="Base" variant="panel">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</KeyValueRow>}
-          {input.origin && <KeyValueRow label="Started by" variant="panel">{sanitizeText(input.origin)}</KeyValueRow>}
-          {budget && <KeyValueRow label="Budget" variant="panel" numeric>{`${execution.findings?.closedRounds.length ?? execution.rounds.filter(one => one.state === 'closed').length} of ${limit} rounds`}</KeyValueRow>}
-          {budget && <KeyValueRow label="Without progress" variant="panel" numeric>{`${execution.findings?.idleRounds ?? 0} of ${budget.withoutProgress} rounds`}</KeyValueRow>}
-          {totals.length > 0 && <KeyValueRow label="Cost" variant="panel" numeric>{totals.join(' · ')}{costs.length < ids.length ? ' · Partial' : ''}</KeyValueRow>}
-        </KeyValue></SectionBody>
-        {extra && <SectionBody spacing="inline"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></SectionBody>}
-        </section>
+          </KeyValue></CardContent>
+        </Card>}
+        <Card as="section">
+          <CardHeader><CardTitle><Text role="section">Run</Text></CardTitle>{flowFile && <CardAction>{flowFile}</CardAction>}</CardHeader>
+          <CardContent><KeyValue variant="panel">
+            <KeyValueRow label="Flow" variant="panel">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</KeyValueRow>
+            {execution.base && <KeyValueRow label="Base" variant="panel">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</KeyValueRow>}
+            {input.origin && <KeyValueRow label="Started by" variant="panel">{sanitizeText(input.origin)}</KeyValueRow>}
+            {budget && <KeyValueRow label="Budget" variant="panel" numeric><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></KeyValueRow>}
+            {budget && <KeyValueRow label="Without progress" variant="panel" numeric><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></KeyValueRow>}
+            {totals.length > 0 && <KeyValueRow label="Cost" variant="panel" numeric>{totals.join(' · ')}{costs.length < ids.length ? ' · Partial' : ''}</KeyValueRow>}
+          </KeyValue>
+          {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
+          </CardContent>
+        </Card>
         {gaps.length > 0 && <div data-slot="run-recording-gaps"><SectionBody spacing="inline"><Text as="p" role="meta">{`This Run did not record: ${gaps.join(', ')}.`}</Text></SectionBody></div>}
-      </PanelBody>
+      </div></PanelBody>
       <PanelFooter left="Recorded for this Run" right={`${execution.rounds.length} rounds`} />
     </PanelFrame>
   </div>

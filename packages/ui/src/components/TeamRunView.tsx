@@ -78,15 +78,17 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
   const selectedStep = view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : stepForRow(execution, view.model.rows, view.selectedRow)
   const stepRows = rowsForStep(execution, view.model.rows, selectedStep)
+  const faceTints = new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))
   const flow = drawFlow ? <RunFlow execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
     cards={cards} sessions={snapshot.sessions} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
       const rows = rowsForStep(execution, view.model.rows, id)
       const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
       view.onSelect(latest ?? `step:${id}`)
-    }} faces={view.faces} faceTints={new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))} doing={view.doing} /> : view.flow
+    }} faces={view.faces} faceTints={faceTints} doing={view.doing} /> : view.flow
   return <RunWorkspace {...view} home={snapshot.home} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     home: snapshot.home,
     faces: view.faces,
+    faceTints,
     pullRequest: view.pullRequest,
     flowFile: <RunFlowFile root={goal?.goal.root ?? null} name={execution.document.flow.name} compact />,
     input: { execution, cards, origin, sessions: snapshot.sessions,
