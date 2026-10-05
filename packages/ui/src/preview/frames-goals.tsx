@@ -233,7 +233,7 @@ export const GoalFrames = () => {
       </Frame>
       <Frame id="goal-receipt" title="Goal — its receipt, as recorded when wrapped">
         <div className="max-h-[560px] overflow-y-auto p-4">
-          <GoalReceipt receipt={WRAPPED_WITH_FINDINGS.receipt!} root={PREVIEW_ROOT} onOpenFinding={() => {}} />
+          <GoalReceipt receipt={CARRY_SOURCE.receipt!} root={PREVIEW_ROOT} onOpenFinding={() => {}} />
         </div>
       </Frame>
       <Frame id="goal-accounting" title="Goal — its receipt's own accounting">

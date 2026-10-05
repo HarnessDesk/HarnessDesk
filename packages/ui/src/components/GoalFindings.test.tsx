@@ -111,7 +111,7 @@ it('the open filter shows a plain open row and a repaired-unconfirmed claim, eac
   expect(claimChip?.getAttribute('data-tone')).toBe('warning')
 })
 
-it('a carried row still shows its original origin round, not a new claim', async () => {
+it('a carried finding names the issue first, then its id and blocking reading', async () => {
   const state: FindingsListState = {
     filter: 'all',
     rows: [row('finding-carried', { origin: { goal: 'source-goal', run: 'run-0', round: 5, card: 1, seat: 'seat-writer', at: A } })],
@@ -121,7 +121,9 @@ it('a carried row still shows its original origin round, not a new claim', async
   const { store } = rig(state)
   await render(store)
   expect(container.textContent).toContain('finding-carried')
-  expect(container.textContent).toContain('Raised in round 5')
+  const renderedRow = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('finding-carried'))!
+  expect(renderedRow.querySelector('[data-slot="row-title"]')?.textContent).toBe('Title of finding-carried')
+  expect([...renderedRow.querySelectorAll('[data-slot="meta-list"] > *')].map(one => one.textContent)).toEqual(['#finding-carried', 'Blocking'])
 })
 
 it('a carried finding not yet admitted on its target agrees with the header: Advisory, never Blocking, when the header counts it out', async () => {
@@ -641,4 +643,13 @@ it('keeps a finding title separate from its literal id and lifecycle controls', 
   const button = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('finding-claim-1'))!
   expect(button.querySelector(`.${stylesSettings.rowTitle}`)?.textContent).toBe('Race between two writers on the same lane')
   expect(button.querySelector('[data-slot="row-desc"]')?.textContent).toContain('finding-claim-1')
+})
+
+it('identifies restored findings in the muted list metadata', async () => {
+  const { store } = rig({ filter: 'all', rows: [row('restored', { restored: true }), row('live')], next: null,
+    totals: { all: 2, open: 2, blocking: 2 }, problem: null, loading: false, loadingMore: false, error: null, stale: false })
+  await render(store)
+  const rows = [...container.querySelectorAll('[data-slot="row-desc"]')]
+  expect(rows.find(one => one.textContent?.includes('#restored'))?.textContent).toContain('from a backup')
+  expect(rows.find(one => one.textContent?.includes('#live'))?.textContent).not.toContain('from a backup')
 })

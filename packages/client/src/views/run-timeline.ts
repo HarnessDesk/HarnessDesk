@@ -2,6 +2,7 @@ import { checkRetryRefusal, currentTurn, isBusy, sessionKey, type Session, type 
 import { lifecycleWords } from './words.js'
 import { reviewPublication, runPublication, type ReviewPublication } from './review-publication.js'
 import { wordOf } from './words.js'
+import { runNeedsAttention } from './run-attention.js'
 
 /**
  * Shared plain-data contract: runTimeline(input)
@@ -106,7 +107,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
   const endedAt = currentRunEnd(execution)
   const findingRun = input.findingRun?.run === execution.id && input.findingRun.goal === execution.goal ? input.findingRun : null
   const publication = runPublication(findingRun, input.publicationOn !== false)
-  const needsYou = publication?.needsYou === true || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
+  const needsYou = runNeedsAttention(execution, publication?.needsYou === true)
   const header: RunHeader = { run: execution.id, flow: execution.document.flow.name, state: execution.state, needsYou, publication,
     revision: execution.revision ?? null, continues: execution.continues ?? null, end: execution.end,
     interruptedCheck: execution.state === 'stalled' ? execution.operations.find(one => one.kind === 'check' && one.state === 'uncertain')?.card ?? null : null }

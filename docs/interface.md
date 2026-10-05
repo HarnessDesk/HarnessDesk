@@ -1046,7 +1046,11 @@ since you last opened it here.
 A confirmed review that needs posting makes the Team and its Run **Needs you**.
 The Teams page and Overview read the same Run publication; a read still pending
 does not invent that state.
-Every state reads as quiet coloured text on the sentence's line. A settled
+Working and Needs you use tinted chips; quiet states use plain muted words.
+The wide view groups Teams by folder in a table with Time, Turns and Cost
+columns. Names truncate with their full title on hover; waiting reasons wrap
+whole. Read and unread names keep the same edge beside equal face stacks.
+Below 600px those readings move into the list's second line. A settled
 row carries its Run's end reason when recorded; otherwise it has no second line.
 
 Quiet settled Teams fold into **Ready to wrap** below Active and leave the
@@ -1054,6 +1058,8 @@ sidebar. A dependency or unfinished follow-up keeps a Team active even after
 its Run settles. **Hide** folds settled work out of Active until it changes;
 **Settled** still holds it and offers **Show in Active**. These choices and
 read marks stay on this Mac. Neither changes the Team or what Wrap does.
+Menus stay within their owning window, flipping above a row when there is
+no room below it.
 At a narrow width, this page's short navigation rail becomes a top row,
 then one column when that row no longer fits. Its readings move beneath
 the sentence, leaving a waiting reason whole.
@@ -1067,7 +1073,18 @@ also keeps the Run's reason for waiting on evidence or ending without a rule
 to continue, showing each reason once. The header keeps the revision it
 reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
-the Overview folds them into a disclosure such as **3 done**. A question,
+the Overview folds them into a disclosure such as **3 done**, above the rows.
+Agent names stretch, while the numeric columns align to the end. Card titles
+are names: they truncate within their column and keep their full title on hover. Now disappears
+when no Seat has work or a reason to show, and Cost disappears when every amount is unknown. A done
+Seat's Time is its recorded working duration, fixed when its last turn ended.
+A findings wait, including a ledger that could not be read, raises **Needs you**
+and gives the person and reviewer a row leading to Findings.
+Other evidence waits stay neutral, reading **Waiting** with their recorded
+reason in the Run strip; they do not raise Needs you in the Team or Run. A review waiting
+to be posted keeps its own reason and Findings action, alongside any evidence
+wait. The live line keeps pending release and trigger actions while these rows
+are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.

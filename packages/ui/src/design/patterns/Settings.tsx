@@ -1444,8 +1444,8 @@ export const Monogram = ({ children, className }: { children: ReactNode; classNa
 )
 
 /** Compact facts whose dot separators belong to the role, not to each caller. */
-export const MetaList = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span data-slot="meta-list" className={cx(styles.metaList, className)}>{children}</span>
+export const MetaList = ({ children, className, ink = 'secondary' }: { children: ReactNode; className?: string; ink?: 'secondary' | 'muted' }) => (
+  <span data-slot="meta-list" className={cx(styles.metaList, ink === 'muted' && styles.metaListMuted, className)}>{children}</span>
 )
 
 export const AccountMark = ({

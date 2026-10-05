@@ -1572,8 +1572,8 @@ one conversation-keyed membership list, including Seats a Flow opened and
 conversations whose process is no longer held.
 
 The Run strip uses the Team chat's live line, including a kept answer's way
-on and a pending release. A Seat's face centres on its name's first line,
-with the role beneath.
+on and a pending release. A Seat's face centres on the whole row, or its first cell including the name
+and role.
 
 Attention summaries use ListRow's wrapping sentence slot, so questions and
 approval reasons arrive whole even in a narrow pane. Recorded usage is read
@@ -1629,8 +1629,9 @@ narrow widths, while the brief previews two lines.
 A check that has run more than once draws each recorded result under its row,
 oldest first, as plain lines in the check row's own words (Passed, Failed, Timed
 out, Did not finish, or the Flow's own word). *Run again…* is a quiet link at the
-end of a check row's first line, the row's sibling and never inside its button, so
-a row's own words keep their room. It appears only where the Run and the check
+row's trailing slot, centred on the whole row. The row stays keyboard-selectable
+without nesting its retry button inside another button, so both controls keep
+their own action. It appears only where the Run and the check
 allow it; a refused row shows nothing, so one sentence is not repeated down every
 check row of an ended Run, and the inspector is where the reason is read.
 The `run-view` catalogue board mounts the production component for every Run

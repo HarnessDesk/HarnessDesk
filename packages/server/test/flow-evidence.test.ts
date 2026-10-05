@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { EvidenceView, Freshness } from '@harnessdesk/protocol'
+import { FINDINGS_WAITS, isFindingsWait, WAITING_FINDINGS, WAITING_EXCEPTION, type EvidenceView, type Freshness } from '@harnessdesk/protocol'
 
 import {
   AMBIGUOUS_REVIEWS,
@@ -13,8 +13,6 @@ import {
   renderCardTemplate,
   renderEvidence,
   readyGuard,
-  WAITING_EXCEPTION,
-  WAITING_FINDINGS,
   WAITING_LEDGER,
   type FactChoice,
   type FlowEvidenceContext,
@@ -283,6 +281,35 @@ test('empty blockers with stale checks cannot become ready', () => {
   assert.deepEqual(readyGuard(guards, judged([A], fresh), { ...clear, unreadable: true }), { state: 'waiting', reason: WAITING_LEDGER })
   assert.deepEqual(readyGuard(guards, judged([A], fresh), null), { state: 'waiting', reason: WAITING_LEDGER })
   assert.equal(readyGuard(guards, judged([A], fresh), clear).state, 'matched')
+})
+
+test('every readyGuard findings branch is classified, while evidence and legacy branches stay neutral', () => {
+  const guards = [{ review: 'approve' }]
+  const facts = [view({ kind: 'review', card: 5, round: 3, at: 'sha-a', verdict: 'approve', by: 'seat-judge' })]
+  const context = judged([A], facts)
+  const clear = { blockers: 0, pending: false, unreadable: false }
+  const waits = [
+    readyGuard(guards, context, null),
+    readyGuard(guards, context, { ...clear, unreadable: true }),
+    readyGuard(guards, context, { ...clear, pending: true }),
+    readyGuard(guards, context, { ...clear, blockers: 2 }),
+    readyGuard(guards, judged([A, B], facts), { ...clear, blockers: 3, byCheckout: { [B.checkout.cwd]: 1 } }),
+  ]
+  assert.deepEqual(new Set(waits.flatMap(result => result.state === 'waiting' ? [result.reason] : [])),
+    new Set(FINDINGS_WAITS.map(wait => typeof wait === 'string' ? wait : wait(2))))
+  for (const result of waits) {
+    assert.equal(result.state, 'waiting')
+    if (result.state !== 'waiting') continue
+    assert.equal(isFindingsWait(result.reason), true, result.reason)
+    assert.equal(isFindingsWait(`Rule after-review: ${result.reason}`), true, result.reason)
+  }
+  for (const result of [
+    readyGuard([], context, { ...clear, unreadable: true, pending: true, blockers: 2 }),
+    readyGuard(guards, context),
+    readyGuard(guards, context, clear),
+    readyGuard(guards, judged([A, B], facts), { ...clear, blockers: 1, byCheckout: { [B.checkout.cwd]: 1 } }),
+    ...[{ review: 'approve' }, { check: 'pnpm verify' }, { ci: 'green' as const }, { pr: 'merged' as const }, { diff: true as const }].map(guard => readyGuard([guard], judged([A], []), clear)),
+  ]) assert.equal(isFindingsWait(result.state === 'waiting' ? result.reason : null), false)
 })
 
 test('plain legacy flow unchanged', async (t) => {

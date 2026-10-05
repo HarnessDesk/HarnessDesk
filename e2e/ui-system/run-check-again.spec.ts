@@ -24,8 +24,7 @@ const open = async (page: Page, theme: 'light' | 'dark'): Promise<void> => {
 
 /** The union of a row's title words, as the browser laid them out, and where its control and lead sit. */
 const geometry = (row: Locator) => row.evaluate((el) => {
-  const wrap = el.closest('[data-slot="run-row"]') as HTMLElement
-  const control = wrap.querySelector('button:not([data-row])') as HTMLElement
+  const control = el.querySelector('[data-slot="list-row-trail"] button') as HTMLElement
   const title = el.querySelector('[data-slot="list-row-title"]') as HTMLElement
   // The words themselves — every text node's own boxes — not the boxes of the elements around them.
   const words: DOMRect[] = []
@@ -35,10 +34,10 @@ const geometry = (row: Locator) => row.evaluate((el) => {
     range.selectNodeContents(node)
     words.push(...[...range.getClientRects()].filter((one) => one.width > 0))
   }
-  const box = wrap.getBoundingClientRect()
+  const box = el.getBoundingClientRect()
   const hit = control.getBoundingClientRect()
   return {
-    insideRow: !el.contains(control),
+    separateControls: el.tagName !== 'BUTTON' && control.closest('[data-slot="list-row-trail"]') !== null,
     wordsRight: Math.max(...words.map((one) => one.right)),
     controlLeft: hit.left,
     controlInside: hit.left >= box.left && hit.right <= box.right + 0.5 && hit.top >= box.top && hit.bottom <= box.bottom + 0.5,
@@ -58,7 +57,7 @@ for (const theme of ['light', 'dark'] as const) {
       const again = view.getByRole('button', { name: 'Run again…' })
       await expect(again).toHaveCount(1)
       const g = await geometry(row)
-      expect(g.insideRow, 'the control is the row’s sibling, never inside its button').toBe(true)
+      expect(g.separateControls, 'the trailing control is never nested inside another button').toBe(true)
       expect(g.controlInside, 'the control stays in the row’s box').toBe(true)
       expect(g.controlLeft, 'the control sits clear of the row’s own words').toBeGreaterThan(g.wordsRight)
       expect(Math.abs(g.controlMiddle - g.rowMiddle), 'the control shares the whole row centre').toBeLessThan(1.5)

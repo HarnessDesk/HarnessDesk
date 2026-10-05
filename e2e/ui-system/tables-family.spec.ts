@@ -44,6 +44,8 @@ for (const theme of ['light', 'dark'] as const) {
         const record = root.querySelector('[data-slot="row"][data-kind="record"]')!
         const action = root.querySelector('[data-slot="row-folding"]')!
         const rule = action.querySelector('button')!
+        const stack=root.querySelector('[data-slot="table-cell-lead"] [data-slot="face-stack"]')!
+        const stackLead=stack.parentElement!.getBoundingClientRect()
         return {
           head: root.querySelector('[data-slot="table-head"]')!.getBoundingClientRect().height,
           row: firstCell.getBoundingClientRect().height,
@@ -63,6 +65,9 @@ for (const theme of ['light', 'dark'] as const) {
           recordName: getComputedStyle(record.querySelector('[data-slot="row-title"]')!).fontSize,
           recordFact: getComputedStyle(record.querySelector('[data-slot="row-desc"]')!).fontSize,
           numeric: getComputedStyle(root.querySelector('[data-slot="table-cell"][data-align="end"]')!).textAlign,
+          stackFits:[...stack.querySelectorAll('[data-shape="face"]'),stack.lastElementChild!].every(el=>{
+            const box=el.getBoundingClientRect();return box.left>=stackLead.left-1&&box.right<=stackLead.right+1
+          }),
         }
       })
       expect(geometry.head).toBe(density === 'compact' ? 32 : 40)
@@ -81,6 +86,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(geometry.divider).toBe('1px')
       expect(geometry.innerDivider).toBe('none')
       expect(geometry.numeric).toBe('right')
+      expect(geometry.stackFits).toBe(true)
 
       const interactive = section.locator('[data-interactive]').first()
       const reading = section.locator('[data-slot="table-row"]').nth(3)

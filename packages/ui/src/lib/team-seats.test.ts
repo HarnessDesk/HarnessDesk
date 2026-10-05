@@ -56,3 +56,11 @@ it('retains every receipt Seat by ID for a Run inspector, including repeated con
  ])
  expect(teamSeats(wrapped,team(),run).map(one=>one.record.id)).toEqual(['b'])
 })
+
+it('leads a generated duplicate address with its distinguishing model and effort', async () => {
+ const { seatDisplayName } = await import('./team-seats')
+ const record = {agent:{name:'Implementer'},seatLabel:'Runtime A Model A · High'}
+ expect(seatDisplayName(record, 'Implementer · Runtime A Model A · High', 'Runtime A')).toBe('Model A · High')
+ expect(seatDisplayName(record, 'Jane Doe', 'Runtime A')).toBe('Jane Doe')
+ expect(seatDisplayName(record, 'Implementer', 'Runtime A')).toBe('Implementer')
+})

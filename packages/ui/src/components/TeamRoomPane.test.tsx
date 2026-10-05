@@ -2560,6 +2560,24 @@ const wait = (over: Record<string, unknown>) => ({
   createdAt: 1, resolvedAt: null, notification: 'delivered', ...over,
 })
 
+it('keeps a trigger action and pending release in Overview alongside an actionable findings wait',async()=>{
+  const evidenceReason='Waiting for 3 open blocking findings to be confirmed resolved.'
+  const triggerReason='Review this project’s trigger permission before the next firing.'
+  const releaseReason='Waiting for a Seat to finish before releasing its checkout.'
+  const execution:FlowExecution={version:2,id:'run-1',goal:ROOM,document:FLOW_DOCUMENT,state:'running',
+    rounds:[{n:1,role:'writer',cards:[1],seats:[],state:'waiting-evidence',cause:'seed',evidence:[]}],
+    operations:[],legacyRun:null,reason:`Rule after-review: ${evidenceReason}`,pendingReleaseNote:releaseReason}
+  const {store}=triggerRig([],{},[wait({sentence:triggerReason,action:'open-permissions'})],new Map([[execution.id,execution]]))
+  const askSettings=vi.fn();Object.assign(store,{askSettings})
+  await render(store)
+  const overview=container.querySelector('[data-slot="team-overview"]')!
+  for(const sentence of [evidenceReason,triggerReason,releaseReason])expect(overview.textContent?.split(sentence)).toHaveLength(2)
+  const action=overview.querySelector<HTMLButtonElement>('[data-slot="room-live-line"] button')!
+  expect(action.textContent).toBe('Open')
+  act(()=>action.click());expect(askSettings).toHaveBeenCalledWith('permissions','ceilings')
+  expect(overview.querySelector('[aria-label="Needs you"]')?.textContent).toContain('Open findings')
+})
+
 /**
  * A trigger's own named waits — a held message, a held action, a question
  * nobody answered — have one home in the new design: the thread's live line
@@ -3567,11 +3585,13 @@ it('warns when a Run reads only part of the findings ledger', async () => {
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('One finding could not be read.')
 })
 
-it('an unrouted settled Run keeps the Team and its Overview strip Needs you', async () => {
+it('an unrouted settled Run says Needs you once and keeps its Overview reason', async () => {
   const execution = { version: 2, id: 'unrouted-run', goal: ROOM, state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'No rule follows no-pr.', operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   await render(store)
-  expect(container.querySelector('[aria-label="Run"] [data-slot="chip"]')!.textContent).toBe('Needs you')
+  expect(container.querySelector('[data-slot="room-head"]')?.textContent ?? container.textContent).toContain('Needs you')
+  expect(container.querySelector('[aria-label="Run"]')?.textContent).toContain('No rule follows no-pr.')
+  expect(container.querySelector('[aria-label="Run"] [data-slot="chip"]')).toBeNull()
 })
 
 it('does not carry a Run again dialog into another Team in the same pane', async () => {

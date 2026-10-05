@@ -98,6 +98,11 @@ describe('Icons', () => {
       expect(Icons).not.toHaveProperty(name)
     }
   })
+
+  it('keeps a columns glyph for the Side by side destination', () => {
+    const markup = renderToStaticMarkup(<Icons.SideBySideIcon />)
+    expect(markup).toContain('lucide-columns-2')
+  })
 })
 
 describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', () => {

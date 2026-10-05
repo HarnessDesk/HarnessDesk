@@ -1737,3 +1737,5 @@
   flex: none;
   display: inline-flex;
 }
+
+.metaListMuted { color: var(--hd-muted-foreground); }
