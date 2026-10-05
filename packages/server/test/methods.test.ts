@@ -6,7 +6,7 @@ import test from 'node:test'
 
 import { tempDir } from './scratch.js'
 
-import { knownMethods, runtimeId, sessionId, type AgentRuntime } from '@harnessdesk/protocol'
+import { knownMethods, runtimeId, sessionId, type AgentRuntime, type RuntimeHealth } from '@harnessdesk/protocol'
 
 import { dispatch, hostMethods, methodDomains, type HostContext } from '../src/methods/index.js'
 
@@ -83,10 +83,14 @@ test('opening in a folder without runtime board tools sends a session-linked not
   assert.equal(pushed.length, 2, 'the resumed folder is also deduplicated')
 })
 
-const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean } = {}): AgentRuntime =>
+const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean; health?: RuntimeHealth; signedOut?: boolean } = {}): AgentRuntime =>
   ({
     info: { id: runtimeId(id), presentation: { name: `Agent ${id}` } },
-    health: () => ({ state: options.ready === false ? 'starting' : 'ready' }),
+    health: () => options.health ?? ({ state: options.ready === false ? 'starting' : 'ready' }),
+    getAccount: async () => ({
+      accounts: options.signedOut ? [] : [{ kind: 'apiKey', label: 'Demo account' }],
+      signInMethods: [{ id: 'demo', label: 'Sign in', flow: 'external' }],
+    }),
     ...(options.processes ? { processes: { tag: id } } : {}),
   }) as unknown as AgentRuntime
 
@@ -140,6 +144,52 @@ test('a terminal with nowhere to run is refused in the name of the runtime that 
     dispatch(ctx, 'terminal/open', { runtime: acp.info.id, cwd: '/tmp', size: { cols: 80, rows: 24 } }),
     /Agent acp does not run commands for the interface/,
   )
+})
+
+for (const state of ['ready', 'idle'] as const) {
+  test(`a terminal prefers a ${state} provider over unavailable and signed-out providers`, async () => {
+    const root = tempDir('hd-terminal-provider-')
+    const requested = fakeRuntime('conversation')
+    const unavailable = fakeRuntime('unavailable', { processes: true,
+      health: { state: 'unavailable', reason: 'crashed', message: 'Not running' } })
+    const signedOut = fakeRuntime('signed-out', { processes: true, health: { state }, signedOut: true })
+    const idle = fakeRuntime('idle', { processes: true, health: { state: 'idle' } })
+    const provider = fakeRuntime('provider', { processes: true, health: { state } })
+    const ctx = contextWith({
+      runtimes: { resolve: () => requested, all: () => [requested, unavailable, signedOut, ...(state === 'ready' ? [idle] : []), provider] },
+      workspaces: { openRoots: () => [root] },
+      terminals: { open: async () => 'term-1' },
+    })
+    assert.deepEqual(await dispatch(ctx, 'terminal/open', {
+      runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+    }), { terminalId: 'term-1', runtime: provider.info.id })
+  })
+}
+
+test('a terminal refuses when every process provider is unavailable or signed out', async () => {
+  const requested = fakeRuntime('conversation')
+  const unavailable = fakeRuntime('unavailable', { processes: true,
+    health: { state: 'unavailable', reason: 'crashed', message: 'Not running' } })
+  const signedOut = fakeRuntime('signed-out', { processes: true, health: { state: 'idle' }, signedOut: true })
+  const ctx = contextWith({ runtimes: { resolve: () => requested, all: () => [requested, unavailable, signedOut] } })
+  await assert.rejects(dispatch(ctx, 'terminal/open', {
+    runtime: requested.info.id, cwd: '/tmp', size: { cols: 80, rows: 24 },
+  }), /no other runtime is available/)
+})
+
+test('a terminal can use a provider that requires no sign-in', async () => {
+  const root = tempDir('hd-terminal-local-')
+  const requested = fakeRuntime('conversation')
+  const provider = fakeRuntime('local', { processes: true, health: { state: 'idle' } })
+  provider.getAccount = async () => ({ accounts: [], signInMethods: [] })
+  const ctx = contextWith({
+    runtimes: { resolve: () => requested, all: () => [requested, provider] },
+    workspaces: { openRoots: () => [root] },
+    terminals: { open: async () => 'term-1' },
+  })
+  assert.deepEqual(await dispatch(ctx, 'terminal/open', {
+    runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+  }), { terminalId: 'term-1', runtime: provider.info.id })
 })
 
 /**

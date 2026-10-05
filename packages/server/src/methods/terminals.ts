@@ -9,11 +9,22 @@ export const terminalMethods = {
     const requested = ctx.runtimes.resolve(params)
     // A terminal is a workbench tool, not a property of the conversation's
     // backend. When the conversation's runtime runs no processes (ACP
-    // agents don't), any ready runtime that does hosts the shell — and the
-    // pane is told whose sandbox that is, so the hint stays truthful.
-    const provider = requested.processes
-      ? requested
-      : ctx.runtimes.all().find((candidate) => candidate.processes && candidate.health().state === 'ready')
+    // agents don't), prefer a ready provider, then an idle one whose managed
+    // process surface will restart it. The pane names the hosting sandbox.
+    let provider = requested.processes ? requested : undefined
+    if (!provider) {
+      const candidates = ctx.runtimes.all()
+      for (const state of ['ready', 'idle'] as const) {
+        for (const candidate of candidates) {
+          if (!candidate.processes || candidate.health().state !== state) continue
+          const account = await candidate.getAccount()
+          if (account.accounts.length === 0 && account.signInMethods.length > 0) continue
+          provider = candidate
+          break
+        }
+        if (provider) break
+      }
+    }
     if (!provider?.processes) {
       throw new Error(
         `${requested.info.presentation.name} does not run commands for the interface, ` +
