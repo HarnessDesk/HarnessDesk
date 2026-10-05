@@ -312,17 +312,19 @@ const TriggerRowGroup = ({
   const on = trigger.state !== 'off'
   const stale = trigger.state === 'changed' || trigger.state === 'refused'
   const gap = trigger.source?.state === 'gap' ? trigger.source : null
+  const stateChip = trigger.state === 'changed' ? <Chip tone="warning">Changed</Chip>
+    : trigger.state === 'refused' ? <Chip tone="danger">Refused</Chip>
+      : trigger.state === 'paused' ? <Chip tone="info">Paused</Chip>
+        : null
   return (
     <>
       <ListRow
         density="compact"
-        title={title}
+        title={<>{title} {stateChip}</>}
+        wrapTitle
         {...(desc ? { subtitle: desc, wrapSubtitle: true } : {})}
         trail={(
           <span className="inline-flex items-center gap-(--hd-space-2)">
-            {trigger.state === 'changed' && <Chip tone="warning">Changed</Chip>}
-            {trigger.state === 'refused' && <Chip tone="danger">Refused</Chip>}
-            {trigger.state === 'paused' && <Chip tone="info">Paused</Chip>}
             {stale && trigger.definition && (
               <Button variant="ghost" size="sm" disabled={busy} onClick={onRearm} title="Review what it runs now, and arm it again">
                 Review

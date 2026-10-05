@@ -119,6 +119,19 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await checks.locator('[data-slot="list-row-trail"]').allTextContents()).toEqual(['Approved', 'Changed', 'Not approved', 'Not offered'])
     const triggers = page.locator('[data-frame-id="project-triggers"]')
     await expect(triggers.locator('[role="switch"]')).toHaveCount(6)
+    for (const title of await triggers.locator('[data-slot="list-row-title"]').all()) {
+      const reading = await title.evaluate(node => {
+        const box = node.getBoundingClientRect()
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        return {
+          whiteSpace: getComputedStyle(node).whiteSpace,
+          contained: [...range.getClientRects()].every(rect => rect.left >= box.left - 1 && rect.right <= box.right + 1 && rect.bottom <= box.bottom + 1),
+        }
+      })
+      expect(reading.whiteSpace).toBe('normal')
+      expect(reading.contained).toBe(true)
+    }
     await expect(triggers.locator('[data-slot="chip"]')).toHaveText(['Changed', 'Refused', 'Paused'])
     for (const [id, state, tone, review] of [
       ['changed-review', 'Changed', 'warning', true],
