@@ -144,12 +144,12 @@ const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
 /**
  * One row per account, in the order the page lists them.
  *
- * The figure and the dot are looked up *inside* the row, never across the
- * page: this section draws dots in its block header and on rows that have no
+ * The figure and attention state are looked up *inside* the row, never across the
+ * page: this section draws states in its block header and on rows that have no
  * account, and how many of those there are is not this test's business. A
  * document-order lookup would have gone stale the moment the header changed.
  */
-const rows = (): { label: string; figure: string | null; extraReadings: number }[] =>
+const rows = (): { label: string; figure: string | null; state: string | null }[] =>
   [...container.querySelectorAll('button, a')]
     .filter((node) => /@acme\.dev/.test(node.textContent ?? ''))
     .map((node) => ({
@@ -158,7 +158,7 @@ const rows = (): { label: string; figure: string | null; extraReadings: number }
         [...node.querySelectorAll('[data-slot="text"]')].find((el) =>
           el.textContent?.includes('% left'),
         )?.textContent ?? null,
-      extraReadings: node.querySelectorAll('[class*="dot"]').length,
+      state: node.querySelector('[data-state="limit"]')?.getAttribute('data-state') ?? null,
     }))
 
 describe('an account row in Settings', () => {
@@ -166,14 +166,14 @@ describe('an account row in Settings', () => {
     await mount([fableSpent])
     const olivia = rows().find((row) => row.label === 'olivia@acme.dev')
     expect(olivia?.figure).toBe('88% left')
-    expect(olivia?.extraReadings).toBe(0)
+    expect(olivia?.state).toBeNull()
   })
 
   it('still says out when the account own window is the one that is gone', async () => {
     await mount([reallySpent])
     const work = rows().find((row) => row.label === 'work@acme.dev')
     expect(work?.figure).toBe('0% left')
-    expect(work?.extraReadings).toBe(0)
+    expect(work?.state).toBe('limit')
   })
 
   it('gives each row its own account reading, whatever order they arrive in', async () => {
@@ -183,11 +183,11 @@ describe('an account row in Settings', () => {
     const listed = rows()
     expect(listed.find((row) => row.label === 'olivia@acme.dev')).toMatchObject({
       figure: '88% left',
-      extraReadings: 0,
+      state: null,
     })
     expect(listed.find((row) => row.label === 'work@acme.dev')).toMatchObject({
       figure: '0% left',
-      extraReadings: 0,
+      state: 'limit',
     })
     // And the reverse order says exactly the same thing.
     await act(async () => root.unmount())
@@ -195,7 +195,7 @@ describe('an account row in Settings', () => {
     await mount([fableSpent, reallySpent])
     expect(rows().find((row) => row.label === 'work@acme.dev')).toMatchObject({
       figure: '0% left',
-      extraReadings: 0,
+      state: 'limit',
     })
   })
 

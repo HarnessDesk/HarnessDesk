@@ -700,7 +700,7 @@ const AgentAccounts = ({
           // What is left is the account's binding window — the tightest of the
           // *account-wide* lanes, which is what `bindingLane` picks. Taking the
           // tightest of every lane instead read `0% left` beside a chip that
-          // correctly said the account was fine, because a spent model-scoped
+          // correctly says the account is fine, because a spent model-scoped
           // week is the tightest lane and is not the account's figure. Rounded
           // the way `describeLane` rounds, so this row and the Dashboard cannot
           // disagree about the same account.
@@ -735,6 +735,7 @@ const AgentAccounts = ({
               {...(identity && identity !== name ? { desc: identity, truncateDesc: true } : {})}
               control={
                 <>
+                  {report && isBlocked(report) && <Chip state="limit" />}
                   {account.planType && (
                     <Chip tint={tintOf(key, snapshot.accountPrefs)}>
                       {account.planType}
