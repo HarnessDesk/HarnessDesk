@@ -64,6 +64,8 @@ export interface UsageServiceOptions {
   }
   /** Called for each report as it lands, so a slow source never delays a fast one. */
   readonly onReport: (report: UsageReport) => void
+  /** Called once when a cached report's source goes silent, so clients drop that account's previous figures. */
+  readonly onRemoved?: (runtime: RuntimeId, account: string | null) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
   /**
@@ -392,6 +394,7 @@ export class UsageService {
       // balance counts as something: pay-as-you-go has no window to run out
       // of, and "$4.58 left" is the whole answer for an account like that.
       this.#cache.delete(id)
+      if (previous && !this.#disposed) this.#options.onRemoved?.(id, previous.account)
       return null
     }
 

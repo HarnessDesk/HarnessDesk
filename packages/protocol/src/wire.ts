@@ -2797,6 +2797,11 @@ export type WireNotification =
       readonly method: 'usage/updated'
       readonly params: { readonly report: UsageReport }
     }
+  | {
+      /** A previously reported account now has nothing to report. Provider errors retain the last reading instead. */
+      readonly method: 'usage/removed'
+      readonly params: { readonly runtime: RuntimeId; readonly account: string | null }
+    }
   | { readonly method: 'usage/scanProgress'; readonly params: { readonly progress: ScanProgress } }
   | {
       /**

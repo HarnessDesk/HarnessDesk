@@ -132,3 +132,39 @@ describe('usage alerts as the host pushes them, one account at a time', () => {
     expect(store.getSnapshot().usage).toHaveLength(1)
   })
 })
+
+describe('usage reports that go silent', () => {
+  const remove = (account: string | null, runtime = 'codex'): void => {
+    push({ method: 'usage/removed', params: { runtime: runtimeId(runtime), account } })
+  }
+
+  it('removes only the reported account, including its previous failure', async () => {
+    const silent = { ...report('work', 70), error: { message: 'the quota service is down' } }
+    const other = report('personal', 70, 'codex-2')
+    answers['usage/refresh'] = [silent, other]
+    await store.refreshUsage()
+    remove('work')
+    expect(store.getSnapshot().usage).toEqual([other])
+    answers['usage/refresh'] = []
+    await store.refreshUsage(runtimeId('codex'))
+    expect(store.getSnapshot().usage).toHaveLength(1)
+    remove('work')
+    expect(store.getSnapshot().usage).toHaveLength(1)
+    expect(store.getSnapshot().notices).toEqual([])
+  })
+
+  it('normalizes anonymous account spellings and accepts a returning reading', () => {
+    push({ method: 'usage/updated', params: { report: report(null, 70) } })
+    remove('  ')
+    expect(store.getSnapshot().usage).toEqual([])
+    push({ method: 'usage/updated', params: { report: report(null, 85) } })
+    expect(store.getSnapshot().usage).toHaveLength(1)
+    expect(store.getSnapshot().notices).toEqual([])
+  })
+
+  it('does not drop a different account now held by the runtime', () => {
+    push({ method: 'usage/updated', params: { report: report('new', 70) } })
+    remove('old')
+    expect(store.getSnapshot().usage).toHaveLength(1)
+  })
+})

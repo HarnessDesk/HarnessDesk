@@ -735,6 +735,14 @@ export class AppStore {
           this.#patch({ usage })
           this.#announceUsage(before, usage)
         }
+        if (notification.method === 'usage/removed') {
+          const { runtime, account } = notification.params
+          this.#patch({
+            usage: this.#snapshot.usage.filter(
+              (entry) => entry.runtime !== runtime || usageAccount(entry) !== usageAccount({ account }),
+            ),
+          })
+        }
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
         }
