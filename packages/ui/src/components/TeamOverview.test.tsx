@@ -205,3 +205,9 @@ it('does not infer a live evidence wait from an ended Run’s older rule reason'
  act(()=>root.render(<TeamOverview model={summary} runReason="Rule after-review: Waiting for its evidence." onFindings={()=>{}}/>))
  expect(box.querySelector('[aria-label="Needs you"]')).toBeNull()
 })
+
+it('keeps a blocked Seat’s reason in Now when nobody is working',()=>{
+ render([row('Alpha',{state:'needs-you',reason:'Choose a target',card:{id:1,title:'Build the change'}})])
+ expect([...box.querySelectorAll('th')].map(one=>one.textContent)).toContain('Now')
+ expect(box.querySelector('[data-seat="Alpha"] [data-slot="seat-doing"]')?.textContent).toBe('Choose a target')
+})

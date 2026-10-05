@@ -1067,7 +1067,7 @@ reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**, above the rows.
 Agent names stretch, while the numeric columns align to the end. Now disappears
-when no Seat is live, and Cost disappears when every amount is unknown. A done
+when no Seat has work or a reason to show, and Cost disappears when every amount is unknown. A done
 Seat's Time is its recorded working duration, fixed when its last turn ended.
 A findings wait gives the person and reviewer a row leading to Findings;
 other evidence waits lead to Run with their recorded reason. A review waiting

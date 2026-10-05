@@ -100,7 +100,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const unavailableReason = (row: SeatRow) => unavailable?.has(row.seat) && row.reason ? words(row.reason) : null
   const role = (row: SeatRow) => unavailableReason(row) ?? [row.role ? stepName(words(row.role)) : null, runtimeNames?.get(row.seat)].filter(Boolean).join(' · ')
   const opens = (row: SeatRow) => Boolean(onOpen && !unavailable?.has(row.seat))
-  const showNow = model.seats.some(row => row.state === 'working' && !cardState(row))
+  const showNow = model.seats.some(row => (row.state === 'working' || row.reason !== null)
+    && !cardState(row) && !unavailable?.has(row.seat) && !model.needsYou.some(item => item.seat === row.seat))
   const showCost = model.seats.some(row => row.cost !== null)
   const elapsed = (row: SeatRow) => {
     const stopped = cardState(row)
