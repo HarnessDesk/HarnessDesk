@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { FlowExecution, GoalView, TriggerArmPreview, TriggerHistoryPage, TriggerProjectView } from '@harnessdesk/protocol'
+import type { ConfigOption, FlowExecution, GoalView, TriggerArmPreview, TriggerHistoryPage, TriggerProjectView } from '@harnessdesk/protocol'
 
 import { intakeDesk, until, type IntakeDesk } from './fixtures/intake-host.js'
 import { sha } from './fixtures/intake-forge.js'
@@ -161,3 +161,58 @@ test('a firing no seat can ever take as things stand is set aside with the chang
   assert.equal(second?.outcome, 'set-aside')
   assert.doesNotMatch(second?.reason ?? '', /its limit/)
 })
+
+
+for (const failure of ['idle', 'timeout', 'unread'] as const) {
+  test(`${failure} option reads keep an explicit-effort trigger armed and hold dispatch until readable`, E2E, async (t) => {
+    const d = await intakeDesk({
+      prefer: 'fake=fake-1/high', seatReadDeadlineMs: 10,
+      before: (runtime) => {
+        const effort: ConfigOption = { type: 'select', id: 'effort', label: 'Effort', currentValue: 'high', choices: [{ value: 'high', label: 'High' }] }
+        const read = runtime.defaultSessionOptions.bind(runtime)
+        runtime.defaultSessionOptions = async (cwd, values) => {
+          const { effort: _effort, ...rest } = values ?? {}
+          return [...await read(cwd, rest), effort]
+        }
+        const open = runtime.createSession.bind(runtime)
+        runtime.createSession = async (options) => {
+          const session = await open(options)
+          const optionsOf = session.options.bind(session)
+          session.options = () => [...optionsOf(), effort]
+          const set = session.setOption.bind(session)
+          session.setOption = async (id, value) => { if (id === 'effort') assert.equal(value, 'high'); else await set(id, value) }
+          return session
+        }
+      },
+    })
+    t.after(() => d.stop())
+    await arm(d)
+    const read = d.runtime.defaultSessionOptions.bind(d.runtime)
+    if (failure === 'idle') d.runtime.setHealth({ state: 'idle' })
+    else d.runtime.defaultSessionOptions = failure === 'timeout'
+      ? () => new Promise(() => {})
+      : async () => { throw new Error('Session options are not readable yet.') }
+    const listed = await d.host.call('trigger/list', { root: d.repo.dir }) as TriggerProjectView
+    assert.equal(listed.triggers[0]!.state, 'armed', 'availability preserves consent')
+    const preview = await d.host.call('trigger/preview', { root: d.repo.dir, id: 'review' }) as TriggerArmPreview
+    assert.equal(preview.token, null, 'a new arm still waits for readable options')
+    assert.ok(preview.flow?.problems.some((problem) => problem.availability && /options/.test(problem.text)))
+    pushPull(d, 1, 'a')
+    d.clocks.advance(60_000)
+    await d.host.intakePlane.tick()
+    const waiting = await history(d)
+    assert.equal(waiting.items[0]?.outcome, 'pending', 'the firing is kept for later dispatch')
+    const [goal] = await triggerGoals(d)
+    assert.ok(goal)
+    assert.equal(await claimed(d, goal.goal.id), 0)
+    const run = await d.host.call('flow/execution', { run: waiting.items[0]!.run! }) as FlowExecution
+    assert.equal(run.intake?.dispatchHeld, true)
+    d.runtime.defaultSessionOptions = read
+    d.runtime.setHealth({ state: 'ready' })
+    d.clocks.advance(60_000)
+    await d.host.intakePlane.tick()
+    await until(async () => (await claimed(d, goal.goal.id)) === 1 ? true : null, 'the Seat after its options are readable')
+    assert.deepEqual((await history(d)).items.map((one) => one.outcome), ['fired'])
+    assert.equal((await triggerGoals(d)).length, 1, 'the original Goal is dispatched exactly once')
+  })
+}
