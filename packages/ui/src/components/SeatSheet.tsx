@@ -4,7 +4,7 @@ import { fixWords, leftWords, markFor, reasonWords } from '../lib/agents'
 import { useSnapshot } from '../state/context'
 import type { SeatRefusal } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
-import { BriefIcon } from './Icons'
+import { AgentIcon } from './Icons'
 import { Button, Dialog, Fieldset, Row, Rows } from '../design'
 
 /**
@@ -31,7 +31,7 @@ export const SeatSheet = ({
   return (
     <Dialog
       title={`${refusal.name} can’t be seated here`}
-      icon={<BriefIcon size={15} />}
+      icon={<AgentIcon size={15} />}
       size="sm"
       onClose={onClose}
       footer={

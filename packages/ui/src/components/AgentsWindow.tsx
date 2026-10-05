@@ -5,7 +5,7 @@ import type { AgentEntry } from '@harnessdesk/protocol'
 import { agentName, bySection, firstReason, originWords, projectName, seatTaken } from '../lib/agents'
 import { useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavItem, WindowNavStateMark, WindowPage } from './AppWindow'
-import { BriefIcon } from './Icons'
+import { AgentIcon } from './Icons'
 import { Dot } from '../design'
 import { AgentsRosterSection } from './AgentRoster'
 
@@ -49,7 +49,7 @@ export const AgentsWindow = ({
     <AppWindow label="Agents">
       <WindowNav onBack={onClose}>
         <WindowNavItem
-          icon={<BriefIcon size={14} />}
+          icon={<AgentIcon size={14} />}
           label="All Agents"
           selected={focus === null}
           onClick={() => onFocus(null)}
@@ -92,7 +92,7 @@ const AgentNavRow = ({
   const reason = refused ? firstReason(plan!) : null
   return (
     <WindowNavItem
-      icon={<BriefIcon size={14} />}
+      icon={undefined}
       label={agentName(entry)}
       selected={selected}
       onClick={onClick}
