@@ -345,15 +345,15 @@ test.describe('rule: names', () => {
  * `docs/design.md` "One title, one group label" — this asserts the rendered
  * result) and the weight is regular in every instance.
  *
- * The weight is the interface's label weight: regular in Desk, and in
- * Studio the medium its `--hd-label-weight` sets on purpose
+ * The weight is the interface's label weight: medium in Desk and in
+ * Studio, through its `--hd-label-weight` sets on purpose
  * (`foundation/tokens.css`: "Studio varies only the weight and the air
  * above a rail's group"). Size, ink and case are the same in both.
  */
 type GroupLabelFinding = { text: string; transform: string; weight: number }
 
-/** The label weight each interface sets: regular in Desk, medium in Studio. */
-const LABEL_WEIGHT = { desk: 400, studio: 500 } as const
+/** The label weight each interface sets: medium in Desk and Studio. */
+const LABEL_WEIGHT = { desk: 500, studio: 500 } as const
 
 const groupLabelViolations = (page: Page, expectedWeight: number = LABEL_WEIGHT.desk) =>
   page.evaluate((expected) => {
@@ -370,7 +370,7 @@ const groupLabelViolations = (page: Page, expectedWeight: number = LABEL_WEIGHT.
   }, expectedWeight)
 
 test.describe('rule: group labels', () => {
-  test('rule: group labels — text-transform is never uppercase and the weight is the interface\'s label weight (regular in Desk), in every theme', async ({ page }) => {
+  test('rule: group labels — text-transform is never uppercase and the weight is the interface\'s label weight (medium in Desk), in every theme', async ({ page }) => {
     await gotoPreview(page)
     const findings: (GroupLabelFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {

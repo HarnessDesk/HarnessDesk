@@ -20,8 +20,8 @@ import { cn } from '@/lib/utils'
  * counts every `uppercase` outside that one place (`uppercaseLabel`).
  *
  * The interfaces may vary the label's weight and the air above a rail's group
- * (`--hd-label-weight`, `--hd-label-space`, both Studio-only tokens with this
- * look as their fallback); they do not vary its size, its ink or its case.
+ * (`--hd-label-weight`, `--hd-label-space`, weight shared by both interfaces; Studio alone
+ * varies the air with the Desk fallback); they do not vary its size, its ink or its case.
  */
 export type GroupLabelProps = Omit<ComponentProps<'span'>, 'children'> & {
   /** A real heading for a page section; a plain span over a card or a rail list. */

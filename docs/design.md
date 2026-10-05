@@ -211,7 +211,7 @@ are doing; screens do not invent a new spelling for the same job:
 | wordmark | 20 / semibold | the product name beside its mark |
 | page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
 | section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
-| group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
+| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | member | 14 / medium | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`); `--hd-member-weight` owns the weight |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -922,9 +922,8 @@ not planned; a member named in the rail follows its navigation role.
 `GroupLabel`'s computed `text-transform` is never `uppercase`, in every
 group-label role — see "One title, one group label" above, where the design
 audit's `uppercaseLabel` already refuses the capitals in source. Its weight is
-the interface's label weight, `--hd-label-weight`: regular in Desk, and
-medium in Studio, which varies only the weight and the air above a rail's
-group, on purpose. Size, ink and case are the same in both. Quiet sidebar bands
+the shared label weight, `--hd-label-weight`: medium in Desk and Studio.
+Studio varies the air above a rail's group, on purpose. Size, ink and case are the same in both. Quiet sidebar bands
 (Pinned, Projects and Other projects) use muted ink; other group labels keep
 secondary ink. `GroupLabel ink="muted"` and `NavigationGroupHeader labelInk="muted"`
 carry that choice without changing the label’s inset.
