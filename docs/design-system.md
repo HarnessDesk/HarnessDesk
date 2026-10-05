@@ -221,6 +221,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
 | `--hd-table-row-h` | `26px` |
+| `--hd-table-log-head-h` | `28px` |
 | `--hd-table-head-h` | `40px` |
 | `--hd-table-head-size` | `13px` |
 | `--hd-table-head-ink` | `rgb(49, 49, 49)` |
@@ -240,6 +241,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-chip-h` | `22px` |
+| `--hd-chip-radius-sm` | `calc(6px * 5 / 6)` |
 | `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
@@ -521,6 +523,7 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-head-size` | `13px` | `12px` |
 | `--hd-table-lead-gap` | `12px` | `10px` |
 | `--hd-table-line-gap` | `2px` | `2px` |
+| `--hd-table-log-head-h` | `28px` | `28px` |
 | `--hd-table-name-size` | `14px` | `13px` |
 | `--hd-table-row-min` | `56px` | `40px` |
 | `--hd-table-row-min-bare` | `44px` | `32px` |
@@ -2019,7 +2022,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 0 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's three own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value. |
+| `screenAppearance` | 0 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's two own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value. |
 | `singleAreaPrimitive` | 21 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |

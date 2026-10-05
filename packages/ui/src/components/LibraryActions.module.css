@@ -67,9 +67,7 @@
 /* An import candidate is its labelled checkbox and the kind and description
    beside it; the empty-copies line is a labelled checkbox alone. */
 .candidate,
-.choice,
-.historyRow,
-.historyWhat {
+.choice {
   display: flex;
   align-items: baseline;
 }
@@ -138,4 +136,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--hd-space-2) var(--hd-space-4);
+}
+
+.historyRow,
+.historyWhat {
+  display: flex;
+  align-items: center;
 }

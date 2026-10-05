@@ -78,7 +78,8 @@ test('a band divider ends a group as a section header does (#754)', () => {
 
 test('the table density reference reports comfortable and compact values separately', () => {
   const rows = tableDensityRows()
-  assert.equal(rows.length, 15)
+  assert.equal(rows.length, 16)
+  assert.deepEqual(rows.find(([name]) => name === '--hd-table-log-head-h'), ['--hd-table-log-head-h', '28px', '28px'])
   assert.deepEqual(rows.find(([name]) => name === '--hd-table-head-h'), ['--hd-table-head-h', '40px', '32px'])
   assert.deepEqual(rows.find(([name]) => name === '--hd-table-face'), ['--hd-table-face', '32px', '24px'])
 })

@@ -1952,6 +1952,10 @@ class PreviewStore {
           kind: 'library/write', at: now - 3_600_000, op: 'skill/update', name: 'code-review',
           path: '/home/u/.codex/skills/code-review/SKILL.md', status: 'done', runtime: runtimeId('codex'),
           backupPath: '/home/u/.harnessdesk/backups/code-review/SKILL.md',
+        }, {
+          kind: 'library/write', at: now - 7_200_000, op: 'skill/update', name: 'project-checks',
+          path: '/home/u/.codex/skills/project-checks/SKILL.md', status: 'done', runtime: runtimeId('codex'),
+          backupPath: '/home/u/.harnessdesk/backups/project-checks/SKILL.md',
         }]
       }
       if (method === 'library/plan') return { plannedAt: now, ops: [] }

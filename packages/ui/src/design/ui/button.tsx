@@ -239,7 +239,10 @@ const boxedVariants = cva(
        pattern's sheet gives it. In the variant it tied with that sheet, and
        which one won depended on load order. The indent moved to the `row`
        size for the same reason — it is the box's inset, not a state. */
-    compoundVariants: [{ variant: 'row', class: 'text-(--hd-foreground)' }],
+    compoundVariants: [
+      { variant: 'row', class: 'text-(--hd-foreground)' },
+      { variant: 'row', size: 'table-row', class: 'rounded-none border-0 border-b border-b-(--hd-card-divider,var(--hd-border)) data-[selected]:bg-(--hd-selected) data-[selected]:hover:bg-(--hd-selected)' },
+    ],
     defaultVariants: { variant: 'default', size: 'default' },
   },
 )

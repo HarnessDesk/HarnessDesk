@@ -340,25 +340,25 @@ const WorktreeRow = ({
         </Text>
         <Text role="row" truncate>{gone ? <s>{name}</s> : name}</Text>
         {entry.isCurrent && (
-          <Chip tone="brand" emphasis>here</Chip>
+          <Chip tone="brand" emphasis>Here</Chip>
         )}
         {entry.isMain && (
-          <Chip tint="blue">main checkout</Chip>
+          <Chip tint="blue">Main checkout</Chip>
         )}
         {entry.managed && (
           <Chip tint="violet" title="HarnessDesk cut this one for a session.">
-            session
+            Session
           </Chip>
         )}
         {entry.locked && (
           <Chip tint="amber" title={entry.locked.reason || 'Locked against pruning.'}>
             <LockIcon size={10} />
-            locked
+            Locked
           </Chip>
         )}
         {gone && (
           <Chip tone="danger" title={entry.prunable?.reason}>
-            folder is gone
+            Folder is gone
           </Chip>
         )}
         {dirty > 0 && (

@@ -21,6 +21,7 @@ import {
   Field,
   FormStack,
   Input,
+  ListRows,
   SectionHead,
   Separator,
   Text,
@@ -934,17 +935,16 @@ export const LibraryHistory = ({
   return (
     <section className={styles.history} aria-label="Changes made from here">
       <SectionHead name="Changes made from here" />
-      <div className={styles.historyRows} role="list">
+      <ListRows className={styles.historyRows} role="list">
         {shown.map((row, index) => (
           <div key={`${row.at}-${index}`} role="listitem">
             <div className={styles.historyRow}>
-              <Text role="meta" className={styles.historyWhen}>
+              <Text role="meta" numeric className={styles.historyWhen}>
                 {new Date(row.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
               </Text>
               <span className={styles.historyWhat}>
                 <Text
-                  role="meta"
-                  ink="secondary"
+                  role="navigation"
                   {...(row.status === 'failed' ? { tone: 'warning' as const } : {})}
                 >
                   {row.status === 'failed'
@@ -958,7 +958,7 @@ export const LibraryHistory = ({
                 </Text>
               </span>
               {row.backupPath !== undefined && row.status === 'done' && (
-                <Button variant="secondary"
+                <Button variant="outline"
                   size="sm"
                   title={`Restore what this change filed at ${row.backupPath}`}
                   onClick={() =>
@@ -980,10 +980,9 @@ export const LibraryHistory = ({
                 </Button>
               )}
             </div>
-            {index < shown.length - 1 && <Separator />}
           </div>
         ))}
-      </div>
+      </ListRows>
       {rows.length > shown.length && (
         <Button variant="secondary" size="sm" onClick={() => setAll(true)}>
           Show all {rows.length}

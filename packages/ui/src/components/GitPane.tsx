@@ -32,7 +32,7 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text, ToolbarGap } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
 import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
@@ -114,6 +114,8 @@ const LANE_W = 12
 /** Lanes drawn before the gutter stops growing; deeper ones clip. */
 const LANE_CAP = 10
 
+const withCount = (label: string, count: number): string => count > 0 ? `${label} · ${count}` : label
+
 const OVERSCAN = 12
 
 /** Padding between the last lane and the description. */
@@ -129,7 +131,7 @@ const RefChip = ({ chip }: { chip: RefChipData }) => {
         : { tone: 'neutral' as const }
 
   return (
-    <Chip {...appearance} className={styles.chip} title={chip.name}>
+    <Chip size="sm" {...appearance} className={styles.chip} title={chip.name}>
       {chip.kind === 'tag' ? <TagIcon size={10} /> : <BranchIcon size={10} />}
       <span className={styles.chipName}>{chip.name}</span>
     </Chip>
@@ -696,7 +698,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
 
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent): void => {
-      if (total === 0) return
+      if (total === 0 || (event.target as HTMLElement).closest('[role="columnheader"]')) return
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
         event.preventDefault()
         const at = commits.findIndex((commit) => commit.sha === (currentActiveSha ?? selected))
@@ -935,103 +937,102 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             </Button>
           )}
 
-          <div role="row" className={styles.tableHead} onPointerMove={onDragMove} onPointerUp={onRelease}>
-            {!searching && (
-              <HeadCell
-                name="graph"
-                width={gutter}
-                hidden={lanesFit.hidden}
-                dragging={drag?.name === 'graph'}
-                onGrab={onGrab}
-                onNudge={onNudge}
-              />
-            )}
-            <span className={styles.headCell} data-flex="">
-              <Text role="meta">Description</Text>
-            </span>
-            {fit.sha && (
-              <HeadCell
-                name="sha"
-                width={live.sha}
-                dragging={drag?.name === 'sha'}
-                onGrab={onGrab}
-                onNudge={onNudge}
-              />
-            )}
-            {fit.date && (
-              <HeadCell
-                name="date"
-                width={live.date}
-                dragging={drag?.name === 'date'}
-                onGrab={onGrab}
-                onNudge={onNudge}
-              />
-            )}
-            {fit.author && (
-              <HeadCell
-                name="author"
-                width={live.author}
-                dragging={drag?.name === 'author'}
-                onGrab={onGrab}
-                onNudge={onNudge}
-              />
-            )}
-          </div>
-          <Separator />
+          <div className={styles.historyGrid} role="grid" aria-label="Commits" aria-rowcount={total + 1} tabIndex={0} onKeyDown={onKeyDown} aria-activedescendant={activeDescendant}>
+            <TableHeader as="div" variant="log" role="row" aria-rowindex={1} className={styles.tableHead} onPointerMove={onDragMove} onPointerUp={onRelease}>
+              {!searching && (
+                <HeadCell
+                  name="graph"
+                  width={gutter}
+                  hidden={lanesFit.hidden}
+                  dragging={drag?.name === 'graph'}
+                  onGrab={onGrab}
+                  onNudge={onNudge}
+                />
+              )}
+              <span role="columnheader" className={styles.headCell} data-flex="">
+                <Text role="meta" weight="medium">Description</Text>
+              </span>
+              {fit.sha && (
+                <HeadCell
+                  name="sha"
+                  width={live.sha}
+                  dragging={drag?.name === 'sha'}
+                  onGrab={onGrab}
+                  onNudge={onNudge}
+                />
+              )}
+              {fit.date && (
+                <HeadCell
+                  name="date"
+                  width={live.date}
+                  dragging={drag?.name === 'date'}
+                  onGrab={onGrab}
+                  onNudge={onNudge}
+                />
+              )}
+              {fit.author && (
+                <HeadCell
+                  name="author"
+                  width={live.author}
+                  dragging={drag?.name === 'author'}
+                  onGrab={onGrab}
+                  onNudge={onNudge}
+                />
+              )}
+            </TableHeader>
 
-          <div
-            className={styles.list}
-            ref={listRef}
-            onScroll={onScroll}
-            onKeyDown={onKeyDown}
-            tabIndex={0}
-            role="listbox"
-            aria-label="Commits"
-            aria-activedescendant={activeDescendant}
-          >
-            {total === 0 && !loading ? (
-              <EmptyState
-                variant="inline"
-                title={
-                  searching
-                    ? 'Nothing in the history matches that search.'
-                    : 'No commits yet — the history starts with the first one.'
-                }
-              />
-            ) : (
-              <div style={{ height: total * ROW, position: 'relative' }}>
-                {commits.slice(first, last).map((commit, offset) => {
-                  const index = first + offset
-                  const row = searching ? null : rows[index] ?? null
-                  return (
-                    <CommitRow
-                      key={commit.sha}
-                      commit={commit}
-                      provenance={provenance.values.get(commit.sha) ?? null}
-                      row={row}
-                      top={index * ROW}
-                      gutter={gutter}
-                      lanes={lanesFit}
-                      widths={live}
-                      fit={fit}
-                      remotes={remoteNames}
-                      selected={selected === commit.sha}
-                      active={currentActiveSha === commit.sha}
-                      now={Date.now()}
-                      onSelect={() => {
-                        activeIndexRef.current = commits.findIndex((candidate) => candidate.sha === commit.sha)
-                        setActiveSha(commit.sha)
-                        select(selected === commit.sha ? null : commit.sha)
-                      }}
-                      onMenu={(event) => {
-                        setMenuSha(commit.sha)
-                        menu.open(event)
-                      }}
-                    />
-                  )
-                })}
-              </div>
-            )}
+            <div
+              className={styles.list}
+              ref={listRef}
+              onScroll={onScroll}
+              role="rowgroup"
+            >
+              {total === 0 && !loading ? (
+                <EmptyState
+                  variant="inline"
+                  title={
+                    searching
+                      ? 'Nothing in the history matches that search.'
+                      : 'No commits yet — the history starts with the first one.'
+                  }
+                />
+              ) : (
+                <div style={{ height: total * ROW, position: 'relative' }}>
+                  {commits.slice(first, last).map((commit, offset) => {
+                    const index = first + offset
+                    const row = searching ? null : rows[index] ?? null
+                    return (
+                      <CommitRow
+                        key={commit.sha}
+                        commit={commit}
+                        provenance={provenance.values.get(commit.sha) ?? null}
+                        row={row}
+                        top={index * ROW}
+                        showGraph={!searching}
+                        gutter={gutter}
+                        lanes={lanesFit}
+                        widths={live}
+                        fit={fit}
+                        remotes={remoteNames}
+                        selected={selected === commit.sha}
+                        active={currentActiveSha === commit.sha}
+                        now={Date.now()}
+                        onSelect={() => {
+                          activeIndexRef.current = commits.findIndex((candidate) => candidate.sha === commit.sha)
+                          setActiveSha(commit.sha)
+                          select(selected === commit.sha ? null : commit.sha)
+                        }}
+                        onMenu={(event) => {
+                          setMenuSha(commit.sha)
+                          menu.open(event)
+                        }}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
 
           {selected && root && (
@@ -1519,8 +1520,8 @@ const HeadCell = ({
   const missing =
     hidden > 0 ? `${hidden} more ${hidden === 1 ? 'lane' : 'lanes'} — widen this column to see them` : null
   return (
-    <span className={styles.headCell} style={{ width }}>
-      <Text role="meta" className={styles.headLabel}>{GIT_COLUMNS[name].label}</Text>
+    <span role="columnheader" className={styles.headCell} style={{ width }}>
+      <Text role="meta" weight="medium" className={styles.headLabel}>{GIT_COLUMNS[name].label}</Text>
       {hidden > 0 && width >= LANE_W && (
         <Badge title={missing ?? undefined}>+{hidden}</Badge>
       )}
@@ -1729,6 +1730,7 @@ const CommitRow = ({
   provenance,
   row,
   top,
+  showGraph,
   gutter,
   lanes,
   widths,
@@ -1744,6 +1746,7 @@ const CommitRow = ({
   provenance: import('@harnessdesk/protocol').CommitProvenance | null
   row: GraphRow | null
   top: number
+  showGraph: boolean
   gutter: number
   lanes: LaneWindow
   widths: { sha: number; date: number; author: number }
@@ -1762,49 +1765,49 @@ const CommitRow = ({
       type="button"
       variant="row"
       size="table-row"
-      bordered={false}
       cursor="default"
       className={styles.row}
       style={{ top }}
       {...(selected ? { 'data-selected': '' } : {})}
       {...(merge ? { 'data-merge': '' } : {})}
       tabIndex={-1}
-      role="option"
+      role="row"
+      aria-rowindex={top / ROW + 2}
       id={`git-commit-${commit.sha}`}
       aria-selected={selected}
       {...(active ? { 'data-active': '' } : {})}
       onClick={onSelect}
       onContextMenu={onMenu}
     >
-      <span className={styles.gutter} style={{ width: gutter }}>
+      {showGraph && <span role="gridcell" className={styles.gutter} style={{ width: gutter }}>
         {row && gutter > 0 && <GitGraph row={row} lanes={lanes} rowHeight={ROW} laneWidth={LANE_W} className={styles.graph} />}
-      </span>
-      <span className={styles.subject}>
+      </span>}
+      <span role="gridcell" className={styles.subject}>
         {chips.map((chip) => <RefChip key={`${chip.kind}-${chip.name}`} chip={chip} />)}
-        <Text role={merge ? 'muted' : 'row'} className={styles.subjectText} title={commit.subject}>
+        <Text role="row" ink={merge ? 'muted' : undefined} className={styles.subjectText} title={commit.subject}>
           {commit.subject}
         </Text>
         <CommitSeatLabels value={provenance} />
       </span>
       {fit.sha && (
-        <Text role="meta" className={styles.sha} style={{ width: widths.sha }}>
-          <CodeText>{shortSha(commit.sha)}</CodeText>
-        </Text>
+        <span role="gridcell" className={styles.sha} style={{ width: widths.sha }}>
+          <Text role="meta"><CodeText>{shortSha(commit.sha)}</CodeText></Text>
+        </span>
       )}
       {fit.date && (
-        <Text role="meta" numeric className={styles.date} style={{ width: widths.date }}>
-          {commitDate(commit.authoredAt, now)}
-        </Text>
+        <span role="gridcell" className={styles.date} style={{ width: widths.date }}>
+          <Text role="meta" numeric>{commitDate(commit.authoredAt, now)}</Text>
+        </span>
       )}
       {fit.author && (
-        <Text
-          role="meta"
+        <span
+          role="gridcell"
           className={styles.author}
           style={{ width: widths.author }}
           title={`${commit.author} <${commit.authorEmail}>`}
         >
-          {commit.author}
-        </Text>
+          <Text role="meta" numeric>{commit.author}</Text>
+        </span>
       )}
     </Button>
   )
@@ -1889,7 +1892,7 @@ const RefsRail = ({
     >
       <BranchIcon size={12} />
       <span className={styles.railName}>{label}</span>
-      {branch.current && <Chip tone="brand" emphasis>HEAD</Chip>}
+      {branch.current && <Chip size="sm" tone="brand" emphasis>HEAD</Chip>}
       {track(branch) && <Text role="meta" numeric className={styles.railTrack}>{track(branch)}</Text>}
     </Button>
   )
@@ -1906,7 +1909,7 @@ const RefsRail = ({
       />
       {error && <ActionError className={styles.railError}>{error}</ActionError>}
       <div className={styles.railScroll}>
-        <PopoverGroupLabel>Branches · {branches.length}</PopoverGroupLabel>
+        <PopoverGroupLabel>{withCount('Branches', branches.length)}</PopoverGroupLabel>
         {tree.map((entry) =>
           entry.kind === 'branch' ? (
             branchRow(entry.branch, entry.branch.name, false)
@@ -1922,7 +1925,7 @@ const RefsRail = ({
           ),
         )}
 
-        {remotes.size > 0 && <PopoverGroupLabel>Remotes</PopoverGroupLabel>}
+        {remotes.size > 0 && <PopoverGroupLabel>{withCount('Remotes', [...remotes.values()].reduce((count, list) => count + list.length, 0))}</PopoverGroupLabel>}
         {[...remotes.entries()].map(([remote, list]) => (
           <div key={`remote-${remote}`}>
             <Button type="button" variant="quiet" size="content-min" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
@@ -1949,7 +1952,7 @@ const RefsRail = ({
           </div>
         ))}
 
-        {tags.length > 0 && <PopoverGroupLabel>Tags · {tags.length}</PopoverGroupLabel>}
+        {tags.length > 0 && <PopoverGroupLabel>{withCount('Tags', tags.length)}</PopoverGroupLabel>}
         {tags.map((tag) => (
           <Button
             key={`tag-${tag.name}`}
@@ -1963,7 +1966,7 @@ const RefsRail = ({
           </Button>
         ))}
 
-        {stashes.length > 0 && <PopoverGroupLabel>Stashes · {stashes.length}</PopoverGroupLabel>}
+        {stashes.length > 0 && <PopoverGroupLabel>{withCount('Stashes', stashes.length)}</PopoverGroupLabel>}
         {stashes.map((stash) => (
           <Button
             key={stash.ref}
@@ -1977,7 +1980,7 @@ const RefsRail = ({
           </Button>
         ))}
 
-        {checkouts.length > 0 && <PopoverGroupLabel>Worktrees · {checkouts.length}</PopoverGroupLabel>}
+        {checkouts.length > 0 && <PopoverGroupLabel>{withCount('Worktrees', checkouts.length)}</PopoverGroupLabel>}
         {checkouts.map((entry) => {
           const folder = entry.path.split('/').filter(Boolean).at(-1) ?? entry.path
           return (
@@ -1991,7 +1994,7 @@ const RefsRail = ({
             >
               <WorktreeIcon size={12} />
               <span className={styles.railName}>{entry.branch ?? folder}</span>
-              {entry.isCurrent && <Chip tone="brand" emphasis>Here</Chip>}
+              {entry.isCurrent && <Chip size="sm" tone="brand" emphasis>Here</Chip>}
               {entry.locked && <LockIcon size={10} />}
               {entry.prunable && <Text role="meta" className={styles.railTrack}>gone</Text>}
               {entry.dirty !== null && entry.dirty > 0 && (

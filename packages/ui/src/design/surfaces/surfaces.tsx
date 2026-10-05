@@ -1,3 +1,4 @@
+import { GIT_PREVIEW_ROOT } from '../../preview/git-fixture'
 import { useEffect, useRef, type ReactNode } from 'react'
 
 import { activityOf, flowStepOf, placeCard, type BoardEvidence, type FlowExecution, type FlowPolicy, type Intent, type Session, type TeamState } from '@harnessdesk/protocol'
@@ -590,7 +591,7 @@ export const ProjectsSurface = () => (
 export const GitSurface = () => (
   <Mount>
     <Frame height="page">
-      <MountProvider scope={{ area: 'main', id: 'design-git', view: { kind: 'git', root: PREVIEW_ROOT } }}>
+      <MountProvider scope={{ area: 'main', id: 'design-git', view: { kind: 'git', root: GIT_PREVIEW_ROOT } }}>
         <GitPane />
       </MountProvider>
     </Frame>

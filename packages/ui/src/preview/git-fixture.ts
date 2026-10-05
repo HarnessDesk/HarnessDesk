@@ -7,7 +7,7 @@ import type {
   GitWorktree,
 } from '@harnessdesk/protocol'
 
-import { PREVIEW_ROOT } from './sidebar-fixture'
+export const GIT_PREVIEW_ROOT = '~/code/storefront'
 
 /**
  * A repository for the git pane to show, in the shape the host sends.
@@ -69,7 +69,7 @@ export const gitRefs = (): GitRefsSummary => ({
 })
 
 export const gitStatus = (): GitStatus => ({
-  root: PREVIEW_ROOT,
+  root: GIT_PREVIEW_ROOT,
   branch: 'main',
   ahead: 0,
   behind: 0,
@@ -77,7 +77,10 @@ export const gitStatus = (): GitStatus => ({
   concluding: null,
 })
 
-export const gitWorktrees = (): readonly GitWorktree[] => []
+export const gitWorktrees = (): readonly GitWorktree[] => [
+  { path: GIT_PREVIEW_ROOT, head: sha(8), branch: 'main', isCurrent: true, isMain: true, locked: null, prunable: null, managed: false, bare: false, detached: false, dirty: 0 },
+  { path: '~/code/storefront-retry', head: sha(9), branch: 'fix/stale-rows', isCurrent: false, isMain: false, locked: { reason: 'Review in progress' }, prunable: null, managed: true, bare: false, detached: false, dirty: 2 },
+]
 
 export const gitCommit = (wanted: string): GitCommitDetail | null => {
   const commit = GIT_COMMITS.find((one) => one.sha === wanted)

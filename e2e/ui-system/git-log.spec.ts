@@ -1,0 +1,57 @@
+import { expect, test } from '@playwright/test'
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`the Git and Library logs keep their table geometry (${theme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?theme=${theme}`)
+    await page.locator('select').filter({ has: page.locator('option[value="git tools"]') }).selectOption('git tools')
+    const frame = page.locator('[data-frame-id="tools-git"]')
+    const grid = frame.getByRole('grid', { name: 'Commits' })
+    const header = grid.locator('[data-slot="table-header"]')
+    const rows = grid.locator('[role="row"][aria-selected]')
+    await expect(rows).toHaveCount(9)
+    expect(await header.evaluate(el => el.getBoundingClientRect().height)).toBe(28)
+    expect(await rows.first().evaluate(el => el.getBoundingClientRect().height)).toBe(26)
+    expect(await header.getByRole('columnheader').first().evaluate(el => {
+      const style = getComputedStyle(el.querySelector('[data-slot="text"]')!)
+      return [style.fontSize, style.fontWeight]
+    })).toEqual(['12px', '500'])
+    expect(await rows.first().evaluate(el => getComputedStyle(el).borderBottomWidth)).toBe('1px')
+    await rows.nth(1).click()
+    await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
+    expect(await rows.nth(1).evaluate(el => {
+      const probe = document.createElement('div')
+      probe.style.background = 'var(--hd-selected)'
+      el.append(probe)
+      const matches = getComputedStyle(el).backgroundColor === getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return matches
+    })).toBe(true)
+    expect(await rows.first().locator('[data-role="row"]').evaluate(el => getComputedStyle(el).fontSize)).toBe('13px')
+    const merge = rows.locator('[data-role="row"]').filter({ hasText: "Merge branch" })
+    expect(await merge.evaluate(el => getComputedStyle(el).color)).toBe(await rows.first().locator('[data-role="meta"]').last().evaluate(el => getComputedStyle(el).color))
+    const chips = rows.locator('[data-slot="chip"]')
+    for (const chip of await chips.all()) {
+      expect(await chip.evaluate(el => [el.getBoundingClientRect().height, getComputedStyle(el).borderRadius])).toEqual([18, '5px'])
+    }
+    await expect(frame.getByText('Remotes · 1', { exact: true })).toBeVisible()
+    await grid.focus()
+    await page.keyboard.press('End')
+    await expect(grid).toHaveAttribute('aria-activedescendant', /git-commit-/)
+    await page.keyboard.press('Enter')
+    await expect(rows.last()).toHaveAttribute('aria-selected', 'true')
+
+    const library = page.locator('[data-frame-id="coverage-library"]')
+    await expect(library.getByRole('listitem')).toHaveCount(2)
+    await expect(library.locator('[data-slot="separator"]')).toHaveCount(0)
+    const item = library.getByRole('listitem').first()
+    expect(await item.evaluate(el => getComputedStyle(el.firstElementChild!).alignItems)).toBe('center')
+    expect(await item.locator('[data-slot="text"]').first().evaluate(el => getComputedStyle(el).fontVariantNumeric)).toBe('tabular-nums')
+    expect(await item.getByRole('button', { name: 'Restore…' }).getAttribute('data-variant')).toBe('outline')
+    await page.locator('select').filter({ has: page.locator('option[value="worktree manager"]') }).selectOption('worktree manager')
+    const dialog = page.getByRole('dialog', { name: 'Worktrees', exact: true })
+    for (const label of ['Here', 'Main checkout', 'Session', 'Locked', '2 uncommitted']) {
+      await expect(dialog.getByText(label, { exact: true })).toBeVisible()
+    }
+  })
+}

@@ -1,3 +1,4 @@
+import { GIT_PREVIEW_ROOT } from './git-fixture'
 import { useState } from 'react'
 
 import { runtimeId } from '@harnessdesk/protocol'
@@ -128,8 +129,8 @@ export const PanelFrames = () => {
       </Frame>
       {dialog === 'git tools' && (
         <Frame id="tools-git" title="Tools — Git">
-          <div className="h-[420px]">
-            <MountProvider scope={{ area: 'main', id: 'panel-git', view: { kind: 'git', root: PREVIEW_ROOT } }}>
+          <div className="h-[640px]">
+            <MountProvider scope={{ area: 'main', id: 'panel-git', view: { kind: 'git', root: GIT_PREVIEW_ROOT } }}>
               <GitPane />
             </MountProvider>
           </div>
