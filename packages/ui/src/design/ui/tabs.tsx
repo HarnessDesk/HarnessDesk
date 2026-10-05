@@ -106,7 +106,7 @@ const TabsTrigger = ({ className, ...props }: TabsPrimitive.Tab.Props) => (
       'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
       '[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
       'group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start',
-      'group-data-[orientation=horizontal]/tabs:h-[calc(100%-1px)]',
+      'group-data-[orientation=horizontal]/tabs:h-full',
       /* Enclosed: the active tab becomes a raised card on the track. */
       'group-data-[variant=default]/tabs-list:data-active:bg-(--hd-card) group-data-[variant=default]/tabs-list:data-active:text-(--hd-foreground) group-data-[variant=default]/tabs-list:data-active:shadow-(--hd-shadow-sm)',
       /* Line: no fill at all, so the indicator is the only signal. */

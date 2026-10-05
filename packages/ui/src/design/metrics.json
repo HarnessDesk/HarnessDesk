@@ -880,7 +880,7 @@
     "radius": 14
   },
   "tables/rows/size/compact": {
-    "h": 201,
+    "h": 193,
     "text": 14,
     "weight": "400",
     "line": 20,
@@ -921,6 +921,14 @@
   },
   "tile/icon-tile/size/sm": {
     "h": 24,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
+  "tile/icon-tile/size/stack": {
+    "h": 20,
     "text": 14,
     "weight": "400",
     "line": 20,

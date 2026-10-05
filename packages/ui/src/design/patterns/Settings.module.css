@@ -1058,13 +1058,13 @@
   min-height: var(--hd-table-row-min);
 }
 
-/* Bare rows keep the family's 44px pitch even with a switch or a chevron. */
-.row:not(:has(.rowDesc, .rowMark)) {
-  padding-block: var(--hd-space-2);
-}
-
 .row:last-child {
   padding-bottom: var(--hd-space-3);
+}
+
+/* Bare rows keep the family's pitch and balanced insets, including the last row. */
+.row:not(:has(.rowDesc, .rowMark)) {
+  padding-block: var(--hd-space-2);
 }
 
 .row:last-child::after {

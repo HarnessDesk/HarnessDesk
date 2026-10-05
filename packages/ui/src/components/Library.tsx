@@ -684,7 +684,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
         <Alert data-slot="library-attention" className="mb-4 flex-col gap-1">
           {hollowCopies.length > 0 && (
             <p className="m-0 flex w-full items-center gap-2">
-              <Text tone="warning" className="flex-none">
+              <Text role="subject" tone="warning" className="flex-none self-start">
                 <AlertIcon size={13} />
               </Text>
               <span className="min-w-0 flex-1">
