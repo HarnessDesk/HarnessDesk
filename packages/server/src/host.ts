@@ -463,7 +463,7 @@ export interface HostOptions {
    * waiting for it. See `START_TIMEOUT_MS`.
    */
   readonly startTimeoutMs?: number
-  /** How long an ACP helper can remain unused before its process is stopped. */
+  /** How long a runtime can remain unused before its process is stopped. */
   readonly idleStopMs?: number
   /** How long a finished Seat stays quiet before its live handle is released. */
   readonly seatRestMs?: number
@@ -589,7 +589,7 @@ const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
   'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits',
 ])
 const CACHED_RUNTIME_READ_METHODS = new Set<PropertyKey>([
-  'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions',
+  'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions', 'getAccount',
 ])
 
 /** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
@@ -2021,6 +2021,11 @@ export class Host {
         if (key === 'listSessions') {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
             await this.#waitForRuntimeStop(target)
+            const starting = this.#startingRuntimes.get(String(target.info.id))
+            if (starting) await starting
+            if (target.health().state === 'idle' && target.canReadWhileIdle?.({
+              method: 'listSessions', query: args[0] as ListSessionsQuery | undefined,
+            }) === false) await this.#ensureStarted(target)
             const page = await Reflect.apply(member, target, args) as Page<SessionSummary>
             return this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined)
           })
@@ -2028,6 +2033,13 @@ export class Host {
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
             await this.#waitForRuntimeStop(target)
+            const starting = this.#startingRuntimes.get(String(target.info.id))
+            if (starting) await starting
+            if (target.health().state === 'idle' &&
+                (key === 'defaultSessionOptions' || key === 'listSkills' || key === 'listSkillProblems') &&
+                target.canReadWhileIdle?.({ method: key, cwd: args[0] as string | undefined }) === false) {
+              await this.#ensureStarted(target)
+            }
             return Reflect.apply(member, target, args)
           })
         }

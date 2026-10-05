@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { membersOf, type GoalView, type RuntimeHealth, type SeatRecord } from '@harnessdesk/protocol'
+import { membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -182,6 +182,54 @@ test('cached skills are served from an idle runtime without restarting it', asyn
   const skills = await host.call('runtime/skills', { runtime: runtime.info.id, cwd: '/w' })
   assert.deepEqual(skills, [{ name: 'cached', description: '', enabled: true, toggleable: false }])
   assert.equal(runtime.starts, 1)
+})
+
+test('cached reads join a restart already triggered by an unobserved history page', async (t) => {
+  class SnapshotRuntime extends IdleRuntime {
+    canReadWhileIdle(read: IdleRuntimeRead): boolean {
+      return read.method !== 'listSessions' || !read.query?.cursor
+    }
+    override async start(): Promise<void> {
+      if (this.starts > 0) this.setHealth({ state: 'starting' })
+      await super.start()
+    }
+  }
+  const runtime = new SnapshotRuntime({ id: 'read-start-test' as never, name: 'Read Start Test' })
+  Object.assign(runtime, { listSkills: async () => [] })
+  for (const method of ['listSessions', 'listModels', 'listOptions', 'defaultSessionOptions', 'getAccount', 'listSkills'] as const) {
+    const read = Reflect.get(runtime, method) as (...args: unknown[]) => Promise<unknown>
+    Object.assign(runtime, { [method]: (...args: unknown[]) => {
+      assert.notEqual(runtime.health().state, 'starting', 'the host must wait for startup before reading')
+      return Reflect.apply(read, runtime, args)
+    } })
+  }
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => {
+    runtime.continueStart()
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  assert.equal(runtime.health().state, 'idle')
+  runtime.holdNextStart()
+  const history = host.call('session/list', { runtime: runtime.info.id, cursor: 'unread' })
+  while (runtime.starts < 2) await new Promise((resolve) => setTimeout(resolve, 1))
+  let settled = false
+  const reads = Promise.allSettled([
+    host.call('session/list', { runtime: runtime.info.id }),
+    host.call('runtime/models', { runtime: runtime.info.id }),
+    host.call('runtime/options', { runtime: runtime.info.id }),
+    host.call('runtime/sessionDefaults', { runtime: runtime.info.id, cwd: '/w' }),
+    host.call('runtime/account', { runtime: runtime.info.id }),
+    host.call('runtime/skills', { runtime: runtime.info.id }),
+  ]).then((results) => { settled = true; return results })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(settled, false, 'a concurrent cached read waits on the same startup')
+  runtime.continueStart()
+  await history
+  assert.ok((await reads).every((read) => read.status === 'fulfilled'))
+  assert.equal(runtime.starts, 2)
 })
 
 test('a room post resumes an idle-stopped member and delivers to it', async (t) => {

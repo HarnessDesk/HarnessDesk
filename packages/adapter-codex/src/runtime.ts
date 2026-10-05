@@ -31,6 +31,7 @@ import {
   type ConfigOption,
   type HookInfo,
   type ListSessionsQuery,
+  type IdleRuntimeRead,
   type LoginStart,
   type ModelInfo,
   type OptionValue,
@@ -262,6 +263,14 @@ export class CodexRuntime implements AgentRuntime {
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   #version: string | null = null
   #disposeServer: Unsubscribe[] = []
+  #idleStopped = false
+  #lastAccount: AccountStatus | null = null
+  #lastFeatures: CodexProtocol.v2.ExperimentalFeature[] = []
+  readonly #lastDefaults = new Map<string, { readonly config: CodexProtocol.v2.Config; readonly catalog: Catalog }>()
+  readonly #knownCwds = new Set<string>()
+  readonly #lastListings = new Map<string, Page<SessionSummary>>()
+  readonly #lastSkills = new Map<string, readonly SkillInfo[]>()
+  readonly #lastSkillProblems = new Map<string, readonly SkillProblem[]>()
 
   readonly #capabilities: CapabilityRegistry | null
   readonly #instructions: (() => string) | null
@@ -462,12 +471,34 @@ export class CodexRuntime implements AgentRuntime {
 
   async dispose(): Promise<void> {
     this.#disposed = true
+    this.#idleStopped = false
     for (const unsubscribe of this.#disposeServer) unsubscribe()
     this.#disposeServer = []
     this.#approvals.abandonAll('The Codex runtime is shutting down.')
     this.#sessions.clear()
     this.tasks.dispose()
     await this.#server.stop()
+  }
+
+  /**
+   * Unsubscribe retains a thread's MCP children (measured on 0.160.0).
+   * The host's existing reaper owns when to recycle; no open handle may be
+   * discarded here. Its stop barrier also keeps new opens behind these reads.
+   */
+  async stopForIdle(): Promise<boolean> {
+    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.processes.busy) return false
+    // Keep the observations readable even if nobody opened their menus yet.
+    // A failed snapshot leaves the process running, rather than inventing a
+    // signed-out account or an empty catalogue when it rests.
+    await Promise.all([
+      this.listModels(), this.listOptions(), this.getAccount(),
+      this.listSessions(), this.listSessions({ archived: 'only' }),
+      this.defaultSessionOptions(), ...[...this.#knownCwds].map((cwd) => this.defaultSessionOptions(cwd)),
+    ])
+    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.processes.busy) return false
+    this.#idleStopped = true
+    await this.#server.stop()
+    return true
   }
 
   health(): RuntimeHealth {
@@ -479,6 +510,7 @@ export class CodexRuntime implements AgentRuntime {
       case 'restarting':
         return { state: 'starting' }
       case 'stopped':
+        if (this.#idleStopped) return { state: 'idle' }
         return {
           state: 'unavailable',
           reason: 'unknown',
@@ -566,11 +598,17 @@ export class CodexRuntime implements AgentRuntime {
     // was started — `/` from Finder, the checkout under `pnpm dev` — so a
     // project layer found there was a default nobody chose.
     const where = cwd ?? homedir()
-    const [{ config }, catalog, profiles] = await Promise.all([
-      this.#server.request('config/read', { cwd: where }),
-      this.#catalog.load(where),
-      listCodexProfiles(this.#codexHome),
-    ])
+    let snapshot = this.#lastDefaults.get(where)
+    if (!this.#idleStopped) {
+      const [{ config }, catalog] = await Promise.all([
+        this.#server.request('config/read', { cwd: where }), this.#catalog.load(where),
+      ])
+      snapshot = { config, catalog }
+      this.#lastDefaults.set(where, snapshot)
+    }
+    if (!snapshot) throw new Error('Project defaults have not been read; start the runtime first.')
+    const { config, catalog } = snapshot
+    const profiles = await listCodexProfiles(this.#codexHome)
     const selected = profileSelection(values)
     const chosen = profiles.find((entry) => entry.id === selected)?.profile
     const effective = chosen?.model ? { ...config, model: chosen.model } : config
@@ -584,6 +622,7 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   async #listFeatures(): Promise<CodexProtocol.v2.ExperimentalFeature[]> {
+    if (this.#idleStopped) return this.#lastFeatures
     const features: CodexProtocol.v2.ExperimentalFeature[] = []
     let cursor: string | null = null
     do {
@@ -594,15 +633,18 @@ export class CodexRuntime implements AgentRuntime {
       features.push(...page.data)
       cursor = page.nextCursor
     } while (cursor)
+    this.#lastFeatures = features
     return features
   }
 
   async getAccount(): Promise<AccountStatus> {
+    if (this.#idleStopped && this.#lastAccount) return this.#lastAccount
     const [response, forced] = await Promise.all([
       this.#server.request('account/read', {}),
       this.#forcedLoginMethod(),
     ])
-    return { accounts: mapAccount(response.account), signInMethods: signInMethods(forced) }
+    this.#lastAccount = { accounts: mapAccount(response.account), signInMethods: signInMethods(forced) }
+    return this.#lastAccount
   }
 
   /**
@@ -661,6 +703,12 @@ export class CodexRuntime implements AgentRuntime {
    * available from two roots is still one skill.
    */
   async listSkills(cwd?: string): Promise<readonly SkillInfo[]> {
+    const key = cwd ?? ''
+    if (this.#idleStopped) {
+      const skills = this.#lastSkills.get(key)
+      if (!skills) throw new Error('Skills have not been read for this folder; start the runtime first.')
+      return skills
+    }
     try {
       const response = await this.#server.request('skills/list', cwd ? { cwds: [cwd] } : {})
       const seen = new Map<string, SkillInfo>()
@@ -686,7 +734,9 @@ export class CodexRuntime implements AgentRuntime {
           })
         }
       }
-      return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+      const result = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+      this.#lastSkills.set(key, result)
+      return result
     } catch (error) {
       // Not swallowed into an empty list: "none" is Codex's answer to give,
       // and this reply is treated as the agent's own report — the library's
@@ -711,6 +761,8 @@ export class CodexRuntime implements AgentRuntime {
    * throws for that reason.
    */
   async listSkillProblems(cwd?: string): Promise<readonly SkillProblem[]> {
+    const key = cwd ?? ''
+    if (this.#idleStopped) return this.#lastSkillProblems.get(key) ?? []
     try {
       const response = await this.#server.request('skills/list', cwd ? { cwds: [cwd] } : {})
       const seen = new Map<string, SkillProblem>()
@@ -720,7 +772,9 @@ export class CodexRuntime implements AgentRuntime {
           seen.set(problem.path, { path: problem.path, message: problem.message })
         }
       }
-      return [...seen.values()]
+      const result = [...seen.values()]
+      this.#lastSkillProblems.set(key, result)
+      return result
     } catch {
       return []
     }
@@ -820,8 +874,30 @@ export class CodexRuntime implements AgentRuntime {
     return automaticContext(this.#capabilities)
   }
 
+  #listingKey(query: ListSessionsQuery = {}): string {
+    return JSON.stringify([query.archived === 'only', query.cursor ?? null, query.pageSize ?? 40])
+  }
+
+  canReadWhileIdle(read: IdleRuntimeRead): boolean {
+    switch (read.method) {
+      case 'listSessions': return this.#lastListings.has(this.#listingKey(read.query))
+      case 'defaultSessionOptions': return this.#lastDefaults.has(read.cwd ?? homedir())
+      case 'listSkills': return this.#lastSkills.has(read.cwd ?? '')
+      case 'listSkillProblems': return this.#lastSkillProblems.has(read.cwd ?? '')
+    }
+  }
+
   async listSessions(query: ListSessionsQuery = {}): Promise<Page<SessionSummary>> {
     const onlyArchived = query.archived === 'only'
+    const key = this.#listingKey(query)
+    const inFolder = (page: Page<SessionSummary>): Page<SessionSummary> => query.cwd
+      ? { ...page, data: page.data.filter((summary) => summary.cwd === query.cwd) }
+      : page
+    if (this.#idleStopped) {
+      const page = this.#lastListings.get(key)
+      if (!page) throw new Error('This history page has not been read; start the runtime first.')
+      return inFolder(page)
+    }
     const response = await this.#server.request('thread/list', {
       cursor: query.cursor ?? null,
       limit: query.pageSize ?? 40,
@@ -840,12 +916,13 @@ export class CodexRuntime implements AgentRuntime {
             // to, the same as a stored one: out of the ordinary list once it
             // is archived, and into the archive's.
             .filter((summary) => this.#archived.has(summary.id) === onlyArchived)
-    let data = [
+    const data = [
       ...live,
       ...stored.filter((row) => !live.some((summary) => summary.id === row.id)),
     ]
-    if (query.cwd) data = data.filter((summary) => summary.cwd === query.cwd)
-    return { data: data.sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: response.nextCursor }
+    const result = { data: data.sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: response.nextCursor }
+    this.#lastListings.set(key, result)
+    return inFolder(result)
   }
 
   async searchSessions(query: string): Promise<Page<SessionSummary>> {
@@ -1203,6 +1280,7 @@ export class CodexRuntime implements AgentRuntime {
     })
     if (opened.environment) this.#environments.set(thread.id, laneEnvironmentOf(opened.environment))
     this.#sessions.set(thread.id, session)
+    this.#knownCwds.add(state.cwd)
     this.#emit({
       type: 'session/started',
       session: mapSession(thread, {
@@ -1519,6 +1597,8 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   #onStateChange(state: ConnectionState): void {
+    const resting = state.type === 'stopped' && this.#idleStopped
+    if (state.type !== 'stopped') this.#idleStopped = false
     if (state.type === 'ready') this.#version = state.installation.version
     if (state.type !== 'ready') {
       // A restarted app-server has no memory of live threads or watches. Drop
@@ -1533,8 +1613,15 @@ export class CodexRuntime implements AgentRuntime {
       this.#delegationUncertain = true
       this.#reviewTurns.clear()
       this.tasks.dispose()
-      this.#catalog.invalidate()
-      this.#catalog.forgetWarning()
+      if (!resting) {
+        this.#catalog.invalidate()
+        this.#catalog.forgetWarning()
+        this.#lastDefaults.clear()
+        this.#knownCwds.clear()
+        this.#lastListings.clear()
+        this.#lastSkills.clear()
+        this.#lastSkillProblems.clear()
+      }
       this.#approvals.abandonAll('The Codex runtime restarted.')
       this.files.abandon()
       this.processes.abandon()

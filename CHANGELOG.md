@@ -7,6 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Finished work releases its idle tools.** After a Team's Seats finish and
+  the agent is unused, the desk stops its helper process to release retained
+  tool servers. Working turns and terminals keep it running; conversations
+  and sign-in remain available, and new work starts it again. (Fixes #1397)
+
 - **An Agent’s brief starts folded.** A newly seated conversation and its
   Side by side tile open on one **Agent brief** row. Open it to read the
   standing order with its headings and lists intact. (Fixes #1379)

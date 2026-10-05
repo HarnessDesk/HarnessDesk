@@ -66,6 +66,18 @@ if (process.env['FAKE_CODEX_CLAIMS']) {
   appendFileSync(process.env['FAKE_CODEX_CLAIMS'], `${process.pid}\n`)
 }
 
+// Opt-in resource evidence. Measured on 0.160.0: unsubscribe acknowledges
+// release but retains the thread's MCP child until the app-server exits.
+// Reading a pipe keeps the tiny stand-in alive; the parent's exit closes it.
+const mcpChildren = new Map()
+const loadMcpChild = (threadId) => {
+  const ledger = process.env['FAKE_CODEX_MCP_CHILDREN']
+  if (!ledger || mcpChildren.has(threadId)) return
+  const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
+  mcpChildren.set(threadId, child)
+  appendFileSync(ledger, `${JSON.stringify({ threadId, pid: child.pid, parent: process.pid })}\n`)
+}
+
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const notify = (method, params) => send({ method, params })
 // Only screenshot scenes opt in; adapter tests retain their existing turns.
@@ -100,7 +112,12 @@ if (process.env['FAKE_CODEX_CATALOG_WARNING'] === '1') {
 let THREAD = 'thread-e2e'
 let TURN = 'turn-e2e'
 let threadCounter = 0
-const nextThreadId = () => (threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`)
+const nextThreadId = () => {
+  const id = threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`
+  // Resource rigs restart under one host; new threads cannot reuse the
+  // previous process's identities, while ordinary adapter tests keep theirs.
+  return process.env['FAKE_CODEX_MCP_CHILDREN'] ? `${id}-${process.pid}` : id
+}
 
 /**
  * Each thread's own working folder, taken from its `cwd` at `thread/start`,
@@ -1308,6 +1325,7 @@ rl.on('line', (line) => {
       // would be for every thread that shares it.
       cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
+      loadMcpChild(THREAD)
       send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
       if (!flowWorker) notify('warning', {
@@ -1356,6 +1374,7 @@ rl.on('line', (line) => {
         settingsState.sandboxPolicy = JSON.parse(resumed)
       }
       cwdByThread.set(THREAD, settingsState.cwd)
+      loadMcpChild(THREAD)
       send({ id, result: startResponse() })
       notify('thread/started', { thread: thread() })
       return
@@ -1880,6 +1899,11 @@ rl.on('line', (line) => {
     }
 
     case 'thread/list':
+      if (process.env['FAKE_CODEX_PAGED_HISTORY'] === '1') {
+        send({ id, result: { data: params.cursor ? [thread({ id: 'thread-older' })] : storedThreads(),
+          nextCursor: params.cursor ? null : 'next-history', backwardsCursor: null } })
+        return
+      }
       send({ id, result: { data: flowWorker ? [] : storedThreads(), nextCursor: null, backwardsCursor: null } })
       return
 
@@ -2189,6 +2213,7 @@ rl.on('line', (line) => {
         return
       }
       send(response)
+      if (mode === 'hold') notify('turn/started', { threadId: THREAD, turn: response.result.turn })
       if (verify) {
         setImmediate(() => askVerification(verify[1]))
         return
@@ -2240,6 +2265,10 @@ rl.on('line', (line) => {
         return
       }
       send({ id, result: {} })
+      return
+
+    case 'thread/unsubscribe':
+      send({ id, result: { status: 'unsubscribed' } })
       return
 
     case 'thread/delete':
