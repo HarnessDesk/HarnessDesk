@@ -156,3 +156,21 @@ it('observes the page after the window mounts it and switches narrow Teams to li
  expect(container.querySelector('table')).toBeNull()
  expect(container.querySelector('[data-team-row] [data-slot="list-row-content"]')).not.toBeNull()
 })
+
+it.each([352,1000])('a portalled Team menu panel does not open its row at %spx',async width=>{
+ vi.stubGlobal('ResizeObserver',class {
+  constructor(private callback:ResizeObserverCallback){}
+  observe(){this.callback([{contentRect:{width}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
+  disconnect(){}
+ })
+ const {seen,open,close}=await mount('done')
+ await act(async()=>button('Ready to wrap').click())
+ const row=container.querySelector('[data-team-row]')!
+ await act(async()=>row.querySelector<HTMLButtonElement>('button[title="More"]')!.click())
+ const panel=document.querySelector('[data-slot="popover-popup"]')!
+ expect(panel).toBeDefined()
+ await act(async()=>panel.dispatchEvent(new MouseEvent('click',{bubbles:true})))
+ expect(open).not.toHaveBeenCalled();expect(seen).not.toHaveBeenCalled();expect(close).not.toHaveBeenCalled()
+ expect(row.getAttribute('aria-label')).toBe('Open Retry the checkout call')
+ await act(async()=>document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
+})

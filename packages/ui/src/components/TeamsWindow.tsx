@@ -75,8 +75,8 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const showCost=groups.some(group=>group.rows.some(row=>row.total.money!==null))
  return narrow ? <>{groups.map(group=><section key={group.project} aria-label={folderName(group.project)} data-team-project={group.project}>
   <GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel>
-  <ListRows>{group.rows.map(row=><ListRow key={row.id} data-team-row={row.id} interactive tabIndex={0}
-   onClick={event=>{if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}
+  <ListRows>{group.rows.map(row=><ListRow key={row.id} data-team-row={row.id} interactive tabIndex={0} aria-label={`Open ${words(row.sentence)}`}
+   onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}
    lead={faces(row)} mark={row.unread?<Dot aria-label="Unread changes" tone="info"/>:false}
    title={<Text role="subject" truncate>{words(row.sentence)}</Text>} subtitle={<span data-slot="team-detail">{[row.detail?words(row.detail):null,time(row)==='—'?null:`${time(row)} in this state`,row.total.turns===null?null:`${row.total.turns} turns`,cost(row)==='—'?null:cost(row)].filter(Boolean).join(' · ')}</span>} wrapSubtitle
    trail={<>{state(row)}{menu(row)}<ChevronIcon /></>} />)}</ListRows>
@@ -86,7 +86,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
   <TableBody>{groups.map(group=><Fragment key={group.project}>
    <TableRow data-team-project={group.project}><TableCell colSpan={showCost?6:5}><GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel></TableCell></TableRow>
    {group.rows.map(row=><TableRow key={row.id} data-team-row={row.id} interactive tabIndex={0} aria-label={`Open ${words(row.sentence)}`}
-    onClick={event=>{if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}>
+    onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}>
     <TableCell className="max-w-0" lead={faces(row)}><div data-slot="team-identity" className={row.unread?"min-w-0 flex-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2":"min-w-0 flex-1"}>
       {row.unread&&<Dot aria-label="Unread changes" tone="info" className="self-center"/>}<Text role="subject" truncate title={words(row.sentence)}>{words(row.sentence)}</Text>
       {row.detail&&<div data-slot="team-detail" title={words(row.detail)} className={row.unread?"truncate col-start-2":"truncate"}><Text role="meta">{words(row.detail)}</Text></div>}

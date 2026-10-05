@@ -312,3 +312,14 @@ it('shortens the Timeline check command while keeping its full hover title', () 
     expect(check.querySelector('[title="PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
   } finally { act(() => root.unmount()) }
 })
+
+it('keeping the portalled Run again dialog does not select its check row', async () => {
+  const { container, onSelect, done } = mountGate(GATE())
+  try {
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Run again…')!.click())
+    const keep = [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Keep')!
+    expect(keep).toBeDefined()
+    await act(async () => keep.click())
+    expect(onSelect).not.toHaveBeenCalled()
+  } finally { done() }
+})

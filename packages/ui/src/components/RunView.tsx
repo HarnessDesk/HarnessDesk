@@ -134,7 +134,7 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
             // The retry is a trailing control; the row remains keyboard-selectable without nesting buttons.
             const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
             const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as={again ? "div" : "button"} tabIndex={again ? 0 : undefined} onKeyDown={event => { if (again && event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onSelect(row.id) } }} interactive selected={selectedRow === row.id || selectedRows?.includes(row.id)}
-              onClick={event => { if (!(event.target as Element).closest('[data-slot="list-row-trail"]')) onSelect(row.id) }} title={title}
+              onClick={event => { if (!event.currentTarget.contains(event.target as Node)) return; if (!(event.target as Element).closest('[data-slot="list-row-trail"]')) onSelect(row.id) }} title={title}
               trail={again ? <RunAgain run={header.run} card={row.card!} refusal={null} onRow /> : undefined}
               className={row.kind === 'round' ? 'mt-4' : undefined}
               lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
