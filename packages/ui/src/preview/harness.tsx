@@ -57,6 +57,7 @@ import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '.
 import { withClosedTurnFiles } from '../state/snapshot'
 import {
   activate,
+  dock,
   areaVisible,
   sidebarCannotHaveColumn,
   focusView,
@@ -1240,6 +1241,10 @@ class PreviewStore {
      what the app would do, because it is the code the app would run. */
   #workbench(next: AppSnapshot['workbench']): void {
     this.patch({ workbench: next })
+  }
+  showViewIn(area: AreaId, view: import('../state/layout').PaneView): void {
+    if (area === 'main' || !permits(view, area)) return
+    this.#workbench(dock(this.#snapshot.workbench, area, view))
   }
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))

@@ -33,8 +33,8 @@ it('reads the Run, its frozen base, budget and Seats without inventing absent fa
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
-    for (const text of ['Brief', fixture.execution.brief!, 'Build and review', '3f9a1c', 'Alpha', 'Balanced · Medium', 'origin · main · abc123', 'Started by you', 'Rounds', 'Rounds without progress', '3 turns']) expect(view.container.textContent).toContain(text)
-    expect(view.container.textContent).toContain('Not recorded')
+    for (const text of ['Brief', fixture.execution.brief!, 'Build and review', '3f9a1c', 'Alpha', 'Balanced · Medium', 'origin · main · abc123', 'Started by you', 'rounds', '3 turns']) expect(view.container.textContent).toContain(text)
+    expect(view.container.textContent).toContain('This Run did not record: budget, Seat details, Seat costs.')
   } finally { view.close() }
 })
 it('shows card input and predecessor handoffs, findings and review before its conversation link', () => {
@@ -156,8 +156,8 @@ it.each([
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, findings: findingsState(extra) } } })
   try {
-    expect(view.container.textContent).toContain(`Rounds: 4 of ${limit}`)
-    expect(view.container.textContent).toContain('Rounds without progress: 1 · Limit 2')
+    expect(view.container.textContent).toContain(`Budget4 of ${limit} rounds`)
+    expect(view.container.textContent).toContain('Without progress1 of 2 rounds')
     if (extra) {
       expect(view.container.textContent).toContain(extra.reason)
       expect(view.container.textContent).toContain('Authorized after round')
@@ -178,9 +178,9 @@ it.each([
   expect(execution.findings).toBeUndefined()
   const view = render({ input: { ...fixture, execution } })
   try {
-    const budgets = sectionText(view.container, 'Budgets')
-    expect(budgets).toContain('Rounds: 3 · Limit not recorded')
-    expect(budgets).toContain('Rounds without progress: Not recorded')
+    const budgets = sectionText(view.container, 'Run')
+    expect(view.container.querySelector('[data-slot=run-recording-gaps]')?.textContent).toContain('budget')
+    expect(budgets).not.toContain('Budget')
     expect(budgets).not.toContain(' of ')
     expect(budgets).not.toContain('Limit 2')
     expect(budgets).not.toMatch(/Limit \d/)
@@ -190,9 +190,9 @@ it('still reads the limits a Run recorded', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, findings: findingsState(null) } } })
   try {
-    const budgets = sectionText(view.container, 'Budgets')
-    expect(budgets).toContain('Rounds: 4 of 3')
-    expect(budgets).toContain('Rounds without progress: 1 · Limit 2')
+    const budgets = sectionText(view.container, 'Run')
+    expect(budgets).toContain('Budget4 of 3 rounds')
+    expect(budgets).toContain('Without progress1 of 2 rounds')
     expect(budgets).not.toContain('not recorded')
   } finally { view.close() }
 })
@@ -564,5 +564,28 @@ it('shortens the selected check command and keeps the full command on hover', ()
   try {
     expect(view.container.textContent).toContain('PATH=/usr/bin:~/bin node ~/tools/land.mjs --check')
     expect(view.container.querySelector('[title="PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('uses inspector groups, face rows and two-column facts for the Run summary', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
+    seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
+  try {
+    expect(view.container.querySelector('[data-slot="inspector-group"]')?.textContent).toContain('Brief')
+    expect(view.container.querySelector('[data-slot="inspector-row-mark"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="key-value"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="inspector-footer"]')).not.toBeNull()
+  } finally { view.close() }
+})
+it('omits unavailable summary facts and names the missing recordings once', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, brief: null, revision: null, base: undefined, findings: undefined } } })
+  try {
+    expect(view.container.querySelectorAll('[data-slot="run-recording-gaps"]')).toHaveLength(1)
+    expect(view.container.textContent).not.toContain('No brief recorded')
+    expect(view.container.textContent).not.toContain('Revision not recorded')
+    expect(view.container.textContent).not.toContain('Limit not recorded')
+    expect(view.container.textContent).not.toContain('Seat not recorded')
   } finally { view.close() }
 })

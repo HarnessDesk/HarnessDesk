@@ -1,3 +1,4 @@
+import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
 import { CompactPanelFrames, compactAgentsStore, compactChangesStore } from './compact-panels-fixture'
@@ -1116,6 +1117,7 @@ const Preview = () => {
 const RunPreview = () => {
   useTheme()
   const params = new URLSearchParams(window.location.search)
+  if (params.has('run-dock')) return <RunDockFrame older={params.has('older')} />
   if (params.has('run-again')) return <RunAgainExample opened scene={RUN_AGAIN_STATES.find(one => one === params.get('run-again')) ?? 'default'} />
   if (params.has('run-ending-rig')) return <RunEndingRigFrames />
   return <><RunViewFrames />{params.has('run-inspector') && <RunInspectorFrames />}</>
@@ -1171,7 +1173,7 @@ createRoot(container).render(
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
-          : ['run-view', 'run-again', 'run-ending-rig'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
+          : ['run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

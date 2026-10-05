@@ -278,6 +278,15 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     }
 
+    // The Run supplies its sibling inspectors only after its real Team view mounts.
+    await page.goto('/preview.html?run-dock')
+    await page.locator('#run-dock-frame').getByRole('button', { name: 'Run 1', exact: true }).click()
+    await expect(page.locator('#run-dock-frame [data-slot="run-inspector"]:visible')).toBeVisible()
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    await page.locator('#run-dock-frame').getByRole('radio', { name: 'Flow', exact: true }).click()
+    await expect(page.locator('#run-dock-frame [data-slot="run-steps"]:visible')).toBeVisible()
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
+
     // Fail closed if an import-glob/configuration change silently empties the
     // inventory. These representatives prove we are still checking a root
     // component, a nested component, and a recursively discovered panel.
