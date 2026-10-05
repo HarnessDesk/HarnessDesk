@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { isAbsolute, relative, sep } from 'node:path'
 
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -29,6 +28,12 @@ export const OWNER = Symbol.for('harnessdesk.plugin.owner')
 export interface WorkspaceState {
   readonly root: string | null
   readonly branch: string | null
+  /**
+   * The checkouts the host admits a conversation in this folder to, as real paths: the folder's own checkout, and its
+   * project's main checkout, which is what a conversation with no checkout of its own is admitted to. A call admitted
+   * to one of them runs in this workspace, as it was opened. The folder's own real path counts without being listed.
+   */
+  readonly admitted?: readonly string[]
 }
 
 export interface RegisteredPlugin {
@@ -40,8 +45,8 @@ export interface RegisteredPlugin {
 export class HostRuntime {
   readonly #byInstance = new Map<string, RegisteredPlugin>()
   #workspace: WorkspaceState = { root: null, branch: null }
-  /** The open folder's real path, resolved once: the host admits a call's checkout by its real path. */
-  #openReal: string | null = null
+  /** The real paths a call may be admitted to and still run in the open workspace, resolved once. */
+  #openCheckouts: readonly string[] = []
   readonly #contextWorkspace = new AsyncLocalStorage<WorkspaceState>()
 
   constructor(readonly store: ContributionStore) {}
@@ -50,28 +55,28 @@ export class HostRuntime {
     return this.#contextWorkspace.getStore() ?? this.#workspace
   }
 
+  /** True while a call runs in a checkout other than the open workspace: a Seat's lane or another clone. */
+  get inOtherCheckout(): boolean {
+    const entered = this.#contextWorkspace.getStore()
+    return entered !== undefined && entered !== this.#workspace
+  }
+
   setWorkspace(state: WorkspaceState): void {
     this.#workspace = state
-    this.#openReal = state.root === null ? null : canonicalRoot(state.root)
+    this.#openCheckouts = state.root === null ? [] : [state.root, ...(state.admitted ?? [])].map(canonicalRoot)
   }
 
   /**
-   * Context resolution and tool calls run in the checkout the host admitted for the conversation they serve. That
-   * checkout is the open project's when it is the open folder or holds it — the host admits a project's real path, and
-   * the repository itself for a project opened at one of its subfolders — and then the open folder's branch is its
-   * branch. Any other checkout's branch is unknown here.
+   * Context resolution and tool calls run in the checkout the host admitted for the conversation they serve. A call
+   * admitted to the open workspace's own checkout runs in the open workspace as it was opened — a subfolder, a linked
+   * worktree, a folder reached through a link — with its branch. Any other checkout, a Seat's lane or another clone, is
+   * entered as it is, and its branch is unknown here.
    */
   withContextWorkspace<T>(root: string | undefined, run: () => T): T {
-    const workspace = root === undefined
+    const workspace = root === undefined || this.#openCheckouts.includes(canonicalRoot(root))
       ? this.#workspace
-      : { root, branch: this.#holdsOpenFolder(root) ? this.#workspace.branch : null }
+      : { root, branch: null }
     return this.#contextWorkspace.run(workspace, run)
-  }
-
-  #holdsOpenFolder(root: string): boolean {
-    if (this.#openReal === null) return false
-    const inside = relative(canonicalRoot(root), this.#openReal)
-    return inside === '' || (inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside))
   }
 
   /** Records a plugin and returns the context metadata that identifies it. */
@@ -82,7 +87,7 @@ export class HostRuntime {
     const entry: RegisteredPlugin = {
       instanceId,
       permissions,
-      gate: new PermissionGate(permissions, () => this.workspace.root),
+      gate: new PermissionGate(permissions, () => this.workspace.root, () => this.inOtherCheckout),
     }
     this.#byInstance.set(instanceId, entry)
     return { entry, meta: { [OWNER]: instanceId } }

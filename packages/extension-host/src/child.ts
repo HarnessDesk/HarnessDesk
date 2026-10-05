@@ -246,7 +246,7 @@ const handlers: Handlers = {
   'context/resolve': (params) => kernel.resolveContext(params.query),
   'context/resolveOne': (params) => kernel.resolveOne(params.id as never, params.ref, params.scope),
   'workspace/set': (params) => {
-    kernel.setWorkspace({ root: params.root, branch: params.branch })
+    kernel.setWorkspace({ root: params.root, branch: params.branch, ...(params.admitted ? { admitted: params.admitted } : {}) })
     return null
   },
   'host/stats': () => ({

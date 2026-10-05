@@ -104,22 +104,25 @@ Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
 
-During a tool call or context resolution, every workspace capability follows
-the calling conversation's checkout, including an isolated lane outside the open
-project: `ctx.shell.run` runs there by default, `ctx.fs` resolves relative
-paths against it and refuses a path outside it, `ctx.editor` shows and marks
-files there, and `ctx.workspace.root` and `ctx.harness.workspaceRoot` name it.
-The host names a checkout by its real path. A checkout that is the open folder,
-or holds it, is the open project's: `ctx.workspace.branch` is the open folder's
-branch there, and for a project opened at a subfolder of its repository the
-call runs in the repository, as the shell and the agent do, so relative paths
-resolve from the repository. In any other checkout the branch is `null`,
-because it is a fact the host knows only about the project it opened. The host
-supplies that root through the invocation scope; tool arguments cannot replace
-it. An explicit `cwd` is resolved against that root and must remain inside it,
-with the same manifest grants and symlink checks. Without a checkout in the
-invocation scope, and in hooks and slash commands (which do not enter the
-caller's checkout yet), the open workspace remains the default and boundary.
+During a tool call or context resolution, the host admits the calling
+conversation to a checkout and supplies it through the invocation scope; tool
+arguments cannot replace it. `ctx.shell.run` runs there by default, and an
+explicit `cwd` is resolved against that root and must remain inside it, with
+the same manifest grants and symlink checks.
+
+When that checkout is the open folder's — as it is for a conversation with no
+checkout of its own, and for one started in the folder the person opened,
+whether that is a repository, a subfolder of one, a linked worktree or a folder
+reached through a link — `ctx.fs`, `ctx.editor`, `ctx.workspace` and
+`ctx.harness.workspaceRoot` work in the open workspace as it was opened, with
+its branch. When it is another checkout, such as a Seat's isolated lane or
+another clone, they follow the call there: `ctx.fs` resolves relative paths
+against it and refuses a path outside it, `ctx.editor` shows and marks files
+there, `ctx.workspace.root` and `ctx.harness.workspaceRoot` name it, and
+`ctx.workspace.branch` is `null`, because the branch is a fact the host knows
+only about the folder it opened. Without a checkout in the invocation scope,
+and in hooks and slash commands (which do not enter the caller's checkout yet),
+the open workspace remains the default and boundary.
 
 The host admits managed lanes and the particular linked checkout the person
 opened, using the project identity captured at open. A new Seat whose requested

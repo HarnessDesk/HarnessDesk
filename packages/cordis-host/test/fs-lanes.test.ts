@@ -117,14 +117,16 @@ test('a tool call reads, lists, writes, shows and names the root of its own chec
   ])
 
   // The caller's checkout is the boundary, for reading, writing and showing: the open workspace and a sibling are
-  // outside it.
+  // outside it, and the refusal names the checkout the call runs in rather than the desk's folder.
   for (const path of [join(two, 'brief.md'), '../two/brief.md', join(project, 'brief.md')]) {
     for (const args of [{ read: path }, { write: path.replace('brief.md', 'escaped.md') }, { open: path }]) {
       const refused = await run(one, args)
       assert.equal(refused.ok, false, JSON.stringify(args))
-      assert.match(refused.ok ? '' : refused.error, /outside the open workspace/)
+      assert.match(refused.ok ? '' : refused.error, /is outside the checkout this call runs in$/)
     }
   }
+  const outside = await run(undefined, { read: join(two, 'brief.md') })
+  assert.match(outside.ok ? '' : outside.error, /is outside the open workspace$/)
   assert.equal(await missing(join(two, 'escaped.md')), true)
   assert.equal(await missing(join(project, 'escaped.md')), true)
   assert.equal(shown.length, 4)
@@ -134,29 +136,40 @@ test('a tool call reads, lists, writes, shows and names the root of its own chec
   assert.deepEqual(await answer(undefined), { root: 'project', harness: 'project', branch: 'main', brief: 'project brief', names: ['brief.md', 'only-project.md'], hasOne: false })
 })
 
-test('a call in the open project keeps its branch when the folder was opened through a link or at a subfolder', async (t) => {
-  const root = await folders(t, 'repo', join('repo', 'app'), 'other')
-  const [repo, app, other] = ['repo', join('repo', 'app'), 'other'].map((name) => join(root, name)) as [string, string, string]
+test('a call admitted to the checkout of the open folder runs in that folder as it was opened', async (t) => {
+  const root = await folders(t, 'repo', join('repo', 'app'), 'linked', 'other')
+  const [repo, app, linked, other] = ['repo', join('repo', 'app'), 'linked', 'other'].map((name) => join(root, name)) as [string, string, string, string]
   const alias = join(root, 'alias')
   await symlink(repo, alias)
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
-  // As the host admits it: a lane's own checkout when the conversation has one, and otherwise the open project's
-  // checkout by its real path, which for a folder opened inside a repository is the repository itself.
+  // As the host admits it: a Seat's own checkout when the conversation has one, and otherwise the open project's main
+  // checkout by its real path, which is the repository itself for a folder opened inside it.
   let admitted = repo
   kernel.setShellWorkspaceResolver(async (scope) => scope.workspaceRoot ?? admitted)
   const { answer } = await probing(kernel)
+  const opened = { root: 'repo', harness: 'repo', branch: 'main', brief: 'repo brief', names: ['app', 'brief.md', 'only-repo.md'], hasOne: false }
 
+  // Reached through a link: the call is admitted to the real path, and still runs in the folder as opened.
+  kernel.setWorkspace({ root: alias, branch: 'main', admitted: [repo, repo] })
+  assert.deepEqual(await answer(undefined), { ...opened, root: 'alias', harness: 'alias' })
+  // A host that lists nothing still counts the open folder's own real path.
   kernel.setWorkspace({ root: alias, branch: 'main' })
-  assert.deepEqual(await answer(undefined), { root: 'repo', harness: 'repo', branch: 'main', brief: 'repo brief', names: ['app', 'brief.md', 'only-repo.md'], hasOne: false })
+  assert.deepEqual(await answer(undefined), { ...opened, root: 'alias', harness: 'alias' })
 
-  // Opened at a subfolder, the call runs in the repository, as the shell and the agent do: relative paths resolve from
-  // there, and the branch is still the open folder's.
-  kernel.setWorkspace({ root: app, branch: 'main' })
-  assert.deepEqual(await answer(undefined), { root: 'repo', harness: 'repo', branch: 'main', brief: 'repo brief', names: ['app', 'brief.md', 'only-repo.md'], hasOne: false })
+  // Opened at a subfolder: the call is admitted to the repository, and relative paths still resolve from the subfolder.
+  kernel.setWorkspace({ root: app, branch: 'main', admitted: [repo, repo] })
+  assert.deepEqual(await answer(undefined), { root: 'app', harness: 'app', branch: 'main', brief: 'app brief', names: ['brief.md', 'only-app.md'], hasOne: false })
 
-  // A checkout that neither is the open folder nor holds it is another one, whose branch is unknown here.
-  assert.equal((await answer(other)).branch, null)
+  // A linked worktree: a conversation with no checkout of its own is admitted to the project's main checkout, one
+  // started there to the worktree; both run in the worktree, on its branch.
+  kernel.setWorkspace({ root: linked, branch: 'feature', admitted: [linked, repo] })
+  const worktree = { root: 'linked', harness: 'linked', branch: 'feature', brief: 'linked brief', names: ['brief.md', 'only-linked.md'], hasOne: false }
+  assert.deepEqual(await answer(undefined), worktree)
+  assert.deepEqual(await answer(linked), worktree)
+
+  // Any other checkout is entered as it is, with its branch unknown.
+  assert.deepEqual(await answer(other), { root: 'other', harness: 'other', branch: null, brief: 'other brief', names: ['brief.md', 'only-other.md'], hasOne: false })
   admitted = other
-  assert.equal((await answer(undefined)).branch, null)
+  assert.equal((await answer(undefined)).root, 'other')
 })
