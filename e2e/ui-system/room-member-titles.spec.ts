@@ -61,13 +61,11 @@ for (const theme of ['light', 'dark'] as const) {
         expect(geometry.whitespace).toBe('normal')
         expect(geometry.overflowWrap).toBe('normal')
         expect(geometry.ellipsis).not.toBe('ellipsis')
-        // The face stays centred on the nickname's first line as the subtitle grows.
+        // The face keeps the whole row's centre as the subtitle grows, as every row of the table family does.
         const leadOffset = await row.evaluate(node => {
           const face = node.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
-          const range = document.createRange()
-          range.selectNodeContents(node.querySelector('[data-slot="list-row-title"]')!)
-          const first = range.getClientRects()[0]!
-          return Math.abs((face.top + face.bottom - first.top - first.bottom) / 2)
+          const bounds = node.getBoundingClientRect()
+          return Math.abs((face.top + face.bottom - bounds.top - bounds.bottom) / 2)
         })
         expect(leadOffset).toBeLessThan(1.5)
       }
