@@ -14,21 +14,37 @@ export const JOB_COLUMNS = [
 ] as const
 export type JobColumn = typeof JOB_COLUMNS[number]['id']
 
+/** The pane is a container: secondary facts yield before the actions leave it. */
+export const JOB_COLUMN_CLASS: Record<JobColumn, string> = {
+  assignee: 'hidden @[720px]/board:table-cell',
+  state: 'hidden @[520px]/board:table-cell',
+  checks: 'hidden @[1024px]/board:table-cell',
+  pr: 'hidden @[1100px]/board:table-cell',
+  changes: 'hidden @[1200px]/board:table-cell',
+  updated: 'hidden @[1280px]/board:table-cell',
+}
+const ALL_COLUMNS = new Set(JOB_COLUMNS.map(one => one.id))
+
 /** One list of the board's existing placements, never group rows or selection. */
-export const TeamBoardList = ({ intents, placed, renderRow }: {
+export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL_COLUMNS, searchText }: {
   intents: readonly Intent[]
   placed: ReadonlyMap<number, Placement>
+  defaultColumns?: ReadonlySet<JobColumn>
+  searchText?: (intent: Intent) => readonly (string | null | undefined)[]
   renderRow: (intent: Intent, columns: ReadonlySet<JobColumn>) => ReactNode
 }) => {
   const [query, setQuery] = useState('')
   const [state, setState] = useState<FactColumn | 'all'>('all')
   const [sort, setSort] = useState<'state' | 'recent' | 'title'>('state')
-  const [columns, setColumns] = useState<ReadonlySet<JobColumn>>(() => new Set(JOB_COLUMNS.map(one => one.id)))
+  const [choices, setChoices] = useState<ReadonlyMap<JobColumn, boolean>>(() => new Map())
+  const columns = new Set(JOB_COLUMNS.filter(one => choices.get(one.id) ?? defaultColumns.has(one.id)).map(one => one.id))
   const filters = ['needs', 'working', 'review', 'todo', 'ready', 'aside'] as const
   const words = query.trim().toLocaleLowerCase()
   const jobs = intents.filter(intent =>
     (state === 'all' || placed.get(intent.id)?.column === state) &&
-    [intent.title, intent.role, intent.note, intent.blockedReason, intent.detail].some(one => one?.toLocaleLowerCase().includes(words)),
+    [String(intent.id), `#${intent.id}`, intent.title, intent.role, intent.blockedReason, intent.detail,
+      FACT_COLUMNS.find(one => one.id === placed.get(intent.id)?.column)?.title,
+      ...(searchText?.(intent) ?? [intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null])].some(one => one?.toLocaleLowerCase().includes(words)),
   ).sort((a, b) => {
     if (sort === 'title') return a.title.localeCompare(b.title) || a.id - b.id
     if (sort === 'state') {
@@ -41,11 +57,11 @@ export const TeamBoardList = ({ intents, placed, renderRow }: {
   return <PaneColumn inset="reading" className="flex flex-col gap-3" data-slot="board-list">
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter jobs" onChange={setQuery} /></div>
-      <PanelPill pressed={state === 'all'} aria-label="All jobs" onClick={() => setState('all')}>All <Text role="meta" numeric>{intents.length}</Text></PanelPill>
+      <PanelPill pressed={state === 'all'} onClick={() => setState('all')}>All <Text role="meta" numeric>{intents.length}</Text></PanelPill>
       {filters.map(id => {
         const column = FACT_COLUMNS.find(one => one.id === id)!
-        if (id === 'aside' && count(id) === 0) return null
-        return <PanelPill key={id} pressed={state === id} aria-label={`${column.title} jobs`} onClick={() => setState(id)}>{column.title} <Text role="meta" numeric>{count(id)}</Text></PanelPill>
+        if (id === 'aside' && count(id) === 0 && state !== id) return null
+        return <PanelPill key={id} pressed={state === id} onClick={() => setState(id)}>{column.title} <Text role="meta" numeric>{count(id)}</Text></PanelPill>
       })}
       <span className="flex-1" />
       <Popover label={<MoreIcon />} title="View: columns and sort" align="right">
@@ -56,10 +72,9 @@ export const TeamBoardList = ({ intents, placed, renderRow }: {
           <MenuItem label="Job title" current={sort === 'title'} onSelect={() => setSort('title')} />
           <MenuSeparator />
           <MenuLabel>Columns</MenuLabel>
-          {JOB_COLUMNS.map(one => <MenuToggle key={one.id} label={one.label} checked={columns.has(one.id)} onChange={() => setColumns(previous => {
-            const next = new Set(previous)
-            if (next.has(one.id)) next.delete(one.id)
-            else next.add(one.id)
+          {JOB_COLUMNS.map(one => <MenuToggle key={one.id} label={one.label} checked={columns.has(one.id)} onChange={() => setChoices(previous => {
+            const next = new Map(previous)
+            next.set(one.id, !columns.has(one.id))
             return next
           })} />)}
         </Menu>}
@@ -68,8 +83,8 @@ export const TeamBoardList = ({ intents, placed, renderRow }: {
     <div className="overflow-hidden">
       <Table variant="framed" aria-label="Jobs">
         <TableHeader><TableRow>
-          <TableHead>Job</TableHead>
-          {JOB_COLUMNS.filter(one => columns.has(one.id)).map(one => <TableHead key={one.id} numeric={'numeric' in one && one.numeric}>{one.label}</TableHead>)}
+          <TableHead className="w-full">Job</TableHead>
+          {JOB_COLUMNS.filter(one => columns.has(one.id)).map(one => <TableHead key={one.id} className={JOB_COLUMN_CLASS[one.id]} numeric={'numeric' in one && one.numeric}>{one.label}</TableHead>)}
           <TableHead><span className="sr-only">Actions</span></TableHead>
         </TableRow></TableHeader>
         <TableBody>{jobs.map(intent => renderRow(intent, columns))}</TableBody>

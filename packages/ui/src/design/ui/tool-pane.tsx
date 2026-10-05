@@ -33,6 +33,9 @@ import { TabsList, TabsTrigger } from './tabs'
  * `bleed` is for a body that must reach the frame's edge — a viewport, a
  * terminal, a video. Padding inside a pane whose content has its own ground
  * draws a border nobody asked for.
+ * `contentInset="board"` aligns the header with board-card text.
+ * `contentInset="reading-table"` aligns it with the first cell text inside
+ * a framed table in a reading PaneColumn (reading gutter plus table edge).
  */
 
 const ToolPane = ({

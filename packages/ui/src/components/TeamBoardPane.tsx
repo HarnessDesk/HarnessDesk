@@ -13,7 +13,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { ChangeStats, Chip, Dialog, Dot, Field, Input, Note, RowChoice, Rows, Segmented, TableCell, TableRow, Text } from '../design'
-import { TeamBoardList, type JobColumn } from './TeamBoardList'
+import { TeamBoardList, JOB_COLUMN_CLASS, type JobColumn } from './TeamBoardList'
 import { chipOf, ciVerdict, isCurrent, standingWords } from '../lib/evidence'
 import { openExternal } from '../lib/desktop'
 import { runtimeTint } from '../lib/accounts'
@@ -21,6 +21,7 @@ import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } 
 import { brandForRuntime } from '../lib/brands'
 import { namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/git-refs'
+import type { AppSnapshot } from '../state/store'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { EvidenceChips } from './EvidenceChips'
@@ -193,6 +194,44 @@ const nicknameOf = (
   nicknames: Readonly<Record<string, string>> | undefined,
   claim: { runtime: string; sessionId: string },
 ): string | undefined => nicknames?.[`${claim.runtime}\u0000${claim.sessionId}`]
+
+/** One attribution and note rule for the card, list and its filter. */
+const jobCopy = (intent: Intent, room: string, snapshot: AppSnapshot) => {
+  const lifecycle = snapshot.teams.get(room)?.channel.slice().reverse().find(one =>
+    one.kind === 'signal' && one.intent === intent.id && one.signal !== 'conflict')
+  const former = lifecycle?.kind === 'signal' && lifecycle.by.kind === 'agent' &&
+    ((intent.state === 'done' && lifecycle.signal === 'completed') ||
+     (intent.state === 'blocked' && intent.blockedBy === 'hand' && lifecycle.signal === 'blocked'))
+    ? lifecycle.by : null
+  const assignee = intent.claim ?? former
+  const holderName = assignee
+    ? nicknameOf(snapshot.teams.get(room)?.nicknames, assignee) ??
+      snapshot.sessions.get(sessionKey(assignee.runtime, assignee.sessionId as SessionId))?.title ??
+      snapshot.runtimes.find(one => one.id === assignee.runtime)?.presentation.name ?? '(untitled)'
+    : intent.state === 'done' || intent.state === 'abandoned' ? '—' : 'Unassigned'
+  const repairLead = (() => {
+    const run = intent.dispatch?.split(':')[0]
+    const round = intent.dispatch?.split(':')[1]
+    const view = run ? snapshot.findingRuns.get(run) : undefined
+    if (!view?.repair || String(view.round) !== round) return null
+    return view.repair
+      .map((lead) => {
+        const claimed = lead.claimed.length > 0 ? lead.claimed.join(', ') : 'none'
+        const unresolved = lead.unresolved.length > 0 ? lead.unresolved.join(', ') : 'none'
+        return `Repair delta ${shortSha(lead.from)} → ${shortSha(lead.to)} — claims to close ${claimed}; still open ${unresolved}`
+      })
+      .join(' ')
+  })()
+
+  const note =
+    intent.blockedReason ??
+    repairLead ??
+    (intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null) ??
+    intent.detail ??
+    null
+
+  return { assignee, holderName, note }
+}
 
 /** The user's verbs, as the host will take them. */
 type Verb = 'reopen' | 'abandon' | 'done' | 'release' | 'block'
@@ -465,6 +504,26 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
     void store.openSession(intent.claim.sessionId as SessionId, { runtime: intent.claim.runtime })
   }
 
+  const notices = trouble || waitingForEvidence ? <>
+        {trouble && <Note tone="bad">{trouble}</Note>}
+        {waitingForEvidence && (
+          <Banner
+            tone={evidenceFailed ? 'danger' : 'info'}
+            title={evidenceFailed ? 'Evidence unavailable' : 'Checking current evidence'}
+            role={evidenceFailed ? 'alert' : 'status'}
+            actions={
+              evidenceFailed ? (
+                <BannerAction onClick={() => void store.loadBoardEvidence(room)}>Try again</BannerAction>
+              ) : undefined
+            }
+          >
+            {evidenceFailed
+              ? 'The desk could not read the current facts, so completed work has not been placed.'
+              : 'Completed work will be placed after the desk reads its current facts.'}
+          </Banner>
+        )}
+  </> : null
+
   return (
     /* A container, because this board is no longer only ever a pane of its
        own: it is also the right half of the team room, where the width is
@@ -555,23 +614,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         }
       />
       <ToolPaneBody bleed={view === 'list'}>
-        {trouble && <Note tone="bad">{trouble}</Note>}
-        {waitingForEvidence && (
-          <Banner
-            tone={evidenceFailed ? 'danger' : 'info'}
-            title={evidenceFailed ? 'Evidence unavailable' : 'Checking current evidence'}
-            role={evidenceFailed ? 'alert' : 'status'}
-            actions={
-              evidenceFailed ? (
-                <BannerAction onClick={() => void store.loadBoardEvidence(room)}>Try again</BannerAction>
-              ) : undefined
-            }
-          >
-            {evidenceFailed
-              ? 'The desk could not read the current facts, so completed work has not been placed.'
-              : 'Completed work will be placed after the desk reads its current facts.'}
-          </Banner>
-        )}
+        {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —
             and the refusal, when something is still live, is read here rather
@@ -581,7 +624,20 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             <EmptyState variant="inline" align="start" title="Nothing on the board yet" />
           </PaneColumn>
         ) : view === 'list' ? (
-          <TeamBoardList intents={intents} placed={placed} renderRow={(intent, columns) => (
+          <TeamBoardList intents={intents} placed={placed}
+            defaultColumns={new Set<JobColumn>([
+              'assignee', 'state', 'updated',
+              ...(evidence?.cards.some(one => intents.some(intent => intent.id === one.card) && one.facts.some(fact => fact.record.fact.kind === 'pr')) ? ['pr' as const] : []),
+              ...(evidence?.cards.some(one => intents.some(intent => intent.id === one.card) && (one.running.length > 0 || one.facts.some(fact => fact.record.fact.kind === 'check' || fact.record.fact.kind === 'ci'))) ? ['checks' as const] : []),
+              ...(evidence?.cards.some(one => intents.some(intent => intent.id === one.card) && one.facts.some(fact => fact.record.fact.kind === 'diff')) ? ['changes' as const] : []),
+            ])}
+            searchText={intent => {
+              const copy = jobCopy(intent, room, snapshot)
+              const stranded = strandedFor(intent, now, attached)
+              return [copy.holderName, copy.note, stranded !== null ? `stranded ${describeAge(stranded)}` : placed.get(intent.id)?.why,
+                ...intent.files,
+                ...(evidence?.cards.find(one => one.card === intent.id)?.facts.flatMap(one => one.record.fact.kind === 'pr' ? [`#${one.record.fact.number}`] : []) ?? [])]
+            }} renderRow={(intent, columns) => (
             <IntentCard key={intent.id} listColumns={columns} intent={intent} room={room}
               placement={placed.get(intent.id) ?? null} now={now} attached={attached}
               evidence={evidence?.cards.find(one => one.card === intent.id)} checks={evidence ?? NO_CHECKS}
@@ -803,6 +859,7 @@ const IntentCard = ({
   const snapshot = useSnapshot()
   const [reviewDialog, setReviewDialog] = useState<{
     readonly run: string
+    readonly mode: 'review' | 'answer'
     readonly candidates: readonly ReviewCandidate[]
     readonly selected: string | null
     readonly answer: string | null
@@ -834,12 +891,13 @@ const IntentCard = ({
   const openReviewDialog = async (): Promise<void> => {
     if (!role?.review || !role.run) return
     const answer = role.outcomes.length === 1 ? role.outcomes[0]! : null
-    setReviewDialog({ run: role.run, candidates: [], selected: null, answer, pending: true, error: null })
+    setReviewDialog({ mode: 'review', run: role.run, candidates: [], selected: null, answer, pending: true, error: null })
     try {
       const candidates = await store.flowReviewCandidates(role.run, intent.id)
-      setReviewDialog({ run: role.run, candidates, selected: null, answer, pending: false, error: null })
+      setReviewDialog({ mode: 'review', run: role.run, candidates, selected: null, answer, pending: false, error: null })
     } catch (error) {
       setReviewDialog({
+        mode: 'review',
         run: role.run,
         candidates: [],
         selected: null,
@@ -850,11 +908,17 @@ const IntentCard = ({
     }
   }
 
+  const openAnswerDialog = (): void => {
+    if (!role || record) return
+    setReviewDialog({ mode: 'answer', run: role.run ?? '', candidates: [], selected: null, answer: null, pending: false, error: null })
+  }
+
   const confirmReview = async (): Promise<void> => {
-    if (!reviewDialog?.selected || !reviewDialog.answer || isRecord(store.getSnapshot().goals.get(room))) return
+    if (!reviewDialog?.answer || (reviewDialog.mode === 'review' && !reviewDialog.selected) || isRecord(store.getSnapshot().goals.get(room))) return
     setReviewDialog({ ...reviewDialog, pending: true, error: null })
     try {
-      await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected, reviewDialog.answer)
+      if (reviewDialog.mode === 'answer') await store.teamIntent(room, intent.id, 'done', undefined, reviewDialog.answer)
+      else await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected!, reviewDialog.answer)
       setReviewDialog(null)
     } catch (error) {
       setReviewDialog({
@@ -865,13 +929,8 @@ const IntentCard = ({
     }
   }
 
-  const lifecycle = snapshot.teams.get(room)?.channel.slice().reverse().find(one =>
-    one.kind === 'signal' && one.intent === intent.id && one.signal !== 'conflict')
-  const former = lifecycle?.kind === 'signal' && lifecycle.by.kind === 'agent' &&
-    ((intent.state === 'done' && lifecycle.signal === 'completed') ||
-     (intent.state === 'blocked' && intent.blockedBy === 'hand' && lifecycle.signal === 'blocked'))
-    ? lifecycle.by : null
-  const assignee = intent.claim ?? (listColumns ? former : null)
+  const { assignee: observedAssignee, holderName, note } = jobCopy(intent, room, snapshot)
+  const assignee = intent.claim ?? (listColumns ? observedAssignee : null)
   const record = isRecord(snapshot.goals.get(room))
   const runtime = assignee
     ? (snapshot.runtimes.find((one) => one.id === assignee?.runtime) ?? null)
@@ -880,17 +939,6 @@ const IntentCard = ({
     ? snapshot.sessions.get(sessionKey(assignee.runtime, assignee.sessionId as SessionId))
     : null
   const stranded = strandedFor(intent, now, attached)
-  /* The board carries the names, so a card can say who holds it without
-     fetching a roster — and without drawing "(untitled)" in the gap before an
-     answer that may never come for a conversation nobody named. */
-  const holder = assignee
-    ? nicknameOf(snapshot.teams.get(room)?.nicknames, assignee)
-    : undefined
-  /* The holder by its *room name*. Reading the conversation's own title first
-     and falling back to "(untitled)" — which is what an ACP conversation
-     always is — put a live Cursor agent that had just claimed the job on the
-     card as "(untitled) Cursor". The name the room gave it always exists. */
-  const holderName = holder ?? session?.title ?? runtime?.presentation.name ?? '(untitled)'
   /* The holder's own ring, so the face on a card and the row in the rail are
      visibly the same account — see lib/accounts.ts on what the ring is for. */
   const holderTint = assignee
@@ -899,45 +947,6 @@ const IntentCard = ({
   const holderCeiling = intent.claim
     ? seatCeilingOf(session?.settings, snapshot.flowRuns.get(room) ?? [], intent.claim.runtime, intent.claim.sessionId)
     : null
-
-  /**
-   * A later review round's repair delta, read off the same frozen reference
-   * `finding/run` exposes — ids and revisions only, never a copy of a
-   * finding's own body into a second, mutable card field. `dispatch` is the
-   * host's own `<run>:<round>:<slot>` key for a card a flow opened; a card a
-   * person or an agent added carries none, and reads as no lead.
-   */
-  const repairLead = useMemo(() => {
-    const run = intent.dispatch?.split(':')[0]
-    const round = intent.dispatch?.split(':')[1]
-    const view = run ? snapshot.findingRuns.get(run) : undefined
-    if (!view?.repair || String(view.round) !== round) return null
-    return view.repair
-      .map((lead) => {
-        const claimed = lead.claimed.length > 0 ? lead.claimed.join(', ') : 'none'
-        const unresolved = lead.unresolved.length > 0 ? lead.unresolved.join(', ') : 'none'
-        return `Repair delta ${shortSha(lead.from)} → ${shortSha(lead.to)} — claims to close ${claimed}; still open ${unresolved}`
-      })
-      .join(' ')
-  }, [intent.dispatch, snapshot.findingRuns])
-
-  /**
-   * The one line under the title, and the order is the order a reader needs it.
-   *
-   * Why it stopped outranks what it is: a card in Blocked that does not say
-   * what blocked it sends the reader to the channel, which is the trip the
-   * board exists to save. A repair lead outranks the card's own detail and any
-   * completion note: what changed since the last review is what a reseated
-   * reviewer needs first, never a stale full transcript of the earlier round.
-   * Only when none of these exist does the card fall back to its own
-   * description.
-   */
-  const note =
-    intent.blockedReason ??
-    repairLead ??
-    (intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null) ??
-    intent.detail ??
-    null
 
   /* The referee's verbs. The user's word is final over any claim, which is why
      these are on every card rather than behind the holder — and why they are
@@ -1021,9 +1030,14 @@ const IntentCard = ({
             : []),
         ]
 
-  const primary = verbs.find(one => !one.danger)
+  const primary = intent.state === 'done' || intent.state === 'abandoned' || intent.state === 'blocked'
+    ? verbs.find(one => one.verb === 'reopen')
+    : intent.state !== 'claimed' && role?.kind === 'person' && role.outcomes.length > 0
+      ? role.review ? verbs.find(one => one.review) : { label: 'Answer…', answer: true as const }
+      : undefined
+  const menuVerbs = verbs.filter(one => !listColumns || record || one !== primary)
   const actions = (
-        verbs.length > 0 || checkItems.length > 0 || onAssign ? (
+        menuVerbs.length > 0 || checkItems.length > 0 || onAssign ? (
           <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
             {(close) => (
               <Menu close={close}>
@@ -1037,8 +1051,8 @@ const IntentCard = ({
                     onSelect={() => onRunCheck(one.key)}
                   />
                 ))}
-                {checkItems.length > 0 && verbs.length > 0 && <MenuSeparator />}
-                {verbs.filter(one => !listColumns || one !== primary).map((one) => (
+                {checkItems.length > 0 && menuVerbs.length > 0 && <MenuSeparator />}
+                {menuVerbs.map((one) => (
                   <MenuItem
                     key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
                     label={one.label}
@@ -1070,41 +1084,43 @@ const IntentCard = ({
     : checksNow.some(one => chipOf(one).outcome === 'failed' || chipOf(one).outcome === 'timed out') ? 'Failed'
     : checksNow.some(one => one.record.fact.kind === 'ci' && ciVerdict(one.record.fact.checks) === 'running') ? 'Running'
     : checksNow.every(one => chipOf(one).outcome === 'passed') ? 'Passed' : 'Not passed'
-  const stateWords = placement ? FACT_COLUMNS.find(one => one.id === placement.column)!.title : 'Checking evidence'
-  const lastWords = intent.blockedReason ?? repairLead ?? intent.note ??
-    (lifecycle?.kind === 'signal' ? lifecycle.detail ?? null : null) ?? intent.detail
+  const stateWords = placement ? FACT_COLUMNS.find(one => one.id === placement.column)!.title
+    : snapshot.boardEvidenceFailed.has(room) ? 'Evidence unavailable' : 'Checking evidence'
+  const reason = stranded !== null ? `stranded ${describeAge(stranded)}`
+    : placement?.column === 'needs' ? placement.why : null
   const brand = runtime ? brandForRuntime(runtime) : null
-  const face = <IconTile shape={assignee ? "face" : "round"} tint={holderTint} empty={!assignee}>
-    {assignee && (brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />)}
-  </IconTile>
+  const face = assignee ? <IconTile shape="face" tint={holderTint}>
+    {brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />}
+  </IconTile> : <IconTile shape="face" empty />
 
   return (
     <>
     {listColumns ? (
       <TableRow interactive className="group/job" data-job={intent.id}>
-        <TableCell className="whitespace-normal min-w-64">
-          <span className="flex items-center gap-2"><Text role="row">{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
-          {lastWords && <Text role="meta" className="block whitespace-normal">{lastWords}</Text>}
+        <TableCell className="whitespace-normal min-w-0 max-w-0">
+          <span className="flex min-w-0 flex-wrap items-center gap-2"><Text role="meta">#{intent.id}</Text><Text role="row" className="min-w-0 break-words [overflow-wrap:anywhere]" title={intent.title}>{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
+          {note && <Text role="meta" className="whitespace-normal line-clamp-2 break-words [overflow-wrap:anywhere]" title={note}>{note}</Text>}
+          {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason && ` · ${reason}`}</Text></span>}
         </TableCell>
-        {listColumns.has('assignee') && <TableCell>
+        {listColumns.has('assignee') && <TableCell className={JOB_COLUMN_CLASS.assignee}>
           {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="gap-2">{face}{holderName}</Button>
-            : <span className="inline-flex items-center gap-2">{face}<Text role="meta">Unassigned</Text></span>}
+            : <span className="inline-flex items-center gap-2">{holderName !== '—' && face}<Text role="meta">{holderName}</Text></span>}
         </TableCell>}
-        {listColumns.has('state') && <TableCell><Chip tone={placement?.column === 'needs' ? 'warning' : placement?.column === 'ready' ? 'success' : 'neutral'}>{stateWords}</Chip></TableCell>}
-        {listColumns.has('pr') && <TableCell>
+        {listColumns.has('state') && <TableCell className={`${JOB_COLUMN_CLASS.state} whitespace-normal`}><Chip tone={placement?.column === 'needs' ? 'warning' : placement?.column === 'ready' ? 'success' : 'neutral'}>{stateWords}</Chip>{reason && <Text role="meta" className="block whitespace-normal break-words" title={reason}>{reason}</Text>}</TableCell>}
+        {listColumns.has('pr') && <TableCell className={JOB_COLUMN_CLASS.pr}>
           {pr?.record.fact.kind === 'pr' ? <Button variant="link" size="inline" disabled={!pr.record.fact.url} title={standingWords(pr.freshness)} onClick={() => pr.record.fact.kind === 'pr' && pr.record.fact.url && openExternal(pr.record.fact.url)}>
             #{pr.record.fact.number}{!isCurrent(pr.freshness) && ' · stale or unknown'}
           </Button> : <Text role="meta">—</Text>}
         </TableCell>}
-        {listColumns.has('checks') && <TableCell><span className="inline-flex items-center gap-1.5" title={checksNow.map(one => `${chipOf(one).label}: ${standingWords(one.freshness)}`).join(' · ')}>
+        {listColumns.has('checks') && <TableCell className={JOB_COLUMN_CLASS.checks}><span className="inline-flex items-center gap-1.5" title={checksNow.map(one => `${chipOf(one).label}: ${standingWords(one.freshness)}`).join(' · ')}>
           {checkWords !== '—' && <Dot tone={checkWords === 'Passed' ? 'success' : checkWords === 'Failed' ? 'danger' : 'neutral'} />}<Text role="meta">{checkWords}</Text>
         </span></TableCell>}
-        {listColumns.has('changes') && <TableCell numeric>
+        {listColumns.has('changes') && <TableCell numeric className={JOB_COLUMN_CLASS.changes}>
           {diff?.record.fact.kind === 'diff' ? <span title={standingWords(diff.freshness)}><ChangeStats added={diff.record.fact.added} removed={diff.record.fact.removed} />{!isCurrent(diff.freshness) && <Text role="meta"> · stale or unknown</Text>}</span> : <Text role="meta">—</Text>}
         </TableCell>}
-        {listColumns.has('updated') && <TableCell numeric><Text role="meta" numeric title={new Date(intent.updatedAt).toLocaleString()}>{describeAge(now - intent.updatedAt)}</Text></TableCell>}
-        <TableCell align="end"><span className="inline-flex items-center gap-1.5">
-          {primary && !record && <Button variant="outline" size="sm" onClick={() => primary.review ? void openReviewDialog() : onAct(primary.verb, primary.outcome)}>{primary.label}</Button>}
+        {listColumns.has('updated') && <TableCell numeric className={JOB_COLUMN_CLASS.updated}><Text role="meta" numeric title={new Date(intent.updatedAt).toLocaleString()}>{describeAge(now - intent.updatedAt)}</Text></TableCell>}
+        <TableCell align="end" className="w-px"><span className="inline-flex items-center gap-1.5">
+          {primary && !record && <Button variant="outline" size="sm" onClick={() => 'answer' in primary ? openAnswerDialog() : primary.review ? void openReviewDialog() : onAct(primary.verb, primary.outcome)}>{primary.label}</Button>}
           <span className="opacity-0 group-hover/job:opacity-100 group-focus-within/job:opacity-100 has-[[aria-expanded=true]]:opacity-100">{actions}</span>
         </span></TableCell>
       </TableRow>
@@ -1278,12 +1294,12 @@ const IntentCard = ({
     {reviewDialog && (
       <Dialog
         title={intent.title}
-        subhead="Choose the attempt this step answers for."
+        subhead={reviewDialog.mode === 'review' ? 'Choose the attempt this step answers for.' : 'Choose the answer for this step.'}
         flush
         onClose={() => setReviewDialog(null)}
         footer={(
           <>
-            <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending || record} title={record ? RECORD_REASON : undefined} onClick={() => void confirmReview()}>
+            <Button variant="default" disabled={(reviewDialog.mode === 'review' && !reviewDialog.selected) || !reviewDialog.answer || reviewDialog.pending || record} title={record ? RECORD_REASON : undefined} onClick={() => void confirmReview()}>
               {reviewDialog.pending ? 'Saving…' : 'Record answer'}
             </Button>
             <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
@@ -1294,7 +1310,7 @@ const IntentCard = ({
             to a record (#1317). */}
         {record && <Note>{RECORD_REASON}</Note>}
         {reviewDialog.error && <Note tone="bad">{reviewDialog.error}</Note>}
-        {reviewDialog.pending && reviewDialog.candidates.length === 0
+        {reviewDialog.mode === 'review' && (reviewDialog.pending && reviewDialog.candidates.length === 0
           ? <Note>Loading attempts…</Note>
           : reviewDialog.candidates.length === 0
             ? <Note>No attempts are available to pick yet.</Note>
@@ -1332,8 +1348,8 @@ const IntentCard = ({
                   )
                 })}
               </Rows>
-            )}
-        {(role?.outcomes.length ?? 0) > 1 && (
+            ))}
+        {(reviewDialog.mode === 'answer' || (role?.outcomes.length ?? 0) > 1) && (
           <Rows role="radiogroup" aria-label="Answer">
             {(role?.outcomes ?? []).map((outcome) => (
               <RowChoice

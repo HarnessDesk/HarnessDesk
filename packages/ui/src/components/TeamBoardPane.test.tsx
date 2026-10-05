@@ -1634,12 +1634,12 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
-    'Blocked jobChoose the target', 'Recent job', 'Finished job',
+    '#2Blocked jobChoose the targetNeeds you · stopped', '#1Recent jobTo do', '#3Finished jobChecking evidence',
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
-  expect(container.querySelector('button[aria-label="All jobs"]')?.getAttribute('aria-pressed')).toBe('true')
-  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Needs you jobs"]')!.click())
+  expect([...container.querySelectorAll('button')].find(one => one.textContent === 'All 3')?.getAttribute('aria-pressed')).toBe('true')
+  act(() => button('Needs you 1').click())
   expect(table.querySelectorAll('tbody tr')).toHaveLength(1)
   expect(table.textContent).toContain('Blocked job')
   act(() => button('Board').click())
@@ -1654,7 +1654,7 @@ it('keeps list actions routed to the same host verbs and opens the exact assigne
   act(() => button('List').click())
   act(() => button('Implementer').click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
-  act(() => button('Mark done').click())
+  await pick(1, 'Mark done')
   expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done')
   await pick(1, 'Stop it')
   expect(whyField()).not.toBeNull()
@@ -1689,3 +1689,134 @@ it('retains a completing assignee after the host clears the claim, ignoring refu
   act(() => button('Implementer').click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
 })
+
+const listRow = (id = 1): HTMLTableRowElement => container.querySelector(`tbody tr[data-job="${id}"]`)!
+const showList = async (store: AppStore) => { await render(store); act(() => button('List').click()) }
+
+for (const state of ['done', 'abandoned', 'blocked'] as const) {
+  it(`list repair: ${state} offers reopen without an empty menu or a one-click completion`, async () => {
+    const { store } = rig([intent({ state, blockedBy: state === 'blocked' ? 'hand' : null })], {}, observed([], []))
+    await showList(store)
+    expect([...listRow().querySelectorAll('button')].map(one => one.textContent?.trim())).toContain('Put back in play')
+    expect(listRow().textContent).not.toContain('Mark done')
+    if (state !== 'blocked') expect(listRow().querySelector('button[aria-haspopup]')).toBeNull()
+    expect(store.teamIntent).not.toHaveBeenCalled()
+    await act(async () => button('Put back in play').click())
+    expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'reopen')
+  })
+}
+
+for (const state of ['open', 'claimed'] as const) {
+  it(`list repair: ${state} keeps Mark done in the menu until chosen`, async () => {
+    const { store } = rig([intent({ state, claim: state === 'claimed' ? { runtime: 'codex', sessionId: 'c1', at: 1 } : null })])
+    await showList(store)
+    expect(listRow().textContent).not.toContain('Mark done')
+    expect(store.teamIntent).not.toHaveBeenCalled()
+    await pick(1, 'Mark done')
+    expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done')
+  })
+}
+
+for (const review of [false, true]) {
+  it(`list repair: a person ${review ? 'review' : 'answer'} opens a question before recording a verdict`, async () => {
+    const { store, snapshot } = rig([intent({ role: 'judge' })])
+    const execution = {
+      id: 'person-list', goal: ROOM, version: 2, state: 'running', operations: [], legacyRun: null,
+      document: { format: 'agents', flow: {
+        roles: [{ id: 'judge', kind: 'person', outcomes: ['reject', 'approve'] }],
+        rules: review ? [{ id: 'review', on: 'judge', when: { every: ['approve'], evidence: [{ review: 'approve' }] }, then: { role: 'next', title: 'Next' } }] : [],
+      } },
+      rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+    }
+    const current = { ...snapshot, flowExecutions: new Map([[execution.id, execution]]) }
+    const live = { ...store, getSnapshot: () => current } as unknown as AppStore
+    await showList(live)
+    expect(listRow().textContent).not.toContain('Answer reject')
+    expect(listRow().textContent).not.toContain('Answer approve')
+    const entry = [...listRow().querySelectorAll('button')].find(one => one.textContent === (review ? 'Pick an attempt…' : 'Answer…'))
+    expect(entry).toBeDefined()
+    await act(async () => entry!.click())
+    expect(questionText()).toContain('Record answer')
+    expect(store.teamIntent).not.toHaveBeenCalled()
+    expect(store.decideFlowReview).not.toHaveBeenCalled()
+    if (!review) {
+      const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(one => one.textContent === 'Record answer')!
+      expect(confirm.disabled).toBe(true)
+      await act(async () => document.querySelector<HTMLElement>('[role="dialog"] [role="radio"]')!.click())
+      await act(async () => confirm.click())
+      expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done', undefined, 'reject')
+    }
+  })
+}
+
+it('list repair: a reopened job uses its description rather than its old completion note', async () => {
+  const { store } = rig([intent({ note: 'Published the old attempt', detail: 'Do the next part' })])
+  await showList(store)
+  expect(listRow().textContent).toContain('Do the next part')
+  expect(listRow().textContent).not.toContain('Published the old attempt')
+})
+
+it('list repair: completed jobs without a recoverable completer use a dash', async () => {
+  const { store } = rig([intent({ state: 'done' })], {}, observed([], []))
+  await showList(store)
+  expect(listRow().textContent).not.toContain('Unassigned')
+  expect(listRow().querySelectorAll('td')[1]!.textContent).toBe('—')
+})
+
+it('list repair: failed evidence is unavailable in the row as well as the banner', async () => {
+  const { store, snapshot } = rig([intent({ state: 'done' })])
+  const current = { ...snapshot, boardEvidenceFailed: new Set([ROOM]) }
+  const live = { ...store, getSnapshot: () => current } as unknown as AppStore
+  await showList(live)
+  expect(listRow().textContent).toContain('Evidence unavailable')
+  expect(listRow().textContent).not.toContain('Checking evidence')
+})
+
+it('list repair: Needs you gives stranded age precedence over the placement reason', async () => {
+  const { store } = rig([intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1, leaseUntil: Date.now() - 20 * 60000 } })])
+  vi.mocked(store.teamPeers).mockResolvedValue([])
+  await showList(store)
+  expect(listRow().textContent).toContain('stranded 20m')
+})
+
+it('list repair: Needs you carries the placement reason and searches number, assignee and state', async () => {
+  const { store, snapshot } = rig([intent({ id: 42, state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })], { nicknames: { 'codex\u0000c1': 'Implementer' } })
+  const current = { ...snapshot, approvals: [{ key: sessionKey('codex', 'c1') }] }
+  const live = { ...store, getSnapshot: () => current } as unknown as AppStore
+  await showList(live)
+  expect(listRow(42).textContent).toContain('#42')
+  expect(listRow(42).textContent).toContain('waiting on you')
+  const filter = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  for (const word of ['#42', 'Implementer', 'Needs you', 'waiting on you']) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, word)
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(container.querySelectorAll('tbody tr'), word).toHaveLength(1)
+  }
+})
+
+it('list repair: all-empty evidence columns are optional, but still offered by View', async () => {
+  const { store } = rig([intent({})], {}, observed([], []))
+  await showList(store)
+  expect([...container.querySelectorAll('th')].map(one => one.textContent)).not.toContain('Pull request')
+  expect([...container.querySelectorAll('th')].map(one => one.textContent)).not.toContain('Checks')
+  expect([...container.querySelectorAll('th')].map(one => one.textContent)).not.toContain('Changes')
+  act(() => container.querySelector<HTMLButtonElement>('button[title="View: columns and sort"]')!.click())
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Pull request')
+})
+
+for (const word of ['#42', '42', 'Implementer', 'Working', 'waiting on you']) {
+  it(`list repair: filtering matches the displayed ${word}`, async () => {
+    const { store, snapshot } = rig([intent({ id: 42, state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }), intent({ id: 43, title: 'Another job' })], { nicknames: { 'codex\u0000c1': 'Implementer' } })
+    const current = { ...snapshot, approvals: word === 'waiting on you' ? [{ key: sessionKey('codex', 'c1') }] : [] }
+    const live = { ...store, getSnapshot: () => current } as unknown as AppStore
+    await showList(live)
+    const filter = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, word)
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect([...container.querySelectorAll('tbody tr')].map(one => one.getAttribute('data-job'))).toEqual(['42'])
+  })
+}

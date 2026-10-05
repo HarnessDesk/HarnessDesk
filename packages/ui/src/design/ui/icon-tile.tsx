@@ -26,6 +26,9 @@ import { softTint, softTone, solidTint, type Tint, type Tone } from './tone'
  * thing or a category. A tile that holds an agent's mark is a face, never a
  * bare `square`: a thing's tile does not follow the setting, and a face that
  * does not would be the one face in the app with the wrong corner.
+ * `shape="face" empty` is an unassigned identity: an untinted face outline,
+ * following Faces. It is not an account ring; a finished job whose completer
+ * is unknown shows a dash rather than an empty identity.
  *
  * A listing that brings its own mark — a plugin's or a skill's logo — puts the
  * `<img>` inside, and the tile crops it to its corner. One that brings only its
@@ -63,7 +66,7 @@ type IconTileProps = React.ComponentProps<'span'> &
   VariantProps<typeof tileVariants> & {
     /** One identity qualifier at bottom-right. Top-right is reserved for attention. */
     badge?: React.ReactNode
-    /** An identity with nobody assigned: the shared empty ring, without a tint. */
+    /** An identity with nobody assigned: an untinted outline in its chosen shape. */
     empty?: boolean
   } &
   (
