@@ -172,7 +172,7 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   const project = sectionText('In storefront')
   expect(project).toContain('Storefront reviewer')
   expect(project).toContain('Storefront reviewer does the work.')
-  expect(project).toContain('Edit')
+  expect(project).toContain('Edit · asked, not enforced')
   expect(project).toContain('Claude · Opus 5 · High')
   // No wire: never the spec, never the digest.
   expect(container.textContent).not.toContain('claude-code')
@@ -208,6 +208,7 @@ it('lists a shadowed copy where it lives, in the Plugins-superseded idiom — a 
   expect(value).toBeDefined()
   expect(value?.closest('[data-tone]')).toBeNull()
   expect(value?.className ?? '').not.toContain('warning')
+  expect(value?.closest('[data-slot="row"]')?.className).not.toContain('opacity-50')
 })
 
 it('lists a file that will not parse, with why', () => {
@@ -258,8 +259,8 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
   expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')
   const chip = container.querySelector('section[aria-label="In storefront"] [data-ceiling]')
   expect(chip?.getAttribute('data-hold')).toBe('asked')
-  // A roster ceiling that is only asked needs attention in this table family.
-  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
+  // Asked is the ordinary ceiling state, so the shared chip stays neutral.
+  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
   expect(sectionText('Yours')).toContain('Edit')
 })
 
@@ -334,7 +335,7 @@ it('gives each roster record one reading, and moves its seat and refusal reason 
   expect(reviewer.querySelector('[data-slot="row-face"]')).not.toBeNull()
   expect(reviewer.querySelector('[data-slot="row-desc"]')?.textContent).toContain(' · Claude · Opus 5 · High')
   expect(reviewer.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
-  expect(reviewer.querySelector('[data-slot="chip"]')?.textContent).toBe('Edit · asked')
+  expect(reviewer.querySelector('[data-slot="chip"]')?.textContent).toBe('Edit · asked, not enforced')
   const refused = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('Security reviewer'))!
   expect(refused.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
   expect(refused.querySelector('[data-slot="chip"]')?.textContent).toBe("Can't seat here")

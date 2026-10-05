@@ -15,6 +15,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { AgentIcon } from './Icons'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
+import { CeilingChip } from './CeilingChip'
 import { Button, Chip, EmptyState, IconTile, Note, PageHead, Row, RowButton, RowValue, Rows, Section } from '../design'
 
 /**
@@ -27,7 +28,7 @@ import { Button, Chip, EmptyState, IconTile, Note, PageHead, Row, RowButton, Row
  * take here at the right. One that cannot be seated here stays, with *Can't
  * seat here* and the first reason. A copy another tier shadows is listed
  * where it lives, in the same idiom Settings › Plugins lists a superseded
- * plugin — a quiet word and a sentence, faded as a whole. A file that will not parse is a row whose line says why.
+ * plugin — a quiet word and a sentence, at full ink. A file that will not parse is a row whose line says why.
  */
 
 const ORDER: readonly AgentOrigin[] = ['project', 'user', 'builtin']
@@ -123,7 +124,6 @@ export const AgentsRosterSection = ({
                   key={path}
                   kind="record"
                   face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
-                  className="opacity-50"
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
                   /* A copy that is not used, said as a fact rather than a
@@ -152,8 +152,6 @@ export const AgentsRosterSection = ({
 }
 
 import { flagWords } from '../lib/ceilings'
-import { ceilingTitle } from '../lib/ceilings'
-import { ceilingWords } from '../lib/agents'
 
 /** One Agent in force, or one whose file will not parse — each a way into its page. */
 export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
@@ -188,11 +186,7 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
       control={
         !seat && plan ? <Chip tone="warning">Can't seat here</Chip>
           : !plan ? <RowValue>{snapshot.agentPlansFailed ? 'Its seats could not be checked' : 'Checking seats…'}</RowValue>
-          : <span data-ceiling={ceiling.level} data-hold={ceiling.hold} title={ceilingTitle(ceiling)}>
-              {ceiling.hold === 'asked'
-                ? <Chip tone="warning">{ceiling.level === 'read' ? 'Read only' : ceilingWords(ceiling.level)} · asked</Chip>
-                : <RowValue>{ceilingWords(ceiling.level)}</RowValue>}
-            </span>
+          : <CeilingChip ceiling={ceiling} />
       }
       onClick={onOpen}
     />
