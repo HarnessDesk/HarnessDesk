@@ -27,7 +27,7 @@ interface Rig {
   restart(): Promise<void>
 }
 
-const rig = async (t: { after(fn: () => Promise<void>): void }, options: { summary?: boolean; gate?: { value: string | null } } = {}): Promise<Rig> => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, options: { summary?: boolean; gate?: { value: string | null }; readFailure?: { value: string | null; once?: boolean } } = {}): Promise<Rig> => {
   const f = await findingsRig(t, { reviewers: REVIEWERS })
   const forge = new FakeFindingForge(SHA1)
   const make = (): Publications => new Publications({
@@ -43,7 +43,14 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, options: { summa
     goal: () => ({ open: true, preference: undefined }),
     projectOf: async () => '/repo',
     facts: (id) => f.port.flows.facts!(id),
-    ledger: (project) => f.plane.ledgerOf(project),
+    ledger: (project) => {
+      if (options.readFailure?.value && f.rig.flows.publicationOf(f.run)?.rounds['2']) {
+        const why = options.readFailure.value
+        if (options.readFailure.once) options.readFailure.value = null
+        throw new Error(why)
+      }
+      return f.plane.ledgerOf(project)
+    },
     seat: (id) => f.rig.seats.get(id) ?? null,
     template: () => '**Review by {seat} · via HarnessDesk**',
     appendPost: (input) => f.plane.appendPost(input),
@@ -243,7 +250,11 @@ test('a paused machine posts no closed round’s review, and posts it once when 
   assert.deepEqual(r.forge.calls, [], 'not even a read')
   const [waiting] = r.entries()
   assert.equal(waiting!.state, 'prepared')
-  assert.equal(waiting!.reason, null, 'held, not paused for a person: the resume posts it on its own')
+  assert.equal(waiting!.reason, gate.value, 'the dispatch refusal is durable and visible')
+  assert.equal((await r.pub.needs(r.f.run)).items[0]!.reason, gate.value)
+  await r.restart()
+  assert.equal(r.entries()[0]!.reason, gate.value, 'restart preserves the hold')
+  assert.deepEqual(r.forge.calls, [], 'restart does not bypass the dispatch gate')
 
   gate.value = null
   await r.pub.settleForWrap(r.f.goal)
@@ -252,4 +263,62 @@ test('a paused machine posts no closed round’s review, and posts it once when 
   assert.equal(r.entries()[0]!.state, 'posted')
   await r.pub.settleForWrap(r.f.goal)
   assert.equal(r.forge.summaries.length, 1, 'and never twice')
+})
+
+for (const summary of [false, true]) {
+  test(`a dispatch hold is visible and resumes automatically (${summary ? 'summary' : 'comments'})`, async (t) => {
+    const gate = { value: 'The daily cap holds this Goal.' as string | null }
+    const r = await rig(t, { summary, gate })
+    const [one, two, three] = await toReview(r)
+    await answer(r.f, one!, 'request-changes', [{ title: 'Unbounded read' }])
+    await answer(r.f, two!, 'approve', [])
+    await answer(r.f, three!, 'approve', [])
+    await r.pub.idle()
+    assert.ok(r.entries().length > 0)
+    assert.ok(r.entries().every((entry) => entry.state === 'prepared' && entry.reason === gate.value))
+    assert.equal((await r.pub.needs(r.f.run)).items.length, r.entries().length)
+    assert.deepEqual(r.forge.calls, [])
+    gate.value = null
+    await r.restart()
+    assert.ok(r.entries().every((entry) => entry.state === 'posted' && entry.reason === null))
+    assert.equal(summary ? r.forge.summaries.length : r.forge.sends.length, summary ? 1 : 4)
+  })
+
+  test(`a readiness failure leaves a reason on every prepared operation (${summary ? 'summary' : 'comments'})`, async (t) => {
+    const readFailure = { value: null as string | null }
+    const r = await rig(t, { summary, readFailure })
+    const [one, two, three] = await toReview(r)
+    await answer(r.f, one!, 'request-changes', [{ title: 'Unbounded read' }])
+    await answer(r.f, two!, 'approve', [])
+    readFailure.value = 'The finding ledger could not be read.'
+    await answer(r.f, three!, 'approve', [])
+    await r.pub.idle()
+    assert.ok(r.entries().every((entry) => entry.state === 'prepared' && /ledger could not be read/.test(entry.reason ?? '')))
+    assert.deepEqual(r.forge.calls, [])
+    await r.pub.postAgain(r.f.run, r.entries()[0]!.key)
+    assert.match(r.entries()[0]!.reason ?? '', /ledger could not be read/, 'a failed personal retry keeps a reason too')
+    readFailure.value = null
+    await r.restart()
+    assert.deepEqual(r.forge.calls, [], 'a readiness failure waits for a person')
+    for (const entry of r.entries()) await r.pub.postAgain(r.f.run, entry.key)
+    assert.ok(r.entries().every((entry) => entry.state === 'posted'))
+  })
+}
+
+test('one readiness failure does not strand the rest of a comment batch', async (t) => {
+  const readFailure = { value: null as string | null, once: true }
+  const r = await rig(t, { summary: false, readFailure })
+  const [one, two, three] = await toReview(r)
+  await answer(r.f, one!, 'request-changes', [{ title: 'Unbounded read' }])
+  await answer(r.f, two!, 'approve', [])
+  readFailure.value = 'The finding ledger could not be read.'
+  await answer(r.f, three!, 'approve', [])
+  await r.pub.idle()
+  assert.deepEqual(r.entries().map((entry) => entry.state), ['prepared', 'posted', 'posted', 'posted'])
+  const paused = r.entries()[0]!
+  assert.match(paused.reason ?? '', /ledger could not be read/)
+  await r.pub.postAgain(r.f.run, paused.key)
+  assert.ok(r.entries().every((entry) => entry.state === 'posted'))
+  assert.deepEqual(await r.pub.status(r.f.run), { publication: 'posted', reason: null })
+  assert.equal(r.forge.sends.length, 4)
 })

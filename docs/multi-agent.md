@@ -449,7 +449,10 @@ in observation time uses the later appended record. Earlier observations of
 other pull requests cannot block later rounds, and a latest closed or merged
 pull request leaves no open binding. Restored observations do not bind it. A
 round already prepared for posting keeps its original target; rebinding does
-not repost it.
+not repost it. A dispatch hold records its reason on each unsent posting and
+retries automatically when the gate allows it, including after a restart. A
+readiness check that cannot finish leaves a stated reason and waits for a
+person to post again.
 
 If an agent must abandon a task, it calls `release_claim(intent, reason?,
 blocked?)`:
