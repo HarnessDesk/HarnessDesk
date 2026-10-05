@@ -950,5 +950,13 @@
     "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
+  },
+  "usage-meter-row/div/variant/default": {
+    "h": 128,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
   }
 }
