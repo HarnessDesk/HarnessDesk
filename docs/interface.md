@@ -606,6 +606,15 @@ in [extending.md](extending.md).
   ([context-usage.md](context-usage.md)).
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
+- **A conversation that cannot be read returns its pane to a fresh draft.**
+  The error still says why it could not open; the next message starts a new
+  conversation in the draft's chosen folder rather than addressing the one
+  that failed. Words and chips entered while it was opening stay available
+  through Restore in the fresh composer's notice. While it opens, typing stays
+  available and Send waits for the conversation to load. Restore keeps newer
+  text and chips available to swap back in the destination composer's list,
+  including a fresh draft or another conversation. A transcript already loaded
+  stays available when reopening fails.
 - **A conversation whose folder has been deleted has no composer**, because
   there is nowhere for a message to go. In its place the pane states the fact
   in the agent's own words and offers *Open a copy in another folder*, which
@@ -806,6 +815,9 @@ after a restart. The host retains startup information before a window connects.
 Configuration warnings keep the runtime's summary, settings and file as separate
 facts. Expanding the row reveals guidance, a home-shortened path, Open the file
 and Don't show this again. Settings › Notifications offers Inbox only or Off.
+When a standing condition ends and later returns, its Inbox row is unread again;
+an older read or clear from another window affects only the occurrence that
+window saw.
 
 Conversation warnings, context compaction and model changes stay as quiet
 transcript lines outside the work fold. Errors keep one inline explanation and
@@ -1055,6 +1067,9 @@ the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
+Each member row names its nickname, with a distinct conversation title in the
+wrapping subtitle. Its task or message refusal shares that subtitle, so the
+work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
 Board-only Chat keeps the consequence of its messaging mode on screen.
