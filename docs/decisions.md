@@ -1795,6 +1795,57 @@ left that Run and returned before it answered.
 **The rule:** chips follow the host's recorded state, actions follow its
 offered door, and a person presses before a posting is sent.
 
+## Finished Seats release handles and idle runtimes release retained tools
+
+Measured 2026-10-04 on codex-cli 0.160.0 with
+[`script/probe/mcp-release.mjs`](../script/probe/mcp-release.mjs): a fresh,
+isolated `CODEX_HOME` configured one tiny Node MCP server answering only
+`initialize` and `tools/list`. Starting one thread created one child.
+`thread/unsubscribe` answered `unsubscribed`; one second later that child was
+still alive. After the app-server exited, the child count was zero. No turn
+was run, and the person's agent configuration was never read or changed.
+
+`CodexSession.close` already sends that unsubscribe. The host's
+`#restSeats` calls it for completed Seats, including Flow Seats, once their
+held-card history says all their work is done and their conversation has no
+turn, approval, queue, pending dispatch or running task for `SEAT_REST_MS`.
+But its resume-and-idle-stop capability guard excluded the Codex adapter,
+which had no `stopForIdle` implementation. Closing a thread alone would not
+have freed its retained tools anyway: the runtime process owns their lifetime.
+
+`CodexRuntime.stopForIdle` now participates in the existing host reaper.
+It refuses while a conversation handle or an integrated terminal is open,
+preserves its observed catalogue, project defaults, account and cached
+history, then stops the app-server. It reports `idle`, retaining its learned
+capabilities and sign-in. The host's stop barrier blocks new operations until
+exit, and its single-flight `#ensureStarted` restarts for new work; the normal
+resume path reopens the same conversation and reapplies its frozen attachments.
+Observed reads stay cached while idle. A history page, project defaults or
+skill list that was never observed restarts through the same host barrier;
+`canReadWhileIdle` distinguishes a missing snapshot from a real empty answer.
+Concurrent reads, including account status, join any restart already in flight
+before asking the adapter, so handshake time cannot erase their answers.
+Runtime-backed filesystem, process and extension calls, and hook reads, use
+that same stop/start barrier and count as activity until they finish. A live
+filesystem watch, like a terminal, keeps the process until unsubscribed.
+Account activity and rate-limit reads wait for those barriers too. Passive
+history, catalogue and usage reads protect their in-flight calls without
+resetting the runtime's quiet interval: a read spanning its deadline delays
+shutdown only until it finishes. Dashboard usage polls keep the last observed
+rate limits and account activity readable while idle, without restarting the
+process or refreshing their recorded observation time. New account
+notifications invalidate those usage observations.
+Deleting, archiving, renaming or updating a conversation invalidates retained
+history pages of every size and side. A page fetched across such a change is
+not retained; an unobserved page is read afresh through the host barrier.
+
+Both existing intervals stay ten minutes: a finished Seat first releases
+its handle after its quiet interval, then a wholly unused runtime stops after
+its idle interval. A Seat that never held work, or one still holding unfinished
+work, keeps its handle. A continuously working shared runtime retains finished
+threads' children until a quiet opportunity arrives. This chooses the measured
+release boundary without interrupting work or changing any configured server.
+
 ## One family of tables
 
 Tables, lists and settings rows centre the face and the control on the whole
@@ -1850,6 +1901,17 @@ or a refused occurrence, returns the current Inbox and policy to the window.
 Reads, clears and policy edits carry their prior snapshot so the host applies
 only the changed rows or kinds, retaining other windows’ edits. A late response
 cannot undo a newer local action.
+
+For a standing Inbox row, `id` names the condition and `at` names its
+occurrence. Content-keyed runtime rows instead keep the same row as their
+count and last time advance. The host keeps the latest standing occurrence
+time after a row is cleared:
+the same or an older copy stays cleared, while a later occurrence is admitted
+unread. A read or clear from a window whose snapshot predates that occurrence
+cannot change it. These receipts are host-owned and bounded, with live rows
+retained ahead of recent cleared ids. If a cleared receipt is eventually
+evicted and its kept key has also been released, a very delayed insertion can
+be admitted again.
 
 Host-created transcript notices survive richer reads of their own turn and
 unmatched synthetic notice turns survive cold reads. They never get copied
