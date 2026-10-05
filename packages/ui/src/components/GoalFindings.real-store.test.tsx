@@ -179,6 +179,46 @@ it('refreshes the round budget and blind reviewer counts from a flow execution p
   expect(lists).toBe(listsBefore)
 })
 
+it('an already open detail rereads accepted comparison evidence without losing the reason being typed', { timeout: TEST_MS }, async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let accepted = false
+  let reads = 0
+  const reason = 'The review selected revision bbbbbbbbbbbb for the next step.'
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    const view = accepted ? { ...detailPage().finding, activeBlocking: false, inactiveReason: reason } : detailPage().finding
+    switch (method) {
+      case 'finding/list': return { ...findingsPage(), rows: [view] }
+      case 'finding/read': reads += 1; return { ...detailPage(), finding: view }
+      case 'finding/run': return runView()
+      case 'attachment/seat': return null
+      default: throw new Error(`unexpected ${method}`)
+    }
+  }) as never)
+  const push = (evidence: readonly string[]) => notify(store, {
+    method: 'flow/execution-changed',
+    params: { execution: { id: 'run-1', goal: 'g1', findings: {}, rounds: [{ n: 3, evidence }] } as never },
+  })
+  notify(store, { method: 'goal/changed', params: { view: goalView() } })
+  push([])
+  act(() => root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>))
+  const opener = await buttonSaying('finding-1')
+  act(() => opener.click())
+  typeInto(await reasonBox(), 'Keep this draft while the judge finishes')
+  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Blocking')
+  const before = reads
+  push([])
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, QUIET_MS)) })
+  expect(reads, 'routine execution updates do not reread history').toBe(before)
+  accepted = true
+  push(['pick-1'])
+  await eventually(() => {
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Not kept')
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain(reason)
+  })
+  expect((await reasonBox()).value).toBe('Keep this draft while the judge finishes')
+  expect(reads).toBe(before + 1)
+})
+
 it('a reason typed on the real store path reaches finding/decide, and a live push mid-edit does not lose it (#1089, #1090)', { timeout: TEST_MS }, async () => {
   const store = new AppStore('ws://localhost:0/')
   const requests: { method: HostMethodName; params: unknown }[] = []
