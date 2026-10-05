@@ -926,9 +926,9 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt in the pane’s reading column. Its labelled
 card groups show What finished, titled Work, speaker-led prose Answers, and a final
-Record with findings status, recorded cost and wrap date. The total keeps its
-source, observation age and qualifications. Cost is read separately from the
-frozen wrap; Record and its breakdowns show the same read, and Refresh reads
+Record with findings status and wrap date. Cost is read separately from the
+frozen wrap; the Cost section shows row notes and the unattributed reason, and
+the Recorded usage total keeps its source and observation age. Refresh reads
 the sources again. Cost lists one numeric row per part, with Recorded usage
 as its footer beneath a strong rule. The Sources dialog keeps each row's source,
 observation age and qualifications; differing amount qualifications remain

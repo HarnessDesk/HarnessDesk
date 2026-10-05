@@ -419,7 +419,7 @@ export const Card = ({
           <div className={styles.lanes}>
             <Separator />
           {view.all.map((lane) => (
-            <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} tone={paletteTone(lane.tone)} />
+            <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={paletteTone(lane.tone)} />
           ))}
           {view.overflow > 0 && (
             <Text as="div" role="meta">

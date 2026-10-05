@@ -511,7 +511,7 @@ describe('PlansTable', () => {
 
   // A spent balance is a real zero, not "nothing to report" — its track
   // still draws, in the danger tone, unlike Free/Key-no-budget above.
-  it('shows the amount and Spent status for a spent Balance row', () => {
+  it('shows the amount and Out status for a spent Balance row', () => {
     const balance = info('balance-agent', 'Balance Agent')
     const reports = [report({ runtime: balance.id, account: 'spent@example.com', billing: billing(['balance']), credits: { remaining: 0, unit: 'USD' } })]
     mount(
@@ -529,7 +529,42 @@ describe('PlansTable', () => {
     const cells = rowFor('spent@example.com').closest('tr')?.querySelectorAll('td') ?? []
     expect(cells[2]?.querySelector('[role="progressbar"]')).toBeNull()
     expect(cells[2]?.textContent).toBe('$0')
-    expect(cells[1]?.textContent).toBe('Spent')
+    expect(cells[1]?.textContent).toBe('Out')
+    act(() => rowFor('spent@example.com').click())
+    expect(host.querySelector('[data-shape="balance"]')?.textContent).toContain('Out — top up to continue.')
+  })
+
+  it('uses the same overage word and tone in the row and expanded frame', () => {
+    const account = info('overage-agent', 'Overage Agent')
+    const overage = report({
+      runtime: account.id,
+      account: 'overage@example.com',
+      billing: billing(['allowance'], { overage: { enabled: true, spent: 4.5, currency: 'USD' } }),
+      lanes: [lane({ id: 'monthly', usedPercent: 20 })],
+    })
+    mount(
+      <PlansTable
+        rows={rowsFor([overage])}
+        byId={byIdOf(account)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+
+    const disclosure = rowFor('overage@example.com')
+    const rowChip = disclosure.closest('tr')?.querySelector<HTMLElement>('[data-slot="chip"]')
+    expect(rowChip?.textContent).toBe('On overage')
+    expect(rowChip?.dataset['tone']).toBe('warning')
+
+    act(() => disclosure.click())
+    const frame = host.querySelector('[data-shape="allowance"]')
+    const frameChip = [...(frame?.querySelectorAll<HTMLElement>('[data-slot="chip"]') ?? [])]
+      .find((chip) => chip.textContent === 'On overage')
+    expect(frameChip?.dataset['tone']).toBe('warning')
   })
 
   // A not-reporting row (`primaryShapeOf` is `'none'`) reads its own status —
@@ -745,4 +780,17 @@ it('keeps a plain account row and does not repeat the runtime when it is the tit
  const texts = row.querySelectorAll('td:first-child [data-slot="text"]')
  expect(texts[0]?.textContent).toBe('Alpha')
  expect(texts[1]?.textContent).toBe('free tier')
+})
+
+
+it('uses one neutral tone for a Ready chip and its remaining bar', () => {
+  const a = info('a', 'Agent A')
+  mount(<PlansTable rows={rowsFor([report({ lanes: [lane({ id: 'weekly', usedPercent: 20 })] })])}
+    byId={byIdOf(a)} now={NOW} filter="all" preferenceFor={() => ({})}
+    onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />)
+  const row = host.querySelector('tbody tr')!
+  const chip = row.querySelector('[data-slot="chip"]')!
+  expect(chip.textContent).toBe('Ready')
+  expect(chip.getAttribute('data-tone')).toBe('neutral')
+  expect(row.querySelector('[data-slot="progress"]')?.getAttribute('data-tone')).toBe('neutral')
 })

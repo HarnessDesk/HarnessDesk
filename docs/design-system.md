@@ -637,6 +637,14 @@ having written the judgement down.
 
 ### Everything else with a rule
 
+### `action`
+
+**Use** — One recovery action for the group note: pass action to Note so it follows the sentence and wraps beneath it when narrow.
+
+**Not** — A button embedded in the sentence, or a separate screen layout for the same note and action.
+
+**Why** — The explanation stays whole while its recovery control remains reachable at narrow widths.
+
 ### `box ÷ cap ≈ 3.2`
 
 **Use** — Any control with a word in it — a button, an input, a select, a segmented cell.
@@ -908,6 +916,14 @@ having written the judgement down.
 **Not** — On a row that holds words, or as the list's default. Right alignment is a claim that the digits line up.
 
 **Why** — A totals column that lines up by place is read in one glance; the same alignment on a sentence is read in none.
+
+### `note`
+
+**Use** — A varying explanation or source sentence below a KeyValue pair: give KeyValueRow a note that wraps across both tracks, leaving only the label to size the key column.
+
+**Not** — A sentence in the label track, or a constant repeated below every row. A shared note belongs once below the list.
+
+**Why** — Accounting figures need their own column at narrow widths; an explanation must not take its width from them.
 
 ### `path`
 
@@ -1802,6 +1818,7 @@ Tone follows the one contract (`design/usage.ts`, family `tone`): `warn`
 only when the person must act now, `bad` only when something is broken or
 will be lost. Ordinary information — including a stop the person asked for,
 or a limit that is simply how the thing works — is an untoned note.
+An optional action follows the sentence and wraps beneath it when narrow.
 
 ### `NoteList`
 

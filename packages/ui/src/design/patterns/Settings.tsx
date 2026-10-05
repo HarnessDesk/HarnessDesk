@@ -466,12 +466,14 @@ export const FormStack = ({ children }: { children: ReactNode }) => {
  * only when the person must act now, `bad` only when something is broken or
  * will be lost. Ordinary information — including a stop the person asked for,
  * or a limit that is simply how the thing works — is an untoned note.
+ * An optional action follows the sentence and wraps beneath it when narrow.
  */
 export const Note = ({
   children,
   tone,
   ink = 'secondary',
   icon,
+  action,
   inset,
   className,
   ...props
@@ -480,6 +482,8 @@ export const Note = ({
   tone?: 'warn' | 'bad'
   ink?: 'secondary' | 'muted'
   icon?: ReactNode
+  /** One action that can resolve or retry what the note describes. */
+  action?: ReactNode
   /** Follow a pane title’s ink column, or the table family’s row inset. */
   inset?: 'pane-title' | 'row'
   className?: string
@@ -497,12 +501,15 @@ export const Note = ({
     {...(inDialog ? { 'data-context': 'dialog' } : {})}
     data-ink={ink}
     {...(icon ? { 'data-icon': '' } : {})}
+    {...(action ? { 'data-action': '' } : {})}
     {...(tone ? { 'data-tone': tone } : {})}
     {...(tone === 'bad' ? { role: 'alert' } : {})}
     {...props}
   >
-    {icon}
-    {icon ? <span>{children}</span> : children}
+    {action ? <>
+      <span data-slot="note-text">{icon}{children}</span>
+      <span data-slot="note-action">{action}</span>
+    </> : <>{icon}{icon ? <span>{children}</span> : children}</>}
   </p>
   )
 }

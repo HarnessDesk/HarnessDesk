@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionKey, type RuntimeInfo, type Session, type SessionUsage } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
+import { formatReset } from '../lib/limits'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ContextUsage } from './ContextUsage'
 
@@ -217,6 +218,18 @@ describe('ContextUsage', () => {
     })
     open()
     expect(panelText()).not.toContain('Plan usage')
+  })
+
+  it('keeps the reset clock in the context-panel countdown title', () => {
+    const resetsAt = Date.now() + 3 * 86_400_000
+    const limits = {
+      windows: [{ label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt }],
+    }
+    const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
+    mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }))
+    open()
+    const countdown = document.querySelector('[role="menu"] [data-slot="usage-meter-row"]')?.lastElementChild
+    expect(countdown?.getAttribute('title')).toBe(`resets ${formatReset(resetsAt)}`)
   })
   it('an agent that reports cache misses gets a verdict', () => {
     // Reads and writes both known: the panel can say the cache was cold, and

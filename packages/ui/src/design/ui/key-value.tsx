@@ -150,6 +150,7 @@ const KeyValueRow = ({
   label,
   children,
   emphasis,
+  note,
   footer = false,
   numeric = false,
   kind = 'text',
@@ -159,6 +160,8 @@ const KeyValueRow = ({
   label: React.ReactNode
   children: React.ReactNode
   emphasis?: boolean
+  /** A sentence below the pair, spanning both tracks so only labels size the key column. */
+  note?: React.ReactNode
   /** The total of the preceding readings, under the shared strong rule. */
   footer?: boolean
   /** A count, a total, money: right-aligned on tabular figures so a column of them lines up by place. */
@@ -175,7 +178,7 @@ const KeyValueRow = ({
     data-variant={variant}
     {...(numeric ? { 'data-numeric': '' } : {})}
     {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
-    className={cn(footer ? 'col-span-full grid grid-cols-subgrid items-center border-t border-(--hd-border-strong) pt-(--hd-space-3)' : 'contents', className)}
+    className={cn(footer ? 'col-span-full grid grid-cols-subgrid items-center gap-y-0.5 border-t border-(--hd-border-strong) pt-(--hd-space-3)' : note ? 'col-span-2 grid grid-cols-subgrid items-center gap-y-0.5' : 'contents', className)}
     {...props}
   >
     <dt
@@ -198,6 +201,7 @@ const KeyValueRow = ({
     >
       {valueOf(children, kind)}
     </dd>
+    {note && <dd data-slot="key-value-note" className="col-span-full m-0 min-w-0 whitespace-normal break-words text-sm text-(--hd-muted-foreground)">{note}</dd>}
   </div>
 )
 

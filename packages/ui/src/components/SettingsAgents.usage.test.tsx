@@ -6,6 +6,7 @@ import {
   runtimeId,
   NO_CAPABILITIES,
   type AccountStatus,
+  type RateLimits,
   type RuntimeInfo,
   type UsageLane,
   type UsageReport,
@@ -14,6 +15,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { accountKey } from '../lib/accounts'
+import { formatReset } from '../lib/limits'
 import { RuntimesSection } from './SettingsAgents'
 
 /**
@@ -103,7 +105,7 @@ const fableSpent = report(
 /** A second account whose own weekly really is gone. */
 const reallySpent = report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100 })], 'weekly')
 
-const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
+const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -117,7 +119,7 @@ const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),
-    limitsFor: vi.fn(async () => null),
+    limitsFor: vi.fn(async () => limits),
     readPlan: vi.fn(async () => ({ entry: null, suggestion: null, refusal: null })),
     agentCatalog: vi.fn(async () => []),
     acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
@@ -174,6 +176,16 @@ describe('an account row in Settings', () => {
     const work = rows().find((row) => row.label === 'work@acme.dev')
     expect(work?.figure).toBe('0% left')
     expect(work?.state).toBe('limit')
+  })
+
+  it('keeps the reset clock in the Settings countdown title', async () => {
+    const resetsAt = Date.now() + 3 * 86_400_000
+    await mount([fableSpent], { windows: [{ label: 'Weekly', usedPercent: 63, windowMinutes: 10_080, resetsAt }] })
+    const account = [...container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes('olivia@acme.dev'))
+    await act(async () => account?.click())
+    const countdown = container.querySelector('[data-slot="usage-meter-row"]')?.lastElementChild
+    expect(countdown?.getAttribute('title')).toBe(`resets ${formatReset(resetsAt)}`)
   })
 
   it('gives each row its own account reading, whatever order they arrive in', async () => {

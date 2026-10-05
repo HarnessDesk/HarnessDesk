@@ -2,13 +2,13 @@ import { useRef, useState } from 'react'
 
 import type { RuntimeId, RuntimeInfo, UsagePreference } from '@harnessdesk/protocol'
 
-import { paletteTone, usageReadingTone } from '../../lib/limits'
+import { usageReadingTone } from '../../lib/limits'
 import {
   moneyRowOf,
   SHAPE_CHIP_LABEL,
   SHAPE_LABEL,
-  STATUS_LABEL,
   STATUS_TONE,
+  statusPresentation,
   type PlanRow,
   type RowShape,
   type ShapeCounts,
@@ -114,7 +114,7 @@ export const PlansTable = ({
   initialExpanded?: string | null
   onSignIn?: (runtime: RuntimeId) => void
   signInRuntimes?: ReadonlySet<RuntimeId>
-  tintFor?: (runtime: RuntimeId) => import('../../design').Tint
+  tintFor?: (runtime: RuntimeId, accountLabel: string | null) => import('../../design').Tint
 }) => {
   const [expanded, setExpanded] = useState<string | null>(initialExpanded)
   const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
@@ -154,7 +154,7 @@ export const PlansTable = ({
                 row={row}
                 info={info}
                 name={name}
-                tint={tintFor(row.report.runtime)}
+                tint={tintFor(row.report.runtime, row.report.account)}
                 onSignIn={onSignIn && signInRuntimes?.has(row.report.runtime) ? () => onSignIn(row.report.runtime) : undefined}
                 bodyId={bodyId}
                 isOpen={isOpen}
@@ -191,7 +191,7 @@ const LeftCell = ({ row, name }: { row: PlanRow; name: string }) => {
   </div>
   if (row.left.percent === null) return <Text role="meta">—</Text>
   return <div className={styles.plansReading}>
-    <Progress value={row.left.percent} label={false} tone={row.status === 'ready' ? 'success' : paletteTone(STATUS_TONE[row.status])} aria-label={`${name} — what is left`} />
+    <Progress value={row.left.percent} label={false} tone={statusPresentation(row.status).tone} aria-label={`${name} — what is left`} />
     <Text className={styles.plansPercent} role="value" numeric tone={usageReadingTone(STATUS_TONE[row.status])}>{Math.round(row.left.percent)}%</Text>
   </div>
 }
@@ -238,7 +238,7 @@ const TableRowGroup = ({
         </span>
       </TableCell>
       <TableCell className={styles.colStatus}>
-        <Chip tone={row.status === 'ready' || row.status === 'unlimited' ? 'success' : paletteTone(STATUS_TONE[row.status])} label={STATUS_LABEL[row.status]} />
+        <Chip tone={statusPresentation(row.status).tone} label={statusPresentation(row.status).label} />
       </TableCell>
       <TableCell className={styles.colLeft} numeric>
         <LeftCell row={row} name={row.report.account ?? name} />

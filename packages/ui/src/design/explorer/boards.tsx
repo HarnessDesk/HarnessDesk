@@ -476,6 +476,9 @@ const StateBoard = () => (
       <Case label="supporting note with icon">
         <Note ink="muted" icon={<FolderIcon size={13} />}>Manifest required</Note>
       </Case>
+      <Case label="note with recovery action · wraps when narrow">
+        <Note tone="warn" action={<Button variant="outline" size="sm">Try again</Button>}>Run counts are unavailable for some Teams.</Note>
+      </Case>
     </div>
     <p className={styles.rule}>
       Readiness keeps its six states and dot. A toned chip judges any other compact fact; a tinted

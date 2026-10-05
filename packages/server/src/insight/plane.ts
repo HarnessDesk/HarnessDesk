@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
+import { INSIGHT_ROW_NOTES } from '@harnessdesk/protocol'
+
 import type {
   AgentOrigin, InsightAmounts, InsightComparison, InsightCompareQuery, InsightMetric, InsightOrderPreview, InsightOrderQuery,
   InsightQuery, InsightReport, InsightSelector, InsightSource, Measure, SeatRecord,
@@ -151,17 +153,17 @@ export class InsightPlane implements InsightReadApi {
     }
     const seatRows = seats.map((seat) => row(
       `seat:${seat.id}`, seat.seatLabel, bySeat.get(seat.id) ?? [], sourceFor(bySeat.get(seat.id) ?? []), detail.gaps,
-      { seat: seat.id, goal: seat.board, session: seat.session, message: null, note: seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable' },
+      { seat: seat.id, goal: seat.board, session: seat.session, message: null, note: seat.briefDigest ? INSIGHT_ROW_NOTES.cohort : INSIGHT_ROW_NOTES.missingCohort },
     ))
     const goalRows = allGoals.flatMap((goal) => {
       const goalSeats = seats.filter((seat) => seat.board === goal.id)
       if (goalSeats.length === 0) return []
       const samples = goalSeats.flatMap((seat) => bySeat.get(seat.id) ?? [])
-      return [row(`goal:${goal.id}`, goal.sentence, samples, sourceFor(samples), detail.gaps, { seat: null, goal: goal.id, session: null, message: null, note: 'Historical Seats' })]
+      return [row(`goal:${goal.id}`, goal.sentence, samples, sourceFor(samples), detail.gaps, { seat: null, goal: goal.id, session: null, message: null, note: INSIGHT_ROW_NOTES.goal })]
     })
     const agentRows = [...new Map(seats.filter((seat) => seat.agent).map((seat) => [`${seat.agent!.origin}:${seat.agent!.id}`, seat.agent!] as const)).entries()].map(([key, agent]) => {
       const selected = seats.filter((seat) => seat.agent?.id === agent.id && seat.agent.origin === agent.origin).flatMap((seat) => bySeat.get(seat.id) ?? [])
-      return row(`agent:${key}`, agent.name, selected, sourceFor(selected), detail.gaps, { seat: null, goal: null, session: null, message: null, note: 'Historical Agent Seats' })
+      return row(`agent:${key}`, agent.name, selected, sourceFor(selected), detail.gaps, { seat: null, goal: null, session: null, message: null, note: INSIGHT_ROW_NOTES.agent })
     })
     const unallocated = amounts(unattributed, sourceFor(unattributed), detail.gaps)
     return {

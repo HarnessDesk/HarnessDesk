@@ -95,6 +95,7 @@ import {
   type FindingPublicationsView,
   type FindingView,
   type FlowRun,
+  type FlowExecutionSummary,
   type FlowSeat,
   type GoalCreateInput,
   type GoalId,
@@ -4667,6 +4668,59 @@ export class AppStore {
     const summaries = await this.transport.request('flow/executions', { team, active: false })
     await Promise.all(summaries.filter(one => !this.#snapshot.flowExecutions.has(one.id))
       .map(one => this.readFlowExecution(one.id)))
+  }
+
+  /** Restore several Teams' history with one observable state patch. */
+  async loadTeamRunsBatch(teams: readonly string[]): Promise<{ loaded: ReadonlySet<string>; unavailable: ReadonlySet<string> }> {
+    const ids = [...new Set(teams)]
+    const unavailable = new Set<string>()
+    const listed: { team: string; summaries: readonly FlowExecutionSummary[] }[] = []
+    for (let start = 0; start < ids.length; start += 8) {
+      listed.push(...await Promise.all(ids.slice(start, start + 8).map(async (team) => {
+        try {
+          return { team, summaries: await this.transport.request('flow/executions', { team, active: false }) }
+        } catch {
+          unavailable.add(team)
+          return { team, summaries: [] }
+        }
+      })))
+    }
+
+    const teamsByRun = new Map<string, Set<string>>()
+    for (const { team, summaries } of listed) {
+      for (const summary of summaries) {
+        if (this.#snapshot.flowExecutions.has(summary.id)) continue
+        const owners = teamsByRun.get(summary.id) ?? new Set<string>()
+        owners.add(team)
+        teamsByRun.set(summary.id, owners)
+      }
+    }
+
+    const runs = [...teamsByRun.keys()]
+    const executions: PromiseSettledResult<FlowExecution>[] = []
+    for (let start = 0; start < runs.length; start += 8) {
+      executions.push(...await Promise.allSettled(runs.slice(start, start + 8).map(run => this.transport.request('flow/execution', { run }))))
+    }
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    let changed = false
+    executions.forEach((result, index) => {
+      const run = runs[index]!
+      if (result.status === 'rejected') {
+        for (const team of teamsByRun.get(run) ?? []) unavailable.add(team)
+        return
+      }
+      // A push may have supplied a newer copy while these reads were in flight.
+      if (!this.#snapshot.flowExecutions.has(result.value.id)) {
+        flowExecutions.set(result.value.id, result.value)
+        changed = true
+      }
+    })
+    if (changed) this.#patch({ flowExecutions })
+
+    return {
+      loaded: new Set(ids.filter(team => !unavailable.has(team))),
+      unavailable,
+    }
   }
 
   /** One run's execution state, read fresh — the pull half of `flow/execution-changed`'s push. */

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentEntry, FlowSeat, InsightOrderPreview, InsightReport } from '@harnessdesk/protocol'
+import { INSIGHT_ROW_NOTES } from '@harnessdesk/protocol'
 
-import { metricWords } from '../lib/insight'
+import { commonRowNote, metricWords } from '../lib/insight'
 import { useSnapshot, useStore } from '../state/context'
 import { Button, Chip, Dialog, Note, Row, RowValue, Rows, SectionHead } from '../design'
 
@@ -62,6 +63,8 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
     finally { setApplying(false) }
   }
   const historical = report?.seats.filter((seat) => seat.agent?.id === entry.id && seat.agent.origin === entry.origin) ?? []
+  const noteFor = (seat: InsightReport['seats'][number]) => seat.briefDigest ? INSIGHT_ROW_NOTES.cohort : INSIGHT_ROW_NOTES.missingCohort
+  const groupNote = commonRowNote(historical.map(seat => ({ note: noteFor(seat) })))
   const seatAmounts = new Map((report?.breakdowns.find((breakdown) => breakdown.dimension === 'seat')?.rows ?? []).map((row) => [row.seat, row.amounts.usd]))
   const failedSources = report?.sources.filter((source) => source.problem !== null) ?? []
   return (
@@ -69,9 +72,10 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
       <SectionHead name="Historical seat costs" />
       {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <>
         <Rows>
-          {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue numeric>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
+          {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={noteFor(seat) !== groupNote ? noteFor(seat) : undefined} control={<RowValue numeric>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
           {failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}
         </Rows>
+        {groupNote && <Note>{groupNote}</Note>}
         {/* A gap belongs to the whole read, not to one row, and Note carries
             no card padding of its own — inside Rows its text sat flush
             against the card's edge. Outside it, Note's own margin is the

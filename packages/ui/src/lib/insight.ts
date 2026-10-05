@@ -1,4 +1,5 @@
 import type { InsightMetric, InsightSource } from '@harnessdesk/protocol'
+import { INSIGHT_ROW_NOTES } from '@harnessdesk/protocol'
 
 export interface MetricWords {
   readonly value: string
@@ -18,7 +19,9 @@ const number = (value: number, unit: InsightMetric['unit']): string => {
 /** Human words retain source age and qualification; a new read never freshens an old observation. */
 export function metricWords(metric: InsightMetric, sources: readonly InsightSource[], now: number): MetricWords {
   const matched = sources.filter((source) => metric.sourceIds.includes(source.id))
-  const source = matched.length === 0 ? 'No measured source' : matched.map((one) => one.label).join(', ')
+  const labels = [...new Set(matched.map(one => one.label))]
+  const files = matched.filter(one => one.kind === 'corpus').length
+  const source = labels.length === 0 ? 'No measured source' : `${labels.join(', ')}${labels.length < matched.length && files > 1 ? ` · ${files} files` : ''}`
   const oldest = matched.map((one) => one.observedAt).filter((at): at is number => at !== null).sort((a, b) => a - b)[0] ?? null
   const freshness = oldest === null
     ? 'Observation time unavailable'
@@ -41,4 +44,13 @@ export function metricWords(metric: InsightMetric, sources: readonly InsightSour
 export function receiptMetricWords(metric: InsightMetric, sources: readonly InsightSource[], now: number): MetricWords {
   const words = metricWords(metric, sources, now)
   return { ...words, qualifier: words.qualifier?.replace('Vendor-metered cost', 'recorded usage') ?? null }
+}
+
+
+/** Host dimension notes belong to the group; cohort exceptions stay on their Seats. */
+export const commonRowNote = (rows: readonly { readonly note: string | null }[]): string | null => {
+  const ordinary = rows.find(row => row.note === INSIGHT_ROW_NOTES.goal || row.note === INSIGHT_ROW_NOTES.agent || row.note === INSIGHT_ROW_NOTES.cohort)?.note
+  if (ordinary) return ordinary
+  const note = rows[0]?.note
+  return note && note !== INSIGHT_ROW_NOTES.missingCohort && rows.every(row => row.note === note) ? note : null
 }

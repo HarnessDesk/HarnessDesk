@@ -787,7 +787,7 @@ const applyAgentFieldEdit = (source: string, edit: AgentFieldEdit): string => {
  */
 export const insightReportFor = (goal: string): import('@harnessdesk/protocol').InsightReport => {
   const metric = (value: number): import('@harnessdesk/protocol').InsightMetric => ({
-    value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: ['src-preview'], coverage: 'complete', missing: [],
+    value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: [0, 1, 2, 3].map(n => `src-preview-${n}`), coverage: 'complete', missing: [],
   })
   const amounts = (usd: number): import('@harnessdesk/protocol').InsightAmounts => ({
     usd: metric(usd),
@@ -808,12 +808,12 @@ export const insightReportFor = (goal: string): import('@harnessdesk/protocol').
     breakdowns: [
       {
         dimension: 'seat',
-        rows: [{ key: 'seat-preview-reviewer', label: 'Alpha · careful', amounts: amounts(4.82), seat: 'seat-preview-reviewer', goal, session: null, message: null, note: null, elapsedMs: metric(180_000) }],
+        rows: [0, 1].map(n => ({ key: `seat-preview-${n}`, label: n === 0 ? 'Alpha · careful' : 'Beta · builder', amounts: amounts(2.41), seat: `seat-preview-${n}`, goal, session: null, message: null, note: 'Recorded brief cohort', elapsedMs: metric(90_000) })),
         unattributed: amounts(0),
-        reason: null,
+        reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.',
       },
     ],
-    sources: [{ id: 'src-preview', kind: 'evidence', label: 'This desk’s own record', observedAt: now, checkedAt: now, stale: false, problem: null }],
+    sources: [0, 1, 2, 3].map(n => ({ id: `src-preview-${n}`, kind: 'corpus', label: 'Recorded usage', observedAt: now - 12 * 60_000, checkedAt: now, stale: false, problem: null })),
     recordedSpend: [],
     provenance: { state: 'available', note: 'Recorded on this desk.' },
     gaps: [],
@@ -1178,6 +1178,16 @@ class PreviewStore {
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener)
     return () => this.#listeners.delete(listener)
+  }
+
+  /** The rig keeps all of its Team records in memory, including empty history. */
+  async loadGoals(): Promise<void> {}
+
+  async loadTeamRunsBatch(teams: readonly string[]): Promise<{ loaded: ReadonlySet<string>; unavailable: ReadonlySet<string> }> {
+    return {
+      loaded: new Set(teams.filter(team => this.#snapshot.goals.has(team))),
+      unavailable: new Set(teams.filter(team => !this.#snapshot.goals.has(team))),
+    }
   }
 
   getSnapshot = (): AppSnapshot => this.#snapshot

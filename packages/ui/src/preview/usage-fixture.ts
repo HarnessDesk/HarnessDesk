@@ -32,6 +32,10 @@ export const usagePreviewStore = (): AppStore => {
   /** The fixture already contains the retained Team metadata and Run. */
   own.loadGoals = async (): Promise<void> => {}
   own.loadTeamRuns = async (): Promise<void> => {}
+  own.loadTeamRunsBatch = async (teams): Promise<{ loaded: ReadonlySet<string>; unavailable: ReadonlySet<string> }> => ({
+    loaded: new Set(teams),
+    unavailable: new Set(),
+  })
 
   return own
 }

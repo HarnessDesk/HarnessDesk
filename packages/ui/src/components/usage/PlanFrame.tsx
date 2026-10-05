@@ -3,11 +3,10 @@ import type { ReactNode } from 'react'
 import type { RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import { cn } from '@/lib/utils'
-import { paletteTone } from '../../lib/limits'
 import { paidRatioCaption } from '../../lib/overview-strip'
 import { planLabel } from '../../lib/usage'
 import { formatMoney } from '../../lib/usage'
-import { STATUS_LABEL, STATUS_TONE, type MoneyRow, type RowShape, type RowStatus } from '../../lib/plans-table'
+import { statusPresentation, type MoneyRow, type RowShape, type RowStatus } from '../../lib/plans-table'
 import { RuntimeMark } from '../BrandIcons'
 import {
   Button,
@@ -70,7 +69,7 @@ export const PlanFrame = ({
         <ToolbarGap />
         {shapeChip}
         {plan && <Chip label={plan} tone="neutral" />}
-        <Chip tone={paletteTone(STATUS_TONE[status])} label={STATUS_LABEL[status]} />
+        <Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} />
       </CardHeader>
 
       <MoneyRowView money={money} onOpenPlanSettings={onOpenPlanSettings} />

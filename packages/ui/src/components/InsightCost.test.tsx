@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { InsightMetric, InsightReport, InsightSource } from '@harnessdesk/protocol'
 
 import { InsightCost } from './InsightCost'
@@ -17,6 +17,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
 const source: InsightSource = {
@@ -42,6 +43,8 @@ it('keeps total fixed while alternate views retain zero, floor, estimate and unk
   expect(container.textContent).toContain('$3.00')
   expect(container.textContent).toContain('Estimate')
   expect(container.textContent).toContain('Estimated known subtotal')
+  expect(container.textContent).toContain('No unique historical Seat could be established.')
+  expect(container.textContent).toContain('minutes since observation')
   expect(container.textContent).toContain('$0.00')
   expect(container.textContent).toContain('Unknown')
   const agent = [...container.querySelectorAll('button')].find((button) => button.textContent === 'By Agent')
@@ -50,6 +53,7 @@ it('keeps total fixed while alternate views retain zero, floor, estimate and unk
   expect(container.textContent).toContain('$3.00')
   expect(container.textContent).toContain('Agent one')
   expect(container.textContent).toContain('At least')
+  expect(container.textContent).toContain('Streaming usage remains a floor.')
   expect(container.textContent).toContain('Recorded usage')
   act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Sources')!.click())
   expect(document.body.textContent).toContain('minutes since observation')
@@ -107,7 +111,7 @@ it('receipt cost keeps its breakdown, total footer and refresh', () => {
   expect(refreshes).toBe(1)
 })
 
-it('keeps breakdown tabs above its numeric list and moves source facts to Sources', () => {
+it('keeps breakdown tabs above its numeric list and shows total source age beside the total', () => {
   const base = report()
   const common = metric(1, 'exact')
   const amounts = { ...base.totals, usd: common }
@@ -121,9 +125,9 @@ it('keeps breakdown tabs above its numeric list and moves source facts to Source
   expect(head.nextElementSibling?.nextElementSibling?.getAttribute('data-slot')).toBe('key-value')
   for (const row of container.querySelectorAll('[data-slot="key-value-row"]')) {
     if (!row.hasAttribute('data-footer')) expect(row.textContent).not.toContain('Recorded usage')
-    expect(row.textContent).not.toContain('minutes since observation')
   }
-  // In detailOnly these common facts are already beside the aggregate in Record.
+  expect(container.querySelector('[data-footer]')?.textContent).toContain('minutes since observation')
+  // In detailOnly the common source age is already beside the aggregate in Record.
   expect(container.textContent).toContain('read separately from the wrap')
 })
 
@@ -149,6 +153,61 @@ it('puts the recorded total after its numeric KeyValue parts and keeps source se
  expect(rows.map(r=>r.textContent)).toContain('Seat one$0.00')
  expect(rows.at(-1)?.textContent).toContain('Recorded usage')
  expect(rows.at(-1)?.textContent).toContain('$3.00')
- expect(container.querySelector('dl')?.textContent).not.toContain('minutes since observation')
- expect(rows.find(r=>r.textContent?.includes('Unattributed'))?.getAttribute('title')).toContain('No unique historical Seat')
+ expect(container.querySelector('dl')?.textContent).toContain('minutes since observation')
+ expect(rows.find(r=>r.textContent?.includes('Unattributed'))?.hasAttribute('title')).toBe(false)
+})
+
+
+it('shows common host notes once beneath Cost and keeps figures paired with short keys', () => {
+  const base = report()
+  const breakdown = base.breakdowns[0]!
+  const repeated = { ...base, breakdowns: [{ ...breakdown,
+    rows: [1, 2, 3, 4].map(n => ({ ...breakdown.rows[0]!, key: `seat-${n}`, label: `Seat ${n}`, note: 'Recorded brief cohort' })),
+    reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.',
+  }] }
+  act(() => root.render(<InsightCost report={repeated} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.querySelector('dl')?.textContent).not.toContain('Recorded brief cohort')
+  expect([...container.querySelectorAll('[data-slot="note"]')].filter(n => n.textContent === 'Recorded brief cohort')).toHaveLength(1)
+  expect([...container.querySelectorAll('dt')].map(n => n.textContent)).toEqual(['Seat 1', 'Seat 2', 'Seat 3', 'Seat 4', 'Unattributed', 'Recorded usage'])
+  expect(container.querySelector('dt [data-role="subject"]')).toBeNull()
+  expect(container.querySelector('[data-slot="key-value-note"]')?.textContent).toContain('Recorded corpus rows')
+})
+
+it('leaves varying cohort exceptions on their own full-width note line', () => {
+  const base = report()
+  const b = base.breakdowns[0]!
+  const varied = { ...base, breakdowns: [{ ...b, rows: [
+    { ...b.rows[0]!, note: 'Recorded brief cohort' },
+    { ...b.rows[0]!, key: 'missing', label: 'Seat two', note: 'Brief cohort unavailable' },
+  ] }] }
+  act(() => root.render(<InsightCost report={varied} loading={false} problem={null} onRefresh={() => {}} />))
+  const row = [...container.querySelectorAll('[data-slot="key-value-row"]')].find(n => n.textContent?.includes('Seat two'))!
+  expect(row.querySelector('dt')?.textContent).toBe('Seat two')
+  expect(row.querySelector('[data-slot="key-value-note"]')?.textContent).toBe('Brief cohort unavailable')
+  expect(row.hasAttribute('title')).toBe(false)
+})
+
+
+it('names four scanned Goal files once in the recorded total', () => {
+  vi.spyOn(Date, 'now').mockReturnValue(12 * 60_000)
+  const base = report()
+  const sources = [1, 2, 3, 4].map(n => ({ ...source, id: `file-${n}` }))
+  const fourFiles = { ...base, sources, totals: { ...base.totals, usd: { ...base.totals.usd, sourceIds: sources.map(s => s.id) } } }
+  act(() => root.render(<InsightCost report={fourFiles} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.querySelector('[data-footer] [data-slot="key-value-note"]')?.textContent).toBe('4 files · 12 minutes since observation')
+  expect(container.querySelector('[data-footer]')?.textContent).not.toContain('Recorded usage, Recorded usage')
+})
+
+it('keeps the normal cohort note shared while missing briefs remain tied to their Seats', () => {
+  const base = report(); const b = base.breakdowns[0]!
+  const varied = { ...base, breakdowns: [{ ...b, rows: [
+    { ...b.rows[0]!, key: 'one', label: 'Seat one', note: 'Recorded brief cohort' },
+    { ...b.rows[0]!, key: 'two', label: 'Seat two', note: 'Recorded brief cohort' },
+    { ...b.rows[0]!, key: 'missing', label: 'Seat three', note: 'Brief cohort unavailable' },
+  ] }] }
+  act(() => root.render(<InsightCost report={varied} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.querySelector('dl')?.textContent).not.toContain('Recorded brief cohort')
+  expect([...container.querySelectorAll('[data-slot="note"]')].filter(n => n.textContent === 'Recorded brief cohort')).toHaveLength(1)
+  const row = [...container.querySelectorAll('[data-slot="key-value-row"]')].find(n => n.textContent?.includes('Seat three'))!
+  expect(row.querySelector('[data-slot="key-value-note"]')?.textContent).toBe('Brief cohort unavailable')
 })
