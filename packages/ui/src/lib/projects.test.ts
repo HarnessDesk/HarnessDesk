@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { RepoInfo, SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
 
-import { folderShown, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
+import { commandShown, folderShown, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
 
 const session = (
   id: string,
@@ -333,6 +333,32 @@ describe('groupByProject — clones of one repository', () => {
     expect(groups[0]?.folders).toEqual(expect.arrayContaining([widgets, planClone, lunaClone]))
   })
 
+  it('uses origin signals from visible uncached matches without letting their dates choose the home', () => {
+    const goneClone = '/gone/widgets-clone'
+    const home = row('home', widgets, repoAt(widgets), 10)
+    const fromRemote = {
+      ...row('remote-match', goneClone, repoAt(goneClone, false, null), 1),
+      git: { originUrl: 'https://github.com/acme/acme-widgets-origin.git' },
+    } as SessionSummary
+    const sameFolderWithoutMetadata = row('no-git-match', goneClone, null, 2)
+    const sameRootWithoutRemote = row(
+      'root-match', `${goneClone}/packages/ui`, { root: goneClone, worktree: false }, 3,
+    )
+
+    const groups = groupByProject(
+      [home, fromRemote, sameFolderWithoutMetadata, sameRootWithoutRemote],
+      [widgets],
+      null,
+      { identityHistory: [home] },
+    )
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(widgets)
+    expect(groups[0]?.sessions.map((summary) => summary.id).sort()).toEqual([
+      'home', 'no-git-match', 'remote-match', 'root-match',
+    ])
+  })
+
   it('keeps a clone with no remote apart, and so a repository somebody else owns', () => {
     const scratch = '/Users/a/code/scratch'
     const groups = groupByProject(
@@ -619,5 +645,37 @@ describe('folderShown', () => {
   it('shortens anything outside the project against home, and leaves the rest as it is', () => {
     expect(folderShown('/home/dev/elsewhere', '/home/dev', '/home/dev/work/widgets')).toBe('~/elsewhere')
     expect(folderShown('/srv/build', '/home/dev', null)).toBe('/srv/build')
+  })
+})
+
+describe('commandShown', () => {
+  it('shortens every home path in a command, including quotes and assignments', () => {
+    expect(commandShown('ROOT=/home/dev node "/home/dev/tools/land.mjs" < /home/dev/input', '/home/dev'))
+      .toBe('ROOT=~ node "~/tools/land.mjs" < ~/input')
+  })
+  it('shortens home paths after path-list separators', () => {
+    expect(commandShown('PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check', '/home/dev'))
+      .toBe('PATH=/usr/bin:~/bin node ~/tools/land.mjs --check')
+  })
+  it('shortens bare home entries before and after path-list separators', () => {
+    const home = '/home/dev'
+    expect(commandShown(`PATH=${home}:/usr/bin:${home}:${home}/bin node`, home))
+      .toBe('PATH=~:/usr/bin:~:~/bin node')
+  })
+  it('keeps sibling names and embedded path fragments in path lists intact', () => {
+    const command = 'PATH=/usr/bin:/home/user/bin:/srv/home/u/bin:/home/user2 node'
+    expect(commandShown(command, '/home/u')).toBe(command)
+  })
+  it('keeps other homes, sibling names and embedded path fragments intact', () => {
+    const command = 'node /home/dev/work-two/run /home/agent/run /tmp/home/dev/work/run prefix/home/dev/work/run'
+    expect(commandShown(command, '/home/dev/work')).toBe(command)
+  })
+  it('keeps commands intact before home is known and handles a trailing separator', () => {
+    expect(commandShown('node /home/dev/run', null)).toBe('node /home/dev/run')
+    expect(commandShown('/home/dev/run', '/home/dev/')).toBe('~/run')
+  })
+  it('treats characters in a home directory literally', () => {
+    expect(commandShown('node "/home/dev/.profile/tools/run" /home/dev/Xprofile/run', '/home/dev/.profile'))
+      .toBe('node "~/tools/run" /home/dev/Xprofile/run')
   })
 })

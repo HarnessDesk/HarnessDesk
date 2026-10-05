@@ -63,7 +63,7 @@ import {
   TeamIcon,
 } from './Icons'
 import { AddMember } from './AddMember'
-import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
+import { MemberHoverCard, SeatFace, type SeatFaceIdentity, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
 import { SideBySide, sideBySideTileEntry } from './SideBySide'
@@ -228,6 +228,10 @@ const OriginChip = ({ status, name }: { readonly status: TriggerGoalStatus; read
     </HoverCard>
   )
 }
+
+/** Only Receipt needs header columns; other destinations keep their original header DOM. */
+const ReceiptHeaderColumn = ({ enabled, className, children }: { enabled: boolean; className?: string; children: ReactNode }) =>
+  enabled ? <div className={className}>{children}</div> : <>{children}</>
 
 export const TeamRoomPane = ({
   room,
@@ -744,6 +748,12 @@ export const TeamRoomPane = ({
   const allSeats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
   const seats = useMemo(() => allSeats.filter(hasConversation), [allSeats])
   const unlinked = useMemo(() => allSeats.filter(one => !hasConversation(one)), [allSeats])
+  const receiptFaces = useMemo(() => new Map<string, SeatFaceIdentity>(teamSeats(goal, team, flowExecution, 'seat').map(seat => {
+    const runtime = seat.record.session?.runtime
+    const info = snapshot.runtimes.find(one => one.id === runtime)
+    return [seat.record.id, { brand: info ? brandForRuntime(info) : null,
+      tint: runtime ? runtimeTint(runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs) : 'blue' }]
+  })), [goal, team, flowExecution, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs])
   const members = useMemo(() => {
     return seats.map(seat => {
       const peer = peers?.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)
@@ -961,6 +971,7 @@ export const TeamRoomPane = ({
   const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
+    : record ? { label: 'Wrapped', tone: 'success', pulse: false }
     : pendingApproval || needsYou
       ? { label: 'Needs you', tone: 'warning', pulse: true }
       : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || flowExecution?.state === 'settled'
@@ -1017,9 +1028,13 @@ export const TeamRoomPane = ({
         * what every other top row in this app does: leaves room for the macOS
         * buttons (`Bar corner`, `--titlebar-inset`) and moves the window when
         * dragged. Its words start on the rows' ink line (`inset="ink"`), as
-        * the conversation's header's do.
+        * the conversation's header's do. Receipt aligns the name over its
+        * reading column, keeping the rail's mark in the column beside it.
         */}
-      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.bar} hd-drag`}>
+      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.bar} hd-drag`}
+        data-receipt-column={open === 'receipt' && !onRail ? '' : undefined}
+        data-window-controls={sidebarPlacement(snapshot) !== 'column' ? '' : undefined}>
+        <ReceiptHeaderColumn enabled={open === 'receipt' && !onRail} className={styles.barLeading}>
         {/* The window's own controls, as a conversation's header carries them
             whenever the sidebar is not standing beside it. A room is the other
             thing the middle can show, and a narrow window's sidebar is only
@@ -1032,6 +1047,8 @@ export const TeamRoomPane = ({
         <IconTile tint="violet" size="sm">
           <TeamIcon />
         </IconTile>
+        </ReceiptHeaderColumn>
+        <ReceiptHeaderColumn enabled={open === 'receipt' && !onRail} className={styles.barContent}>
         {/* Truncated with a floor (`.barName`), never a second line — the full
             name is one hover away. The Goal's own sentence first: `team.name`
             is the room's, and a room the board has not answered about yet
@@ -1081,7 +1098,7 @@ export const TeamRoomPane = ({
               >
                 {folderName(root)}
               </span>
-              {peers !== null && ' · '}
+              {(record ? goal?.receipt : peers !== null) && ' · '}
             </>
           )}
           {/* One presence fact, not three. Who is working is the thread's own
@@ -1089,14 +1106,14 @@ export const TeamRoomPane = ({
               only who is here — and two numbers when they differ, because
               after a relaunch the room is intact and nothing is warm yet, and
               "2 here" would hide that. */}
-          {peers !== null && (hereCount === roster.length
+          {record && goal?.receipt ? new Date(goal.receipt.wrappedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : peers !== null && (hereCount === roster.length
             ? `${roster.length} here`
             : `${hereCount} of ${roster.length} here`)}
           {/* What this Goal reviews, when it has a subject — a short
               seven-character sha with the full value one hover away, never a
               raw path or ref, or the target's own label alone when it has no
               sha worth pinning (see pinnedAt above). */}
-          {pinnedAt && (
+          {!record && pinnedAt && (
             <>
               {(root || peers !== null) && ' · '}
               <span title={pinnedAt.sha ?? undefined}>
@@ -1114,7 +1131,7 @@ export const TeamRoomPane = ({
           {/* Everything to the left of this states a fact; everything to the
               right does something — the tool header's own divider, drawn for
               the same reason between a tool's controls and its panel's. */}
-          <ToolPaneHeaderDivider />
+          {!record && <ToolPaneHeaderDivider />}
           {/* Board-only used to live in the chat's header, one surface down,
               spelled out in the app's own name for it. It governs *messages* —
               every one of them, from every member, in this room — so it
@@ -1163,7 +1180,7 @@ export const TeamRoomPane = ({
               Shown for a Goal a trigger opened exactly as for one a person
               started — `goalActions` disables it on its own terms (waiting
               on a dependency, already wrapped), never on who opened it. */}
-          {goal && (
+          {goal && !record && (
             <span className={styles.barWrapFull}>
               <Button size="sm" disabled={wrapDisabled} title={record ? RECORD_REASON : undefined} onClick={() => setWrapping(true)}>
                 Wrap
@@ -1186,7 +1203,7 @@ export const TeamRoomPane = ({
                       close()
                     }}
                   />
-                  {goal && (
+                  {goal && !record && (
                     <MenuItem
                       label="Wrap…"
                       disabled={wrapDisabled}
@@ -1201,6 +1218,7 @@ export const TeamRoomPane = ({
             </Popover>
           </span>
         </div>
+        </ReceiptHeaderColumn>
       </Bar>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
@@ -1255,7 +1273,7 @@ export const TeamRoomPane = ({
                 </IconTile>
               }
               title="Board"
-              subtitle={`${intents.filter((one: Intent) => one.state === 'open').length} unclaimed`}
+              subtitle={record ? undefined : `${intents.filter((one: Intent) => one.state === 'open').length} unclaimed`}
               trail={<Text role="meta" numeric className={styles.count}>{intents.length}</Text>}
             />
             <ListRow
@@ -1283,7 +1301,7 @@ export const TeamRoomPane = ({
                 ) : undefined
               }
             />
-            <ListRow
+            {!record && <ListRow
               as="button"
               size="sm"
               nav
@@ -1300,7 +1318,7 @@ export const TeamRoomPane = ({
                 </IconTile>
               }
               trail={grid.tiles.length > 0 ? <Text role="meta" numeric className={styles.count}>{grid.tiles.length}</Text> : undefined}
-            />
+            />}
             {/* A Goal only: a plain conversation keeps no findings ledger, so
                 this room owns no destination for one and reads nothing here. */}
             {goal ? (
@@ -1330,7 +1348,7 @@ export const TeamRoomPane = ({
               appeared. */}
           <NavigationGroupHeader label="Agents">
             <Text role="meta" numeric className={styles.count}>{allSeats.length}</Text>
-            {goal ? <Button
+            {goal && !record ? <Button
               type="button"
               variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={styles.railAdd}
               aria-label="Seat an Agent in this Goal"
@@ -1412,8 +1430,12 @@ export const TeamRoomPane = ({
                 single line above them does not, and cost a line of height on
                 every one of them. */}
             {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
-            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={seat.name} subtitle="Conversation not kept" lead={<IconTile shape="face" size="sm"><AgentIcon /></IconTile>} />)}
-            {shown.map((member) => (
+            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={<span title="Conversation not kept">{seat.name}{seat.role && <Text role="muted"> {seat.role}</Text>}</span>} lead={<SeatFace {...receiptFaces.get(seat.record.id)} />} />)}
+            {shown.map((member) => record ? (
+              <ListRow as="button" key={member.key} size="sm" nav interactive selected={open === member.key} onClick={() => show(member.key)}
+                lead={<SeatFace brand={member.brand} tint={member.tint} />}
+                title={<>{member.peer.nickname}{allSeats.find(seat => seat.key === member.key)?.role && <Text role="muted"> {allSeats.find(seat => seat.key === member.key)?.role}</Text>}</>} />
+            ) : (
               <MemberRow
                 key={member.key}
                 member={member}
@@ -1454,16 +1476,19 @@ export const TeamRoomPane = ({
             </Button>
           </span>
           {open === 'receipt' ? (
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <PaneColumn inset="reading" page className="min-h-0 flex-1 overflow-y-auto">
+              <div className="w-full max-w-(--hd-column)">
               {goal?.receipt ? (
                 <>
-                  <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
+                  <GoalReceiptCost receipt={goal.receipt}>
+                    {insight => <GoalReceipt receipt={goal.receipt!} root={goal.goal.root} faces={receiptFaces} onOpenFinding={setReceiptFinding} insight={insight} />}
+                  </GoalReceiptCost>
                   <FindingCarry source={goal} />
-                  <GoalReceiptCost receipt={goal.receipt} />
                   {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
                 </>
               ) : null}
-            </div>
+              </div>
+            </PaneColumn>
           ) : open === 'overview' ? (
             <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onRun={() => show('run')}
               faces={new Map(seats.map(seat => {
@@ -1795,29 +1820,10 @@ const MemberCard = ({
 }
 
 /**
- * A member, as a row.
- *
- * A `ListRow`, because that is what a roster down the side of a screen is made
- * of and a third row idiom is not a thing this app has. What changed is what
- * goes in the slots. The old row spent its one subtitle on three unrelated
- * facts joined by a middle dot — what the conversation calls itself, what it
- * is holding, whether it is mid-turn — and then truncated at the rail's 232px,
- * so the fact that survived was whichever happened to be shortest.
- *
- * Now each fact takes the form it deserves, and they stop competing:
- *
- *   Working    is a light on the tile, not a word in a sentence. It changes
- *              many times a minute and the eye must find it without reading.
- *   The name   the conversation gave itself moves up beside the nickname,
- *              where it is an adjective on *who this is* rather than a
- *              competitor to what they are doing.
- *   The job    gets the whole second line, so `#3` — the thing a person types
- *              back to an agent — is no longer the half that truncates.
- *
- * The second line stays earned. A member with no job and no name of its own
- * gets no second line at all: the agent it runs is already on the row as its
- * mark, and spelling "Claude Code" underneath a row whose icon is the Claude
- * mark is the exact restatement `docs/design.md` forbids.
+ * A member's nickname is its navigation name. The conversation title says
+ * what it is doing, so it shares the existing wrapping subtitle with the
+ * task or reason rather than competing with the name's ellipsis. Working
+ * remains a light; an untitled member still earns no line just for existing.
  */
 const MemberRow = ({
   member,
@@ -1855,6 +1861,49 @@ const MemberRow = ({
 }) => {
   const { peer } = member
   const inboundState = INBOUND_MODES.find((mode) => mode.value === peer.inbound)?.state ?? null
+  const title = member.title && member.title !== peer.nickname ? member.title : null
+  const taskShown = member.canUseBoard && !inboundState ? member.onTask : null
+  const context = (
+    !member.canUseBoard ? (
+      /* Outranks everything else on the row: what a member is called and
+         what it holds do not matter if it cannot take a job at all.
+         HarnessDesk's tools reach an agent through a server the agent has
+         to accept, and one that refused it can claim nothing — which used
+         to be discoverable only by an agent trying and being refused. */
+      <Text role="meta" tone="warning" className={styles.memberWarn}>
+        <ShieldOffIcon size={11} />
+        cannot take jobs — tools not reachable
+      </Text>
+    ) : inboundState ? (
+      /* Second, above every other second line, because it is the one that
+         changes what happens when you write to this member — and because
+         it is the only one somebody chose. A held or refused member that
+         also holds a job would otherwise show the job and hide the reason
+         the messages are going nowhere, which is the state this control
+         exists to make visible. `accept` says nothing at all: it is the
+         default on every member of every room. */
+      <span className={styles.memberInbound}>{inboundState}</span>
+    ) : member.onTask ? (
+      <>
+        <Text role="meta" tint="violet">#{member.onTask.id}</Text>{' '}
+        {member.onTask.title}
+      </>
+    ) : member.idleOnBoard && !idleSaidAbove ? (
+      /* The lesser of the two cautions, and the reason both exist: the line
+         above is what the harness says about itself, this is what the board
+         has seen. A member can read as able, take nothing, and until now
+         nothing on screen said so. No glyph — it is a doubt, not a refusal,
+         and it must not shout as loudly as one. */
+      <span className={styles.memberIdle}>has not used the board</span>
+    ) : !member.here ? (
+      /* Last of the four, because the three above are all *more* specific
+         and a row shows one. It is here at all because a dimmed mark on
+         its own is a hint, and this row's whole job after a relaunch is to
+         say that the room is intact and nothing is warm yet — including
+         what will happen if you write to it. */
+      <span className={styles.memberIdle}>not open — a message opens it</span>
+    ) : undefined
+  )
   const row = (
     <ListRow
       size="sm"
@@ -1880,74 +1929,21 @@ const MemberRow = ({
           {member.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
         </span>
       }
-      /* One run of text, not a flex row of two. The row's own `truncate` then
-         cuts from the right — which is the behaviour wanted, because the
-         nickname is at the left and is what an agent is addressed by — and the
-         space between the two names is a real character, so what a screen
-         reader reads is what the eye sees. A flex layout would have swallowed
-         it. */
       title={
         <>
           {/* The *nickname*: the one name guaranteed to exist and to be unique
               here — three Cursor conversations on three models arrive untitled
               and identical, and used to draw three rows all reading "Cursor". */}
           {peer.nickname}
-          {/* What the conversation calls itself, when it has a name of its
-              own *and* that name says something the nickname does not — the
-              same guard `cardFacts` already reads this member's hover card
-              through. A trigger seats an agent under its own name, so an
-              untitled conversation's title and its nickname are the same
-              word: "Triager" the agent, "Triager" the conversation nobody
-              renamed. Printed both, the row read "Triager Triager" — the name
-              and the role said back as if they were two facts. */}
-          {member.title && member.title !== peer.nickname && (
-            <Text role="meta"> {member.title}</Text>
-          )}
           {member.busy && <span className="sr-only"> — working</span>}
           {!member.here && <span className="sr-only"> — not open</span>}
         </>
       }
       subtitle={withCeiling(
         member.ceiling,
-        !member.canUseBoard ? (
-          /* Outranks everything else on the row: what a member is called and
-             what it holds do not matter if it cannot take a job at all.
-             HarnessDesk's tools reach an agent through a server the agent has
-             to accept, and one that refused it can claim nothing — which used
-             to be discoverable only by an agent trying and being refused. */
-          <Text role="meta" tone="warning" className={styles.memberWarn}>
-            <ShieldOffIcon size={11} />
-            cannot take jobs — tools not reachable
-          </Text>
-        ) : inboundState ? (
-          /* Second, above every other second line, because it is the one that
-             changes what happens when you write to this member — and because
-             it is the only one somebody chose. A held or refused member that
-             also holds a job would otherwise show the job and hide the reason
-             the messages are going nowhere, which is the state this control
-             exists to make visible. `accept` says nothing at all: it is the
-             default on every member of every room. */
-          <span className={styles.memberInbound}>{inboundState}</span>
-        ) : member.onTask ? (
-          <>
-            <Text role="meta" tint="violet">#{member.onTask.id}</Text>{' '}
-            {member.onTask.title}
-          </>
-        ) : member.idleOnBoard && !idleSaidAbove ? (
-          /* The lesser of the two cautions, and the reason both exist: the line
-             above is what the harness says about itself, this is what the board
-             has seen. A member can read as able, take nothing, and until now
-             nothing on screen said so. No glyph — it is a doubt, not a refusal,
-             and it must not shout as loudly as one. */
-          <span className={styles.memberIdle}>has not used the board</span>
-        ) : !member.here ? (
-          /* Last of the four, because the three above are all *more* specific
-             and a row shows one. It is here at all because a dimmed mark on
-             its own is a hint, and this row's whole job after a relaunch is to
-             say that the room is intact and nothing is warm yet — including
-             what will happen if you write to it. */
-          <span className={styles.memberIdle}>not open — a message opens it</span>
-        ) : undefined,
+        context === undefined ? title ?? undefined : (
+          <>{context}{title && title !== taskShown?.title && <> · {title}</>}</>
+        ),
       )}
       trail={
         /* Watching beside, on every row and at all times.
@@ -2540,18 +2536,8 @@ const Room = ({
           <div className={styles.streamColumn}>
             {entries.length === 0 ? (
               <EmptyState
-                icon={<TeamIcon />}
-                title="Nothing said yet"
-                description={
-                  messaging
-                    ? 'The agents in this room can message each other and you. Signals — a claim, a completion — land here too.'
-                    : /* Where the switch actually is. It named the Team panel,
-                         which stopped existing when this room absorbed it, and
-                         then the room's own chat header, which the top row has
-                         now absorbed in turn — so a reader following the
-                         sentence arrived at a surface that was not there. */
-                      'Board-only: agents may claim and signal, but not message. Turn messaging back on at the top of the room.'
-                }
+                variant="inline" align="start"
+                title={messaging ? <span title="The agents in this room can message each other and you. Signals — a claim, a completion — land here too.">Nothing said yet</span> : 'Nothing said yet. Board-only: agents may claim and signal, but not message. Turn messaging back on at the top of the room.'}
               />
             ) : (
               <ChannelStream

@@ -1539,6 +1539,9 @@ The desk knows when work happens, which is better information than a timer:
 - A network meter is never refreshed for a screen nobody is looking at.
 - Manual refresh, per card and for all, always available. A failing source keeps
   its last good reading with its age shown, and puts the error on its own card.
+- A source that stops reporting, such as after signing out or removing its CLI,
+  clears its previous card and any error on it without a reload. Ledger spend
+  still earns a card when there is history to show.
 
 ## Where the code goes
 

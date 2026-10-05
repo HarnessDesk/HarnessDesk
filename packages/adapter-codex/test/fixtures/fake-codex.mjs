@@ -11,6 +11,7 @@ import readline from 'node:readline'
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { scriptedFlow } from './scripted-flow.mjs'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
 // mocked. Codex resolves an installed package's icon to an absolute path.
@@ -65,8 +66,24 @@ if (process.env['FAKE_CODEX_CLAIMS']) {
   appendFileSync(process.env['FAKE_CODEX_CLAIMS'], `${process.pid}\n`)
 }
 
+// Opt-in resource evidence. Measured on 0.160.0: unsubscribe acknowledges
+// release but retains the thread's MCP child until the app-server exits.
+// Reading a pipe keeps the tiny stand-in alive; the parent's exit closes it.
+const mcpChildren = new Map()
+const loadMcpChild = (threadId) => {
+  const ledger = process.env['FAKE_CODEX_MCP_CHILDREN']
+  if (!ledger || mcpChildren.has(threadId)) return
+  const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
+  mcpChildren.set(threadId, child)
+  appendFileSync(ledger, `${JSON.stringify({ threadId, pid: child.pid, parent: process.pid })}\n`)
+}
+
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const notify = (method, params) => send({ method, params })
+// Only screenshot scenes opt in; adapter tests retain their existing turns.
+const flowWorker = scriptedFlow(process.env['FAKE_CODEX_FLOW'], { send, notify })
+const flowTools = new Map()
+let flowTurn = 0
 
 // Codex stamps turns in whole seconds and item lifecycles in milliseconds, and
 // the fake keeps both units real: a turn stamped `1` reads in the app as a
@@ -95,7 +112,12 @@ if (process.env['FAKE_CODEX_CATALOG_WARNING'] === '1') {
 let THREAD = 'thread-e2e'
 let TURN = 'turn-e2e'
 let threadCounter = 0
-const nextThreadId = () => (threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`)
+const nextThreadId = () => {
+  const id = threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`
+  // Resource rigs restart under one host; new threads cannot reuse the
+  // previous process's identities, while ordinary adapter tests keep theirs.
+  return process.env['FAKE_CODEX_MCP_CHILDREN'] ? `${id}-${process.pid}` : id
+}
 
 /**
  * Each thread's own working folder, taken from its `cwd` at `thread/start`,
@@ -369,6 +391,9 @@ const startLogin = (type) => {
   return response
 }
 const deletedThreads = new Set()
+const archivedThreads = new Set()
+const threadNames = new Map()
+let pendingHistoryPage = null
 
 /**
  * The three purely canned rows below are never started or resumed by
@@ -404,7 +429,7 @@ const storedThreads = () => [
     preview:
       '<context source="Git" data-hd-envelope="harnessdesk-v1">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes" data-hd-envelope="harnessdesk-v1">\nStatus: ## main\n</context>',
   }),
-].filter((t) => !deletedThreads.has(t.id))
+].filter((t) => !deletedThreads.has(t.id)).map((t) => threadNames.has(t.id) ? { ...t, name: threadNames.get(t.id) } : t)
 
 /**
  * What Codex has stored of each thread's history, kept the two ways Codex
@@ -1089,6 +1114,7 @@ const FILES = {
   '/w/src/user_service.ts': 'export const x = 1\n',
   '/w/src/index.ts': '',
   '/etc/hosts': '127.0.0.1 localhost\n',
+  ...(process.env['FAKE_CODEX_FILE_ROOT'] ? { [`${process.env['FAKE_CODEX_FILE_ROOT']}/README.md`]: 'Synthetic workspace file\n' } : {}),
 }
 const DIRECTORIES = ['/', '/w', '/w/src', '/etc']
 const childrenOf = (dir) => {
@@ -1179,6 +1205,7 @@ rl.on('line', (line) => {
 
   // Client answering one of our server-initiated requests.
   if (message.id !== undefined && message.method === undefined) {
+    if (flowWorker?.answer(message)) return
     // Tool-call answers carry contentItems rather than a decision.
     if (message.result && Array.isArray(message.result.contentItems)) {
       toolAnswers.push(message.result)
@@ -1276,6 +1303,7 @@ rl.on('line', (line) => {
       // and an ephemeral one is never paged.
       histories.set(THREAD, { mode: params?.historyMode ?? (params?.ephemeral ? 'legacy' : NEW_HISTORY), stored: false, turns: [] })
       declaredTools = flattenDynamicTools(params?.dynamicTools ?? [])
+      if (flowWorker) flowTools.set(THREAD, declaredTools)
       // Codex reserves these namespaces for its own Responses tools and
       // refuses the whole thread/start on a collision. Still true on 0.149.0,
       // whose wording this is, verified against the real app-server.
@@ -1301,9 +1329,10 @@ rl.on('line', (line) => {
       // would be for every thread that shares it.
       cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
+      loadMcpChild(THREAD)
       send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
-      notify('warning', {
+      if (!flowWorker) notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
       })
@@ -1349,6 +1378,7 @@ rl.on('line', (line) => {
         settingsState.sandboxPolicy = JSON.parse(resumed)
       }
       cwdByThread.set(THREAD, settingsState.cwd)
+      loadMcpChild(THREAD)
       send({ id, result: startResponse() })
       notify('thread/started', { thread: thread() })
       return
@@ -1873,7 +1903,22 @@ rl.on('line', (line) => {
     }
 
     case 'thread/list':
-      send({ id, result: { data: storedThreads(), nextCursor: null, backwardsCursor: null } })
+      if (process.env['FAKE_CODEX_HOLD_HISTORY_PAGE'] === '1' && params.limit === 20) {
+        // Finish this older read only after deletion has changed the store.
+        pendingHistoryPage = { id, result: { data: storedThreads(), nextCursor: null, backwardsCursor: null } }
+        return
+      }
+      if (process.env['FAKE_CODEX_MUTABLE_HISTORY'] === '1') {
+        send({ id, result: { data: storedThreads().filter((t) => archivedThreads.has(t.id) === Boolean(params.archived)),
+          nextCursor: null, backwardsCursor: null } })
+        return
+      }
+      if (process.env['FAKE_CODEX_PAGED_HISTORY'] === '1') {
+        send({ id, result: { data: params.cursor ? [thread({ id: 'thread-older' })] : storedThreads(),
+          nextCursor: params.cursor ? null : 'next-history', backwardsCursor: null } })
+        return
+      }
+      send({ id, result: { data: flowWorker ? [] : storedThreads(), nextCursor: null, backwardsCursor: null } })
       return
 
     case 'thread/search': {
@@ -1882,7 +1927,7 @@ rl.on('line', (line) => {
       // whatever was asked cannot show a caller doing per-row work on the
       // page it got back (#274).
       const term = String(params?.searchTerm ?? '').toLowerCase()
-      const hits = storedThreads().filter((entry) =>
+      const hits = (flowWorker ? [] : storedThreads()).filter((entry) =>
         `${entry.id} ${entry.preview}`.toLowerCase().includes(term),
       )
       send({
@@ -2140,6 +2185,15 @@ rl.on('line', (line) => {
         .map((part) => part.text)
         .join(' ')
         .trim()
+      if (flowWorker) {
+        const threadId = params.threadId
+        const turnId = `rig-turn-${++flowTurn}`
+        send({ id, result: { turn: { id: turnId, items: [], status: 'inProgress', error: null } } })
+        const cwd = cwdByThread.get(threadId)
+        const tools = flowTools.get(threadId) ?? []
+        setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: said }))
+        return
+      }
       const background = /^(bg|failbg|endbg)\s+(.+)$/.exec(said)
       if (background) {
         send(response)
@@ -2173,6 +2227,7 @@ rl.on('line', (line) => {
         return
       }
       send(response)
+      if (mode === 'hold') notify('turn/started', { threadId: THREAD, turn: response.result.turn })
       if (verify) {
         setImmediate(() => askVerification(verify[1]))
         return
@@ -2201,6 +2256,11 @@ rl.on('line', (line) => {
       return
 
     case 'turn/interrupt':
+      if (flowWorker) {
+        send({ id, result: {} })
+        flowWorker.interrupt(params.threadId)
+        return
+      }
       if (runningReviews.has(params.threadId)) {
         stopReview(id, params)
         return
@@ -2221,12 +2281,32 @@ rl.on('line', (line) => {
       send({ id, result: {} })
       return
 
+    case 'thread/unsubscribe':
+      send({ id, result: { status: 'unsubscribed' } })
+      return
+
     case 'thread/delete':
       if (params?.threadId) deletedThreads.add(params.threadId)
+      send({ id, result: {} })
+      if (pendingHistoryPage) {
+        const page = pendingHistoryPage
+        pendingHistoryPage = null
+        setImmediate(() => send(page))
+      }
+      return
+
+    case 'thread/archive':
+      archivedThreads.add(params.threadId)
+      send({ id, result: {} })
+      return
+
+    case 'thread/unarchive':
+      archivedThreads.delete(params.threadId)
       send({ id, result: {} })
       return
 
     case 'thread/name/set':
+      if (process.env['FAKE_CODEX_MUTABLE_HISTORY'] === '1') threadNames.set(params.threadId, params.name)
       send({ id, result: {} })
       notify('thread/name/updated', { threadId: params.threadId, threadName: params.name })
       return

@@ -1,3 +1,4 @@
+import { retainRuntimeNotice } from './runtime-notices.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
@@ -19,6 +20,8 @@ import {
   questionWaitMs,
   questionWaitOf,
   itemId,
+  classifyNotice,
+  runtimeNoticeKey,
   isFolderGone,
   type CeilingLevel,
   type ApprovalDecision,
@@ -102,6 +105,7 @@ import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
+import { seatOptionsProblem } from './seat-options.js'
 import { sameCanonicalPath } from './path-identity.js'
 import { FlowUpdates, TreeQueue } from './flow-update.js'
 import { AuthoringPlane } from './authoring/plane.js'
@@ -463,7 +467,7 @@ export interface HostOptions {
    * waiting for it. See `START_TIMEOUT_MS`.
    */
   readonly startTimeoutMs?: number
-  /** How long an ACP helper can remain unused before its process is stopped. */
+  /** How long a runtime can remain unused before its process is stopped. */
   readonly idleStopMs?: number
   /** How long a finished Seat stays quiet before its live handle is released. */
   readonly seatRestMs?: number
@@ -586,10 +590,11 @@ const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
   'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
   'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
-  'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits',
+  'logout', 'refreshCatalog', 'checkInstallation', 'listHooks',
 ])
 const CACHED_RUNTIME_READ_METHODS = new Set<PropertyKey>([
-  'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions',
+  'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions', 'getAccount',
+  'getRateLimits', 'getAccountActivity',
 ])
 
 /** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
@@ -624,6 +629,7 @@ export class Host {
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
+  readonly #runtimeReads = new Map<string, number>()
   readonly #sessionActivity = new Map<string, number>()
   readonly #idleSince = new Map<string, number>()
   readonly #seatQuietSince = new Map<string, { since: number; changedAt: number }>()
@@ -636,6 +642,7 @@ export class Host {
   /** Accounts a fold is in flight for; see `#foldDuplicateAccount`. */
   readonly #folding = new Set<string>()
   readonly #broadcasters = new Set<Broadcast>()
+  readonly #runtimeNoticeWrites = new Set<Promise<void>>()
   readonly #state: StateStore
   readonly #logger: Logger
 
@@ -1536,6 +1543,15 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      seatOptionsProblem: async (seat, cwd) => {
+        // Independence can leave a later, untried candidate in the preview.
+        // A bare Seat asks for no controls, so do not resolve its runtime just
+        // to reach seatOptionsProblem's no-options return.
+        if (!seat.effort && seat.thinking === undefined) return null
+        const runtime = this.#runtimes.get(runtimeId(seat.runtime))
+        if (!runtime) return { text: `${seat.runtime} is not available, so this Seat's options cannot be checked.`, availability: true }
+        return seatOptionsProblem(runtime, seat, cwd, this.options.seatReadDeadlineMs)
+      },
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       checkoutPath: previewCheckout,
       pluginToolsProblem: async (runtimeName, root, lane) => {
@@ -2014,29 +2030,61 @@ export class Host {
       this.#catalogs.forget(id)
       this.#updates.delete(id)
     }
+    // These async surfaces belong to the same process as the runtime verbs.
+    // Keep their receiver (including private fields) and share its lifecycle.
+    const surfaces = new WeakMap<object, object>()
     const managed = new Proxy(runtime, {
       get: (target, key) => {
         const member = Reflect.get(target, key, target) as unknown
+        if ((key === 'files' || key === 'processes' || key === 'extensions') && member && typeof member === 'object') {
+          let surface = surfaces.get(member)
+          if (!surface) {
+            surface = new Proxy(member, {
+              get: (plane, method) => {
+                const operation = Reflect.get(plane, method, plane) as unknown
+                if (typeof operation !== 'function') return operation
+                return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+                  await this.#ensureStarted(target)
+                  return Reflect.apply(operation, plane, args)
+                })
+              },
+            })
+            surfaces.set(member, surface)
+          }
+          return surface
+        }
         if (typeof member !== 'function') return member
         if (key === 'listSessions') {
-          return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
+            const starting = this.#startingRuntimes.get(String(target.info.id))
+            if (starting) await starting
+            if (target.health().state === 'idle' && target.canReadWhileIdle?.({
+              method: 'listSessions', query: args[0] as ListSessionsQuery | undefined,
+            }) === false) await this.#ensureStarted(target)
             const page = await Reflect.apply(member, target, args) as Page<SessionSummary>
             return this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined)
           })
         }
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
-          return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
+            const starting = this.#startingRuntimes.get(String(target.info.id))
+            if (starting) await starting
+            if (target.health().state === 'idle' &&
+                (key === 'defaultSessionOptions' || key === 'listSkills' || key === 'listSkillProblems') &&
+                target.canReadWhileIdle?.({ method: key, cwd: args[0] as string | undefined }) === false) {
+              await this.#ensureStarted(target)
+            }
             return Reflect.apply(member, target, args)
           })
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
-            if (typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
+            if (key !== 'listHooks' && typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
             return Reflect.apply(member, target, args)
-          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' ? args[0] : undefined)
+          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
         }
         return member.bind(target)
       },
@@ -2185,6 +2233,7 @@ export class Host {
         history: (runtime, account, since) => this.#ledgerService.balanceHistory(runtime, account, since),
       },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
+      onRemoved: (runtime, account) => this.#push({ method: 'usage/removed', params: { runtime, account } }),
       log: (message, details) => this.#logger.warn(message, details),
       // Every report — cached, returned or pushed as `usage/updated` — folds
       // a stored plan fee/budget in right here, the one seam `UsageService`
@@ -2443,6 +2492,19 @@ export class Host {
     if (stopping) await stopping
   }
 
+  /** Observation protects its in-flight read without becoming new work. */
+  async #withRuntimeRead<T>(runtime: AgentRuntime, operation: () => Promise<T>): Promise<T> {
+    const id = String(runtime.info.id)
+    this.#runtimeReads.set(id, (this.#runtimeReads.get(id) ?? 0) + 1)
+    try {
+      return await operation()
+    } finally {
+      const reads = (this.#runtimeReads.get(id) ?? 1) - 1
+      if (reads === 0) this.#runtimeReads.delete(id)
+      else this.#runtimeReads.set(id, reads)
+    }
+  }
+
   async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>, session?: string): Promise<T> {
     const id = String(runtime.info.id)
     this.#runtimeActivity.set(id, (this.#runtimeActivity.get(id) ?? 0) + 1)
@@ -2478,8 +2540,9 @@ export class Host {
     this.#idleReaper.unref?.()
   }
 
-  #runtimeIsIdle(id: RuntimeId): boolean {
+  #runtimeIsIdle(id: RuntimeId, includeReads = true): boolean {
     if ((this.#runtimeActivity.get(String(id)) ?? 0) > 0) return false
+    if (includeReads && (this.#runtimeReads.get(String(id)) ?? 0) > 0) return false
     if (this.registry.all().some((record) => record.runtime === id && (
       record.live !== null || record.running.size > 0 || record.approvals.size > 0 ||
       record.tasks.some((task) => task.state === 'running')
@@ -2577,12 +2640,14 @@ export class Host {
   async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
     await this.#restSeats(runtime)
     const id = String(runtime.info.id)
-    if (!runtime.stopForIdle || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id)) {
+    if (!runtime.stopForIdle || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id, false)) {
       this.#idleSince.delete(id)
       return
     }
     const since = this.#idleSince.get(id) ?? Date.now()
     this.#idleSince.set(id, since)
+    // A poll spanning the deadline defers stop, but preserves the deadline.
+    if ((this.#runtimeReads.get(id) ?? 0) > 0) return
     if (Date.now() - since < delay || this.#stoppingRuntimes.has(id)) return
     // Publish the barrier before the process stop can yield. A live operation
     // arriving now waits for this reap, then shares the next start.
@@ -2679,6 +2744,7 @@ export class Host {
     this.#usage?.dispose()
     this.#ledger?.close()
     await runtimesGone
+    await Promise.all(this.#runtimeNoticeWrites)
     this.#runtimes.clear()
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
@@ -3789,7 +3855,7 @@ export class Host {
       },
       seats: {
         open: (seat, where) => this.#openSeat(seat, where),
-        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
+        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text, 'agentBrief'),
         hold: (runtime, sessionId, level) => this.#holdSeat(runtime, sessionId, level),
         retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
         discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
@@ -3984,23 +4050,116 @@ export class Host {
     // admitted whenever, read from wherever the app had been started, it led
     // into an open folder.
     assertAbsolute(root)
-    const roots = this.#openRoots()
+    // One deadline covers path resolution, top levels, and database membership.
+    // Every child read shares its signal; a late answer can never admit a root.
+    const signal = AbortSignal.timeout(20_000)
+    let expired!: () => void
+    const deadline = new Promise<never>((_, reject) => {
+      expired = () => reject(new Error(gitOps.GIT_LOOKUP_RETRY))
+      signal.addEventListener('abort', expired, { once: true })
+    })
+    try {
+      return await Promise.race([this.#confineGitRootWithin(root, signal), deadline])
+    } finally {
+      signal.removeEventListener('abort', expired)
+    }
+  }
+
+  async #confineGitRootWithin(root: string, signal: AbortSignal): Promise<string> {
+    const roots = [...new Set(this.#openRoots())]
     // Real paths on both sides. `confine` collapses `..` but cannot see a
     // symlink, so `opened/elsewhere -> /other/repo` passed a lexical test and
     // `git -C` then dutifully followed it into a repository the user never
     // opened. Resolving the roots too keeps the legitimate case working: on
     // macOS a workspace is routinely reached through /tmp or /var.
     const real = await this.#realPath(root)
-    const opened = await Promise.all(roots.map((entry) => this.#realPath(entry)))
+    const opened = [...new Set(await Promise.all(roots.map((entry) => this.#realPath(entry))))]
+    signal.throwIfAborted()
+    // The folder rule: `real` is inside an open root, or it is the top level of
+    // the repository an open root sits in. Either admits it as a folder.
+    let admitted = true
+    let fallbackOpened: string[] | undefined
     try {
-      return confine(real, opened)
+      confine(real, opened)
     } catch (refusal) {
-      for (const open of roots) {
-        const top = await gitOps.topLevel(open)
-        if (top !== null && (await this.#realPath(top)) === real) return real
+      admitted = false
+      fallbackOpened = []
+      for (const open of opened) {
+        const top = await gitOps.checkedTopLevel(open, signal)
+        signal.throwIfAborted()
+        if (top !== null && (await this.#realPath(top)) === real) {
+          admitted = true
+          fallbackOpened.push(open)
+        }
       }
-      throw refusal
+      if (!admitted) throw refusal
     }
+    // A folder is not a repository. `git -C` follows a `.git` *file* the way it
+    // follows a symlink, and `realpath` cannot see file contents: a folder
+    // `A/x` inside open `A` holding `gitdir: <B>/.git` passes the rule above,
+    // and then every git verb runs against B — its refs, config and hooks — a
+    // repository nobody opened. So the repository git actually resolves for
+    // `real` is judged too, by where its database lives.
+    await this.#assertGitDatabaseOpen(real, opened, signal, fallbackOpened)
+    signal.throwIfAborted()
+    return real
+  }
+
+  /**
+   * Refuses when git, run in an admitted folder, reaches a repository whose
+   * database is neither inside what the user opened nor shared with an open
+   * checkout — the gitfile (or symlink) escape.
+   *
+   * The database is the git common directory, the folder git reads and writes
+   * whatever a pointer says. It counts as open when it sits inside `real` or an
+   * open root — the ordinary layout, where `.git` is under the working tree —
+   * or when it is the very database of an open checkout, which is how a linked
+   * worktree, a submodule and a `--separate-git-dir` tree each keep their `.git`
+   * outside their own folder yet remain legitimate. Git finding no repository
+   * leaves nothing to escape into, so the folder admission stands. A top-level
+   * fallback must instead share the database of a checkout that supplied it.
+   */
+  async #assertGitDatabaseOpen(
+    real: string,
+    opened: readonly string[],
+    signal: AbortSignal,
+    fallbackOpened?: readonly string[],
+  ): Promise<void> {
+    // Request-local: duplicates (including aliases and the requested root itself)
+    // share a read, but the next request observes any changed repository layout.
+    const databases = new Map<string, Promise<string | null>>()
+    const databaseOf = (path: string): Promise<string | null> => {
+      signal.throwIfAborted()
+      let read = databases.get(path)
+      if (!read) {
+        read = gitOps.commonDir(path, signal)
+        databases.set(path, read)
+      }
+      return read
+    }
+    const database = await databaseOf(real)
+    if (fallbackOpened !== undefined) {
+      // core.worktree can report a top level which resolves another database.
+      // The requested folder's own .git cannot justify this fallback admission.
+      if (database !== null) {
+        for (const open of fallbackOpened) {
+          if ((await databaseOf(open)) === database) return
+        }
+      }
+      throw new Error(
+        `${real} is the top level of an open checkout, but git there resolves to a different repository. ` +
+          'Open its folder first to work in it.',
+      )
+    }
+    if (database === null) return
+    if (isInside(database, real) || opened.some((open) => isInside(database, open))) return
+    for (const open of opened) {
+      if ((await databaseOf(open)) === database) return
+    }
+    throw new Error(
+      `${real} is inside an open folder, but git there resolves to a repository (${database}) that is not open. ` +
+        'Open that repository to work in it.',
+    )
   }
 
   /**
@@ -5816,7 +5975,7 @@ export class Host {
     return holdCeiling(live, level, control)
   }
 
-  async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
+  async #orderSeat(runtime: string, sessionId: string, text: string, noticeKind?: 'agentBrief'): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
     // Whether the values reached the agent's environment, the same rule that
@@ -5824,7 +5983,9 @@ export class Host {
     const handed = laneEnvironmentFor(this.#runtime({ runtime }), environment) !== undefined
     await live.send(
       [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
-      { recordAs: 'notice' },
+      // Only the Agent seating entry point marks its standing brief. Flow
+      // assignments and delivered answers share this send path, but stay plain.
+      { recordAs: 'notice', ...(noticeKind ? { noticeKind } : {}) },
     )
   }
 
@@ -6202,6 +6363,21 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type === 'notice') {
+      event = { ...event, id: event.id ?? `notice-${randomBytes(8).toString('hex')}`, at: event.at ?? Date.now() }
+      const rawCounts = this.#state.state.preferences['runtimeNoticeCounts']
+      const counts = rawCounts && typeof rawCounts === 'object' && !Array.isArray(rawCounts) ? rawCounts as Record<string, unknown> : {}
+      const runtimeNotices = retainRuntimeNotice(this.#state.state.preferences['runtimeNotices'], runtime, event, counts)
+      const noticeId = event.id
+      const key = runtimeNoticeKey(runtime, event)
+      const retained = classifyNotice(event) === 'inbox' ? runtimeNotices.find(entry => entry.runtime === runtime && entry.event.id === noticeId && runtimeNoticeKey(runtime, entry.event) === key) : undefined
+      if (retained) {
+        event = retained.event
+        const write = this.#state.setPreferences({ runtimeNotices, runtimeNoticeCounts: { ...counts, [runtimeNoticeKey(runtime, retained.event)]: retained.event.count } }).catch(error => this.#logger.warn('Runtime information could not be kept', { error }))
+        this.#runtimeNoticeWrites.add(write)
+        void write.then(() => this.#runtimeNoticeWrites.delete(write))
+      }
+    }
     /* A stopped question closed with its agent so its answer can be heard in
        a turn of its own: whatever the agent reports, it was answered, not
        refused — so no window shows it cancelled, and no denial holds the
@@ -7275,6 +7451,9 @@ const ACCOUNT_NAME_DEADLINE_MS = 2_000
  * the registry and the renderer use for the same pair, so the host has one
  * spelling of "this conversation" and the separator question is answered once.
  */
+/** Whether one real, absolute path is the same as another or nested inside it. */
+const isInside = (path: string, base: string): boolean => path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
+
 const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, record.session.id)
 
 const describeError = (error: unknown): string =>

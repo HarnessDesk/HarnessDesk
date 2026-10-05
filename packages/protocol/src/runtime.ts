@@ -119,6 +119,11 @@ export interface AuthMethod {
   readonly keyLabel?: string
 }
 
+/** Reads whose observed answers can be retained across an idle stop. */
+export type IdleRuntimeRead =
+  | { readonly method: 'listSessions'; readonly query?: ListSessionsQuery }
+  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string }
+
 export interface AccountStatus {
   readonly accounts: readonly Account[]
   /** How to sign in from here. Empty when the runtime has nothing it can drive. */
@@ -994,6 +999,12 @@ export interface AgentRuntime {
   start(): Promise<void>
   /** Stop an idle helper process while preserving the runtime's learned state. */
   stopForIdle?(): Promise<boolean>
+  /**
+   * Whether a cached read has an observed answer while idle. False asks the
+   * host to restart through its existing start barrier before making the read.
+   * Absent: the runtime's ordinary read handles its idle state itself.
+   */
+  canReadWhileIdle?(read: IdleRuntimeRead): boolean
   dispose(): Promise<void>
   /**
    * Re-asks the agent what it offers — models, modes, reasoning levels —
@@ -1104,10 +1115,14 @@ export interface AgentRuntime {
    * choices come from here, the user's picks travel as `SessionOptions.options`
    * when the session is created. Optional; a runtime without it simply has no
    * pre-session controls.
+   * `fresh` reads from new-session defaults without inheriting or changing a
+   * retained composer draft. Stateful adapters use a separate silent probe;
+   * stateless adapters already satisfy this and may ignore the request.
    */
   defaultSessionOptions?(
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
+    request?: { readonly fresh: boolean },
   ): Promise<readonly ConfigOption[]>
   getAccount(): Promise<AccountStatus>
   /**
@@ -1198,10 +1213,11 @@ export interface AgentSession {
    * distinction `NoticeItem` already draws for a `/model` echo replayed off
    * disk — "reaches the transcript because the agent records it as one", not
    * because anyone said it — so a fresh seat's title and transcript are not
-   * drawn from a brief nobody typed. Omitted, or `'user'`, is the default and
-   * changes nothing.
+   * drawn from a brief nobody typed. `noticeKind: 'agentBrief'` marks that
+   * standing order for a folded Markdown disclosure in the transcript.
+   * Omitted, or `'user'`, is the default and changes nothing.
    */
-  send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId>
+  send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId>
   /** Add to the turn already in flight without interrupting it. */
   steer(input: readonly UserContent[]): Promise<void>
   interrupt(): Promise<void>

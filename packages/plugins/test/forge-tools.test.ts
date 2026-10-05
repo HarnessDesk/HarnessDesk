@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -346,6 +347,80 @@ test('pr_create never pushes: an unpushed branch is refused with the command to 
   const again = await forge.run('pr_create', { title: 'x', body: 'y' })
   assert.match(again, /1 commit is not pushed yet/)
   assert.match(again, /git push/)
+})
+
+test('pr_create accepts a branch pushed to its remote without an upstream', async (t) => {
+  const forge = await rig(t)
+  execFileSync('git', ['checkout', '-q', '-b', 'feature/no-upstream'], { cwd: forge.repo })
+  execFileSync('git', ['push', '-q', 'origin', 'feature/no-upstream'], { cwd: forge.repo })
+
+  const said = await forge.run('pr_create', { title: 'x', body: 'y' })
+  assert.match(said, /Opened pull request #7/)
+  assert.ok(forge.calls().some((args) => args[0] === 'pr' && args[1] === 'create'))
+  assert.throws(
+    () => execFileSync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { cwd: forge.repo, stdio: ['ignore', 'pipe', 'ignore'] }),
+    'pr_create does not need to set an upstream to recognize the remote branch',
+  )
+})
+
+test('pr_create reports how far a no-upstream branch differs from its remote', async (t) => {
+  const forge = await rig(t)
+  execFileSync('git', ['checkout', '-q', '-b', 'feature/diverged'], { cwd: forge.repo })
+  writeFileSync(join(forge.repo, 'local.txt'), 'local commit\n')
+  execFileSync('git', ['add', 'local.txt'], { cwd: forge.repo })
+  execFileSync('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'local change'], { cwd: forge.repo })
+
+  const remote = join(forge.repo, '..', 'remote.git')
+  const peer = join(forge.home, 'peer')
+  execFileSync('git', ['clone', '-q', remote, peer])
+  execFileSync('git', ['checkout', '-q', '-b', 'feature/diverged', 'origin/main'], { cwd: peer })
+  writeFileSync(join(peer, 'remote.txt'), 'remote commit\n')
+  execFileSync('git', ['add', 'remote.txt'], { cwd: peer })
+  execFileSync('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'remote change'], { cwd: peer })
+  execFileSync('git', ['push', '-q', 'origin', 'HEAD:refs/heads/feature/diverged'], { cwd: peer })
+
+  const hookMarker = join(forge.home, 'pre-auto-gc-ran')
+  const preAutoGc = join(forge.repo, '.git', 'hooks', 'pre-auto-gc')
+  writeFileSync(preAutoGc, `#!/bin/sh\n: > '${hookMarker}'\n`)
+  chmodSync(preAutoGc, 0o755)
+  execFileSync('git', ['config', 'core.hooksPath', join(forge.repo, '.git', 'hooks')], { cwd: forge.repo })
+  execFileSync('git', ['config', 'gc.auto', '0'], { cwd: forge.repo })
+  execFileSync('git', ['config', 'gc.autoDetach', 'false'], { cwd: forge.repo })
+  execFileSync('git', ['config', 'maintenance.autoDetach', 'false'], { cwd: forge.repo })
+  const objectFormat = execFileSync('git', ['rev-parse', '--show-object-format'], { cwd: forge.repo }).toString().trim()
+  const blobOid = (content: string) =>
+    createHash(objectFormat).update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest('hex')
+  const addGcTriggerCommit = (name: string) => {
+    execFileSync('git', ['checkout', '-q', '-b', `gc-trigger-${name}`], { cwd: forge.repo })
+    const paths: string[] = []
+    for (let index = 0; paths.length < 2; index += 1) {
+      const content = `gc trigger ${name} ${index}\n`
+      if (blobOid(content).startsWith('17')) {
+        const path = `gc-trigger-${name}-${paths.length}.txt`
+        writeFileSync(join(forge.repo, path), content)
+        paths.push(path)
+      }
+    }
+    execFileSync('git', ['add', '--', ...paths], { cwd: forge.repo })
+    execFileSync('git', [
+      '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', `gc trigger ${name}`,
+    ], { cwd: forge.repo })
+    execFileSync('git', ['checkout', '-q', 'feature/diverged'], { cwd: forge.repo })
+  }
+  addGcTriggerCommit('calibration')
+  execFileSync('git', ['config', 'gc.auto', '1'], { cwd: forge.repo })
+  execFileSync('git', ['gc', '--auto'], { cwd: forge.repo })
+  assert.equal(existsSync(hookMarker), true, 'the fixture runs its hook when automatic gc is enabled')
+  rmSync(hookMarker)
+  execFileSync('git', ['config', 'gc.auto', '0'], { cwd: forge.repo })
+  addGcTriggerCommit('fetch')
+  execFileSync('git', ['config', 'gc.auto', '1'], { cwd: forge.repo })
+
+  const said = await forge.run('pr_create', { title: 'x', body: 'y' })
+  assert.match(said, /1 commit ahead of origin\/feature\/diverged and 1 commit behind it/)
+  assert.equal(existsSync(hookMarker), false, 'the comparison fetch must not run the repository pre-auto-gc hook')
+  assert.ok(!forge.calls().some((args) => args[0] === 'pr' && args[1] === 'create'))
+  assert.equal(forge.published.length, 0)
 })
 
 test('a pull request already open for the branch is named, not duplicated', async (t) => {

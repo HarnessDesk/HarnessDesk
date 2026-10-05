@@ -152,7 +152,10 @@ const namesViolations = (page: Page) =>
       const role = el.hasAttribute('data-slot') && el.getAttribute('data-slot') === 'page-title'
         ? 'page'
         : (el.getAttribute('data-role') ?? '')
-      const wanted = (pairs as Record<string, { size: number; weight: number }>)[role]
+      const basePair = (pairs as Record<string, { size: number; weight: number }>)[role]
+      const wanted = el.matches('[data-slot="list-row-title"][data-role="subject"]') && el.closest('[data-hd-table]')?.getAttribute('data-hd-table') === 'compact'
+        ? { size: 13, weight: 500 }
+        : basePair
       if (!wanted) continue
       if (!visible(el)) continue
       checked.add(el)
@@ -906,17 +909,10 @@ test.describe('rule: tertiary ink', () => {
  * `Button`/`Input`), nested two wrapper divs deep, so "no wrapper repeats
  * it" has a wrapper to fail against.
  *
- * Measured rather than assumed: **the button and the field do not draw the
- * same ring.** A button's `:focus-visible` draws the document-level native
- * `outline` (`styles/app.css`) — 2px solid, 2px clear at Desk (Studio: 3px,
- * 0px clear — `--hd-ring-width`/`--hd-ring-offset`, an owner-decided,
- * documented interface difference, not a bug). A field
- * (`design/ui/input.tsx`) instead draws `box-shadow: var(--hd-focus-ring)`,
- * `0 0 0 var(--hd-ring-width) …` — the same width, but flush against the
- * field's own border, zero clearance, because a box-shadow ring has no
- * offset to spend. The rule's "2px ring, 2px clearance" is the button's
- * number; the field's ring is one ring with no gap, asserted as what it is
- * rather than forced to match the button's mechanism.
+ * A keyboard-focused button draws the document outline (Desk: 2px with
+ * 2px clearance; Studio: 3px with no clearance). A field instead colours
+ * its border with `--hd-ring`, without adding an outline or box-shadow.
+ * Both cues belong to the control, never to its wrappers.
  */
 const mountRingFixture = async (page: Page) => {
   await page.route('**/src/preview/main.tsx*', async (route) => {
@@ -953,29 +949,22 @@ const mountRingFixture = async (page: Page) => {
 type RingFinding = { control: string; reason: string }
 
 /**
- * Focuses the control by keyboard (see the `Shift` trick above) and checks
- * its ring against its own *resting* state, not against the literal string
- * `'none'` — a Studio field already carries a resting `box-shadow`
- * (`--hd-input-shadow`, the "transparent field with a hairline on a white
- * page is a rectangle drawn on paper" token from "Dialog forms" above), so
- * `boxShadow !== 'none'` was true whether or not focus had drawn anything:
- * a vacuous pass on the one interface that most needed the check. The ring
- * has to *add* something the resting state does not have.
- *
- * The wrapper-repeat check is the same idea one level up: an ancestor is
- * read at rest and again while the control is focused, and *any* new
- * outline or box-shadow that appears on it — not only an identical copy of
- * the control's own — is a repeat, because a real regression is as likely
- * to add its own ring's shape as to copy the control's.
+ * Compare each control with its resting state. Fields must gain the ring
+ * border colour while keeping their normal elevation; Studio's resting
+ * shadow must not be mistaken for a focus cue. An ancestor gaining any
+ * outline or shadow is a repeated indicator, whatever its shape.
  */
-const focusAndCheckRing = (page: Page, testId: string, kind: 'outline' | 'shadow') =>
+const focusAndCheckRing = (page: Page, testId: string, kind: 'outline' | 'border') =>
   page.evaluate(([id, ringKind]) => {
     const out: { control: string; reason: string }[] = []
     const el = document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null
     if (!el) { out.push({ control: id, reason: 'control not found' }); return out }
     const ancestors: HTMLElement[] = []
     for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) ancestors.push(node)
-    const read = (node: Element) => ({ outline: getComputedStyle(node).outlineStyle, shadow: getComputedStyle(node).boxShadow })
+    const read = (node: Element) => {
+      const cs = getComputedStyle(node)
+      return { outline: cs.outlineStyle, shadow: cs.boxShadow, border: cs.borderColor }
+    }
 
     el.blur()
     const restingOwn = read(el)
@@ -987,8 +976,23 @@ const focusAndCheckRing = (page: Page, testId: string, kind: 'outline' | 'shadow
       return out
     }
     const focusedOwn = read(el)
-    const ringAdded = ringKind === 'outline' ? focusedOwn.outline !== restingOwn.outline : focusedOwn.shadow !== restingOwn.shadow
-    if (!ringAdded) out.push({ control: id, reason: 'focusing added no ring (resting and focused states match)' })
+    if (ringKind === 'outline') {
+      if (focusedOwn.outline !== 'solid' || focusedOwn.outline === restingOwn.outline) {
+        out.push({ control: id, reason: 'focusing added no outline' })
+      }
+    } else {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--hd-ring)'
+      el.parentElement!.append(probe)
+      const ringColor = getComputedStyle(probe).color
+      probe.remove()
+      if (focusedOwn.border !== ringColor || focusedOwn.border === restingOwn.border) {
+        out.push({ control: id, reason: 'focusing added no ring-coloured border' })
+      }
+      if (focusedOwn.outline !== 'none' || focusedOwn.shadow !== restingOwn.shadow) {
+        out.push({ control: id, reason: 'focusing added an outline or shadow around the field' })
+      }
+    }
 
     ancestors.forEach((ancestor, index) => {
       const now = read(ancestor)
@@ -999,24 +1003,24 @@ const focusAndCheckRing = (page: Page, testId: string, kind: 'outline' | 'shadow
     return out
   }, [testId, kind] as const) as Promise<RingFinding[]>
 
-/** Both controls, called with a `Shift` keypress first so each `.focus()` matches `:focus-visible`. */
+/** Tab enables keyboard modality before each programmatic focus target. */
 const ringViolations = async (page: Page): Promise<RingFinding[]> => {
-  await page.keyboard.press('Shift')
+  await page.keyboard.press('Tab')
   const button = await focusAndCheckRing(page, 'ring-button', 'outline')
-  await page.keyboard.press('Shift')
-  const field = await focusAndCheckRing(page, 'ring-field', 'shadow')
+  await page.keyboard.press('Tab')
+  const field = await focusAndCheckRing(page, 'ring-field', 'border')
   return [...button, ...field]
 }
 
 test.describe('rule: focus ring', () => {
-  test('rule: focus ring — a focused button and a focused field each draw one ring, and no wrapper repeats it', async ({ page }) => {
+  test('rule: focus ring — keyboard focus marks the button and field without a wrapper repeating it', async ({ page }) => {
     await mountRingFixture(page)
     const findings: (RingFinding & { where: string })[] = []
     for (const look of ['desk', 'studio'] as const) {
       await page.evaluate((interfaceName) => document.body.setAttribute('data-hd-interface', interfaceName), look)
       for (const finding of await ringViolations(page)) findings.push({ ...finding, where: look })
       // Desk: 2px/2px. Studio: 3px/0px — see the rule's header comment.
-      await page.keyboard.press('Shift')
+      await page.keyboard.press('Tab')
       const buttonRing = await page.getByTestId('ring-button').evaluate((el: HTMLElement) => {
         el.focus()
         const cs = getComputedStyle(el)
@@ -1029,6 +1033,13 @@ test.describe('rule: focus ring', () => {
       }
     }
     expect(findings).toEqual([])
+  })
+
+  test('rule: focus ring — the checker catches a field with no focused border', async ({ page }) => {
+    await mountRingFixture(page)
+    expect(await ringViolations(page)).toEqual([])
+    await page.addStyleTag({ content: '[data-testid="ring-field"]:focus { border-color: var(--hd-input) !important; }' })
+    expect(await ringViolations(page)).toContainEqual({ control: 'ring-field', reason: 'focusing added no ring-coloured border' })
   })
 
   test('rule: focus ring — the checker catches a wrapper that repeats the ring', async ({ page }) => {

@@ -50,6 +50,14 @@ const exchange = (key: string, index: number, options: SideBySideFixtureOptions)
 
 export const SIDE_BY_SIDE_KEYS = SIDE_BY_SIDE_MEMBERS.map((member) => sessionKey(member.runtime, member.id as SessionId)) as SessionKey[]
 
+/** Long work descriptions exercise the room rail at its real reading width. */
+export const ROOM_MEMBER_TITLES = [
+  'Retry the checkout call when the service is unavailable',
+  'Review the retry budget and the final failure response',
+  'Check that repeated requests keep the checkout safe',
+  'Cover the growing pause between checkout attempts',
+] as const
+
 export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStore => {
   const base = previewStore()
   const snapshot = base.getSnapshot()
@@ -60,7 +68,7 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
     if (!prior) throw new Error(`Missing preview conversation for ${member.nickname}`)
     sessions.set(key, {
       ...prior,
-      title: `${member.nickname} conversation`,
+      title: ROOM_MEMBER_TITLES[index]!,
       ...(options.noGoal ? { goal: null } : {}),
       settings: {
         ...prior.settings,
@@ -113,10 +121,10 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
   const team = teams.get(PREVIEW_ROOM)!
   teams.set(PREVIEW_ROOM, { ...team, members: SIDE_BY_SIDE_KEYS })
   const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals, teams } as Partial<AppSnapshot>)
-  const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member) => ({
+  const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member, index) => ({
     runtime: member.runtime,
     sessionId: member.id,
-    title: `${member.nickname} conversation`,
+    title: ROOM_MEMBER_TITLES[index]!,
     agent: member.agent,
     nickname: member.nickname,
     model: member.model,

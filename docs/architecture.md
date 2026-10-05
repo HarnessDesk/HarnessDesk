@@ -177,7 +177,12 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   rather than firing it. Like approvals, it sits beside the session rather than
   inside it, so an adapter re-emitting a whole `Session` cannot erase it.
 - **Git and worktrees** — status, diffs, hunk staging, and the managed
-  worktrees a conversation can run in (`worktrees/`).
+  worktrees a conversation can run in (`worktrees/`). Main-checkout folders
+  resolved through Git's metadata are checked again from inside the folder:
+  its checkout root and Git directories must agree with the repository that
+  named it before a listing, inventory or destination uses it. Worktree
+  listings use NUL delimiters; individual path probes remove only Git's final
+  newline, so whitespace in a checkout's name stays part of its identity.
 - **Terminals** — PTYs that survive a client reload, with scrollback.
 - **Team rooms and shared boards** ([multi-agent.md](multi-agent.md)) — multi-agent
   coordination in `team/`: shared intent boards, non-overlapping file claim
@@ -206,8 +211,13 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   Release follows `session/close`:
   `live` becomes null and `detached` stays false. Only a runtime reporting
   `capabilities.resume` and implementing `stopForIdle` participates (currently
-  the ACP adapter); the existing idle reaper can then stop its process once
-  nothing else uses it. Other runtimes retain their live sessions. Opening
+  the ACP and Codex adapters); the existing idle reaper can then stop its process
+  after `IDLE_STOP_MS` (ten minutes) with nothing else using it. Codex keeps
+  thread MCP children after unsubscribe, so process exit releases those too
+  ([measurement and lifecycle](decisions.md#finished-seats-release-handles-and-idle-runtimes-release-retained-tools)).
+  Idle health preserves learned capabilities, models, account and cached history;
+  new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
+  retain their live sessions. Opening
   or addressing the conversation resumes its own history; wrap, release and
   deletion still own closing the durable Seat record.
 - **Reviewed receipts** — wrapping snapshots cards, Seats, answers, evidence,

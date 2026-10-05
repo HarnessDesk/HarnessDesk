@@ -44,7 +44,7 @@ it('keeps the default title in the subject pair', () => {
   const selected = renderToStaticMarkup(<ListRow selected title="A subject" />)
 
   for (const markup of [unselected, selected]) {
-    expect(markup).toContain('text-base')
+    expect(markup).toContain('text-(length:--hd-table-name-size)')
     expect(markup).toContain('leading-(--hd-line)')
     expect(markup).toContain('font-medium')
   }
@@ -79,14 +79,20 @@ it('keeps multiple lead marks beside rather than over one another', () => {
   expect(markup).toContain('gap-2')
 })
 
-it('gives a lead beside wrapped copy a box the height of its first line', () => {
-  const small = renderToStaticMarkup(<ListRow size="sm" lead={<span>mark</span>} title="Board" subtitle="A second line" />)
-  const regular = renderToStaticMarkup(<ListRow lead={<span>mark</span>} title="Workspace" subtitle="A second line" />)
+it('centres leads and trailing controls beside wrapped copy without a first-line box', () => {
+  for (const size of ['sm', 'default'] as const) {
+    const markup = renderToStaticMarkup(<ListRow size={size} lead={<span>mark</span>} title="Board" subtitle="A second line" trail={<button>Open</button>} />)
+    expect(markup).toContain('items-center')
+    expect(markup).not.toContain('items-start')
+    expect(markup).not.toContain('h-(--hd-line-sm)')
+    expect(markup).not.toContain('h-(--hd-line)')
+  }
+})
 
-  expect(small).toContain('h-(--hd-line-sm)')
-  expect(regular).toContain('h-(--hd-line)')
-  expect(small).not.toContain('translate-y-(--hd-space-px)')
-  expect(regular).not.toContain('translate-y-(--hd-space-px)')
+it('uses the family’s full and bare row floors', () => {
+  expect(renderToStaticMarkup(<ListRow title="Name" />)).toContain('min-h-(--hd-table-row-min-bare)')
+  expect(renderToStaticMarkup(<ListRow lead={<span />} title="Name" />)).toContain('min-h-(--hd-table-row-min)')
+  expect(renderToStaticMarkup(<ListRow subtitle="Fact" title="Name" />)).toContain('min-h-(--hd-table-row-min)')
 })
 
 it('opens a row detail at the row\'s edges, or on the list\'s inner line when inset', () => {
@@ -143,10 +149,28 @@ it('keeps a selected record filled when hovered', () => {
   expect(markup).not.toContain('hover:bg-(--hd-hover)')
 })
 
-it('pins a wrapped record title and its lead to the first line', () => {
+it('centres a wrapped record title and its lead on the row', () => {
   const markup = renderToStaticMarkup(<ListRow wrapTitle lead={<svg />} title="A record with a long title" />)
-  expect(markup).toContain('items-start')
-  expect(markup).toContain('h-(--hd-line)')
+  expect(markup).toContain('items-center')
+  expect(markup).not.toContain('h-(--hd-line)')
   expect(markup).toContain('whitespace-normal')
   expect(markup).not.toContain('truncate')
+})
+
+it('keeps a state mark outside the title and subtitle text column', () => {
+ const host=document.createElement('div')
+ host.innerHTML=renderToStaticMarkup(<ListRow mark={<span>unread</span>} lead={<span>face</span>} title="Team" subtitle="Waiting" />)
+ const mark=host.querySelector('[data-slot="list-row-mark"]')!
+ const content=host.querySelector('[data-slot="list-row-content"]')!
+ expect(mark).not.toBeNull()
+ expect(content.contains(mark)).toBe(false)
+ expect(content.querySelector('[data-slot="list-row-title"]')?.textContent).toBe('Team')
+ expect(content.querySelector('[data-slot="list-row-subtitle"]')?.textContent).toBe('Waiting')
+})
+
+it('bounds a single filling face while keeping compound leads free to compose', () => {
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<ListRow title="Jane Doe" lead={<span data-shape="face" data-fill="" />} />)
+  const lead = host.querySelector('[data-slot="list-row-lead"]')!
+  expect(lead.className).toContain('has-[>[data-shape=face]:only-child]:size-(--hd-table-face)')
 })

@@ -221,6 +221,21 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
 | `--hd-table-row-h` | `26px` |
+| `--hd-table-head-h` | `40px` |
+| `--hd-table-head-size` | `13px` |
+| `--hd-table-head-ink` | `rgb(49, 49, 49)` |
+| `--hd-table-row-min` | `56px` |
+| `--hd-table-row-min-bare` | `44px` |
+| `--hd-table-cell-x` | `12px` |
+| `--hd-table-edge` | `16px` |
+| `--hd-table-face` | `32px` |
+| `--hd-table-face-radius` | `calc(6px * 4 / 3)` |
+| `--hd-table-lead-gap` | `12px` |
+| `--hd-table-name-size` | `14px` |
+| `--hd-table-fact-size` | `12px` |
+| `--hd-table-sentence-size` | `13px` |
+| `--hd-table-line-gap` | `2px` |
+| `--hd-table-end-gap` | `12px` |
 | `--hd-history-detail-min-h` | `160px` |
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
@@ -488,6 +503,28 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-btn-h` | `30px` |
 | `--hd-field-h` | `30px` |
 | `--hd-btn-h-sm` | `28px` |
+
+### Table density
+
+A table scope owns its density, including list and settings examples. Restating the comfortable values lets nested scopes opt back in.
+
+| token | comfortable | compact |
+| --- | --- | --- |
+| `--hd-table-cell-x` | `12px` | `8px` |
+| `--hd-table-edge` | `16px` | `12px` |
+| `--hd-table-end-gap` | `12px` | `8px` |
+| `--hd-table-face` | `32px` | `24px` |
+| `--hd-table-face-radius` | `calc(6px * 4 / 3)` | `6px` |
+| `--hd-table-fact-size` | `12px` | `12px` |
+| `--hd-table-head-h` | `40px` | `32px` |
+| `--hd-table-head-ink` | `rgb(49, 49, 49)` | `rgb(49, 49, 49)` |
+| `--hd-table-head-size` | `13px` | `12px` |
+| `--hd-table-lead-gap` | `12px` | `10px` |
+| `--hd-table-line-gap` | `2px` | `2px` |
+| `--hd-table-name-size` | `14px` | `13px` |
+| `--hd-table-row-min` | `56px` | `40px` |
+| `--hd-table-row-min-bare` | `44px` | `32px` |
+| `--hd-table-sentence-size` | `13px` | `12px` |
 
 ## When to use which
 
@@ -787,6 +824,30 @@ having written the judgement down.
 
 **Why** — Project, Permissions and Triggers each opened every section with a 2–3 line paragraph under the page's own blurb. The one warning that mattered read like the four around it.
 
+### `data`
+
+**Use** — Records compared across three or more facts, with a header. Three or more unlabelled numbers need a header too.
+
+**Not** — A headerless grid of numbers, or a column empty in every row. Omit that column; an empty cell is one quiet —.
+
+**Why** — A header makes comparable facts readable; an empty column spends width without adding a fact.
+
+### `readings`
+
+**Use** — Numbers end-aligned in tabular figures; one status per row, tinted only when it needs eyes.
+
+**Not** — Centred figures, several repetitions of the same state, or a tint on every healthy reading.
+
+**Why** — Shared digit columns make quantities comparable; a warning stands out only when ordinary readings stay quiet.
+
+### `face`
+
+**Use** — A face tells rows apart, centred beside the whole text block in either density.
+
+**Not** — The same decorative glyph repeated on every row. Leave the face out when it identifies nothing.
+
+**Why** — A face is an identity column, and centring it with the control keeps one anatomy as sentences wrap.
+
 ### `summary`
 
 **Use** — Several facts about one object on a page — a file, a ceiling, what it loads — as `SummaryList` inside one `Section`: a key, a value, an optional note under it and an optional small action at the row's end.
@@ -927,6 +988,9 @@ work, and the name is not what is moving.
 
 `mark` is the caller's, a brand mark or the generic agent glyph, because the
 pattern does not know which harness a member sits on, and must not.
+With `description`, the small face stays beside the name while the prose
+sits directly under the name, in that same text column. `meta` is the
+role or other recorded fact beside the name.
 
 ### `AppWindowSurface`
 
@@ -1492,11 +1556,9 @@ One slim line above a pane, one message at a time.
 `packages/ui/src/design/patterns/Notices.tsx`
 
 The inbox: messages kept until they are cleared, newest first, under
-"Today" and "Earlier". Each is a flat row — the sender's tile, the title
-with its time at the right, who and why under it, at most one thing to do.
-The whole row is one press: it marks the message read and, when the
-message has a place (`go`), goes there. Unread rows carry a dot and the
-heavier title; "Unread" narrows the list to them. New rows rise in.
+day headings. A compact title row expands into details and actions,
+marking unread content read. Repeated information updates its count and
+last time; actions name their destination.
 
 ### `InboxPanel`
 
@@ -1526,7 +1588,8 @@ later. The promise's own value can name the ending.
 `packages/ui/src/design/patterns/PaneColumn.tsx`
 
 `data-slot`/`data-inset` are for a test or a screen's own CSS to read, the
- same convention the rest of `design/patterns` stamps.
+ same convention the rest of `design/patterns` stamps. A prose `page`
+ keeps the full reading inset above and below its content.
 
 ### `useComposerHeightVar`
 

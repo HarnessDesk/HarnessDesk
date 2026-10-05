@@ -85,3 +85,12 @@ it('hands its input to an owning surface for initial focus', () => {
 
   expect(inputRef.current).toBe(container.querySelector('input[type="search"]'))
 })
+
+it('lets an always-focused field use its caret as the focus cue without changing other searches', () => {
+  act(() => root.render(<>
+    <Search value="" onChange={() => {}} placeholder="Palette search" focusIndicator="caret" />
+    <Search value="" onChange={() => {}} placeholder="Ordinary search" />
+  </>))
+  expect(container.querySelector('[aria-label="Palette search"]')?.getAttribute('data-focus-indicator')).toBe('caret')
+  expect(container.querySelector('[aria-label="Ordinary search"]')?.hasAttribute('data-focus-indicator')).toBe(false)
+})

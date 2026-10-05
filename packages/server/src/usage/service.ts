@@ -64,6 +64,8 @@ export interface UsageServiceOptions {
   }
   /** Called for each report as it lands, so a slow source never delays a fast one. */
   readonly onReport: (report: UsageReport) => void
+  /** Drops a cached account when its source goes silent or its replacement belongs to another account. */
+  readonly onRemoved?: (runtime: RuntimeId, account: string | null) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
   /**
@@ -212,8 +214,16 @@ export class UsageService {
       }
     }
     const overlaid = this.#options.overlay ? await this.#options.overlay(complete) : complete
+    const previous = this.#cache.get(id)
     this.#cache.set(id, overlaid)
-    if (!this.#disposed) this.#options.onReport(overlaid)
+    if (!this.#disposed) {
+      // Silence may still earn a ledger-only report with no signed-in account.
+      // Retire the former identity before clients merge the replacement.
+      if (previous && (previous.account?.trim() ?? '') !== (overlaid.account?.trim() ?? '')) {
+        this.#options.onRemoved?.(id, previous.account)
+      }
+      this.#options.onReport(overlaid)
+    }
     return overlaid
   }
 
@@ -310,6 +320,12 @@ export class UsageService {
         }
       }
       accountActivity = activityResult.activity ?? undefined
+      // An idle runtime returns observations, not a fresh account reading.
+      // A file-backed meter below can still supply its own newer timestamp.
+      if (runtime.health().state === 'idle' && previous?.source.kind === 'runtime') {
+        fetchedAt = previous.fetchedAt
+        staleAfterMs = previous.staleAfterMs
+      }
     }
 
     // A meter fills in for a runtime that cannot answer; it never overwrites
@@ -392,6 +408,7 @@ export class UsageService {
       // balance counts as something: pay-as-you-go has no window to run out
       // of, and "$4.58 left" is the whole answer for an account like that.
       this.#cache.delete(id)
+      if (previous && !this.#disposed) this.#options.onRemoved?.(id, previous.account)
       return null
     }
 

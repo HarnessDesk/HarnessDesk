@@ -208,3 +208,13 @@ it('keeps the note being written when another request arrives above the step', (
   expect(rows()).toHaveLength(2)
   expect(note().value).toBe('Not before the retry has a ceiling.')
 })
+
+it.each(['answer','review'] as const)('uses the readable title for a person %s card without a duplicate subtitle',kind=>{
+ const answers=fake([], {stepDoor:()=>kind==='review'?{kind:'review',card:7}:{kind:'answer',card:7,answers:[{outcome:'approved',effect:'Approved finishes the Run.'}]}})
+ draw([{kind:'card',seat:null,card:7,summary:'Decide whether the retry change ships',since:5}],answers)
+ const row=rows()[0]!
+ expect(row.querySelector('[data-slot="list-row-title"]')?.textContent).toContain('Decide whether the retry change ships')
+ expect(row.querySelector('[data-slot="list-row-title"]')?.textContent).toContain('#7')
+ expect(row.querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
+ expect(row.querySelector('[data-slot="list-row-title"]')?.className).not.toContain('truncate')
+})

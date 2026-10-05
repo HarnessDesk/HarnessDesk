@@ -1013,34 +1013,26 @@ had the card ground silently reporting the page's contrast as its own.
 
 ### Focus ring
 
-A focused button and a focused field each draw exactly one ring, and no
-wrapper repeats it — the other half of the claim "Dialog forms" above
-already makes about a popup surface drawing none of its own; the control
-inside is where the one ring belongs. `surface-focus.spec.ts` proves the
-surface half; `rules.spec.ts` ("rule: focus ring") proves the control half,
-on a fixture nested two wrapper divs deep, and mutates a wrapper's own
-`:focus-within` rule to prove a repeated ring is caught.
+Keyboard focus marks the control, and no wrapper repeats the indicator.
+A button uses the document outline: 2px solid with 2px clearance at Desk,
+3px solid with no clearance at Studio (`--hd-ring-width` and
+`--hd-ring-offset`). Pointer focus stays quiet, including focus returned
+from a menu or dialog; Escape preserves that input mode, while Tab, list
+navigation and keyboard activation enable the keyboard indicator.
 
-Measured rather than assumed: a button's ring is the document-level native
-`outline` (`styles/app.css`) — 2px solid, 2px clear at Desk, matching the
-programme's number, and 3px solid with no clearance at Studio (an
-owner-decided interface difference, `--hd-ring-width`/`--hd-ring-offset`). A
-field instead rings by `box-shadow` (`--hd-focus-ring`, `0 0 0
-var(--hd-ring-width) …`) — the same width, but flush against the field's own
-border with no gap to spend, because a box-shadow ring has no offset
-property. The rule's "2px clearance" is the button's number; the field's
-ring is one ring with a different, and equally real, shape.
+A field locates its caret with a border in `--hd-ring`, for pointer and
+keyboard use, without an offset outline or added shadow. Its normal
+`--hd-input-shadow` elevation stays in place. The command palette's only,
+always-focused field uses its caret alone. The composer's own
+`--hd-composer-ring` remains a separate contract.
 
-A field's *resting* `box-shadow` (`--hd-input-shadow`) is not nothing under
-Studio ("Dialog forms" above: "a transparent field with a hairline on a
-white page is a rectangle drawn on paper"), so the check reads the field
-before and after focusing it and asks whether focus *added* something,
-rather than asking whether `box-shadow` is merely not `'none'` — the second
-question is true at rest on that interface, and would have passed a field
-whose focus drew no ring at all. The same before/after read is how a
-wrapper's repeat is caught: not a copy of the control's own ring, but any
-outline or box-shadow that appears on an ancestor once the control is
-focused that was not there at rest.
+`surface-focus.spec.ts` proves that popup surfaces draw no ring of their
+own. `rules.spec.ts` ("rule: focus ring") checks the button outline and
+field border against their resting states on a fixture nested two wrappers
+deep. Positive controls remove the field's focus border and add a wrapper's
+`:focus-within` outline, proving both a missing cue and a repeated cue are
+caught. `focus-ring.spec.ts` checks pointer and keyboard paths through the
+sidebar, menus, dialogs and palette, and fields in both themes and interfaces.
 
 ### Monospace
 
@@ -1105,7 +1097,8 @@ When adding a control, row or surface to HarnessDesk:
 - The code face marks a face, never a size. `.mono` sets `font-family` and
   nothing else, so a row whose title happens to be an identifier stays the size
   of the rows around it.
-- An icon that labels a row belongs on the row's first line, not centred against
+- Table, list and settings faces centre on the whole row. Other icon leads
+  belong on the first text line, not centred against
   the title *and* its description.
 - A single line is centred in its container. In a notice row, text, lead, action
   and dismiss share one centre; when copy wraps, the lead moves to its first
@@ -1217,8 +1210,9 @@ a confirm from the catalogue, and fails on four of them:
   as one note.
 
 `pnpm test:ui-system -- alignment-census.spec.ts` also measures three rendered
-alignment rules across every preview frame and design explorer board: icon
-leads against their text, trailing icon actions against a surface's text
+alignment rules across every preview frame and design explorer board: table,
+list and settings leads against the whole row centre, other icon leads against
+their first text line, trailing icon actions against a surface's text
 column, and card headings against their body. Its checked-in table records a
 multiplicity for each stable signature; frame and board headings are diagnostic
 labels only. When a change fixes a recorded instance, re-record with
@@ -1573,7 +1567,7 @@ The Run view composes `PaneColumn`, `ListRows`, `ListRow`, `Text` and `Chip`.
 Selection uses the same filled row as an inspector, with no navigation colour.
 Round headings group the oldest-first story; outcomes stay neutral unless the
 host names that outcome as the reason no step follows. Done and waiting are
-quiet text. Wrapped record titles keep their lead on the first line. Sentences wrap at
+quiet text. Wrapped record titles centre their lead on the whole row. Sentences wrap at
 narrow widths, while the brief previews two lines.
 A check that has run more than once draws each recorded result under its row,
 oldest first, as plain lines in the check row's own words (Passed, Failed, Timed
@@ -1742,3 +1736,28 @@ step is answered in the inspector with the controls the Overview uses.
 The `run-controls` catalogue board and `preview.html?run-controls` draw the
 inspector's controls and, one at a time as a dialog is, the question for each
 way the Flow can answer it (`&abandon=opens|ends|waits|refused`).
+
+## Tables and rows
+
+One row anatomy: optional face, name or label, earned second line, one reading,
+control, and an opening chevron when the whole row opens. The face and control
+centre on the whole row, including a wrapped sentence. Names and facts truncate;
+sentences wrap whole. The second line uses muted ink. A settings label stays
+13px medium and its description stays 13px in both densities; a record name is
+14px medium in comfortable and 13px in compact.
+
+Six arrangements share this grammar: a data table compares records; a list
+names things with a reading; settings rows label controls; a matrix compares
+reach; a log keeps its windowed pitch; key-value rows describe one object.
+Comfortable is the page default (40px header, 56px row or 44px bare).
+`data-hd-table="compact"` uses 32px headers, 40px rows or 32px bare rows;
+panel tables choose compact. Git's log keeps its fixed 26px pitch.
+
+A data table compares three or more facts and has a header. Three or more
+unlabelled numbers also need a header. Omit a column empty in every row; show
+one quiet — for an empty cell. Numbers align to the end in tabular figures.
+Show one status per row and tint it only when it needs attention. Draw a face
+only when it tells rows apart. Only interactive rows hover; selected table,
+matrix and record-list rows use the same selected fill. Navigation keeps its
+own destination semantics. The Tables catalogue board and “Tables: the family”
+preview frame mount the same real components in both densities.

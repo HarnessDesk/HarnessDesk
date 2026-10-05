@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { INBOX_LIMIT, kept, markedRead, readInbox, unreadCount } from './inbox'
+import { INBOX_LIMIT, repeated, kept, markedRead, readInbox, unreadCount } from './inbox'
 
 const entry = (id: string, at = 1) => ({ id, tone: 'info' as const, title: `Message ${id}`, at })
 
@@ -34,4 +34,14 @@ describe('the inbox', () => {
     expect(read[1]).toMatchObject({ tone: 'neutral', read: true, open: 'settings:library' })
     expect(readInbox('nope')).toEqual([])
   })
+})
+
+it('reads counted configuration data without accepting malformed fields', () => {
+  const data = readInbox([{ ...entry('config'), count: 3, contentKey: 'content:key', file: '/Users/user/.config/agent.toml', settings: ['features.bogus', 5] }])
+  expect(data[0]).toMatchObject({ count: 3, contentKey: 'content:key', file: '/Users/user/.config/agent.toml', settings: ['features.bogus'] })
+})
+
+it('a new occurrence remains counted when the host has evicted its bounded history', () => {
+  const existing = { id: 'warning', tone: 'warning' as const, title: 'Warning', at: 10, read: true, count: 7 }
+  expect(repeated([existing], { ...existing, at: 20, count: 1 })[0]).toMatchObject({ count: 8, read: true, at: 20 })
 })

@@ -234,13 +234,16 @@ jobs:
           retention-days: 7
 
   ui-system-browser:
-    name: UI system browser integration shard ${{ matrix.shard }}/4
+    name: UI system browser integration shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-    timeout-minutes: 20
+        shard: [1, 2, 3, 4, 5, 6]
+    # Four shards took 14–17 minutes and a loaded runner reached the 20-minute
+    # job limit (#1140). Spread the suite further and leave room for setup,
+    # runner variation and the report upload after tests finish.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -259,7 +262,7 @@ jobs:
       # A clean runner has none until the Node build creates them.
       - run: pnpm run build:node
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:ui-system --shard=${{ matrix.shard }}/4
+      - run: pnpm test:ui-system --shard=${{ matrix.shard }}/6
 
       - uses: actions/upload-artifact@v7
         if: always()

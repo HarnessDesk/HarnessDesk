@@ -13,7 +13,7 @@ const store = new AppStore()
 // Development probe surface; harmless in production and priceless in a bug.
 ;(window as unknown as { __hdStore?: AppStore }).__hdStore = store
 void store.connect().catch((error: unknown) => {
-  store.notice('error', error instanceof Error ? error.message : String(error))
+  store.backgroundFailure(error instanceof Error ? error.message : String(error))
 })
 
 const container = document.getElementById('root')

@@ -5,7 +5,48 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## 0.3.1 — 2026-09-27
+## Unreleased
+
+- **Finished work releases its idle tools.** After a Team's Seats finish and
+  the agent is unused, the desk stops its helper process to release retained
+  tool servers. Working turns and terminals keep it running; conversations
+  and sign-in remain available, and new work starts it again. (Fixes #1397)
+
+- **A conversation that cannot open leaves a usable draft.** When its
+  transcript cannot be read, the pane shows the error and returns to a fresh
+  draft, so the next message starts a new conversation. Words and attachments
+  entered while it was opening remain available to restore. Send waits for
+  the conversation to load, and Restore keeps newer text and attachments
+  available to swap back. (Fixes #800)
+
+- **Runtime information waits quietly in the Inbox.** Configuration warnings
+  and retiring settings show their details, a file action and a mute option.
+  Repeats update one row's count and time; unchanged content stays read across
+  launches. Conversation notices stay inline, and only action results open
+  toasts. Notifications settings includes every new kind.
+
+- **Read what each room member is doing.** Conversation titles wrap beneath
+  the nickname alongside the task or reason, instead of being cut off on
+  the name's line. (Fixes #1185)
+
+- **A comparison keeps the attempt its judge picked.** Findings on the other
+  attempt no longer hold the person’s keep step; they stay open and explain
+  why they were not kept, including advisory findings and after later reviews.
+  An open list or detail updates when the pick continues, keeping a typed
+  reason. Later steps honour the pick too. A blocker on the picked attempt still holds it.
+  Reviewers can withdraw a mistaken finding from the card that raised it,
+  with a reason kept in its history. (Fixes #1382)
+
+- **An Agent’s brief starts folded.** A newly seated conversation and its
+  Side by side tile open on one **Agent brief** row. Open it to read the
+  standing order with its headings and lists intact. (Fixes #1379)
+
+- **Choose Command Line Tools for agent commands on macOS.** Starting the app
+  with `HARNESSDESK_COMMAND_LINE_TOOLS=1` supplies their developer directory to
+  agents when Xcode is selected and those tools are installed, avoiding the
+  Git shim's Xcode first-launch check inside a sandbox. The choice is opt-in:
+  Xcode's iOS build tools need an explicit `DEVELOPER_DIR`, existing choices
+  stay intact, and removing the setting and restarting undoes it. (Fixes #1221)
 
 - **Read the same Run in a terminal and the window.** `run show` uses the
   shared timeline for rounds, cards, check results, findings and the ending,
@@ -19,8 +60,6 @@ move is real work and is not news to a person weighing an upgrade.
   selects its Timeline rows, and a row selects its step. The baton and current
   ring follow live updates and stop under reduced motion; the narrow step list
   carries the same state.
-
-HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
 - **Stop one Run from its header or Overview.** Stop run… ends the round,
   asks its Seats to stop and starts no further step. Its question says which
@@ -115,6 +154,10 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
 - **An isolated seat can open its own pull request.** Git tools now run in
   the calling conversation's checkout, so status, branch context and forge
   commands see the lane's branch rather than the project's branch. (Fixes #1235)
+
+## 0.3.1 — 2026-09-27
+
+HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
 - **A reviewer that already raised a finding is now told plainly how to close
   it on a later round.** A blocking finding could be fixed, confirmed fixed in

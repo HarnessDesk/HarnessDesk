@@ -94,6 +94,7 @@ export const Sidebar = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const inbox = useInboxMessages()
   const [query, setQuery] = useState('')
   // The filter takes the Projects row while it is in use and gives the
   // label back when it is empty and unfocused: a 200px sidebar has room for
@@ -139,13 +140,22 @@ export const Sidebar = ({
     <div className={styles.sidebar}>
       <div className={styles.header} data-region="sidebar-header">
         <Bar corner className="hd-drag"><WindowControls /></Bar>
-        <Bar inset="ink">
+        <Bar inset="ink" className="hd-drag">
           <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
           <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
-          <Button
-            variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={`${styles.iconButton} hd-no-drag`}
-            onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"
-          ><SearchIcon size={13} /></Button>
+          <div className={`${styles.headerActions} hd-no-drag`}>
+            <InboxPanel
+              side="bottom" size="icon-xs"
+              messages={inbox}
+              onOpen={(id) => store.markInboxRead(id)}
+              onMarkAllRead={() => store.markInboxRead(null)}
+              onClear={() => store.clearInbox()}
+            />
+            <Button
+              variant="ghost" size="icon-xs" className="hd-no-drag"
+              onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"
+            ><SearchIcon size={13} /></Button>
+          </div>
         </Bar>
         {starting && <NewSessionChoice initialKind={starting} onClose={() => setStarting(undefined)} />}
         <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
@@ -418,7 +428,6 @@ export const AccountFooter = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const inbox = useInboxMessages()
   // Outside every pane, so this is the default agent — the one ⌘N starts —
   // and not the focused conversation's.
   const runtime = useRuntime()
@@ -893,14 +902,6 @@ export const AccountFooter = ({
           </Menu>
         )}
       </Popover>
-      {/* The inbox sits beside the seat, not inside its menu: one press to
-          what was kept, and the bell's own tint while something is unread. */}
-      <InboxPanel
-        messages={inbox}
-        onOpen={(id) => store.markInboxRead(id)}
-        onMarkAllRead={() => store.markInboxRead(null)}
-        onClear={() => store.clearInbox()}
-      />
     </Bar>
   )
 }

@@ -70,6 +70,23 @@ describe('the queue in the store', () => {
     await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY)).resolves.toBe(true)
   })
 
+  for (const reason of ['turn already ended', 'The connection to HarnessDesk was lost.', 'The request timed out.']) {
+    it(`lets the composer own the steer failure: ${reason}`, async () => {
+      vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error(reason))
+      const onFailure = vi.fn((message: string) => store.addRecoverableDraft(KEY, {
+        text: 'keep this', attachments: [{ name: 'spec.md', path: '/w/spec.md', kind: 'file' }], detail: message,
+      }))
+      await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY, onFailure)).resolves.toBe(false)
+      expect(onFailure).toHaveBeenCalledExactlyOnceWith(reason)
+      expect(store.getSnapshot().notices).toHaveLength(0)
+      window.dispatchEvent(new Event('pagehide'))
+      const reopened = new AppStore('ws://localhost:0/')
+      expect(reopened.getSnapshot().recoverableDrafts.get(KEY)?.[0]).toMatchObject({
+        text: 'keep this', detail: reason, attachments: [{ name: 'spec.md', path: '/w/spec.md' }],
+      })
+    })
+  }
+
   it('starts with nothing, and takes the whole list the host sends', () => {
     expect(store.getSnapshot().queues.size).toBe(0)
     feed({ type: 'session/queue', sessionId: sessionId('s1'), queue: queue('a', 'b') })
@@ -155,18 +172,20 @@ describe('the queue in the store', () => {
     expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY]).toBeUndefined()
   })
 
-  it('explains when recovery could not be saved for a reload', () => {
+  it('explains when recovery could not be saved for a reload', async () => {
+    vi.spyOn(store.transport, 'request').mockResolvedValue({} as never)
+    await store.loadPreferences()
     vi.useFakeTimers()
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
-    const notice = vi.spyOn(store, 'notice')
     store.addRecoverableDraft(KEY, { text: 'memory only', attachments: [], detail: 'Restore it.' })
     vi.advanceTimersByTime(300)
     expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.detail).toBe(
       "Restore it. Not saved for a reload — it stays only while this window is open.",
     )
     expect(sessionStorage.getItem('harnessdesk:drafts:v1')).toBeNull()
-    expect(notice).toHaveBeenCalledTimes(1)
-    expect(notice).toHaveBeenCalledWith('warning', expect.stringContaining('stays only while this window is open'))
+    expect(store.getSnapshot().inbox).toHaveLength(1)
+    expect(store.getSnapshot().inbox[0]).toMatchObject({ kind: 'app:drafts', title: expect.stringContaining('stays only while this window is open') })
+    expect(store.getSnapshot().notices).toEqual([])
     vi.useRealTimers()
   })
 })

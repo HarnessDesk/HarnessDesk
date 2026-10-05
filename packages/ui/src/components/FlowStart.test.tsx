@@ -196,7 +196,7 @@ it('every candidate and effective ceiling remains visible', async () => {
   expect(container.textContent).toContain('is not added to HarnessDesk')
 
   const chips = [...container.querySelectorAll('[data-ceiling], [data-tone]')].map((one) => one.textContent)
-  expect(chips).toEqual(expect.arrayContaining(['Edit · held', 'Read · asked']))
+  expect(chips).toEqual(expect.arrayContaining(['Edit', 'Read only · asked, not enforced']))
 })
 
 it('renders provider warnings, held-ceiling refusals, and additional provider reasons', async () => {

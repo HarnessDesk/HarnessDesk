@@ -6,12 +6,8 @@ import { cn } from '@/lib/utils'
 /*
  * Vendored from shadcn/ui (input); height from the app's measure token.
  *
- * The ring utilities are back, spelled in the app's tokens. They were dropped
- * on the way in "for the app's own focus outline", and the app's own focus
- * outline is a document-level rule that `outline-none` on the line below
- * cancels — so the field that most needs to say where the cursor is was the
- * one control in the app that said nothing. The reference marks it twice: the
- * border takes the ring colour, and the wash sits outside it.
+ * Focus colours the border for pointer and keyboard use, without an offset
+ * ring. The caret and the border locate the field; its normal elevation stays.
  *
  * The elevation is a token rather than a constant, because it is a taste
  * question the Interface setting owns: `--hd-input-shadow` is nothing under
@@ -20,7 +16,7 @@ import { cn } from '@/lib/utils'
  */
 
 const inputVariants = cva(
-  'placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground flex w-full min-w-0 rounded-md border px-2.5 py-0 text-base transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 shadow-(--hd-input-shadow) focus-visible:border-(--hd-ring) focus-visible:shadow-(--hd-focus-ring) file:text-foreground file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium aria-invalid:border-destructive',
+  'placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground flex w-full min-w-0 rounded-md border px-2.5 py-0 text-base transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 shadow-(--hd-input-shadow) focus:border-(--hd-ring) focus-visible:outline-none file:text-foreground file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium aria-invalid:border-destructive',
   {
     variants: {
       variant: {

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
-import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, CheckAllIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
+import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
 import { Popover } from './Popover'
 import type { BannerTone } from '../primitives/Banner'
@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { revealMotion } from '../ui/motion'
 import { toast } from '../ui/toast'
-import { Text } from './Settings'
+import { Chip, Text } from './Settings'
 import styles from './Notices.module.css'
 
 const useWrappedText = (ref: React.RefObject<HTMLElement | null>, dependencies: readonly unknown[]) => {
@@ -345,31 +345,24 @@ export const NoticeStrip = ({
   )
 }
 
-const ago = (at: number, now: number): string => {
-  const minutes = Math.max(0, Math.round((now - at) / 60_000))
-  if (minutes < 1) return 'now'
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.round(minutes / 60)
-  return hours < 24 ? `${hours}h` : `${Math.round(hours / 24)}d`
-}
-
 /** A kept message, with who sent it when an Agent did. */
 export type InboxMessage = NoticeMessage & {
   /** The sender's name, under the title: an Agent's, or nothing for the desk's own. */
   readonly from?: string
+  readonly count?: number
+  readonly file?: string
+  readonly settings?: readonly string[]
+  readonly actions?: readonly NoticeAct[]
   /** Where the message is about, when it has a place: its conversation. Pressing the row goes there. */
   readonly go?: () => void
+  readonly goLabel?: string
 }
-
-const DAY = 24 * 3_600_000
 
 /**
  * The inbox: messages kept until they are cleared, newest first, under
- * "Today" and "Earlier". Each is a flat row — the sender's tile, the title
- * with its time at the right, who and why under it, at most one thing to do.
- * The whole row is one press: it marks the message read and, when the
- * message has a place (`go`), goes there. Unread rows carry a dot and the
- * heavier title; "Unread" narrows the list to them. New rows rise in.
+ * day headings. A compact title row expands into details and actions,
+ * marking unread content read. Repeated information updates its count and
+ * last time; actions name their destination.
  */
 export const InboxList = ({
   messages,
@@ -384,49 +377,57 @@ export const InboxList = ({
   onClear?: () => void
   now?: number
 }) => {
-  const [only, setOnly] = useState<'all' | 'unread'>('all')
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const unread = messages.filter((message) => !message.read).length
-  const shown = only === 'unread' ? messages.filter((message) => !message.read) : messages
-  const groups = [
-    { name: 'Today', items: shown.filter((message) => message.at === undefined || now - message.at < DAY) },
-    { name: 'Earlier', items: shown.filter((message) => message.at !== undefined && now - message.at >= DAY) },
-  ].filter((group) => group.items.length > 0)
+  const shown = messages
+  const today = new Date(now).toDateString()
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1)
+  const groups: { name: string; items: InboxMessage[] }[] = []
+  for (const message of shown) {
+    const day = new Date(message.at ?? now)
+    const name = day.toDateString() === today ? 'Today' : day.toDateString() === yesterday.toDateString() ? 'Yesterday' : day.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+    const group = groups.find(group => group.name === name)
+    if (group) group.items.push(message)
+    else groups.push({ name, items: [message] })
+  }
   const row = (message: InboxMessage) => {
-    const press = message.go ?? (onOpen && !message.read ? () => onOpen(message.id) : undefined)
+    const open = expanded.has(message.id)
     return (
       <li key={message.id} className={cn(styles.inboxItem, revealMotion)} {...(message.read ? {} : { 'data-unread': '' })}>
         <Lead message={message} size="md" line="sm" />
         <div className={styles.inboxText}>
           <span className={styles.inboxTop}>
-            {press ? (
               <Button
-                variant="link"
-                size="inline"
+                variant="ghost"
+                size="pattern"
                 type="button"
-                className={cn(styles.inboxTitle, 'h-auto items-baseline p-0 font-[inherit] leading-[inherit] whitespace-normal')}
-                title={message.go ? 'Go to the conversation' : 'Mark read'}
+                className={styles.inboxTitle}
+                title={!message.read ? 'Mark read' : open ? 'Collapse message' : 'Expand message'}
+                aria-expanded={open}
                 onClick={() => {
                   if (!message.read) onOpen?.(message.id)
-                  message.go?.()
+                  setExpanded(current => { const next = new Set(current); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next })
                 }}
               >
                 {message.read ? message.title : <Text role="row">{message.title}</Text>}
               </Button>
-            ) : (
-              <span className={styles.inboxTitle}>
-                {message.read ? message.title : <Text role="row">{message.title}</Text>}
-              </span>
-            )}
-            {message.at !== undefined ? <time className={styles.inboxTime}>{ago(message.at, now)}</time> : null}
+            {message.count && message.count > 1 ? <Chip tone="neutral">×{message.count}</Chip> : null}
+            {message.at !== undefined ? <time className={styles.inboxTime}>{new Date(message.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time> : null}
           </span>
-          {message.from || message.body ? (
-            <span className={styles.inboxBody}>
+          {open ? (
+            <div className={styles.inboxBody}>
+              <div data-part="inbox-full-title">{message.title}</div>
               {message.from ? <span className={styles.inboxFrom}>{message.from}</span> : null}
               {message.from && message.body ? ' · ' : null}
-              {message.body}
-            </span>
+              {message.settings?.length ? <ul className={styles.inboxSettings}>{message.settings.map(setting => <li key={setting}><code>{setting.split('.').map((part, index) => <span key={index}>{index > 0 ? <>.<wbr /></> : null}{part}</span>)}</code></li>)}</ul> : null}
+              {message.file ? <p className={styles.inboxDetail}>In <code>{message.file}</code></p> : null}
+              {message.body ? <div>{message.body}</div> : null}
+            </div>
           ) : null}
-          {message.action ? <ActionButton action={message.action} variant="outline" className={styles.inboxAction} /> : null}
+          {open ? <div className={styles.inboxActions}>
+            {message.go ? <Button variant="outline" size="sm" onClick={message.go}>{message.goLabel ?? 'Open the conversation'}</Button> : null}
+            {[...(message.action ? [message.action] : []), ...(message.actions ?? [])].map(action => <ActionButton key={action.label} action={action} variant="outline" />)}
+          </div> : null}
         </div>
         {/* `role="img"` because a plain `span` carries no accessible name of
             its own — an `aria-label` on one with no role is dropped by
@@ -439,24 +440,11 @@ export const InboxList = ({
     <div className={styles.inbox} data-slot="inbox-list" data-surface>
       <div className={styles.inboxHead}>
         <Text role="subject" data-part="inbox-heading">Inbox</Text>
-        {messages.length > 0 ? (
-          // A pair of toggles narrowing the one list below, not a set of
-          // panels — `role="tablist"` promised arrow-key navigation and a
-          // panel each `tab` points to, neither of which this ever had.
-          // `aria-pressed` says exactly what is true: which filter is on.
-          <div className={styles.inboxTabs} role="group" aria-label="Show">
-            {(['all', 'unread'] as const).map((key) => (
-              <Button key={key} variant="ghost" size="xs" type="button" aria-pressed={only === key} className={styles.inboxTab} onClick={() => setOnly(key)}>
-                {key === 'all' ? 'All' : 'Unread'}
-                {key === 'unread' && unread > 0 ? <span className={styles.tabCount}>{unread}</span> : null}
-              </Button>
-            ))}
-          </div>
-        ) : null}
+        {unread > 0 ? <Text role="meta">· {unread} new</Text> : null}
         <span className={styles.fill} />
         {onMarkAllRead && unread > 0 ? (
-          <Button variant="ghost" size="icon-sm" type="button" aria-label="Mark all read" title="Mark all read" onClick={onMarkAllRead}>
-            <CheckAllIcon size={14} />
+          <Button variant="link" size="inline" type="button" aria-label="Mark all read" title="Mark all read" onClick={onMarkAllRead}>
+            Mark all read
           </Button>
         ) : null}
         {onClear && messages.length > 0 ? (
@@ -494,19 +482,20 @@ export const InboxList = ({
  */
 export const InboxPanel = ({
   side = 'right',
+  size = 'icon-sm',
   ...list
-}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left' }) => {
+}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs' }) => {
   const unread = list.messages.filter((message) => !message.read).length
   return (
     <Popover
       title={unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}
       side={side}
       sideAlign="end"
-      triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}
+      triggerVariant={{ variant: 'ghost', size }}
       label={
-        <span className={styles.bell} data-slot="inbox-button" {...(unread > 0 ? { 'data-unread': '' } : {})}>
-          <BellIcon size={14} />
-          {unread > 0 ? <span className={styles.bellCount}>{unread > 99 ? '99+' : unread}</span> : null}
+        <span className={styles.bell} data-slot="inbox-button" data-size={size} {...(unread > 0 ? { 'data-unread': '' } : {})}>
+          <span className="sr-only">{unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}</span><BellIcon size={14} />
+          {unread > 0 ? <span className={styles.bellCount} data-slot="inbox-dot" aria-hidden /> : null}
         </span>
       }
     >

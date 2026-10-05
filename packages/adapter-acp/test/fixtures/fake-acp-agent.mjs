@@ -1100,6 +1100,10 @@ const handlers = {
     }
     const state = newSession(undefined, params?.cwd)
     recordOpen('session/new', state.id, params?.cwd, params?._meta)
+    // Some agents store unprompted drafts as soon as session/new answers.
+    if (STORE && process.env.FAKE_ACP_STORE_DRAFTS === '1') {
+      writeStore({ ...readStore(), [state.id]: { sessionId: state.id, cwd: state.cwd, title: 'Draft', updatedAt: new Date().toISOString(), turns: [] } })
+    }
     if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
       attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
     }

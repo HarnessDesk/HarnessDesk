@@ -124,8 +124,8 @@ type FaceFinding = { rule: string; where: string; slot: string; detail: string }
 
 const faceReport = (page: Page, exceptions: Excused) =>
   page.evaluate((excused) => {
-    const probe = (token: string) => {
-      const el = document.body.appendChild(document.createElement('div'))
+    const probe = (token: string, scope: Element = document.body) => {
+      const el = scope.appendChild(document.createElement('div'))
       el.style.cssText = `position:absolute;visibility:hidden;width:24px;height:24px;border-radius:var(${token})`
       const value = getComputedStyle(el).borderTopLeftRadius
       el.remove()
@@ -144,8 +144,11 @@ const faceReport = (page: Page, exceptions: Excused) =>
       if (!visible(el)) continue
       faces += 1
       const cs = getComputedStyle(el)
-      if (!corners.includes(cs.borderTopLeftRadius)) {
-        findings.push({ rule: 'corner', where: where(el), slot: slot(el), detail: `${cs.borderTopLeftRadius}, wanted ${corners.join(' or ')}` })
+      // Only the face leads that read this token gain the family corner.
+      const familyLead = el.parentElement?.matches('[data-slot="list-row-lead"], [data-slot="table-cell-lead"]')
+      const wanted = familyLead ? [...corners, probe('--hd-table-face-radius', el.parentElement!)] : corners
+      if (!wanted.includes(cs.borderTopLeftRadius)) {
+        findings.push({ rule: 'corner', where: where(el), slot: slot(el), detail: `${cs.borderTopLeftRadius}, wanted ${wanted.join(' or ')}` })
       }
       // A notice's face keeps its tone's wash (it has no data-slot and a tone):
       // translucent by design, so it is not held to solid. It is held to the
@@ -277,4 +280,15 @@ test.describe('rule: faces', () => {
     const bare = await faceReport(page, [])
     expect(bare.findings.some((f) => f.rule === 'mark' && f.where === 'setup-survey')).toBe(true)
   })
+})
+
+
+test('rule: faces — table corners are scoped to the family lead', async ({ page }) => {
+  await page.setContent(`<main id="root"><style>
+    body { --hd-face-radius:6px; --hd-face-radius-lg:10px; --hd-table-face-radius:8px; }
+    [data-shape=face] { display:block;width:32px;height:32px;border-radius:8px;background:rgb(240,240,240); }
+  </style><div data-slot="list-row-lead"><span data-shape="face"></span></div></main>`)
+  expect((await faceReport(page, [])).findings).toEqual([])
+  await page.locator('[data-slot="list-row-lead"]').evaluate(el => el.removeAttribute('data-slot'))
+  expect((await faceReport(page, [])).findings.filter(f => f.rule === 'corner')).toHaveLength(1)
 })

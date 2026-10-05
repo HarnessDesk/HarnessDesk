@@ -245,6 +245,11 @@ export interface CompactionItem extends ItemBase {
  */
 export interface NoticeItem extends ItemBase {
   readonly type: 'notice'
+  /** Runtime information follows the kind setting; 'agentBrief' marks the host's standing order. */
+  readonly kind?: string
+  readonly count?: number
+  readonly lastEventId?: string
+  readonly contentKey?: string
   readonly text: string
 }
 

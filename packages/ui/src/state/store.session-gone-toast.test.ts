@@ -37,15 +37,16 @@ let store: AppStore
 let answers: Partial<Record<HostMethodName, unknown>>
 let refusals: Partial<Record<HostMethodName, Error>>
 
-beforeEach(() => {
+beforeEach(async () => {
   store = new AppStore('ws://localhost:0/')
   answers = {}
   refusals = {}
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
     const refusal = refusals[method]
     if (refusal) throw refusal
-    return answers[method] ?? null
+    return method === 'app/state/get' ? {} : answers[method] ?? null
   }) as never)
+  await store.loadPreferences()
 })
 
 describe('reopening a conversation the agent still does not list', () => {
@@ -59,15 +60,17 @@ describe('reopening a conversation the agent still does not list', () => {
     expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID])
   })
 
-  it('does not stack a second identical toast for the same still-unresolved automatic retry', async () => {
+  it('keeps an automatic retry failure once in the Inbox without a toast', async () => {
     // The measured case: a room's rail keeps trying to open a Seat's
     // conversation as it works (`reveal: false` — nobody asked), and each try
     // met the same "does not list conversation" refusal — three toasts
-    // before, one now.
+    // before; now one quiet Inbox entry.
     await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     await store.openSession(ID, { runtime: RUNTIME, reveal: false })
-    expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID])
+    expect(store.getSnapshot().notices).toEqual([])
+    expect(store.getSnapshot().inbox.map(entry => entry.title)).toEqual([SAID])
+    expect(store.getSnapshot().inbox[0]?.count).toBe(1)
   })
 
   it('stays quiet on an automatic retry after a person already saw the refusal', async () => {
@@ -105,10 +108,9 @@ describe('reopening a conversation the agent still does not list', () => {
     ])
   })
 
-  it('an automatic retry toasts again once the conversation opens and then fails the same way a second time', async () => {
-    // Time moves on between the two toasts — `notice()`'s own five-second
-    // window for a merely fast repeat is a different rule from this one,
-    // which is about a refusal that never resolved in between.
+  it('counts the same automatic failure again after the conversation successfully opens', async () => {
+    // A successful reopen resolves the first refusal. A later automatic
+    // failure increments its quiet Inbox entry instead of creating a toast.
     await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     delete refusals['session/resume']
     answers['session/resume'] = session('s-1')
@@ -117,6 +119,8 @@ describe('reopening a conversation the agent still does not list', () => {
     refusals['session/resume'] = sessionGone()
     await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     later.mockRestore()
-    expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID, SAID])
+    expect(store.getSnapshot().notices).toEqual([])
+    expect(store.getSnapshot().inbox.map(entry => entry.title)).toEqual([SAID])
+    expect(store.getSnapshot().inbox[0]?.count).toBe(2)
   })
 })

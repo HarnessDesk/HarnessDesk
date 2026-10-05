@@ -2556,9 +2556,9 @@ test('an agent that keeps no listing reopens a conversation opened here in its o
   assert.deepEqual(await reopening(runtime, String(session.id)), { cwd: here })
   assert.equal((await runtime.readSession(session.id)).turns.length, 1)
   // The controls: one from an earlier run is still refused, and so is the
-  // probe, which is nobody's conversation and was never remembered as one.
+  // probe, whose option-only identity survives the helper restart.
   assert.deepEqual(await reopening(runtime, 'earlier'), { refused: unplaced('earlier'), gone: true })
-  assert.deepEqual(await reopening(runtime, probe.sessionId), { refused: unplaced(probe.sessionId), gone: true })
+  assert.deepEqual(await reopening(runtime, probe.sessionId), { refused: `Fake ACP Agent has no conversation ${probe.sessionId}.`, gone: true })
   // The agent was asked to load one conversation, in its own folder.
   assert.deepEqual(
     opened().filter((open) => open.method === 'session/load'),
@@ -3220,4 +3220,27 @@ test('concurrent resumeSession deduplicates in-flight resume and returns same in
   } finally {
     await second.dispose()
   }
+})
+
+test('a marked Agent brief remains a notice with its kind when the turn completes', async (t) => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const tape = record(runtime)
+  const session = await runtime.createSession({ cwd: '/tmp/w' })
+  const text = '## Brief\n\n- Read the task.'
+  const options = { recordAs: 'notice' as const, noticeKind: 'agentBrief' as const }
+  await session.send([{ type: 'text', text }], options)
+  const completed = await tape.until(event => event.type === 'turn/completed')
+  assert.ok(completed.type === 'turn/completed')
+  const notice = completed.turn.items[0]
+  assert.ok(notice?.type === 'notice')
+  assert.equal(notice.text, text)
+  assert.equal(notice.kind, 'agentBrief')
+  const from = tape.events.length
+  await session.send([{ type: 'text', text: 'An ordinary notice after the brief.' }], { recordAs: 'notice' })
+  const next = tape.events.slice(from).find(event => event.type === 'turn/started')
+  assert.ok(next?.type === 'turn/started')
+  assert.ok(next.turn.items[0]?.type === 'notice')
+  assert.equal(next.turn.items[0].kind, undefined)
 })
