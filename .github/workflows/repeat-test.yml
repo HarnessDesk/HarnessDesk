@@ -56,13 +56,17 @@ jobs:
           import time
 
           source = os.environ['TEST_FILE']
-          if not re.fullmatch(r'(packages/[a-z0-9-]+/(?:dist/)?test/[a-zA-Z0-9_/-]+\.test\.(?:ts|js)|script/[a-zA-Z0-9_-]+\.test\.mjs)', source):
+          if not re.fullmatch(r'(packages/[a-z0-9-]+/(?:dist/)?test/[a-zA-Z0-9_/-]+\.test\.(?:ts|js)|packages/desktop/(?:electron|script)/[a-zA-Z0-9_-]+\.test\.mjs|script/[a-zA-Z0-9_-]+\.test\.mjs)', source):
               raise SystemExit('Expected a repository Node test file')
           test_file = source
+          test_cwd = None
+          if source.startswith('packages/desktop/'):
+              test_cwd = 'packages/desktop'
           if source.endswith('.ts'):
               test_file = source.replace('/test/', '/dist/test/', 1).removesuffix('.ts') + '.js'
           if not Path(test_file).is_file():
               raise SystemExit('Test file was not built: ' + test_file)
+          command_test_file = test_file.removeprefix('packages/desktop/') if test_cwd else test_file
           runs, copies = int(os.environ['RUNS']), int(os.environ['COPIES'])
           if not (1 <= runs <= 200 and 1 <= copies <= 16):
               raise SystemExit('Runs must be 1–200 and copies 1–16')
@@ -72,7 +76,7 @@ jobs:
           def run(index):
               started = time.monotonic()
               with (logs / f'run-{index}.log').open('w') as log:
-                  result = subprocess.run(['node', '--test', '--test-timeout=120000', test_file], stdout=log, stderr=subprocess.STDOUT)
+                  result = subprocess.run(['node', '--test', '--test-timeout=120000', command_test_file], cwd=test_cwd, stdout=log, stderr=subprocess.STDOUT)
               return index, result.returncode, time.monotonic() - started
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=copies) as pool:
