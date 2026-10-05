@@ -1210,6 +1210,55 @@ and offered only where this Mac already seats one.
 
 ---
 
+## The builder edits one Flow policy; canvas identities belong to its document
+
+The pure model in `packages/ui/src/lib/flow-builder/` holds the existing
+`FlowPolicy`, a position for every role, and canvas identities separate from
+the names a person edits. One role is one step node and one rule is one edge,
+including parallel rules and a rule whose endpoint is missing. Renaming a
+role keeps its canvas identity and updates seed, rule endpoints, isolation
+predecessors, split providers and check guards that name it. Renaming a rule
+keeps its edge identity too. Identities survive edits and undo within the
+draft; opening a file creates a new editing session.
+
+Positions stay in the shape's existing `layout.positions`, keyed by role
+name, because the host already round-trips that metadata and the engine
+ignores it. Reading a file does not write an automatic layout: missing
+positions take `flow-layout`'s placement, and saved coordinates win exactly.
+A move or an explicitly placed new step writes the draft's positions while
+keeping other layout keys, including the front door's shortcuts. Unreadable
+layout is reported and retained on read; a deliberate layout edit replaces
+only the part it edits.
+
+A fan-out is an ordinary Agent role with several seats, never a fourth engine
+kind. A note is an annotation under `layout.builder.notes`, with text and a
+position; it opens no round and accepts no rule. Notes are excluded from the
+step, rule and seat facts. An Agent with no explicit seats still takes its
+Agent's own preference, so the local unseated advisory means no Agent is
+named, not no seat override is written.
+
+The page can create a document from the host-read policy and its original
+source, draw `documentGraph`, and fold canvas positions back with
+`graphDocument`. Semantic edits use operations so rule order and references
+stay together. Undo and redo retain document snapshots, including source
+provenance. Deleting a step deletes rules that reference it as an endpoint,
+split provider or check guard; it never weakens a guard by removing only one
+clause. Other steps remain to be reconnected. Deleting the starting step
+leaves a missing-start problem rather than picking a different entry point.
+
+`sourceRequest` returns the original bytes until the document is edited,
+preserving formatting and comments exactly. After an edit it requests the
+host's existing shape render; that deliberately normalized output replaces
+formatting and comments, as in the ordered editor. There is no YAML parser
+or writer in the model. The local problem list is a structural advisory for
+the header and cards, never a validity verdict; Save and Dry run still need
+the host's render and compiler. No builder screen is mounted by this model.
+
+**The rule:** one policy determines what runs; layout only determines what
+is drawn; the host determines whether the draft can be written or started.
+
+---
+
 ## A Seat freezes its attachments; nothing it loaded can change after it opens
 
 What a Seat's runtime loads is decided once, at open, from the Agent's
