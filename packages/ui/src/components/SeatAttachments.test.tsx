@@ -133,4 +133,5 @@ it('draws declarations as compact inspector rows, with a refusal kept whole', as
   expect(rows).toHaveLength(2)
   expect(rows.every(row => row.getAttribute('data-hd-table') === 'compact')).toBe(true)
   expect(rows[1]?.textContent).toContain('This runtime cannot load this attachment for one Seat.')
+  expect([...container.querySelectorAll('h3')].map(heading => heading.textContent)).toEqual(['Skills', 'Servers'])
 })

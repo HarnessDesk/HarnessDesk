@@ -1138,9 +1138,9 @@ test.describe('rule: monospace', () => {
  *
  * - `lib/provenance.ts`'s `captureWords`: a healthy capture read "Healthy"
  *   in the success tone.
- * - `components/ProjectTriggers.tsx`'s `STATE_WORDS.armed`: an armed
- *   trigger read "Armed" in the success tone, the one state in that table
- *   that was toned at all — `off` is neutral.
+ * - `components/ProjectTriggers.tsx`'s former "Armed" chip: it read in the
+ *   success tone; the switch now carries Off and Armed, while exceptional
+ *   states keep their own toned chips.
  * - `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime
  *   reaches read "On" in the success tone; "Off" already had none.
  * - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in

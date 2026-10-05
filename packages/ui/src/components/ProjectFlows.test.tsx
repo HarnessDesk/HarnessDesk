@@ -103,3 +103,22 @@ it('keeps each flow layer as a heading and a named group', async () => {
   expect([...container.querySelectorAll('h3 [data-role="meta"]')].map(node => node.textContent)).toEqual(['In this project · 1', 'Yours · 1', 'Built in · 1'])
   expect([...container.querySelectorAll('[role="group"]')].map(node => node.getAttribute('aria-label'))).toEqual(['In this project', 'Yours', 'Built in'])
 })
+
+it('keeps reading, empty and failed catalogue states in compact rows', async () => {
+  let reject!: (error: Error) => void
+  render(fakeStore(() => new Promise((_resolve, fail) => { reject = fail })))
+  const row = () => container.querySelector('[data-slot="list-row"]')
+  expect(row()?.textContent).toBe('Reading…')
+  expect(row()?.getAttribute('data-hd-table')).toBe('compact')
+  await act(async () => reject(new Error('Its flows could not be read.')))
+  expect(row()?.textContent).toBe('Its flows could not be read.')
+  expect(row()?.getAttribute('data-hd-table')).toBe('compact')
+  expect(row()?.querySelector('[data-wrap-title]')).not.toBeNull()
+  act(() => root.unmount())
+  root = createRoot(container)
+  render(fakeStore([]))
+  await settle()
+  expect(row()?.textContent).toContain('No flows of its own')
+  expect(row()?.getAttribute('data-hd-table')).toBe('compact')
+  expect(container.querySelector('[data-slot="row"]')).toBeNull()
+})

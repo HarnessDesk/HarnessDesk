@@ -133,10 +133,10 @@ describe('formatMeterUsd', () => {
 })
 
 describe('triggerRowWords', () => {
-  it('separates a human name from the declared shape and concurrency facts', () => {
-    expect(triggerRowWords(prDefinition())).toEqual({ title: 'When a pull request opens or is pushed, review it (review-pr)', facts: 'review-pr · at most 4 at once' })
-    expect(triggerRowWords(issueDefinition())).toEqual({ title: 'When an issue is labelled, triage it (triager)', facts: 'triager · once at a time' })
-    expect(triggerRowWords(scheduleDefinition())).toEqual({ title: 'Every 24 hours, run a sweep (sweep)', facts: 'sweep · once at a time' })
+  it('separates a human name from the trigger id and concurrency facts', () => {
+    expect(triggerRowWords(prDefinition({ id: 'fork-review' }))).toEqual({ title: 'When a pull request opens or is pushed, review it (review-pr)', facts: 'fork-review · at most 4 at once' })
+    expect(triggerRowWords(issueDefinition())).toEqual({ title: 'When an issue is labelled, triage it (triager)', facts: 'triage-issue · once at a time' })
+    expect(triggerRowWords(scheduleDefinition())).toEqual({ title: 'Every 24 hours, run a sweep (sweep)', facts: 'nightly-sweep · once at a time' })
   })
   it('names an arbitrary declared shape honestly without inventing what it does', () => {
     expect(triggerRowWords(prDefinition({ opens: { flow: 'custom-work' } })).title).toBe('When a pull request opens or is pushed, open custom-work')

@@ -100,7 +100,7 @@ it('describes every source, its arm state, and the last thing that happened, inc
   expect(text).toContain('Every 24 hours')
   expect(text).toContain('Out of budget for today.')
   expect(text).toContain('review-pr · at most 4 at once')
-  expect(text).toContain('triager · once at a time · Out of budget for today.')
+  expect(text).toContain('triage-issue · once at a time · Out of budget for today.')
   expect(text).not.toContain('Armed')
   expect(text).not.toContain('Off')
   expect(container.querySelectorAll('[role="switch"]')).toHaveLength(4)
@@ -301,12 +301,12 @@ it('distinguishes exceptional states from the armed switch and offers review onl
   expect(rows.map(row => row.querySelector('[role="switch"]')?.getAttribute('aria-checked'))).toEqual(['true', 'true', 'true'])
 })
 
-it('keeps target and concurrency beside a firing even when an arm has a refusal', async () => {
+it('keeps trigger id and concurrency beside a firing even when an arm has a refusal', async () => {
   mount({ projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({
-    state: 'refused', reason: 'Review this arm.', last: triggerFiring(),
+    id: 'fork-review', definition: prDefinition({ id: 'fork-review' }), state: 'refused', reason: 'Review this arm.', last: triggerFiring(),
   })] })) })
   await settle()
-  expect(container.textContent).toContain('review-pr · at most 4 at once')
+  expect(container.textContent).toContain('fork-review · at most 4 at once')
   expect(container.textContent).toContain('Review this arm.')
   expect(container.textContent).toContain('Fired.')
 })

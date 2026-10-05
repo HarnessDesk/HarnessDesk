@@ -148,9 +148,9 @@ for (const theme of ['light', 'dark'] as const) {
       const row = triggers.locator('[data-slot="list-row"]').filter({ has: page.getByRole('switch', { name: `Arm ${id}`, exact: true }) })
       await expect(row.locator('[data-slot="chip"]')).toHaveCount(0)
     }
-    await expect(triggers.locator('[data-slot="list-row-subtitle"]').filter({ hasText: 'triager' })).toContainText('triager · once at a time · Out of budget for today.')
+    await expect(triggers.locator('[data-slot="list-row-subtitle"]').filter({ hasText: 'triage-issue' })).toContainText('triage-issue · once at a time · Out of budget for today.')
     await expect(triggers.getByRole('button', { name: 'History', exact: true })).toHaveCount(6)
     const emptyCells = page.locator('[data-frame-id="plugin-panel-table"] tbody td').filter({ hasText: '—' })
-    await expect(emptyCells).toHaveCount(2)
+    await expect(emptyCells).toHaveCount(3)
   })
 }

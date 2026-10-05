@@ -4,7 +4,7 @@ import type { AgentEntry, TriggerArmPreview, TriggerDefinition, TriggerView } fr
 
 import { Banner, Button, ConfirmDialog, KeyValue, KeyValueRow, Note, NoteList, Row, Rows } from '../design'
 import {
-  triggerAgainLabel, triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerProblemPlace, triggerSentence,
+  triggerAgainLabel, triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerProblemPlace, triggerRowWords,
 } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
@@ -68,6 +68,7 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
   const flowErrors = (preview?.flow?.problems ?? []).filter((one) => one.level === 'error')
   const flowWarnings = (preview?.flow?.problems ?? []).filter((one) => one.level === 'warning')
   const armable = preview !== null && preview.token !== null
+  const words = preview?.definition ? triggerRowWords(preview.definition) : null
   const againLabel = preview?.definition ? triggerAgainLabel(preview.definition.on.kind) : null
 
   const arm = async (): Promise<void> => {
@@ -133,6 +134,7 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
 
       {preview && preview.definition && (
         <>
+          {words && <Row title={words.title} desc={words.facts} />}
           <KeyValue>
             <KeyValueRow label="Source" kind="path">{shortPath(preview.sourcePath, snapshot.home)}</KeyValueRow>
             {preview.workingCopyChanged && (
@@ -140,7 +142,6 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
                 Changed since committed — only what is committed is armed.
               </KeyValueRow>
             )}
-            <KeyValueRow label="Declares">{triggerSentence(preview.definition)}</KeyValueRow>
             {preview.repository && <KeyValueRow label="Repository">{preview.repository}</KeyValueRow>}
             <KeyValueRow label="Goals">{triggerGroupingWords(preview.definition.goal)}</KeyValueRow>
           </KeyValue>

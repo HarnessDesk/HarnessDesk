@@ -453,6 +453,7 @@ const BoardCard = ({
               <span className="mr-auto text-xs text-(--hd-muted-foreground)">Unassigned</span>
             ))}
           {tag && (
+            /* A tag stays on one line: wrapping it spills into the note and foot. */
             <Chip
               size="sm"
               tint={tag.tint}
@@ -463,6 +464,7 @@ const BoardCard = ({
             </Chip>
           )}
           {priority && (
+            /* Keep the priority whole: shrinking can wrap its reading through the pill. */
             <Chip tone={priority.tone} className="shrink-0 whitespace-nowrap">{priority.label}</Chip>
           )}
         </div>
