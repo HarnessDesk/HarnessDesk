@@ -229,7 +229,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-cell-x` | `12px` |
 | `--hd-table-edge` | `12px` |
 | `--hd-usage-meter-reading` | `64px` |
-| `--hd-usage-meter-reset` | `128px` |
+| `--hd-usage-meter-reset` | `88px` |
 | `--hd-table-face` | `32px` |
 | `--hd-table-face-radius` | `calc(6px * 4 / 3)` |
 | `--hd-table-lead-gap` | `12px` |
