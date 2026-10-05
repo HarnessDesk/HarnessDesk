@@ -12,6 +12,9 @@ it('a page section can align its label with a row body', () => {
 it('a framed table can share the row inset of the list replacing it', () => {
   const host = document.createElement('div')
   host.innerHTML = renderToStaticMarkup(<Table variant="framed" inset="row" />)
-  expect(host.querySelector('table')!.className).toContain('[&_th]:px-(--hd-inset-row)')
-  expect(host.querySelector('table')!.className).toContain('[&_td]:px-(--hd-inset-row)')
+  const table = host.querySelector('table')!
+  expect(table.className).toContain('[&_tr>:first-child]:ps-(--hd-inset-row)')
+  expect(table.className).toContain('[&_tr>:last-child]:pe-(--hd-inset-row)')
+  expect(table.className).not.toContain('[&_th]:px-')
+  expect(table.className).not.toContain('[&_td]:px-')
 })

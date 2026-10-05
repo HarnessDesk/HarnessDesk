@@ -166,7 +166,7 @@ const patterns = () =>
 export const tableDensityRows = () => {
   const comfortable = resolveTokens({ root })
   const compact = resolveTokens({ root, tableDensity: 'compact' })
-  return [...comfortable].filter(([name]) => name.startsWith('--hd-table-') && name !== '--hd-table-row-h')
+  return [...comfortable].filter(([name]) => name.startsWith('--hd-table-') && name !== '--hd-table-row-h' && name !== '--hd-table-log-head-h')
     .map(([name, value]) => [name, value, compact.get(name)])
 }
 

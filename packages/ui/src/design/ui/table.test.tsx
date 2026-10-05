@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
-import { Table, TableCell, TableHead, TableRow } from './table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from './table'
 
 const element = (markup: string, slot: string) => {
   const host = document.createElement('div')
@@ -43,6 +43,34 @@ it('declares compact density and bare rows, with panel tables compact by default
   expect(element(renderToStaticMarkup(<Table rows="bare" />), 'table').dataset['rows']).toBe('bare')
   expect(element(renderToStaticMarkup(<Table variant="panel" />), 'table').dataset['hdTable']).toBe('compact')
   expect(element(renderToStaticMarkup(<Table variant="panel" density="comfortable" />), 'table').dataset['hdTable']).toBe('comfortable')
+})
+
+it('renders the native header by default and a separate log header as a div', () => {
+  const head = element(renderToStaticMarkup(<Table><TableHeader className="custom"><TableRow><TableHead>Name</TableHead></TableRow></TableHeader></Table>), 'table-header')
+  expect(head.tagName).toBe('THEAD')
+  expect(head.dataset['variant']).toBe('default')
+  expect(head.className).toContain('[&_tr]:border-b')
+  expect(head.className).toContain('custom')
+  const log = element(renderToStaticMarkup(<TableHeader as="div" variant="log" role="row" aria-rowindex={1} className="custom">Name</TableHeader>), 'table-header')
+  expect(log.tagName).toBe('DIV')
+  expect(log.dataset['variant']).toBe('log')
+  expect(log.getAttribute('role')).toBe('row')
+  expect(log.getAttribute('aria-rowindex')).toBe('1')
+  expect(log.className).toContain('h-(--hd-table-log-head-h)')
+  expect(log.className).toContain('custom')
+  expect(log.hasAttribute('as')).toBe(false)
+  expect(log.hasAttribute('variant')).toBe(false)
+})
+
+it('keeps detail and footer padding in a framed table whose outer edges use the row inset', () => {
+  const markup = renderToStaticMarkup(<Table variant="framed" inset="row" density="compact"><tbody><TableRow><TableCell>Name</TableCell><TableCell variant="detail">Detail</TableCell><TableCell variant="footer">Total</TableCell><TableCell>State</TableCell></TableRow></tbody></Table>)
+  const table = element(markup, 'table')
+  expect(table.className).not.toContain('[&_td]:px-')
+  expect(table.className).not.toContain('[&_th]:px-')
+  const detail = table.querySelector('[data-variant="detail"]')!
+  const footer = table.querySelector('[data-variant="footer"]')!
+  expect(detail.className).toContain('px-3')
+  expect(footer.className).toContain('px-1.5')
 })
 
 it('keeps a collapsible column in the semantic table without leaking its policy prop', () => {
