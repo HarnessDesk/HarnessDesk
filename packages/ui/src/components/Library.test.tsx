@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useLayoutEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -8,6 +8,7 @@ import type { AgentAttachmentsView, AgentEntry, Library, LibraryEntry, LibraryUs
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { LibrarySection } from './Library'
+import { SkillList } from './SkillRow'
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
 const HOME = '/home/u'
@@ -39,6 +40,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 1000 } as DOMRect)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -48,6 +50,7 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 const runtime = (id: string, name: string): RuntimeInfo =>
@@ -1868,9 +1871,10 @@ it('the List responds to its container and retains definition access in the narr
   expect(row.tagName).toBe('BUTTON')
   expect(row.querySelector('[data-slot="list-row-title"]')?.textContent).toContain('/code-review')
   expect(row.querySelector('[data-slot="list-row-subtitle"]')?.textContent).toBe(description)
-  expect(row.querySelector('[data-slot="chip"]')?.textContent).toBe('Ready')
+  expect(row.querySelector('[data-slot="chip"]')).toBeNull()
+  expect(row.textContent).toContain('Ready')
   expect(row.querySelector('[data-slot="list-row-trail"] [data-shape="face"]')?.getAttribute('aria-label')).toBe('First Agent')
-  expect(row.textContent).toContain('Loaded by ')
+  expect(row.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('Loaded by First Agent')
   const emptyRow = container.querySelectorAll('[data-slot="skill-row"]')[1]
   expect(emptyRow?.textContent).toContain('Empty on disk')
   expect(emptyRow?.textContent).toContain('Loaded by ')
@@ -1890,4 +1894,38 @@ it('the server List uses the same labelled columns, without a skill invocation',
   const row = container.querySelector('tbody tr')!
   expect(row.textContent).not.toContain('/workspace-tools')
   expect(row.textContent).toContain('Ready')
+})
+
+
+it('mounts only the measured List layout before child layout effects run', async () => {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 599 } as DOMRect)
+  const layouts: (string | null | undefined)[] = []
+  const Probe = () => {
+    useLayoutEffect(() => { layouts.push(container.querySelector('[data-slot="skill-list"]')?.getAttribute('data-layout')) }, [])
+    return null
+  }
+  await act(async () => root.render(<SkillList><Probe /></SkillList>))
+  expect(layouts).toEqual(['list'])
+})
+
+it('caps loading faces with the shared stack while naming every loading agent', async () => {
+  const names = Array.from({ length: 6 }, (_, i) => `Agent ${i + 1}`)
+  const infos = names.map((name, i) => runtime(`agent-${i}`, name))
+  const loaded = entry('shared', [], { reach: infos.map(info => ({ runtime: info.id, state: 'reaches', basis: 'reported' })) })
+  await mount({ ...library([loaded]), runtimes: infos.map(info => info.id) }, undefined, { runtimes: infos })
+  const stack = container.querySelector('[data-slot="avatar-stack"]')!
+  expect(stack).not.toBeNull()
+  expect(stack.querySelectorAll('[data-shape="face"]')).toHaveLength(4)
+  expect(stack.textContent).toContain('+2')
+  expect(stack.getAttribute('aria-label')).toBe(`Loaded by ${names.join(', ')}`)
+})
+
+it('uses Banner anatomy for the empty-directory alert and keeps cleanup actionable', async () => {
+  await mount(library([entry('empty', ['hollow', 'absent'])]))
+  const attention = container.querySelector('[data-slot="library-attention"]')!
+  expect(attention.querySelector('[data-part="banner-icon"]')).not.toBeNull()
+  expect(attention.querySelector('[data-slot="alert-title"]')?.textContent).toBe('Empty skill directories')
+  const cleanup = [...attention.querySelectorAll('button')].find(button => button.textContent?.includes('Clean up'))!
+  await act(async () => cleanup.click())
+  expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Clean up empty skill directories')
 })

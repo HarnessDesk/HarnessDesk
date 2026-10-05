@@ -259,7 +259,9 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const latest = session ? inFlightItem(session) : undefined
     const held = input.cards.filter(one => ownerOf(one)?.record.id === seat.record.id)
     const done = state === 'idle' && held.length > 0 && held.every(one => one.state === 'done')
-    const turns = session?.turns.filter(one => typeof one.startedAt !== 'number' || one.startedAt >= seat.record.openedAt) ?? []
+    const turns = session?.turns.filter(one => typeof one.startedAt === 'number'
+      ? one.startedAt >= seat.record.openedAt
+      : typeof one.completedAt !== 'number' || one.completedAt >= seat.record.openedAt) ?? []
     // Board claims may be trimmed and include gaps between turns. Only each
     // recorded turn's own span is working time; missing timing stays unknown.
     const durationMs = done && turns.length > 0 && turns.every(one => typeof one.startedAt === 'number' && typeof one.completedAt === 'number')

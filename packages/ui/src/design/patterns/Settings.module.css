@@ -858,12 +858,13 @@
 }
 
 .pageHeadText {
-  flex: 1;
+  flex: 1 1 30ch; /* desk: 1 → 1 1 30ch, preserve readable copy before actions wrap beneath it */
   min-width: 0;
 }
 
 .pageHeadContent {
   display: flex;
+  flex-wrap: wrap; /* desk: nowrap → wrap, narrow page heads put actions below their copy */
   align-items: flex-start;
   gap: var(--hd-space-3);
   min-width: 0;
@@ -893,6 +894,8 @@
 .pageCtl {
   flex: none;
   display: flex;
+  flex-wrap: wrap; /* desk: nowrap → wrap, action groups remain inside a narrow page */
+  max-width: 100%; /* desk: none → 100%, actions take at most the page width */
   align-items: center;
   gap: 8px;
   padding-top: 4px;

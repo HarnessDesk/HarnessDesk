@@ -8,6 +8,7 @@ import { teamsInput } from '../lib/teams-snapshot'
 import { teamsList, type TeamFilter, type TeamListGroup, type TeamListRow } from '../lib/teams-list'
 import { sanitizeHtml } from '../lib/sanitize'
 import { folderName } from '../lib/projects'
+import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { elapsedSince } from '../lib/clock'
 import { formatDuration } from './TurnTail'
 import { AppWindow, WindowNav, WindowNavItem, WindowPage } from './AppWindow'
@@ -29,9 +30,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const store=useStore(); const snapshot=useSnapshot()
  const [filter,setFilter]=useState<TeamFilter>(initialFilter)
  const [expanded,setExpanded]=useState(false)
- const [pageBox,setPageBox]=useState<HTMLDivElement|null>(null)
- const [narrow,setNarrow]=useState(false)
- useEffect(()=>{if(!pageBox || typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(([entry])=>setNarrow((entry?.contentRect.width ?? Infinity)<600));observer.observe(pageBox);return()=>observer.disconnect()},[pageBox])
+ const {ref:pageBox,narrow}=useNarrowLayout<HTMLDivElement>(600)
  const [reports,setReports]=useState<ReadonlyMap<string,InsightReport>>(new Map())
  const [reading,setReading]=useState(false)
  const [now,setNow]=useState(Date.now)
@@ -73,7 +72,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const cost=(row:TeamListRow)=>row.total.money===null?'—':`$${row.total.money.toFixed(2)}`
  const groups=(groups:readonly TeamListGroup[])=>{
  const showCost=groups.some(group=>group.rows.some(row=>row.total.money!==null))
- return narrow ? <>{groups.map(group=><section key={group.project} aria-label={folderName(group.project)} data-team-project={group.project}>
+ return narrow === null ? null : narrow ? <>{groups.map(group=><section key={group.project} aria-label={folderName(group.project)} data-team-project={group.project}>
   <GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel>
   <ListRows>{group.rows.map(row=><ListRow key={row.id} data-team-row={row.id} interactive className="relative isolate"
    onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}}
@@ -100,7 +99,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  }
  return <AppWindow label="Teams" responsive>
   <WindowNav onBack={onClose}>{(['active','needs-you','settled'] as const).map(value=><WindowNavItem key={value} icon={undefined} label={labels[value]} count={list.counts[value]} selected={filter===value} onClick={()=>setFilter(value)}/>)}</WindowNav>
-  <WindowPage><div ref={setPageBox} data-slot="teams-page" data-layout={narrow?"narrow":"table"} className="min-w-0 flex flex-col gap-4">
+  <WindowPage><div ref={pageBox} data-slot="teams-page" data-layout={narrow===null?"unmeasured":narrow?"narrow":"table"} className="min-w-0 flex flex-col gap-4">
    <PageHead title="Teams"/>
    {snapshot.goalProblem && <Banner tone="warning" title="Teams could not be refreshed">{words(snapshot.goalProblem)}</Banner>}
    {reading && <Text role="meta">Reading recorded usage…</Text>}

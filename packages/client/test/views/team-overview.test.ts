@@ -546,3 +546,14 @@ it('keeps a completed Seat’s duration unknown when a recorded turn lacks eithe
   assert.equal(model.seats[0]?.durationMs,null)
  }
 })
+
+
+it('excludes an untimed turn completed before the Seat while retaining unknown Seat-era timing', () => {
+ const timed = { id: turnId('work'), status: 'completed' as const, startedAt: 250, completedAt: 300, items: [] }
+ for (const completedAt of [90, 100, 110, undefined]) {
+  const early = { id: turnId('untimed'), status: 'completed' as const, completedAt, items: [] }
+  const model = teamOverview(input({ seats: [seat('Alpha', { session: { ...session('Alpha', [], false), turns: [early, timed] } })],
+   cards: [card(1, { state: 'done' })], signals: [blockedSignal('Alpha', { signal: 'completed' })] }))
+  assert.equal(model.seats[0]?.durationMs, completedAt === 90 ? 50 : null)
+ }
+})
