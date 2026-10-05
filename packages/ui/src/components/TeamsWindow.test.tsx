@@ -13,7 +13,7 @@ import type { AppStore } from '../state/store'
 ;(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true
 const container=document.createElement('div'); document.body.append(container)
 const root=createRoot(container)
-afterEach(()=>act(()=>root.render(null)))
+afterEach(()=>{act(()=>root.render(null));vi.unstubAllGlobals()})
 const mount=async(scene:Parameters<typeof overviewTeamStore>[0]='running')=>{
  const base=overviewTeamStore(scene)
  const seen=vi.fn(); const hidden=vi.fn(); const open=vi.fn(); const close=vi.fn()
@@ -37,6 +37,7 @@ it('folds Ready to wrap, lets Settled open it, and Hide never deletes it',async(
  expect(container.querySelector('[data-team-row]')).toBeNull()
  await act(async()=>button('Ready to wrap').click())
  expect(container.querySelector('[data-team-row]')).not.toBeNull()
+ await act(async()=>container.querySelector<HTMLButtonElement>('button[title="More"]')!.click())
  await act(async()=>button('Hide').click())
  expect(hidden).toHaveBeenCalledWith('overview-team',true)
  await act(async()=>button('Settled').click())
@@ -44,15 +45,15 @@ it('folds Ready to wrap, lets Settled open it, and Hide never deletes it',async(
 })
 it('opening a row records exactly its observed change and opens the Team',async()=>{
  const {seen,open,close}=await mount()
- await act(async()=>button('Retry the checkout call').click())
+ await act(async()=>container.querySelector('[data-team-row]')!.dispatchEvent(new MouseEvent('click',{bubbles:true})))
  expect(seen).toHaveBeenCalledWith('overview-team',expect.any(String))
  expect(open).toHaveBeenCalledWith('overview-team',expect.any(String))
  expect(close).toHaveBeenCalledOnce()
 })
 it('shows a complete waiting reason, and usage read failures leave a dash',async()=>{
  await mount('needs-you')
- expect(container.querySelector('[data-team-row] [data-slot="list-row-subtitle"]')?.textContent).toContain('choose whether to keep the original payment method')
- expect(container.querySelector('[data-team-row] [data-wrap-subtitle]')).not.toBeNull()
+ expect(container.querySelector('[data-team-row] [data-slot="team-detail"]')?.textContent).toContain('choose whether to keep the original payment method')
+ expect(container.querySelector('[data-team-row] [data-slot="team-detail"]')?.getAttribute('title')).toContain('choose whether')
 })
 
 it('keeps pending and failed usage visibly different from a known zero, and names a refresh failure',async()=>{
@@ -71,15 +72,14 @@ it('shows the empty desk without inventing a Team',async()=>{
  expect(container.querySelector('[data-team-row]')).toBeNull()
 })
 
-it('uses the sidebar quiet Chip treatment and state tones for both active and settled rows',async()=>{
+it('tints only attention and working states, leaving ready rows in plain words',async()=>{
  const {teamsPageStore}=await import('../preview/teams-page-fixture')
  await act(async()=>root.render(<StoreProvider store={teamsPageStore()}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
  await act(async()=>button('Ready to wrap').click())
  const chips=[...container.querySelectorAll('[data-team-row] [data-slot="chip"]')]
- expect(chips).toHaveLength(5)
+ expect(chips).toHaveLength(3)
  expect(chips.map(chip=>[chip.textContent,chip.getAttribute('data-variant'),chip.getAttribute('data-tone')])).toEqual([
-  ['Needs you','quiet','warning'],['Needs you','quiet','warning'],['Working','quiet','info'],
-  ['Settled','quiet','neutral'],['Settled','quiet','neutral'],
+  ['Needs you','default','warning'],['Needs you','default','warning'],['Working','default','info'],
  ])
 })
 
@@ -130,10 +130,29 @@ it('reads an uncached Run and only counts its Team as Needs you after publicatio
  expect(container.querySelector('[data-team-row]')?.textContent).toContain('The closed review is waiting to be posted.')
 })
 
-it('keeps the unread dot in the shared mark slot outside both text lines',async()=>{
+it('keeps unread before the name and separates numeric readings under headers',async()=>{
  await mount('needs-you')
  const row=container.querySelector('[data-team-row]')!
- const mark=row.querySelector('[data-slot="list-row-mark"]')!
- expect(mark?.querySelector('[aria-label="Unread changes"]')).not.toBeNull()
- expect(row.querySelector('[data-slot="list-row-title"] [data-slot="dot"]')).toBeNull()
+ expect(row.querySelector('[data-slot="team-identity"] [aria-label="Unread changes"]')).not.toBeNull()
+ expect([...container.querySelectorAll('th[data-align="end"]')].map(one=>one.textContent)).toEqual(['Time','Turns'])
+ expect(row.querySelectorAll('td[data-align="end"]')).toHaveLength(2)
+})
+
+it('omits the money column when every displayed Team has unknown money',async()=>{
+ const {teamsPageStore}=await import('../preview/teams-page-fixture')
+ await act(async()=>root.render(<StoreProvider store={teamsPageStore('pending')}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
+ expect([...container.querySelectorAll('th')].map(one=>one.textContent)).not.toContain('Cost')
+})
+
+it('observes the page after the window mounts it and switches narrow Teams to list rows',async()=>{
+ const observed=vi.fn()
+ vi.stubGlobal('ResizeObserver',class {
+  constructor(private callback:ResizeObserverCallback){}
+  observe(node:Element){observed(node);this.callback([{contentRect:{width:352}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
+  disconnect(){}
+ })
+ await mount()
+ expect(observed).toHaveBeenCalled()
+ expect(container.querySelector('table')).toBeNull()
+ expect(container.querySelector('[data-team-row] [data-slot="list-row-content"]')).not.toBeNull()
 })

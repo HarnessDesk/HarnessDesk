@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { AgentIcon, CheckIcon } from '../../components/Icons'
 import type { FlowStepState } from '../../lib/flow-overlay'
 import type { Tint } from './tone'
-import { IconTile } from './icon-tile'
+import { FaceStack, IconTile } from './icon-tile'
 import { Card } from './card'
 import { Chip, Text } from '../patterns/Settings'
 import styles from './flow-step.module.css'
@@ -50,8 +50,10 @@ export const FlowBaton = ({ path }: { path: string }) => {
 
 /** The marks of the actual Seats occupying a graph node, overlapping when the round fans out. */
 export const FlowFaces = ({ seats, faces, tints, size, fallback }: { seats?: readonly string[]; faces?: ReadonlyMap<string, ReactNode>; tints?: ReadonlyMap<string, Tint>; size?: 'sm'; fallback: ReactNode }) =>
-  seats?.length ? <span data-slot="flow-faces" className="flex shrink-0 -space-x-2">{seats.map(id =>
-    <IconTile key={id} shape="face" size={size ?? (seats.length > 1 ? 'sm' : 'default')} tint={tints?.get(id) ?? 'violet'} className="ring-2 ring-(--hd-card)">{faces?.get(id) ?? <AgentIcon />}</IconTile>)}</span> : fallback
+  seats?.length ? seats.length > 1
+    ? <span data-slot="flow-faces"><FaceStack limit={seats.length} faces={seats.map(id => ({id, name: id, tint: tints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon />}))} /></span>
+    : <span data-slot="flow-faces"><IconTile shape="face" size={size ?? 'default'} tint={tints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
+    : fallback
 
 /** A travelled loop's count has an opaque ground, so the curve never crosses its words. */
 export const FlowRouteLabel = ({ travelled, children }: { travelled: boolean; children: ReactNode }) =>

@@ -1,9 +1,9 @@
 import {
-  Button, Chip, EmptyState, Face, IconTile, KeyValue, KeyValueRow, ListRow, ListRows,
+  Button, Chip, EmptyState, Face, FaceStack, IconTile, KeyValue, KeyValueRow, ListRow, ListRows,
   Row, RowButton, RowChoice, RowValue, Rows, SectionHead, Switch,
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from '..'
-import { FolderIcon, ShieldAlertIcon } from '../../components/Icons'
+import { AgentIcon, FolderIcon, ShieldAlertIcon } from '../../components/Icons'
 
 const DENSITIES = ['comfortable', 'compact'] as const
 const LONG_NAME = 'Review the shared workspace and its library of reusable project checks'
@@ -35,6 +35,8 @@ export const TablesFamily = () => (
             <TableRow><TableCell><Name>{LONG_NAME}</Name></TableCell><TableCell><Chip tone="warning">Warning</Chip></TableCell><TableCell numeric><span className="text-(--hd-muted-foreground)">—</span></TableCell></TableRow>
           </TableBody>
         </Table>
+        <SectionHead name="Face stack" />
+        <FaceStack faces={Array.from({length:6}, (_,n)=>({id:String(n),name:`Agent ${n+1}`,tint:(['blue','violet','rose'] as const)[n%3]!,mark:<AgentIcon />}))} />
         <SectionHead name="List · 3" />
         <ListRows>
           <ListRow as="button" data-catalog-size={density} interactive lead={<Face avatar="wizard" />} title={LONG_NAME} subtitle="acme.dev / storefront" trail={<RowValue numeric>12</RowValue>} />

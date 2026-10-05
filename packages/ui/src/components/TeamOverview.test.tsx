@@ -8,8 +8,8 @@ import { runFixture } from '../preview/run-view-fixture'
 import type { SeatRow } from '../lib/team-overview'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const box=document.createElement('div');document.body.append(box);const root=createRoot(box)
-afterEach(()=>act(()=>root.render(null)))
-const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role:'writer',card:null,round:null,state:'idle',done:false,reason:null,doing:null,since:null,cost:null,...patch})
+afterEach(()=>{ act(()=>root.render(null)); vi.useRealTimers() })
+const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role:'writer',card:null,round:null,state:'idle',done:false,reason:null,doing:null,since:null,durationMs:null,cost:null,...patch})
 const render=(seats:SeatRow[])=>act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats}} metered={new Map(seats.map(one => [one.seat, false]))} />))
 it('uses the ended Run card state and fixed time for the current step and its Seat',()=>{
  const fixture=runFixture('running')
@@ -73,12 +73,35 @@ it.each([
  expect(box.textContent).toContain(runReason)
 })
 
-it('gives the task column priority and wraps its human title',()=>{
- render([row('Alpha',{card:{id:1,title:'Retry the checkout call after a transient failure'}})])
- const heads=[...box.querySelectorAll('th')]
- expect(heads[1]?.className).not.toContain('w-40')
- expect(heads[4]?.className).toContain('w-40')
- expect(box.querySelector('[data-slot="seat-card"]')?.className).not.toContain('truncate')
+it('omits empty Now and Cost, keeps the name flexible, and aligns figures to the end',()=>{
+ render([row('Alpha',{round:1})])
+ expect([...box.querySelectorAll('th')].map(one=>one.textContent)).toEqual(['Agent','Card','Round','State','Time','Open conversation'])
+ expect(box.querySelector('th')?.className).not.toContain('w-36')
+ expect([...box.querySelectorAll('th[data-align="end"]')].map(one=>one.textContent)).toEqual(['Round','Time'])
+ expect(box.querySelectorAll('td[data-align="end"]')).toHaveLength(2)
+})
+it('keeps completed time fixed when the clock advances and opens the whole row',()=>{
+ const onOpen=vi.fn()
+ vi.useFakeTimers();vi.setSystemTime(100_000)
+ const model={run:null,needsYou:[],seats:[row('Alpha',{done:true,durationMs:60_000,since:1})]}
+ act(()=>root.render(<TeamOverview model={model} defaultExpanded onOpen={onOpen}/>))
+ const seat=box.querySelector('[data-seat="Alpha"]')!
+ expect(seat.textContent).toContain('1m')
+ act(()=>vi.advanceTimersByTime(120_000))
+ expect(seat.textContent).toContain('1m')
+ act(()=>seat.dispatchEvent(new MouseEvent('click',{bubbles:true})))
+ expect(onOpen).toHaveBeenCalledWith('Alpha')
+ expect(seat.querySelector('button')).toBeNull()
+ vi.useRealTimers()
+})
+it('shows an evidence wait once with a Findings action and no engine id',()=>{
+ const summary=overviewModel('idle');const onFindings=vi.fn()
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true}}} runReason="Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved." onFindings={onFindings}/>))
+ expect(box.textContent).not.toContain('to-referee')
+ expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain('You or the reviewer')
+ const action=[...box.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Open findings')!
+ act(()=>action.click());expect(onFindings).toHaveBeenCalledOnce()
+ expect(box.querySelector('[aria-label="Run"]')?.textContent).toContain('Needs you')
 })
 it('does not repeat a waiting approval sentence in the activity cell',()=>{
  const model=overviewModel('needs-you')
@@ -94,4 +117,17 @@ it('keeps the no-agent sentence inline on the section content edge',()=>{
  expect(empty?.getAttribute('data-variant')).toBe('inline')
  expect(empty?.className).toContain('text-left')
  expect(empty?.querySelector('h3,svg')).toBeNull()
+})
+
+it('does not invent an evidence wait for an ordinary running Run',()=>{
+ act(()=>root.render(<TeamOverview model={overviewModel('idle')}/>))
+ expect(box.textContent).not.toContain('waiting for its evidence')
+})
+it('puts a publication wait only in its actionable Findings row',()=>{
+ const reason='This review is waiting to be posted.'
+ const summary=overviewModel('idle')
+ const findingRun={run:summary.run!.run,goal:'overview-team',publication:'local',reason,boundPr:{repo:'acme/widgets',pr:7},rounds:[{round:3,state:'local',reason,pr:7,cards:[3]}]} as unknown as import('@harnessdesk/protocol').FindingRunView
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,findingRun}}} statusLine={()=> <span>Agents are idle</span>} onFindings={()=>{}}/>))
+ expect(box.textContent?.split(reason)).toHaveLength(2)
+ expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain(reason)
 })

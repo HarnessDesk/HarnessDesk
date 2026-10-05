@@ -111,7 +111,7 @@ it('the open filter shows a plain open row and a repaired-unconfirmed claim, eac
   expect(claimChip?.getAttribute('data-tone')).toBe('warning')
 })
 
-it('a carried row still shows its original origin round, not a new claim', async () => {
+it('a carried finding names the issue first, then its id and blocking reading', async () => {
   const state: FindingsListState = {
     filter: 'all',
     rows: [row('finding-carried', { origin: { goal: 'source-goal', run: 'run-0', round: 5, card: 1, seat: 'seat-writer', at: A } })],
@@ -121,7 +121,9 @@ it('a carried row still shows its original origin round, not a new claim', async
   const { store } = rig(state)
   await render(store)
   expect(container.textContent).toContain('finding-carried')
-  expect(container.textContent).toContain('Raised in round 5')
+  const renderedRow = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('finding-carried'))!
+  expect(renderedRow.querySelector('[data-slot="row-title"]')?.textContent).toBe('Title of finding-carried')
+  expect([...renderedRow.querySelectorAll('[data-slot="meta-list"] > *')].map(one => one.textContent)).toEqual(['#finding-carried', 'Blocking'])
 })
 
 it('a carried finding not yet admitted on its target agrees with the header: Advisory, never Blocking, when the header counts it out', async () => {

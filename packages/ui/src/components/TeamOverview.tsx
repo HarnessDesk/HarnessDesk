@@ -11,7 +11,10 @@ import type { NeedsYouAnswers } from '../lib/needs-you'
 import type { runTimeline } from '../lib/run-timeline'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
 import { runPublication } from '../lib/review-publication'
-import { AgentIcon } from './Icons'
+import { stepName } from '../lib/flow-model'
+import { runReasonWords } from '../lib/run-reason'
+import type { Tint } from '../design'
+import { AgentIcon, ChevronIcon } from './Icons'
 import { NeedsYouRow } from './NeedsYouRow'
 import { formatDuration } from './TurnTail'
 
@@ -22,9 +25,9 @@ const words = (value: string): string => {
   return box.content.textContent ?? ''
 }
 const stateWords = { 'needs-you': 'Needs you', unread: 'Unread', working: 'Working', idle: 'Idle' } as const
-const SeatState = ({ row }: { row: SeatRow }) => row.state === 'idle'
-  ? <span data-slot="seat-state" data-resting><Text role="meta">{row.done ? 'Done' : 'Idle'}</Text></span>
-  : <span data-slot="seat-state"><Chip tone={row.state === 'needs-you' ? 'warning' : 'neutral'}>{stateWords[row.state]}</Chip></span>
+const SeatState = ({ row }: { row: SeatRow }) => row.state === 'idle' || row.state === 'unread'
+  ? <span data-slot="seat-state" data-resting><Text role="meta">{row.done ? 'Done' : stateWords[row.state]}</Text></span>
+  : <span data-slot="seat-state"><Chip tone={row.state === 'needs-you' ? 'warning' : 'info'}>{stateWords[row.state]}</Chip></span>
 const costTitle = (row: SeatRow, metered?: boolean): string => row.cost === null
   ? 'Recorded usage is unavailable'
   : `${row.cost.estimated ? 'Estimated. ' : ''}${row.cost.unit === 'money'
@@ -41,8 +44,11 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop, runNeedsYou = false }: {
+export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
   model: ReturnType<typeof teamOverview>
+  onFindings?: (() => void) | undefined
+  faceTints?: ReadonlyMap<string, Tint>
+  runtimeNames?: ReadonlyMap<string, string>
   /** Run card presentation is shared with its timeline and inspector. */
   timeline?: ReturnType<typeof runTimeline> | null
   faces?: ReadonlyMap<string, ReactNode>
@@ -82,7 +88,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   }, [])
   const done = model.seats.filter(row => row.done)
   const rows = model.seats.filter(row => !row.done).concat(expanded ? done : [])
-  const face = (row: SeatRow) => <IconTile shape="face" size="sm">{faces?.get(row.seat) ?? <AgentIcon />}</IconTile>
+  const face = (row: SeatRow) => <IconTile shape="face" tint={faceTints?.get(row.seat) ?? 'blue'}>{faces?.get(row.seat) ?? <AgentIcon />}</IconTile>
   const doing = (row: SeatRow) => {
     if (cardState(row) || model.needsYou.some(item => item.seat === row.seat)) return null
     const next = doingLine(held.current.get(row.seat) ?? null, row.doing, now)
@@ -90,11 +96,16 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
     const line = words(next.line ?? row.reason ?? '')
     return line ? <div data-slot="seat-doing" title={line} className="truncate"><Text role="meta">{line}</Text></div> : null
   }
-  const name = (row: SeatRow) => onOpen && !unavailable?.has(row.seat)
-    ? <Button variant="link" size="inline-link" onClick={() => onOpen(row.seat)}><Text role="row">{words(row.name)}</Text></Button>
-    : <Text role="row">{words(row.name)}</Text>
+  const name = (row: SeatRow) => <Text role="subject" truncate title={words(row.name)}>{words(row.name)}</Text>
+  const role = (row: SeatRow) => [row.role ? stepName(words(row.role)) : null, runtimeNames?.get(row.seat)].filter(Boolean).join(' · ')
+  const opens = (row: SeatRow) => Boolean(onOpen && !unavailable?.has(row.seat))
+  const showNow = model.seats.some(row => row.state === 'working' && !cardState(row))
+  const showCost = model.seats.some(row => row.cost !== null)
+  const elapsed = (row: SeatRow) => cardState(row)?.durationMs ?? (row.done ? row.durationMs ?? null : elapsedSince(row.since, now))
   const run = model.run
   const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
+  const evidenceWait = Boolean(run?.needsYou && onFindings && (run.waitingEvidence || /^Rule /.test(runReason ?? '') || publication?.needsYou))
+  const reason = runReason ? words(runReasonWords(runReason)) : run?.findingRun?.reason ? words(run.findingRun.reason) : evidenceWait ? 'The next step is waiting for its evidence.' : null
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
@@ -103,31 +114,36 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
-                <Chip tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : 'neutral'}>{runNeedsYou || run.needsYou ? 'Needs you' : runWords[run.state]}</Chip>
+                {!statusLine && (runNeedsYou || run.needsYou || run.state === 'stalled' || run.state === 'running'
+                  ? <Chip tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : 'info'}>{runNeedsYou || run.needsYou ? 'Needs you' : runWords[run.state]}</Chip>
+                  : <Text role="meta">{runWords[run.state]}</Text>)}
                 {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
                 {run.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
               </div>
               <div className="flex flex-wrap gap-3">
-                {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${words(run.role)}` : ''}</Text>}
+                {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}
                 {run.startedAt !== null && <Text role="meta">Started {new Date(run.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>}
                 {run.reviewRounds && <Text role="meta">Reviews {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
                 <Text role="meta" numeric>
                   {[run.total.money !== null ? `$${run.total.money.toFixed(2)}` : null,
-                    run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || 'Usage unavailable'}
+                    run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || '—'}
                 </Text>
               </div>
               {[...stoppedCards.values()].filter(row => row.round === run.round).map(row => <div key={row.id} data-slot="run-current-step"><Text role="meta">
                 {words(row.title)} · {row.status}{row.durationMs !== null ? ` · ${formatDuration(row.durationMs)}` : ''}
               </Text></div>)}
-              {publication?.needsYou && run.findingRun?.reason && (statusLine || run.findingRun.reason !== runReason) && <Text role="meta" as="div">{words(run.findingRun.reason)}</Text>}
-              {statusLine ? statusLine(now) : runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
+              {!evidenceWait && publication?.needsYou && run.findingRun?.reason && (statusLine || run.findingRun.reason !== runReason) && <Text role="meta" as="div">{words(run.findingRun.reason)}</Text>}
+              {!evidenceWait && (statusLine ? statusLine(now) : reason && <Text role="meta" as="div">{reason}</Text>)}
             </section>
           </CardContent></Card>
         )}
-        {model.needsYou.length > 0 && (
+        {(model.needsYou.length > 0 || evidenceWait) && (
           <section aria-label="Needs you">
             <GroupLabel>Needs you</GroupLabel>
             <ListRows>
+              {evidenceWait && <ListRow title="Review the findings" subtitle={reason} wrapSubtitle
+                meta={<Text role="meta">You or the reviewer can resolve this wait in Findings.</Text>}
+                trail={<Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>} />}
               {model.needsYou.map((item, index) => (
                 <NeedsYouRow key={item.approval !== undefined
                   ? JSON.stringify([item.sessionKey ?? item.seat, item.approval])
@@ -138,55 +154,51 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
           </section>
         )}
         <section aria-label="Seats" className="min-w-0">
+          <div className="flex items-center gap-3">
           <GroupLabel>Agents · {model.seats.length}</GroupLabel>
+          {done.length > 0 && <Button variant="quiet" size="content" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+            <DisclosureChevron open={expanded} />{done.length} done
+          </Button>}
+          </div>
           {model.seats.length === 0 ? <EmptyState variant="inline" align="start" title="No agents in this Team yet" /> : rows.length === 0 ? null : narrow ? (
             <ListRows>
               {rows.map(row => (
-                <ListRow key={row.seat} data-seat={row.seat} lead={face(row)}
-                  title={<span className="flex min-w-0 items-center gap-2">{name(row)}{seatState(row)}</span>}
-                  subtitle={doing(row)} trail={<Cost row={row} metered={metered?.get(row.seat)} />} />
+                <ListRow key={row.seat} data-seat={row.seat} as={opens(row) ? "button" : "div"} interactive={opens(row)} onClick={opens(row) ? () => onOpen?.(row.seat) : undefined} lead={face(row)}
+                  title={name(row)} subtitle={row.done ? role(row) : doing(row) ?? role(row)} trail={<>{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}{opens(row) && <ChevronIcon />}</>} />
               ))}
             </ListRows>
           ) : (
-            <Table variant="framed" className="table-fixed">
+            <Table variant="framed" className="table-auto">
               <TableHeader><TableRow>
-                <TableHead className="w-36">Agent</TableHead>
-                <TableHead>Card</TableHead>
-                <TableHead className="w-16">Round</TableHead>
-                <TableHead className="w-28">State</TableHead>
-                <TableHead className="w-40">Now</TableHead>
-                <TableHead className="w-16">Time</TableHead>
-                <TableHead className="w-24">Cost</TableHead>
+                <TableHead>Agent</TableHead>
+                <TableHead className="w-[1%]">Card</TableHead>
+                <TableHead numeric className="w-[1%]">Round</TableHead>
+                <TableHead className="w-[1%]">State</TableHead>
+                {showNow && <TableHead className="w-[1%]">Now</TableHead>}
+                <TableHead numeric className="w-[1%]">Time</TableHead>
+                {showCost && <TableHead numeric className="w-[1%]">Cost</TableHead>}
+                <TableHead className="w-[1%]"><span className="sr-only">Open conversation</span></TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {rows.map(row => {
-                  const ended = cardState(row)
-                  const elapsed = ended ? ended.durationMs : elapsedSince(row.since, now)
-                  return (
-                    <TableRow key={row.seat} data-seat={row.seat}>
-                      <TableCell lead={face(row)}>
-                        <div className="min-w-0">{name(row)}{row.role && <Text role="meta" as="div">{words(row.role)}</Text>}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div data-slot="seat-card" className="whitespace-normal [overflow-wrap:anywhere]" title={row.card ? words(row.card.title) : undefined}>
-                          <Text role="row">{row.card ? `#${row.card.id} · ${words(row.card.title)}` : '—'}</Text>
-                        </div>
-                      </TableCell>
-                      <TableCell><Text role="meta" numeric>{row.round ?? '—'}</Text></TableCell>
-                      <TableCell>{seatState(row)}</TableCell>
-                      <TableCell>{doing(row)}</TableCell>
-                      <TableCell><Text role="meta" numeric>{elapsed === null ? '—' : formatDuration(elapsed)}</Text></TableCell>
-                      <TableCell><Cost row={row} metered={metered?.get(row.seat)} /></TableCell>
-                    </TableRow>
-                  )
-                })}
+                {rows.map(row => (
+                  <TableRow key={row.seat} data-seat={row.seat} interactive={opens(row)} tabIndex={opens(row) ? 0 : undefined}
+                    aria-label={opens(row) ? `Open ${words(row.name)}` : undefined}
+                    onClick={opens(row) ? () => onOpen?.(row.seat) : undefined}
+                    onKeyDown={event => { if (opens(row) && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen?.(row.seat) } }}>
+                    <TableCell className="max-w-0" lead={face(row)}><div className="min-w-0 flex-1">{name(row)}{role(row) && <Text role="meta" as="div" truncate>{role(row)}</Text>}</div></TableCell>
+                    <TableCell><div data-slot="seat-card" className="max-w-48 truncate" title={row.card ? words(row.card.title) : undefined}>
+                      <Text role="meta">{row.card ? `#${row.card.id} · ${words(row.card.title)}` : '—'}</Text>
+                    </div></TableCell>
+                    <TableCell numeric><Text role="meta" numeric>{row.round ?? '—'}</Text></TableCell>
+                    <TableCell>{seatState(row)}</TableCell>
+                    {showNow && <TableCell><div className="max-w-48 truncate">{doing(row) ?? <Text role="meta">—</Text>}</div></TableCell>}
+                    <TableCell numeric><Text role="meta" numeric>{elapsed(row) === null ? '—' : formatDuration(elapsed(row)!)}</Text></TableCell>
+                    {showCost && <TableCell numeric><Cost row={row} metered={metered?.get(row.seat)} /></TableCell>}
+                    <TableCell>{opens(row) && <ChevronIcon />}</TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
-          )}
-          {done.length > 0 && (
-            <Button variant="quiet" size="content" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-              <DisclosureChevron open={expanded} />{done.length} done
-            </Button>
           )}
         </section>
       </PaneColumn>

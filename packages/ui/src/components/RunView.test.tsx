@@ -236,7 +236,8 @@ it('offers Run again… beside a check that may be asked again — outside the r
     const again = [...container.querySelectorAll('button')].find(one => one.textContent === 'Run again…')!
     const row = container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement
     expect(again).toBeDefined()
-    expect(row.contains(again)).toBe(false)
+    expect(row.querySelector('[data-slot="list-row-trail"]')?.contains(again)).toBe(true)
+    expect(again.closest('button')?.parentElement?.closest('button')).toBeNull()
     expect(row.closest('[data-slot="run-view"]')!.contains(again)).toBe(true)
     act(() => again.click())
     expect(previewFlowRetry).toHaveBeenCalledWith(GATE().id, 1)

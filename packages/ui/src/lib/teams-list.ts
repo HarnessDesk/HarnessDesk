@@ -1,5 +1,7 @@
 /** Plain held facts in, project groups and window-only read/Hide marks out. */
 import type { FlowExecution, GoalView, TeamState } from '@harnessdesk/protocol'
+import { stepName } from './flow-model'
+import { runReasonWords } from './run-reason'
 import { goalName } from './goals'
 import type { SeatRow, teamOverview } from './team-overview'
 
@@ -73,8 +75,9 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
      : wrapped ? goal?.goal.updatedAt ?? null : null
  const round = overview.run
  const after = goal?.waitingOn?.length ? `After ${goal.waitingOn.map(one => one.sentence).join(' · ')}` : null
- const detail = wrapped ? null : waiting?.summary ?? blocked?.reason ?? (overview.run?.needsYou ? overview.run.findingRun?.reason : null) ?? execution?.pendingReleaseNote ?? after ?? execution?.reason ?? (!settled && round?.round !== null && round?.round !== undefined
-  ? `Round ${round.round}${round.role ? ` · ${round.role}` : ''} · ${workingSeats.length} of ${seats.length} seats working` : null)
+ const rawDetail = wrapped ? null : waiting?.summary ?? blocked?.reason ?? (overview.run?.needsYou ? overview.run.findingRun?.reason : null) ?? execution?.pendingReleaseNote ?? after ?? execution?.reason ?? (!settled && round?.round !== null && round?.round !== undefined
+  ? `Round ${round.round}${round.role ? ` · ${stepName(round.role)}` : ''} · ${workingSeats.length} of ${seats.length} seats working` : null)
+ const detail = rawDetail ? runReasonWords(rawDetail) : null
  // Usage refreshes and clock ticks do not unhide work. Identity, lifecycle and
  // observed attention do; these marks contain no transcript or command text.
  const change = JSON.stringify([team.updatedAt,goal?.goal.updatedAt ?? null,goal?.goal.state ?? null,goal?.activity ?? null,

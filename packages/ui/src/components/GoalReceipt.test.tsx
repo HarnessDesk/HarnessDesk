@@ -76,6 +76,9 @@ it('a populated receipt shows a repair claim honestly and a person override with
   const opened: string[] = []
   act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" onOpenFinding={(id) => opened.push(id)} />))
   expect(container.textContent).toContain('Repair claimed · awaiting review')
+  const row = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('finding-0001'))!
+  expect(row.querySelector('[data-slot="row-title"]')?.textContent).toBe('Off-by-one')
+  expect([...row.querySelectorAll('[data-slot="meta-list"] > *')].map(one => one.textContent)).toEqual(['#finding-0001', 'Blocking'])
   expect(container.textContent).not.toContain('Repair accepted')
   expect(container.textContent).toContain('shipping with a tracked follow-up')
   const button = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-0001'))!

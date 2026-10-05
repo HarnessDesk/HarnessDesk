@@ -23,10 +23,11 @@ import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
-import { teamSeats, hasConversation } from '../lib/team-seats'
+import { teamSeats, hasConversation, seatDisplayName } from '../lib/team-seats'
 import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverviewOf } from '@harnessdesk/client/views'
 import { clientSnapshot } from '../lib/client-snapshot'
+import { runReasonWords } from '../lib/run-reason'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { StopRunDialog, StopRunFailure } from './StopRunDialog'
@@ -48,9 +49,11 @@ import { PanelActions } from '../panels/PanelActions'
 import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
-  ArrowLeftIcon,
-  ClockIcon,
+  OverviewIcon,
   CommentIcon,
+  SplitIcon,
+  ClockIcon,
+  ArrowLeftIcon,
   CrossIcon,
   IssueIcon,
   MessageOffIcon,
@@ -787,7 +790,7 @@ export const TeamRoomPane = ({
   const overview = useMemo(() => teamOverviewOf(heldClient, room, {
     runtimes: snapshot.runtimes.map(one => ({ id: one.id, name: one.presentation.name, metered: one.capabilities.metered })),
     seats: seats.map(seat => ({
-      record: seat.record, name: members.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)?.nickname ?? seat.name,
+      record: seat.record, name: seatDisplayName(goal?.members.find(one => one.id === seat.record.id), members.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)?.nickname ?? seat.name, snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name),
       runtime: snapshot.runtimes.find(one => one.id === seat.record.session.runtime) ?? null,
       session: snapshot.sessions.get(seat.key) ?? null,
       unreadSince: snapshot.inbox.find(one => !one.read && one.from?.runtime === seat.record.session.runtime && one.from?.sessionId === seat.record.session.sessionId)?.at ?? null,
@@ -845,6 +848,7 @@ export const TeamRoomPane = ({
           ) ?? null
         return {
           peer,
+          displayName: seatDisplayName(goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === key), peer.nickname, runtime?.presentation.name),
           key,
           runtime,
           here: peer.here,
@@ -897,6 +901,7 @@ export const TeamRoomPane = ({
       }),
     [
       members,
+      goal,
       seats,
       overview,
       snapshot.runtimes,
@@ -968,7 +973,7 @@ export const TeamRoomPane = ({
    * to "Needs you" — the two surfaces disagreeing about the same run is
    * exactly the bug this constant exists to close.
    */
-  const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
+  const needsYou = Boolean(overview.run?.needsYou) || personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
     : record ? { label: 'Wrapped', tone: 'success', pulse: false }
@@ -1256,10 +1261,10 @@ export const TeamRoomPane = ({
             {/* `as="button"`: these two switch the pane, and nothing else in
                 the row can be tabbed to, so the row itself has to be the stop.
                 The member rows below stay divs — see the note on MemberCard. */}
-            <ListRow as="button" size="sm" nav interactive selected={open === 'overview'} onClick={() => show('overview')} lead={<IconTile size="sm"><TeamIcon /></IconTile>} title="Overview" />
+            <ListRow as="button" size="sm" nav interactive selected={open === 'overview'} onClick={() => show('overview')} lead={<IconTile size="sm"><OverviewIcon /></IconTile>} title="Overview" />
             {goal?.receipt && <ListRow as="button" size="sm" nav interactive selected={open === 'receipt'} onClick={() => show('receipt')} lead={<IconTile size="sm"><PlanIcon /></IconTile>} title="Receipt" />}
             {flowExecution && <ListRow as="button" size="sm" nav interactive selected={open === 'run'} onClick={() => show('run')}
-              lead={<IconTile size="sm"><PlanIcon /></IconTile>} title="Run" trail={<Text role="meta" numeric>{runs.length}</Text>} />}
+              lead={<IconTile size="sm"><ClockIcon /></IconTile>} title="Run" trail={<Text role="meta" numeric>{runs.length}</Text>} />}
             <ListRow
               as="button"
               size="sm"
@@ -1268,7 +1273,7 @@ export const TeamRoomPane = ({
               selected={open === 'board'}
               onClick={() => show('board')}
               lead={
-                <IconTile size="sm" tint="violet">
+                <IconTile size="sm">
                   <PlanIcon />
                 </IconTile>
               }
@@ -1284,8 +1289,8 @@ export const TeamRoomPane = ({
               selected={open === 'room'}
               onClick={() => show('room')}
               lead={
-                <IconTile size="sm" tint="violet">
-                  <TeamIcon />
+                <IconTile size="sm">
+                  <CommentIcon />
                 </IconTile>
               }
               title={<span title="Everyone in this Team">Chat</span>}
@@ -1313,8 +1318,8 @@ export const TeamRoomPane = ({
                 ? <span title="Watch a member to put it here">Side by side</span>
                 : 'Side by side'}
               lead={
-                <IconTile size="sm" tint="violet">
-                  <TeamIcon />
+                <IconTile size="sm">
+                  <SplitIcon />
                 </IconTile>
               }
               trail={grid.tiles.length > 0 ? <Text role="meta" numeric className={styles.count}>{grid.tiles.length}</Text> : undefined}
@@ -1330,7 +1335,7 @@ export const TeamRoomPane = ({
                 selected={open === 'findings'}
                 onClick={() => show('findings')}
                 lead={
-                  <IconTile size="sm" tint="violet">
+                  <IconTile size="sm">
                     <ReviewIcon />
                   </IconTile>
                 }
@@ -1501,7 +1506,11 @@ export const TeamRoomPane = ({
                 return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
               }))}
               runName={flowExecution?.document.flow.name}
-              runNeedsYou={flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'}
+              runNeedsYou={needsYou || Boolean(pendingApproval)}
+              onFindings={goal ? () => show('findings') : undefined}
+              runReason={flowExecution?.reason}
+              faceTints={new Map(seats.map(seat => [seat.record.id, runtimeTint(seat.record.session.runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs)]))}
+              runtimeNames={new Map(seats.flatMap(seat => { const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime); return runtime ? [[seat.record.id, runtime.presentation.name]] : [] }))}
               timeline={overviewTimeline}
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
               statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason stoppingSessions={stoppingSessions} />}
@@ -1638,6 +1647,7 @@ import { CeilingChip } from './CeilingChip'
 /** One member of the room, as the rail draws it. */
 type Member = {
   peer: TeamPeerInfo
+  displayName?: string
   key: SessionKey
   brand: ReturnType<typeof brandForRuntime> | null
   /** The account's ring, shared with the column head and the name card. */
@@ -1916,7 +1926,7 @@ const MemberRow = ({
           {/* The *nickname*: the one name guaranteed to exist and to be unique
               here — three Cursor conversations on three models arrive untitled
               and identical, and used to draw three rows all reading "Cursor". */}
-          {peer.nickname}
+          {member.displayName ?? peer.nickname}
           {/* What the conversation calls itself, when it has a name of its
               own *and* that name says something the nickname does not — the
               same guard `cardFacts` already reads this member's hover card
@@ -2106,7 +2116,7 @@ const RoomLiveLine = ({
   readonly stoppingSessions?: ReadonlySet<SessionKey>
 }) => {
   const store = useStore()
-  const runReason = includeRunReason && flowExecution?.reason ? sentence(flowExecution.reason) : null
+  const runReason = includeRunReason && flowExecution?.reason ? sentence(runReasonWords(flowExecution.reason)) : null
   let reasonOnLiveLine = false
   /*
    * The primary line, exactly as before, wrapped so a pending release's own
@@ -2136,7 +2146,7 @@ const RoomLiveLine = ({
     const stopText = triggerStatus?.budget?.stop
       ? triggerStatus.budget.stop.detail || intakeStopWords(triggerStatus.budget.stop.reason)
       : flowExecution?.state === 'stopped' && flowExecution.reason
-        ? sentence(flowExecution.reason)
+        ? sentence(runReasonWords(flowExecution.reason))
         : null
     /* The header's own chip (`runState`, above) answers "Needs you" before
        "Stopped" — a person wait, the Goal's own activity or a stalled run all
@@ -2207,7 +2217,7 @@ const RoomLiveLine = ({
         <TurnWorkLive settled data-slot="room-live-line" data-kind="stall" {...(trail ? { trail } : {})}>
           <Dot state="limit" pulse />
           <span className="whitespace-pre-line">
-            {sentence(flowExecution.reason)}
+            {sentence(runReasonWords(flowExecution.reason))}
             {kept?.refusal ? ` ${sentence(kept.refusal)}` : ''}
           </span>
         </TurnWorkLive>

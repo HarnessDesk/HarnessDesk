@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { InsightReport } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -9,16 +9,17 @@ import { teamsList, type TeamFilter, type TeamListGroup, type TeamListRow } from
 import { sanitizeHtml } from '../lib/sanitize'
 import { folderName } from '../lib/projects'
 import { elapsedSince } from '../lib/clock'
-import styles from './TeamsWindow.module.css'
 import { formatDuration } from './TurnTail'
 import { AppWindow, WindowNav, WindowNavItem, WindowPage } from './AppWindow'
-import { AgentIcon } from './Icons'
-import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, GroupLabel, IconTile, ListRow, ListRows, PageHead, Text, useEscapeSurface } from '../design'
+import { runtimeTint } from '../lib/accounts'
+import { AgentIcon, ChevronIcon, MoreIcon } from './Icons'
+import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, GroupLabel, FaceStack, ListRow, ListRows, Menu, MenuItem, Popover, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, PageHead, Text, useEscapeSurface } from '../design'
 
 const words = (value: string): string => {
  const box=document.createElement('template'); box.innerHTML=sanitizeHtml(value)
  return box.content.textContent ?? ''
 }
+const withCount = (label: string, count: number): string => `${label} · ${count}`
 const labels = {active:'Active','needs-you':'Needs you',settled:'Settled'} as const
 const stateLabels = {'needs-you':'Needs you',unread:'Unread',working:'Working',idle:'Idle',settled:'Settled',wrapped:'Wrapped',wrapping:'Wrapping',stopped:'Stopped'} as const
 
@@ -28,6 +29,9 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const store=useStore(); const snapshot=useSnapshot()
  const [filter,setFilter]=useState<TeamFilter>(initialFilter)
  const [expanded,setExpanded]=useState(false)
+ const [pageBox,setPageBox]=useState<HTMLDivElement|null>(null)
+ const [narrow,setNarrow]=useState(false)
+ useEffect(()=>{if(!pageBox || typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(([entry])=>setNarrow((entry?.contentRect.width ?? Infinity)<600));observer.observe(pageBox);return()=>observer.disconnect()},[pageBox])
  const [reports,setReports]=useState<ReadonlyMap<string,InsightReport>>(new Map())
  const [reading,setReading]=useState(false)
  const [now,setNow]=useState(Date.now)
@@ -57,31 +61,46 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const open=(row:TeamListRow)=>{
   store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change); onClose()
  }
- const groups=(groups:readonly TeamListGroup[])=><>{groups.map(group=><section key={group.project} aria-label={folderName(group.project)} data-team-project={group.project}>
-  <GroupLabel>{folderName(group.project)}</GroupLabel>
-  <ListRows className={styles.rows}>{group.rows.map(row=>{
-   const duration=elapsedSince(row.since,now)
-   const cost=[row.total.money!==null?`$${row.total.money.toFixed(2)}`:null,row.total.turns!==null?`${row.total.turns} turns`:null].filter(Boolean).join(' · ') || '—'
-   const hidden=snapshot.teamsPrefs.hidden[row.id]===row.change
-   return <ListRow key={row.id} data-team-row={row.id} className={styles.row}
-    lead={row.seats.length ? <span aria-label={`${row.seats.length} seats`} className="flex -space-x-2">{row.seats.slice(0,4).map(seat=><IconTile key={seat.seat} shape="face" size="sm" title={words(seat.name)}>{marks.get(seat.seat)?<RuntimeMark runtime={marks.get(seat.seat)!}/>:<AgentIcon/>}</IconTile>)}{row.seats.length>4 && <Text role="meta">+{row.seats.length-4}</Text>}</span> : undefined}
-    mark={row.unread ? <Dot aria-label="Unread changes" tone="info"/> : false}
-    title={<div className="flex min-w-0 items-center gap-2">
-     <Button variant="link" size="inline-link" bordered={false} className="min-w-0 flex-1 justify-start" onClick={()=>open(row)} title={words(row.sentence)}>
-      <Text role="row" truncate>{words(row.sentence)}</Text>
-     </Button>
-     <Chip variant="quiet" tone={row.state==='needs-you'?'warning':['working','unread','wrapping'].includes(row.state)?'info':'neutral'}>{stateLabels[row.state]}</Chip>
-    </div>}
-    subtitle={row.detail?words(row.detail):undefined} wrapSubtitle
-    trail={<div className="flex flex-wrap items-center gap-2">
-     <Text role="meta" numeric title={row.since===null?'Time in this state is unavailable':undefined}>{duration===null?'—':formatDuration(duration)} · <span title={cost==='—'?'Recorded usage is unavailable':'Recorded Team usage; money only from metered accounts with a known rate'}>{cost}</span></Text>
-     {row.ready && <Button variant="ghost" size="inline" onClick={()=>store.setTeamHidden(row.id,!hidden)}>{hidden?'Show in Active':'Hide'}</Button>}
-    </div>}/>
-  })}</ListRows>
- </section>)}</>
+ const state=(row:TeamListRow)=>row.state==='needs-you'||row.state==='working'
+  ? <Chip tone={row.state==='needs-you'?'warning':'info'}>{stateLabels[row.state]}</Chip>
+  : <Text role="meta">{row.ready?'Ready to wrap':stateLabels[row.state]}</Text>
+ const faces=(row:TeamListRow)=>row.seats.length ? <FaceStack faces={row.seats.map(seat=>{
+  const runtime=marks.get(seat.seat)
+  return {id:seat.seat,name:words(seat.name),tint:runtime?runtimeTint(runtime.id,snapshot.accountsByRuntime,snapshot.accountPrefs):'blue',mark:runtime?<RuntimeMark runtime={runtime}/>:<AgentIcon/>}
+ })}/>:undefined
+ const menu=(row:TeamListRow)=>row.ready && <Popover label={<MoreIcon />} title="More" align="right">{close=><Menu close={close}><MenuItem label={snapshot.teamsPrefs.hidden[row.id]===row.change?'Show in Active':'Hide'} onSelect={()=>{store.setTeamHidden(row.id,snapshot.teamsPrefs.hidden[row.id]!==row.change);close()}}/></Menu>}</Popover>
+ const time=(row:TeamListRow)=>{const duration=elapsedSince(row.since,now);return duration===null?'—':formatDuration(duration)}
+ const cost=(row:TeamListRow)=>row.total.money===null?'—':`$${row.total.money.toFixed(2)}`
+ const groups=(groups:readonly TeamListGroup[])=>{
+ const showCost=groups.some(group=>group.rows.some(row=>row.total.money!==null))
+ return narrow ? <>{groups.map(group=><section key={group.project} aria-label={folderName(group.project)} data-team-project={group.project}>
+  <GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel>
+  <ListRows>{group.rows.map(row=><ListRow key={row.id} data-team-row={row.id} interactive tabIndex={0}
+   onClick={event=>{if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}
+   lead={faces(row)} mark={row.unread?<Dot aria-label="Unread changes" tone="info"/>:false}
+   title={<Text role="subject" truncate>{words(row.sentence)}</Text>} subtitle={<span data-slot="team-detail">{[row.detail?words(row.detail):null,time(row)==='—'?null:`${time(row)} in this state`,row.total.turns===null?null:`${row.total.turns} turns`,cost(row)==='—'?null:cost(row)].filter(Boolean).join(' · ')}</span>} wrapSubtitle
+   trail={<>{state(row)}{menu(row)}<ChevronIcon /></>} />)}</ListRows>
+ </section>)}</> : <Table variant="framed" className="table-auto">
+  <TableHeader><TableRow><TableHead>Team</TableHead><TableHead className="w-[1%]">State</TableHead>
+   <TableHead numeric className="w-[1%]">Time</TableHead><TableHead numeric className="w-[1%]">Turns</TableHead>{showCost&&<TableHead numeric className="w-[1%]">Cost</TableHead>}<TableHead className="w-[1%]"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
+  <TableBody>{groups.map(group=><Fragment key={group.project}>
+   <TableRow data-team-project={group.project}><TableCell colSpan={showCost?6:5}><GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel></TableCell></TableRow>
+   {group.rows.map(row=><TableRow key={row.id} data-team-row={row.id} interactive tabIndex={0} aria-label={`Open ${words(row.sentence)}`}
+    onClick={event=>{if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}>
+    <TableCell className="max-w-0" lead={faces(row)}><div data-slot="team-identity" className={row.unread?"min-w-0 flex-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2":"min-w-0 flex-1"}>
+      {row.unread&&<Dot aria-label="Unread changes" tone="info" className="self-center"/>}<Text role="subject" truncate title={words(row.sentence)}>{words(row.sentence)}</Text>
+      {row.detail&&<div data-slot="team-detail" title={words(row.detail)} className={row.unread?"truncate col-start-2":"truncate"}><Text role="meta">{words(row.detail)}</Text></div>}
+    </div></TableCell>
+    <TableCell>{state(row)}</TableCell><TableCell numeric><Text role="meta" numeric>{time(row)}</Text></TableCell>
+    <TableCell numeric><Text role="meta" numeric>{row.total.turns??'—'}</Text></TableCell>{showCost&&<TableCell numeric><Text role="meta" numeric>{cost(row)}</Text></TableCell>}
+    <TableCell><span className="flex items-center gap-2">{menu(row)}<ChevronIcon /></span></TableCell>
+   </TableRow>)}
+  </Fragment>)}</TableBody>
+ </Table>
+ }
  return <AppWindow label="Teams" responsive>
   <WindowNav onBack={onClose}>{(['active','needs-you','settled'] as const).map(value=><WindowNavItem key={value} icon={undefined} label={labels[value]} count={list.counts[value]} selected={filter===value} onClick={()=>setFilter(value)}/>)}</WindowNav>
-  <WindowPage><div data-slot="teams-page" className="min-w-0 flex flex-col gap-4">
+  <WindowPage><div ref={setPageBox} data-slot="teams-page" data-layout={narrow?"narrow":"table"} className="min-w-0 flex flex-col gap-4">
    <PageHead title="Teams"/>
    {snapshot.goalProblem && <Banner tone="warning" title="Teams could not be refreshed">{words(snapshot.goalProblem)}</Banner>}
    {reading && <Text role="meta">Reading recorded usage…</Text>}

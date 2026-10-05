@@ -495,3 +495,27 @@ describe('teamOverviewOf', () => {
     assert.deepEqual(teamOverviewOf(snapshot, 'missing', { report: null, runtimes: [] }), { run: null, needsYou: [], seats: [] })
   })
 })
+
+
+describe('completed Seat readings', () => {
+  it('freezes working time from its first claim to its last completed turn', () => {
+    const completed = session('Alpha', [], false)
+    const model = teamOverview(input({ seats: [seat('Alpha', { session: completed })],
+      cards: [card(1, { state: 'done' })],
+      signals: [blockedSignal('Alpha', { signal: 'claimed', at: 220 }), blockedSignal('Alpha', { signal: 'completed', at: 310 })],
+    }))
+    assert.equal(model.seats[0]?.done, true)
+    assert.partialDeepStrictEqual(model.seats[0], { durationMs: 80 })
+  })
+  it('keeps completed timing unknown without a recorded end', () => {
+    const model = teamOverview(input({ seats: [seat('Alpha')], cards: [card(1, { state: 'done' })],
+      signals: [blockedSignal('Alpha', { signal: 'completed' })] }))
+    assert.partialDeepStrictEqual(model.seats[0], { durationMs: null })
+  })
+  it('marks a running evidence wait as attention without blocking every Seat', () => {
+    const run = execution({ rounds: [{ n: 1, role: 'builder', cards: [1], seats: ['Alpha'], evidence: [], state: 'waiting-evidence', cause: 'seed' }] })
+    const model = teamOverview(input({ seats: [seat('Alpha')], run: { execution: run, startedAt: 100 } }))
+    assert.equal(model.run?.needsYou, true)
+    assert.equal(model.seats[0]?.state, 'idle')
+  })
+})

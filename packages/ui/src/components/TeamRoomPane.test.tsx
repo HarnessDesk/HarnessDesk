@@ -3534,11 +3534,13 @@ it('warns when a Run reads only part of the findings ledger', async () => {
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('One finding could not be read.')
 })
 
-it('an unrouted settled Run keeps the Team and its Overview strip Needs you', async () => {
+it('an unrouted settled Run says Needs you once and keeps its Overview reason', async () => {
   const execution = { version: 2, id: 'unrouted-run', goal: ROOM, state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'No rule follows no-pr.', operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   await render(store)
-  expect(container.querySelector('[aria-label="Run"] [data-slot="chip"]')!.textContent).toBe('Needs you')
+  expect(container.querySelector('[data-slot="room-head"]')?.textContent ?? container.textContent).toContain('Needs you')
+  expect(container.querySelector('[aria-label="Run"]')?.textContent).toContain('No rule follows no-pr.')
+  expect(container.querySelector('[aria-label="Run"] [data-slot="chip"]')).toBeNull()
 })
 
 it('does not carry a Run again dialog into another Team in the same pane', async () => {

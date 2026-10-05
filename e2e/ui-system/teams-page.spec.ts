@@ -18,36 +18,41 @@ for(const theme of ['light','dark'] as const) {
   const fold=frame.getByRole('button',{name:'Ready to wrap · 2'})
   await expect(fold).toHaveAttribute('aria-expanded','false');await fold.click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(5)
-  for(const chip of await frame.locator('[data-team-row] [data-slot="chip"]').all()) {
-   await expect(chip).toHaveAttribute('data-variant','quiet')
-   const paint=await chip.evaluate(e=>{const css=getComputedStyle(e);return {background:css.backgroundColor,border:css.borderTopWidth,padding:css.paddingLeft}})
-   expect(paint).toEqual({background:'rgba(0, 0, 0, 0)',border:'0px',padding:'0px'})
-  }
-  for(const [id,turns] of [[0,21],[1,8],[2,137],[3,46],[4,92]]) {
-   await expect(frame.locator(`[data-team-row="team-${id}"]`)).toContainText(`${turns} turns`)
-  }
-  await expect(frame.locator('[data-team-row="team-3"] [data-slot="list-row-subtitle"]')).toHaveText('Review accepted the invoice rounding change.')
-  await expect(frame.locator('[data-team-row="team-4"] [data-slot="list-row-subtitle"]')).toHaveCount(0)
+  const chips=frame.locator('[data-team-row] [data-slot="chip"]')
+  await expect(chips).toHaveCount(3)
+  for(const chip of await chips.all())await expect(chip).toHaveAttribute('data-variant','default')
+  for(const [id,turns] of [[0,21],[1,8],[2,137],[3,46],[4,92]])await expect(frame.locator(`[data-team-row="team-${id}"] td[data-align="end"]`).nth(1)).toHaveText(String(turns))
+  await expect(frame.locator('[data-team-row="team-3"] [data-slot="team-detail"]')).toHaveText('Review accepted the invoice rounding change.')
+  await expect(frame.locator('[data-team-row="team-4"] [data-slot="team-detail"]')).toHaveCount(0)
   const ready=frame.locator('[data-team-row="team-3"]')
-  await ready.getByRole('button',{name:'Hide',exact:true}).click()
+  await ready.getByTitle('More',{exact:true}).click()
+  await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(4)
   await frame.getByRole('button',{name:'Settled',exact:true}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(2)
-  await expect(frame.getByRole('button',{name:'Show in Active'})).toBeVisible()
+  await frame.locator('[data-team-row="team-3"]').getByTitle('More',{exact:true}).click()
+  await expect(page.getByRole('menuitem',{name:'Show in Active'})).toBeVisible()
+  await page.keyboard.press('Escape')
   await page.evaluate(()=>document.fonts.ready)
   for(const row of await frame.locator('[data-team-row]').all()) {
    await expect(row.locator('[data-shape="face"]')).toHaveCount(2)
    expect(await row.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
   }
-  const attention=page.locator('#teams-page-needs-you [data-team-row="team-0"] [data-slot="list-row-subtitle"]')
-  expect(await attention.evaluate(e=>({fits:e.scrollWidth<=e.clientWidth&&e.scrollHeight<=e.clientHeight,whiteSpace:getComputedStyle(e).whiteSpace}))).toEqual({fits:true,whiteSpace:'normal'})
+  const attention=page.locator('#teams-page-needs-you [data-team-row="team-0"] [data-slot="team-detail"]')
+  await expect(attention).toHaveCSS('white-space','nowrap')
+  await expect(attention).toHaveAttribute('title',/choose whether to keep the original payment method/)
  })
  test(`Teams page: 375px and 720px keep navigation and all readings inside the page in ${theme}`,async({page})=>{
   for(const width of [375,720]) {
    await page.setViewportSize({width,height:900})
    await openTeams(page,theme)
    const frame=page.locator('#teams-page-active')
-   await expect(frame.locator('[data-slot="teams-page"]')).toBeVisible()
+   const pageBox=frame.locator('[data-slot="teams-page"]')
+   await expect(pageBox).toBeVisible()
+   if((await pageBox.boundingBox())!.width<600){
+    await expect(pageBox).toHaveAttribute('data-layout','narrow')
+    await expect(frame.locator('[data-team-row][data-slot="list-row"]')).toHaveCount(3)
+   }
    for(const item of await frame.locator('[data-slot="app-window"], [data-slot="app-window-page"], [data-team-row]').all()) {
     expect(await item.evaluate(e=>e.scrollWidth<=e.clientWidth+1)).toBe(true)
    }
@@ -71,7 +76,12 @@ for(const theme of ['light','dark'] as const) {
   await page.evaluate(()=>document.fonts.ready)
   for(const scene of ['active','needs-you','settled','empty','pending','failed','narrow']) {
    const frame=page.locator(`#teams-page-${scene}`)
-   await expect(frame.locator('[data-slot="teams-page"]')).toBeVisible()
+   const pageBox=frame.locator('[data-slot="teams-page"]')
+   await expect(pageBox).toBeVisible()
+   if((await pageBox.boundingBox())!.width<600){
+    await expect(pageBox).toHaveAttribute('data-layout','narrow')
+    await expect(frame.locator('[data-team-row][data-slot="list-row"]')).toHaveCount(3)
+   }
    if(scene==='pending')await expect(frame.getByText('Reading recorded usage…')).toBeVisible()
    if(scene==='failed')await expect(frame.getByText('The Team usage record could not be read')).toBeVisible()
    if(scene==='empty')await expect(frame.getByText('No active Teams')).toBeVisible()
@@ -80,7 +90,8 @@ for(const theme of ['light','dark'] as const) {
   const active=page.locator('#teams-page-active')
   await active.getByRole('button',{name:'Ready to wrap · 2'}).click()
   await active.screenshot({path:`output/playwright/teams-page/ready-open-${theme}.png`})
-  await active.locator('[data-team-row="team-4"]').getByRole('button',{name:'Hide',exact:true}).click()
+  await active.locator('[data-team-row="team-4"]').getByTitle('More',{exact:true}).click()
+  await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
   await active.screenshot({path:`output/playwright/teams-page/hidden-${theme}.png`})
  })
 }
@@ -92,13 +103,13 @@ for (const theme of ['light','dark'] as const) {
    await page.setViewportSize({width,height:1000})
    const row=page.locator('#teams-page-active [data-team-row]').first()
    const delta=await row.evaluate(el=>{
-    const title=el.querySelector('[data-slot="list-row-title"] [data-role="row"]')!
-    const detail=el.querySelector('[data-slot="list-row-subtitle"]')!
+    const title=el.querySelector('[data-role="subject"]')!
+    const detail=el.querySelector('[data-slot="team-detail"]')!
     const a=document.createRange(),b=document.createRange();a.selectNodeContents(title);b.selectNodeContents(detail)
     return Math.abs(a.getClientRects()[0]!.left-b.getClientRects()[0]!.left)
    })
    expect(delta).toBeLessThan(1)
-   await expect(row.locator('[data-slot="list-row-mark"] [aria-label="Unread changes"]')).toBeVisible()
+   await expect(row.locator('[aria-label="Unread changes"]')).toBeVisible()
   }
  })
 }

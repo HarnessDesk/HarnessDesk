@@ -151,13 +151,13 @@ for (const theme of ['light', 'dark'] as const) {
     test('the list is under the drawing at a wide width, and is the view at a narrow one', async ({ page }) => {
       const wide = page.locator('#flow-graph-blueprint')
       await expect(wide.locator('[data-slot="flow-drawing"]')).toBeVisible()
-      await expect(wide.locator('section[aria-label="Steps"] [data-slot="row"]')).toHaveCount(6)
+      await expect(wide.locator('section[aria-label="Steps"] [data-slot="list-row"]')).toHaveCount(6)
       await expect(wide.locator('section[aria-label="Rules"] [data-slot="row"]')).toHaveCount(6)
 
       // The container decides, not the window: a narrow column in a wide window.
       const narrow = page.locator('#flow-graph-narrow')
       await expect(narrow.locator('[data-slot="flow-drawing"]')).toBeHidden()
-      await expect(narrow.locator('section[aria-label="Steps"] [data-slot="row"]')).toHaveCount(6)
+      await expect(narrow.locator('section[aria-label="Steps"] [data-slot="list-row"]')).toHaveCount(6)
       await expect(narrow.locator('section[aria-label="Rules"] [data-slot="row"]')).toHaveCount(6)
       const fits = await narrow.locator('[data-slot="flow-graph"]').evaluate((el) => el.scrollWidth <= el.clientWidth + 1)
       expect(fits).toBe(true)

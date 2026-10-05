@@ -23,7 +23,7 @@ for (const theme of ['light','dark'] as const) {
   const doing=wide.locator('[data-seat="seat-0"] [data-slot="seat-doing"]')
   await expect(doing).toHaveAttribute('title',/Edit/)
   expect(await doing.evaluate(e=>e.scrollWidth>e.clientWidth)).toBe(true)
-  const quiet=wide.locator('[data-resting]')
+  const quiet=wide.locator('[data-resting]').last()
   const ink = await quiet.evaluate(e => {
     const text=e.querySelector('[data-slot="text"]') ?? e
     const mark=document.createElement('span'); mark.style.color='var(--hd-muted-foreground)'; e.append(mark)
@@ -105,7 +105,7 @@ for (const theme of ['light', 'dark'] as const) {
     const delta = await row.evaluate(e => {
      const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
      const cell = e.querySelector('[data-slot="table-cell"]')!.getBoundingClientRect()
-     const name = e.querySelector('button [data-role="row"]')!
+     const name = e.querySelector('[data-role="subject"]')!
      const range = document.createRange(); range.selectNodeContents(name)
      const line = range.getClientRects()[0]!
      const role = e.querySelector('[data-slot="table-cell"] [data-role="meta"]')
@@ -121,31 +121,31 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
- test(`Team Overview: idle and unrouted Run reasons stay visible once in ${theme}`, async ({ page }) => {
+ test(`Team Overview: evidence and unrouted reasons stay visible once in ${theme}`, async ({ page }) => {
   await page.goto(`/preview.html?team-overview&theme=${theme}`)
-  for (const [scene, reason] of [
-   ['waiting-evidence', 'Rule after-review: Waiting for its evidence.'],
-   ['unrouted', '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you'],
-  ]) {
-   const run = page.locator(`#team-overview-live-${scene} [aria-label="Run"]`)
-   await expect(run.locator('[data-slot="room-run-reason"]')).toHaveText(reason!)
-   expect((await run.textContent())?.split(reason!)).toHaveLength(2)
-   await expect(run.locator('[data-slot="room-live-line"]')).toHaveCount(0)
-   const sentence = run.locator('[data-slot="room-run-reason"] .whitespace-pre-line')
-   expect(await sentence.evaluate(e => e.scrollWidth <= e.clientWidth && e.scrollHeight <= e.clientHeight)).toBe(true)
-  }
+  const waiting=page.locator('#team-overview-live-waiting-evidence [data-slot="team-overview"]')
+  await expect(waiting.locator('[aria-label="Needs you"]')).toContainText('Waiting for its evidence.')
+  await expect(waiting).not.toContainText('Rule after-review:')
+  await waiting.getByRole('button',{name:'Open findings',exact:true}).click()
+  await expect(page.locator('#team-overview-live-waiting-evidence [aria-label="Findings"]').first()).toBeVisible()
+  const reason='"Review the change" (#2) answered revise; no rule continues from it, so this waits for you'
+  const run=page.locator('#team-overview-live-unrouted [aria-label="Run"]')
+  await expect(run.locator('[data-slot="room-run-reason"]')).toHaveText(reason)
+  expect((await run.textContent())?.split(reason)).toHaveLength(2)
+
  })
 }
 
 for (const theme of ['light', 'dark'] as const) {
- test(`Overview prioritizes task names over activity width in ${theme}`, async ({ page }) => {
+ test(`Overview gives the name the available width and drops empty readings in ${theme}`, async ({ page }) => {
   await page.goto(`/preview.html?team-overview&theme=${theme}`)
   const overview=page.locator('#team-overview-live-running [data-slot="team-overview"]')
   const widths=await overview.locator('th').evaluateAll(heads=>heads.map(head=>head.getBoundingClientRect().width))
-  expect(widths[1]).toBeGreaterThan(widths[4]!)
-  const card=overview.locator('[data-seat="seat-0"] [data-slot="seat-card"]')
-  expect(await card.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-  await expect(card).toContainText('Retry the checkout call')
-  await expect(card).toHaveCSS('white-space','normal')
+  expect(widths[0]).toBeGreaterThan(widths[4]!)
+  await expect(overview.locator('[data-seat="seat-0"] [data-slot="seat-card"]')).toHaveCSS('white-space','nowrap')
+  const done=page.locator('#team-overview-comparison [data-slot="team-overview"]')
+  await expect(done.locator('th')).toHaveText(['Agent','Card','Round','State','Time','Open conversation'])
+  expect(await done.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+
  })
 }

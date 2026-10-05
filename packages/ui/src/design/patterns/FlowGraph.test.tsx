@@ -142,7 +142,7 @@ it('keeps the drawing out of the accessibility tree and gives the list to everyo
 it('lists every step and says what each is, so a screen reader reaches what the drawing shows', () => {
   draw(blueprint(), new Map([['write', ran('edit', 'held')]]))
   const steps = container.querySelector<HTMLElement>('section[aria-label="Steps"]')!
-  const rows = [...steps.querySelectorAll('[data-slot="row"]')]
+  const rows = [...steps.querySelectorAll('[data-slot="list-row"]')]
   expect(rows).toHaveLength(6)
   expect(rows[0]!.textContent).toContain('Write')
   expect(rows[0]!.textContent).toContain('Agent')
@@ -265,7 +265,7 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
   expect(list.textContent).toContain('Needs you')
   expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
   expect(list.textContent).toContain('2 runs')
-  expect(list.textContent).toContain('Time not recorded')
+  expect(list.querySelector('[data-step-row="write"] [data-slot="list-row-trail"]')?.textContent).toBe('Done—2 runs')
   expect(container.textContent).not.toContain('<script>')
   expect(container.querySelector('script')).toBeNull()
 })

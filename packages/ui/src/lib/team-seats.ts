@@ -62,3 +62,19 @@ export const teamSeats = (
   }
   return [...result.values()]
 }
+
+/** Display the model first only for the host's generated duplicate address; custom names stay whole. */
+export const seatDisplayName = (
+  record: { readonly agent?: { readonly name: string } | null; readonly seatLabel?: string } | undefined,
+  nickname: string,
+  runtimeName: string | undefined,
+): string => {
+  const prefix = record?.agent?.name ? `${record.agent.name} · ` : null
+  if (!prefix || !record?.seatLabel || !nickname.startsWith(prefix) || !nickname.slice(prefix.length).startsWith(record.seatLabel)) return nickname
+  const label = nickname.slice(prefix.length)
+  if (!runtimeName) return label
+  for (const runtimePrefix of [`${runtimeName} · `, `${runtimeName} `]) {
+    if (label.startsWith(runtimePrefix)) return label.slice(runtimePrefix.length)
+  }
+  return label
+}

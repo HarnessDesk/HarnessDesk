@@ -1669,3 +1669,5 @@
     margin-inline-start: 0;
   }
 }
+
+.metaListMuted { color: var(--hd-muted-foreground); }
