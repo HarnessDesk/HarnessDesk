@@ -1960,3 +1960,50 @@ square tiles.
 
 **The rule:** a runtime is a face, and its corner comes from the Faces
 setting wherever its mark appears.
+
+
+## Bare Settings rows keep their own block inset — 2026-10-05
+
+A row without a description, mark or face uses 8px block insets and the
+ordinary 12px inline edge. A 28px button then composes to the table family's
+44px bare pitch; the 12px block tier would make it 52px. In the synthetic
+Appearance page, switches measure 44px under either tier, while segmented
+controls measure 46px at 8px blocks and 54px at 12px blocks. The floor is not
+a ceiling: a taller control or wrapping content can grow the row.
+
+The full-row and bare-row predicates name the same three slots. A face without
+a description is still a full row, so its tile keeps the 12px tier in both
+densities. The container-inset guard checks both padding and visible content
+for each predicate; no row is omitted and no tolerance changes.
+
+Roll back: remove the bare-row padding override and return all Settings rows
+to the row inset tier, accepting the resulting larger control rows.
+
+**The rule:** only a Settings row with no description, mark or face earns the
+8px block inset; every Settings row keeps the 12px inline edge.
+
+## Library gives the identity room before comparing columns — 2026-10-05
+
+Content-sized State and Loaded by columns protect their facts but can spend
+almost all of a narrow table's width. The four-agent preview uses 283px for
+those columns; at a 720px Settings window, the list is 378px wide and Skill
+had only 95px including insets. At a 900px window the list is 558px wide;
+even balancing the remaining description measure left a two-word line.
+
+Below 600px of list-container width, Library therefore uses the table family's
+list rows: name and command on the title line, a two-line wrapped description,
+state on the meta line, and whole loading faces and the chevron in the trail.
+The definition keeps the full description one click away. At 600px the table
+has about 293px of identity text beside those trailing facts; the identity
+cell also keeps a 192px floor. This reads the container, like Teams, so both
+the standalone Library and the Settings page respond to their own space.
+
+The Library header's markup, relevant PageHead styles and Settings reading
+measure are unchanged from main. Its narrow blurb is pre-existing and remains
+outside this repair.
+
+Roll back: remove the container observer and narrow ListRow composition from
+SkillList/SkillRow, accepting the former crowded identity column.
+
+**The rule:** switch a comparison to its list form before trailing facts
+consume the width its identity and sentences need.

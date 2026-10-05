@@ -684,14 +684,17 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
         <Alert data-slot="library-attention" className="mb-4 flex-col gap-1">
           {hollowCopies.length > 0 && (
             <p className="m-0 flex w-full items-center gap-2">
-              <Text tone="warning" className="flex-none">
+              <Text role="subject" tone="warning" className="flex-none self-start">
                 <AlertIcon size={13} />
               </Text>
-              <Text role="muted" className="min-w-0 flex-1">
+              <span className="min-w-0 flex-1">
+              <Text as="span" role="subject" className="block">Empty skill directories</Text>
+              <Text as="span" role="muted" ink="muted" className="block">
                 {hollowCopies.length} {hollowCopies.length === 1 ? 'directory holds' : 'directories hold'} a
                 skill’s name and no definition — an agent that scans them lists the name and loads
                 nothing.
               </Text>
+              </span>
               <Button
                 variant="outline"
                 size="sm"
@@ -949,7 +952,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           </EmptyState>
         )
       ) : view === 'list' ? (
-        <SkillList>
+        <SkillList kind={kind}>
           {ordered.map((entry) => (
             <SkillRow
               key={`${entry.kind}:${entry.name}`}

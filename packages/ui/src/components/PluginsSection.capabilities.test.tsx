@@ -187,8 +187,8 @@ it('search finds a tool by what it does, and the kind filter narrows the list', 
 it('an agent that takes the server shows every tool as reaching it', () => {
   mount(makeStore(runtime('codex', 'Codex', true)))
   openCapabilities()
-  expect(container.textContent).toContain('reaches agent')
-  expect(container.textContent).not.toContain('own config only')
+  expect(container.textContent).toContain('Reaches agent')
+  expect(container.textContent).not.toContain('Own config only')
 })
 
 it('an agent that refuses the server is not told the tools are lost', () => {
@@ -197,13 +197,13 @@ it('an agent that refuses the server is not told the tools are lost', () => {
   // and the note may say "not through the session request" and no more.
   mount(makeStore(runtime('dsh', 'DeepSeek Harness', false)))
   openCapabilities()
-  expect(container.textContent).toContain('own config only')
+  expect(container.textContent).toContain('Own config only')
   expect(container.textContent).not.toContain('no reach')
   expect(container.textContent).toContain('does not take them in the session request')
   expect(container.textContent).not.toContain('cannot receive plugin tools')
 })
 
-it('a contribution that applies to one workspace says so; a global one says nothing', () => {
+it('a contribution that applies to one workspace says so; a global one only names its owner', () => {
   /* The scope has been on every contribution since the capability plane
      landed and on no row: a tool a plugin offered to one checkout read here
      exactly like one offered to every agent in the app. */
@@ -216,9 +216,9 @@ it('a contribution that applies to one workspace says so; a global one says noth
   )
   openCapabilities()
   expect(container.textContent).toContain('only in /repo/api')
-  // The control: the other two are global, and a row saying "everywhere"
-  // under every entry is a word nobody reads.
+  // Only a narrowed scope earns more than the owner's name.
   expect(container.textContent).not.toContain('everywhere')
+  expect([...container.querySelectorAll('[data-slot="row-desc"]')].map(row => row.textContent)).toContain('Git')
 })
 
 it('“applies here” is the host’s answer, not the pushed list filtered again', async () => {
@@ -296,4 +296,24 @@ it('the conversation’s id reaches the host before its session has been read in
   for (const one of asked) {
     expect(one.scope).toMatchObject({ sessionId: '01a04ec8-90f2-70b0' })
   }
+})
+
+
+it('sorts plugin names naturally and omits a repeated glyph', () => {
+  const store = makeStore(runtime('one', 'First Agent', true))
+  const snapshot = { ...store.getSnapshot(), plugins: [plugin('ten', 'Plugin 10', []), plugin('two', 'Plugin 2', [])] }
+  store.getSnapshot = () => snapshot
+  mount(store)
+  const rows = [...container.querySelectorAll('[data-slot="row-title"]')]
+  expect(rows.map(row => row.textContent)).toEqual(['Plugin 2', 'Plugin 10'])
+  expect(container.querySelector('[data-slot="row-mark"]')).toBeNull()
+})
+
+it('keeps distinct marks when a built-in plugin is in the list', () => {
+  const store = makeStore(runtime('one', 'First Agent', true))
+  const snapshot = { ...store.getSnapshot(), plugins: [plugin('git', 'Git', [])] }
+  store.getSnapshot = () => snapshot
+  mount(store)
+  const mark = container.querySelector('[data-slot="row-mark"]')
+  expect(mark?.querySelector('svg')).toBeTruthy()
 })

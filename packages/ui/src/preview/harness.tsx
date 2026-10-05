@@ -560,7 +560,27 @@ export const LIBRARY = {
       reach: [
         { runtime: runtimeId('codex'), state: 'absent', basis: 'scanned' },
         { runtime: runtimeId('claude'), state: 'absent', basis: 'scanned' },
-        { runtime: runtimeId('cursor'), state: 'reaches', basis: 'scanned' },
+        { runtime: runtimeId('cursor'), state: 'stale', basis: 'reported' },
+      ],
+    },
+    {
+      kind: 'mcp', name: 'workspace-tools', title: 'Workspace tools',
+      description: 'Tools for reading the project and checking changes.',
+      copies: [{ path: '~/.agents/mcp.json', scope: 'user', readBy: [runtimeId('claude')], hollow: false, digest: 'workspace-tools', readOnly: false }],
+      reach: [
+        { runtime: runtimeId('codex'), state: 'absent', basis: 'scanned' },
+        { runtime: runtimeId('claude'), state: 'reaches', basis: 'reported' },
+        { runtime: runtimeId('cursor'), state: 'absent', basis: 'scanned' },
+      ],
+    },
+    {
+      kind: 'mcp', name: 'project-index', title: 'Project index',
+      description: 'Search the project’s reference documents.',
+      copies: [{ path: '~/.agents/mcp.json', scope: 'user', readBy: [], hollow: false, digest: 'project-index', readOnly: false }],
+      reach: [
+        { runtime: runtimeId('codex'), state: 'unscanned', basis: 'scanned' },
+        { runtime: runtimeId('claude'), state: 'absent', basis: 'scanned' },
+        { runtime: runtimeId('cursor'), state: 'absent', basis: 'scanned' },
       ],
     },
   ],

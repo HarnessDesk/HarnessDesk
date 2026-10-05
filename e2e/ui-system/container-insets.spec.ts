@@ -15,7 +15,8 @@ const contracts = [
   { selector: '[data-slot="list-row"][data-size="default"]:not([data-hd-table="compact"])', tier: 'row' },
   { selector: '[data-slot="list-row"][data-size="default"][data-hd-table="compact"]', tier: 'row', blockInset: 1 },
   { selector: '[data-slot="chart-card"]', tier: 'card' },
-  { selector: '[data-slot="row"]', tier: 'row' },
+  { selector: '[data-slot="row"]:has([data-slot="row-desc"], [data-slot="row-mark"], [data-slot="row-face"])', tier: 'row' },
+  { selector: '[data-slot="row"]:not(:has([data-slot="row-desc"], [data-slot="row-mark"], [data-slot="row-face"]))', tier: 'row', blockInset: 8 },
   { selector: '[data-slot="summary-item"]', tier: 'row' },
 ] as const
 
@@ -114,7 +115,13 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       await route.fulfill({ response, body: `${source}
         import insetReact from ${JSON.stringify(reactUrl)};
         import { SummaryList as InsetSummary, SummaryItem as InsetFact, AgentCard as InsetAgentCard, ApprovalDialog as InsetApproval, ApprovalReason as InsetReason, ApprovalCode as InsetCode } from '/src/design/index.ts';
+        import { Row as InsetRow, Rows as InsetRows, IconTile as InsetTile, Button as InsetButton } from '/src/design/index.ts';
         import { AlertIcon as InsetWarning } from '/src/components/Icons.tsx';
+        const rowHost = document.createElement('section');
+        rowHost.style.width = '360px'; document.body.append(rowHost);
+        createRoot(rowHost).render(insetReact.createElement(InsetRows, null,
+          insetReact.createElement(InsetRow, { title: 'Jane Doe', face: insetReact.createElement(InsetTile, { shape: 'face' }, 'J') }),
+          insetReact.createElement(InsetRow, { title: 'Choose a folder', control: insetReact.createElement(InsetButton, { size: 'sm' }, 'Choose…') })));
         const insetHost = document.createElement('section');
         insetHost.style.width = '360px'; document.body.append(insetHost);
         createRoot(insetHost).render(insetReact.createElement(InsetSummary, null,
@@ -146,6 +153,12 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await expect(page.locator('[data-frame-id="goal-roster"] [data-slot="composer-tail"]')).toBeAttached()
     await expect(page.locator('[data-slot=approval-dialog-scope] [role=dialog]')).toBeVisible()
     await expect(page.locator('[data-slot="agent-card-band"]').filter({ hasText: 'The context budget is nearly full.' })).toBeVisible()
+    const bareControl = page.locator('[data-slot="row"]').filter({ hasText: 'Choose a folder' })
+    const bareGeometry = await bareControl.evaluate(element => ({
+      row: element.getBoundingClientRect().height,
+      control: element.querySelector('button')!.getBoundingClientRect().height,
+    }))
+    expect(bareGeometry).toEqual({ row: 44, control: 28 })
     const readings = await page.evaluate(readInsets, contracts)
     const faults: string[] = []
     for (const { selector, expectedPadding, boxes } of readings) {

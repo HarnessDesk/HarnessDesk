@@ -325,6 +325,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   quietHover?: boolean
   /** Cover the positioned row; independent controls in it must be raised above this target. */
   stretched?: boolean
+  /** Whether this button paints its own hover fill. Set false when an interactive parent owns the hover surface. */
+  hoverFill?: boolean
   /**
    * A colour that is itself the choice — an accent to pick. The button is
    * filled with it and keeps it under the pointer; the ring that marks the one
@@ -346,6 +348,7 @@ const Button = ({
   cursor = 'pointer',
   quietHover = false,
   stretched = false,
+  hoverFill = true,
   swatch,
   edge,
   edgeGlyph = 16,
@@ -366,6 +369,7 @@ const Button = ({
       !bordered && 'border-0',
       stretched && "static text-left after:absolute after:inset-0 after:content-[''] focus-visible:after:shadow-(--hd-focus-ring)",
       cursor === 'default' && 'cursor-default',
+      !hoverFill && 'hover:bg-transparent',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
       edgeSize && (edge === 'end' ? 'me-(--edge-pull)' : 'ms-(--edge-pull)'),

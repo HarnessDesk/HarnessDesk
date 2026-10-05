@@ -799,7 +799,11 @@ const GROUPS: readonly Shortcut['group'][] = [...new Set(SHORTCUTS.map((s) => s.
 const ChordRow = ({ shortcut }: { shortcut: Shortcut }) => (
   <Row
     title={shortcut.label}
-    control={<Keycap className={styles.chord}>{chordOf(shortcut)}</Keycap>}
+    control={
+      <span className="flex gap-1">
+        {Array.from(chordOf(shortcut)).map((key, index) => <Keycap key={index} className={styles.chord}>{key}</Keycap>)}
+      </span>
+    }
   />
 )
 
@@ -814,14 +818,20 @@ export const ShortcutsSection = () => (
       blurb="What the window answers to. Keys inside a pane belong to whatever has focus."
     />
     {GROUPS.map((group) => {
-      const rows = SHORTCUTS.filter((shortcut) => shortcut.group === group)
+      const rows = SHORTCUTS.filter((shortcut) => shortcut.group === group && !['tile-2', 'tile-3', 'tile-4'].includes(shortcut.action))
       if (rows.length === 0) return null
       return (
         <div key={group}>
           <SectionHead name={group} />
           <Rows>
             {rows.map((shortcut) => (
-              <ChordRow key={shortcut.action} shortcut={shortcut} />
+              shortcut.action === 'tile-1' ? (
+                <Row key={shortcut.action} title="Focus tile 1 – 4" control={
+                  <span className="flex gap-1">
+                    {['⌥', '⌘', '1 – 4'].map(key => <Keycap key={key} className={styles.chord}>{key}</Keycap>)}
+                  </span>
+                } />
+              ) : <ChordRow key={shortcut.action} shortcut={shortcut} />
             ))}
           </Rows>
         </div>
@@ -831,7 +841,7 @@ export const ShortcutsSection = () => (
     <SectionHead name="In the composer" />
     <Rows>
       <Row title="Send" control={<Keycap className={styles.chord}>↵</Keycap>} />
-      <Row title="New line" control={<Keycap className={styles.chord}>⇧↵</Keycap>} />
+      <Row title="New line" control={<span className="flex gap-1"><Keycap className={styles.chord}>⇧</Keycap><Keycap className={styles.chord}>↵</Keycap></span>} />
       <Row title="Commands" control={<Keycap className={styles.chord}>/</Keycap>} />
       <Row title="Mention a file" control={<Keycap className={styles.chord}>@</Keycap>} />
     </Rows>

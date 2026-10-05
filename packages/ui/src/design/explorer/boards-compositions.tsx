@@ -1,3 +1,5 @@
+import { LibrarySection } from '../../components/Library'
+import { previewStore } from '../../preview/harness'
 import { PluginPanelTableExample } from '../../preview/plugin-panel-table'
 import { TablesFamily } from './tables-family'
 import { TeamRecordBoard } from '../../preview/frames-team-record'
@@ -2855,7 +2857,13 @@ const PlansTableBoard = () => {
   )
 }
 
+const LibraryBoard = () => {
+  const [store] = useState(previewStore)
+  return <StoreProvider store={store}><LibrarySection /></StoreProvider>
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
     id: 'tables',
     title: 'Tables',
