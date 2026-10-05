@@ -135,3 +135,25 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await container.evaluate(node => node.scrollWidth)).toBe(await container.evaluate(node => node.clientWidth))
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`narrow Plans disclosure keeps its position and name in ${theme}`, async ({ page }) => {
+    await page.goto('/preview.html?view=plans')
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const table = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="plans-table"]')
+    await table.locator('[data-slot="table-container"]').evaluate(node => { (node as HTMLElement).style.width = '480px' })
+    const button = table.locator('button[aria-controls^="plans-row-body"]').first()
+    const name = await button.locator('xpath=ancestor::tr').locator('td').first().locator('[data-role="subject"]').textContent()
+    await expect(button).toHaveAttribute('aria-expanded', 'false')
+    const closed = await button.boundingBox()
+    await button.click()
+    await expect(button).toHaveAttribute('aria-expanded', 'true')
+    const opened = await button.boundingBox()
+    expect.soft(opened!.x).toBeCloseTo(closed!.x, 0)
+    await expect.soft(button).toHaveAttribute('aria-label', `Details for ${name}`)
+    await button.click()
+    await expect(button).toHaveAttribute('aria-expanded', 'false')
+    await expect.soft(button).toHaveAttribute('aria-label', `Details for ${name}`)
+    expect((await button.boundingBox())!.x).toBeCloseTo(closed!.x, 0)
+  })
+}

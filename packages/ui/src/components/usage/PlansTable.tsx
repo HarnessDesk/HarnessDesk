@@ -247,7 +247,7 @@ const TableRowGroup = ({
         <Text role="muted" numeric>{row.resets}</Text>
       </TableCell>
       <TableCell className={styles.colDetails} align="end">
-        <Button ref={buttonRef} variant="ghost" size="icon-sm" aria-label={`${isOpen ? 'Hide' : 'Show'} details for ${row.report.account ?? name}`} aria-expanded={isOpen} aria-controls={bodyId} onClick={onToggle} onKeyDown={(event) => {
+        <Button ref={buttonRef} variant="ghost" size="icon-sm" aria-label={`Details for ${row.report.account ?? name}`} aria-expanded={isOpen} aria-controls={bodyId} onClick={onToggle} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onToggle() }
           else if (event.key === 'Escape' && isOpen) { event.preventDefault(); onCollapse() }
         }}><CaretIcon className={isOpen ? 'rotate-180' : undefined} size={14} /></Button>

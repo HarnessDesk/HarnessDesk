@@ -397,7 +397,14 @@
 .colDetails { width: 60px; }
 
 @container (max-width: 640px) {
-  .colResets { display: none; }
+  /* Keep the fifth column in the table's grid: a colspan detail row must
+     not invent an extra Account-sized track when it opens. */
+  .colResets {
+    width: 0; /* desk: removed column → zero-width column, keep disclosure position stable */
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+  }
   :global([data-slot='plans-table']) :global([data-slot='table']) { table-layout: fixed; }
   .colStatus { width: 96px; }
   .colLeft { width: 120px; }
