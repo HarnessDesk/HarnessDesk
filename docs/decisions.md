@@ -1842,9 +1842,55 @@ not retained; an unobserved page is read afresh through the host barrier.
 Both existing intervals stay ten minutes: a finished Seat first releases
 its handle after its quiet interval, then a wholly unused runtime stops after
 its idle interval. A Seat that never held work, or one still holding unfinished
-work, keeps its handle. A continuously working shared runtime retains finished
-threads' children until a quiet opportunity arrives. This chooses the measured
-release boundary without interrupting work or changing any configured server.
+work, keeps its handle. That first change still left a continuously working
+shared runtime retaining finished threads' children until a quiet opportunity
+arrived. It chose the measured release boundary without interrupting work or
+changing any configured server.
+
+## Finished conversations recycle their own processes
+
+Part 1 of #1418 builds on #1404's measurement above. The generated protocol
+has `thread/unsubscribe`, but no immediate per-thread unload. Its response
+reports subscription status, not helper shutdown. The existing scripted fake
+retains a thread's MCP child after unsubscribe, matching that measurement.
+[`script/probe/mcp-release.mjs`](../script/probe/mcp-release.mjs) remains the
+manual probe for a person; this change does not run another real-process probe.
+
+Recycling a shared process only after all its working Seats drain cannot free
+a finished Seat's helpers while one Seat works continuously. Each top-level
+conversation now starts or resumes in a fresh app-server process. This bounds
+conversation processes by live conversations, plus one control process, rather
+than every Seat started since launch. It costs an app-server per live root;
+this is a lifecycle choice, not a measurement of memory saved. Forks also
+receive a fresh process, reading their source from the same agent-owned history.
+Delegated threads follow their root and drain with it.
+
+The adapter's `CodexThreadServers` routes thread verbs to their owner and
+forwards notifications and tool calls through the existing adapter. Request
+ids are namespaced by process before the shared approval router sees them.
+Releasing the last root waits for unsubscribe, then exits its owner even when
+unsubscribe refuses. A resume arriving during close waits for that owner's
+release, then loads in a fresh process. Another conversation's turn and handles
+never participate in that stop. Filesystem watches, standalone terminals,
+accounts and catalogue reads belong to the control process, which keeps
+#1404's idle-stop behavior.
+Every process uses the same agent-owned history and configuration; nothing
+rewrites that configuration or shadows real history.
+
+A conversation process that fails reports `session/detached` for its own roots,
+clears their live handles and holds their queued messages. It leaves the other
+roots and runtime health alone. Delegated registrations and approvals are
+forgotten with their root, so a replacement process must announce each child
+afresh. The host's existing resume barrier reopens the same stored conversation and reapplies frozen attachments; membership and the
+host transcript survive. Full runtime shutdown also stops in-flight starts,
+so an opening that loses that race cannot leave a new owner behind.
+
+The regression starts and closes three conversations while another turn stays
+active throughout, checks the closed helpers exit, and then interrupts the
+working turn deliberately. The production-host fake rig also checks the Seat
+rest boundary with another Seat still working, plus reopen and idle reads.
+Role-based tool selection and displaying process and memory cost remain for
+later parts of #1418.
 
 ## One family of tables
 

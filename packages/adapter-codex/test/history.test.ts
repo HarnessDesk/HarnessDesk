@@ -275,7 +275,7 @@ test('Codex 0.160.0 refuses legacy undo without sending the removed rollback met
   assert.deepEqual(requests, [])
 })
 
-test('Undo uses the upgraded version after an in-place CLI upgrade and automatic app-server restart (#1256)', { timeout: 15_000 }, async (t) => {
+test('Undo uses the upgraded version after an in-place CLI upgrade and conversation-process replacement (#1256)', { timeout: 15_000 }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-codex-upgrade-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const version = join(dir, 'version')
@@ -299,25 +299,25 @@ test('Undo uses the upgraded version after an in-place CLI upgrade and automatic
   assert.deepEqual(turnIds(await runtime.readSession(legacyId)), ['turn-l1'], 'the old build supports legacy Undo')
 
   await writeFile(version, '0.160.0')
-  const [pid] = (await readFile(generations, 'utf8')).trim().split('\n').map(Number)
-  assert.ok(pid, 'the running scripted app-server recorded its pid')
-  const ready = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('the app-server did not restart')), 10_000)
-    const off = runtime.onHealthChange((health) => {
-      if (health.state === 'ready') resolve()
-      else if (health.state === 'unavailable') reject(new Error(health.message))
+  const pids = (await readFile(generations, 'utf8')).trim().split('\n').map(Number)
+  const pid = pids[1]
+  assert.ok(pid, 'the conversation process recorded its pid separately from control')
+  const detached = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('the conversation did not detach')), 10_000)
+    const off = runtime.subscribe((event) => {
+      if (event.type === 'session/detached' && event.sessionId === legacyId) resolve()
     })
     t.after(() => { clearTimeout(timer); off() })
   })
-  // Kill the actual child: stop/start and checkInstallation already re-probe,
-  // whereas crash recovery previously reused the cached installation.
+  // Kill the conversation's actual child. Its replacement must probe the
+  // installed build instead of reusing the control process's installation.
   process.kill(pid, 'SIGKILL')
-  await ready
+  await detached
   const resumed = await runtime.resumeSession(legacyId)
   await assert.rejects(resumed.rollback!(1), /Codex 0\.160\.0 and later cannot undo legacy conversations/)
   assert.equal(runtime.info.version, 'codex-cli 0.160.0')
-  assert.deepEqual(turnIds(await runtime.readSession(legacyId)), ['turn-l1', 'turn-l2'], 'the refused Undo leaves the new process’s history intact')
-  assert.equal((await readFile(generations, 'utf8')).trim().split('\n').length, 2, 'a new app-server really spawned')
+  assert.deepEqual(turnIds(await runtime.readSession(legacyId)), ['turn-l1'], 'the refused Undo preserves the history stored before replacement')
+  assert.equal((await readFile(generations, 'utf8')).trim().split('\n').length, 3, 'one control process and two conversation generations really spawned')
 
   const paged = await runtime.resumeSession(sessionId('thread-paged'))
   await paged.rollback!(1)

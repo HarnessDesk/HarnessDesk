@@ -40,6 +40,15 @@ const openTurn = (): AgentEvent => ({
   turn: { id: TURN, items: [], status: 'inProgress' },
 })
 
+test('detaching a conversation settles its active turn and ignores other conversations', () => {
+  const active = reduceSession(baseSession(), openTurn())
+  assert.equal(reduceSession(active, { type: 'session/detached', sessionId: sessionId('other') }), active)
+  const detached = reduceSession(active, { type: 'session/detached', sessionId: SESSION })
+  assert.equal(detached.status.type, 'idle')
+  assert.equal(detached.turns[0]?.status, 'interrupted')
+  assert.deepEqual(detached.turns[0]?.items, active.turns[0]?.items)
+})
+
 test('turn/started appends a turn, and repeats merge instead of duplicating', () => {
   let session = reduceSession(baseSession(), openTurn())
   assert.equal(session.turns.length, 1)

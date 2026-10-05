@@ -6470,6 +6470,7 @@ export class Host {
           )
         : []
     const record = this.registry.apply(runtime, event)
+    if (record && event.type === 'session/detached') this.#pushQueue(record)
     if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
       (event.type === 'session/tasks' && event.tasks.some((task) => task.state === 'running')))) {
       this.#seatQuietSince.delete(recordKey(record))
