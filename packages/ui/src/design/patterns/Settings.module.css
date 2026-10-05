@@ -173,7 +173,7 @@
    before it can erase the subject beside it. */
 .chip[data-tint],
 .chip[data-tone='brand'][data-emphasis] {
-  max-width: 190px;
+  max-width: min(100%, 190px); /* desk: 190px → min(100%, 190px), so a chip never outgrows a narrow board card */
 }
 
 .chipWords {
@@ -906,16 +906,16 @@
    Earned only when a card of rows is what the head is actually naming
    (`:has(+ […])` reads the very next sibling `Rows` renders): a head over a
    `Note`, a plain button, or ProjectTriggers' own body has no such card to
-   answer to, and the same inset put its label 17px right of a body that
+   answer to, and the same inset put its label a row inset right of a body that
    starts flush with the page instead. */
 .sectionHead:has(+ [data-slot='rows']),
 .sectionHead:has(+ [role='radiogroup']) {
   padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
 }
 
-/* The summary card owns its padding token rather than the Rows inset. */
+/* Summary facts own the row inset rather than the table family's density. */
 .sectionHead:has(+ [data-slot='summary-list']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-card-padding));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-row)); /* desk: summary label inset 17 → 13, matching the row-tier facts (#1363) */
 }
 
 .sectionHead:first-child {
@@ -1037,9 +1037,9 @@
   align-items: center;
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   min-height: var(--hd-table-row-min-bare);
-  padding: var(--hd-space-3) var(--hd-table-edge);
+  padding: var(--hd-inset-row) var(--hd-table-edge); /* desk: row inset 12/16 → 12 on all sides (#1363) */
   border-bottom: 0; /* desk: separator lives in ::after so row rules do not read as surfaces */
-  padding-bottom: calc(var(--hd-space-3) + var(--hd-border-width));
+  padding-bottom: calc(var(--hd-inset-row) + var(--hd-border-width));
 }
 
 .row::after {
@@ -1054,12 +1054,12 @@
 }
 
 /* Face, copy and controls share the whole row's centre, even with a sentence. */
-.row:has(.rowDesc, .rowMark) {
+.row:has(.rowDesc, .rowMark, .rowFace) {
   min-height: var(--hd-table-row-min);
 }
 
 .row:last-child {
-  padding-bottom: var(--hd-space-3);
+  padding-bottom: var(--hd-inset-row);
 }
 
 .row:last-child::after {
@@ -1330,6 +1330,10 @@
   background: var(--hd-muted);
   color: var(--hd-secondary-foreground);
   box-shadow: inset 0 0 0 1px var(--hd-border);
+}
+
+.detailMark[data-shape='face'] {
+  border-radius: var(--hd-face-radius-lg);
 }
 
 .detailText {
@@ -1651,6 +1655,7 @@
 /* A ledger record's meaning keeps a full line when metadata and state compete
    for a narrow reading column. Settings rows retain their usual composition. */
 .rowRecord .rowTitle {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 
@@ -1669,3 +1674,68 @@
     margin-inline-start: 0;
   }
 }
+
+/* Record identity follows the table family; settings controls keep their label role. */
+.row[data-kind='record'] .rowTitle {
+  font-size: var(--hd-table-name-size);
+  line-height: var(--hd-line);
+}
+
+.rowClippedTitle {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowRecord .rowClippedTitle {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.row[data-kind='record'] .rowDescTruncate {
+  font-size: var(--hd-table-fact-size);
+  line-height: var(--hd-line-xs);
+}
+
+.rowFace {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+  margin-inline-end: calc(var(--hd-table-lead-gap) - var(--hd-space-6));
+}
+
+.rowFace > * {
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+}
+
+.avatarRow {
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+}
+
+.note[data-inset='row'] {
+  padding-inline: var(--hd-table-edge);
+}
+
+/* A title mark stays in the column while its name yields the remaining width. */
+.rowTitleWithChip {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.rowTitleName {
+  min-width: 0;
+}
+
+.rowTitleChip {
+  flex: none;
+  display: inline-flex;
+}
+
+.metaListMuted { color: var(--hd-muted-foreground); }

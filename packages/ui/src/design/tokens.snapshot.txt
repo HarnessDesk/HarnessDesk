@@ -281,7 +281,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)
@@ -346,6 +346,8 @@
 --hd-tooltip-fill = rgb(41, 41, 41)
 --hd-tooltip-foreground = rgb(255, 255, 255)
 --hd-tracking-heading = -0.01em
+--hd-usage-meter-reading = 64px
+--hd-usage-meter-reset = 88px
 --hd-warning = rgb(240, 165, 27)
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
@@ -812,7 +814,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)
@@ -877,6 +879,8 @@
 --hd-tooltip-fill = rgb(71, 71, 71)
 --hd-tooltip-foreground = rgb(255, 255, 255)
 --hd-tracking-heading = -0.01em
+--hd-usage-meter-reading = 64px
+--hd-usage-meter-reset = 88px
 --hd-warning = rgb(240, 165, 27)
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
@@ -1355,7 +1359,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)
@@ -1420,6 +1424,8 @@
 --hd-tooltip-fill = rgb(41, 41, 41)
 --hd-tooltip-foreground = rgb(255, 255, 255)
 --hd-tracking-heading = -0.01em
+--hd-usage-meter-reading = 64px
+--hd-usage-meter-reset = 88px
 --hd-warning = rgb(240, 165, 27)
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
@@ -1898,7 +1904,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
 --hd-table-cell-x = 12px
---hd-table-edge = 16px
+--hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
 --hd-table-face-radius = calc(6px * 4 / 3)
@@ -1963,6 +1969,8 @@
 --hd-tooltip-fill = rgb(71, 71, 71)
 --hd-tooltip-foreground = rgb(255, 255, 255)
 --hd-tracking-heading = -0.01em
+--hd-usage-meter-reading = 64px
+--hd-usage-meter-reset = 88px
 --hd-warning = rgb(240, 165, 27)
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)

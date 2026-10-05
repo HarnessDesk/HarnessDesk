@@ -74,16 +74,6 @@
   gap: var(--hd-space-1-5);
 }
 
-.laneRow {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) 60px 72px;
-  align-items: center;
-  gap: var(--hd-space-2);
-}
-
-.laneProgress {
-  min-width: 0;
-}
 
 .foot {
   display: flex;

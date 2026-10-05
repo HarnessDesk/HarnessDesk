@@ -174,3 +174,11 @@ it('bounds a single filling face while keeping compound leads free to compose', 
   const lead = host.querySelector('[data-slot="list-row-lead"]')!
   expect(lead.className).toContain('has-[>[data-shape=face]:only-child]:size-(--hd-table-face)')
 })
+
+it('opts a record into compact density without making it a navigation row', () => {
+  const markup = renderToStaticMarkup(<ListRow density="compact" title="Review" subtitle="4 checks" />)
+  expect(markup).toContain('data-hd-table="compact"')
+  expect(markup).toContain('data-role="row"')
+  expect(markup).toContain('py-px')
+  expect(markup).toContain('leading-(--hd-line-xs)')
+})

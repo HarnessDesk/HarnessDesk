@@ -232,7 +232,7 @@ describe('a card under content that does not fit', () => {
     )
     expect(container.querySelector('[data-slot="board-column"] header > span')?.className).toContain('size-1.5')
     const empty = container.querySelector<HTMLElement>('[data-slot="board-empty"]')
-    expect(empty?.className).toContain('ps-3')
+    expect(empty?.className).toContain('ps-[calc(var(--hd-inset-card)+var(--hd-border-width))]')
     expect(empty?.className).toContain('text-left')
   })
 })
@@ -316,4 +316,13 @@ describe('BoardAddCard', () => {
       'Keep me',
     )
   })
+})
+
+it('uses the system small tag and tone priority chips on a board card', () => {
+  act(() => root.render(<BoardCard title="Review" tag={{ label: 'reviewer', tint: 'violet' }} priority={{ label: 'High', tone: 'warning' }} />))
+  const chips = [...container.querySelectorAll('[data-slot="chip"]')]
+  expect(chips.map(one => one.textContent)).toEqual(['reviewer', 'High'])
+  expect(chips[0]?.getAttribute('data-size')).toBe('sm')
+  expect(chips[0]?.getAttribute('data-tint')).toBe('violet')
+  expect(chips[1]?.getAttribute('data-tone')).toBe('warning')
 })

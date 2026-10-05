@@ -248,3 +248,8 @@ describe('BackgroundTasksView', () => {
     expect(container.textContent).not.toMatch(/\d+s/)
   })
 })
+
+it('keeps a finished task name at the compact name weight', () => {
+  mount([done('t1', 'Check the row types')])
+  expect(container.querySelector('[data-slot="inspector-row"] [data-role="navigation"]')).toBeNull()
+})

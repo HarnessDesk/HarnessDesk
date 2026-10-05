@@ -1,8 +1,6 @@
 import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useEffect, useState } from 'react'
 
-import type { FindingView } from '@harnessdesk/protocol'
-
 import {
   Banner,
   Button,
@@ -41,12 +39,6 @@ import { FindingRoundStatus } from './FindingRoundStatus'
  */
 
 const FILTERS: readonly FindingFilter[] = ['all', 'open', 'blocking']
-
-const rowSecondLine = (view: FindingView): string => {
-  const bits = [`Raised in round ${view.origin.round}`]
-  if (view.restored) bits.push('from a backup')
-  return bits.join(' · ')
-}
 
 type OpenedFinding = Readonly<{ finding: string; originRun: string | null }>
 
@@ -210,13 +202,11 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                 layout="record"
                 title={row.title || 'Untitled finding'}
                 desc={
-                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <CodeText size="inherit" className="select-all">{row.id}</CodeText>
-                    <MetaList>
-                      {rowSecondLine(row)}
-                      {` · ${blockingWords(row)}`}
-                    </MetaList>
-                  </span>
+                  <MetaList ink="muted">
+                    <CodeText size="inherit" className="select-all">#{row.id}</CodeText>
+                    <span>{blockingWords(row)}</span>
+                    {row.restored && <span>from a backup</span>}
+                  </MetaList>
                 }
                 control={<Chip tone={lifecycleTone(row)}>{lifecycleWords(row)}</Chip>}
               />

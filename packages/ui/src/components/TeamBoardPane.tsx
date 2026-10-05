@@ -469,6 +469,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        work keeps its label to the last. */
     <ToolPane variant="integrated" className="@container/board">
       <ToolPaneHeader
+        contentInset="board"
         icon={<PlanIcon />}
         title="Board"
         /* The state of the work, not the path. The room's rail already says

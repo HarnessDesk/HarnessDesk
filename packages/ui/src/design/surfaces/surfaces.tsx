@@ -1,5 +1,5 @@
 import { GIT_PREVIEW_ROOT } from '../../preview/git-fixture'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 
 import { activityOf, flowStepOf, placeCard, type BoardEvidence, type FlowExecution, type FlowPolicy, type Intent, type Session, type TeamState } from '@harnessdesk/protocol'
 
@@ -24,6 +24,7 @@ import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../pr
 import { cardEvidence, checkView, EVIDENCE_ROOM } from '../../preview/evidence-fixture'
 import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
 import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
+import { usagePreviewStore } from '../../preview/usage-fixture'
 import { sidebarGeometryFixture } from '../../preview/sidebar-geometry-fixture'
 import { sidebarProjectsFixture } from '../../preview/sidebar-projects-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
@@ -964,13 +965,16 @@ export const PanelsSurface = () => (
  * is the one that does — `components/Usage.tsx`, in a window-sized frame,
  * because it is a window.
  */
-export const DashboardSurface = () => (
-  <Mount>
-    <Frame height="window">
-      <Usage onClose={() => {}} onSignIn={() => {}} />
-    </Frame>
-  </Mount>
-)
+export const DashboardSurface = () => {
+  const own = useMemo(() => usagePreviewStore(), [])
+  return (
+    <Mount with={own}>
+      <Frame height="window">
+        <Usage onClose={() => {}} onSignIn={() => {}} />
+      </Frame>
+    </Mount>
+  )
+}
 
 /**
  * Sign in, on the agent whose sign-in is waiting for a pasted code.

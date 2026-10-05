@@ -8,6 +8,7 @@ const Table = ({
   className,
   containerClassName,
   variant = 'default',
+  inset,
   density = variant === 'panel' ? 'compact' : 'comfortable',
   rows = 'default',
   ...props
@@ -16,6 +17,8 @@ const Table = ({
   rows?: 'default' | 'bare'
   containerClassName?: string
   variant?: 'default' | 'framed' | 'panel'
+  /** The table and its replacement list keep the same row-content edge. */
+  inset?: 'row'
 }) => (
   <div
     data-slot="table-container"
@@ -31,7 +34,7 @@ const Table = ({
       data-slot="table"
       data-hd-table={density}
       data-rows={rows}
-      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', className)}
+      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', inset === 'row' && '[&_th]:px-(--hd-inset-row) [&_td]:px-(--hd-inset-row)', className)}
       {...props}
     />
   </div>
@@ -101,12 +104,18 @@ const TableRow = ({
   />
 )
 
+/** Collapse a narrow column without removing it from the semantic grid.
+ * A spanning detail row must see the same columns before and after it opens.
+ * The important width overrides a caller's normal column geometry. */
+const collapsedColumn = '@max-[640px]:w-0! @max-[640px]:p-0! @max-[640px]:border-0! @max-[640px]:overflow-hidden'
+
 const TableHead = ({
   className,
   variant = 'default',
   pinned = false,
   align = 'start',
   numeric = false,
+  collapseBelow,
   scope = variant === 'row' ? 'row' : 'col',
   ...props
 }: Omit<React.ComponentProps<'th'>, 'align'> & {
@@ -114,12 +123,15 @@ const TableHead = ({
   pinned?: boolean
   align?: 'start' | 'center' | 'end'
   numeric?: boolean
+  /** Keep this column in the grid, but give it zero width below 640px. */
+  collapseBelow?: 'sm'
 }) => (
   <th
     scope={scope}
     data-slot="table-head"
     data-variant={variant}
     data-align={numeric ? 'end' : align}
+    data-collapse-below={collapseBelow}
     {...(pinned ? { 'data-pinned': '' } : {})}
     className={cn(
       'h-(--hd-table-head-h) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) text-left align-middle text-(length:--hd-table-head-size) font-medium text-(--hd-table-head-ink)',
@@ -132,6 +144,7 @@ const TableHead = ({
       pinned && 'bg-(--hd-background) group-data-[interactive]/matrix:group-hover/matrix:[background:linear-gradient(var(--hd-hover),var(--hd-hover)),var(--hd-background)] group-data-[state=selected]/matrix:[background:linear-gradient(var(--hd-selected),var(--hd-selected)),var(--hd-background)] group-data-[state=selected]/matrix:group-data-[interactive]/matrix:group-hover/matrix:[background:linear-gradient(var(--hd-selected),var(--hd-selected)),var(--hd-background)]',
       !numeric && align === 'center' && 'text-center',
       (numeric || align === 'end') && 'text-right',
+      collapseBelow === 'sm' && collapsedColumn,
       className,
     )}
     {...props}
@@ -142,7 +155,8 @@ const TableHead = ({
  * `align` is the cell's half of the column's alignment, which `TableHead`
  * already carries: a column the head sets flush right is a column of figures,
  * so its cells are set flush right in tabular digits and line up under it.
- * A `lead` centres a face on the whole row, including wrapped text.
+ * A `lead` centres a face on the whole row, including wrapped text. A
+ * FaceStack keeps its intrinsic width, including its remainder reading.
  */
 const TableCell = ({
   className,
@@ -150,18 +164,22 @@ const TableCell = ({
   align = 'start',
   lead,
   numeric = false,
+  collapseBelow,
   children,
   ...props
 }: Omit<React.ComponentProps<'td'>, 'align'> & {
   variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel'
   align?: 'start' | 'center' | 'end'
   numeric?: boolean
+  /** Keep this column in the grid, but give it zero width below 640px. */
+  collapseBelow?: 'sm'
   lead?: React.ReactNode
 }) => (
   <td
     data-slot="table-cell"
     data-variant={variant}
     data-align={numeric ? 'end' : align}
+    data-collapse-below={collapseBelow}
     className={cn(
       variant === 'default' && 'py-1.5 whitespace-nowrap',
       variant === 'matrix' && 'py-0 text-center',
@@ -172,13 +190,14 @@ const TableCell = ({
       'h-(--hd-table-row-min) in-data-[rows=bare]:h-(--hd-table-row-min-bare) px-(--hd-table-cell-x) first:ps-(--hd-table-edge) last:pe-(--hd-table-edge) align-middle',
       !numeric && align === 'center' && 'text-center',
       (numeric || align === 'end') && 'text-right tabular-nums',
+      collapseBelow === 'sm' && collapsedColumn,
       className,
     )}
     {...props}
   >
     {lead != null ? (
       <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap)">
-        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) [&>*]:size-full [&>*]:rounded-[inherit]">{lead}</span>
+        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=face-stack]]:w-auto has-[[data-slot=face-stack]]:overflow-visible [&>*:not([data-slot=face-stack])]:size-full [&>*:not([data-slot=face-stack])]:rounded-[inherit]">{lead}</span>
         {children}
       </div>
     ) : children}

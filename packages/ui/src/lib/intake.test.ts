@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { TriggerBudgetState, TriggerGoalStatus } from '@harnessdesk/protocol'
 
-import { budgetMeterWords, formatMeterUsd, originHoverWords, originSubject } from './intake'
+import { prDefinition, issueDefinition, scheduleDefinition } from '../preview/intake-fixture'
+
+import { budgetMeterWords, formatMeterUsd, originHoverWords, originSubject, triggerRowWords } from './intake'
 
 const status = (over: Partial<TriggerGoalStatus>): TriggerGoalStatus => ({
   goal: 'g1',
@@ -127,5 +129,16 @@ describe('formatMeterUsd', () => {
     expect(formatMeterUsd(1.2)).toBe('$1.20')
     expect(formatMeterUsd(0)).toBe('$0.00')
     expect(formatMeterUsd(3.8)).toBe('$3.80')
+  })
+})
+
+describe('triggerRowWords', () => {
+  it('separates a human name from the declared shape and concurrency facts', () => {
+    expect(triggerRowWords(prDefinition())).toEqual({ title: 'When a pull request opens or is pushed, review it (review-pr)', facts: 'review-pr · at most 4 at once' })
+    expect(triggerRowWords(issueDefinition())).toEqual({ title: 'When an issue is labelled, triage it (triager)', facts: 'triager · once at a time' })
+    expect(triggerRowWords(scheduleDefinition())).toEqual({ title: 'Every 24 hours, run a sweep (sweep)', facts: 'sweep · once at a time' })
+  })
+  it('names an arbitrary declared shape honestly without inventing what it does', () => {
+    expect(triggerRowWords(prDefinition({ opens: { flow: 'custom-work' } })).title).toBe('When a pull request opens or is pushed, open custom-work')
   })
 })

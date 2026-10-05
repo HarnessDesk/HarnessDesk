@@ -105,6 +105,8 @@ export interface LaneView {
   readonly countdown: string | null
   /** "3h", "Wed" — one unit, for a compact row. */
   readonly shortCountdown: string | null
+  /** Shared meter-list countdown, including its prefix and missing value. */
+  readonly resetCountdown: string
   /** "Wed 6:00 PM" — the clock time to plan around. */
   readonly resetClock: string | null
   readonly known: boolean
@@ -215,6 +217,12 @@ export const formatCountdown = (ms: number): string | null => {
   return hours > 0 ? `${days}d ${hours}h` : `${days}d`
 }
 
+/** The reset reading shared by every usage meter list. */
+export const formatResetCountdown = (ms: number | null): string => {
+  const value = ms === null ? null : formatCountdown(ms)
+  return value === null ? '—' : `in ${value.replace(/(\d)([dhm])/g, '$1 $2')}`
+}
+
 /** One unit only, for a row that has no space for two. */
 export const formatCountdownShort = (ms: number): string | null => {
   if (!Number.isFinite(ms) || ms <= 0) return null
@@ -267,6 +275,7 @@ export const describeLane = (
     countdown: untilReset === null ? (lane.resetText ?? null) : formatCountdown(untilReset),
     shortCountdown:
       untilReset === null ? (lane.resetText ?? null) : formatCountdownShort(untilReset),
+    resetCountdown: untilReset === null ? (lane.resetText ?? '—') : formatResetCountdown(untilReset),
     resetClock: formatReset(lane.resetsAt, now),
     known,
     spent: remaining !== null && remaining <= 0,

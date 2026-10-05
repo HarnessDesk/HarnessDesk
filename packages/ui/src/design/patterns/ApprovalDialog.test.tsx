@@ -142,3 +142,12 @@ describe('ApprovalDialog', () => {
     await act(() => root.unmount())
   })
 })
+
+it('assigns the overlay its modal edge and the docked approval its card edge', async () => {
+  const { default: sheet } = await import('./ApprovalDialog.module.css?raw')
+  const block = (selector: string) => new RegExp(`\\.${selector} \\{([^}]*)\\}`).exec(sheet)?.[1] ?? ''
+  expect(block('scope')).toContain('--approval-edge-inset: var(--hd-inset-dialog)')
+  expect(block('docked')).toContain('--approval-edge-inset: var(--hd-inset-card)')
+  expect(block('header')).toContain('padding: var(--approval-edge-inset) var(--approval-edge-inset)')
+  expect(block('footer')).toContain('padding: var(--approval-edge-inset)')
+})

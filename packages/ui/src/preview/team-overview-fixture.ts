@@ -1,12 +1,15 @@
-import { approvalId, itemId, runtimeId, sessionId, sessionKey, turnId, type FlowExecution, type GoalView, type InsightAmounts, type InsightMetric, type InsightReport, type Intent, type SeatRecord, type Session } from '@harnessdesk/protocol'
+import { WAITING_LEDGER, approvalId, itemId, runtimeId, sessionId, sessionKey, turnId, type FlowExecution, type GoalView, type InsightAmounts, type InsightMetric, type InsightReport, type Intent, type SeatRecord, type Session } from '@harnessdesk/protocol'
 import { teamOverview, type TeamOverviewInput } from '../lib/team-overview'
 import { PREVIEW_GOAL } from './goal-fixture'
 import { previewStore } from './harness'
 
-export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','narrow'] as const
+export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','comparison','narrow'] as const
 export type OverviewScene = typeof OVERVIEW_STATES[number]
 export const OVERVIEW_RUN_REASONS = {
- 'waiting-evidence': 'Rule after-review: Waiting for its evidence.',
+ 'unreadable-ledger': `Rule after-review: ${WAITING_LEDGER}`,
+ 'waiting-evidence': 'Rule after-review: Waiting for CI to go green at this revision.',
+ 'findings-and-posting': 'Rule after-review: Waiting for 3 open blocking findings to be confirmed resolved.',
+ 'stopped-unknown': 'The Run stopped; its ending time was not recorded.',
  unrouted: '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you',
 } as const
 const at = Date.now() - 120_000
@@ -19,25 +22,29 @@ const metric = (value:number,unit:InsightMetric['unit']='count'):InsightMetric =
 const amounts=(n:number):InsightAmounts=>({usd:metric(n===0?0.64:0.21,'usd'),turns:metric(n===0?58:38),tokens:metric(1000,'tokens'),activeMs:metric(120000,'milliseconds')})
 export const overviewReport = ():InsightReport => ({id:'overview-report',goal:'overview-team',generatedAt:at,totals:amounts(0),breakdowns:[{dimension:'seat',rows:[0,1,2].map(n=>({key:`seat-${n}`,seat:`seat-${n}`,goal:'overview-team',label:ids[n]!,session:record(n).session,message:null,note:null,elapsedMs:metric(0,'milliseconds'),amounts:amounts(n)})),unattributed:amounts(0),reason:null}],seats:[],goals:[],query:{root:'/work/storefront',from:at-60000,to:at},receipt:null,elapsedMs:metric(120000,'milliseconds'),sources:[],recordedSpend:[],provenance:{state:'available',note:''},gaps:[]})
 export const overviewInput = (scene:OverviewScene):TeamOverviewInput => {
- const completed=scene==='done'||scene==='done-open'
- const run=scene==='no-run'?null:overviewRun(completed?'settled':scene==='stalled'?'stalled':'running')
+ const completed=scene==='done'||scene==='done-open'||scene==='comparison'
+ const baseRun=overviewRun(completed?'settled':scene==='stalled'?'stalled':'running')
+ const run=scene==='no-run'?null:scene==='comparison'?{...baseRun,state:'running' as const,reason:'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.',rounds:[{n:1,role:'competitor',cards:[1,2],seats:['seat-0','seat-1'],state:'closed' as const,cause:'seed',evidence:[]},{n:3,role:'judge',cards:[3],seats:['seat-2'],state:'waiting-evidence' as const,cause:'compare',evidence:[]}]}:baseRun
  const mixed=scene==='running'||scene==='narrow'
- return {team:'overview-team',seats:scene==='no-seats'?[]:(completed?[0,1,2]:[0,1,2,3]).map(n=>({record:record(n),name:ids[n]!,runtime:{capabilities:{metered:n!==2}},session:session(n,(mixed||scene==='needs-you')&&n===0),unreadSince:(mixed||scene==='unread')&&n===2?at:null,approvals:(mixed||scene==='needs-you')&&n===1?[{id:approvalId('overview-approval'),sessionId:sessionId(`overview-${n}`),requestedAt:at,type:'permission',summary:'Beta asks to edit the checkout file before retrying the payment; choose whether to keep the original payment method so this review can continue.',options:[]}]:[]})),signals:completed?[0,1,2].map(n=>({id:`completed-${n}`,kind:'signal',at,signal:'completed',intent:n+1,title:card(n).title,by:{kind:'agent',runtime:runtimeId('codex'),sessionId:`overview-${n}`,title:ids[n]!}})):[],cards:completed?[0,1,2].map(n=>card(n,true)):mixed||scene==='needs-you'?[card(0),card(1)]:[],run:run?{execution:run,startedAt:null}:null,report:overviewReport()}
+ return {team:'overview-team',seats:scene==='no-seats'?[]:(completed?[0,1,2]:[0,1,2,3]).map(n=>({record:scene==='comparison'?{...record(n),role:n===2?'judge':'competitor'}:record(n),name:scene==='comparison'?['Model A · High','Model B · Medium','Judge'][n]!:ids[n]!,runtime:{capabilities:{metered:n!==2}},session:completed?{...session(n),turns:[{id:turnId('done'),status:'completed',startedAt:at,completedAt:at+[12000,14000,2000][n]!,items:[]}]}:session(n,(mixed||scene==='needs-you')&&n===0),unreadSince:(mixed||scene==='unread')&&n===2?at:null,approvals:(mixed||scene==='needs-you')&&n===1?[{id:approvalId('overview-approval'),sessionId:sessionId(`overview-${n}`),requestedAt:at,type:'permission',summary:'Beta asks to edit the checkout file before retrying the payment; choose whether to keep the original payment method so this review can continue.',options:[]}]:[]})),signals:completed?[0,1,2].map(n=>({id:`completed-${n}`,kind:'signal',at,signal:'completed',intent:n+1,title:card(n).title,by:{kind:'agent',runtime:runtimeId('codex'),sessionId:`overview-${n}`,title:ids[n]!}})):[],cards:completed?[0,1,2].map(n=>scene==='comparison'?{...card(n,true),role:n===2?'judge':'competitor',title:n===2?'Choose the comparison result':'Build the requested change'}:card(n,true)):mixed||scene==='needs-you'?[card(0),card(1)]:[],run:run?{execution:run,startedAt:null}:null,report:scene==='comparison'?null:overviewReport()}
 }
 export const overviewModel = (scene:OverviewScene) => teamOverview(overviewInput(scene))
 
 /** Membership shape measured on the host rig, with the older list emptied to cover #1278. */
 export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
- const input=overviewInput(scene==='waiting-evidence'?'idle':scene==='unrouted'?'done':scene)
+ const evidenceWait=scene==='waiting-evidence'||scene==='findings-and-posting'||scene==='unreadable-ledger'
+ const input=overviewInput(evidenceWait?'idle':scene==='stopped-unknown'?'running':scene==='unrouted'?'done':scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
  const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}
  const goal:GoalView={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:scene==='done'?'ready-to-wrap':null}
- const baseRun=overviewRun(scene==='done'||scene==='unrouted'?'settled':scene==='stalled'?'stalled':'running')
- const run:FlowExecution=scene==='waiting-evidence'
-  ? {...baseRun,reason:OVERVIEW_RUN_REASONS[scene],rounds:baseRun.rounds.map(round=>round.n===2?{...round,state:'waiting-evidence'}:round)}
-  : scene==='unrouted'?{...baseRun,reason:OVERVIEW_RUN_REASONS[scene],end:{kind:'unrouted',card:2,outcome:'revise'}}:baseRun
+ const baseRun=overviewRun(scene==='done'||scene==='unrouted'?'settled':scene==='stopped-unknown'?'stopped':scene==='stalled'?'stalled':'running')
+ const run:FlowExecution=evidenceWait
+  ? {...baseRun,reason:OVERVIEW_RUN_REASONS[scene],pendingReleaseNote:'Waiting for a Seat to finish before releasing its checkout.',rounds:baseRun.rounds.map(round=>round.n===2?{...round,state:'waiting-evidence'}:round)}
+  : scene==='stopped-unknown'?{...baseRun,reason:OVERVIEW_RUN_REASONS[scene],currentEndedAt:null}
+    : scene==='unrouted'?{...baseRun,reason:OVERVIEW_RUN_REASONS[scene],end:{kind:'unrouted',card:2,outcome:'revise'}}:baseRun
  const sessions=new Map(input.seats.slice(0,2).map(one=>[sessionKey(one.record.session.runtime,one.record.session.sessionId),one.session!]))
  const approvals=scene==='needs-you'?input.seats.flatMap(one=>one.approvals.map(approval=>({key:sessionKey(one.record.session.runtime,one.record.session.sessionId),approval}))):[]
- const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
+ const findingRun:import('@harnessdesk/protocol').FindingRunView={run:run.id,goal:board.id,round:2,finished:1,total:1,embargoed:false,open:3,blocking:3,reason:'This review is waiting to be posted.',ceilingStop:false,stamp:'preview-posting',publication:'local',rounds:[{round:2,state:'local',reason:'This review is waiting to be posted.',pr:7,cards:[2]}],reviewersFinished:1,reviewersTotal:1,pendingExceptions:[],repair:null,boundPr:{repo:'acme/storefront',pr:7},unbound:null,undecidable:null}
+ const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),findingRuns:scene==='findings-and-posting'?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
  return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();return Reflect.get(target,key)}})
 }

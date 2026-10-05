@@ -63,13 +63,20 @@ it('offers the small system radius for compact code and diff plates', () => {
   expect(card?.className).toContain('rounded-(--hd-radius-sm)')
 })
 
+it('insets an inline section body without adding a second vertical rhythm', () => {
+  act(() => root.render(<SectionBody spacing="inline">No agents in this Team yet</SectionBody>))
+  const body = container.querySelector<HTMLElement>('[data-slot="section-body"]')!
+  expect(body.className).toContain('px-(--hd-inset-row)')
+  expect(body.className).not.toMatch(/(?:^|\s)(?:py-|pt-|pb-)/)
+})
+
 it('owns the compact inset and rhythm of a dense report card', () => {
   act(() => root.render(<Card spacing="compact">Flow report</Card>))
   const card = container.querySelector<HTMLElement>('[data-slot="card"]')
   expect(card?.dataset['spacing']).toBe('compact')
   expect(card?.className).toContain('gap-2')
-  expect(card?.className).toContain('p-3')
-  expect(card?.className).not.toContain('py-4')
+  expect(card?.className).toContain('p-(--hd-inset-row)')
+  expect(card?.className).not.toContain('py-(--hd-inset-card)')
 })
 
 it('zeroes a plate card down to a dense row, without redrawing flush by hand', () => {
@@ -169,7 +176,7 @@ it('draws the plate card from the app card family, with its hairline inside the 
   /* The registry card's own ground and edge are replaced, not stacked. */
   expect(card?.className).not.toMatch(/(^|\s)bg-card(\s|$)/)
   expect(card?.className).not.toMatch(/(^|\s)border(\s|$)/)
-  expect(card?.className).toContain('p-3')
+  expect(card?.className).toContain('p-(--hd-inset-row)')
 })
 
 it('lifts a card off a canvas of its own with the one soft shadow, keeping its hairline and ground', () => {
@@ -180,7 +187,7 @@ it('lifts a card off a canvas of its own with the one soft shadow, keeping its h
   /* Raised adds a shadow; it does not replace the registry card's edge or ground. */
   expect(card?.className).toMatch(/(^|\s)border(\s|$)/)
   expect(card?.className).toMatch(/(^|\s)bg-card(\s|$)/)
-  expect(card?.className).toContain('p-3')
+  expect(card?.className).toContain('p-(--hd-inset-row)')
 })
 
 it('bounds a lines viewport at the height it is given, and scrolls past it', () => {

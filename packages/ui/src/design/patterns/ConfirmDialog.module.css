@@ -5,7 +5,7 @@
    element says, so no rule here ties with one (Dialog.box.test.tsx). */
 
 .header {
-  padding: var(--hd-space-4);
+  padding: var(--hd-inset-dialog); /* desk: header/body 16 or footer 12/16 → dialog 24 all sides (#1363) */
   border-bottom: var(--hd-border-width) solid var(--hd-border);
 }
 
@@ -22,7 +22,7 @@
 }
 
 .body {
-  padding: var(--hd-space-4);
+  padding: var(--hd-inset-dialog); /* desk: header/body 16 or footer 12/16 → dialog 24 all sides (#1363) */
 }
 
 /* A confirm's sentences are paragraphs, and paragraphs space themselves: the
@@ -40,7 +40,7 @@
 }
 
 .footer {
-  padding: var(--hd-space-3) var(--hd-space-4);
+  padding: var(--hd-inset-dialog); /* desk: header/body 16 or footer 12/16 → dialog 24 all sides (#1363) */
   border-top: var(--hd-border-width) solid var(--hd-border);
   background: var(--hd-muted);
 }

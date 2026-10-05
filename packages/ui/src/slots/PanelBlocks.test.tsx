@@ -111,14 +111,14 @@ describe('table', () => {
     { key: 'count', label: 'Count', align: 'end' as const },
   ]
 
-  it('places cells by key, so a missing one is empty and not the next column', () => {
+  it('places cells by key, so a missing one says — without borrowing the next column', () => {
     mount([
       {
         type: 'table',
         columns,
         // The second row has no `count`. Positional rendering would slide
         // nothing into its place and leave the column reading as if the row
-        // had a value; keyed rendering leaves the cell blank.
+        // had a value; keyed rendering shows the empty reading.
         rows: [{ name: 'alpha', count: '12' }, { name: 'beta' }],
       },
     ])
@@ -126,7 +126,19 @@ describe('table', () => {
     expect(rows).toHaveLength(2)
     const cells = (row: Element): string[] => [...row.querySelectorAll('td')].map((cell) => cell.textContent ?? '')
     expect(cells(rows[0]!)).toEqual(['alpha', '12'])
-    expect(cells(rows[1]!)).toEqual(['beta', ''])
+    expect(cells(rows[1]!)).toEqual(['beta', '—'])
+  })
+
+  it('renders numeric cells from plugin JSON without treating them as strings', () => {
+    mount([{ type: 'table', columns, rows: [{ name: 'alpha', count: 12 as unknown as string }, { name: 'zero', count: 0 as unknown as string }] }])
+    expect([...container.querySelectorAll('tbody td:last-child')].map(cell => cell.textContent)).toEqual(['12', '0'])
+  })
+
+  it('renders a supplied blank string as the same quiet empty reading', () => {
+    mount([{ type: 'table', columns, rows: [{ name: 'beta', count: '' }] }])
+    const empty = container.querySelector('tbody td:last-child span')
+    expect(empty?.textContent).toBe('—')
+    expect(empty?.className).toContain('text-(--hd-muted-foreground)')
   })
 
   it('gives every column a scoped header and keeps a caption', () => {
@@ -134,7 +146,7 @@ describe('table', () => {
     const headers = [...container.querySelectorAll('th')]
     expect(headers.map((header) => header.getAttribute('scope'))).toEqual(['col', 'col'])
     expect(container.querySelector('caption')?.textContent).toBe('Two of them')
-    expect(container.querySelector('[data-slot="table"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="table"]')?.getAttribute('data-hd-table')).toBe('compact')
     expect(container.querySelector('[data-slot="table-container"]')?.getAttribute('data-variant')).toBe('panel')
   })
 

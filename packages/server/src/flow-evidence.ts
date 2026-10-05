@@ -1,4 +1,7 @@
 import {
+  WAITING_FINDINGS,
+  WAITING_EXCEPTION,
+  WAITING_LEDGER,
   checkPassed,
   ciVerdict,
   type EvidenceRecord,
@@ -380,10 +383,7 @@ export interface FindingsGate {
   readonly unreadable: boolean
 }
 
-export const WAITING_FINDINGS = (count: number): string =>
-  `Waiting for ${count} open blocking finding${count === 1 ? '' : 's'} to be confirmed resolved.`
-export const WAITING_EXCEPTION = 'Waiting for a person to review a new regression or security finding.'
-export const WAITING_LEDGER = 'Some findings could not be read, so this cannot be ready. A person has to look.'
+export { WAITING_FINDINGS, WAITING_EXCEPTION, WAITING_LEDGER } from '@harnessdesk/protocol'
 
 /**
  * A rule's evidence, with the findings ledger's say for a run that keeps one.

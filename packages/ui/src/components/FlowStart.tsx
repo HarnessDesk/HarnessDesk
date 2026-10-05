@@ -7,7 +7,7 @@ import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } fro
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { BriefIcon } from './Icons'
+import { AgentIcon } from './Icons'
 import { CeilingChip } from './CeilingChip'
 import styles from './FlowStart.module.css'
 
@@ -515,7 +515,7 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
   return (
     <>
       <Row
-        mark={winner ? <RuntimeMark runtime={markFor(winner, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
+        mark={winner ? <RuntimeMark runtime={markFor(winner, snapshot.runtimes)} size={16} /> : <AgentIcon size={16} />}
         title={
           <>
             {`${name} — ${seat.role}${seat.isolate ? ', isolated' : ''}`}

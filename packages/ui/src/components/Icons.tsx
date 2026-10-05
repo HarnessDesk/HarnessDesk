@@ -5,7 +5,6 @@ import {
   Archive,
   ArrowDownAZ,
   ArrowDownToLine,
-  ArrowLeftRight,
   ArrowUp,
   ArrowUpFromLine,
   BookText,
@@ -18,8 +17,6 @@ import {
   Laptop,
   GitMerge,
   GitPullRequestArrow,
-  GitPullRequestClosed,
-  GitPullRequestDraft,
   RotateCcw,
   AtSign,
   Bell,
@@ -46,10 +43,9 @@ import {
   CircleCheck,
   CircleDot,
   Clock,
+  ClockAlert,
   Code,
   Columns2,
-  Rows2,
-  LayoutGrid,
   Table2,
   Copy,
   Cpu,
@@ -61,11 +57,11 @@ import {
   ExternalLink,
   File,
   FileDiff,
-  FileDown,
   FileText,
   Folder,
   FolderOpen,
   FoldVertical,
+  Forward,
   Funnel,
   GitBranch,
   GitBranchPlus,
@@ -84,19 +80,21 @@ import {
   LayoutPanelLeft,
   ListPlus,
   ListTodo,
+  LoaderCircle,
   KeyRound,
   Keyboard,
   LogIn,
   LogOut,
   Maximize2,
   Minimize2,
-  MessageCircleQuestionMark,
   MessageSquare,
   MessageSquareOff,
   MessageSquarePlus,
+  MessagesSquare,
+  MoveDown,
+  MoveUp,
   Monitor,
   MonitorSmartphone,
-  Moon,
   PanelLeft,
   Paperclip,
   Pencil,
@@ -121,6 +119,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
+  Shrink,
   Signal,
   SignalHigh,
   SignalLow,
@@ -132,7 +131,6 @@ import {
   Square,
   SquareSlash,
   SquareTerminal,
-  Sun,
   Tablet,
   Target,
   ThumbsDown,
@@ -197,11 +195,8 @@ export const ArrowRightIcon = icon(ChevronRight, 'ArrowRightIcon')
 export const ZoomInIcon = icon(ZoomIn, 'ZoomInIcon')
 export const ZoomOutIcon = icon(ZoomOut, 'ZoomOutIcon')
 export const SidebarIcon = icon(PanelLeft, 'SidebarIcon')
-/** Two panes side by side. */
-export const SplitIcon = icon(Columns2, 'SplitIcon')
-/* Splitting has two directions and they are different verbs, so they are two
-   glyphs: columns for side by side, rows for one above the other. */
-export const SplitDownIcon = icon(Rows2, 'SplitDownIcon')
+/** Watch the Team's conversations side by side. */
+export const SideBySideIcon = icon(Columns2, 'SideBySideIcon')
 /** A plugin's panel contribution. */
 export const PanelIcon = icon(LayoutPanelLeft, 'PanelIcon')
 
@@ -211,7 +206,6 @@ export const CheckIcon = icon(Check, 'CheckIcon')
 export const CrossIcon = icon(X, 'CrossIcon')
 export const AlertIcon = icon(TriangleAlert, 'AlertIcon')
 /** The agent stopped to ask something. */
-export const QuestionIcon = icon(MessageCircleQuestionMark, 'QuestionIcon')
 /** A statement about the app's own state, rather than a warning about it. */
 export const InfoIcon = icon(Info, 'InfoIcon')
 /** The messages the app makes outside a conversation, as a settings page. */
@@ -234,12 +228,12 @@ export const SlashIcon = icon(SquareSlash, 'SlashIcon')
 /** Context a plugin attached to the prompt. */
 export const PaperclipIcon = icon(Paperclip, 'PaperclipIcon')
 /** A conversation handed from one agent to another. */
-export const HandoffIcon = icon(ArrowLeftRight, 'HandoffIcon')
+export const HandoffIcon = icon(Forward, 'HandoffIcon')
 /** A message written while the agent was busy, waiting for its turn. */
 export const QueueIcon = icon(ListPlus, 'QueueIcon')
 /** Move a queued message earlier or later. Ordering, never navigation. */
-export const MoveUpIcon = icon(ChevronUp, 'MoveUpIcon')
-export const MoveDownIcon = icon(ChevronDown, 'MoveDownIcon')
+export const MoveUpIcon = icon(MoveUp, 'MoveUpIcon')
+export const MoveDownIcon = icon(MoveDown, 'MoveDownIcon')
 /** The handle a queued message is dragged by. Never a control on its own. */
 export const GripIcon = icon(GripVertical, 'GripIcon')
 
@@ -255,7 +249,6 @@ export const FolderGoneIcon = icon(FolderX, 'FolderGoneIcon')
 export const ImportIcon = icon(Import, 'ImportIcon')
 /* Saving something out of the app. Was `FileIcon`, which is what a *file* is
    — and sat a few pixels from a tab wearing the same glyph for that reason. */
-export const ExportIcon = icon(FileDown, 'ExportIcon')
 export const CopyIcon = icon(Copy, 'CopyIcon')
 
 /** The copy control's Lucide marks for trusted HTML that React does not own. */
@@ -292,8 +285,6 @@ export const FetchIcon = icon(CloudDownload, 'FetchIcon')
 export const MergeIcon = icon(GitMerge, 'MergeIcon')
 /** The forge's compare page for a branch, and a pull request itself. */
 export const PullRequestIcon = icon(GitPullRequestArrow, 'PullRequestIcon')
-export const PullRequestDraftIcon = icon(GitPullRequestDraft, 'PullRequestDraftIcon')
-export const PullRequestClosedIcon = icon(GitPullRequestClosed, 'PullRequestClosedIcon')
 /** An issue on the forge — the open dot GitHub itself draws. */
 export const IssueIcon = icon(CircleDot, 'IssueIcon')
 /** A comment on the forge. */
@@ -327,15 +318,15 @@ export const BackgroundIcon = icon(Activity, 'BackgroundIcon')
 export const ToolIcon = icon(Wrench, 'ToolIcon')
 /** The agent's own reasoning. */
 export const BrainIcon = icon(Brain, 'BrainIcon')
-/** An agent — a runtime, or a sub-agent it spawned. */
+/** The agent itself — a runtime, or a sub-agent it spawned. */
 export const AgentIcon = icon(Bot, 'AgentIcon')
-/** An Agent's own brief — the file it is, as distinct from its running seat. */
+/** An Agent's written brief — its instructions, distinct from the Agent itself. */
 export const BriefIcon = icon(BookText, 'BriefIcon')
 /** A skill, or anything else the agent is handed to work with. */
 export const SparkIcon = icon(Sparkle, 'SparkIcon')
 export const GlobeIcon = icon(Globe, 'GlobeIcon')
 /** A conversation, as a thing to find and open. */
-export const SessionIcon = icon(MessageSquare, 'SessionIcon')
+export const SessionIcon = icon(MessagesSquare, 'SessionIcon')
 /** Marking up a page: a comment left on the thing it is about. */
 export const AnnotateIcon = icon(MessageSquarePlus, 'AnnotateIcon')
 /** A block of context the desk composed and put on a message — never a plugin's. */
@@ -345,7 +336,7 @@ export const GoalIcon = icon(Target, 'GoalIcon')
 /** A plan or task list the agent is working through. */
 export const PlanIcon = icon(ListTodo, 'PlanIcon')
 export const TodoDoneIcon = icon(CircleCheck, 'TodoDoneIcon')
-export const TodoActiveIcon = icon(CircleDot, 'TodoActiveIcon')
+export const TodoActiveIcon = icon(LoaderCircle, 'TodoActiveIcon')
 export const TodoPendingIcon = icon(Circle, 'TodoPendingIcon')
 /** A plain list item, with no state to report. */
 export const BulletIcon = icon(Dot, 'BulletIcon')
@@ -418,7 +409,6 @@ export const ExpandAllIcon = icon(ChevronsUpDown, 'ExpandAllIcon')
  * squares against a ruled table. Anything subtler than that reads as one
  * button pressed twice.
  */
-export const CardsIcon = icon(LayoutGrid, 'CardsIcon')
 export const MatrixIcon = icon(Table2, 'MatrixIcon')
 export const RowsLooseIcon = icon(Rows3, 'RowsLooseIcon')
 export const RowsTightIcon = icon(Rows4, 'RowsTightIcon')
@@ -435,7 +425,7 @@ export const SortNameIcon = icon(ArrowDownAZ, 'SortNameIcon')
 /** What happened, in order. */
 export const HistoryIcon = icon(History, 'HistoryIcon')
 /** A fact recorded before what is there now — a stale chip's leading mark. */
-export const StaleIcon = icon(History, 'StaleIcon')
+export const StaleIcon = icon(ClockAlert, 'StaleIcon')
 export const ServerIcon = icon(Server, 'ServerIcon')
 export const DownloadIcon = icon(Download, 'DownloadIcon')
 /** Approved, and for the rest of the session too. */
@@ -445,8 +435,6 @@ export const SummaryIcon = icon(FileText, 'SummaryIcon')
 /** The whole transcript. */
 export const TranscriptIcon = icon(ScrollText, 'TranscriptIcon')
 export const ThemeSystemIcon = icon(Monitor, 'ThemeSystemIcon')
-export const ThemeLightIcon = icon(Sun, 'ThemeLightIcon')
-export const ThemeDarkIcon = icon(Moon, 'ThemeDarkIcon')
 /** How hard the model thinks: four steps, low to max. */
 export const EffortLowIcon = icon(SignalLow, 'EffortLowIcon')
 export const EffortMediumIcon = icon(SignalMedium, 'EffortMediumIcon')
@@ -470,7 +458,7 @@ export const DevToolsIcon = icon(Code, 'DevToolsIcon')
 /** The same thing, in a full window. */
 export const ExpandIcon = icon(Maximize2, 'ExpandIcon')
 /** Return a tile from its expanded view to the grid. */
-export const CollapseIcon = icon(Minimize2, 'CollapseIcon')
+export const CollapseIcon = icon(Shrink, 'CollapseIcon')
 /** Back from the full pane area to the split it came from. */
 export const RestoreIcon = icon(Minimize2, 'RestoreIcon')
 /** Read the repository again; distinct from RetryIcon, which re-runs a thing that failed. */

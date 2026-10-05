@@ -51,13 +51,13 @@ it('keeps total fixed while alternate views retain zero, floor, estimate and unk
   expect(container.textContent).toContain('Agent one')
   expect(container.textContent).toContain('At least')
   expect(container.textContent).toContain('Recorded usage')
-  expect(container.textContent).toContain('minutes since observation')
+  act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Sources')!.click())
+  expect(document.body.textContent).toContain('minutes since observation')
 })
 
 it('leaves receipt rows inert when no navigation handler exists', () => {
   act(() => root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={() => {}} />))
-  const title = [...container.querySelectorAll('[class*="_rowTitle_"]')].find((node) => node.textContent === 'Seat one')
-  const seat = title?.closest('div[class*="_row_"]')
+  const seat = [...container.querySelectorAll('[data-slot="key-value-row"]')].find(node => node.textContent === 'Seat one$0.00')
   expect(seat).toBeTruthy()
   expect(() => act(() => seat?.dispatchEvent(new MouseEvent('click', { bubbles: true })))).not.toThrow()
 })
@@ -66,7 +66,8 @@ it('labels vendor-metered costs distinctly from list-price estimates', () => {
   const base = report()
   const vendor = { ...base, totals: { ...base.totals, usd: { ...base.totals.usd, basis: 'vendorMetered' as const, quality: 'exact' as const } } }
   act(() => root.render(<InsightCost report={vendor} loading={false} problem={null} onRefresh={() => {}} />))
-  expect(container.textContent).toContain('Vendor-metered cost')
+  act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Sources')!.click())
+  expect(document.body.textContent).toContain('Vendor-metered cost')
 })
 
 it('does not call a mixed subtotal vendor-and-list-priced when another portion is unknown', () => {
@@ -76,7 +77,8 @@ it('does not call a mixed subtotal vendor-and-list-priced when another portion i
     totals: { ...base.totals, usd: { ...base.totals.usd, basis: 'mixed' as const, quality: 'floor' as const, coverage: 'partial' as const } },
   }
   act(() => root.render(<InsightCost report={mixedPartial} loading={false} problem={null} onRefresh={() => {}} />))
-  expect(container.textContent).toContain('Vendor- or list-price cost; another portion is unknown')
+  act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Sources')!.click())
+  expect(document.body.textContent).toContain('Vendor- or list-price cost; another portion is unknown')
   expect(container.textContent).not.toContain('Vendor-metered and list-price cost')
 })
 
@@ -95,17 +97,17 @@ it('keeps safe source read status when its observation time is unknown', () => {
   expect(document.body.textContent).toContain('Recorded usage source could not be discovered.')
 })
 
-it('receipt cost detail keeps its breakdown and refresh while the total is presented in Record', () => {
+it('receipt cost keeps its breakdown, total footer and refresh', () => {
   let refreshes = 0
   act(() => root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={() => { refreshes++ }} {...{ detailOnly: true }} />))
-  expect(container.textContent).not.toContain('$3.00')
+  expect(container.querySelector('[data-footer]')?.textContent).toContain('$3.00')
   expect(container.textContent).toContain('Seat one')
   const refresh = [...container.querySelectorAll('button')].find(one => one.textContent === 'Refresh')!
   act(() => refresh.click())
   expect(refreshes).toBe(1)
 })
 
-it('keeps breakdown tabs inside the Rows card named by Cost detail and says shared facts once', () => {
+it('keeps breakdown tabs above its numeric list and moves source facts to Sources', () => {
   const base = report()
   const common = metric(1, 'exact')
   const amounts = { ...base.totals, usd: common }
@@ -115,10 +117,10 @@ it('keeps breakdown tabs inside the Rows card named by Cost detail and says shar
   })) }
   act(() => root.render(<InsightCost report={three} loading={false} problem={null} onRefresh={() => {}} detailOnly />))
   const head = container.querySelector('[data-section-head]')!
-  expect(head.nextElementSibling?.getAttribute('data-slot')).toBe('rows')
-  expect(container.querySelector('[role="tablist"]')?.closest('[data-slot="rows"]')).toBe(head.nextElementSibling)
-  for (const row of container.querySelectorAll('[data-slot="row"]')) {
-    expect(row.textContent).not.toContain('Recorded usage')
+  expect(head.nextElementSibling?.getAttribute('data-slot')).toBe('tabs')
+  expect(head.nextElementSibling?.nextElementSibling?.getAttribute('data-slot')).toBe('key-value')
+  for (const row of container.querySelectorAll('[data-slot="key-value-row"]')) {
+    if (!row.hasAttribute('data-footer')) expect(row.textContent).not.toContain('Recorded usage')
     expect(row.textContent).not.toContain('minutes since observation')
   }
   // In detailOnly these common facts are already beside the aggregate in Record.
@@ -130,11 +132,23 @@ it('keeps unknown unattributed facts without repeating the aggregate source and 
   const unknown = { ...base.breakdowns[0]!.unattributed, usd: { ...metric(null, 'unknown', 'none'), sourceIds: [] } }
   const measured = { ...base, totals: { ...base.totals, usd: metric(1, 'exact') }, breakdowns: [{ ...base.breakdowns[0]!, unattributed: unknown }] }
   act(() => root.render(<InsightCost report={measured} loading={false} problem={null} onRefresh={() => {}} detailOnly />))
-  const rows = [...container.querySelectorAll('[data-slot="row"]')]
+  const rows = [...container.querySelectorAll('[data-slot="key-value-row"]')]
   const seat = rows.find(row => row.textContent?.includes('Seat one'))!
   expect(seat.textContent).not.toContain('Recorded usage')
   expect(seat.textContent).not.toContain('minutes since observation')
   const unassigned = rows.find(row => row.textContent?.includes('Unattributed'))!
-  expect(unassigned.textContent).toContain('No measured source')
-  expect(unassigned.textContent).toContain('Observation time unavailable')
+  expect(unassigned.textContent).toContain('Unknown')
+  act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Sources')!.click())
+  expect(document.body.textContent).toContain('No measured source')
+  expect(document.body.textContent).toContain('Observation time unavailable')
+})
+
+it('puts the recorded total after its numeric KeyValue parts and keeps source sentences in Sources', () => {
+ act(()=>root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={()=>{}} />))
+ const rows=[...container.querySelectorAll('[data-slot="key-value-row"]')]
+ expect(rows.map(r=>r.textContent)).toContain('Seat one$0.00')
+ expect(rows.at(-1)?.textContent).toContain('Recorded usage')
+ expect(rows.at(-1)?.textContent).toContain('$3.00')
+ expect(container.querySelector('dl')?.textContent).not.toContain('minutes since observation')
+ expect(rows.find(r=>r.textContent?.includes('Unattributed'))?.getAttribute('title')).toContain('No unique historical Seat')
 })

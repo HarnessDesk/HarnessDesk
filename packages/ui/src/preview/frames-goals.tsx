@@ -233,7 +233,7 @@ export const GoalFrames = () => {
       </Frame>
       <Frame id="goal-receipt" title="Goal — its receipt, as recorded when wrapped">
         <div className="max-h-[560px] overflow-y-auto p-4">
-          <GoalReceipt receipt={WRAPPED_WITH_FINDINGS.receipt!} root={PREVIEW_ROOT} onOpenFinding={() => {}} />
+          <GoalReceipt receipt={CARRY_SOURCE.receipt!} root={PREVIEW_ROOT} onOpenFinding={() => {}} />
         </div>
       </Frame>
       <Frame id="goal-accounting" title="Goal — its receipt's own accounting">
@@ -249,7 +249,7 @@ export const GoalFrames = () => {
       <Frame id="insight-partial" title="Project usage — partial source scan">
         <div className="p-4">
           <InsightUsage root={PREVIEW_ROOT} runtime={null} view="goal" onGoal={() => {}} report={{
-            ...INSIGHT_REPORT, scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'],
+            ...INSIGHT_REPORT, totals: { ...INSIGHT_REPORT.totals, usd: { ...INSIGHT_REPORT.totals.usd, coverage: 'partial' } }, scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'],
             breakdowns: INSIGHT_REPORT.breakdowns.map((breakdown) => ({ ...breakdown, dimension: 'goal',
               rows: breakdown.rows.map((row) => ({ ...row, amounts: { ...row.amounts, usd: { ...row.amounts.usd, coverage: 'partial' } } })),
             })),

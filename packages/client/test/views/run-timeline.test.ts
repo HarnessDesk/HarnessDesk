@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { runtimeId, sessionId, sessionKey, turnId, type Session, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { WAITING_FINDINGS, WAITING_EXCEPTION, WAITING_LEDGER, runtimeId, sessionId, sessionKey, turnId, type Session, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from '../../src/views/run-timeline.js'
+import { teamOverview } from '../../src/views/team-overview.js'
 
 const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
   version: 2, id: 'run', goal: 'team', state: 'running', reason: null, legacyRun: null,
@@ -19,6 +20,21 @@ const session = (startedAt = 100, busy = true): Session => ({ runtime: runtimeId
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it('shares evidence-wait attention with Overview and clears it when the wait closes or the Run ends', () => {
+    for (const wait of [WAITING_FINDINGS(1), WAITING_FINDINGS(3), WAITING_EXCEPTION, WAITING_LEDGER]) for (const state of ['running','settled','stopped'] as const) for (const roundState of ['waiting-evidence','closed'] as const) {
+      const execution=run({state,reason:`Rule after-review: ${wait}`,rounds:[{...run().rounds[0]!,state:roundState}]})
+      const overview=teamOverview({team:execution.goal,seats:[],cards:[],run:{execution,startedAt:null},report:null})
+      const timeline=runTimeline({execution,cards:[]})
+      const expected=state==='running'&&roundState==='waiting-evidence'
+      assert.equal(timeline.header.needsYou,expected)
+      assert.equal(timeline.header.needsYou,overview.run?.needsYou)
+    }
+  })
+  it('CI waits do not need attention in either Run view', () => {
+    const execution=run({reason:'Rule after-review: Waiting for CI to go green at this revision.',rounds:[{...run().rounds[0]!,state:'waiting-evidence'}]})
+    assert.equal(runTimeline({execution,cards:[]}).header.needsYou,false)
+    assert.equal(teamOverview({team:execution.goal,seats:[],cards:[],run:{execution,startedAt:null},report:null}).run?.needsYou,false)
+  })
   it('restores live claimed work after a stopped Run resumes, despite its historical end', () => {
     const execution = { ...run({ endedAt: 250 }), currentEndedAt: null }
     const resumed = card({ claim: { ...card().claim!, at: 400 }, updatedAt: 400 })

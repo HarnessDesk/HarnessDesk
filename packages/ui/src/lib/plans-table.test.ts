@@ -444,9 +444,9 @@ describe('cycleOf', () => {
 })
 
 describe('resetsOf', () => {
-  it('reads the binding lane\'s own short reset', () => {
+  it('reads the binding lane\'s shared reset countdown', () => {
     const subject = report({ lanes: [lane({ id: 'weekly', usedPercent: 10, resetsAt: NOON + 2 * DAY })] })
-    expect(resetsOf(describeReport(subject, { now: NOON }))).toBe('2d')
+    expect(resetsOf(describeReport(subject, { now: NOON }))).toBe('in 2 d')
   })
 
   it('is "—" with no binding lane', () => {

@@ -119,12 +119,12 @@ export type AgentCardMeter = {
 
 /**
  * The crest's corner follows what the subject is, so the card wears the same
- * shape its subject wears everywhere else: a harness is a thing (square), an
- * account a ring (round, the seat's menu draws it so), and a session or a
- * member is someone (a face, at the corner the person chose for faces).
+ * shape its subject wears everywhere else: a runtime, session or member is
+ * someone (a face, at the corner the person chose for faces), and an account
+ * keeps its ring (round, the seat's menu draws it so).
  */
-const CREST_SHAPE: Readonly<Record<AgentCardKind, 'square' | 'round' | 'face'>> = {
-  agent: 'square',
+const CREST_SHAPE: Readonly<Record<AgentCardKind, 'round' | 'face'>> = {
+  agent: 'face',
   account: 'round',
   session: 'face',
   member: 'face',
@@ -240,13 +240,13 @@ export const CardShell = ({
  * The top of a card: a mark at rest, then a text column beside it.
  *
  * Not `AgentCard`'s alone — `Publication.tsx`'s forge card was redrawing this
- * exact `flex items-start gap-2.5 px-3 pt-3 pb-2.5` by hand, down to the
- * pixel, until this crest gave both a single place to read it from.
+ * same mark-and-text crest by hand until both shared this anatomy.
+ * The row inset belongs to the crest, including its bottom edge.
  */
 export const CardCrest = ({ children, className }: { children: ReactNode; className?: string }) => {
   const parts = Children.toArray(children)
   return (
-    <div className={`flex items-start gap-2.5 px-3 pt-3 pb-2.5${className ? ` ${className}` : ''}`}>
+    <div className={`flex items-start gap-2.5 p-(--hd-inset-row)${className ? ` ${className}` : ''}`}>
       {parts.length > 1 ? (
         <span className="flex h-(--hd-line) flex-none items-center">{parts[0]}</span>
       ) : parts[0]}
@@ -279,7 +279,7 @@ export const CardBand = ({ label, children, className }: { label?: string; child
      exists to keep and a test has to be able to ask. Counting `border-t`
      instead coupled that test to a divider style, so a restyle that used a
      gap or an `<hr>` would have broken the test without breaking the rule. */
-  <div data-slot="agent-card-band" className={`border-t border-(--hd-border-strong) px-3 py-2.5${className ? ` ${className}` : ''}`}>
+  <div data-slot="agent-card-band" className={`border-t border-(--hd-border-strong) p-(--hd-inset-row)${className ? ` ${className}` : ''}`}>
     {label && (
       <div className="mb-1">
         <PopoverGroupLabel inset={false}>{label}</PopoverGroupLabel>
@@ -434,7 +434,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           <div
             key={caution.text}
             data-slot="agent-card-band"
-            className={`flex items-start gap-2 border-t border-(--hd-border-strong) px-3 py-2 text-xs leading-(--hd-line-sm) ${CAUTION_STYLE[caution.tone]}`}
+            className={`flex items-start gap-2 border-t border-(--hd-border-strong) p-(--hd-inset-row) text-xs leading-(--hd-line-sm) ${CAUTION_STYLE[caution.tone]}`}
           >
             <Glyph size={13} className="mt-px flex-none" />
             <span>{caution.text}</span>
@@ -465,7 +465,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
            overflowed had three of them. */
         <div
           data-slot="agent-card-band"
-          className="flex flex-wrap gap-1.5 border-t border-(--hd-border-strong) px-3 py-2.5"
+          className="flex flex-wrap gap-1.5 border-t border-(--hd-border-strong) p-(--hd-inset-row)"
         >
           {actions.map((action) => (
             <Button

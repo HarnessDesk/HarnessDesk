@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { approvalId, runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type SessionQueue, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
+import { AgentIcon, AlertIcon, BranchIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
 import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
@@ -619,27 +619,30 @@ const RowBoard = () => {
         <SectionHead name="A row that opens and folds" />
         <Rows data-catalog-case="row-fold">
           <RowButton
-            mark={<TerminalIcon size={15} />}
-            title={<Text role="subject">Codex</Text>}
+            kind="record"
+            mark={<TerminalIcon size={16} />}
+            title="Codex"
             chevron={false}
             onClick={() => {}}
             fold={{ open: !folded, onToggle: () => setFolded((was) => !was), label: `${folded ? 'Show' : 'Hide'} the accounts under Codex` }}
           />
-          {!folded && <RowButton title="dev" desc="dev@example.com" onClick={() => {}} />}
+          {!folded && <RowButton kind="record" face={<AccountMark size="row" data-tint="blue">JD</AccountMark>} title="dev" desc="dev@example.com" truncateDesc onClick={() => {}} />}
         </Rows>
         <SectionHead name="A row with its one action" />
         <Rows data-catalog-case="row-action">
           <RowButton
-            mark={<TerminalIcon size={15} />}
-            title={<Text role="subject">Codex</Text>}
+            kind="record"
+            mark={<TerminalIcon size={16} />}
+            title="Codex"
             desc="dev@example.com"
             onClick={() => {}}
           />
           <RowButton
-            mark={<TerminalIcon size={15} />}
-            title={<Text role="subject">Qwen Code</Text>}
+            kind="record"
+            mark={<TerminalIcon size={16} />}
+            title="Qwen Code"
             onClick={() => {}}
-            action={<Button size="sm" variant="default">Sign in</Button>}
+            action={<Button size="sm" variant="outline">Sign in</Button>}
           />
         </Rows>
         <Checkbox
@@ -749,7 +752,7 @@ const AppWindowBoard = () => (
           <WindowNavIdentity face={<UserIcon size={20} />} name="Jane Doe with a deliberately long display name" selected={false} onClick={() => {}} />
           <WindowGroup label="Settings">
             <WindowNavItem icon={<SettingsIcon size={14} />} label="Settings" selected onClick={() => {}} />
-            <WindowNavItem icon={<BriefIcon size={14} />} label="Agents" count={3} trail={<WindowNavStateMark><Dot state="signin" /></WindowNavStateMark>} selected={false} onClick={() => {}} />
+            <WindowNavItem icon={<AgentIcon size={14} />} label="Agents" count={3} trail={<WindowNavStateMark><Dot state="signin" /></WindowNavStateMark>} selected={false} onClick={() => {}} />
             <WindowNavItem icon={<UsageIcon size={14} />} label="Usage" count={2} selected={false} onClick={() => {}} />
           </WindowGroup>
         </WindowNav>

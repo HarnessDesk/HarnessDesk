@@ -120,7 +120,7 @@ const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = nul
 /** The Plans table's own row now collapses every account by default — expand it to reach the shape body (`Card`, reused for the windows shape) underneath. Idempotent: a re-render onto the same root keeps React's `expanded` state, so a row already open is left alone rather than toggled shut. */
 const expandRow = async (name: string): Promise<void> => {
   const row = [...document.querySelectorAll<HTMLElement>('button[aria-expanded]')].find((node) =>
-    node.textContent?.includes(name),
+    node.closest('tr')?.textContent?.includes(name),
   )
   expect(row).toBeDefined()
   if (row?.getAttribute('aria-expanded') === 'true') return

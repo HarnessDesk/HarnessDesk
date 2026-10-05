@@ -495,3 +495,30 @@ describe('teamOverviewOf', () => {
     assert.deepEqual(teamOverviewOf(snapshot, 'missing', { report: null, runtimes: [] }), { run: null, needsYou: [], seats: [] })
   })
 })
+
+
+describe('completed Seat readings', () => {
+  it('freezes working time from its first claim to its last completed turn', () => {
+    const completed = session('Alpha', [], false)
+    const model = teamOverview(input({ seats: [seat('Alpha', { session: completed })],
+      cards: [card(1, { state: 'done' })],
+      signals: [blockedSignal('Alpha', { signal: 'claimed', at: 220 }), blockedSignal('Alpha', { signal: 'completed', at: 310 })],
+    }))
+    assert.equal(model.seats[0]?.done, true)
+    assert.partialDeepStrictEqual(model.seats[0], { durationMs: 80 })
+  })
+  it('keeps completed timing unknown without a recorded end', () => {
+    const model = teamOverview(input({ seats: [seat('Alpha')], cards: [card(1, { state: 'done' })],
+      signals: [blockedSignal('Alpha', { signal: 'completed' })] }))
+    assert.partialDeepStrictEqual(model.seats[0], { durationMs: null })
+  })
+  for (const reason of ['Waiting for a passing check at this revision.', 'Waiting for CI to go green at this revision.', 'Waiting for the pull request to reach that state.', 'Waiting for a structured review at this revision.', 'Waiting for an observed diff at this revision.']) {
+    it(`keeps the evidence wait neutral: ${reason}`, () => {
+      const run = execution({ reason: `Rule after-review: ${reason}`, rounds: [{ n: 1, role: 'builder', cards: [1], seats: ['Alpha'], evidence: [], state: 'waiting-evidence', cause: 'seed' }] })
+      const model = teamOverview(input({ seats: [seat('Alpha')], run: { execution: run, startedAt: 100 } }))
+      assert.equal(model.run?.needsYou, false)
+      assert.equal(model.run?.waitingEvidence, true)
+      assert.equal(model.seats[0]?.state, 'idle')
+    })
+  }
+})
