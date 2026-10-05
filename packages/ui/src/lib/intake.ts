@@ -60,7 +60,7 @@ const triggerWhenWords = (definition: TriggerDefinition): string => definition.o
 /** The compact project row names its work, with the exact target and concurrency below. */
 export const triggerRowWords = (definition: TriggerDefinition): { readonly title: string; readonly facts: string } => {
   const opens = 'flow' in definition.opens ? definition.opens.flow : definition.opens.agent
-  const action = opens === 'review-pr' ? 'review it' : opens === 'triager' ? 'triage it' : opens === 'sweep' ? 'run a sweep' : `open ${opens}`
+  const action = opens === 'review-pr' ? `review it (${opens})` : opens === 'triager' ? `triage it (${opens})` : opens === 'sweep' ? `run a sweep (${opens})` : `open ${opens}`
   const times = definition.concurrency === 1 ? 'once at a time' : `at most ${definition.concurrency} at once`
   return { title: `${triggerWhenWords(definition)}, ${action}`, facts: `${opens} · ${times}` }
 }

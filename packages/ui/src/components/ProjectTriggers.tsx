@@ -303,10 +303,11 @@ const TriggerRowGroup = ({
 }) => {
   const words = trigger.definition ? triggerRowWords(trigger.definition) : null
   const title = words?.title ?? trigger.id
-  const desc = rowProblem
-    ?? (trigger.reason ? `${trigger.reason}${trigger.fix ? ` ${trigger.fix}` : ''}` : null)
-    ?? (trigger.last ? triggerSkipWords(trigger.last) : null)
-    ?? words?.facts
+  const desc = [
+    words?.facts,
+    rowProblem ?? (trigger.reason ? `${trigger.reason}${trigger.fix ? ` ${trigger.fix}` : ''}` : null),
+    trigger.last ? triggerSkipWords(trigger.last) : null,
+  ].filter(Boolean).join(' · ')
   // On is anything this machine has not switched off: a changed or refused arm is switched off here too.
   const on = trigger.state !== 'off'
   const stale = trigger.state === 'changed' || trigger.state === 'refused'
@@ -319,6 +320,9 @@ const TriggerRowGroup = ({
         {...(desc ? { subtitle: desc, wrapSubtitle: true } : {})}
         trail={(
           <span className="inline-flex items-center gap-(--hd-space-2)">
+            {trigger.state === 'changed' && <Chip tone="warning">Changed</Chip>}
+            {trigger.state === 'refused' && <Chip tone="danger">Refused</Chip>}
+            {trigger.state === 'paused' && <Chip tone="info">Paused</Chip>}
             {stale && trigger.definition && (
               <Button variant="ghost" size="sm" disabled={busy} onClick={onRearm} title="Review what it runs now, and arm it again">
                 Review
@@ -383,8 +387,8 @@ const TriggerHistory = ({ root, id }: { readonly root: string; readonly id: stri
     }
   }
 
-  if (problem) return <Row title="Its history could not be read" desc={problem} />
-  if (!page) return <Row title="Reading its history…" />
+  if (problem) return <ListRow density="compact" title="Its history could not be read" subtitle={problem} wrapSubtitle />
+  if (!page) return <ListRow density="compact" title="Reading its history…" />
   if (page.items.length === 0) return <EmptyState variant="row" title="No firings yet" />
 
   return (

@@ -137,9 +137,25 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(checks).toHaveCount(4)
     expect(await checks.locator('[data-slot="list-row-trail"]').allTextContents()).toEqual(['Approved', 'Changed', 'Not approved', 'Not offered'])
     const triggers = page.locator('[data-frame-id="project-triggers"]')
-    await expect(triggers.locator('[role="switch"]')).toHaveCount(3)
-    await expect(triggers.locator('[data-slot="chip"]')).toHaveCount(0)
-    await expect(triggers.getByRole('button', { name: 'History', exact: true })).toHaveCount(3)
+    await expect(triggers.locator('[role="switch"]')).toHaveCount(6)
+    await expect(triggers.locator('[data-slot="chip"]')).toHaveText(['Changed', 'Refused', 'Paused'])
+    for (const [id, state, tone, review] of [
+      ['changed-review', 'Changed', 'warning', true],
+      ['refused-review', 'Refused', 'danger', true],
+      ['paused-sweep', 'Paused', 'info', false],
+    ] as const) {
+      const row = triggers.locator('[data-slot="list-row"]').filter({ has: page.getByRole('switch', { name: `Arm ${id}`, exact: true }) })
+      await expect(row.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+      await expect(row.locator('[data-slot="chip"]')).toHaveText(state)
+      await expect(row.locator('[data-slot="chip"]')).toHaveAttribute('data-tone', tone)
+      await expect(row.getByRole('button', { name: 'Review', exact: true })).toHaveCount(review ? 1 : 0)
+    }
+    for (const id of ['review-pr', 'triage-issue', 'nightly-sweep']) {
+      const row = triggers.locator('[data-slot="list-row"]').filter({ has: page.getByRole('switch', { name: `Arm ${id}`, exact: true }) })
+      await expect(row.locator('[data-slot="chip"]')).toHaveCount(0)
+    }
+    await expect(triggers.locator('[data-slot="list-row-subtitle"]').filter({ hasText: 'triager' })).toContainText('triager · once at a time · Out of budget for today.')
+    await expect(triggers.getByRole('button', { name: 'History', exact: true })).toHaveCount(6)
     const emptyCells = page.locator('[data-frame-id="plugin-panel-table"] tbody td').filter({ hasText: '—' })
     await expect(emptyCells).toHaveCount(2)
   })

@@ -87,9 +87,9 @@ export const triggerView = (over: Partial<TriggerView> = {}): TriggerView => ({
 })
 
 export const triggerProjectView = (over: Partial<TriggerProjectView> = {}): TriggerProjectView => ({
-  project: INTAKE_ROOT,
+  project: '/preview/code/project',
   revision: 1,
-  path: `${INTAKE_ROOT}/.harnessdesk/triggers.yml`,
+  path: '/preview/code/project/.harnessdesk/triggers.yml',
   exists: true,
   workingCopyChanged: false,
   triggers: [
@@ -108,6 +108,21 @@ export const triggerProjectView = (over: Partial<TriggerProjectView> = {}): Trig
       armed: true,
       state: 'armed',
       openGoals: 1,
+    }),
+    triggerView({
+      id: 'changed-review', definition: prDefinition({ id: 'changed-review' }),
+      armed: true, state: 'changed',
+      reason: 'The declaration changed since it was armed.', fix: 'Review it and arm it again.',
+      last: triggerFiring({ trigger: 'changed-review' }),
+    }),
+    triggerView({
+      id: 'refused-review', definition: prDefinition({ id: 'refused-review' }),
+      armed: true, state: 'refused',
+      reason: 'This machine cannot verify its arm.', fix: 'Review it and arm it again.',
+    }),
+    triggerView({
+      id: 'paused-sweep', definition: scheduleDefinition({ id: 'paused-sweep' }),
+      armed: true, state: 'paused', reason: 'Triggers on this Mac are paused.',
     }),
   ],
   problems: [],

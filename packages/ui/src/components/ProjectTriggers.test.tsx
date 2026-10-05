@@ -100,6 +100,7 @@ it('describes every source, its arm state, and the last thing that happened, inc
   expect(text).toContain('Every 24 hours')
   expect(text).toContain('Out of budget for today.')
   expect(text).toContain('review-pr · at most 4 at once')
+  expect(text).toContain('triager · once at a time · Out of budget for today.')
   expect(text).not.toContain('Armed')
   expect(text).not.toContain('Off')
   expect(container.querySelectorAll('[role="switch"]')).toHaveLength(4)
@@ -284,4 +285,43 @@ it('names the history shown by the pagination row and reads the next page', asyn
   act(() => button('Show more firings').click())
   await settle()
   expect(triggerHistory).toHaveBeenLastCalledWith(ROOT, 'review-pr', 'older')
+})
+
+it('distinguishes exceptional states from the armed switch and offers review only for stale arms', async () => {
+  mount({ projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [
+    triggerView({ state: 'changed' }),
+    triggerView({ id: 'refused', state: 'refused' }),
+    triggerView({ id: 'paused', state: 'paused' }),
+  ] })) })
+  await settle()
+  const rows = [...container.querySelectorAll('[data-slot="list-row"]')]
+  expect(rows.map(row => row.querySelector('[data-slot="chip"]')?.textContent)).toEqual(['Changed', 'Refused', 'Paused'])
+  expect(rows.map(row => row.querySelector('[data-slot="chip"]')?.getAttribute('data-tone'))).toEqual(['warning', 'danger', 'info'])
+  expect(rows.map(row => [...row.querySelectorAll('button')].some(button => button.textContent === 'Review'))).toEqual([true, true, false])
+  expect(rows.map(row => row.querySelector('[role="switch"]')?.getAttribute('aria-checked'))).toEqual(['true', 'true', 'true'])
+})
+
+it('keeps target and concurrency beside a firing even when an arm has a refusal', async () => {
+  mount({ projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({
+    state: 'refused', reason: 'Review this arm.', last: triggerFiring(),
+  })] })) })
+  await settle()
+  expect(container.textContent).toContain('review-pr · at most 4 at once')
+  expect(container.textContent).toContain('Review this arm.')
+  expect(container.textContent).toContain('Fired.')
+})
+
+it('keeps a pending or failed history read in the compact list', async () => {
+  let reject!: (error: Error) => void
+  mount({ projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView()] })),
+    triggerHistory: vi.fn(() => new Promise<TriggerHistoryPage>((_resolve, fail) => { reject = fail })),
+  })
+  await settle()
+  act(() => button('History').click())
+  await settle()
+  const historyRow = () => [...container.querySelectorAll('[data-slot="list-row"]')].find(row => row.textContent?.includes('history'))
+  expect(historyRow()?.getAttribute('data-hd-table')).toBe('compact')
+  await act(async () => reject(new Error('Try reading again.')))
+  expect(historyRow()?.getAttribute('data-hd-table')).toBe('compact')
+  expect(historyRow()?.textContent).toContain('Try reading again.')
 })
