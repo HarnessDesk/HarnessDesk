@@ -95,9 +95,10 @@ export const accountName = (
   const nickname = prefs?.nickname?.trim()
   if (nickname) return nickname
   if (account.anonymous && agent) return agent
-  const email = account.email ?? (account.label.includes('@') ? account.label : null)
+  const label = account.label ?? ''
+  const email = account.email ?? (label.includes('@') ? label : null)
   if (email) return email.slice(0, email.indexOf('@'))
-  return account.label
+  return label
 }
 
 /** The line under the name: who it really is, and on what plan. */
