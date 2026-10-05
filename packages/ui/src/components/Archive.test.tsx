@@ -155,8 +155,10 @@ it('offers Restore to everyone and Delete only where it is real', async () => {
   const refused = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
   expect(refused.getAttribute('aria-disabled')).toBe('true')
   expect(refused.hasAttribute('data-disabled')).toBe(true)
-  expect(document.getElementById(refused.getAttribute('aria-describedby')!)?.textContent)
+  const refusal = document.getElementById(refused.getAttribute('aria-describedby')!)!
+  expect(refusal.textContent)
     .toBe('DeepSeek Harness keeps no way to delete one.')
+  expect(refusal.closest('.sr-only')).toBeNull()
   await act(async () => refused.click())
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(document.body.textContent).not.toContain('Delete conversation')

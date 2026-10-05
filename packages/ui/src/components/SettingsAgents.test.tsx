@@ -524,6 +524,25 @@ it('an unanswered default wears its Default chip alone', async () => {
   expect(chips).toEqual(['Default'])
 })
 
+it.each([
+  ['unanswered', {}],
+  ['unavailable', { healthByRuntime: { gamma: { state: 'unavailable', reason: 'crashed', message: 'exited' } } }],
+  ['without desk accounts', { runtimes: [runtime({ id: 'gamma', name: 'Gamma', capabilities: { ...NO_CAPABILITIES } })] }],
+  ['with an unanswered sibling', {
+    runtimes: [ROSTER.runtimes[3], runtime({ id: 'gamma#2', name: 'Gamma', slot: { agent: 'gamma' } })],
+    accountsByRuntime: { gamma: signedIn([], ['browser']) },
+  }],
+])('does not claim sign-out for a runtime %s', async (_state, over) => {
+  await mountList({ accountsByRuntime: {}, ...over })
+  expect(line('Gamma').textContent).not.toContain('Not signed in')
+})
+
+it('reports a confirmed sign-out and retains an anonymous sign-in', async () => {
+  await mountList({ accountsByRuntime: { ...ROSTER.accountsByRuntime, beta: signedIn([{ anonymous: true }], []) } })
+  expect(line('Gamma').textContent).toContain('Not signed in')
+  expect(line('Beta').textContent).toContain('Signed in')
+})
+
 it('an unanswered row that is not the default carries no control at all', async () => {
   const accounts = { ...ROSTER.accountsByRuntime }
   delete (accounts as Record<string, unknown>).gamma

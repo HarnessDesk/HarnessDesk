@@ -528,7 +528,7 @@ const AgentRow = ({
           {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
         </span>
       }
-      desc={who ?? 'Not signed in'} truncateDesc
+      desc={who ?? (state === 'signin' ? 'Not signed in' : undefined)} truncateDesc
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {

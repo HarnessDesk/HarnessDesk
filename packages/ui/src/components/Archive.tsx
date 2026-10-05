@@ -8,7 +8,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, MenuNote, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead } from '../design'
 import styles from './Archive.module.css'
 
 /**
@@ -189,7 +189,7 @@ export const ArchiveSection = () => {
                               title={deletable ? undefined : `${runtime.presentation.name} keeps no way to delete one.`}
                               closeOnClick={deletable}
                               onClick={() => { if (deletable) setDeleting(summary) }}>Delete…</DropdownMenuItem>
-                            {!deletable && <span className="sr-only" id={`${refusalId}-${runtime.id}`}>{runtime.presentation.name} keeps no way to delete one.</span>}
+                            {!deletable && <MenuNote><span id={`${refusalId}-${runtime.id}`}>{runtime.presentation.name} keeps no way to delete one.</span></MenuNote>}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </>
