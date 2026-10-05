@@ -128,7 +128,7 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
               {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
-            // *Run again…* is the row's sibling, never inside its button: laid over the end of the first line, where an invisible spacer in the row's trail keeps the row's own words clear of it.
+            // *Run again…* is the row's sibling, never inside its button: centred over the end of the whole row, where an invisible spacer in the row's trail keeps the row's own words clear of it.
             const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
             const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id || selectedRows?.includes(row.id)}
               onClick={() => onSelect(row.id)} title={title}
@@ -142,7 +142,7 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
               meta={row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
             return <Fragment key={row.id}>
               {again ? <div data-slot="run-row" className="relative">{item}
-                <div className="absolute end-4 top-2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
+                <div className="absolute end-4 top-1/2 -translate-y-1/2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
               </div> : item}
             </Fragment>
           })}

@@ -970,6 +970,17 @@ carries a warning chip rather than reading as already satisfied. Editing the
 source or a variable invalidates Start immediately; a stale reply can never
 re-enable it. Starting a flow opens exactly one new Goal, through one host
 operation — never a bare Goal made first and a flow started into it after.
+The preview checks each chosen model's effort and thinking controls with the
+agent's own session options, checking thinking after effort has settled, then
+checks what the full combination settles on.
+Each check starts with new-session defaults, independent of earlier draft picks.
+An explicit `default` effort must be accepted by the agent's own controls.
+An unsupported choice names its reason on that Seat and refuses Start before
+a Run, Goal or lane is created. If the agent cannot yet report its catalogue
+or controls, the preview says so and must be read again when the agent is ready.
+Refreshing the agent's catalogue clears an unanswered option read so it can
+be tried again; it waits for real turns to finish and keeps conversations an
+agent cannot reopen.
 
 **`/race`** opens a dialog asking for one Agent and two explicit, isolated
 seats — never the other installed runtime, never two ordinary drafts. It
@@ -1047,6 +1058,9 @@ the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
+Each member row names its nickname, with a distinct conversation title in the
+wrapping subtitle. Its task or message refusal shares that subtitle, so the
+work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
 Board-only Chat keeps the consequence of its messaging mode on screen.

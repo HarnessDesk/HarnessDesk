@@ -25,9 +25,10 @@ afterEach(() => {
 
 const rig = async (options: {
   checkoutBranch?: (root: string, branch: string, opts: { create: boolean }) => Promise<boolean>
+  branches?: readonly { name: string; current: boolean; committedAt: number }[]
 } = {}) => {
   const snapshot = { ...emptySnapshot(), status: 'open' } as AppSnapshot
-  const branches = [
+  const branches = options.branches ?? [
     { name: 'main', current: true, committedAt: 1000 },
     { name: 'feature/alpha', current: false, committedAt: 2000 },
     { name: 'feature/beta', current: false, committedAt: 3000 },
@@ -111,7 +112,7 @@ it('announces a failed checkout in the canonical alert', async () => {
   )
 })
 
-it('→ on the branch row steps in while the branches are still being read, and their arrival leaves the focus where it is', async () => {
+const delayedRig = async (entry = 'ArrowRight') => {
   // The flyout is drawn before the list is read, with one row in it: the
   // create row at its foot. → lands there, where Enter lands too, and the
   // branches arriving above it do not take the focus from it.
@@ -140,12 +141,24 @@ it('→ on the branch row steps in while the branches are still being read, and 
   const row = button('Branch main')!
   act(() => row.focus())
   act(() => {
-    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: entry, bubbles: true }))
+    // jsdom does not generate a native button's click from Enter.
+    if (entry === 'Enter') row.click()
   })
   await frame()
   expect(row.getAttribute('aria-expanded')).toBe('true')
   expect(document.activeElement).toBe(button('Create and checkout new branch'))
+  // The list may take longer than Submenu's three-frame step-in window.
+  for (let i = 0; i < 4; i++) await frame()
 
+  return { read, button, frame }
+}
+
+it.each([
+  ['ArrowRight', 'ArrowUp'], ['ArrowRight', 'ArrowDown'],
+  ['Enter', 'ArrowUp'], ['Enter', 'ArrowDown'],
+])('%s step-in: the first %s after delayed branches arrive moves from Create (#782)', async (entry, key) => {
+  const { read, button, frame } = await delayedRig(entry)
   await act(async () => {
     read([
       { name: 'main', current: true, committedAt: 1000 },
@@ -155,4 +168,64 @@ it('→ on the branch row steps in while the branches are still being read, and 
   await frame()
   expect(button('feature/alpha')).toBeDefined()
   expect(document.activeElement).toBe(button('Create and checkout new branch'))
+  expect(document.activeElement?.hasAttribute('data-highlighted')).toBe(true)
+  act(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+  })
+  await frame()
+  const target = button(key === 'ArrowUp' ? 'feature/alpha' : 'main')
+  expect(document.activeElement).toBe(target)
+  expect(target?.hasAttribute('data-highlighted')).toBe(true)
+})
+
+it('keeps navigation usable with no matches and after clearing the filter', async () => {
+  await rig({ branches: Array.from({ length: 6 }, (_, index) => ({
+    name: index === 0 ? 'main' : `feature/${index}`,
+    current: index === 0,
+    committedAt: 1000,
+  })) })
+  const search = container.querySelector<HTMLInputElement>('input')!
+  const setQuery = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, value)
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  setQuery('no-matching-branch')
+  expect(container.textContent).toContain('No branch matches.')
+  const create = [...container.querySelectorAll<HTMLButtonElement>('button')]
+    .find((button) => button.textContent?.startsWith('Create and checkout'))!
+  act(() => create.focus())
+  for (const key of ['ArrowUp', 'ArrowDown']) {
+    await act(async () => {
+      create.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+    expect(document.activeElement).toBe(create)
+  }
+  setQuery('')
+  await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)) })
+  act(() => {
+    create.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+  })
+  expect(document.activeElement?.textContent).toContain('feature/5')
+})
+
+it('does not take focus from the create field when branches arrive', async () => {
+  const { read, button, frame } = await delayedRig()
+  act(() => button('Create and checkout new branch')!.click())
+  const input = document.querySelector<HTMLInputElement>('input[placeholder="new-branch-name"]')!
+  expect(document.activeElement).toBe(input)
+  await act(async () => { read([{ name: 'main', current: true, committedAt: 1000 }]) })
+  await frame()
+  expect(document.activeElement).toBe(input)
+})
+
+it('keeps the search autofocus when a searchable list arrives', async () => {
+  const { read, frame } = await delayedRig()
+  await act(async () => {
+    read(Array.from({ length: 6 }, (_, index) => ({
+      name: `feature/${index}`, current: index === 0, committedAt: 1000,
+    })))
+  })
+  await frame()
+  expect(document.activeElement).toBe(document.querySelector('input[placeholder="Search repo branches"]'))
 })

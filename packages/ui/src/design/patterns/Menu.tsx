@@ -11,6 +11,7 @@ import {
   type FocusEvent as ReactFocusEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type Ref,
 } from 'react'
 
 import { CheckIcon, ChevronIcon } from '../../components/Icons'
@@ -259,6 +260,7 @@ export const MenuAccountGroup = ({
 export const MenuSeparator = () => <div className={styles.separator} role="separator" />
 
 export const MenuItem = ({
+  ref,
   children,
   icon,
   label,
@@ -277,6 +279,7 @@ export const MenuItem = ({
   className,
   onSelect,
 }: {
+  ref?: Ref<HTMLButtonElement>
   /** Rich row anatomy still uses the canonical Base UI menu item behavior. */
   children?: ReactNode
   icon?: ReactNode
@@ -304,6 +307,7 @@ export const MenuItem = ({
   const reasonId = useId()
   return (
     <DropdownMenuItem
+      ref={ref}
       render={<button type="button" disabled={Boolean(disabled)} />}
       nativeButton
       className={`${styles.row}${className ? ` ${className}` : ''}`}

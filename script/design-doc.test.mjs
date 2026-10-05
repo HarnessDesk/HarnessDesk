@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { groupDeclarations, leadComment } from './design-doc.mjs'
+import { groupDeclarations, leadComment, tableDensityRows } from './design-doc.mjs'
 
 test('leadComment preserves words starting with i or ic when comments omit space after asterisk (#490)', () => {
   const comment = [
@@ -74,4 +74,11 @@ test('a band divider ends a group as a section header does (#754)', () => {
   ].join('\n')
 
   assert.deepEqual(groupDeclarations(group), [['--hd-text', '14px']])
+})
+
+test('the table density reference reports comfortable and compact values separately', () => {
+  const rows = tableDensityRows()
+  assert.equal(rows.length, 15)
+  assert.deepEqual(rows.find(([name]) => name === '--hd-table-head-h'), ['--hd-table-head-h', '40px', '32px'])
+  assert.deepEqual(rows.find(([name]) => name === '--hd-table-face'), ['--hd-table-face', '32px', '24px'])
 })

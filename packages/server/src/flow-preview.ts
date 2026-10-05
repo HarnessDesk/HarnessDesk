@@ -18,7 +18,9 @@ import {
   type StartContext,
 } from '@harnessdesk/protocol'
 
+import type { SeatOptionsProblem } from './seat-options.js'
 import type { CheckRetry } from './flow-execution.js'
+import { sentenceOf } from './agent-seating.js'
 import { rolesAtPredecessor } from './flow-handed.js'
 import { INDEPENDENT_PROVIDER, independentProviderReason } from './flow-provider.js'
 import { checkGuardNames, compileFlowPolicy, parseFlowPolicy, reviewsIn } from './flow-policy.js'
@@ -54,6 +56,8 @@ export interface FlowPreviewPort {
   checkoutPath?(root: string, lane: boolean): Promise<string>
   /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
   pluginToolsProblem?(runtime: string, root: string, lane: boolean): Promise<string | null>
+  /** The selected model's actual effort and thinking controls, using the runtime's session-opening refusal. */
+  seatOptionsProblem?(seat: FlowSeat, cwd: string): Promise<SeatOptionsProblem | null>
   /** Whether this runtime asks per MCP tool and the host cannot answer for it. */
   perToolMcpApproval?(runtime: string): boolean
   /**
@@ -437,6 +441,10 @@ export class FlowPreviews {
           role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate || compiled.document.flow.base !== undefined,
           ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
         })
+        if (!plan.blocked && selected && this.#port.seatOptionsProblem) {
+          const problem = await this.#port.seatOptionsProblem(selected.seat, cwd)
+          if (problem) problems.push({ level: 'error', at: `roles.${role.id}.seat[${binding.index}]`, ...problem })
+        }
         if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
           const selected = plan.candidates[plan.winner]!
           const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, cwd, lane)
@@ -450,7 +458,9 @@ export class FlowPreviews {
           problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
         } else if (plan.winner === null) {
           // Every candidate passed over now: a fact about this machine at this moment, not about the flow.
-          problems.push({ level: 'error', at: `roles.${role.id}`, text: `No seat could be opened for “${binding.agent.id}”.`, availability: true })
+          const reasons = plan.candidates.flatMap((candidate) => candidate.reason && ['noModel', 'noEffort', 'modelsUnread'].includes(candidate.reason.kind)
+            ? [`${candidate.label}: ${sentenceOf(candidate.runtimeName, candidate.reason)}`] : [])
+          problems.push({ level: 'error', at: reasons.length ? `roles.${role.id}.seat[${binding.index}]` : `roles.${role.id}`, text: [`No seat could be opened for “${binding.agent.id}”.`, ...reasons].join('\n'), availability: true })
         }
       }
     }

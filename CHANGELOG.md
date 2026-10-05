@@ -17,6 +17,10 @@ move is real work and is not news to a person weighing an upgrade.
   Reading or clearing an earlier occurrence in another window cannot hide the
   new one, and a delayed copy cannot undo a read or clear.
 
+- **Read what each room member is doing.** Conversation titles wrap beneath
+  the nickname alongside the task or reason, instead of being cut off on
+  the name's line. (Fixes #1185)
+
 - **A comparison keeps the attempt its judge picked.** Findings on the other
   attempt no longer hold the person’s keep step; they stay open and explain
   why they were not kept, including advisory findings and after later reviews.

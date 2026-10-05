@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { BranchIcon, PlusIcon } from './Icons'
@@ -31,6 +31,7 @@ const FILTER_FROM = 6
 
 export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => void }) => {
   const store = useStore()
+  const createRow = useRef<HTMLButtonElement>(null)
   const [branches, setBranches] = useState<readonly { name: string; current: boolean; committedAt: number }[] | null>(null)
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
@@ -55,6 +56,21 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
     const needle = query.trim().toLowerCase()
     return needle ? branches.filter((branch) => branch.name.toLowerCase().includes(needle)) : branches
   }, [branches, query])
+
+  useEffect(() => {
+    const row = createRow.current
+    if (!row || document.activeElement !== row) return
+    // Rows arriving above Create change its index without a focus event.
+    // After Base UI registers them, renew focus so its navigation starts at
+    // Create's new index. Calling focus on an already focused row is a no-op.
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled || document.activeElement !== row || !row.isConnected) return
+      row.blur()
+      row.focus({ preventScroll: true })
+    })
+    return () => { cancelled = true }
+  }, [shown])
 
   const checkout = async (branch: string, create: boolean): Promise<void> => {
     if (busy !== null) return
@@ -132,6 +148,7 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
         </form>
       ) : (
         <MenuItem
+          ref={createRow}
           icon={<PlusIcon size={15} />}
           label="Create and checkout new branch…"
           keepOpen
