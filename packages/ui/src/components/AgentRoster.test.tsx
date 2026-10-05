@@ -347,3 +347,11 @@ it('names the linked checkout that was actually read rather than the main checko
   expect(container.textContent).toContain('/w/review-copy/.harnessdesk/agents')
   expect(container.textContent).not.toContain('/w/main/.harnessdesk/agents')
 })
+
+it('names no folder for a roster still read for the workspace open before', () => {
+  // The workspace changed and its own roster has not arrived (or failed): these rows came from /w/old.
+  mount({ agentsProject: '/w/old', workspace: { path: '/w/storefront', checkoutRoot: '/w/storefront', name: 'storefront', lastOpenedAt: 1 } as AppSnapshot['workspace'] })
+  expect(sectionText('In storefront')).toContain('Read from the Agents folder, and committed with the code')
+  expect(container.textContent).not.toContain('/w/storefront/.harnessdesk/agents')
+  expect(container.textContent).not.toContain('undefined')
+})

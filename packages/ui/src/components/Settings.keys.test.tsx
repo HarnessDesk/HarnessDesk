@@ -266,6 +266,13 @@ it('puts model efforts in the description, with Default and Always thinks on lin
   expect(row.querySelector('[class*="efforts"]')).toBeNull()
 })
 
+it('a model with neither badge keeps no chip slot beside its name', async () => {
+  mount([], [], [{ id: 'model-b', displayName: 'Model B', description: 'Quick edits.', isDefault: false, supportsImages: false, reasoningLevels: [] }])
+  await act(async () => {})
+  const row = [...container.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.includes('Model B'))!
+  expect(row.querySelector('[data-slot="row-title-chip"]')).toBeNull()
+})
+
 it('an unavailable endpoint keeps endpoint and model on line two and its reason visibly below it', async () => {
   mount([], [{ ...route, usable: false, reason: 'The protocol is not supported', model: 'Model A' }])
   await act(async () => {})

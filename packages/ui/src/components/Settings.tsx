@@ -995,12 +995,13 @@ const ModelsSection = () => {
             // looks like.
             mark={<ModelMark model={`${model.id} ${model.displayName}`} agent={agentBrand} size={15} />}
             title={model.displayName}
-            titleChip={
+            // No badge, no chip slot: an empty one still takes its gap from the title.
+            titleChip={model.isDefault || model.thinking ? (
               <>
                 {model.isDefault && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>Default</Chip>}
                 {model.thinking && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>{model.thinking === 'always' ? 'Always thinks' : 'Thinking'}</Chip>}
               </>
-            }
+            ) : undefined}
             desc={[
               model.description,
               model.reasoningLevels.map(level => level.label.charAt(0).toUpperCase() + level.label.slice(1)).join(', '),

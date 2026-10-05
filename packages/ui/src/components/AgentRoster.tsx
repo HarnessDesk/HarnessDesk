@@ -77,6 +77,11 @@ export const AgentsRosterSection = ({
   const project = projectName(snapshot.workspace)
   const sections = bySection(agents)
   const opened = open ? agents.find((one) => one.id === open) : undefined
+  // The folder is named only for the roster on screen. While the one read for the workspace open before is still shown
+  // (the new load in flight, or failed), the open workspace's folder would name files these rows were not read from.
+  const projectFolder = snapshot.workspace && snapshot.agentsProject === snapshot.workspace.path
+    ? `${snapshot.workspace.checkoutRoot ?? snapshot.workspace.path}/.harnessdesk`
+    : null
   if (opened) {
     return (
       <AgentPage
@@ -134,7 +139,7 @@ export const AgentsRosterSection = ({
                 />
               ))}
             </Rows>
-            <Note ink="muted" inset="row">{footnote(origin, origin === 'user' ? snapshot.stateDir : `${snapshot.workspace?.checkoutRoot ?? snapshot.agentsProject ?? snapshot.workspace?.path}/.harnessdesk`, snapshot.home)}</Note>
+            <Note ink="muted" inset="row">{footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}</Note>
           </Section>
         )
       })}
