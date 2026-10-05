@@ -103,7 +103,7 @@ export const SettingsFrames = () => {
         </Frame>
       )}
       <Frame id="settings-archive" title="Settings › Archive">
-        <div className="max-h-[560px] overflow-y-auto p-4">
+        <div className="p-4">
           <ArchiveSection />
         </div>
       </Frame>

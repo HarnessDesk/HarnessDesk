@@ -188,7 +188,7 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     if (iconLike && hasText(text) && !boxSurface(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
       // Tables, default/small lists and settings now centre on the whole row.
       // Other compositions still answer to their first text line.
-      const familyRow = row.matches('[data-slot="list-row"]') || lead.matches('[data-slot="row-mark"], [data-slot="row-choice-mark"], [data-slot="table-cell-lead"]')
+      const familyRow = row.matches('[data-slot="list-row"]') || lead.matches('[data-slot="row-mark"], [data-slot="row-face"], [data-slot="row-choice-mark"], [data-slot="table-cell-lead"]')
       const target = familyRow ? row.getBoundingClientRect() : line
       const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (target.top + target.bottom) / 2)
       const rowStyle = getComputedStyle(row)
@@ -473,7 +473,7 @@ test('a bare bar label shares a search lead while an icon tab shares its text', 
 })
 
 test('row-family leads centre on the row, and a first-line regression is caught', async ({ page }) => {
-  for (const slot of ['list-row-lead', 'row-mark', 'row-choice-mark', 'table-cell-lead']) {
+  for (const slot of ['list-row-lead', 'row-mark', 'row-face', 'row-choice-mark', 'table-cell-lead']) {
     await page.setContent(`<main id="root"><div ${slot === 'list-row-lead' ? 'data-slot="list-row"' : ''} style="display:flex;align-items:center;gap:12px;height:100px">
       <span data-slot="${slot}" style="display:flex;width:32px;height:32px"><svg width="20" height="20"></svg></span>
       <div style="line-height:20px">A title<br>A second line<br>A wrapping sentence</div>

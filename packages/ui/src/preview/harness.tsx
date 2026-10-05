@@ -1142,7 +1142,8 @@ class PreviewStore {
         ],
       } satisfies MachineSeating,
       seatAgents: new Map([[seatAgentKey(previewSession.cwd, 'code-reviewer'), PREVIEW_AGENTS[0] ?? null]]),
-      home: '/home/u',
+      home: PREVIEW_ROOT.split('/').slice(0, -2).join('/'),
+      lanes: [{ id: 'settings-lane', goal: 'settings-goal', seat: null, cwd: '~/code/storefront-review', branch: 'review/settings', ports: { start: 30000, end: 30019 }, browserProfile: null, state: 'retained', createdAt: now }],
       stateDir: '/home/u/.harnessdesk',
       ...seed,
       // Preview seeds model a full history unless they name the separate
@@ -1882,6 +1883,10 @@ class PreviewStore {
   // --- the wire, method-aware ----------------------------------------------
   transport = {
     request: async (method: string, params?: unknown): Promise<unknown> => {
+      if (method === 'session/list') {
+        const runtime = (params as { runtime: string }).runtime
+        return { data: [{ id: `archived-${runtime}`, runtime, title: 'Review the workspace settings', preview: null, cwd: PREVIEW_ROOT, status: { type: 'notLoaded' }, createdAt: now - 86_400_000, updatedAt: now - 3_600_000, archived: true }], nextCursor: null }
+      }
       if (method === 'library/read') return LIBRARY
       if (method === 'library/definition') {
         const name = (params as { name?: string } | undefined)?.name ?? ''

@@ -1,5 +1,5 @@
 import {
-  Button, Chip, EmptyState, Face, IconTile, KeyValue, KeyValueRow, ListRow, ListRows,
+  AccountMark, Button, Chip, EmptyState, Face, IconTile, KeyValue, KeyValueRow, ListRow, ListRows,
   Row, RowButton, RowChoice, RowValue, Rows, SectionHead, Switch,
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from '..'
@@ -41,8 +41,9 @@ export const TablesFamily = () => (
           <ListRow selected title="Review project checks" subtitle="3 checks" trail={<Chip tone="neutral">Selected</Chip>} />
           <ListRow lead={<IconTile tone="warning"><ShieldAlertIcon /></IconTile>} title="Workspace unavailable" subtitle={SENTENCE} wrapSubtitle trail={<Button size="sm" variant="outline">Choose…</Button>} />
         </ListRows>
-        <SectionHead name="Settings rows · 3" />
+        <SectionHead name="Settings rows · 4" />
         <Rows data-catalog-size={density}>
+          <Row kind="record" face={<AccountMark size="row" data-tint="blue">JD</AccountMark>} title="Jane Doe" desc="dev@example.com" truncateDesc />
           <Row mark={<FolderIcon />} title="Working folder" desc={SENTENCE} control={<Button size="sm" variant="outline">Choose…</Button>} />
           <RowButton title="Library" desc="3 shared skills" onClick={() => {}} action={<Button size="sm" variant="outline">Manage</Button>} />
           <Row title="Start automatically" control={<Switch aria-label={`Start automatically (${density})`} defaultChecked />} />

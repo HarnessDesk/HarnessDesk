@@ -714,9 +714,9 @@ Three shapes, and each one means something wherever it appears:
 
 | Shape | What it is | Examples |
 | --- | --- | --- |
-| Face | Someone: an agent at work or a person | A sender in the chat, a member on a team's rail, a board card's holder, a session or member card, your seat, a name inside a sentence |
+| Face | Someone: an agent at work, a runtime or a person | A sender in the chat, a member on a team's rail, a board card's holder, a runtime, session or member card, your seat, a name inside a sentence |
 | Ring | An account | The seat menu's account marks, an account card |
-| Square | A thing or a category | A plugin, a skill, a file, a harness, a section |
+| Square | A thing or a category | A plugin, a skill, a file, a section |
 
 A face takes its corner from `--hd-face-radius` and never from the tile it sits
 in. It is square by default, and a person can make every face round in

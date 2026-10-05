@@ -15,12 +15,6 @@
   width: 220px;
 }
 
-.rowName {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2); /* desk: 8 → var(--hd-space-2), on the scale */
-}
-
 .unverifiedBadge {
   margin-left: var(--hd-space-1-5);
   vertical-align: middle;

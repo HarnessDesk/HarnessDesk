@@ -72,11 +72,11 @@ it('draws nothing but the crest when that is all it knows', () => {
  * The crest's mark arrives through `subject.mark`, so the source scan in
  * `design/faces.census.test.ts` cannot see what an `AgentCard` holds. What
  * keeps the crest one shape with its subject's everywhere else is this: a
- * harness is a thing (square), an account a ring, a session or a member someone
- * (a face, which follows the Faces setting).
+ * runtime, session or member is someone (a face, which follows the Faces
+ * setting), and an account keeps its ring.
  */
 it.each([
-  ['agent', 'square'],
+  ['agent', 'face'],
   ['account', 'round'],
   ['session', 'face'],
   ['member', 'face'],
