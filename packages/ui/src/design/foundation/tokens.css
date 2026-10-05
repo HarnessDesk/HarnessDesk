@@ -393,6 +393,7 @@ body {
      (#835). `GitPane.tsx`'s `ROW` mirrors this value, and a test pins the
      two together. */
   --hd-table-row-h: 26px;
+  /* The log's 16px meta line plus 6px above and below; independent of table density. */
   --hd-table-log-head-h: 28px;
   /* Tables and rows. One anatomy, centred on the whole row. The compact
      scope below overrides only these decisions; the windowed log pitch above
