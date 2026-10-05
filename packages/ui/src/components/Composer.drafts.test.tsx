@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { runtimeId, sessionId, sessionKey, type RuntimeInfo, type Session, type SessionKey } from '@harnessdesk/protocol'
 
-import { PaneProvider, StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider, useSnapshot } from '../state/context'
 import { draftsOf } from '../state/drafts'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { panes, sessionOf } from '../state/layout'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Composer } from './Composer'
 
 /**
@@ -130,6 +131,63 @@ const restoreMessage = (text: string): void => {
   act(() => restore.click())
   expect(textarea().value).toBe(text)
 }
+
+describe('a failed conversation read preserves typing in the fresh composer (#800)', () => {
+  it('restores text and a file typed during the read, then sends to a new conversation', async () => {
+    store = new AppStore('ws://localhost:0/')
+    let refuse!: (error: Error) => void
+    const read = new Promise((_, reject) => { refuse = reject })
+    const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+      if (method === 'session/read') return read
+      if (method === 'runtime/health') return { state: 'ready' }
+      if (method === 'workspace/recent') return [{ path: '/w', name: 'project', lastOpenedAt: 0 }]
+      if (method === 'session/create') return session('fresh')
+      if (method === 'session/list') return { data: [], cursor: null }
+      return []
+    }) as never)
+    await store.selectRuntime(runtime.id)
+    await store.loadWorkspaces()
+    const pending = store.openSession(sessionId('missing'), { runtime: runtime.id })
+    const LiveComposer = () => {
+      const state = useSnapshot()
+      const pane = panes(state.layout.root)[0]!
+      return <PaneProvider scope={{ paneId: pane.id, view: pane.view, sessionKey: sessionOf(pane) }}>
+        <Composer onChooseProject={() => {}} />
+      </PaneProvider>
+    }
+    act(() => root.render(<StoreProvider store={store}><LiveComposer /></StoreProvider>))
+    type('Keep the message I am writing.')
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+      detail: { text: '', attachments: [{ name: 'plan.md', path: '/w/plan.md', kind: 'file' }] },
+    })))
+    expect(container.textContent).toContain('plan.md')
+    expect(store.drafts.live(sessionKey(runtime.id, sessionId('missing')))?.text).toBe('Keep the message I am writing.')
+
+    await act(async () => {
+      refuse(new Error('No stored conversation missing.'))
+      await pending
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
+
+    expect(sessionOf(panes(store.getSnapshot().layout.root)[0]!)).toBeNull()
+    expect([...store.getSnapshot().recoverableDrafts.values()].flat().map((draft) => draft.text)).toContain('Keep the message I am writing.')
+    restoreMessage('Keep the message I am writing.')
+    expect(container.textContent).toContain('plan.md')
+    await act(async () => {
+      textarea().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
+    expect(request.mock.calls.filter(([method]) => method === 'session/create')).toHaveLength(1)
+    expect(request.mock.calls.filter(([method]) => method === 'turn/queue').map(([, params]) => params))
+      .toEqual([expect.objectContaining({
+        runtime: runtime.id, sessionId: sessionId('fresh'),
+        input: [
+          { type: 'mention', name: 'plan.md', path: '/w/plan.md' },
+          { type: 'text', text: 'Keep the message I am writing.' },
+        ],
+      })])
+  })
+})
 
 describe('a draft belongs to its conversation, not to the composer drawing it', () => {
   it('is waiting when the composer is taken away and drawn again', () => {

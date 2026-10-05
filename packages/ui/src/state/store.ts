@@ -313,7 +313,7 @@ export type {
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
-import { Drafts, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
+import { Drafts, UNSCOPED_RECOVERY_KEY, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
 export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
 
@@ -2298,6 +2298,19 @@ export class AppStore {
         this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
       }
       if (!painted || (options.restoring && !isHeldElsewhere(error) && !isFolderGone(error))) {
+        // The composer stays editable while reading. Save its live draft
+        // before clearing the key, where the fresh composer can restore it.
+        // A repeated refusal must not save the same draft a second time.
+        const draft = !painted ? this.drafts.live(key) : null
+        if (draft) {
+          this.drafts.addRecoverable(UNSCOPED_RECOVERY_KEY, {
+            text: draft.text,
+            attachments: draft.attachments,
+            reason: 'saved',
+            detail: 'The conversation could not open. Restore your draft to the composer you choose.',
+          })
+          this.drafts.setLive(key, { text: '', attachments: [] })
+        }
         // Without a transcript this is a draft, so its next message must
         // create a conversation rather than address the failed one. On a
         // restore, keep the existing cleanup for other reopening failures;

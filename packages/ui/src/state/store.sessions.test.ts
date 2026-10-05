@@ -14,6 +14,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { TransportEvents } from '../lib/transport'
+import { UNSCOPED_RECOVERY_KEY } from './drafts'
 import type { PaneId } from './layout'
 import { panes, sessionOf } from './layout'
 import { AppStore } from './store'
@@ -185,6 +186,36 @@ describe('a conversation that could not be read (#800)', () => {
 
     expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(RUNTIME, newer.id))
     expect(panesOf().map(sessionOf)).toEqual([sessionKey(RUNTIME, newer.id)])
+  })
+
+  it('saves a failed-key draft once even after navigation to a newer conversation', async () => {
+    let refuse!: (error: Error) => void
+    vi.mocked(store.transport.request).mockReturnValueOnce(new Promise((_, reject) => { refuse = reject }))
+    const pending = store.openSession(ID, { runtime: RUNTIME })
+    store.drafts.setLive(KEY, {
+      text: 'Keep my draft.',
+      attachments: [{ id: 'file-1', kind: 'file', name: 'plan.md', path: '/w/plan.md' }],
+    })
+    const newer = session({ id: sessionId('newer') })
+    answers['session/read'] = newer
+    answers['session/resume'] = newer
+    await store.openSession(newer.id, { runtime: RUNTIME })
+    const newerKey = sessionKey(RUNTIME, newer.id)
+    store.drafts.setLive(newerKey, { text: 'A newer message.', attachments: [] })
+
+    refuse(new Error(SAID))
+    await pending
+    vi.mocked(store.transport.request).mockRejectedValue(new Error(SAID))
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
+
+    expect(panesOf().map(sessionOf)).toEqual([newerKey])
+    expect(store.drafts.live(newerKey)?.text).toBe('A newer message.')
+    expect(store.drafts.live(KEY)).toBeNull()
+    expect(store.getSnapshot().recoverableDrafts.get(UNSCOPED_RECOVERY_KEY)).toEqual([
+      expect.objectContaining({ text: 'Keep my draft.', attachments: [
+        { id: 'file-1', kind: 'file', name: 'plan.md', path: '/w/plan.md' },
+      ] }),
+    ])
   })
 
   it('does not replace the current view for a failed background open', async () => {

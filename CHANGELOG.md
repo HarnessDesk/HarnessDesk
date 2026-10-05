@@ -9,7 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **A conversation that cannot open leaves a usable draft.** When its
   transcript cannot be read, the pane shows the error and returns to a fresh
-  draft, so the next message starts a new conversation. (Fixes #800)
+  draft, so the next message starts a new conversation. Words and attachments
+  entered while it was opening remain available to restore. (Fixes #800)
 
 - **An Agent’s brief starts folded.** A newly seated conversation and its
   Side by side tile open on one **Agent brief** row. Open it to read the
