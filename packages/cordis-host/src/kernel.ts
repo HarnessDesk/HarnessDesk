@@ -24,6 +24,7 @@ import {
   type PluginSource,
   type PluginState,
   type ScopeQuery,
+  type WorkspaceAdmission,
   type ToolResult,
 } from '@harnessdesk/protocol'
 
@@ -396,17 +397,21 @@ export class ExtensionKernel implements CapabilityRegistry {
     return [...this.#plugins.values()].map((entry) => this.#describe(entry))
   }
 
-  #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<string | undefined> = async (scope) => scope.workspaceRoot
+  #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined> = async (scope) => scope.workspaceRoot === undefined
+    ? undefined : { root: scope.workspaceRoot, enterCheckout: scope.enterCheckout === true }
 
   /** Host-only admission, applied before any plugin sees the invocation scope. */
-  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void {
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined>): void {
     this.#shellWorkspaceResolver = resolve
   }
 
   async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
-    const { workspaceRoot: _hint, ...identity } = scope
-    const workspaceRoot = await this.#shellWorkspaceResolver(scope)
-    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }))
+    const { workspaceRoot: _hint, enterCheckout: _mode, ...identity } = scope
+    const admitted = await this.#shellWorkspaceResolver(scope)
+    const workspaceRoot = typeof admitted === 'string' ? admitted : admitted?.root
+    const enterCheckout = typeof admitted === 'object' && admitted.enterCheckout
+    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+      ...(enterCheckout ? { enterCheckout: true } : {}) }))
   }
 
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
@@ -453,7 +458,7 @@ export class ExtensionKernel implements CapabilityRegistry {
       // open one) and `ctx.shell`. With several Teams open, a relative read resolved against the open folder read
       // another Team's files.
       const execute = () => this.#runtime.withContextWorkspace(workspaceRoot, () =>
-        inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope))))
+        inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope))), scope.enterCheckout)
       return identity ? await runBrowserInvocation(identity, execute) : await execute()
     } catch (error) {
       if (error instanceof PermissionDenied) {
@@ -507,7 +512,7 @@ export class ExtensionKernel implements CapabilityRegistry {
       try {
         // Scope every workspace capability to the host-admitted checkout, never the caller's hint.
         const text = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...query }))))), 5_000)
+          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...query })))), query.enterCheckout), 5_000)
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({ label: contribution.label, text })
         }
@@ -537,7 +542,7 @@ export class ExtensionKernel implements CapabilityRegistry {
        depend on the caller having asked the right question. */
     if (!scopeApplies(entry.contribution.scope, scope)) return null
     const value = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref)))), 30_000)
+      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), scope.enterCheckout), 30_000)
     if (typeof value === 'string') return { label: entry.contribution.label, text: value }
     return {
       label: entry.contribution.label,

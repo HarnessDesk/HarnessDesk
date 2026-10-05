@@ -40,7 +40,7 @@ const hasQueuedContent = (input: readonly UserContent[]): boolean =>
 
 export interface SessionRecord {
   /** Host-assigned shell checkout, separate from every runtime read and replay. */
-  shellCheckout: { readonly project: string; readonly cwd: string } | null
+  shellCheckout: { readonly project: string; readonly cwd: string; readonly source: 'own' | 'fallback' } | null
   session: Session
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */

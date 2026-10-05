@@ -100,7 +100,7 @@ for (const kind of ['relative', 'empty', 'unregistered', 'symlink elsewhere', 'h
     const id = sessionId('unconfirmed')
     const record = d.host.registry.upsert({ id, runtime: d.agent.info.id, cwd: candidate, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }, null)
     // Admission also defends a stale host record whose path was replaced on disk.
-    Object.assign(record, { shellCheckout: { project: d.project, cwd: candidate } })
+    Object.assign(record, { shellCheckout: { project: d.project, cwd: candidate, source: 'own' } })
     const scope = { runtime: d.agent.info.id, sessionId: id, workspaceRoot: candidate }
     const result = await d.kernel.invokeTool(d.tool.id, {}, scope)
     assert.deepEqual(result, { ok: true, content: [{ type: 'text', text: d.project }] })
@@ -186,7 +186,7 @@ test('case-insensitive project and lane spellings keep the canonical placement',
   try { await realpath(spelling) } catch { t.skip('the filesystem is case-sensitive'); return }
   await d.seat()
   const opened = await d.host.call('agent/seat', { id: 'probe', cwd: d.lane.path.toUpperCase(), project: spelling })
-  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path, source: 'own' })
 })
 
 test('restart re-admits forged durable placement against opened projects', async (t) => {
@@ -237,7 +237,7 @@ test('opening a project subfolder keeps the repository as the default shell anch
   await mkdir(subfolder)
   await d.host.call('workspace/open', { path: subfolder })
   const opened = await d.host.call('agent/seat', { id: 'probe', cwd: d.lane.path })
-  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path, source: 'own' })
 })
 
 for (const kind of ['main', 'opened linked'] as const) {
@@ -259,7 +259,7 @@ for (const kind of ['main', 'opened linked'] as const) {
     const opened = await d.host.call('agent/seat', { id: 'probe', cwd: subfolder, project: subfolder })
     assert.equal(create.mock.calls[0]!.arguments[0]!.cwd, checkout)
     assert.equal(opened.cwd, checkout)
-    assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: checkout })
+    assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: checkout, source: 'own' })
     const scope = { runtime: d.agent.info.id, sessionId: opened.id, workspaceRoot: d.other }
     assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] })
     assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, checkout)
@@ -293,7 +293,7 @@ test('an opened linked checkout admits its canonical repository project independ
   await d.seat()
   await d.host.call('workspace/open', { path: d.lane.path })
   const opened = await d.host.call('agent/seat', { id: 'probe', project: d.lane.path, cwd: d.lane.path })
-  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path, source: 'own' })
   assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
 })
 
@@ -313,7 +313,7 @@ test('an explicitly opened unmanaged linked checkout starts its Agent and shell 
   const opened = await d.host.call('agent/seat', { id: 'probe', project: checkout, cwd: checkout })
   assert.equal(create.mock.calls[0]!.arguments[0]!.cwd, checkout)
   assert.equal(opened.cwd, checkout)
-  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: checkout })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: checkout, source: 'own' })
   const scope = { runtime: d.agent.info.id, sessionId: opened.id, workspaceRoot: d.other }
   assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] })
   assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, checkout)

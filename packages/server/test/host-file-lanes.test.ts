@@ -6,6 +6,7 @@ import { test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
 
 import { ExtensionKernel, setEditorEngine, type HarnessContext, type HarnessPlugin } from '@harnessdesk/cordis-host'
+import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
 import type { Session } from '@harnessdesk/protocol'
 
 import { Host } from '../src/host.js'
@@ -38,10 +39,11 @@ async function rig(t: TestContext) {
   const linked = join(base, 'linked')
   await git(project, 'worktree', 'add', '-q', '-b', 'feature', linked)
   await writeFile(join(linked, 'file.txt'), 'linked\n')
+  await writeFile(join(linked, 'src', 'file.txt'), 'linked src\n')
   const alias = join(base, 'alias')
   await symlink(project, alias)
 
-  const kernel = new ExtensionKernel()
+  const kernel = new SupervisedExtensionHost(new ExtensionKernel(), { env: { HARNESSDESK_PLUGINS: join(base, 'plugins') } })
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), extensions: kernel, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
   const agent = new FakeRuntime()
   host.register(agent)
@@ -52,11 +54,15 @@ async function rig(t: TestContext) {
   })
   await host.start()
   setEditorEngine(host.editorPlane)
-  await kernel.load({
+  await kernel.loadBuiltin({
     manifest: { id: 'file-probe', name: 'File probe', permissions: { workspace: { read: true }, editor: true } },
     plugin: {
-      name: 'file-probe', inject: ['tools', 'fs', 'workspace', 'editor'],
+      name: 'file-probe', inject: ['tools', 'context', 'fs', 'workspace', 'editor'],
       apply(ctx: HarnessContext) {
+        ctx.context.register({
+          label: 'Where', chip: { description: 'Fixture location' },
+          resolve: async () => JSON.stringify({ root: ctx.workspace.root, branch: ctx.workspace.branch, read: (await ctx.fs.read('file.txt')).trim() }),
+        })
         ctx.tools.register({
           name: 'where', description: '', inputSchema: { type: 'object' },
           execute: async () => JSON.stringify({
@@ -79,12 +85,25 @@ async function rig(t: TestContext) {
     if (part?.type !== 'text') assert.fail('the probe answers in text')
     return JSON.parse(part.text)
   }
+  const chip = kernel.list('context').find((one) => one.chip)!
+  const context = async (scope: { runtime: string; sessionId: string }) => {
+    const result = await kernel.resolveOne(chip.id, undefined, scope as never)
+    assert.ok(result, 'the location chip resolves')
+    return JSON.parse(result.text)
+  }
+  const agentRoot = join(base, 'agents', 'probe')
+  await mkdir(agentRoot, { recursive: true })
+  await writeFile(join(agentRoot, 'AGENT.md'), `---\nname: Probe\npermission: read\nprefer: [${agent.info.id}]\n---\nRead the checkout.\n`)
+  const seat = async (cwd: string, project?: string) => {
+    const seated = await host.call('agent/seat', { id: 'probe', cwd, ...(project ? { project } : {}) })
+    return { runtime: String(agent.info.id), sessionId: String(seated.id) }
+  }
   /** A conversation started the ordinary way, in the folder that is open. */
   const conversation = async (cwd: string) => {
     const session = (await host.call('session/create', { runtime: agent.info.id, options: { cwd } } as never)) as Session
     return { runtime: String(agent.info.id), sessionId: String(session.id) }
   }
-  return { host, agent, base, project, linked, alias, stateDir, where, conversation }
+  return { host, agent, base, project, linked, alias, stateDir, where, context, seat, conversation }
 }
 
 test('a conversation in the open folder runs its tool calls in that folder as it was opened', async (t) => {
@@ -95,6 +114,7 @@ test('a conversation in the open folder runs its tool calls in that folder as it
     { opened: join(d.project, 'src'), branch: 'main', read: 'src', names: ['file.txt'] },
     // Admitted to the project's main checkout, another branch with other contents.
     { opened: d.linked, branch: 'feature', read: 'linked', names: ['file.txt', 'src'] },
+    { opened: join(d.linked, 'src'), branch: 'feature', read: 'linked src', names: ['file.txt'] },
     // Admitted to the real path the link leads to.
     { opened: d.alias, branch: 'main', read: 'top', names: ['file.txt', 'src'] },
   ]
@@ -102,6 +122,7 @@ test('a conversation in the open folder runs its tool calls in that folder as it
     await d.host.call('workspace/open', { path: opened })
     const scope = await d.conversation(opened)
     assert.deepEqual(await d.where(scope), { root: opened, ...expected, editor: 'opened' }, opened)
+    assert.deepEqual(await d.context(scope), { root: opened, branch: expected.branch, read: expected.read }, opened)
   }
 })
 
@@ -118,4 +139,24 @@ test('a Seat in a lane of its own runs its tool calls in the lane', async (t) =>
   assert.deepEqual(await d.where(scope), { root: lane.path, branch: null, read: 'lane', names: ['file.txt', 'src'], editor: 'opened' })
   // The person's own conversation in the open folder is not moved by the Seat's lane.
   assert.deepEqual(await d.where(await d.conversation(d.project)), { root: d.project, branch: 'main', read: 'top', names: ['file.txt', 'src'], editor: 'opened' })
+})
+
+
+test('a Seat started in the checkout holding an opened subfolder follows that folder for tools and context', async (t) => {
+  const d = await rig(t)
+  const opened = join(d.linked, 'src')
+  await d.host.call('workspace/open', { path: opened })
+  const scope = await d.seat(d.linked, opened)
+  assert.deepEqual(await d.where(scope), { root: opened, branch: 'feature', read: 'linked src', names: ['file.txt'], editor: 'opened' })
+  assert.deepEqual(await d.context(scope), { root: opened, branch: 'feature', read: 'linked src' })
+})
+
+test('a Seat on the main checkout stays there while a linked worktree is open', async (t) => {
+  const d = await rig(t)
+  await d.host.call('workspace/open', { path: d.linked })
+  const scope = await d.seat(d.project)
+  assert.deepEqual(await d.where(scope), { root: d.project, branch: null, read: 'top', names: ['file.txt', 'src'], editor: 'opened' })
+  assert.deepEqual(await d.context(scope), { root: d.project, branch: null, read: 'top' })
+  // Cached admission must remember that this is the Seat's checkout, not a project fallback.
+  assert.deepEqual(await d.context(scope), { root: d.project, branch: null, read: 'top' })
 })
