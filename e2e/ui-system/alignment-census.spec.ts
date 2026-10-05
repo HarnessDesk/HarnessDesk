@@ -186,14 +186,18 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       (leadRect.width <= 40 && leadRect.height <= 40 && hasIcon(lead) && !hasText(lead)))
     // A surface child is its own panel, not this row's text column.
     if (iconLike && hasText(text) && !boxSurface(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
-      const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (line.top + line.bottom) / 2)
+      // Tables, default/small lists and settings now centre on the whole row.
+      // Other compositions still answer to their first text line.
+      const familyRow = row.matches('[data-slot="list-row"]') || lead.matches('[data-slot="row-mark"], [data-slot="row-choice-mark"], [data-slot="table-cell-lead"]')
+      const target = familyRow ? row.getBoundingClientRect() : line
+      const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (target.top + target.bottom) / 2)
       const rowStyle = getComputedStyle(row)
       const firstLineAligned = rowStyle.alignItems === 'flex-start' || rowStyle.alignItems === 'start'
       // #1009 allows a horizontal Attachment thumbnail and the Plans account mark to centre beside fixed title + meta lines.
-      // ListRow subtitles/meta and ChoiceRow descriptions follow the first-line rule; a two-line shape alone is not an exemption.
+      // Only the named row family uses row-centre geometry; a two-line shape alone is not an exemption.
       const centeredMetaPattern = row.matches('[data-slot="attachment"][data-orientation="horizontal"]') || !!row.closest('[data-slot="plans-table"]')
       const centeredTwoLineLead = centeredMetaPattern && visibleLineCount(text) <= 2
-      if (delta >= 1.5 && (firstLineAligned || !centeredTwoLineLead)) record('lead-off-line', lead)
+      if (delta >= 1.5 && (familyRow || firstLineAligned || !centeredTwoLineLead)) record('lead-off-line', lead)
     }
   }
 
@@ -243,9 +247,9 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const children = visibleChildren(surface)
     if (children.length < 2) continue
     const header = children[0]!
-    // `row-title` names one entry, not the surface. A Rows card's first entry
+    // Row and list names/facts describe entries, not a surface. The first entry
     // must not be promoted to a header just because its slot ends in "title".
-    const headingSelector = 'h1, h2, h3, [data-slot$="title"]:not([data-slot="row-title"]), [data-slot="section-name"]'
+    const headingSelector = 'h1, h2, h3, [data-slot$="title"]:not([data-slot="row-title"], [data-slot="list-row-title"], [data-slot="list-row-subtitle"]), [data-slot="section-name"]'
     const headerish = header.matches(`header, ${headingSelector}`) || !!header.querySelector(headingSelector)
     if (!headerish) continue
     // Start at the heading's first text glyph so a decorative mark before it is not measured as the heading.
@@ -466,4 +470,27 @@ test('a bare bar label shares a search lead while an icon tab shares its text', 
   expect((await read()).findings['header-off-body']).toEqual([])
   await page.locator('h2').evaluate(element => { (element as HTMLElement).style.marginLeft = '8px' })
   expect((await read()).findings['header-off-body']).toHaveLength(1)
+})
+
+test('row-family leads centre on the row, and a first-line regression is caught', async ({ page }) => {
+  for (const slot of ['list-row-lead', 'row-mark', 'row-choice-mark', 'table-cell-lead']) {
+    await page.setContent(`<main id="root"><div ${slot === 'list-row-lead' ? 'data-slot="list-row"' : ''} style="display:flex;align-items:center;gap:12px;height:100px">
+      <span data-slot="${slot}" style="display:flex;width:32px;height:32px"><svg width="20" height="20"></svg></span>
+      <div style="line-height:20px">A title<br>A second line<br>A wrapping sentence</div>
+    </div></main>`)
+    expect((await measure(page, '#root', 'fixture', slot, slot)).findings['lead-off-line']).toEqual([])
+    await page.locator(`[data-slot="${slot}"]`).evaluate(el => { (el as HTMLElement).style.transform = 'translateY(-12px)' })
+    expect((await measure(page, '#root', 'fixture', slot, slot)).findings['lead-off-line']).toHaveLength(1)
+  }
+})
+
+// An entry's own name is not a heading over its trailing reading.
+test('a selected list entry does not promote its name to a surface header', async ({ page }) => {
+  await page.setContent(`<main id="root"><div data-slot="list-row" style="display:flex;gap:24px;width:400px;background:#eee">
+    <div data-slot="list-row-content"><div data-slot="list-row-title">Review project checks</div><div data-slot="list-row-subtitle">3 checks</div></div>
+    <div style="margin-left:auto">Selected</div>
+  </div></main>`)
+  expect((await measure(page, '#root', 'fixture', 'list-entry', 'List entry')).findings['header-off-body']).toEqual([])
+  await page.locator('[data-slot="list-row-title"]').evaluate(el => { el.setAttribute('data-slot', 'panel-title') })
+  expect((await measure(page, '#root', 'fixture', 'panel-title', 'Panel title')).findings['header-off-body']).toHaveLength(1)
 })

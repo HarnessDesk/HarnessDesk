@@ -703,8 +703,9 @@ const RowBoard = () => {
       </Specimen>
       <p className={styles.rule}>
         A row has no opinion about what its control is — that is what lets twelve settings pages
-        stay the same height. Only a row that <em>does</em> something is a{' '}
-        <code>&lt;button&gt;</code>, and a row ends in a chevron <em>or</em> a control, never both.
+        share one anatomy. Only a row that <em>does</em> something is a{' '}
+        <code>&lt;button&gt;</code>. Faces and controls centre on the whole text block;
+        a reading stays beside the opening chevron, and a separate action takes its place.
       </p>
     </>
   )

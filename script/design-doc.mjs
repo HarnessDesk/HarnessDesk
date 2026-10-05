@@ -162,6 +162,14 @@ const patterns = () =>
       }
     })
 
+/** The local table scope is an axis of its own, not a second page default. */
+export const tableDensityRows = () => {
+  const comfortable = resolveTokens({ root })
+  const compact = resolveTokens({ root, tableDensity: 'compact' })
+  return [...comfortable].filter(([name]) => name.startsWith('--hd-table-') && name !== '--hd-table-row-h')
+    .map(([name, value]) => [name, value, compact.get(name)])
+}
+
 const tokens = resolveTokens({ root })
 const baseline = JSON.parse(read(path.join(DESIGN, 'audit-baseline.json')))
 
@@ -183,7 +191,14 @@ for (const section of tokenSections()) {
     lines.push(section.about)
     lines.push('')
   }
-  if (section.names.length > 0) {
+  if (section.title === 'table density') {
+    lines.push('| token | comfortable | compact |')
+    lines.push('| --- | --- | --- |')
+    for (const [name, comfortable, compact] of tableDensityRows()) {
+      lines.push(`| \`${name}\` | \`${comfortable}\` | \`${compact}\` |`)
+    }
+    lines.push('')
+  } else if (section.names.length > 0) {
     lines.push('| token | value |')
     lines.push('| --- | --- |')
     for (const [name] of section.names) {
