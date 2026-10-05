@@ -37,13 +37,12 @@ const geometry = (row: Locator) => row.evaluate((el) => {
   }
   const box = wrap.getBoundingClientRect()
   const hit = control.getBoundingClientRect()
-  const line = words.filter((one) => Math.abs(one.top - words[0]!.top) < 2)
   return {
     insideRow: !el.contains(control),
     wordsRight: Math.max(...words.map((one) => one.right)),
     controlLeft: hit.left,
     controlInside: hit.left >= box.left && hit.right <= box.right + 0.5 && hit.top >= box.top && hit.bottom <= box.bottom + 0.5,
-    firstLineMiddle: (Math.min(...line.map((one) => one.top)) + Math.max(...line.map((one) => one.bottom))) / 2,
+    rowMiddle: (box.top + box.bottom) / 2,
     controlMiddle: (hit.top + hit.bottom) / 2,
     rowOverflows: el.scrollWidth > el.clientWidth + 1,
   }
@@ -62,7 +61,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(g.insideRow, 'the control is the row’s sibling, never inside its button').toBe(true)
       expect(g.controlInside, 'the control stays in the row’s box').toBe(true)
       expect(g.controlLeft, 'the control sits clear of the row’s own words').toBeGreaterThan(g.wordsRight)
-      expect(Math.abs(g.controlMiddle - g.firstLineMiddle), 'the control rides the first line').toBeLessThan(3)
+      expect(Math.abs(g.controlMiddle - g.rowMiddle), 'the control shares the whole row centre').toBeLessThan(1.5)
       expect(g.rowOverflows).toBe(false)
     }
 

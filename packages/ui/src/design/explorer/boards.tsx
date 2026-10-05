@@ -703,8 +703,9 @@ const RowBoard = () => {
       </Specimen>
       <p className={styles.rule}>
         A row has no opinion about what its control is — that is what lets twelve settings pages
-        stay the same height. Only a row that <em>does</em> something is a{' '}
-        <code>&lt;button&gt;</code>, and a row ends in a chevron <em>or</em> a control, never both.
+        share one anatomy. Only a row that <em>does</em> something is a{' '}
+        <code>&lt;button&gt;</code>. Faces and controls centre on the whole text block;
+        a reading stays beside the opening chevron, and a separate action takes its place.
       </p>
     </>
   )
@@ -1267,7 +1268,7 @@ const catalogueTurnFilesStore = {
 const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
 const catalogueRefusedSnapshot = {
   ...catalogueTurnFilesSnapshot,
-  notices: [{ id: 'catalogue-undo-refused', level: 'error', message: catalogueRefusedMessage, at: 0 }],
+  notices: [{ id: 'catalogue-undo-refused', class: 'result', level: 'error', message: catalogueRefusedMessage, at: 0 }],
 }
 const catalogueRefusedTurnFilesStore = {
   ...catalogueTurnFilesStore,
@@ -1331,6 +1332,15 @@ const CatalogueUndoTurnFiles = ({ turn, changes }: { turn: Turn; changes: readon
   }, [])
   return <div ref={host}><TurnFiles turn={turn} changes={changes} root="/workspace" /></div>
 }
+
+/** The same refused action in the catalogue and isolated screenshot preview. */
+export const CatalogueRefusedUndo = ({ theme = 'light' }: { theme?: 'light' | 'dark' }) => (
+  <StoreProvider store={catalogueRefusedTurnFilesStore}>
+    <Notices />
+    <Toaster theme={theme} />
+    <CatalogueUndoTurnFiles turn={CATALOGUE_UNRECOVERABLE_TURN} changes={CATALOGUE_UNRECOVERABLE_CHANGES} />
+  </StoreProvider>
+)
 const CATALOGUE_DIFF = [
   'diff --git a/src/new.ts b/src/new.ts',
   'new file mode 100644',
@@ -1558,11 +1568,7 @@ const CodeBoard = () => (
       </StoreProvider>
     </Case>
     <Case label="Undo refused: the unrecoverable file is named and the rest can be put back">
-      <StoreProvider store={catalogueRefusedTurnFilesStore}>
-        <Notices />
-        <Toaster />
-        <CatalogueUndoTurnFiles turn={CATALOGUE_UNRECOVERABLE_TURN} changes={CATALOGUE_UNRECOVERABLE_CHANGES} />
-      </StoreProvider>
+      <CatalogueRefusedUndo />
     </Case>
     <Case label="partial Undo: Close stays greyed until the half changed turn is resolved">
       <StoreProvider store={cataloguePartialTurnFilesStore}>

@@ -325,6 +325,27 @@ export const ELEMENTS: readonly UsageRule[] = [
       'Project, Permissions and Triggers each opened every section with a 2–3 line paragraph under the page\'s own blurb. The one warning that mattered read like the four around it.',
   },
   {
+    family: 'table',
+    variant: 'data',
+    when: 'Records compared across three or more facts, with a header. Three or more unlabelled numbers need a header too.',
+    never: 'A headerless grid of numbers, or a column empty in every row. Omit that column; an empty cell is one quiet —.',
+    because: 'A header makes comparable facts readable; an empty column spends width without adding a fact.',
+  },
+  {
+    family: 'table',
+    variant: 'readings',
+    when: 'Numbers end-aligned in tabular figures; one status per row, tinted only when it needs eyes.',
+    never: 'Centred figures, several repetitions of the same state, or a tint on every healthy reading.',
+    because: 'Shared digit columns make quantities comparable; a warning stands out only when ordinary readings stay quiet.',
+  },
+  {
+    family: 'table',
+    variant: 'face',
+    when: 'A face tells rows apart, centred beside the whole text block in either density.',
+    never: 'The same decorative glyph repeated on every row. Leave the face out when it identifies nothing.',
+    because: 'A face is an identity column, and centring it with the control keeps one anatomy as sentences wrap.',
+  },
+  {
     family: 'key-value',
     variant: 'summary',
     when: 'Several facts about one object on a page — a file, a ceiling, what it loads — as `SummaryList` inside one `Section`: a key, a value, an optional note under it and an optional small action at the row\'s end.',

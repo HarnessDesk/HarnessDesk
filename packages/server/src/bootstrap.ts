@@ -416,7 +416,7 @@ export const createDefaultHost = (
       if (!runtime) return
       tokenlessWarned.add(agent)
       logger.warn('a tool bridge started from an agent configuration, not a conversation', { agent })
-      runtime.emit({ type: 'notice', level: 'warning', message: TOKENLESS_BRIDGE_NOTICE })
+      runtime.emit({ type: 'notice', class: 'info', kind: 'runtime:warning', level: 'warning', message: TOKENLESS_BRIDGE_NOTICE })
     },
     invokeByName: (namespace, name, args, caller) =>
       invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
@@ -479,6 +479,7 @@ export const createDefaultHost = (
     const log = logger.child(agent.id)
     const built = new AcpRuntime({
       ...agent,
+      probeSessionsFile: join(stateDir, 'option-probes', `${encodeURIComponent(agent.id)}.jsonl`),
       // Today's name for a row still carrying a retired one, who the agent is
       // signed in as, and where it keeps usage it puts none of on the wire.
       // See `installs/overlay.ts`.

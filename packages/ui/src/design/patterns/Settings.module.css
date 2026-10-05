@@ -832,7 +832,7 @@
 /* A page head that names a card of rows sits outside that card, but its words
    still land on the same text inset as the card's rows. */
 .pageHead:has(+ [data-slot='rows']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
 }
 
 .pageHeadText {
@@ -908,8 +908,14 @@
    `Note`, a plain button, or ProjectTriggers' own body has no such card to
    answer to, and the same inset put its label 17px right of a body that
    starts flush with the page instead. */
-.sectionHead:has(+ [data-slot='rows']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
+.sectionHead:has(+ [data-slot='rows']),
+.sectionHead:has(+ [role='radiogroup']) {
+  padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
+}
+
+/* The summary card owns its padding token rather than the Rows inset. */
+.sectionHead:has(+ [data-slot='summary-list']) {
+  padding-inline: calc(var(--hd-border-width) + var(--hd-card-padding));
 }
 
 .sectionHead:first-child {
@@ -942,7 +948,7 @@
 
 /* The sticky form is still the head of the rows card directly below it. */
 .sectionHead[data-sticky]:has(+ [data-slot='rows']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
 }
 
 /* The ground a stuck head paints over the window's title strip, so rows that
@@ -1030,7 +1036,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
-  padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
+  min-height: var(--hd-table-row-min-bare);
+  padding: var(--hd-space-3) var(--hd-table-edge);
   border-bottom: 0; /* desk: separator lives in ::after so row rules do not read as surfaces */
   padding-bottom: calc(var(--hd-space-3) + var(--hd-border-width));
 }
@@ -1046,15 +1053,9 @@
   pointer-events: none;
 }
 
-/* A description turns the row's one line into two, and centring on the whole
-   box then centres the mark and the control on the gap between the lines
-   rather than on the title — the shadcn Card anatomy this row otherwise
-   follows keeps `CardAction`/`ItemActions` pinned to the top instead
-   (`self-start`) exactly for this reason. Without a description the row
-   still centres on its single line, which is already the title's line, so
-   nothing here changes it. */
-.row:has(.rowDesc) {
-  align-items: flex-start;
+/* Face, copy and controls share the whole row's centre, even with a sentence. */
+.row:has(.rowDesc, .rowMark) {
+  min-height: var(--hd-table-row-min);
 }
 
 .row:last-child {
@@ -1094,6 +1095,10 @@
   border-bottom: none;
 }
 
+.rowFolding > .rowButton::after {
+  display: none;
+}
+
 .rowFolding > .rowButton {
   flex: 1;
   min-width: 0;
@@ -1131,14 +1136,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline-end: var(--hd-card-padding);
+  padding-inline-end: var(--hd-table-edge);
 }
 
 .rowFoldEnd {
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline-end: var(--hd-card-padding);
+  padding-inline-end: var(--hd-table-edge);
 }
 
 /* The fold is a toggle, not a menu: the row's hover, and no fill for open —
@@ -1180,19 +1185,12 @@
   font-weight: var(--hd-weight-medium);
 }
 
-/* One line, always.
-   A row's second line is a caption, not content: at two lines the rows stop
-   scanning as a list and a page of twelve settings becomes a page of prose.
-   Clamping here rather than shortening each string is what also holds for the
-   descriptions this app did not write — a plugin's summary comes from its own
-   manifest, and three of them ran to two lines whatever we do to our own copy.
-   The full text stays reachable: the row's `title` carries it on hover, and a
-   plugin's page has room for the paragraph. */
+/* An earned sentence wraps whole, in the family's quiet ink. */
 .rowDesc {
-  margin-top: var(--hd-space-0-5); /* desk: 1 → 2, a step of the scale */
+  margin-top: var(--hd-table-line-gap);
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
+  color: var(--hd-muted-foreground); /* desk: secondary → muted, line two is quiet */
   overflow-wrap: anywhere;
   text-wrap: pretty;
 }
@@ -1229,20 +1227,7 @@
   margin-inline-start: auto; /* desk: 0 → auto, a wrapped compact control keeps the row's end, as a row button's does */
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-/* Once a description pins the row to its top edge (`.row:has(.rowDesc)`,
-   above), a control taller than the title's own line — a `sm` button is
-   28px against the line's 20 — sits with its top on the title's top rather
-   than its centre on the title's centre, 4px low. Pulled up by half of what
-   it is taller than the line, its own centre lands on the title's, the same
-   `(line − size) / 2` nudge `.rowMark` already carries. A control that is
-   already about the title's own height (`RowValue`'s plain text, a switch)
-   is not worth a second formula for a few pixels neither `:has()` selector
-   below matches, so it keeps a plain top edge. */
-.row:has(.rowDesc) .rowCtl:has(button) {
-  margin-top: calc((var(--hd-line-sm) - var(--hd-btn-h-sm)) / 2);
+  gap: var(--hd-table-end-gap); /* desk: 8 → 12, one family trailing gap */
 }
 
 .rowCtl:has(> .rowFixed:only-child:not([data-numeric])) {
@@ -1279,29 +1264,16 @@
 }
 
 .rowMark {
-  /* A private size, not `--hd-*`: this tile answers to no other component,
-     so it is named once here rather than typed out twice (the box below,
-     and its own nudge's formula) — two literals agreeing is luck, one
-     variable is a fact. */
-  --mark-size: 34px;
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: var(--mark-size); /* desk: 34px → var(--mark-size), a private property the drift check cannot resolve inline; still 34px */
-  height: var(--mark-size); /* desk: 34px → var(--mark-size), same private property, still 34px */
-  border-radius: var(--hd-radius-md);
+  width: var(--hd-table-face); /* desk: private 34 → family 32 */
+  height: var(--hd-table-face); /* desk: private 34 → family 32 */
+  border-radius: var(--hd-table-face-radius); /* desk: 8 → face-derived 8, follows Faces */
   background: var(--hd-muted);
   color: var(--hd-secondary-foreground);
-  box-shadow: inset 0 0 0 1px var(--hd-border);
-}
-
-/* The tile is taller than the title's own line, so once the row is pinned to
-   its top edge (above) the tile is pulled back up by half of what it is
-   bigger than that line — its own centre lands on the title's, the way
-   shadcn's `ItemMedia` nudges a lead onto a description block's first line
-   instead of the block's middle. */
-.row:has(.rowDesc) .rowMark {
-  margin-top: calc((var(--hd-line-sm) - var(--mark-size)) / 2);
+  /* Only the face-to-text gap is smaller; text-to-control stays at least 24px. */
+  margin-inline-end: calc(var(--hd-table-lead-gap) - var(--hd-space-6));
 }
 
 .rowChev {
@@ -1655,12 +1627,6 @@
   color: var(--hd-accent);
 }
 
-/* Onto the title's line for the same reason `.rowMark` is (above): a 16px
-   glyph is smaller than the line, so it drops rather than lifts. */
-.row:has(.rowDesc) .choiceMark {
-  margin-top: calc((var(--hd-line-sm) - 16px) / 2);
-}
-
 /* An empty row is a sentence about the card, not one more item in it: its
    title steps down a weight and an ink, and its note one more, so it never
    reads as a row you could open. The padding and hairline stay the Row's. */
@@ -1675,4 +1641,31 @@
 
 .row[data-slot='empty-state'] .rowMark {
   color: var(--hd-muted-foreground);
+}
+
+.rows:has(.rowRecord) {
+  container-type: inline-size;
+  container-name: rows;
+}
+
+/* A ledger record's meaning keeps a full line when metadata and state compete
+   for a narrow reading column. Settings rows retain their usual composition. */
+.rowRecord .rowTitle {
+  overflow-wrap: anywhere;
+}
+
+@container rows (max-width: 36rem) {
+  .rowRecord .rowText {
+    flex-basis: 100%;
+  }
+
+  .rowRecord .rowEnd {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    margin-inline-start: 0;
+  }
+
+  .rowRecord .rowCtl {
+    margin-inline-start: 0;
+  }
 }

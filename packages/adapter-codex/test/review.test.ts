@@ -153,6 +153,12 @@ test('the review turn opens, fills and ends, so a reader keeps the findings', as
   await until(() => about(events, side).some((event) => event.type === 'turn/completed'), 'the review to finish')
   const told = about(events, side)
 
+  t.diagnostic(`review event order: ${told.map(event => event.type === 'notice'
+    ? `notice (${event.message})`
+    : event.type === 'turn/started' || event.type === 'turn/completed'
+      ? `${event.type} (${event.turn.id})`
+      : event.type).join(' -> ')}`)
+
   // One turn, the review's own: Codex never announces it and announces the
   // reviewer sub-agent's instead, which nothing else names.
   const started = told.flatMap((event) => (event.type === 'turn/started' ? [String(event.turn.id)] : []))
@@ -170,7 +176,10 @@ test('the review turn opens, fills and ends, so a reader keeps the findings', as
   assert.equal(folded.turns.length, 1)
   const [turn] = folded.turns
   assert.equal(turn?.status, 'completed')
-  const shown = allItems(folded).map((item) =>
+  const notices = allItems(folded).flatMap(item => item.type === 'notice' ? [item.text] : [])
+  const heard = [...new Set(told.flatMap(event => event.type === 'notice' ? [event.message] : []))]
+  assert.deepEqual(notices, heard, 'the tool declarations remain quiet transcript rows, one per content')
+  const shown = allItems(folded).filter(item => item.type !== 'notice').map((item) =>
     item.type === 'review'
       ? `review ${item.phase}`
       : item.type === 'assistantMessage'
@@ -273,7 +282,7 @@ test('a reviewer that starts first is still the reviewer, and nothing is left wo
   assert.deepEqual(
     folded.turns.map((turn) => [String(turn.id), turn.status, turn.items.length > 0]),
     [
-      ['reviewer-turn-1', 'completed', false],
+      ['reviewer-turn-1', 'completed', true], // Pre-turn tool declarations are retained here.
       ['review-turn-1', 'completed', true],
     ],
   )

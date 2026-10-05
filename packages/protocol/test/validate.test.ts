@@ -175,3 +175,21 @@ test('session/goal without an objective is refused rather than read as one', () 
     /objective/,
   )
 })
+
+
+test('runtime Inbox occurrences validate their count, tone and structured details', () => {
+  const entry = { id: 'content:config', contentKey: 'content:config', kind: 'runtime:config', title: 'Ignored settings', tone: 'warning', at: 1, count: 2, settings: ['features.demo'] }
+  assert.equal(parseClientMessage({ id: 1, method: 'app/inbox/keepInfo', params: { entry } }).method, 'app/inbox/keepInfo')
+  for (const invalid of [{ count: Number.NaN }, { count: 0 }, { count: -1 }, { count: 1.5 }, { tone: 'red' }, { settings: [1] }]) {
+    assert.throws(() => parseClientMessage({ id: 1, method: 'app/inbox/keepInfo', params: { entry: { ...entry, ...invalid } } }), ValidationError)
+  }
+})
+
+
+test('cached notice writes validate the prior Inbox and policy snapshots', () => {
+  const params = { patch: { inbox: [] }, noticeBase: { inbox: [{ id: 'old' }], noticePolicy: { muted: [] } } }
+  assert.deepEqual(parseClientMessage({ id: 1, method: 'app/state/set', params }).params, params)
+  for (const noticeBase of [{ inbox: {} }, { inbox: [null] }, { noticePolicy: [] }]) {
+    assert.throws(() => parseClientMessage({ id: 1, method: 'app/state/set', params: { ...params, noticeBase } }), ValidationError)
+  }
+})

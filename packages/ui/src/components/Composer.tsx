@@ -254,6 +254,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // Only a missing workspace or a runtime that is not ready blocks input.
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
   const canType = !record && (Boolean(session) || (ready && Boolean(snapshot.workspace)))
+  // A revealed key is not a conversation until its read succeeds. Keep the
+  // draft editable, but never clear and submit it to a handle not yet open.
+  const awaitingConversation = key !== null && !session
   // A hand-off chip rides on the draft only; it leaves with the first message.
   const handoff = session ? null : snapshot.draftHandoff
   /* What may be offered *here* — this conversation, its agent, this project.
@@ -364,6 +367,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   )
   const canSend =
     canType &&
+    !awaitingConversation &&
     (text.trim().length > 0 || attachments.length > 0 || handoff !== null || pendingPlanNote !== null)
   const root = snapshot.workspace?.path ?? session?.cwd
 
@@ -583,7 +587,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
    * call to make: it sends at once when nothing is running and holds it when
    * something is, so the two states cannot disagree across a round trip.
    */
-  const recoverDraft = useCallback((draft: Draft, originKey: ReturnType<typeof sessionKey> | null) => {
+  const recoverDraft = useCallback((draft: Draft, originKey: ReturnType<typeof sessionKey> | null, failure?: string) => {
     // The store scopes this to the originating conversation, so a late reply
     // cannot put one conversation's words into a reused composer for another.
     // Every refusal takes this path, including an empty composer, so it survives
@@ -591,7 +595,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (originKey) store.addRecoverableDraft(originKey, {
       text: draft.text,
       attachments: draft.attachments,
-      detail: 'Restore the refused message to the composer; your current draft stays available.',
+      detail: failure ?? 'Restore the refused message to the composer; your current draft stays available.',
       reason: 'refused',
     })
     else store.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
@@ -608,14 +612,17 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       .map((item) => ({ key: UNSCOPED_RECOVERY_KEY, item })),
   ]
   const restoreStoredDraft = useCallback((ownerKey: ReturnType<typeof sessionKey>, id: number) => {
-    const restored = store.restoreRecoverableDraft(ownerKey, id)
+    const restored = store.restoreRecoverableDraft(ownerKey, id, {
+      key,
+      draft: { text, attachments, imagesWillBeLostOnReload: imageReloadWarning },
+    })
     if (!restored) return
     setText(restored.text)
     setAttachments(restored.attachments.map((attachment) => ({ ...attachment, id: nextAttachmentId() })))
     setImageReloadWarning(
       restored.imagesWillBeLostOnReload === true || restored.attachments.some((attachment) => attachment.kind === 'image'),
     )
-  }, [store])
+  }, [store, key, text, attachments, imageReloadWarning])
 
   const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
     // `/open src/a.ts` is a command with an argument, not a message that
@@ -761,8 +768,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (key) release()
 
     if (mode === 'now' && busy && canSteer) {
-      const accepted = await store.steer(content, key)
-      if (!accepted) recoverDraft(draft, key)
+      let failure: string | undefined
+      const accepted = await store.steer(content, key, (message) => { failure = message })
+      if (!accepted) recoverDraft(draft, key, failure)
       return
     }
     // A message that did not get anywhere goes back in the box. Losing what
@@ -1008,6 +1016,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (!session && !canType) {
       return snapshot.workspace ? 'Waiting for the runtime…' : 'Choose a project folder to begin'
     }
+    if (awaitingConversation) return 'Opening the conversation — you can keep typing'
     if (!session) return 'Describe a task to start a session — / for commands, @ for files'
     if (busy) {
       return canSteer
@@ -1018,7 +1027,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
     return 'Describe a task — / for commands, @ for files'
-  }, [record, busy, canSteer, canType, session, snapshot.workspace, waiting])
+  }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.
   // A running turn is the usual reason; a queue held behind a stopped turn
@@ -1027,15 +1036,17 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // What the button says on hover. Only when there is something it would not
   // be obvious about — a disabled button explains itself in the placeholder
   // above it, and "Send" on a send button is noise.
-  const sendTitle = !canSend
-    ? undefined
-    : busy
-      ? canSteer
-        ? 'Sends when this turn ends. ⌘↵ adds it to the turn instead.'
-        : 'Sends when this turn ends'
-      : waiting > 0
-        ? `Goes after the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
-        : undefined
+  const sendTitle = awaitingConversation
+    ? 'Waiting for the conversation to open'
+    : !canSend
+      ? undefined
+      : busy
+        ? canSteer
+          ? 'Sends when this turn ends. ⌘↵ adds it to the turn instead.'
+          : 'Sends when this turn ends'
+        : waiting > 0
+          ? `Goes after the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
+          : undefined
 
   const menuTitle =
     trigger.kind === 'choose' && trigger.command.kind.type === 'choose'

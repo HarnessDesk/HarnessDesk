@@ -177,11 +177,13 @@ test('unmodelled notifications produce nothing rather than noise', () => {
   assert.deepEqual(mapNotification(n('remoteControl/status/changed', { status: 'disabled' })), [])
 })
 
-test('config warnings join summary and details into one message', () => {
+test('config warnings retain structured settings and file alongside the summary', () => {
   const events = mapNotification(
-    n('configWarning', { summary: 'Unknown key', details: 'features.bogus', path: null }),
+    n('configWarning', { summary: 'Unknown key', details: 'features.bogus is ignored.', path: '/Users/user/.codex/config.toml' }),
   )
-  assert.equal(events[0]?.type === 'notice' && events[0].message, 'Unknown key — features.bogus')
+  assert.ok(events[0]?.type === 'notice')
+  assert.equal(events[0].kind, 'runtime:config')
+  assert.deepEqual(events[0].detail, { summary: 'Unknown key', details: 'features.bogus is ignored.', settings: ['features.bogus'], file: '/Users/user/.codex/config.toml' })
 })
 
 test('a full turn stream folds into a coherent session', () => {
@@ -335,4 +337,12 @@ test('the failed turn itself carries the classification, not only the error besi
   const completed = events[0]
   assert.equal(completed?.type, 'turn/completed')
   assert.equal(completed?.type === 'turn/completed' && completed.turn.error?.code, 'credits')
+})
+
+
+test('config settings are recognized by key context, without treating dotted prose as keys', () => {
+  const [event] = mapNotification(n('configWarning', { summary: 'Unrecognized config key: old_key', details: 'features.bogus is ignored. See docs.example.com for migration instructions.', path: null }))
+  assert.ok(event?.type === 'notice')
+  assert.deepEqual(event.detail?.settings, ['old_key', 'features.bogus'])
+  assert.equal(event.detail?.details, 'features.bogus is ignored. See docs.example.com for migration instructions.')
 })

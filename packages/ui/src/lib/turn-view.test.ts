@@ -418,3 +418,11 @@ describe('effectiveItemStatus', () => {
     expect(effectiveItemStatus(toolCall({ output: 'ok', isError: false }))).toBe('completed')
   })
 })
+
+test('runtime information after an answer stays visible outside the work fold', () => {
+  const answer = item('assistantMessage', 'answer', { text: 'Done', phase: 'final' })
+  const notice = item('notice', 'runtime-notice', { kind: 'conversation:compacted', text: 'Context was compacted' })
+  const view = splitTurn(turn([item('command', 'work'), answer, notice]))
+  expect(view.answer).toEqual([answer])
+  expect(view.trailing).toEqual([notice])
+})

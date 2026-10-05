@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { nativeFoundation, NATIVE_TOKENS } from './design-tokens.mjs'
+import { nativeFoundation, NATIVE_TOKENS, resolveTokens } from './design-tokens.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -37,4 +37,18 @@ test('the About asset consumes the generated contract instead of owning a palett
   assert.match(html, /\['palette', 'hdPalette'\]/)
   assert.match(html, /\['corners', 'hdCorners'\]/)
   assert.match(html, /dataset\[data\]/)
+})
+
+test('table density scopes do not replace the default foundation snapshot', () => {
+  const values = resolveTokens({ root })
+  assert.equal(values.get('--hd-table-head-h'), '40px')
+  assert.equal(values.get('--hd-table-row-min'), '56px')
+  assert.equal(values.get('--hd-table-name-size'), '14px')
+})
+
+test('compact table tokens resolve independently from the foundation default', () => {
+  const values = resolveTokens({ root, tableDensity: 'compact' })
+  assert.equal(values.get('--hd-table-head-h'), '32px')
+  assert.equal(values.get('--hd-table-row-min'), '40px')
+  assert.equal(values.get('--hd-table-name-size'), '13px')
 })

@@ -413,7 +413,8 @@ test('a full turn streams through as an ordered event sequence', async (t) => {
   await tape.until((events) => events.some((event) => event.type === 'turn/completed'))
 
   const folded = reduceAll(baseSession(), tape.events)
-  const items = allItems(folded)
+  // Conversation warnings are quiet rows beside the turn's ordered content.
+  const items = allItems(folded).filter(item => item.type !== 'notice')
   assert.deepEqual(
     items.map((item) => item.type),
     ['userMessage', 'assistantMessage', 'command'],
@@ -542,6 +543,8 @@ test('a user verification (0.155.0) is answered cancel over the wire, and the pe
     [
       {
         type: 'notice',
+        class: 'conversation',
+        kind: 'conversation:verification',
         sessionId: session.id,
         level: 'warning',
         message:
@@ -1311,3 +1314,38 @@ test('a conversation is called the same thing opened as it is in the list (revie
   assert.equal(listed?.preview, 'Uncommitted changes')
   assert.equal(opened.preview, listed?.preview, 'the conversation that opens is the one the list named')
 })
+
+for (const order of ['separate', 'one-chunk']) {
+  test(`a marked Agent brief keeps its kind through ${order} opening and completion`, async (t) => {
+    const runtime = makeRuntime({ FAKE_CODEX_TURN_START_ORDER: order })
+    t.after(() => runtime.dispose())
+    await runtime.start()
+    const tape = recorder(runtime)
+    const session = await runtime.createSession({ cwd: '/w' })
+    const options = { recordAs: 'notice' as const, noticeKind: 'agentBrief' as const }
+    await session.send([{ type: 'text', text: '## Brief\n\n- Read the task.' }], options)
+    await tape.until(events => events.some(event => event.type === 'item/completed' && event.item.type === 'notice'))
+    const openings = tape.events.filter(event => (event.type === 'item/started' || event.type === 'item/completed') && event.item.type === 'notice')
+    assert.equal(openings.length, 2)
+    for (const event of openings) {
+      if (event.type === 'item/started' || event.type === 'item/completed') {
+        assert.equal((event.item as { kind?: string }).kind, 'agentBrief')
+        assert.ok(event.item.type === 'notice' && event.item.text.includes('## Brief\n\n- Read the task.'))
+      }
+    }
+    await tape.until(events => events.some(event => event.type === 'approval/requested'))
+    const requested = tape.events.find((event): event is Extract<AgentEvent, { type: 'approval/requested' }> => event.type === 'approval/requested')!
+    await session.respondToApproval(requested.approval.id, { type: 'option', optionId: 'opt-0' })
+    await tape.until(events => events.some(event => event.type === 'turn/completed'))
+    const items = allItems(reduceAll(baseSession(String(session.id)), tape.events))
+    // The retained tool declaration is also a notice; select the marked brief.
+    const opening = items.find(item => item.type === 'notice' && item.kind === 'agentBrief')
+    assert.ok(opening?.type === 'notice')
+    assert.equal(opening.kind, 'agentBrief')
+    const from = tape.events.length
+    await session.send([{ type: 'text', text: 'An ordinary notice after the brief.' }], { recordAs: 'notice' })
+    await tape.until(events => events.slice(from).some(event => event.type === 'item/completed' && event.item.type === 'notice'))
+    const next = tape.events.slice(from).find((event): event is Extract<AgentEvent, { type: 'item/completed' }> => event.type === 'item/completed' && event.item.type === 'notice')!
+    assert.equal((next.item as { kind?: string }).kind, undefined, 'brief classification does not leak into the next notice')
+  })
+}

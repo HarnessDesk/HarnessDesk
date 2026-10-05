@@ -31,7 +31,7 @@ real keystrokes and mouse clicks.
 | Enter while the queue is **held** | Joins the back of the queue. The composer says *"Adds to the 1 message already waiting"* (or *N messages*) — never a silent no-op ✓ |
 | **⌘↵** / **Ctrl+↵** where the agent can steer | Steers into the running turn: no new turn, nothing queued ✓ (Codex) |
 | **⌘↵** / **Ctrl+↵** where it cannot | Queues, exactly like Enter. The placeholder never offers what the runtime refuses ✓ |
-| Queueing beyond the cap (25 messages, or 100k characters total) | Refused out loud; your draft stays in the composer |
+| Queueing beyond the cap (25 messages, or 100k characters total) | Refused out loud; your words and chips remain in the conversation's Restore list |
 
 ### Delivery
 
@@ -120,11 +120,14 @@ you start typing. Neither replaces the other while you type, so the control
 under your pointer never shifts meaning. The queue button appears only when
 there is something to queue.
 
-### A send that fails puts the draft back
+### A send that fails keeps the draft
 
-The whole feature exists so that a typed message is never lost. The one path
-that can fail — the host refusing a full queue — returns your text and chips
-to the composer rather than swallowing them.
+The whole feature exists so that a typed message is never lost. A refused queue
+or steer keeps your text and chips in that conversation's Restore list. Restore
+brings them back to the composer and keeps a newer draft available in the list.
+If adding to a running turn fails, its reason stays beside the message — whether
+the turn ended, the connection was lost, or the agent timed out. The words,
+path-based chips and reason survive a window reload through the same draft mirror.
 
 ## The strip
 

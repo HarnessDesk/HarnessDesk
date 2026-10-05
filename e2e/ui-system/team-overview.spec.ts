@@ -11,14 +11,12 @@ for (const theme of ['light','dark'] as const) {
   expect(await wide.locator('[data-seat]').evaluateAll(rows=>rows.map(row=>row.textContent))).toEqual(expect.arrayContaining([expect.stringContaining('Needs you'),expect.stringContaining('Unread'),expect.stringContaining('Working'),expect.stringContaining('Idle')]))
   expect(await wide.locator('[data-seat]').evaluateAll(rows=>rows.map(row=>row.getAttribute('data-seat')))).toEqual(['seat-1','seat-2','seat-0','seat-3'])
   await expect(wide.locator('[data-shape="face"]')).toHaveCount(4)
-  // The face centres on the name's first painted line, not the name + role block.
+  // The face shares the whole cell centre, including the name and role.
   for (const row of await wide.locator('[data-seat]').all()) {
    const delta = await row.evaluate(e => {
     const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
-    const name = e.querySelector('[data-slot="text"][data-role="row"]')!
-    const range = document.createRange(); range.selectNodeContents(name)
-    const line = range.getClientRects()[0]!
-    return Math.abs((face.top + face.bottom) / 2 - (line.top + line.bottom) / 2)
+    const cell = e.querySelector('[data-slot="table-cell"]')!.getBoundingClientRect()
+    return Math.abs((face.top + face.bottom) / 2 - (cell.top + cell.bottom) / 2)
    })
    expect(delta).toBeLessThan(1.5)
   }
@@ -102,15 +100,17 @@ for (const theme of ['light', 'dark'] as const) {
    const overview = page.locator(`#team-overview-live-${scene} [data-slot="team-overview"]`)
    await expect(overview.locator('[aria-label="Run"] [data-slot="room-live-line"]')).toContainText(sentence!)
    await expect(overview.locator('[data-slot="room-run-reason"]')).toHaveCount(0)
+   // Clickable names keep the whole cell centre; the role keeps the name's left edge.
    for (const row of await overview.locator('[data-slot="table-row"][data-seat]').all()) {
     const delta = await row.evaluate(e => {
      const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
+     const cell = e.querySelector('[data-slot="table-cell"]')!.getBoundingClientRect()
      const name = e.querySelector('button [data-role="row"]')!
      const range = document.createRange(); range.selectNodeContents(name)
      const line = range.getClientRects()[0]!
      const role = e.querySelector('[data-slot="table-cell"] [data-role="meta"]')
      const roleRange = document.createRange(); if (role) roleRange.selectNodeContents(role)
-     return { face: Math.abs((face.top + face.bottom) / 2 - (line.top + line.bottom) / 2),
+     return { face: Math.abs((face.top + face.bottom) / 2 - (cell.top + cell.bottom) / 2),
       column: role ? Math.abs(line.left - roleRange.getClientRects()[0]!.left) : 0 }
     })
     expect(delta.face).toBeLessThan(1.5)
@@ -134,5 +134,18 @@ for (const theme of ['light', 'dark'] as const) {
    const sentence = run.locator('[data-slot="room-run-reason"] .whitespace-pre-line')
    expect(await sentence.evaluate(e => e.scrollWidth <= e.clientWidth && e.scrollHeight <= e.clientHeight)).toBe(true)
   }
+ })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+ test(`Overview prioritizes task names over activity width in ${theme}`, async ({ page }) => {
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  const overview=page.locator('#team-overview-live-running [data-slot="team-overview"]')
+  const widths=await overview.locator('th').evaluateAll(heads=>heads.map(head=>head.getBoundingClientRect().width))
+  expect(widths[1]).toBeGreaterThan(widths[4]!)
+  const card=overview.locator('[data-seat="seat-0"] [data-slot="seat-card"]')
+  expect(await card.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+  await expect(card).toContainText('Retry the checkout call')
+  await expect(card).toHaveCSS('white-space','normal')
  })
 }

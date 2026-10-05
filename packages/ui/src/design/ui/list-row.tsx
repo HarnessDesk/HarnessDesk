@@ -20,7 +20,9 @@ import { cn } from '@/lib/utils'
  *
  * The subtitle follows the repo's rule (`docs/design.md`): it is earned by
  * a fact that varies — a path, a count, a reason — and not spent on restating
- * the title in more words.
+ * the title in more words. A small state light belongs in `mark`, beside
+ * the text column, so it never indents the title alone. An empty mark slot
+ * reserves the same column for read and unread rows.
  */
 
 /* `title` is omitted from the div's own props before being re-declared. It is
@@ -32,8 +34,10 @@ import { cn } from '@/lib/utils'
 type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   /** An avatar, an `IconTile`, a logo. */
   lead?: React.ReactNode
+  /** A small state mark beside the text column. Pass false to reserve an empty slot. */
+  mark?: React.ReactNode
   title: React.ReactNode
-  /** A record title may wrap; keep its lead on the first line. */
+  /** A record title may wrap; its lead remains centred on the row. */
   wrapTitle?: boolean
   subtitle?: React.ReactNode
   /** An earned sentence wraps whole; names, paths and compact facts truncate. */
@@ -89,6 +93,7 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
 const ListRow = ({
   className,
   lead,
+  mark,
   title,
   wrapTitle,
   subtitle,
@@ -114,16 +119,10 @@ const ListRow = ({
        row looks different. */
     {...(selected ? { 'aria-current': 'true' as const } : {})}
     className={cn(
-      /* A lead centres on the row's FIRST text line, the way shadcn's Item
-         keeps its media centred only when the item is a single line and
-         pins it to the top the moment a description joins it. With only a
-         title the row's whole height IS the first line, so centring the row
-         still centres the lead on it; a subtitle or `meta` adds height below
-         that line, and centring the row then centred the lead 5–8px low. */
-      'flex',
-      wrapTitle || subtitle != null || meta != null ? 'items-start' : 'items-center',
+      'flex items-center',
       as === 'button' && 'w-full text-left',
-      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-3 px-4 py-2.5',
+      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-(--hd-table-lead-gap) px-(--hd-table-edge) py-(--hd-space-2-5)',
+      size === 'default' && (lead != null || subtitle != null || meta != null ? 'min-h-(--hd-table-row-min)' : 'min-h-(--hd-table-row-min-bare)'),
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
       selected && 'bg-(--hd-selected) hover:bg-(--hd-selected)',
@@ -167,15 +166,13 @@ const ListRow = ({
         data-slot="list-row-lead"
         className={cn(
           'inline-flex shrink-0 items-center gap-2',
-          /* The lead slot is exactly the title's first line. A larger mark
-             overflows it evenly above and below instead of inheriting the
-             height of a wrapped description. */
-          (wrapTitle || subtitle != null || meta != null) && (size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)'),
+          size === 'default' && 'has-[>[data-shape=face]:only-child]:size-(--hd-table-face) has-[>[data-shape=face]:only-child]:rounded-(--hd-table-face-radius) [&>[data-shape=face]]:size-(--hd-table-face) [&>[data-slot=icon-tile]]:size-(--hd-table-face) [&>[data-shape=face]]:rounded-(--hd-table-face-radius)',
         )}
       >
         {lead}
       </span>
     )}
+    {mark != null && <span data-slot="list-row-mark" className={cn('inline-flex w-2 shrink-0 items-center justify-center', size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>{mark}</span>}
     <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         data-slot="list-row-title"
@@ -189,7 +186,7 @@ const ListRow = ({
           wrapTitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
           size === 'sm'
             ? 'text-sm leading-(--hd-line-sm) font-normal'
-            : 'text-base leading-(--hd-line) font-medium',
+            : 'text-(length:--hd-table-name-size) leading-(--hd-line) font-medium',
         )}
       >
         {title}
@@ -199,7 +196,9 @@ const ListRow = ({
           data-slot="list-row-subtitle"
           {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
           className={cn(
-            'text-xs text-(--hd-muted-foreground)',
+            'text-(--hd-muted-foreground)',
+            size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
+            size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
             wrapSubtitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
           )}
         >
@@ -212,7 +211,8 @@ const ListRow = ({
       <div
         data-slot="list-row-trail"
         className={cn(
-          'flex shrink-0 items-center gap-2 tabular-nums',
+          'flex shrink-0 items-center tabular-nums',
+          size === 'sm' ? 'gap-2' : 'gap-(--hd-table-end-gap)',
           size === 'sm' ? 'text-xs text-(--hd-muted-foreground)' : 'text-xs',
         )}
       >
@@ -246,7 +246,7 @@ const ListRows = ({
     data-slot="list-rows"
     className={cn(
       'flex flex-col',
-      size === 'sm' ? 'gap-0.5' : 'divide-y divide-(--hd-border)',
+      size === 'sm' ? 'gap-0.5' : 'divide-y divide-(--hd-card-divider,var(--hd-border))',
       className,
     )}
     {...props}

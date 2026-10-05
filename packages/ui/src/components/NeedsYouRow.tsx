@@ -88,14 +88,16 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
   return (
     <ListRow
       data-kind={item.kind}
+      wrapTitle={item.kind === 'card'}
       title={(
-        <span className="flex min-w-0 items-center gap-2">
+        <span className={item.kind === 'card' ? 'flex min-w-0 flex-wrap items-center gap-2' : 'flex min-w-0 items-center gap-2'}>
+          {item.kind === 'card' && <Text role="subject">{words(item.summary)}</Text>}
           {name && <Text role="member" truncate>{words(name)}</Text>}
           <Chip tone="warning">{item.kind === 'card' ? `#${item.card}` : item.kind === 'question' ? 'Question' : 'Approval'}</Chip>
           {request?.detail.inputTo && <Chip tone="neutral">stdin</Chip>}
         </span>
       )}
-      subtitle={words(item.summary)} wrapSubtitle meta={controls}
+      subtitle={item.kind === 'card' ? undefined : words(item.summary)} wrapSubtitle meta={controls}
     />
   )
 }

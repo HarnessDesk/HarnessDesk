@@ -1,3 +1,6 @@
+import { TablesFamily } from '../design/explorer/tables-family'
+import { NoticesFrame } from './frames-notices'
+import { CatalogueRefusedUndo } from '../design/explorer/boards'
 import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { SiteRunPreview } from '../../site-demo/run-demo'
 import { TeamRecordFrames } from './frames-team-record'
@@ -38,7 +41,7 @@ import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
-import { ApprovalDialog, ApprovalReason, NativeSelect } from '../design'
+import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { AppWindowMode } from '../components/AppWindow'
@@ -68,7 +71,7 @@ import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } fr
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
 import { MessageQueue } from '../components/MessageQueue'
-import { GoalFrames } from './frames-goals'
+import { FindingFrames, GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
 import { CoverageFrames, NoticePlacementFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
@@ -85,6 +88,7 @@ import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './fram
 import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
+import { AgentBriefFrames } from './frames-agent-brief'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -1071,6 +1075,7 @@ const Preview = () => {
         </div>
       </Frame>
 
+      <Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame>
       <SettingsFrames />
       <Frame id="typography-cjk" title="CJK — reading text and controls">
         <CjkSpecimen />
@@ -1108,9 +1113,28 @@ const RunPreview = () => {
 const container = document.getElementById('root')
 if (!container) throw new Error('#root is missing from preview.html')
 
+const TablesPreview = () => {
+  useTheme()
+  return <div className="bg-background p-4 text-foreground"><Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame></div>
+}
+
 const PublicationPreview = () => {
   useTheme()
   return <ReviewPublicationFrames />
+}
+
+const RefusedUndoPreview = () => {
+  const theme = useTheme()
+  return <div data-frame-id="undo-refused" className="h-screen bg-background">
+    <PaneColumn inset="reading" page>
+      <CatalogueRefusedUndo theme={theme} />
+    </PaneColumn>
+  </div>
+}
+
+const FindingsPreview = () => {
+  useTheme()
+  return <div className="min-h-screen bg-background p-4 text-foreground"><FindingFrames scene={new URLSearchParams(window.location.search).get('findings')} /></div>
 }
 
 createRoot(container).render(
@@ -1119,6 +1143,16 @@ createRoot(container).render(
       <AppWindowMode.Provider value="embedded">
         {new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
+          : new URLSearchParams(window.location.search).has('tables')
+          ? <TablesPreview />
+          : new URLSearchParams(window.location.search).has('undo-refused')
+          ? <RefusedUndoPreview />
+          : new URLSearchParams(window.location.search).has('notices')
+          ? <NoticesFrame />
+          : new URLSearchParams(window.location.search).has('findings')
+          ? <FindingsPreview />
+          : new URLSearchParams(window.location.search).has('agent-brief')
+          ? <AgentBriefFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('review-publication')

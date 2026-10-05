@@ -7,6 +7,35 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A conversation that cannot open leaves a usable draft.** When its
+  transcript cannot be read, the pane shows the error and returns to a fresh
+  draft, so the next message starts a new conversation. Words and attachments
+  entered while it was opening remain available to restore. Send waits for
+  the conversation to load, and Restore keeps newer text and attachments
+  available to swap back. (Fixes #800)
+
+- **Runtime information waits quietly in the Inbox.** Configuration warnings
+  and retiring settings show their details, a file action and a mute option.
+  Repeats update one row's count and time; unchanged content stays read across
+  launches. Conversation notices stay inline, and only action results open
+  toasts. Notifications settings includes every new kind.
+
+- **Read what each room member is doing.** Conversation titles wrap beneath
+  the nickname alongside the task or reason, instead of being cut off on
+  the name's line. (Fixes #1185)
+
+- **A comparison keeps the attempt its judge picked.** Findings on the other
+  attempt no longer hold the person’s keep step; they stay open and explain
+  why they were not kept, including advisory findings and after later reviews.
+  An open list or detail updates when the pick continues, keeping a typed
+  reason. Later steps honour the pick too. A blocker on the picked attempt still holds it.
+  Reviewers can withdraw a mistaken finding from the card that raised it,
+  with a reason kept in its history. (Fixes #1382)
+
+- **An Agent’s brief starts folded.** A newly seated conversation and its
+  Side by side tile open on one **Agent brief** row. Open it to read the
+  standing order with its headings and lists intact. (Fixes #1379)
+
 - **Choose Command Line Tools for agent commands on macOS.** Starting the app
   with `HARNESSDESK_COMMAND_LINE_TOOLS=1` supplies their developer directory to
   agents when Xcode is selected and those tools are installed, avoiding the

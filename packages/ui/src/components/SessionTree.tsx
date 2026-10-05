@@ -577,7 +577,15 @@ const GroupHead = ({
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
               <Text role="prose" ink="secondary" truncate>{group.name}</Text>
               <DisclosureChevron open={open} size="xs" className="opacity-0 group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100" />
-              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`} className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden"><Chip tone="neutral" variant="quiet" label="Capture stopped" /></span>}
+              {stopped && <span className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden">
+                <SidebarMenuState
+                  label="Capture stopped"
+                  title={`${stopped.reason} ${stopped.nextStep}`}
+                  tone="neutral"
+                  state="unknown"
+                  compactAtNarrow
+                />
+              </span>}
             </span>}
           />
           {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
@@ -1190,10 +1198,10 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       snapshot.historyIdentity.map((summary) => String(sessionKey(summary.runtime, summary.id))),
     )
     const identityHistory = [...snapshot.historyIdentity]
-    // A live conversation can precede its first history page. Outside search,
-    // the loaded history also supplies folder facts for hidden gone rows;
-    // search results stay out so they cannot choose a different clone home.
-    for (const summary of searching ? liveRef.current : [...liveRef.current, ...snapshot.history]) {
+    // Visible history can still be search results for a beat after its field
+    // is cleared. Only the store's separately maintained full-history identity
+    // is authoritative for project homes; live rows can add their own facts.
+    for (const summary of liveRef.current) {
       const key = String(sessionKey(summary.runtime, summary.id))
       if (historyIdentityKeys.has(key)) continue
       historyIdentityKeys.add(key)

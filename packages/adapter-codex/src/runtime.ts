@@ -1084,12 +1084,17 @@ export class CodexRuntime implements AgentRuntime {
       ...start,
       excludeTurns: true,
     })
+    const history = await this.#forkedHistory(response.thread)
     const session = await this.#register(
-      { ...response.thread, turns: await this.#forkedHistory(response.thread) },
+      { ...response.thread, turns: history ?? [] },
       stateFromStartResponse(response),
       new ToolProjection(),
       { route: options.route ?? null, environment: options.environment },
     )
+    if (history === null) this.#emit({
+      type: 'notice', class: 'conversation', kind: 'conversation:fork', sessionId: session.id,
+      level: 'warning', message: 'The branch was made, but its history could not be read. Choose it in the sidebar to load it.',
+    })
     return this.#applyAfterStart(session, after)
   }
 
@@ -1101,20 +1106,14 @@ export class CodexRuntime implements AgentRuntime {
    * told what loads it: choosing it in the sidebar, which reads it
    * (`openSession`), even while it is the conversation on screen.
    */
-  async #forkedHistory(fork: CodexProtocol.v2.Thread): Promise<CodexProtocol.v2.Turn[]> {
+  async #forkedHistory(fork: CodexProtocol.v2.Thread): Promise<CodexProtocol.v2.Turn[] | null> {
     try {
       return await readHistory(this.#server, fork)
     } catch (error) {
       this.#logger?.warn?.(`codex could not read the history of fork ${fork.id}`, {
         error: error instanceof Error ? error.message : String(error),
       })
-      this.#emit({
-        type: 'notice',
-        sessionId: makeSessionId(fork.id),
-        level: 'warning',
-        message: 'The branch was made, but its history could not be read. Choose it in the sidebar to load it.',
-      })
-      return []
+      return null
     }
   }
 
@@ -1394,8 +1393,9 @@ export class CodexRuntime implements AgentRuntime {
   #deSpeak(event: AgentEvent): AgentEvent {
     if (event.type !== 'item/started' && event.type !== 'item/completed') return event
     if (event.item.type !== 'userMessage') return event
-    if (!this.#sessions.get(event.sessionId)?.isSilentTurn(event.turnId)) return event
-    return { ...event, item: noticeFromUserMessage(event.item) }
+    const session = this.#sessions.get(event.sessionId)
+    if (!session?.isSilentTurn(event.turnId)) return event
+    return { ...event, item: noticeFromUserMessage(event.item, session.noticeKindOf(event.turnId)) }
   }
 
   /** Walk an announced child thread to the conversation the desk opened. */
@@ -1551,9 +1551,10 @@ export class CodexRuntime implements AgentRuntime {
 }
 
 /** A silent order's opening item, told as `notice` instead of `userMessage` — see `CodexRuntime.#deSpeak`. */
-const noticeFromUserMessage = (item: UserMessageItem): AgentItem => ({
+const noticeFromUserMessage = (item: UserMessageItem, kind?: 'agentBrief'): AgentItem => ({
   id: item.id,
   type: 'notice',
+  ...(kind ? { kind } : {}),
   text: item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'),
   ...(item.startedAt !== undefined ? { startedAt: item.startedAt } : {}),
   ...(item.completedAt !== undefined ? { completedAt: item.completedAt } : {}),
