@@ -10,12 +10,12 @@ for(const theme of ['light','dark'] as const) {
  test(`Teams page: the whole stack and remainder fit inside the table lead in ${theme}`,async({page})=>{
   await openTeams(page,theme)
   const row=page.locator('#teams-page-active [data-team-row="team-2"]')
-  await expect(row.locator('[data-slot="face-stack"]')).toHaveAccessibleName('6 seats')
-  await expect(row.locator('[data-slot="face-stack"] [data-shape="face"]')).toHaveCount(4)
-  await expect(row.locator('[data-slot="face-stack"]')).toContainText('+2')
+  await expect(row.locator('[data-slot="avatar-stack"]')).toHaveAccessibleName('6 seats')
+  await expect(row.locator('[data-slot="avatar-stack"] [data-shape="face"]')).toHaveCount(4)
+  await expect(row.locator('[data-slot="avatar-stack"]')).toContainText('+2')
   expect(await row.evaluate(row=>{
    const lead=row.querySelector('[data-slot="table-cell-lead"]')!.getBoundingClientRect()
-   const stack=row.querySelector('[data-slot="face-stack"]')!
+   const stack=row.querySelector('[data-slot="avatar-stack"]')!
    return [...stack.querySelectorAll('[data-shape="face"]'),stack.lastElementChild!].every(el=>{
     const box=el.getBoundingClientRect();return box.left>=lead.left-1&&box.right<=lead.right+1&&box.top>=lead.top-1&&box.bottom<=lead.bottom+1
    })
@@ -52,7 +52,6 @@ for(const theme of ['light','dark'] as const) {
    const box=el.getBoundingClientRect()
    return el.contains(document.elementFromPoint(box.x+box.width/2,box.y+box.height/2))
   })).toBe(true)
-  await frame.locator(':scope > div').screenshot({path:`output/playwright/teams-page/hide-menu-${theme}.png`})
   await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(4)
   await frame.getByRole('button',{name:'Settled',exact:true}).click()
@@ -153,5 +152,61 @@ for(const theme of ['light','dark'] as const) {
   await expect(second.locator('[aria-label="Unread changes"]')).toBeVisible()
   expect(Math.abs(await nameLeft(first)-before)).toBeLessThan(1)
   expect(Math.abs(await nameLeft(first)-await nameLeft(second))).toBeLessThan(1)
+ })
+}
+
+for(const theme of ['light','dark'] as const) {
+ test(`Teams row readings remain hit targets and buttons keep one hover and focus mark in ${theme}`,async({page})=>{
+  await openTeams(page,theme)
+  for(const scene of ['active','narrow']) {
+   const row=page.locator(`#teams-page-${scene} [data-team-row="team-0"]`)
+   const open=row.getByRole('button',{name:'Open Review the checkout retry',exact:true})
+   await expect(open).toBeVisible()
+   await row.scrollIntoViewIfNeeded()
+   for(const titled of await row.locator('[title]').all()) {
+    const report=await titled.evaluate(el=>{
+     const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)
+     return {reached:hit!==null && el.contains(hit),title:el.getAttribute('title'),hit:hit?.outerHTML.slice(0,200),box:{x:box.x,y:box.y,width:box.width,height:box.height}}
+    })
+    expect(report.reached,JSON.stringify(report)).toBe(true)
+   }
+   await expect(row).not.toHaveAttribute('tabindex')
+   await expect(row.locator('[data-slot="list-row-trail"] > span:empty')).toHaveCount(0)
+   await open.focus();await expect(open).toBeFocused()
+   const point=await row.evaluate(e=>{
+    const detail=e.querySelector('[data-slot="team-detail"]')!
+    const range=document.createRange();range.selectNodeContents(detail)
+    const reading=range.getClientRects()[0]!
+    const x=reading.x+reading.width/2,y=reading.y+reading.height/2
+    return {x,y,reading:Boolean(document.elementFromPoint(x,y)?.closest('[data-slot="team-detail"]'))}
+   })
+   expect(point.reading).toBe(true)
+   const box=await open.boundingBox()
+   expect(box!.height).toBeGreaterThanOrEqual(24)
+   expect(box!.width).toBeGreaterThanOrEqual(24)
+   await open.hover()
+   await expect(open).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+   const markBox=()=>open.evaluate(el=>{
+    const mark=getComputedStyle(el,'::after')
+    return {width:mark.width,height:mark.height}
+   })
+   const beforePress=await markBox()
+   expect(parseFloat(beforePress.width)).toBeGreaterThan(box!.width)
+   await page.mouse.down()
+   expect(await markBox()).toEqual(beforePress)
+   expect(await open.evaluate(el=>({translate:getComputedStyle(el).translate,events:getComputedStyle(el,'::after').pointerEvents}))).toEqual({translate:'none',events:'none'})
+   await page.mouse.up()
+   await open.focus()
+   await expect(open).toHaveCSS('outline-style','none')
+   await page.keyboard.press('Tab')
+   await page.keyboard.press('Shift+Tab')
+   await expect(open).toBeFocused()
+   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).not.toBe('none')
+   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toContain('inset')
+   await page.mouse.click(point.x,point.y)
+   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toBe('none')
+   await page.mouse.click(point.x,point.y)
+   await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+  }
  })
 }

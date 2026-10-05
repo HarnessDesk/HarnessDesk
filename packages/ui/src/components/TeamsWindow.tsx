@@ -13,7 +13,7 @@ import { formatDuration } from './TurnTail'
 import { AppWindow, WindowNav, WindowNavItem, WindowPage } from './AppWindow'
 import { runtimeTint } from '../lib/accounts'
 import { AgentIcon, ChevronIcon, MoreIcon } from './Icons'
-import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, GroupLabel, FaceStack, ListRow, ListRows, Menu, MenuItem, Popover, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, PageHead, Text, useEscapeSurface } from '../design'
+import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, GroupLabel, AvatarStack, ListRow, ListRows, Menu, MenuItem, Popover, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, PageHead, Text, useEscapeSurface } from '../design'
 
 const words = (value: string): string => {
  const box=document.createElement('template'); box.innerHTML=sanitizeHtml(value)
@@ -64,7 +64,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const state=(row:TeamListRow)=>row.state==='needs-you'||row.state==='working'
   ? <Chip tone={row.state==='needs-you'?'warning':'info'}>{stateLabels[row.state]}</Chip>
   : <Text role="meta">{row.ready?'Ready to wrap':stateLabels[row.state]}</Text>
- const faces=(row:TeamListRow)=>row.seats.length ? <FaceStack faces={row.seats.map(seat=>{
+ const faces=(row:TeamListRow)=>row.seats.length ? <AvatarStack size="stack" aria-label={`${row.seats.length} ${row.seats.length === 1 ? 'seat' : 'seats'}`} members={row.seats.map(seat=>{
   const runtime=marks.get(seat.seat)
   return {id:seat.seat,name:words(seat.name),tint:runtime?runtimeTint(runtime.id,snapshot.accountsByRuntime,snapshot.accountPrefs):'blue',mark:runtime?<RuntimeMark runtime={runtime}/>:<AgentIcon/>}
  })}/>:undefined
@@ -75,24 +75,24 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const showCost=groups.some(group=>group.rows.some(row=>row.total.money!==null))
  return narrow ? <>{groups.map(group=><section key={group.project} aria-label={folderName(group.project)} data-team-project={group.project}>
   <GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel>
-  <ListRows>{group.rows.map(row=><ListRow key={row.id} data-team-row={row.id} interactive tabIndex={0} aria-label={`Open ${words(row.sentence)}`}
-   onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}
+  <ListRows>{group.rows.map(row=><ListRow key={row.id} data-team-row={row.id} interactive className="relative isolate"
+   onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}}
    lead={faces(row)} mark={row.unread?<Dot aria-label="Unread changes" tone="info"/>:false}
-   title={<Text role="subject" truncate>{words(row.sentence)}</Text>} subtitle={<span data-slot="team-detail">{[row.detail?words(row.detail):null,time(row)==='—'?null:`${time(row)} in this state`,row.total.turns===null?null:`${row.total.turns} turns`,cost(row)==='—'?null:cost(row)].filter(Boolean).join(' · ')}</span>} wrapSubtitle
+   title={<Button stretched hoverFill={false} variant="row" size="content-min" bordered={false} aria-label={`Open ${words(row.sentence)}`} onClick={()=>open(row)} className="block max-w-full"><Text as="span" className="block" role="subject" truncate>{words(row.sentence)}</Text></Button>} subtitle={<span data-slot="team-detail">{[row.detail?words(row.detail):null,time(row)==='—'?null:`${time(row)} in this state`,row.total.turns===null?null:`${row.total.turns} turns`,cost(row)==='—'?null:cost(row)].filter(Boolean).join(' · ')}</span>} wrapSubtitle
    trail={<>{state(row)}{menu(row)}<ChevronIcon /></>} />)}</ListRows>
  </section>)}</> : <Table variant="framed" className="table-auto">
   <TableHeader><TableRow><TableHead>Team</TableHead><TableHead className="w-[1%]">State</TableHead>
    <TableHead numeric className="w-[1%]">Time</TableHead><TableHead numeric className="w-[1%]">Turns</TableHead>{showCost&&<TableHead numeric className="w-[1%]">Cost</TableHead>}<TableHead className="w-[1%]"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
   <TableBody>{groups.map(group=><Fragment key={group.project}>
    <TableRow data-team-project={group.project}><TableCell colSpan={showCost?6:5}><GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel></TableCell></TableRow>
-   {group.rows.map(row=><TableRow key={row.id} data-team-row={row.id} interactive tabIndex={0} aria-label={`Open ${words(row.sentence)}`}
-    onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(row)}}}>
+   {group.rows.map(row=><TableRow key={row.id} data-team-row={row.id} interactive className="relative isolate"
+    onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}}>
     <TableCell className="max-w-0" lead={faces(row)}><div data-slot="team-identity" className="min-w-0 flex-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2">
-      <span className="inline-flex w-1.5 self-center">{row.unread&&<Dot aria-label="Unread changes" tone="info"/>}</span><Text role="subject" truncate title={words(row.sentence)}>{words(row.sentence)}</Text>
+      <span className="inline-flex w-1.5 self-center">{row.unread&&<Dot aria-label="Unread changes" tone="info"/>}</span><Button stretched hoverFill={false} variant="row" size="content-min" bordered={false} aria-label={`Open ${words(row.sentence)}`} onClick={()=>open(row)} className="block min-w-0 max-w-full"><Text as="span" className="block" role="subject" truncate title={words(row.sentence)}>{words(row.sentence)}</Text></Button>
       {row.detail&&<div data-slot="team-detail" title={words(row.detail)} className="col-start-2 whitespace-normal [overflow-wrap:anywhere]"><Text role="meta">{words(row.detail)}</Text></div>}
     </div></TableCell>
     <TableCell>{state(row)}</TableCell><TableCell numeric><Text role="meta" numeric title={row.since===null?'Time in this state is unavailable':undefined}>{time(row)}</Text></TableCell>
-    <TableCell numeric><Text role="meta" numeric>{row.total.turns??'—'}</Text></TableCell>{showCost&&<TableCell numeric><Text role="meta" numeric title={row.total.money===null?'Recorded usage is unavailable':'Recorded Team usage; money only from metered accounts with a known rate'}>{cost(row)}</Text></TableCell>}
+    <TableCell numeric><Text role="meta" numeric title={row.total.turns===null?'Recorded turns are unavailable':undefined}>{row.total.turns??'—'}</Text></TableCell>{showCost&&<TableCell numeric><Text role="meta" numeric title={row.total.money===null?'Recorded usage is unavailable':'Recorded Team usage; money only from metered accounts with a known rate'}>{cost(row)}</Text></TableCell>}
     <TableCell><span className="flex items-center gap-2">{menu(row)}<ChevronIcon /></span></TableCell>
    </TableRow>)}
   </Fragment>)}</TableBody>

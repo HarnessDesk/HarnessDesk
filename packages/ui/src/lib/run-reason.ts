@@ -1,2 +1,5 @@
-/** Engine routing names do not help someone answer the wait. Keep the recorded reason intact. */
-export const runReasonWords = (reason: string): string => reason.replace(/^Rule [^:\n]+:\s*/, '')
+/** Strip only a routing id from this Run, keeping user-written reasons whole. */
+export const runReasonWords = (reason: string, rules: readonly { readonly id: string }[] = []): string => {
+  const rule = rules.filter(one => reason.startsWith(`Rule ${one.id}: `)).sort((a, b) => b.id.length - a.id.length)[0]
+  return rule ? reason.slice(`Rule ${rule.id}: `.length) : reason
+}

@@ -368,3 +368,8 @@ it('keeps explanations on unknown readings of an unconfirmed check',()=>{
  expect(readings.querySelector('[title="Time not recorded"]')?.textContent).toBe('—')
  expect(readings.querySelector('[title="Run count unavailable"]')?.textContent).toBe('—')
 })
+
+it('keeps check Steps square when the fallback has no seated Agent', () => {
+ draw(policy([check('verify','pnpm test')], []))
+ expect(container.querySelector('[data-step-row="verify"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('square')
+})

@@ -115,6 +115,18 @@ for (const theme of ['light', 'dark'] as const) {
     })
     expect(delta.face).toBeLessThan(1.5)
     expect(delta.column).toBeLessThan(1.5)
+    const opener=row.getByRole('button',{name:/^Open /})
+    const box=await opener.boundingBox()
+    expect(box!.width).toBeGreaterThanOrEqual(24)
+    expect(box!.height).toBeGreaterThanOrEqual(24)
+    await opener.hover()
+    await expect(opener).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+    for(const title of await row.locator('[title]').all()) {
+     expect(await title.evaluate(el=>{
+      const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)
+      return hit!==null&&el.contains(hit)
+     })).toBe(true)
+    }
    }
   }
  })
@@ -126,7 +138,7 @@ for (const theme of ['light', 'dark'] as const) {
   const waiting=page.locator('#team-overview-live-waiting-evidence [data-slot="team-overview"]')
   await expect(waiting.locator('[aria-label="Needs you"]')).toHaveCount(0)
   await expect(waiting.locator('[aria-label="Run"]')).toContainText('Waiting for CI to go green at this revision.')
-  await expect(waiting).not.toContainText('Rule after-review:')
+  await expect(waiting).not.toContainText('Rule ')
   await expect(waiting.locator('[data-slot="room-pending-release-line"]')).toHaveText('Waiting for a Seat to finish before releasing its checkout.')
   expect((await waiting.textContent())?.split('Waiting for CI to go green at this revision.')).toHaveLength(2)
   await waiting.getByRole('button',{name:'Build and review',exact:true}).click()
@@ -183,7 +195,7 @@ for(const theme of ['light','dark'] as const) {
   await expect(overview.getByText('Needs you',{exact:true})).toBeVisible()
   await expect(overview.locator('[aria-label="Needs you"]')).toContainText(reason)
   expect((await overview.textContent())?.split(reason)).toHaveLength(2)
-  await expect(overview).not.toContainText('Rule after-review:')
+  await expect(overview).not.toContainText('Rule ')
   const open=overview.getByRole('button',{name:'Open findings',exact:true})
   await expect(open).toHaveAttribute('title','You or the reviewer can resolve this wait in Findings.')
   await open.click()

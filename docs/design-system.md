@@ -571,6 +571,14 @@ having written the judgement down.
 
 ### Buttons
 
+### `stretched`
+
+**Use** — A positioned row opens something through a named Button with size="content-min" and bordered={false}; use hoverFill={false} when the row paints its hover.
+
+**Not** — Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.
+
+**Why** — The button keeps its own target and keyboard action; titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.
+
 ### `default`
 
 **Use** — The one action a surface exists to perform — the thing you came to do. At most one per screen, and often none.
@@ -847,7 +855,7 @@ having written the judgement down.
 
 ### `face`
 
-**Use** — A face tells rows apart, centred beside the whole text block in either density. A table lead keeps a FaceStack at its full width, including the remainder count.
+**Use** — A face tells rows apart, centred beside the whole text block in either density. A table lead keeps an AvatarStack at its full width, including the remainder count.
 
 **Not** — The same decorative glyph repeated on every row. Leave the face out when it identifies nothing.
 

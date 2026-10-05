@@ -99,6 +99,8 @@ it('keeps a long lifecycle chip off the finding row\'s fixed icon mark, on the l
   const target = rows.find((one) => one.textContent?.includes('finding-0001'))!
   const chip = target.querySelector('[data-slot="chip-words"]')
   expect(chip?.textContent).toBe('Repair claimed · awaiting review')
+  expect(target.classList.contains(stylesSettings.rowRecord!)).toBe(true)
+  expect(target.querySelector('.select-all')?.textContent).toBe('finding-0001')
   const mark = target.getElementsByClassName(stylesSettings.rowMark!)[0] ?? null
   expect(mark === null || mark.querySelector('[data-slot="chip-words"]') === null).toBe(true)
 })

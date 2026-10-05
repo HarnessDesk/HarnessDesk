@@ -1056,7 +1056,8 @@ The Teams page and Overview read the same Run publication; a read still pending
 does not invent that state.
 Working and Needs you use tinted chips; quiet states use plain muted words.
 The wide view groups Teams by folder in a table with Time, Turns and Cost
-columns. Names truncate with their full title on hover; waiting reasons wrap
+columns; Cost disappears when every amount is unknown. Names truncate with
+their full title on hover; waiting reasons wrap
 whole. Read and unread names keep the same edge beside equal face stacks.
 Below 600px those readings move into the list's second line. A settled
 row carries its Run's end reason when recorded; otherwise it has no second line.
@@ -1085,7 +1086,8 @@ the Overview folds them into a disclosure such as **3 done**, above the rows.
 Agent names stretch, while the numeric columns align to the end. Card titles
 are names: they truncate within their column and keep their full title on hover. Now disappears
 when no Seat has work or a reason to show, and Cost disappears when every amount is unknown. A done
-Seat's Time is its recorded working duration, fixed when its last turn ended.
+Seat's Time sums its recorded turns’ working durations, fixed when its last turn ended;
+missing turn timing stays unknown.
 A findings wait, including a ledger that could not be read, raises **Needs you**
 and gives the person and reviewer a row leading to Findings.
 Other evidence waits stay neutral, reading **Waiting** with their recorded

@@ -2,7 +2,7 @@ import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from './avatar'
-import { softTint, solidTint, tintFor } from './tone'
+import { softTint, solidTint, tintFor, type Tint } from './tone'
 
 /**
  * Who is on this, in the width of one avatar and a bit.
@@ -24,8 +24,12 @@ import { softTint, solidTint, tintFor } from './tone'
  */
 
 export type StackMember = {
-  /** Shown in the tooltip and used to pick the fallback tint. */
-  name: string
+  /** Stable identity, independent of a display name shared by two members. */
+  id: string
+  /** A human name when one is known; never substitute the opaque id. */
+  name?: string
+  /** Explicit account tint; otherwise derived from the name. */
+  tint?: Tint
   src?: string
   /** Two characters at most; derived from the name when absent. */
   initials?: string
@@ -60,10 +64,10 @@ const initialsFor = (name: string) => {
 }
 
 type AvatarStackProps = Omit<React.ComponentProps<'div'>, 'children'> & {
-  members: StackMember[]
+  members: readonly StackMember[]
   /** How many faces before the rest become a count. */
   max?: number
-  size?: 'sm' | 'default'
+  size?: 'sm' | 'default' | 'stack'
   /**
    * A face is someone, so it follows the person's choice for faces
    * (`--hd-face-radius`, solid like every other face). `square` and `round`
@@ -82,30 +86,34 @@ const AvatarStack = ({
 }: AvatarStackProps) => {
   const shown = members.slice(0, max)
   const overflow = members.length - shown.length
-  const box = size === 'sm' ? 'size-5 text-xs' : 'size-6 text-xs'
+  const compact = size === 'stack'
+  const box = compact ? 'size-(--hd-space-5) text-xs' : size === 'sm' ? 'size-5 text-xs' : 'size-6 text-xs'
   const corner = shape === 'face' ? 'rounded-(--hd-face-radius)' : shape === 'round' ? 'rounded-full' : 'rounded-md'
 
   return (
     <div
       data-slot="avatar-stack"
-      /* The ring is drawn with a border in the card's colour so the faces
-         separate without a gap; `-space-x` pulls them back over each other. */
-      className={cn('flex items-center', size === 'sm' ? '-space-x-1' : '-space-x-1.5', className)}
+      /* Cards supply their own surface; a plain row falls back to the page. */
+      className={cn('inline-flex shrink-0 items-center', compact ? 'gap-2' : size === 'sm' ? '-space-x-1' : '-space-x-1.5', className)}
+      role="group"
+      aria-label={`${members.length} ${members.length === 1 ? 'member' : 'members'}`}
       {...props}
     >
+      <span className={cn('inline-flex', compact ? '-space-x-2' : size === 'sm' ? '-space-x-1' : '-space-x-1.5')}>
       {shown.map((member) => (
         <Avatar
-          key={member.name}
+          key={member.id}
           title={member.name}
           /* The name, on the root, always. Initials happen to spell it; a
              `BrandMark` is `aria-hidden` and spells nothing, so a member
              wearing a mark would otherwise be an unnamed image with a `title`
              &mdash; and `title` is not an accessible name any screen reader can
              be relied on to read. */
-          role="img"
+          role={member.name ? "img" : undefined}
           aria-label={member.name}
+          data-tint={member.tint ?? tintFor(member.name ?? member.id)}
           data-shape={shape}
-          className={cn(box, corner, 'border border-(--hd-card) bg-(--hd-card)')}
+          className={cn(box, corner, shape === 'face' ? solidTint({tint:member.tint ?? tintFor(member.name ?? member.id)}) : softTint({tint:member.tint ?? tintFor(member.name ?? member.id)}), 'ring-2 ring-[var(--stack-surface,var(--hd-background))]')}
         >
           {/* The root carries the name, so the image must not repeat it. */}
           {member.src && <AvatarImage src={member.src} alt="" />}
@@ -113,25 +121,24 @@ const AvatarStack = ({
             aria-hidden="true"
             className={cn(
               corner,
-              'font-medium [&_svg]:size-3.5',
-              shape === 'face' ? solidTint({ tint: tintFor(member.name) }) : softTint({ tint: tintFor(member.name) }),
+              'font-medium', compact ? '[&_svg]:size-3' : '[&_svg]:size-3.5',
+              shape === 'face' ? solidTint({ tint: member.tint ?? tintFor(member.name ?? member.id) }) : softTint({ tint: member.tint ?? tintFor(member.name ?? member.id) }),
             )}
           >
-            {member.mark ?? member.initials ?? initialsFor(member.name)}
+            {member.mark ?? member.initials ?? initialsFor(member.name ?? '')}
           </AvatarFallback>
         </Avatar>
       ))}
+      </span>
       {overflow > 0 && (
         <span
-          data-shape={shape}
+          data-shape={compact ? undefined : shape}
           title={members
             .slice(max)
-            .map((member) => member.name)
-            .join(', ')}
+            .flatMap((member) => member.name ? [member.name] : [])
+            .join(', ') || undefined}
           className={cn(
-            box,
-            corner,
-            'flex items-center justify-center border border-(--hd-card) bg-(--hd-muted) font-medium text-(--hd-muted-foreground) tabular-nums',
+            compact ? 'text-xs text-(--hd-muted-foreground) tabular-nums' : cn(box, corner, 'flex items-center justify-center ring-2 ring-[var(--stack-surface,var(--hd-background))] bg-(--hd-muted) font-medium text-(--hd-muted-foreground) tabular-nums'),
           )}
         >
           +{overflow}

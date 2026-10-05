@@ -54,10 +54,10 @@ export const GoalReceipt = ({ receipt, insight, faces, onOpenFinding }: GoalRece
           {receipt.findings.findings.map((finding) => {
             const chip = <Chip tone={lifecycleTone(finding)}>{lifecycleWords(finding)}</Chip>
             const title = finding.title || 'Untitled finding'
-            const desc = <MetaList ink="muted"><CodeText size="inherit">#{finding.id}</CodeText><span>{blockingWords(finding)}</span></MetaList>
+            const desc = <MetaList ink="muted"><CodeText size="inherit">#<span className="select-all">{finding.id}</span></CodeText><span>{blockingWords(finding)}</span></MetaList>
             return onOpenFinding
               ? <RowButton layout="record" key={finding.id} title={title} desc={desc} control={chip} onClick={() => onOpenFinding(finding.id)} />
-              : <Row key={finding.id} title={title} desc={desc} control={chip} />
+              : <Row layout="record" key={finding.id} title={title} desc={desc} control={chip} />
           })}
         </Rows>
         {receipt.findings.overrides.length > 0 ? (

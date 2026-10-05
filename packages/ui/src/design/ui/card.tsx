@@ -39,14 +39,14 @@ const Card = <T extends React.ElementType = 'div'>({
       data-radius={radius}
       data-spacing={spacing}
       className={cn(
-        'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-(--hd-inset-card)',
-        variant === 'muted' && 'border-dashed bg-(--hd-muted)',
+        '[--stack-surface:var(--hd-card)] bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-(--hd-inset-card)',
+        variant === 'muted' && 'border-dashed bg-(--hd-muted) [--stack-surface:var(--hd-muted)]',
         variant === 'flush' && 'gap-0 overflow-hidden py-0',
         /* A card that stands on a canvas of its own, a step in a drawing of a
            Flow: the registry card with the one soft shadow under it. */
         variant === 'raised' && 'shadow-(--hd-shadow-sm)',
         variant === 'plate' &&
-          'overflow-hidden rounded-(--hd-card-radius,var(--hd-radius-lg)) border-0 bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]',
+          '[--stack-surface:var(--hd-card-fill,var(--hd-card))] overflow-hidden rounded-(--hd-card-radius,var(--hd-radius-lg)) border-0 bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]',
         radius === 'sm' && 'rounded-(--hd-radius-sm)',
         radius === 'lg' && 'rounded-(--hd-radius-lg)',
         spacing === 'compact' && 'gap-2 p-(--hd-inset-row)',

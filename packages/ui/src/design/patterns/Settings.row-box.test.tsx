@@ -168,3 +168,11 @@ it('a record layout keeps its title wrapping even when the record kind is presen
   expect(css).toMatch(/\.rowRecord \.rowTitle\s*\{[^}]*white-space:\s*normal/s)
   expect(css).not.toMatch(/\.row\[data-kind='record'\] \.rowTitle\s*\{[^}]*white-space:\s*nowrap/s)
 })
+
+it('shares the record layout between a static row and a row button', () => {
+ const row=renderToStaticMarkup(<Row layout="record" title="A finding" desc="Its id" control="Open" />)
+ const button=renderToStaticMarkup(<RowButton onClick={() => {}} layout="record" title="A finding" desc="Its id" control="Open" />)
+ const layoutClass=/class="([^"]*rowRecord[^"]*)"/.exec(button)?.[1]?.split(' ').find(one=>one.includes('rowRecord'))
+ expect(layoutClass).toBeDefined()
+ expect(row).toContain(layoutClass!)
+})

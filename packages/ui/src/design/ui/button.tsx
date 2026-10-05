@@ -50,7 +50,7 @@ const BEHAVIOUR = [
   'cursor-pointer transition-colors select-none data-[draggable]:cursor-grab',
   /* The document-level focus rule owns the one ring. A component shadow
      here would draw a second mark around the same button under Desk. */
-  'active:not-aria-[haspopup]:translate-y-px',
+  'active:not-data-[stretched]:not-aria-[haspopup]:translate-y-px',
   'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[dragging]:opacity-40',
   // Icons carry their own dimensions through the app's icon facade. A
   // descendant-wide size override also shrank avatar marks and nested art.
@@ -323,6 +323,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   cursor?: 'default' | 'pointer'
   /** A quiet row may brighten its inherited label on hover without changing warning ink. */
   quietHover?: boolean
+  /** Mark the positioned row on keyboard focus. Only the button owns its hit area; the row must handle clicks on its other readings. */
+  stretched?: boolean
   /** Whether this button paints its own hover fill. Set false when an interactive parent owns the hover surface. */
   hoverFill?: boolean
   /**
@@ -345,7 +347,8 @@ const Button = ({
   bordered = true,
   cursor = 'pointer',
   quietHover = false,
-  hoverFill = true,
+  stretched = false,
+  hoverFill = !stretched,
   swatch,
   edge,
   edgeGlyph = 16,
@@ -359,11 +362,13 @@ const Button = ({
   <ButtonPrimitive
     data-slot="button"
     data-variant={variant}
+    {...(stretched ? { 'data-stretched': '', 'data-focus-ring': 'inline' } : {})}
     {...(FILLED.has(variant) ? { 'data-filled': '' } : {})}
     {...(swatch !== undefined ? { 'data-swatch': '' } : {})}
     className={cn(
       buttonVariants({ variant, size, className }),
       !bordered && 'border-0',
+      stretched && "static text-left active:translate-none after:absolute after:inset-0 after:pointer-events-none after:content-[''] in-[:root:not([data-focus-input=pointer])]:focus-visible:after:shadow-[inset_0_0_0_var(--hd-ring-width)_var(--hd-ring-muted)]",
       cursor === 'default' && 'cursor-default',
       !hoverFill && 'hover:bg-transparent',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',

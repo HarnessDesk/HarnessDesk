@@ -323,3 +323,16 @@ it('keeping the portalled Run again dialog does not select its check row', async
     expect(onSelect).not.toHaveBeenCalled()
   } finally { done() }
 })
+
+it('a retryable check has a named row button independent of Run again',()=>{
+ const {container,onSelect,done}=mountGate(GATE())
+ try {
+  const row=container.querySelector('[data-row="check-1-1"]')!
+  const open=row.querySelector<HTMLButtonElement>('[data-slot="list-row-title"] button')
+  expect(open).not.toBeNull()
+  expect(open!.hasAttribute('aria-label')).toBe(false)
+  expect(open!.textContent).toContain('Pass')
+  act(()=>open!.click())
+  expect(onSelect).toHaveBeenCalledOnce()
+ } finally {done()}
+})

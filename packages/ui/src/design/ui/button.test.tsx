@@ -271,3 +271,17 @@ it('keeps the shared table-row size about pitch, with rounded control corners', 
   expect(classes).not.toContain('border-b')
   expect(classes).not.toContain('data-[selected]:bg-(--hd-selected)')
 })
+
+it('marks the positioned row without intercepting its readings or duplicating hover and focus',()=>{
+ const markup=renderToStaticMarkup(<Button stretched hoverFill={false} variant="row" size="content-min" bordered={false}>Open the Team</Button>)
+ expect(markup).toContain('after:absolute after:inset-0')
+ expect(markup).toContain('after:pointer-events-none')
+ expect(markup).toContain('active:translate-none')
+ expect(markup).toContain('hover:bg-transparent')
+ expect(markup).toContain('data-focus-ring="inline"')
+ expect(markup).toContain("in-[:root:not([data-focus-input=pointer])]:focus-visible:after:")
+ expect(markup).toContain('min-h-(--hd-target-min)')
+ expect(markup).toContain('<button')
+ expect(markup).not.toContain(' stretched=')
+ expect(renderToStaticMarkup(<Button stretched variant="row">Open</Button>)).toContain('hover:bg-transparent')
+})

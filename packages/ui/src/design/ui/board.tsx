@@ -393,7 +393,7 @@ const BoardCard = ({
            a card floating on the column's own grey needs to enclose, and the
            4%-black hairline it had reads as a fold in the ground rather than
            as the edge of an object. */
-        'flex min-w-0 flex-col gap-2.5 rounded-(--hd-radius) border border-(--hd-border-strong) bg-(--hd-card) p-(--hd-inset-card) shadow-(--hd-shadow-xs)',
+        'flex min-w-0 flex-col gap-2.5 rounded-(--hd-radius) border border-(--hd-border-strong) bg-(--hd-card) [--stack-surface:var(--hd-card)] p-(--hd-inset-card) shadow-(--hd-shadow-xs)',
         className,
       )}
       {...props}

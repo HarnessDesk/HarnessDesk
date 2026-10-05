@@ -155,8 +155,8 @@ const TableHead = ({
  * `align` is the cell's half of the column's alignment, which `TableHead`
  * already carries: a column the head sets flush right is a column of figures,
  * so its cells are set flush right in tabular digits and line up under it.
- * A `lead` centres a face on the whole row, including wrapped text. A
- * FaceStack keeps its intrinsic width, including its remainder reading.
+ * A `lead` centres a face on the whole row, including wrapped text. An
+ * AvatarStack keeps its intrinsic width, including its remainder reading.
  */
 const TableCell = ({
   className,
@@ -197,7 +197,7 @@ const TableCell = ({
   >
     {lead != null ? (
       <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap)">
-        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=face-stack]]:w-auto has-[[data-slot=face-stack]]:overflow-visible [&>*:not([data-slot=face-stack])]:size-full [&>*:not([data-slot=face-stack])]:rounded-[inherit]">{lead}</span>
+        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible [&>*:not([data-slot=avatar-stack])]:size-full [&>*:not([data-slot=avatar-stack])]:rounded-[inherit]">{lead}</span>
         {children}
       </div>
     ) : children}
