@@ -82,14 +82,16 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       </TableRow></TableHeader>
       <TableBody>{breakdown.rows.map(row => {
         const goal = row.goal ? snapshot.goals.get(row.goal) : undefined
-        const seats = report.seats.filter(seat => view === 'goal' ? seat.board === row.goal : seat.agent !== null && row.key === `agent:${seat.agent.origin}:${seat.agent.id}`)
-        const teams = new Set(view === 'goal' && row.goal ? [row.goal] : seats.flatMap(seat => seat.board ? [seat.board] : []))
+        const historicalSeats = report.seats.filter(seat => view === 'goal' ? seat.board === row.goal : seat.agent !== null && row.key === `agent:${seat.agent.origin}:${seat.agent.id}`)
+        const seats = historicalSeats.filter(seat => seat.openedAt <= report.query.to
+          && (seat.closed === null || seat.closed.at > report.query.from))
+        const teams = new Set(view === 'goal' && row.goal ? [row.goal] : historicalSeats.flatMap(seat => seat.board ? [seat.board] : []))
         const executions = [...snapshot.flowExecutions.values()].filter(run => teams.has(run.goal))
         const latest = executions.sort((a,b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0]
         const name = view === 'goal' ? goal?.board.name ?? `Goal ${row.goal ?? row.key}` : row.label
         const branch = row.goal ? snapshot.lanes.find(lane => lane.goal === row.goal)?.branch ?? latest?.base?.branch : null
         const facts = view === 'goal' && goal ? [`Team ${goal.board.name}`, latest ? `${latest.document.flow.name} flow` : null, branch ? `branch ${branch}` : null].filter(Boolean).join(' · ') : null
-        const runs = teams.size > 0 && [...teams].every(team => readTeams.has(team)) && executions.every(run => run.startedAt !== undefined) ? executions.filter(run => run.startedAt! >= report.query.from && run.startedAt! <= report.query.to && (view === 'goal' || run.rounds.some(round => round.seats.some(id => seats.some(seat => seat.id === id))))).length : null
+        const runs = teams.size > 0 && [...teams].every(team => readTeams.has(team)) && executions.every(run => run.startedAt !== undefined) ? executions.filter(run => run.startedAt! >= report.query.from && run.startedAt! <= report.query.to && ((view === 'goal' && runtime === null) || run.rounds.some(round => round.seats.some(id => seats.some(seat => seat.id === id))))).length : null
         const open = view === 'goal' && row.goal ? () => onGoal(row.goal!) : null
         return <TableRow key={row.key} interactive={open !== null} onClick={open ?? undefined}>
           <TableCell lead={view === 'goal' ? <IconTile shape="face" tone="neutral"><GoalIcon /></IconTile> : undefined}>

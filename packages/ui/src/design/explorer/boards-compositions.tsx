@@ -227,6 +227,7 @@ import { IconBoard } from './icon-board'
 import { Specimen } from './specimen'
 import styles from './explorer.module.css'
 import { PlanCard } from '../patterns/PlanCard'
+import { UsageMeterRow } from '../patterns/UsageMeterRow'
 
 /**
  * The composition layer, board by board.
@@ -2424,6 +2425,27 @@ const PlanCardBoard = () => (
   </>
 )
 
+const USAGEMETERROW_CATALOG_VARIANTS = ['default'] as const
+const USAGEMETERROW_CATALOG_SIZES = ['default'] as const
+const USAGEMETERROW_CATALOG_STATES = ['default', 'warning', 'error', 'unknown'] as const
+const UsageMeterRowBoard = () => (
+  <Specimen measure="page" caption="Remaining usage, standing alone or inside a What is left list">
+    {USAGEMETERROW_CATALOG_VARIANTS.map(variant => USAGEMETERROW_CATALOG_SIZES.map(size => (
+      <div key={`${variant}:${size}`} className="grid gap-4" data-catalog-variant={variant} data-catalog-size={size}>
+        {USAGEMETERROW_CATALOG_STATES.map(state => (
+          <div key={state} data-catalog-state={state}>
+            <UsageMeterRow name={state === 'unknown' ? 'Unreported window' : 'Weekly'}
+              percent={state === 'unknown' ? null : state === 'error' ? 0 : state === 'warning' ? 12 : 79}
+              countdown={state === 'unknown' ? '—' : state === 'error' ? 'blocked for 3 d' : 'in 2 h 14 m'}
+              tone={state === 'warning' ? 'warning' : state === 'error' ? 'danger' : 'neutral'}
+              standalone={state === 'warning' || state === 'error'} />
+          </div>
+        ))}
+      </div>
+    )))}
+  </Specimen>
+)
+
 /**
  * The Plans table (`claude/plans-table`): the real `ShapeFilters`, `PlansTable`
  * and `NotReportingList` against hand-built `UsageReport`s, with inert
@@ -2867,6 +2889,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about:
       'A plan\'s price and a key or metered account\'s monthly budget, in every state the card can be in.',
     render: PlanCardBoard,
+  },
+  {
+    id: 'usage-meter-row',
+    title: 'Usage meter row',
+    about: 'The same reading in a plan card, a quota popover and an account menu.',
+    render: UsageMeterRowBoard,
   },
   {
     id: 'section',

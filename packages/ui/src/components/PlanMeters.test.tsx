@@ -248,6 +248,21 @@ it('opens the roster behind the token, named account by account', () => {
   ])
 })
 
+it('keeps a shorter lane blocked until the account-wide window resets', () => {
+ mount({
+  runtimes: [runtime('a', 'Agent A')],
+  usage: [report('a', [
+   { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + HOUR },
+   { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 3 * 24 * HOUR },
+  ])],
+  ...conversationWith('a'),
+ })
+ act(() => triggers()[0]?.click())
+ const lane = [...document.querySelectorAll('[data-slot="usage-meter-row"]')].find(row => row.textContent?.startsWith('Session'))
+ expect(lane?.textContent).toContain('blocked for 3 d')
+ expect(lane?.textContent).not.toContain('in 1 h')
+})
+
 it('says nothing at all when a signed-in agent reports no usage', () => {
   mount({
     runtimes: [runtime('a', 'Agent A')],

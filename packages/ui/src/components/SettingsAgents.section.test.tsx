@@ -99,6 +99,7 @@ it('draws each usage window as a row of the card, before Credits', () => {
   expect(meters.map((row) => row.textContent)).toEqual([expect.stringContaining('5-hour'), expect.stringContaining('Weekly')])
   expect(meters.every((row) => row.querySelectorAll('[role="progressbar"]').length === 1)).toBe(true)
   expect(rows.indexOf(credits as Element)).toBe(rows.length - 1)
+  expect(meters.every(row => row.getAttribute('data-slot') === 'row')).toBe(true)
 })
 
 it('grades a window meter the way every remaining meter is graded', () => {
@@ -125,12 +126,11 @@ it('grades a window meter the way every remaining meter is graded', () => {
   expect(container.textContent).toContain('48% left')
 })
 
-it('says when a window refills on the line under its name', () => {
-  const resetsAt = new Date(2030, 0, 2, 16, 0).getTime()
+it('says when a window refills in the shared meter countdown column', () => {
+  const resetsAt = Date.now() + 2 * 3_600_000 + 14 * 60_000
   shown(limits({ windows: [{ label: 'Weekly', usedPercent: 40, resetsAt }] as never }))
   const meter = container.querySelector('[role="progressbar"]')
-  const row = [...container.querySelectorAll('*')].find(
-    (node) => node.parentElement?.children.length && node.contains(meter) && node.textContent?.startsWith('Weekly'),
-  )
-  expect(row?.textContent).toMatch(/^WeeklyResets .+60% left$/)
+  const row = meter?.closest('[data-slot="usage-meter-row"]')
+  expect(row?.textContent).toBe('Weekly60% leftin 2 h 14 m')
+  expect(row?.lastElementChild?.textContent).toBe('in 2 h 14 m')
 })

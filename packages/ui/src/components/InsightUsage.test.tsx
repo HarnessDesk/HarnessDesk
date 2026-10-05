@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { InsightReport } from '@harnessdesk/protocol'
+import type { InsightReport, SeatRecord } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -202,4 +202,40 @@ it('reads Team names and range-scoped Run counts without showing the Goal brief'
  expect(row.textContent).toContain('Team Storefront · Build flow · branch feature/storefront')
  expect(row.textContent).not.toContain('A very long instruction')
  expect(row.children[1]?.textContent).toBe('1')
+})
+
+const scopedSeat = (id: string, runtime: string, openedAt: number, closedAt: number | null): SeatRecord => ({
+ id, board: 'goal-1', agent: { id: 'builder', origin: 'project', name: 'Builder' },
+ session: { runtime, sessionId: id }, openedAt, closed: closedAt === null ? null : { at: closedAt },
+} as SeatRecord)
+
+const showCounts = async (view: 'goal' | 'agent', runtime: string | null, from = 100, to = 200) => {
+ const base = report()
+ const seats = [scopedSeat('old', 'alpha', 0, 99), scopedSeat('current', 'alpha', 100, null), scopedSeat('other', 'beta', 100, null), scopedSeat('future', 'alpha', 201, null)]
+ const snapshot = { ...emptySnapshot(), flowExecutions: new Map([
+  ['alpha', { goal: 'goal-1', startedAt: 110, document: { flow: { name: 'Build' } }, rounds: [{ seats: ['current'] }] } as never],
+  ['beta', { goal: 'goal-1', startedAt: 120, document: { flow: { name: 'Build' } }, rounds: [{ seats: ['other'] }] } as never],
+  ['old', { goal: 'goal-1', startedAt: 90, document: { flow: { name: 'Build' } }, rounds: [{ seats: ['old'] }] } as never],
+ ]) }
+ const rows = base.breakdowns[0]!.rows.map(row => view === 'goal' ? row : { ...row, key: 'agent:project:builder', goal: null, label: 'Builder' })
+ const selected: InsightReport = { ...base, query: { root: '/repo', from, to }, seats: runtime ? seats.filter(seat => seat.session.runtime === runtime) : seats, breakdowns: [{ ...base.breakdowns[0]!, dimension: view, rows }] }
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals: vi.fn(async () => {}), loadTeamRuns: vi.fn(async () => {}) } as unknown as AppStore
+ await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={runtime as never} view={view} onGoal={() => {}} report={selected} /></StoreProvider>); await Promise.resolve(); await Promise.resolve() })
+ return [...container.querySelectorAll('tbody tr:first-child td')].slice(1, 3).map(cell => cell.textContent)
+}
+
+it('counts only Runs with Seats in the selected runtime for a Goal', async () => {
+ expect((await showCounts('goal', 'alpha'))[0]).toBe('1')
+})
+
+it.each(['goal', 'agent'] as const)('counts only Seats overlapping the range in the %s view', async view => {
+ expect((await showCounts(view, null))[1]).toBe('2')
+})
+
+it('applies both runtime and range to Agent counts', async () => {
+ expect(await showCounts('agent', 'alpha')).toEqual(['1', '1'])
+})
+
+it('shows observed zero counts when an Agent has no Seats or Runs in the range', async () => {
+ expect(await showCounts('agent', 'alpha', -100, -1)).toEqual(['0', '0'])
 })

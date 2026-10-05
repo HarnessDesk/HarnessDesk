@@ -261,7 +261,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
  */
 export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
-  return <UsageMeterRow name={window.label} percent={remaining} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} label={`${window.label} remaining`} standalone />
+  return <Row title={<UsageMeterRow name={window.label} percent={remaining} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} label={`${window.label} remaining`} standalone />} />
 }
 
 /**

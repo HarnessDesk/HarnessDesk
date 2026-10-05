@@ -1863,8 +1863,9 @@ class PreviewStore {
     const seat = { ...PREVIEW_SEAT, board: goal.goal.id }
     const execution = { ...sceneFlowExecution('pinned'), goal: goal.goal.id, startedAt: query.to - 3_600_000,
       base: { branch: 'feature/storefront', at: 'a'.repeat(40), remote: 'origin' } }
+    const seatedExecution = { ...execution, rounds: execution.rounds.map(round => ({ ...round, seats: [seat.id] })) }
     this.patch({ goals: new Map(this.#snapshot.goals).set(goal.goal.id, goal),
-      flowExecutions: new Map(this.#snapshot.flowExecutions).set(execution.id, execution) })
+      flowExecutions: new Map(this.#snapshot.flowExecutions).set(execution.id, seatedExecution) })
     return { ...base, query, goals: [goal.goal], seats: [seat],
       scan: unknown ? 'partial' : 'complete', totals: { ...base.totals, usd },
       breakdowns: ['goal', 'agent'].map(dimension => ({ dimension: dimension as 'goal' | 'agent',
