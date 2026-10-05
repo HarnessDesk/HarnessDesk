@@ -11,6 +11,7 @@ import readline from 'node:readline'
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { scriptedFlow } from './scripted-flow.mjs'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
 // mocked. Codex resolves an installed package's icon to an absolute path.
@@ -67,6 +68,10 @@ if (process.env['FAKE_CODEX_CLAIMS']) {
 
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const notify = (method, params) => send({ method, params })
+// Only screenshot scenes opt in; adapter tests retain their existing turns.
+const flowWorker = scriptedFlow(process.env['FAKE_CODEX_FLOW'], { send, notify })
+const flowTools = new Map()
+let flowTurn = 0
 
 // Codex stamps turns in whole seconds and item lifecycles in milliseconds, and
 // the fake keeps both units real: a turn stamped `1` reads in the app as a
@@ -1179,6 +1184,7 @@ rl.on('line', (line) => {
 
   // Client answering one of our server-initiated requests.
   if (message.id !== undefined && message.method === undefined) {
+    if (flowWorker?.answer(message)) return
     // Tool-call answers carry contentItems rather than a decision.
     if (message.result && Array.isArray(message.result.contentItems)) {
       toolAnswers.push(message.result)
@@ -1276,6 +1282,7 @@ rl.on('line', (line) => {
       // and an ephemeral one is never paged.
       histories.set(THREAD, { mode: params?.historyMode ?? (params?.ephemeral ? 'legacy' : NEW_HISTORY), stored: false, turns: [] })
       declaredTools = flattenDynamicTools(params?.dynamicTools ?? [])
+      if (flowWorker) flowTools.set(THREAD, declaredTools)
       // Codex reserves these namespaces for its own Responses tools and
       // refuses the whole thread/start on a collision. Still true on 0.149.0,
       // whose wording this is, verified against the real app-server.
@@ -1303,7 +1310,7 @@ rl.on('line', (line) => {
       // A new thread is in the folder it was started in, as Codex reports it.
       send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
-      notify('warning', {
+      if (!flowWorker) notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
       })
@@ -1873,7 +1880,7 @@ rl.on('line', (line) => {
     }
 
     case 'thread/list':
-      send({ id, result: { data: storedThreads(), nextCursor: null, backwardsCursor: null } })
+      send({ id, result: { data: flowWorker ? [] : storedThreads(), nextCursor: null, backwardsCursor: null } })
       return
 
     case 'thread/search': {
@@ -1882,7 +1889,7 @@ rl.on('line', (line) => {
       // whatever was asked cannot show a caller doing per-row work on the
       // page it got back (#274).
       const term = String(params?.searchTerm ?? '').toLowerCase()
-      const hits = storedThreads().filter((entry) =>
+      const hits = (flowWorker ? [] : storedThreads()).filter((entry) =>
         `${entry.id} ${entry.preview}`.toLowerCase().includes(term),
       )
       send({
@@ -2140,6 +2147,15 @@ rl.on('line', (line) => {
         .map((part) => part.text)
         .join(' ')
         .trim()
+      if (flowWorker) {
+        const threadId = params.threadId
+        const turnId = `rig-turn-${++flowTurn}`
+        send({ id, result: { turn: { id: turnId, items: [], status: 'inProgress', error: null } } })
+        const cwd = cwdByThread.get(threadId)
+        const tools = flowTools.get(threadId) ?? []
+        setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: said }))
+        return
+      }
       const background = /^(bg|failbg|endbg)\s+(.+)$/.exec(said)
       if (background) {
         send(response)
@@ -2201,6 +2217,11 @@ rl.on('line', (line) => {
       return
 
     case 'turn/interrupt':
+      if (flowWorker) {
+        send({ id, result: {} })
+        flowWorker.interrupt(params.threadId)
+        return
+      }
       if (runningReviews.has(params.threadId)) {
         stopReview(id, params)
         return
