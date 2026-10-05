@@ -1,8 +1,0 @@
-.rows { container-type: inline-size; }
-.row { min-width: 0; }
-/* Readings move together below the sentence when the page is narrow; the
-   earned waiting sentence continues to wrap in the shared ListRow slot. */
-@container (max-width: 600px) {
-  .row { flex-wrap: wrap; }
-  .row [data-slot='list-row-trail'] { width: 100%; justify-content: flex-end; }
-}
