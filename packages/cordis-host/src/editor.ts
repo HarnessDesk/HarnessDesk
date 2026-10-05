@@ -92,10 +92,7 @@ const engine = (): EditorEngine => {
   return found
 }
 
-/**
- * Relative paths resolve against the open workspace. The editor is the person's, so it follows the folder the desk
- * has open; `ctx.fs` follows the calling conversation's checkout instead (`callRoot` in capabilities.ts).
- */
+/** Relative paths resolve against the workspace, exactly as `ctx.fs` resolves them. */
 const resolveInWorkspace = (runtime: HostRuntime, path: string): string => {
   if (isAbsolute(path)) return resolve(path)
   const root = runtime.workspace.root

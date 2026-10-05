@@ -20,29 +20,11 @@ import { currentShellWorkspace } from './shell-workspace.js'
 
 const tracker = (name: string) => ({ associate: name, property: 'ctx' })
 
-/**
- * The folder a call works in: during a tool or context invocation, the calling
- * conversation's checkout, which the host supplies and no argument can name;
- * otherwise the open workspace. A Team's seat works in its own clone while the
- * desk has another folder open, and its reads resolved against the open one
- * read another Team's files. The shell has followed the caller since #1235;
- * reading a file and naming the root follow it too.
- */
-const callRoot = (runtime: HostRuntime): string | null => currentShellWorkspace() ?? runtime.workspace.root
-
-/** Resolves relative paths against the call's folder, so a plugin cannot escape by default. */
-const resolveInWorkspace = (root: string | null, path: string): string => {
+/** Resolves relative paths against the workspace, so a plugin cannot escape by default. */
+const resolveInWorkspace = (runtime: HostRuntime, path: string): string => {
   if (isAbsolute(path)) return resolve(path)
+  const root = runtime.workspace.root
   return root ? resolve(root, path) : resolve(path)
-}
-
-/**
- * A path resolved against the call's folder, and a gate whose boundary is that folder, as the shell's is. A
- * function rather than a private method: a plugin reaches a service through a proxy, which has no private fields.
- */
-const scoped = (runtime: HostRuntime, ctx: Context, path: string): { readonly target: string; readonly gate: PermissionGate } => {
-  const root = callRoot(runtime)
-  return { target: resolveInWorkspace(root, path), gate: new PermissionGate(runtime.owner(ctx).permissions, () => root) }
 }
 
 export class FsService extends Service {
@@ -56,27 +38,27 @@ export class FsService extends Service {
   }
 
   async read(path: string): Promise<string> {
-    const { target, gate } = scoped(this.runtime, this.ctx, path)
-    gate.assertWorkspaceRead(target)
+    const target = resolveInWorkspace(this.runtime, path)
+    this.runtime.owner(this.ctx).gate.assertWorkspaceRead(target)
     return readFile(target, 'utf8')
   }
 
   async write(path: string, content: string): Promise<void> {
-    const { target, gate } = scoped(this.runtime, this.ctx, path)
-    gate.assertWorkspaceWrite(target)
+    const target = resolveInWorkspace(this.runtime, path)
+    this.runtime.owner(this.ctx).gate.assertWorkspaceWrite(target)
     await writeFile(target, content)
   }
 
   async list(path = '.'): Promise<{ name: string; directory: boolean }[]> {
-    const { target, gate } = scoped(this.runtime, this.ctx, path)
-    gate.assertWorkspaceRead(target)
+    const target = resolveInWorkspace(this.runtime, path)
+    this.runtime.owner(this.ctx).gate.assertWorkspaceRead(target)
     const entries = await readdir(target, { withFileTypes: true })
     return entries.map((entry) => ({ name: entry.name, directory: entry.isDirectory() }))
   }
 
   async exists(path: string): Promise<boolean> {
-    const { target, gate } = scoped(this.runtime, this.ctx, path)
-    gate.assertWorkspaceRead(target)
+    const target = resolveInWorkspace(this.runtime, path)
+    this.runtime.owner(this.ctx).gate.assertWorkspaceRead(target)
     try {
       await stat(target)
       return true
@@ -184,7 +166,7 @@ export class ShellService extends Service {
 
     // A lane may live outside the project's checkout. Its host-supplied root
     // is both the default and the boundary; an explicit cwd cannot widen it.
-    const root = callRoot(this.runtime)
+    const root = currentShellWorkspace() ?? this.runtime.workspace.root
     const cwd = options.cwd ? resolve(root ?? '.', options.cwd) : root
     if (cwd) new PermissionGate(owner.permissions, () => root).assertWorkspaceRead(cwd)
 
@@ -261,8 +243,7 @@ export class WorkspaceService extends Service {
 
   get root(): string | null {
     // Reading which folder is open is not privileged; reading its contents is.
-    // Inside a call it is the caller's checkout: the folder its reads resolve against.
-    return callRoot(this.runtime)
+    return this.runtime.workspace.root
   }
 
   get branch(): string | null {

@@ -67,7 +67,7 @@ never runs half-wired.
 | `ctx.context` | Instructions and reference material folded into each turn |
 | `ctx.commands` | Slash commands |
 | `ctx.ui` | Panels, rows, and settings sections |
-| `ctx.fs` | Filesystem access, confined to the open workspace |
+| `ctx.fs` | Filesystem access, confined to the checkout the call runs in |
 | `ctx.http` | Network access, limited to declared hosts |
 | `ctx.shell` | Running a program, arguments never shell-interpreted |
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
@@ -76,7 +76,7 @@ never runs half-wired.
 | `ctx.forge` | The seat a publication is signed as, and the record of it in the conversation |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
-| `ctx.workspace` | The open project root and its git branch |
+| `ctx.workspace` | The root the call runs in, and its git branch when that is the open project |
 | `ctx.harness` | This plugin's identity and logging |
 
 ### Permissions and isolation
@@ -104,13 +104,18 @@ Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
 
-During a tool call or context resolution, `ctx.shell.run` defaults to the
-calling conversation's checkout, including an isolated lane outside the open
-project. The host supplies that root through the invocation scope; tool
-arguments cannot replace it. An explicit `cwd` is resolved against that root
-and must remain inside it, with the same manifest grants and symlink checks.
-Without a checkout in the invocation scope, the open workspace remains the
-default and boundary.
+During a tool call or context resolution, every workspace capability follows
+the calling conversation's checkout, including an isolated lane outside the open
+project: `ctx.shell.run` runs there by default, `ctx.fs` resolves relative
+paths against it and refuses a path outside it, and `ctx.workspace.root` and
+`ctx.harness.workspaceRoot` name it. `ctx.workspace.branch` is `null` in any
+checkout but the open one, because the branch is a fact the host knows only
+about the folder it opened. The host supplies that root through the invocation
+scope; tool arguments cannot replace it. An explicit `cwd` is resolved against
+that root and must remain inside it, with the same manifest grants and symlink
+checks. Without a checkout in the invocation scope, and in hooks and slash
+commands (which do not enter the caller's checkout yet), the open workspace
+remains the default and boundary.
 
 The host admits managed lanes and the particular linked checkout the person
 opened, using the project identity captured at open. A new Seat whose requested
