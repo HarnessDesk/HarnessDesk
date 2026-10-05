@@ -107,7 +107,7 @@ export interface FlowEvidenceContext {
   readonly finished: FlowRoundState
   readonly subjects: readonly FlowSubject[]
   /** Writers in the closure with no clean head right now, and why: each one waits rather than being dropped. */
-  readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+  readonly unsettled: readonly { readonly card: number; readonly why: string; readonly checkout?: FlowSubject['checkout'] }[]
   /** Every card of the dependency walk: the finished round's own, those between, and the subjects'. */
   readonly cards: readonly number[]
   /** The Seats whose reviews a `review` guard needs: the finished round's own. */
@@ -374,6 +374,8 @@ export function evidenceGuard(guards: readonly FlowEvidenceGuard[], context: Flo
  */
 export interface FindingsGate {
   readonly blockers: number
+  /** Readable, admitted blockers by the checkout they were raised against. Damage stays in the total only. */
+  readonly byCheckout?: Readonly<Record<string, number>>
   readonly pending: boolean
   readonly unreadable: boolean
 }
@@ -395,7 +397,18 @@ export function readyGuard(guards: readonly FlowEvidenceGuard[], context: FlowEv
   if (guards.length > 0 && findings !== undefined) {
     if (findings === null || findings.unreadable) return { state: 'waiting', reason: WAITING_LEDGER }
     if (findings.pending) return { state: 'waiting', reason: WAITING_EXCEPTION }
-    if (findings.blockers > 0) return { state: 'waiting', reason: WAITING_FINDINGS(findings.blockers) }
+    let blockers = findings.blockers
+    const reviews = guards.filter((guard) => 'review' in guard)
+    if (reviews.length > 0 && findings.byCheckout) {
+      const choice = evidenceGuard(reviews, context)
+      if (choice.state === 'matched') {
+        const kept = new Set(choice.subjects.map((one) => one.checkout.cwd))
+        const checkouts = [...context.subjects.map((one) => one.checkout.cwd), ...context.unsettled.flatMap((one) => one.checkout ? [one.checkout.cwd] : [])]
+        const others = new Set(checkouts.filter((cwd) => !kept.has(cwd)))
+        for (const cwd of others) blockers -= findings.byCheckout[cwd] ?? 0
+      }
+    }
+    if (blockers > 0) return { state: 'waiting', reason: WAITING_FINDINGS(blockers) }
   }
   return evidenceGuard(guards, context)
 }
