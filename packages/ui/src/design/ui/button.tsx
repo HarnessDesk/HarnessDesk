@@ -240,6 +240,10 @@ const boxedVariants = cva(
        which one won depended on load order. The indent moved to the `row`
        size for the same reason — it is the box's inset, not a state. */
     compoundVariants: [
+      /* Inline actions keep `content`'s sentence layout, but their clickable
+         box takes the same padding and pull-back as `inline-link`. The
+         target floor belongs to the primitive, not each sentence's caller. */
+      { variant: 'link', size: 'content', class: 'min-h-(--hd-target-min) py-(--hd-space-2) -my-(--hd-space-2)' },
       { variant: 'row', class: 'text-(--hd-foreground)' },
       { variant: 'row', size: 'log-row', class: 'rounded-none border-0 border-b border-b-(--hd-card-divider,var(--hd-border)) data-[selected]:bg-(--hd-selected) data-[selected]:hover:bg-(--hd-selected)' },
     ],
