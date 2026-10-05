@@ -618,6 +618,18 @@ it('a dropped run’s open finding says where it came from, and is decided again
   }))
 })
 
+it('labels an open finding on an unselected attempt as Not kept', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [row('finding-loser', { activeBlocking: false, inactiveReason: 'This attempt was not kept.' })],
+    next: null, totals: { all: 1, open: 1, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  await render(rig(state).store)
+  expect(container.textContent).toContain('Not kept')
+  expect(container.textContent).toContain('Open')
+  expect(container.textContent).not.toContain('Advisory')
+})
+
 it('keeps a finding title separate from its literal id and lifecycle controls', async () => {
   const state: FindingsListState = {
     filter: 'all', rows: [row('finding-claim-1', { title: 'Race between two writers on the same lane' })],
