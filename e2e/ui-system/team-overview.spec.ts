@@ -124,12 +124,12 @@ for (const theme of ['light', 'dark'] as const) {
  test(`Team Overview: evidence and unrouted reasons stay visible once in ${theme}`, async ({ page }) => {
   await page.goto(`/preview.html?team-overview&theme=${theme}`)
   const waiting=page.locator('#team-overview-live-waiting-evidence [data-slot="team-overview"]')
-  await expect(waiting.locator('[aria-label="Needs you"]')).toContainText('Waiting for its evidence.')
+  await expect(waiting.locator('[aria-label="Needs you"]')).toHaveCount(0)
+  await expect(waiting.locator('[aria-label="Run"]')).toContainText('Waiting for CI to go green at this revision.')
   await expect(waiting).not.toContainText('Rule after-review:')
-  await expect(waiting.locator('[aria-label="Needs you"]')).not.toContainText('Findings')
   await expect(waiting.locator('[data-slot="room-pending-release-line"]')).toHaveText('Waiting for a Seat to finish before releasing its checkout.')
-  expect((await waiting.textContent())?.split('Waiting for its evidence.')).toHaveLength(2)
-  await waiting.getByRole('button',{name:'Open run',exact:true}).click()
+  expect((await waiting.textContent())?.split('Waiting for CI to go green at this revision.')).toHaveLength(2)
+  await waiting.getByRole('button',{name:'Build and review',exact:true}).click()
   await expect(page.locator('#team-overview-live-waiting-evidence [data-slot="run-view"]').first()).toBeVisible()
   const reason='"Review the change" (#2) answered revise; no rule continues from it, so this waits for you'
   const run=page.locator('#team-overview-live-unrouted [aria-label="Run"]')

@@ -139,7 +139,7 @@ it('keeps completed time fixed when the clock advances and opens the whole row',
 })
 it('shows an evidence wait once with a Findings action and no engine id',()=>{
  const summary=overviewModel('idle');const onFindings=vi.fn()
- act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,waitingEvidence:true}}} runReason="Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved." onFindings={onFindings}/>))
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,waitingEvidence:true,waitingFindings:true}}} runReason="Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved." onFindings={onFindings}/>))
  expect(box.textContent).not.toContain('to-referee')
  expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain('You or the reviewer')
  const action=[...box.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Open findings')!
@@ -190,15 +190,15 @@ it('preserves the supplied live line and its actions during a findings wait',()=
  expect([...box.querySelectorAll('button')].some(one=>one.textContent==='Open trigger')).toBe(true)
  expect(statusLine).toHaveBeenCalled()
 })
-it.each(['Waiting for its evidence.','Waiting for a passing check at this revision.','Waiting for CI to go green at this revision.','Waiting for a structured review at this revision.','Waiting for the pull request to reach that state.','Waiting for an observed diff at this revision.','Waiting for card #7: findings-check has not passed.'])('routes the evidence wait %s to Run rather than promising Findings can resolve it',reason=>{
+it.each(['Waiting for its evidence.','Waiting for a passing check at this revision.','Waiting for CI to go green at this revision.','Waiting for a structured review at this revision.','Waiting for the pull request to reach that state.','Waiting for an observed diff at this revision.','Waiting for card #7: findings-check has not passed.'])('keeps the evidence wait %s neutral with its reason in Run',reason=>{
  const summary=overviewModel('idle');const onRun=vi.fn();const onFindings=vi.fn()
- act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,waitingEvidence:true}}} runReason={`Rule after-review: ${reason}`} onRun={onRun} onFindings={onFindings}/>))
- const attention=box.querySelector('[aria-label="Needs you"]')!
- expect(attention.textContent).toContain(reason)
- expect(attention.textContent).not.toContain('Findings')
- const action=[...attention.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Open run')!
- expect(action).toBeDefined()
- act(()=>action.click());expect(onRun).toHaveBeenCalledOnce();expect(onFindings).not.toHaveBeenCalled()
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:false,waitingEvidence:true}}} runReason={`Rule after-review: ${reason}`} onRun={onRun} onFindings={onFindings}/>))
+ expect(box.querySelector('[aria-label="Needs you"]')).toBeNull()
+ const strip=box.querySelector('[aria-label="Run"]')!
+ expect(strip.textContent).toContain(reason)
+ expect([...strip.querySelectorAll('[data-slot="chip"]')].map(one=>[one.textContent,one.getAttribute('data-tone')])).toContainEqual(['Waiting','neutral'])
+ expect(box.textContent?.split(reason)).toHaveLength(2)
+ expect(box.textContent).not.toContain('Open findings')
 })
 it('does not infer a live evidence wait from an ended Run’s older rule reason',()=>{
  const summary=overviewModel('done')
@@ -210,4 +210,13 @@ it('keeps a blocked Seat’s reason in Now when nobody is working',()=>{
  render([row('Alpha',{state:'needs-you',reason:'Choose a target',card:{id:1,title:'Build the change'}})])
  expect([...box.querySelectorAll('th')].map(one=>one.textContent)).toContain('Now')
  expect(box.querySelector('[data-seat="Alpha"] [data-slot="seat-doing"]')?.textContent).toBe('Choose a target')
+})
+
+it('keeps neutral Waiting beside a supplied live line and delegates its reason once',()=>{
+ const summary=overviewModel('idle')
+ const statusLine=vi.fn((_now:number,includeReason?:boolean)=><span>Agents are idle{includeReason && ' · Waiting for CI to go green at this revision.'}</span>)
+ act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,waitingEvidence:true}}} runReason="Rule after-review: Waiting for CI to go green at this revision." statusLine={statusLine}/>))
+ expect(box.querySelector('[aria-label="Run"] [data-slot="chip"]')?.textContent).toBe('Waiting')
+ expect(box.textContent?.split('Waiting for CI to go green at this revision.')).toHaveLength(2)
+ expect(statusLine).toHaveBeenLastCalledWith(expect.any(Number),true)
 })

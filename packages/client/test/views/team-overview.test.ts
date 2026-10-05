@@ -512,10 +512,13 @@ describe('completed Seat readings', () => {
       signals: [blockedSignal('Alpha', { signal: 'completed' })] }))
     assert.partialDeepStrictEqual(model.seats[0], { durationMs: null })
   })
-  it('marks a running evidence wait as attention without blocking every Seat', () => {
-    const run = execution({ rounds: [{ n: 1, role: 'builder', cards: [1], seats: ['Alpha'], evidence: [], state: 'waiting-evidence', cause: 'seed' }] })
-    const model = teamOverview(input({ seats: [seat('Alpha')], run: { execution: run, startedAt: 100 } }))
-    assert.equal(model.run?.needsYou, true)
-    assert.equal(model.seats[0]?.state, 'idle')
-  })
+  for (const reason of ['Waiting for a passing check at this revision.', 'Waiting for CI to go green at this revision.', 'Waiting for the pull request to reach that state.', 'Waiting for a structured review at this revision.', 'Waiting for an observed diff at this revision.']) {
+    it(`keeps the evidence wait neutral: ${reason}`, () => {
+      const run = execution({ reason: `Rule after-review: ${reason}`, rounds: [{ n: 1, role: 'builder', cards: [1], seats: ['Alpha'], evidence: [], state: 'waiting-evidence', cause: 'seed' }] })
+      const model = teamOverview(input({ seats: [seat('Alpha')], run: { execution: run, startedAt: 100 } }))
+      assert.equal(model.run?.needsYou, false)
+      assert.equal(model.run?.waitingEvidence, true)
+      assert.equal(model.seats[0]?.state, 'idle')
+    })
+  }
 })

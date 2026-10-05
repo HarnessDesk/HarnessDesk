@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { EvidenceView, Freshness } from '@harnessdesk/protocol'
+import { WAITING_FINDINGS, WAITING_EXCEPTION, type EvidenceView, type Freshness } from '@harnessdesk/protocol'
 
 import {
   AMBIGUOUS_REVIEWS,
@@ -13,8 +13,6 @@ import {
   renderCardTemplate,
   renderEvidence,
   readyGuard,
-  WAITING_EXCEPTION,
-  WAITING_FINDINGS,
   WAITING_LEDGER,
   type FactChoice,
   type FlowEvidenceContext,

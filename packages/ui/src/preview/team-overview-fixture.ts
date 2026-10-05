@@ -6,7 +6,7 @@ import { previewStore } from './harness'
 export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','comparison','narrow'] as const
 export type OverviewScene = typeof OVERVIEW_STATES[number]
 export const OVERVIEW_RUN_REASONS = {
- 'waiting-evidence': 'Rule after-review: Waiting for its evidence.',
+ 'waiting-evidence': 'Rule after-review: Waiting for CI to go green at this revision.',
  'findings-and-posting': 'Rule after-review: Waiting for 3 open blocking findings to be confirmed resolved.',
  'stopped-unknown': 'The Run stopped; its ending time was not recorded.',
  unrouted: '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you',

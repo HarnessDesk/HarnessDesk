@@ -111,12 +111,10 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
   const evidenceWait = run?.waitingEvidence === true
   const reason = runReason ? words(runReasonWords(runReason)) : evidenceWait ? 'The next step is waiting for its evidence.' : null
-  // Only the host's findings waits promise a Findings action. Other guards
-  // (checks, CI, reviews, PR state, diffs) keep their recorded reason in Run.
-  const findingsWait = evidenceWait && /^Waiting for (?:\d+ open blocking findings?\b|a person to review a new regression or security finding\b)/i.test(reason ?? '')
+  const findingsWait = run?.waitingFindings === true
   const publicationReason = run?.findingRun?.reason ? words(run.findingRun.reason) : null
   const publicationWait = Boolean(publication?.needsYou && onFindings)
-  const reasonInWait = evidenceWait || (publicationWait && reason === publicationReason)
+  const reasonInWait = findingsWait || (publicationWait && reason === publicationReason)
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
@@ -126,8 +124,9 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
                 {!statusLine && (runNeedsYou || run.needsYou || run.state === 'stalled' || run.state === 'running'
-                  ? <Chip tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : 'info'}>{runNeedsYou || run.needsYou ? 'Needs you' : runWords[run.state]}</Chip>
+                  ? <Chip tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : evidenceWait ? 'neutral' : 'info'}>{runNeedsYou || run.needsYou ? 'Needs you' : evidenceWait ? 'Waiting' : runWords[run.state]}</Chip>
                   : <Text role="meta">{runWords[run.state]}</Text>)}
+                {statusLine && evidenceWait && !findingsWait && !runNeedsYou && !run.needsYou && <Chip tone="neutral">Waiting</Chip>}
                 {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
                 {run.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
               </div>
@@ -148,14 +147,13 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             </section>
           </Card>
         )}
-        {(model.needsYou.length > 0 || evidenceWait || publicationWait) && (
+        {(model.needsYou.length > 0 || findingsWait || publicationWait) && (
           <Section title="Needs you" inset="row" className="mt-0">
             <ListRows>
-              {evidenceWait && <ListRow title={findingsWait ? 'Review the findings' : 'Review the evidence'} subtitle={reason} wrapSubtitle
-                meta={<Text role="meta">{findingsWait ? 'You or the reviewer can resolve this wait in Findings.' : 'The next step needs recorded evidence. Open the Run to inspect the wait.'}</Text>}
-                trail={findingsWait ? onFindings && <Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>
-                  : onRun && <Button variant="outline" size="sm" onClick={onRun}>Open run</Button>} />}
-              {publicationWait && <ListRow title="Post the review" subtitle={evidenceWait && publicationReason === reason ? null : publicationReason} wrapSubtitle
+              {findingsWait && <ListRow title="Review the findings" subtitle={reason} wrapSubtitle
+                meta={<Text role="meta">You or the reviewer can resolve this wait in Findings.</Text>}
+                trail={onFindings && <Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>} />}
+              {publicationWait && <ListRow title="Post the review" subtitle={findingsWait && publicationReason === reason ? null : publicationReason} wrapSubtitle
                 trail={<Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>} />}
               {model.needsYou.map((item, index) => (
                 <NeedsYouRow key={item.approval !== undefined
