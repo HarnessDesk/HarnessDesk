@@ -148,13 +148,14 @@ A filled or bordered content surface earns an inset by its role, not by the
 screen drawing it. Use the tier token on every slot; top and bottom match.
 A border adds its width outside the inset. A larger gap left by short content
 is free space, not a larger padding tier. A settings row's mark and control
-stay centred on the whole row; its visible boxes keep the row tier. A row's
+stay centred on the whole row; its visible boxes keep the named inset. A row's
 bottom hairline is additional to its content inset.
 
 | Container role | Tier | Token | Slots that own it |
 | --- | --- | --- | --- |
 | Card and board card, chart's inner card, sent-message bubble | card · 16px | `--hd-inset-card` | A card's header, content and footer share its inline inset; its outer top and bottom share the same tier. A standalone board card, chart card or bubble owns all four sides. |
-| Settings row, summary fact, comfortable list row, compact report card, agent/publication card band and crest, approval's code block | row · 12px | `--hd-inset-row` | Each row owns its inset, including inside a flush outer card. A label over a `Rows` card aligns with the row tier plus the card's border. |
+| Settings row with a description, mark or face, summary fact, comfortable list row, compact report card, agent/publication card band and crest, approval's code block | row · 12px | `--hd-inset-row` | Each row owns its inset, including inside a flush outer card. A label over a `Rows` card aligns with the row tier plus the card's border. |
+| Bare Settings row (no description, mark or face) | dense block · 8px; row inline · 12px | `--hd-inset-dense` / `--hd-inset-row` | The 44px bare floor holds a 28px control with 8px above and below. Taller controls can grow the row; face rows always keep the full row tier. |
 | Activity lines above a composer | row · 12px | `--hd-inset-row` | Each filled line in `ComposerTail` owns all four sides, overriding the unframed live line's smaller rhythm. Faces are content too. |
 | Board column around its cards, inspector group band, tool-pane content aligned with its bar | dense · 8px | `--hd-inset-dense` | The filled inspector band keeps symmetric vertical air and the rows' 12px inline edge; a non-bleeding tool body shares its header's leading edge. |
 | Compact panel section | row · 12px | `--hd-inset-row` | The section owns all four sides. |
