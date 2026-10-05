@@ -163,3 +163,8 @@ it('record rows share a name role and accept an already-drawn face without a mar
   expect(css).toMatch(/\.row\[data-kind='record'\] \.rowTitle\s*\{[^}]*font-size:\s*var\(--hd-table-name-size\)/s)
   expect(css).toMatch(/\.row\[data-kind='record'\] \.rowDescTruncate\s*\{[^}]*font-size:\s*var\(--hd-table-fact-size\)/s)
 })
+
+it('a record layout keeps its title wrapping even when the record kind is present', () => {
+  expect(css).toMatch(/\.rowRecord \.rowTitle\s*\{[^}]*white-space:\s*normal/s)
+  expect(css).not.toMatch(/\.row\[data-kind='record'\] \.rowTitle\s*\{[^}]*white-space:\s*nowrap/s)
+})

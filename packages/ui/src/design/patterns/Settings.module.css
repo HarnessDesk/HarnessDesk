@@ -1651,6 +1651,7 @@
 /* A ledger record's meaning keeps a full line when metadata and state compete
    for a narrow reading column. Settings rows retain their usual composition. */
 .rowRecord .rowTitle {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 
@@ -1674,9 +1675,18 @@
 .row[data-kind='record'] .rowTitle {
   font-size: var(--hd-table-name-size);
   line-height: var(--hd-line);
+}
+
+.rowClippedTitle {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rowRecord .rowClippedTitle {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .row[data-kind='record'] .rowDescTruncate {

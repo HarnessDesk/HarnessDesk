@@ -110,3 +110,44 @@ test('the preview and Tables catalogue mount the same family, including a narrow
   await expect(page.locator('[data-slot="tables-family"]')).toHaveCount(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(600)
 })
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`cut record names reveal the whole title and record layouts wrap in ${theme}`, async ({ page }) => {
+    const name = 'Review the workspace settings with the shared library and project checks before starting another conversation'
+    await page.route('**/src/preview/main.tsx*', async route => {
+      const response = await route.fetch()
+      const source = await response.text()
+      const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+      if (!reactUrl) throw new Error('preview React import missing')
+      await route.fulfill({ response, body: `${source}
+        import recordReact from ${JSON.stringify(reactUrl)};
+        import { Row, RowButton, Rows } from '/src/design/patterns/Settings.tsx';
+        const recordFrame = document.createElement('section');
+        recordFrame.setAttribute('data-frame-id', 'record-title-repair');
+        recordFrame.style.cssText = 'position:fixed;inset:0 auto auto 0;width:320px;background:var(--hd-background);z-index:99999;padding:16px';
+        document.body.append(recordFrame);
+        const h = recordReact.createElement;
+        createRoot(recordFrame).render(h(Rows, null,
+          h(Row, { kind: 'record', title: ${JSON.stringify(name)} }),
+          h(RowButton, { kind: 'record', title: ${JSON.stringify(name)}, onClick: () => {} }),
+          h(RowButton, { kind: 'record', layout: 'record', title: ${JSON.stringify(name)}, onClick: () => {} }),
+          h(RowButton, { layout: 'record', title: ${JSON.stringify(name)}, onClick: () => {} })
+        ));` })
+    })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html')
+    const titles = page.locator('[data-frame-id="record-title-repair"] [data-slot="row-title"]')
+    await expect(titles).toHaveCount(4)
+    for (const index of [0, 1]) {
+      const label = titles.nth(index).locator(':scope > span')
+      expect(await label.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+      await label.hover()
+      await expect(label).toHaveAttribute('title', name)
+    }
+    for (const index of [2, 3]) {
+      const label = titles.nth(index)
+      expect(await label.evaluate(el => getComputedStyle(el.firstElementChild ?? el).whiteSpace)).toBe('normal')
+      expect(await label.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(30)
+    }
+  })
+}

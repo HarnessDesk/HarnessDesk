@@ -945,7 +945,7 @@ export const Row = ({
   <div className={cx(styles.row, className)} data-slot="row" data-kind={kind} {...props}>
     {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
-      <span className={styles.rowTitle} data-slot="row-title">{title}</span>
+      <span className={styles.rowTitle} data-slot="row-title">{kind === 'record' ? <Clipped className={styles.rowClippedTitle}>{title}</Clipped> : title}</span>
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
     {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
@@ -1041,7 +1041,7 @@ export const RowButton = ({
     >
       {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
       <span className={styles.rowText}>
-        <span className={styles.rowTitle} data-slot="row-title">{title}</span>
+        <span className={styles.rowTitle} data-slot="row-title">{kind === 'record' ? <Clipped className={styles.rowClippedTitle}>{title}</Clipped> : title}</span>
         {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
       </span>
       {/* The control and the chevron are one trailing item, so a row too narrow
