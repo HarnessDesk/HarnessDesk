@@ -1055,7 +1055,9 @@ attempt is no claim that they were repaired. Once the route opens, those
 findings read **Not kept**, with the selected revision as the reason. A
 losing advisory finding carries the same explanation. It belongs to the
 review that raised the finding and survives later reviews of the kept attempt.
-The open Findings list refreshes when the route accepts its evidence. A
+The open Findings list and detail refresh when the route accepts its evidence.
+Later gates keep that exclusion even when only the kept attempt remains in
+their dependency walk. A
 finding on the selected attempt still blocks, as does a blocker in an ordinary
 single-attempt write and review flow. Unreadable findings and pending
 exceptions still wait for a person.

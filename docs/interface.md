@@ -1040,7 +1040,8 @@ reads Unreadable with its reason, whatever state its records carry. A finding
 on an attempt a comparison did not keep stays Open and reads **Not kept**;
 its detail names the revision the review selected for the next step.
 Advisory findings on that attempt carry the same explanation; later reviews
-of the kept attempt leave it in place. An open list updates when the route opens.
+of the kept attempt leave it in place. An open list or detail updates when
+the route opens; a reason being typed in the detail stays in place.
 A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.

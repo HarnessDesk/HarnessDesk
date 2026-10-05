@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { AuthoringSaveInput, FindingPublicationsView, FindingRunView, Intent } from '@harnessdesk/protocol'
 
@@ -28,12 +28,14 @@ import { ShapeStep } from '../components/ShapeStep'
 import { TriggerCreate } from '../components/TriggerCreate'
 import { TriggerMenu } from '../components/TriggerMenu'
 import { defaultAgentRole, defaultRule } from '../lib/shapes'
+import { StoreProvider } from '../state/context'
+import type { AppSnapshot } from '../state/store'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { PREVIEW_FLOW_SOURCE } from './flow-fixture'
 import { PREVIEW_FINDINGS, findingDetail } from './findings-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS } from './goal-fixture'
-import { insightReportFor, PREVIEW_AGENTS } from './harness'
+import { insightReportFor, PREVIEW_AGENTS, previewStore } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
 /** `goal-wrapped`'s own receipt, given the one thing it does not otherwise carry: unresolved findings for `FindingCarry` to offer forward. */
@@ -138,13 +140,37 @@ type DialogOption = (typeof DIALOG_OPTIONS)[number]
  * findings.spec.ts reaches for expecting one.
  */
 /** A public frame mounts only the finding's synthetic surface, without unrelated preview tooltips. */
-export const FindingFrames = ({ scene }: { readonly scene: string | null }) => scene === 'rail' ? (
+export const FindingFrames = ({ scene }: { readonly scene: string | null }) => scene === 'live' ? <LiveComparisonFinding /> : scene === 'rail' ? (
   <Frame id="goal-findings-rail" title="Goal — its findings rail">
     <div className="max-h-[480px] overflow-y-auto p-4"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></div>
   </Frame>
 ) : (
   <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={scene === 'before' ? 'finding-before-selection' : scene === 'advisory-before' ? 'finding-before-advisory-selection' : scene === 'advisory' ? 'finding-not-kept-advisory' : 'finding-not-kept-1'} decide={RUN_VIEW} onClose={() => {}} />
 )
+
+/** The comparison is accepted while the same finding dialog and reason draft stay open. */
+const LiveComparisonFinding = () => {
+  const rig = useMemo(() => {
+    const own = previewStore({ flowExecutions: new Map() })
+    const mutable = own as unknown as { patch(partial: Partial<AppSnapshot>): void }
+    let accepted = false
+    own.readFinding = async () => {
+      const page = findingDetail(accepted ? 'finding-not-kept-1' : 'finding-before-selection')
+      return { ...page, finding: { ...page.finding, id: 'finding-before-selection' } }
+    }
+    return { store: own, accept: () => {
+      accepted = true
+      mutable.patch({ flowExecutions: new Map([['run-preview', {
+        id: 'run-preview', goal: PREVIEW_GOAL.goal.id, rounds: [{ n: 3, evidence: ['preview-picked-review'] }],
+      } as never]]) })
+    } }
+  }, [])
+  useEffect(() => {
+    window.addEventListener('finding-comparison-accepted', rig.accept)
+    return () => window.removeEventListener('finding-comparison-accepted', rig.accept)
+  }, [rig])
+  return <StoreProvider store={rig.store}><FindingDetail goal={PREVIEW_GOAL.goal.id} finding="finding-before-selection" decide={RUN_VIEW} onClose={() => {}} /></StoreProvider>
+}
 
 export const GoalFrames = () => {
   const [dialog, setDialog] = useState<DialogOption>('off')

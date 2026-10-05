@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { FindingDetailPage, FindingOrigin, FindingRecord, FindingRunView, FindingView } from '@harnessdesk/protocol'
 
 import { Banner, Button, Chip, CodeText, Dialog, Fieldset, KeyValue, KeyValueRow, Note, Text, Textarea } from '../design'
 import { openExternal } from '../lib/desktop'
-import { blockingWords, postWords } from '../lib/findings'
+import { acceptedFindingEvidence, blockingWords, postWords } from '../lib/findings'
 import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useSnapshotSelector, useStore } from '../state/context'
 import { Markdown } from './Markdown'
@@ -77,6 +77,15 @@ export const FindingDetail = ({
   const [read, setRead] = useState<Read>({ kind: 'loading' })
   const [more, setMore] = useState(false)
   const [generation, setGeneration] = useState(0)
+  const readEpoch = useRef(0)
+  // The dialog owns an explicit history read, independently of the list's
+  // cache. Honour an accepted comparison even when this dialog was already
+  // open, without rereading (and resetting history paging) on routine pushes.
+  const selection = useSnapshotSelector(snapshot => JSON.stringify([...snapshot.flowExecutions.values()]
+    .filter(run => run.goal === goal)
+    .map(run => [run.id, acceptedFindingEvidence(run)] as const)
+    .filter(([, evidence]) => evidence !== '[]')
+    .sort(([left], [right]) => left.localeCompare(right))))
   /**
    * A person's still-unsent reason for "Decide it yourself" (#1089), held
    * here rather than inside `PersonVerdict`. `PersonVerdict` is only rendered
@@ -98,26 +107,30 @@ export const FindingDetail = ({
 
   useEffect(() => {
     let live = true
+    readEpoch.current += 1
+    setMore(false)
     setRead({ kind: 'loading' })
     store.readFinding(goal, finding).then(
       (page) => { if (live) setRead({ kind: 'ready', page }) },
       (error: unknown) => { if (live) setRead({ kind: 'error', message: error instanceof Error ? error.message : String(error) }) },
     )
-    return () => { live = false }
-  }, [store, goal, finding, generation])
+    return () => { live = false; readEpoch.current += 1 }
+  }, [store, goal, finding, generation, selection])
 
   const loadMore = async (): Promise<void> => {
     if (read.kind !== 'ready' || !read.page.next || more) return
+    const epoch = readEpoch.current
     setMore(true)
     try {
       const next = await store.readFinding(goal, finding, read.page.next)
+      if (epoch !== readEpoch.current) return
       setRead((was) => was.kind === 'ready'
         ? { kind: 'ready', page: { ...next, records: [...was.page.records, ...next.records] } }
         : was)
     } catch (error) {
-      setRead({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+      if (epoch === readEpoch.current) setRead({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally {
-      setMore(false)
+      if (epoch === readEpoch.current) setMore(false)
     }
   }
 

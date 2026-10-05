@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { EvidenceRecord, EvidenceView, FindingRunState } from '@harnessdesk/protocol'
 
 import type { FindingRunSnapshot } from '../src/flow-execution.js'
+import { readyGuard, WAITING_FINDINGS, type FlowEvidenceContext } from '../src/flow-evidence.js'
 import { foldFindings } from '../src/findings/model.js'
 import { closeRound, FindingsPlane, type FindingsPort } from '../src/findings/plane.js'
 
@@ -61,6 +62,11 @@ const comparison = (blocking: boolean, onPicked = false) => {
   }
   return {
     plane: new FindingsPlane(port),
+    keptContext: (): FlowEvidenceContext => ({
+      goal: 'goal-1', finished: review,
+      subjects: [{ card: 2, round: 1, at: B, checkout: { cwd: '/picked', branch: 'attempt-b' } }],
+      unsettled: [], cards: [2, 3], reviewers: ['judge-1'], facts, outcomes: ['picked'],
+    }),
     accept: () => { snapshot = { ...snapshot, rounds: [...snapshot.rounds, { n: 3, role: 'keep', cards: [4], seats: [], evidence: [picked.id], state: 'running', cause: 'to-keep', reviews: false }] } },
     laterReview: (state: 'running' | 'closed') => { snapshot = { ...snapshot, rounds: [...snapshot.rounds.filter(one => one.n !== 4), { ...review, n: 4, role: 'specialist', cards: [5], state }] } },
     moveFacts: () => { facts = facts.map(one => ({ ...one, freshness: { state: 'moved' } })) },
@@ -84,6 +90,7 @@ for (const blocking of [true, false]) {
       assert.equal((await rig.plane.read({ goal: 'goal-1', finding: ID })).finding.inactiveReason, reason)
       assert.equal((await rig.plane.receipt('goal-1')).findings[0]!.inactiveReason, reason)
       assert.equal((await rig.plane.runView('run-1')).blocking, 0)
+      assert.equal((await rig.plane.gate('run-1'))!.blockers, 0)
     }
     await check()
     rig.laterReview('running')
@@ -101,12 +108,31 @@ test('an accepted selection does not mark the picked subject or a restored pick 
   assert.equal(selected.rows[0]!.inactiveReason, undefined)
   assert.equal(selected.rows[0]!.activeBlocking, true)
   assert.equal(selected.totals!.blocking, 1)
+  assert.equal((await picked.plane.gate('run-1'))!.blockers, 1)
   const restored = comparison(true)
   restored.accept()
   restored.restorePick()
   assert.equal((await restored.plane.list({ goal: 'goal-1' })).rows[0]!.inactiveReason, undefined)
+  assert.equal((await restored.plane.gate('run-1'))!.blockers, 1)
   const pending = comparison(true)
   pending.accept()
   pending.pendingException()
   assert.equal((await pending.plane.list({ goal: 'goal-1' })).rows[0]!.inactiveReason, undefined)
+  assert.equal((await pending.plane.gate('run-1'))!.pending, true)
+})
+
+test('downstream rules over only the kept writer honour the earlier accepted comparison', async () => {
+  const rig = comparison(true)
+  const guard = async () => readyGuard([{ review: 'picked' }], rig.keptContext(), await rig.plane.gate('run-1'))
+  assert.deepEqual(await guard(), { state: 'waiting', reason: WAITING_FINDINGS(1) }, 'no durable acceptance yet')
+  rig.accept()
+  assert.equal((await guard()).state, 'matched', 'the losing writer is no longer in the dependency closure')
+  rig.laterReview('running')
+  assert.equal((await guard()).state, 'matched')
+  rig.laterReview('closed')
+  assert.equal((await guard()).state, 'matched')
+  const picked = comparison(true, true)
+  picked.accept()
+  assert.deepEqual(readyGuard([{ review: 'picked' }], picked.keptContext(), await picked.plane.gate('run-1')),
+    { state: 'waiting', reason: WAITING_FINDINGS(1) })
 })

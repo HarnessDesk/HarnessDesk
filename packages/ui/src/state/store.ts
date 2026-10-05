@@ -138,7 +138,7 @@ import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
-import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
+import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
@@ -775,9 +775,7 @@ export class AppStore {
           const { execution } = notification.params
           const flowExecutions = new Map(this.#snapshot.flowExecutions)
           const previous = flowExecutions.get(execution.id)
-          const acceptedEvidence = (run: FlowExecution | undefined): string =>
-            JSON.stringify((run?.rounds ?? []).filter(one => one.evidence.length > 0).map(one => [one.n, one.evidence]))
-          const selectionChanged = acceptedEvidence(previous) !== acceptedEvidence(execution)
+          const selectionChanged = acceptedFindingEvidence(previous) !== acceptedFindingEvidence(execution)
           flowExecutions.set(execution.id, execution)
           this.#patch({ flowExecutions })
           // A person authorising extra rounds changes the findings run's budget

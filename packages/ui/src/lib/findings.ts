@@ -1,4 +1,4 @@
-import type { BoardEvidence, FindingPost, FindingView } from '@harnessdesk/protocol'
+import type { BoardEvidence, FindingPost, FindingView, FlowExecution } from '@harnessdesk/protocol'
 
 /**
  * Words and state for the findings ledger, kept beside the components that
@@ -8,6 +8,10 @@ import type { BoardEvidence, FindingPost, FindingView } from '@harnessdesk/proto
  */
 
 export type FindingFilter = 'all' | 'open' | 'blocking'
+
+/** Only accepted route evidence changes which attempts read Not kept; routine Run updates do not. */
+export const acceptedFindingEvidence = (run: FlowExecution | undefined): string =>
+  JSON.stringify((run?.rounds ?? []).filter(one => one.evidence.length > 0).map(one => [one.n, one.evidence]))
 
 export const FILTER_LABEL: Readonly<Record<FindingFilter, string>> = {
   all: 'All',

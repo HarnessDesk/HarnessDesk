@@ -321,3 +321,49 @@ it('shows why a losing attempt stays open without gating the picked attempt', as
   expect(document.body.textContent).toContain('Not kept')
   expect(document.body.textContent).toContain(reason)
 })
+
+const acceptComparison = (store: AppStore): (() => void) => {
+  let snapshot = store.getSnapshot()
+  const listeners = new Set<() => void>()
+  Object.assign(store, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+  })
+  return () => {
+    snapshot = { ...snapshot, flowExecutions: new Map([['run-1', {
+      id: 'run-1', goal: 'g1', rounds: [{ n: 3, evidence: ['pick-1'] }],
+    } as never]]) }
+    act(() => listeners.forEach(listener => listener()))
+  }
+}
+
+it('an old first read cannot overwrite the accepted comparison detail', async () => {
+  const { store, readFinding } = rig(page())
+  const accept = acceptComparison(store)
+  let finish!: (value: FindingDetailPage) => void
+  readFinding.mockImplementationOnce(() => new Promise<FindingDetailPage>(resolve => { finish = resolve }))
+  const selected = page({ finding: { ...page().finding, inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.' } })
+  readFinding.mockResolvedValue(selected)
+  await render(store)
+  accept()
+  await act(async () => {})
+  expect(document.body.textContent).toContain('Not kept')
+  await act(async () => { finish(page()) })
+  expect(document.body.textContent).toContain('Not kept')
+})
+
+it('an old history page cannot overwrite the accepted comparison detail', async () => {
+  const { store, readFinding } = rig(page({ next: 'next-1' }))
+  const accept = acceptComparison(store)
+  await render(store)
+  let finish!: (value: FindingDetailPage) => void
+  readFinding.mockImplementationOnce(() => new Promise<FindingDetailPage>(resolve => { finish = resolve }))
+  act(() => clickNamed('Show more history').click())
+  expect(document.body.textContent).toContain('Loading…')
+  readFinding.mockResolvedValue(page({ finding: { ...page().finding, inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.' } }))
+  accept()
+  await act(async () => {})
+  expect(document.body.textContent).toContain('Not kept')
+  await act(async () => { finish(page()) })
+  expect(document.body.textContent).toContain('Not kept')
+})

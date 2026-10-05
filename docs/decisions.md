@@ -1812,8 +1812,11 @@ invented. An ordinary single-subject review excludes nothing.
 The explanation is tied to the claim’s raising review round and immutable
 checkout, including advisory claims outside the frozen blocking set. Later
 reviews of the kept attempt do not replace that accepted selection. The open
-list reloads when a route’s evidence changes, while routine Run updates keep
-its paging position.
+list and any open detail reload when a route’s evidence changes, while
+routine Run updates keep their paging positions. A detail keeps the person's
+typed reason and discards reads superseded by that selection. Downstream
+gates honour the same accepted selection even after their dependency walk
+contains only the kept attempt.
 
 A reviewer can also correct a mistaken claim before finishing its raising
 card: a reasoned withdrawal is allowed there. Confirming or rejecting a

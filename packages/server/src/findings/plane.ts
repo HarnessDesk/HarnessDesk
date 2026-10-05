@@ -1156,7 +1156,9 @@ export class FindingsPlane {
     const ledger = await this.#serial(project, () => this.#ledger(project))
     const admitted = admittedOf(snapshot.findings.series)
     const owned = ledger.views.filter((one) => one.ownerGoal === snapshot.goal)
-    const active = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null)
+    const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
+    const inactive = this.#inactiveReasons(ledger, facts)
+    const active = owned.filter((one) => (admitted.has(one.id) && !isResolved(one) && !inactive.has(one.id)) || one.problem !== null)
     const byCheckout: Record<string, number> = {}
     for (const view of active) {
       // A carried or damaged finding cannot be safely attributed to a losing attempt.
