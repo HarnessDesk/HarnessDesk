@@ -24,7 +24,7 @@ test('browser CI spreads the suite across six shards with time for setup and rep
 test('the stable browser check requires every shard and keeps reports after failure (#1140)', () => {
   const aggregate = job('ui-system-browser-integration')
   assert.match(aggregate, /^    name: UI system browser integration$/m)
-  assert.match(aggregate, /^    needs: \[changes, ui-system-browser\]$/m)
+  assert.match(aggregate, /^    needs: \[changes, ui-system-browser, ui-system-server\]$/m)
   assert.match(aggregate, /^    if: always\(\)$/m)
   assert.match(aggregate, /SHARDS_RESULT: \$\{\{ needs.ui-system-browser.result \}\}/)
   assert.match(job('ui-system-browser'), /- uses: actions\/upload-artifact@\S+\n        if: always\(\)\n        with:\n          name: ui-system-browser-report-\$\{\{ matrix.shard \}\}/)
@@ -39,7 +39,6 @@ const runAggregate = (name, env) => {
 }
 
 for (const [name, resultKey, flagKey, heavy] of [
-  ['ui-system-browser-integration', 'SHARDS_RESULT', 'BROWSER', 'ui-system-browser'],
   ['ui-system-native-integration', 'SMOKE_RESULT', 'NATIVE', 'ui-system-native'],
 ]) {
   test(`${name} always concludes and receives the decision and heavy-job result`, () => {
@@ -68,10 +67,60 @@ for (const [name, resultKey, flagKey, heavy] of [
   })
 }
 
+test('browser aggregate receives both results and the three-way decision', () => {
+  const aggregate = job('ui-system-browser-integration')
+  assert.match(aggregate, /^    needs: \[changes, ui-system-browser, ui-system-server\]$/m)
+  assert.match(aggregate, /^    if: always\(\)$/m)
+  for (const line of [
+    'BROWSER: ${{ needs.changes.outputs.browser }}',
+    'SERVER_RESULT: ${{ needs.ui-system-server.result }}',
+    'SHARDS_RESULT: ${{ needs.ui-system-browser.result }}',
+    'CHANGES_RESULT: ${{ needs.changes.result }}',
+  ]) assert.ok(aggregate.includes(line), line)
+})
+
+test('browser aggregate accepts only the exact result pair requested', () => {
+  for (const browser of ['all', 'server', 'none', '', 'true']) {
+    for (const shards of ['success', 'failure', 'cancelled', 'skipped', '']) {
+      for (const server of ['success', 'failure', 'cancelled', 'skipped', '']) {
+        const passes = (browser === 'all' && shards === 'success' && server === 'skipped')
+          || (browser === 'server' && shards === 'skipped' && server === 'success')
+          || (browser === 'none' && shards === 'skipped' && server === 'skipped')
+        const output = runAggregate('ui-system-browser-integration', {
+          BROWSER: browser, SHARDS_RESULT: shards, SERVER_RESULT: server, CHANGES_RESULT: 'success',
+        })
+        assert.equal(output.status, passes ? 0 : 1, `${browser}/${shards}/${server}: ${output.stdout} ${output.stderr}`)
+      }
+    }
+  }
+})
+
+test('browser aggregate refuses failed input selection even with successful tests', () => {
+  for (const changes of ['failure', 'cancelled', 'skipped', '']) {
+    const output = runAggregate('ui-system-browser-integration', {
+      BROWSER: 'server', SHARDS_RESULT: 'skipped', SERVER_RESULT: 'success', CHANGES_RESULT: changes,
+    })
+    assert.equal(output.status, 1, output.stdout + output.stderr)
+  }
+})
+
+test('server specs run in one Ubuntu job using the discovered paths', () => {
+  const server = job('ui-system-server')
+  assert.match(server, /^    runs-on: ubuntu-latest$/m)
+  assert.doesNotMatch(server, /matrix:|--shard=/)
+  assert.match(server, /pnpm install --frozen-lockfile/)
+  assert.match(server, /pnpm run build:node/)
+  assert.match(server, /pnpm exec playwright install --with-deps chromium/)
+  assert.ok(server.includes('SERVER_SPECS: ${{ needs.changes.outputs.server_specs }}'))
+  assert.match(server, /pnpm test:ui-system "\$\{specs\[@\]\}"/)
+  assert.match(server, /JSON\.parse\(process\.env\.SERVER_SPECS\)/)
+  assert.match(server, /actions\/upload-artifact@/)
+})
+
 test('only heavy UI jobs are conditional; required check names stay conclusive', () => {
-  for (const [name, flag] of [['ui-system-browser', 'browser'], ['ui-system-native', 'native']]) {
+  for (const [name, flag, mode] of [['ui-system-browser', 'browser', 'all'], ['ui-system-server', 'browser', 'server'], ['ui-system-native', 'native', 'true']]) {
     assert.match(job(name), /^    needs: changes$/m)
-    assert.ok(job(name).includes(`    if: needs.changes.outputs.${flag} == 'true'`))
+    assert.ok(job(name).includes(`    if: needs.changes.outputs.${flag} == '${mode}'`))
   }
   assert.match(job('ui-system-native'), /^    name: UI system native smoke$/m)
   assert.match(job('ui-system-native'), /^    runs-on: macos-14$/m)
@@ -88,10 +137,11 @@ test('changes compares the merge to its first parent and falls back on failed di
   assert.match(changes, /if ! git diff[\s\S]*?rm -f "\$list"/)
   assert.match(changes, /node script\/ci-changes\.mjs "\$list" >> "\$GITHUB_OUTPUT"/)
   assert.match(changes, /browser: \$\{\{ steps\.paths\.outputs\.browser \}\}/)
+  assert.match(changes, /server_specs: \$\{\{ steps\.paths\.outputs\.server_specs \}\}/)
   assert.match(changes, /native: \$\{\{ steps\.paths\.outputs\.native \}\}/)
 })
 
-test('main and tag pushes keep full CI coverage', () => {
+test('only main pushes trigger CI; tags keep their original release path', () => {
   assert.match(workflow, /^    branches: \[main\]$/m)
-  assert.match(workflow, /^    tags: \['\*'\]$/m)
+  assert.doesNotMatch(workflow, /^    tags:/m)
 })

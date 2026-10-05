@@ -42,18 +42,23 @@ all of those except protocol drift, which needs a real `codex` binary; a
 green local run means a green pipeline.
 
 On pull requests, “Build, typecheck, test” always runs. Browser integration
-runs for changes to the UI and its workspace dependencies, the Node build
-inputs, browser specs/configuration, and the frame-audit helpers they load.
-Native smoke runs for changes to the built renderer, desktop shell, host and
-adapters, and its isolated rig and launch helpers. Both run when shared
-manifests, the lockfile, root tool configuration, assets, CI or its selection
-script change, or the changed paths cannot be read. The Node build compiles
-all Node packages, so server-only and plugins-only changes still run both;
-docs-only and unrelated script changes skip them. Desktop-only changes run
-native smoke. Each required integration check still concludes successfully
-for an intentional skip and fails for a failed, cancelled or unexplained skip.
-Pushes to `main` and tags always run everything. The path lists and the reason
-for each entry live in `script/ci-changes.mjs`.
+selects one of three modes: `all` runs the six shards for changes to the UI,
+its transitive workspace dependencies (read from package manifests), browser
+specs/configuration, or shared root inputs. `server` runs only specs that
+import packages outside those UI inputs, in one Ubuntu job, for other package
+changes. The selector discovers those imports, including local helpers; the
+spec list needs no manual update. `none` skips both browser jobs for docs-only
+and unrelated script changes. Desktop-only changes run native smoke.
+
+Native smoke still runs for every package change, its isolated rig and launch
+helpers. Shared manifests, the lockfile, root tool configuration, assets, CI
+or its selection script, and unreadable changed paths run the full browser
+suite and native smoke. The required browser check accepts only the selected
+job's success and the other job's intentional skip (or both skips for `none`);
+failed selection, failures, cancellations and unexpected skips fail it. The
+native required check also accepts intentional skips. Pushes to `main` always
+run everything. The path rules and their reasons live in
+`script/ci-changes.mjs`.
 
 Three of its checks are worth knowing before they surprise you:
 

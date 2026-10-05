@@ -9,7 +9,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['*']
   pull_request:
 
 # A superseded run has nothing to tell us; cancel it rather than queue behind it.
@@ -29,6 +28,7 @@ jobs:
     outputs:
       browser: ${{ steps.paths.outputs.browser }}
       native: ${{ steps.paths.outputs.native }}
+      server_specs: ${{ steps.paths.outputs.server_specs }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -265,7 +265,7 @@ jobs:
 
   ui-system-browser:
     needs: changes
-    if: needs.changes.outputs.browser == 'true'
+    if: needs.changes.outputs.browser == 'all'
     name: UI system browser integration shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
     strategy:
@@ -303,10 +303,48 @@ jobs:
           path: output/playwright/ui-system/
           retention-days: 7
 
+  ui-system-server:
+    needs: changes
+    if: needs.changes.outputs.browser == 'server'
+    name: UI system server-facing browser specs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:node
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run specs that import packages outside the UI
+        env:
+          SERVER_SPECS: ${{ needs.changes.outputs.server_specs }}
+        run: |
+          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.SERVER_SPECS)) console.log(spec)')
+          # An empty discovery must never accidentally run the entire suite.
+          test "${#specs[@]}" -gt 0
+          pnpm test:ui-system "${specs[@]}"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ui-system-server-report
+          path: output/playwright/ui-system/
+          retention-days: 7
+
   ui-system-browser-integration:
     name: UI system browser integration
     runs-on: ubuntu-latest
-    needs: [changes, ui-system-browser]
+    needs: [changes, ui-system-browser, ui-system-server]
     if: always()
     timeout-minutes: 5
 
@@ -316,19 +354,18 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           BROWSER: ${{ needs.changes.outputs.browser }}
           SHARDS_RESULT: ${{ needs.ui-system-browser.result }}
+          SERVER_RESULT: ${{ needs.ui-system-server.result }}
         run: |
           if [ "$CHANGES_RESULT" != "success" ]; then
             echo "UI integration input selection did not succeed ($CHANGES_RESULT)."
             exit 1
           fi
-          if [ "$SHARDS_RESULT" = "success" ]; then
-            exit 0
-          fi
-          if [ "$BROWSER" = "false" ] && [ "$SHARDS_RESULT" = "skipped" ]; then
-            echo "No browser integration inputs changed."
-            exit 0
-          fi
-          echo "UI system browser shards did not all succeed (matrix result: $SHARDS_RESULT)."
+          case "$BROWSER/$SHARDS_RESULT/$SERVER_RESULT" in
+            all/success/skipped|server/skipped/success|none/skipped/skipped)
+              exit 0
+              ;;
+          esac
+          echo "Browser selection/results did not agree ($BROWSER/$SHARDS_RESULT/$SERVER_RESULT)."
           exit 1
 
   ui-system-native:
