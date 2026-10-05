@@ -148,8 +148,15 @@ const mapItem = (
  */
 export const reduceSession = (session: Session, event: AgentEvent): Session => {
   switch (event.type) {
-    case 'session/started':
-      return event.session.id === session.id ? event.session : session
+    case 'session/started': {
+      if (event.session.id !== session.id) return session
+      // Registration may finish after a scoped notice has already arrived.
+      // Its synthetic turn waits for the first real turn, just as it does
+      // when the notice arrives after registration; the snapshot cannot see it.
+      const ids = new Set(event.session.turns.map(turn => turn.id))
+      const pending = session.turns.filter(turn => String(turn.id).startsWith('notice:') && !ids.has(turn.id))
+      return pending.length ? { ...event.session, turns: [...event.session.turns, ...pending] } : event.session
+    }
 
     case 'session/status':
       return event.sessionId === session.id ? { ...session, status: event.status } : session

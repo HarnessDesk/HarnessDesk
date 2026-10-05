@@ -153,6 +153,12 @@ test('the review turn opens, fills and ends, so a reader keeps the findings', as
   await until(() => about(events, side).some((event) => event.type === 'turn/completed'), 'the review to finish')
   const told = about(events, side)
 
+  t.diagnostic(`review event order: ${told.map(event => event.type === 'notice'
+    ? `notice (${event.message})`
+    : event.type === 'turn/started' || event.type === 'turn/completed'
+      ? `${event.type} (${event.turn.id})`
+      : event.type).join(' -> ')}`)
+
   // One turn, the review's own: Codex never announces it and announces the
   // reviewer sub-agent's instead, which nothing else names.
   const started = told.flatMap((event) => (event.type === 'turn/started' ? [String(event.turn.id)] : []))

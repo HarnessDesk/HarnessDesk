@@ -452,6 +452,42 @@ test('session notices stay in the transcript through a richer turn completion an
   assert.deepEqual(reduceSession(held, notice), held, 'a replayed event is idempotent')
 })
 
+for (const order of ['before session start', 'before review turn', 'after reviewer turn starts'] as const) {
+  test(`a review keeps tool declarations arriving ${order}`, () => {
+    const notice: AgentEvent = { type: 'notice', sessionId: SESSION, class: 'conversation', level: 'warning', message: 'TOOLS_DECLARED (none)', id: 'tools-1' }
+    const repeated: AgentEvent = { ...notice, id: 'tools-2' }
+    const opened: AgentEvent = { type: 'session/started', session: baseSession() }
+    const reviewer: AgentEvent = { type: 'turn/started', sessionId: SESSION, turn: { id: turnId('reviewer'), status: 'inProgress', items: [] } }
+    const early: AgentEvent[] = order === 'before session start'
+      ? [notice, repeated, repeated, opened]
+      : order === 'before review turn'
+        ? [opened, notice, repeated, repeated]
+        : [opened, reviewer, notice, repeated, repeated, { ...reviewer, type: 'turn/completed', turn: { ...reviewer.turn, status: 'completed' } }]
+    const review: AgentEvent = { type: 'turn/started', sessionId: SESSION, turn: { id: TURN, status: 'inProgress', items: [] } }
+    const held = reduceAll(baseSession(), [...early, review, {
+      type: 'turn/completed', sessionId: SESSION,
+      turn: { id: TURN, status: 'completed', items: [
+        { id: itemId('finding'), type: 'assistantMessage', text: 'One cosmetic finding.' },
+        { id: itemId('review-exit'), type: 'review', phase: 'exited', review: 'Review finished' },
+      ] },
+    }])
+    const notices = allItems(held).filter(item => item.type === 'notice')
+    assert.deepEqual(notices.map(item => [item.text, item.count]), [['TOOLS_DECLARED (none)', 2]])
+    assert.equal(held.turns.some(turn => String(turn.id).startsWith('notice:')), false, 'the early notice joins the first real turn')
+    assert.equal(held.turns[0]?.items.some(item => item.type === 'notice'), true)
+    assert.equal(held.turns.at(-1)?.status, 'completed')
+    assert.equal(allItems(held).filter(item => item.type === 'assistantMessage').length, 1)
+  })
+}
+
+test('a registration snapshot carrying the pending notice does not duplicate it', () => {
+  const held = reduceSession(baseSession(), { type: 'notice', sessionId: SESSION, level: 'warning', message: 'TOOLS_DECLARED (none)', id: 'tools-1' })
+  const opened = { ...held, title: 'Review of uncommitted changes' }
+  assert.equal(reduceSession(held, { type: 'session/started', session: opened }), opened)
+  const other = { ...baseSession(), id: sessionId('other') }
+  assert.equal(reduceSession(held, { type: 'session/started', session: other }), held)
+})
+
 test('session errors change the row state and appear inline without changing unrelated sessions', () => {
   const event: AgentEvent = { type: 'error', sessionId: SESSION, error: { code: 'unknown', message: 'Turn failed' } }
   const failed = reduceSession(baseSession(), event)
