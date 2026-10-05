@@ -53,7 +53,7 @@ for(const theme of ['light','dark'] as const) {
    expect(await row.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
   }
   const attention=page.locator('#teams-page-needs-you [data-team-row="team-0"] [data-slot="team-detail"]')
-  await expect(attention).toHaveCSS('white-space','nowrap')
+  expect(await attention.evaluate(e=>({fits:e.scrollWidth<=e.clientWidth&&e.scrollHeight<=e.clientHeight,whiteSpace:getComputedStyle(e).whiteSpace}))).toEqual({fits:true,whiteSpace:'normal'})
   await expect(attention).toHaveAttribute('title',/choose whether to keep the original payment method/)
  })
  test(`Teams page: 375px and 720px keep navigation and all readings inside the page in ${theme}`,async({page})=>{
@@ -125,5 +125,20 @@ for (const theme of ['light','dark'] as const) {
    expect(delta).toBeLessThan(1)
    await expect(row.locator('[aria-label="Unread changes"]')).toBeVisible()
   }
+ })
+}
+
+for(const theme of ['light','dark'] as const) {
+ test(`read and unread Teams keep the same name edge in ${theme}`,async({page})=>{
+  await openTeams(page,theme)
+  const rows=page.locator('#teams-page-active [data-team-row]')
+  const first=rows.nth(0), second=rows.nth(1)
+  const nameLeft=async(row:typeof first)=>(await row.locator('[data-role="subject"]').boundingBox())!.x
+  const before=await nameLeft(first)
+  await first.locator('[data-role="subject"]').click()
+  await expect(first.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+  await expect(second.locator('[aria-label="Unread changes"]')).toBeVisible()
+  expect(Math.abs(await nameLeft(first)-before)).toBeLessThan(1)
+  expect(Math.abs(await nameLeft(first)-await nameLeft(second))).toBeLessThan(1)
  })
 }

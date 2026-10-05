@@ -72,6 +72,7 @@ const HELPERS = `
 
 /** What is read as a sentence: descriptions, notes and bodies. */
 const SENTENCES = [
+  '[data-slot="team-detail"]',
   '[data-slot$="-description"]',
   '[data-slot="section-description"]',
   '[class*="rowDesc"]',

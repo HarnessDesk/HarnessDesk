@@ -174,3 +174,24 @@ it.each([352,1000])('a portalled Team menu panel does not open its row at %spx',
  expect(row.getAttribute('aria-label')).toBe('Open Retry the checkout call')
  await act(async()=>document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
 })
+
+it('explains unavailable time and both known and unavailable money',async()=>{
+ await mount('waiting-evidence')
+ const time=container.querySelector('[data-team-row] td[data-align="end"] [data-slot="text"]')!
+ expect(time.textContent).toBe('—')
+ expect(time.getAttribute('title')).toBe('Time in this state is unavailable')
+ const {teamsPageStore}=await import('../preview/teams-page-fixture')
+ const base=teamsPageStore('active')
+ const snapshot=base.getSnapshot()
+ const meteredSnapshot={...snapshot,runtimes:snapshot.runtimes.map(runtime=>({...runtime,capabilities:{...runtime.capabilities,metered:true}}))}
+ const store=new Proxy(base,{get(target,key){
+  if(key==='getSnapshot')return ()=>meteredSnapshot
+  if(key==='readGoalInsight')return (id:string)=>id==='team-0'?Promise.reject(new Error('Usage unavailable')):target.readGoalInsight(id)
+  return Reflect.get(target,key)
+ }})
+ await act(async()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
+ const money=(id:string)=>container.querySelector(`[data-team-row="${id}"] td[data-align="end"]:nth-last-child(2) [data-slot="text"]`)!
+ expect(money('team-0').textContent).toBe('—')
+ expect(money('team-0').getAttribute('title')).toBe('Recorded usage is unavailable')
+ expect(money('team-1').getAttribute('title')).toBe('Recorded Team usage; money only from metered accounts with a known rate')
+})

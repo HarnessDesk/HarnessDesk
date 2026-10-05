@@ -1044,7 +1044,9 @@ The Teams page and Overview read the same Run publication; a read still pending
 does not invent that state.
 Working and Needs you use tinted chips; quiet states use plain muted words.
 The wide view groups Teams by folder in a table with Time, Turns and Cost
-columns. Below 600px those readings move into the list's second line. A settled
+columns. Names truncate with their full title on hover; waiting reasons wrap
+whole. Read and unread names keep the same edge beside equal face stacks.
+Below 600px those readings move into the list's second line. A settled
 row carries its Run's end reason when recorded; otherwise it has no second line.
 
 Quiet settled Teams fold into **Ready to wrap** below Active and leave the
