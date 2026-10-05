@@ -138,7 +138,7 @@ import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
-import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
+import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
@@ -786,16 +786,19 @@ export class AppStore {
           // what a run status surface should be showing right now.
           const { execution } = notification.params
           const flowExecutions = new Map(this.#snapshot.flowExecutions)
+          const previous = flowExecutions.get(execution.id)
+          const selectionChanged = acceptedFindingEvidence(previous) !== acceptedFindingEvidence(execution)
           flowExecutions.set(execution.id, execution)
           this.#patch({ flowExecutions })
           // A person authorising extra rounds changes the findings run's budget
           // and current blind-round counts without changing the findings ledger.
           // Refresh the cached run views from this same push, rather than leaving
           // the Findings tab with the old denominator until it is reopened —
-          // only the run views: this push fires on every step of a run, and
-          // reloading the list with it would throw a person paging through
-          // findings back to the first page each time (#1094, #1091).
-          this.#findingRunsRefresh(execution.goal)
+          // Accepted route evidence also changes which attempts read Not kept.
+          // Reload the list for that transition; routine pushes still preserve
+          // a person's paging position (#1094, #1091).
+          if (selectionChanged) this.#findingsRefresh(execution.goal)
+          else this.#findingRunsRefresh(execution.goal)
         }
         if (notification.method === 'evidence/changed') {
           const { room, evidence } = notification.params

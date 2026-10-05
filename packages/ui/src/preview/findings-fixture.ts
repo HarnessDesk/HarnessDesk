@@ -40,6 +40,19 @@ export const PREVIEW_FINDINGS: readonly FindingView[] = [
     title: 'Missing null check on the checkout path',
     body: 'A `null` checkout crashes the flow before the guard runs.',
   }),
+  finding('finding-not-kept-1', {
+    title: 'Retry loop on the unselected attempt',
+    body: 'A failed request retries forever on this attempt.',
+    activeBlocking: false,
+    inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.',
+  }),
+  finding('finding-not-kept-advisory', {
+    title: 'Repeated status text on the unselected attempt',
+    body: 'This attempt repeats the same status in its summary and detail.',
+    blocking: false,
+    activeBlocking: false,
+    inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.',
+  }),
   finding('finding-claim-1', {
     title: 'Race between two writers on the same lane',
     body: 'Two lanes wrote the same file at once; the later write silently won.',
@@ -82,7 +95,7 @@ export const PREVIEW_FINDINGS: readonly FindingView[] = [
 ]
 
 const isOpen = (view: FindingView): boolean => !view.lifecycle.confirmed
-const isBlocking = (view: FindingView): boolean => view.blocking && !view.lifecycle.confirmed
+const isBlocking = (view: FindingView): boolean => (view.activeBlocking ?? view.blocking) && !view.lifecycle.confirmed
 
 export const findingPage = (filter: 'all' | 'open' | 'blocking'): FindingPage => {
   const rows = filter === 'blocking' ? PREVIEW_FINDINGS.filter(isBlocking)
@@ -133,6 +146,14 @@ export const FAILED_FINDINGS_STATE: FindingsListState = {
 }
 
 export const findingDetail = (id: string): FindingDetailPage => {
+  if (id === 'finding-before-advisory-selection') {
+    const { inactiveReason: _reason, ...before } = PREVIEW_FINDINGS.find((one) => one.id === 'finding-not-kept-advisory')!
+    return { finding: { ...before, id }, records: [], seat: null, next: null, problem: null }
+  }
+  if (id === 'finding-before-selection') {
+    const { activeBlocking: _active, inactiveReason: _reason, ...before } = PREVIEW_FINDINGS.find((one) => one.id === 'finding-not-kept-1')!
+    return { finding: { ...before, id }, records: [], seat: null, next: null, problem: null }
+  }
   const found = PREVIEW_FINDINGS.find((one) => one.id === id) ?? PREVIEW_FINDINGS[0]!
   return { finding: found, records: [], seat: null, next: null, problem: null }
 }
