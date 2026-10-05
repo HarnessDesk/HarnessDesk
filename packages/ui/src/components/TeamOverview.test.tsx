@@ -11,6 +11,28 @@ const box=document.createElement('div');document.body.append(box);const root=cre
 afterEach(()=>{ act(()=>root.render(null)); vi.useRealTimers() })
 const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role:'writer',card:null,round:null,state:'idle',done:false,reason:null,doing:null,since:null,durationMs:null,cost:null,...patch})
 const render=(seats:SeatRow[])=>act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats}} metered={new Map(seats.map(one => [one.seat, false]))} />))
+it.each([600,1000])('keeps an unlinked Seat’s reason visible without a conversation action at %spx',width=>{
+ const previous=globalThis.ResizeObserver
+ globalThis.ResizeObserver=class {
+  constructor(private callback:ResizeObserverCallback){}
+  observe(){this.callback([{contentRect:{width}} as ResizeObserverEntry],this as unknown as ResizeObserver)}
+  unobserve(){}
+  disconnect(){}
+ } as unknown as typeof ResizeObserver
+ try {
+  const onOpen=vi.fn()
+  act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats:[row('Gamma',{role:null,reason:'Conversation not kept'})]}} unavailable={new Set(['Gamma'])} onOpen={onOpen}/>))
+  const seat=box.querySelector('[data-seat="Gamma"]')!
+  expect(seat.textContent).toContain('Conversation not kept')
+  expect(box.querySelectorAll('th')).toHaveLength(width<800?0:6)
+  expect(seat.querySelector('button')).toBeNull()
+  expect(seat.hasAttribute('tabindex')).toBe(false)
+  act(()=>{(seat as HTMLElement).click();seat.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})
+  expect(onOpen).not.toHaveBeenCalled()
+  act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats:[row('Gamma',{role:null,reason:'Conversation not kept'}),row('Alpha',{state:'working',doing:'Reading a file'})]}} unavailable={new Set(['Gamma'])} onOpen={onOpen}/>))
+  expect(box.querySelector('[data-seat="Gamma"]')!.textContent!.split('Conversation not kept')).toHaveLength(2)
+ } finally {globalThis.ResizeObserver=previous}
+})
 it('uses the ended Run card state and fixed time for the current step and its Seat',()=>{
  const fixture=runFixture('running')
  const timeline=runTimeline({...fixture,execution:{...fixture.execution,state:'stopped',endedAt:fixture.cards[3]!.claim!.at+60_000,currentEndedAt:fixture.cards[3]!.claim!.at+60_000}})

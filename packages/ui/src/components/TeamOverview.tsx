@@ -90,14 +90,15 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const rows = model.seats.filter(row => !row.done).concat(expanded ? done : [])
   const face = (row: SeatRow) => <IconTile shape="face" tint={faceTints?.get(row.seat) ?? 'blue'}>{faces?.get(row.seat) ?? <AgentIcon />}</IconTile>
   const doing = (row: SeatRow) => {
-    if (cardState(row) || model.needsYou.some(item => item.seat === row.seat)) return null
+    if (unavailable?.has(row.seat) || cardState(row) || model.needsYou.some(item => item.seat === row.seat)) return null
     const next = doingLine(held.current.get(row.seat) ?? null, row.doing, now)
     held.current.set(row.seat, next)
     const line = words(next.line ?? row.reason ?? '')
     return line ? <div data-slot="seat-doing" title={line} className="truncate"><Text role="meta">{line}</Text></div> : null
   }
   const name = (row: SeatRow) => <Text role="subject" truncate title={words(row.name)}>{words(row.name)}</Text>
-  const role = (row: SeatRow) => [row.role ? stepName(words(row.role)) : null, runtimeNames?.get(row.seat)].filter(Boolean).join(' · ')
+  const unavailableReason = (row: SeatRow) => unavailable?.has(row.seat) && row.reason ? words(row.reason) : null
+  const role = (row: SeatRow) => unavailableReason(row) ?? [row.role ? stepName(words(row.role)) : null, runtimeNames?.get(row.seat)].filter(Boolean).join(' · ')
   const opens = (row: SeatRow) => Boolean(onOpen && !unavailable?.has(row.seat))
   const showNow = model.seats.some(row => row.state === 'working' && !cardState(row))
   const showCost = model.seats.some(row => row.cost !== null)
@@ -176,7 +177,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} as={opens(row) ? "button" : "div"} interactive={opens(row)} onClick={opens(row) ? () => onOpen?.(row.seat) : undefined} lead={face(row)}
-                  title={name(row)} subtitle={row.done ? role(row) : doing(row) ?? role(row)} trail={<>{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}{opens(row) && <ChevronIcon />}</>} />
+                  title={name(row)} subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row) ?? role(row))} wrapSubtitle={Boolean(unavailableReason(row))} trail={<>{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}{opens(row) && <ChevronIcon />}</>} />
               ))}
             </ListRows>
           ) : (
@@ -197,7 +198,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                     aria-label={opens(row) ? `Open ${words(row.name)}` : undefined}
                     onClick={opens(row) ? () => onOpen?.(row.seat) : undefined}
                     onKeyDown={event => { if (opens(row) && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen?.(row.seat) } }}>
-                    <TableCell className="max-w-0" lead={face(row)}><div className="min-w-0 flex-1">{name(row)}{role(row) && <Text role="meta" as="div" truncate>{role(row)}</Text>}</div></TableCell>
+                    <TableCell className="max-w-0" lead={face(row)}><div className="min-w-0 flex-1">{name(row)}{role(row) && <Text role="meta" as="div" truncate={!unavailableReason(row)} className={unavailableReason(row) ? 'whitespace-normal [overflow-wrap:anywhere]' : undefined}>{role(row)}</Text>}</div></TableCell>
                     <TableCell><div data-slot="seat-card" className="max-w-48 truncate" title={row.card ? words(row.card.title) : undefined}>
                       <Text role="meta">{row.card ? `#${row.card.id} · ${words(row.card.title)}` : '—'}</Text>
                     </div></TableCell>
