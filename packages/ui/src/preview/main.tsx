@@ -84,6 +84,7 @@ import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { FlowOverlayFrames } from './frames-flow-overlay'
+import { FlowCanvasFrames } from './frames-flow-canvas'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
@@ -1152,7 +1153,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('site-run')
+        {new URLSearchParams(window.location.search).has('flow-canvas')
+          ? <FlowCanvasFrames />
+          : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
           : new URLSearchParams(window.location.search).has('tables')
           ? <TablesPreview />

@@ -70,6 +70,7 @@ the packaged app.
 | `@agentclientprotocol/sdk` | Apache-2.0 | The ACP client surface |
 | `lucide-react` | ISC | The icon set |
 | `@lobehub/icons-static-svg` | MIT | Vendor and agent marks |
+| `@xyflow/react`, `@xyflow/system` | MIT | The builder canvas interaction engine; attribution remains visible |
 | `react`, `react-dom` | MIT | The renderer |
 | `electron` | MIT | The macOS shell |
 | `@xterm/xterm`, `@xterm/addon-fit` | MIT | The terminal pane |

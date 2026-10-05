@@ -1409,6 +1409,12 @@ a caller that does not re-render mid-drag has been passing this component
 the *committed* size all along, and committing that put the panel straight
 back where it started.
 
+### `FlowCanvas`
+
+`packages/ui/src/design/patterns/FlowCanvas.tsx`
+
+A controlled plan drawing. Give its container a height; Fit only shrinks.
+
 ### `FlowGraph`
 
 `packages/ui/src/design/patterns/FlowGraph.tsx`

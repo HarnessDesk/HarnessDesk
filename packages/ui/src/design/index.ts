@@ -204,3 +204,5 @@ export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState }
 export { PlanCard, type PlanCardProps } from './patterns/PlanCard'
 
 export { UsageMeterRow } from './patterns/UsageMeterRow'
+
+export { FlowCanvas, type FlowCanvasStep, type FlowCanvasNode, type FlowCanvasEdge, type FlowCanvasNodeChange, type FlowCanvasEdgeChange, type FlowCanvasNodeProps, type FlowCanvasProps } from './patterns/FlowCanvas'
