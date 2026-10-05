@@ -129,7 +129,7 @@ export class CodexSession implements AgentSession {
    * (`CodexRuntime`) to hand that one item back to the host as a `notice`
    * instead. Cleared once the turn ends: only its opening item needs this.
    */
-  readonly #silentTurnIds = new Set<string>()
+  readonly #silentTurnIds = new Map<string, 'agentBrief' | undefined>()
   /**
    * A silent `turn/start` whose id is not known yet. Armed before the request
    * is written, then consumed by `noteTurnStarted`: the app-server can put its
@@ -137,6 +137,7 @@ export class CodexSession implements AgentSession {
    * dispatch runs before the request promise resumes.
    */
   #pendingSilentOrder = false
+  #pendingNoticeKind: 'agentBrief' | undefined
   /** Tool count Codex was told about at thread/start, for staleness detection. */
   readonly #projectedTools: number
   /**
@@ -441,7 +442,8 @@ export class CodexSession implements AgentSession {
   noteTurnStarted(turnId: string): void {
     this.#currentTurnId = turnId
     if (this.#pendingSilentOrder) {
-      this.#silentTurnIds.add(turnId)
+      this.#silentTurnIds.set(turnId, this.#pendingNoticeKind)
+      this.#pendingNoticeKind = undefined
       this.#pendingSilentOrder = false
     }
   }
@@ -460,12 +462,19 @@ export class CodexSession implements AgentSession {
     return this.#silentTurnIds.has(turnId)
   }
 
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
+  noticeKindOf(turnId: string): 'agentBrief' | undefined {
+    return this.#silentTurnIds.get(turnId)
+  }
+
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
     const overrides = this.#pendingOverrides
     this.#pendingOverrides = {}
     const enriched = await this.#withContext(input)
     const silent = opts?.recordAs === 'notice'
-    if (silent) this.#pendingSilentOrder = true
+    if (silent) {
+      this.#pendingSilentOrder = true
+      this.#pendingNoticeKind = opts.noticeKind
+    }
     let response: CodexProtocol.v2.TurnStartResponse
     try {
       response = await this.deps.server.request('turn/start', {
@@ -474,7 +483,10 @@ export class CodexSession implements AgentSession {
         ...overrides,
       })
     } catch (error) {
-      if (silent) this.#pendingSilentOrder = false
+      if (silent) {
+        this.#pendingSilentOrder = false
+        this.#pendingNoticeKind = undefined
+      }
       throw error
     }
     this.#currentTurnId = response.turn.id

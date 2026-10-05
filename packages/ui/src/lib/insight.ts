@@ -36,3 +36,9 @@ export function metricWords(metric: InsightMetric, sources: readonly InsightSour
   const coverage = metric.coverage === 'partial' ? 'Estimated known subtotal' : metric.coverage === 'none' ? 'No coverage' : null
   return { value: number(metric.value, metric.unit), qualifier, coverage, source, freshness }
 }
+
+/** Receipt's plain cost vocabulary; floor, estimate and mixed-source qualifications remain explicit. */
+export function receiptMetricWords(metric: InsightMetric, sources: readonly InsightSource[], now: number): MetricWords {
+  const words = metricWords(metric, sources, now)
+  return { ...words, qualifier: words.qualifier?.replace('Vendor-metered cost', 'recorded usage') ?? null }
+}

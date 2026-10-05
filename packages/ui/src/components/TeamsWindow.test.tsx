@@ -129,3 +129,11 @@ it('reads an uncached Run and only counts its Team as Needs you after publicatio
  expect(container.querySelector('[data-team-row]')?.textContent).toContain('Needs you')
  expect(container.querySelector('[data-team-row]')?.textContent).toContain('The closed review is waiting to be posted.')
 })
+
+it('keeps the unread dot in the shared mark slot outside both text lines',async()=>{
+ await mount('needs-you')
+ const row=container.querySelector('[data-team-row]')!
+ const mark=row.querySelector('[data-slot="list-row-mark"]')!
+ expect(mark?.querySelector('[aria-label="Unread changes"]')).not.toBeNull()
+ expect(row.querySelector('[data-slot="list-row-title"] [data-slot="dot"]')).toBeNull()
+})

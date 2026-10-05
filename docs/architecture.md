@@ -177,7 +177,12 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   rather than firing it. Like approvals, it sits beside the session rather than
   inside it, so an adapter re-emitting a whole `Session` cannot erase it.
 - **Git and worktrees** — status, diffs, hunk staging, and the managed
-  worktrees a conversation can run in (`worktrees/`).
+  worktrees a conversation can run in (`worktrees/`). Main-checkout folders
+  resolved through Git's metadata are checked again from inside the folder:
+  its checkout root and Git directories must agree with the repository that
+  named it before a listing, inventory or destination uses it. Worktree
+  listings use NUL delimiters; individual path probes remove only Git's final
+  newline, so whitespace in a checkout's name stays part of its identity.
 - **Terminals** — PTYs that survive a client reload, with scrollback.
 - **Team rooms and shared boards** ([multi-agent.md](multi-agent.md)) — multi-agent
   coordination in `team/`: shared intent boards, non-overlapping file claim

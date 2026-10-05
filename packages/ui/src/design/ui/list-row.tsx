@@ -20,7 +20,9 @@ import { cn } from '@/lib/utils'
  *
  * The subtitle follows the repo's rule (`docs/design.md`): it is earned by
  * a fact that varies — a path, a count, a reason — and not spent on restating
- * the title in more words.
+ * the title in more words. A small state light belongs in `mark`, beside
+ * the text column, so it never indents the title alone. An empty mark slot
+ * reserves the same column for read and unread rows.
  */
 
 /* `title` is omitted from the div's own props before being re-declared. It is
@@ -32,6 +34,8 @@ import { cn } from '@/lib/utils'
 type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   /** An avatar, an `IconTile`, a logo. */
   lead?: React.ReactNode
+  /** A small state mark beside the text column. Pass false to reserve an empty slot. */
+  mark?: React.ReactNode
   title: React.ReactNode
   /** A record title may wrap; keep its lead on the first line. */
   wrapTitle?: boolean
@@ -89,6 +93,7 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
 const ListRow = ({
   className,
   lead,
+  mark,
   title,
   wrapTitle,
   subtitle,
@@ -177,6 +182,7 @@ const ListRow = ({
         {lead}
       </span>
     )}
+    {mark != null && <span data-slot="list-row-mark" className={cn('inline-flex w-2 shrink-0 items-center justify-center', size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>{mark}</span>}
     <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         data-slot="list-row-title"

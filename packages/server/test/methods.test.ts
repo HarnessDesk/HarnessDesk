@@ -226,6 +226,70 @@ test('a worktree is brought home or removed only from a repository the window ha
   )
 })
 
+/**
+ * Git lists a submodule's main checkout as its git directory,
+ * `<super>/.git/modules/<name>`, never as the folder it is checked out at,
+ * and the repository was judged by that listing alone. So with only that
+ * folder open — the submodule opened as a project of its own — its worktrees
+ * were refused as belonging to a project not opened here, and so was the
+ * bring-home dialog's read of the main checkout, whose path it takes from
+ * that listing.
+ */
+test("a submodule's worktree is brought home or removed with only the submodule's folder open", async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const origin = tempDir('hd-methods-origin-')
+  const superproject = tempDir('hd-methods-super-')
+  for (const repo of [origin, superproject]) {
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], quiet)
+    execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  }
+  execFileSync('git', ['-C', superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub'], quiet)
+  const sub = join(superproject, 'sub')
+  const listedMain = join(superproject, '.git', 'modules', 'sub')
+  const tree = join(tempDir('hd-methods-state-'), 'wt')
+  execFileSync('git', ['-C', sub, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+  const elsewhere = tempDir('hd-methods-elsewhere-')
+  const asked: string[] = []
+  const ctx = (roots: string[]): HostContext =>
+    contextWith({
+      workspaces: { openRoots: () => roots },
+      registry: { snapshot: () => [] },
+      worktrees: {
+        bringHome: async (path: string) => {
+          asked.push(`home ${path}`)
+          return { branch: 'wt', from: 'main', root: sub }
+        },
+        remove: async (path: string) => {
+          asked.push(`remove ${path}`)
+          return { branch: 'wt' }
+        },
+        changes: async (path: string) => {
+          asked.push(`changes ${path}`)
+          return { modified: 0, untracked: 0, unpushedCommits: 0, files: [], ignored: [], ignoredCount: 0 }
+        },
+      },
+    })
+
+  // The control: the submodule is still a repository of its own, refused
+  // while nothing of it is open.
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/bringHome', { path: tree }), /not a project opened here/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/remove', { path: tree }), /not a project opened here/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/changes', { path: listedMain }), /not a project opened here/)
+  assert.deepEqual(asked, [], 'the service is not asked about a submodule the window does not have open')
+
+  const inside = join(sub, 'src')
+  mkdirSync(inside)
+  await dispatch(ctx([sub]), 'worktree/bringHome', { path: tree })
+  await dispatch(ctx([sub]), 'worktree/remove', { path: tree })
+  await dispatch(ctx([inside]), 'worktree/changes', { path: tree })
+  await dispatch(ctx([sub]), 'worktree/changes', { path: listedMain })
+  assert.deepEqual(
+    asked,
+    [`home ${tree}`, `remove ${tree}`, `changes ${tree}`, `changes ${listedMain}`],
+    "the submodule's folder open, or a folder inside it, is its repository open",
+  )
+})
+
 /** A repository inside an open folder is open, as it is to every other git read. */
 test('a repository inside an open folder counts as open for the worktree verbs', async () => {
   const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { itemId, sessionKey, turnId, type GoalReceipt, type GoalView, type Intent, type SessionSummary } from '@harnessdesk/protocol'
+import { itemId, sessionKey, turnId, type GoalReceipt, type GoalView, type InsightAmounts, type Intent, type SessionSummary } from '@harnessdesk/protocol'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { SessionTree } from '../components/SessionTree'
 import { RailSection } from '../design'
@@ -25,12 +25,12 @@ export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
  const receipt: GoalReceipt = {
   version:1,id:'receipt-record',goal:goal.goal.id,sentence:goal.goal.sentence,wrappedAt:goal.goal.updatedAt,
   summary:scene==='empty'?'The completed work is kept in this record. No conversations were recorded.':scene==='unlinked'?'The checkout retry was built and reviewed. This older receipt did not keep the conversations.':'The checkout retry was built and reviewed. Both conversations remain part of this record.',
-  cards:goal.board.intents.map(card=>({id:card.id,resolution:'finished',reason:null})),
+  cards:goal.board.intents.map((card,index)=>({id:card.id,resolution:'finished',reason:null,...(scene==='older'||scene==='unlinked'?{}:{title:card.title,...(seats[index]?{seat:seats[index].id}:{})})})),
   seats:[...seats.map(seat=>seat.id),...(scene==='older'?['seat-unlinked']:[]),...(again?[again.seat]:[])],
-  members:[...seats.map(seat=>({seat:seat.id,agent:seat.agent?.name??null,seatLabel:seat.seatLabel,...(scene==='older'||scene==='unlinked'?{}:{session:seat.session})})),
+  members:[...seats.map(seat=>({seat:seat.id,agent:seat.agent?.name??null,seatLabel:seat.seatLabel,...(scene==='older'||scene==='unlinked'?{}:{role:seat.role}),...(scene==='older'||scene==='unlinked'?{}:{session:seat.session})})),
    ...(scene==='older'?[{seat:'seat-unlinked',agent:'Gamma',seatLabel:'Reviewer'}]:[]),
    ...(again?[again]:[])],
-  answers:scene==='unlinked'?[]:seats.map(seat=>({seat:seat.id,session:seat.session,turn:null,text:'The change was checked and is ready.',partial:false,stopReason:null})),
+  answers:scene==='unlinked'?[]:seats.map(seat=>({seat:seat.id,session:seat.session,turn:null,text:scene==='narrow'?`The change was checked: https://example.com/${'a'.repeat(180)}`:'The change was checked and is ready.',partial:false,stopReason:null})),
   evidence:[],lanes:[],revisions:[],citations:[],gaps:[],
  }
  const later:Intent={...goal.board.intents[1]!,id:3,title:'Review the retry budget again'}
@@ -41,12 +41,27 @@ export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
  const run=original.flowExecutions.get('overview-run')!
  const rounds=[...run.rounds.map(round=>({...round,cards:round.cards.filter(id=>id<=2),seats:round.seats.filter(id=>id==='seat-0'||id==='seat-1'),state:'closed' as const})),
   ...(again?[{n:3,role:'reviewer',cards:[3],seats:[again.seat],state:'closed' as const,cause:'review-again',evidence:[]}]:[])]
- let report=overviewReport()
+ const baseReport=overviewReport()
+ const partition=baseReport.breakdowns.find(one=>one.dimension==='seat')!
+ const source={id:'recorded-agent-usage',kind:'corpus' as const,label:'Recorded agent usage',observedAt:baseReport.query.to,checkedAt:Date.now(),stale:false,problem:null}
+ const measured=(amounts:InsightAmounts):InsightAmounts=>Object.fromEntries(Object.entries(amounts).map(([key,metric])=>[key,{...metric,sourceIds:[source.id]}])) as unknown as InsightAmounts
+ const rows=partition.rows.filter(row=>seats.some(seat=>seat.id===row.seat)).map(row=>({...row,amounts:measured({...row.amounts,usd:{...row.amounts.usd,value:row.seat==='seat-0'?0.43:row.amounts.usd.value}})}))
  if(again) {
-  const partition=report.breakdowns.find(one=>one.dimension==='seat')!
-  const earlier=partition.rows.find(one=>one.seat==='seat-1')!
-  report={...report,breakdowns:report.breakdowns.map(one=>one===partition?{...one,rows:[...one.rows,{...earlier,key:again.seat,seat:again.seat,amounts:{...earlier.amounts,usd:{...earlier.amounts.usd,value:0.13},turns:{...earlier.amounts.turns,value:12}}}]}:one)}
+  const earlier=rows.find(one=>one.seat==='seat-1')!
+  rows.push({...earlier,key:again.seat,seat:again.seat,amounts:{...earlier.amounts,usd:{...earlier.amounts.usd,value:0.13},turns:{...earlier.amounts.turns,value:12}}})
  }
+ const zero=measured(Object.fromEntries(Object.entries(baseReport.totals).map(([key,metric])=>[key,{...metric,value:0}])) as unknown as InsightAmounts)
+ const sum=(parts:readonly InsightAmounts[]):InsightAmounts=>Object.fromEntries(Object.entries(zero).map(([key,metric])=>[key,{...metric,value:parts.reduce((total,part)=>total+(part[key as keyof InsightAmounts].value??0),0)}])) as unknown as InsightAmounts
+ const totals=sum(rows.map(row=>row.amounts))
+ const agents=[...new Set(rows.map(row=>row.label))].map(label=>{
+  const one=rows.find(row=>row.label===label)!
+  return {...one,key:`agent-${label}`,seat:null,session:null,amounts:sum(rows.filter(row=>row.label===label).map(row=>row.amounts))}
+ })
+ const report={...baseReport,receipt:receipt.id,totals,sources:[source],breakdowns:[
+  {...partition,dimension:'seat' as const,rows,unattributed:zero},
+  {...partition,dimension:'goal' as const,rows:rows.length?[{...rows[0]!,key:goal.goal.id,label:goal.goal.sentence,seat:null,session:null,amounts:totals}]:[],unattributed:zero},
+  {...partition,dimension:'agent' as const,rows:agents,unattributed:zero},
+ ]}
  /* `running` is a turn still going in the first Seat's conversation after the Team wrapped: the composer takes nothing
     new, and Stop is the one control left on it, because the host leaves `turn/interrupt` open (#1317). */
  const sessions=new Map([...original.sessions].map(([key,session],index)=>{

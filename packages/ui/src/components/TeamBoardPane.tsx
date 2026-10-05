@@ -46,6 +46,7 @@ import {
   BannerAction,
   Button,
   EmptyState,
+  PaneColumn,
   IconTile,
   Menu,
   MenuItem,
@@ -477,7 +478,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
            telling the reader something. */
         subtitle={
           intents.length === 0
-            ? 'Nothing on the board yet'
+            ? undefined
             : `${byColumn.get('todo')?.length ?? 0} to do · ${
                 byColumn.get('working')?.length ?? 0
               } working · ${byColumn.get('needs')?.length ?? 0} need you`
@@ -521,6 +522,11 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                 Hand out
               </Button>
             )}
+            {emptyGoal && intents.length === 0 && (
+              <Button size="sm" variant="secondary" disabled={record} title={record ? RECORD_REASON : undefined} onClick={() => setStartingTeam(true)}>
+                <TeamIcon />Start with a team
+              </Button>
+            )}
             <Button
               size="sm"
               /* The visible label leads the accessible one, because below
@@ -530,7 +536,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                  job" has to match what is announced. */
               aria-label="New job — add work with files, dependencies and a goal"
               disabled={record}
-              title={record ? RECORD_REASON : "Add work with files, dependencies and a goal"}
+              title={record ? RECORD_REASON : "Add work with files, dependencies and a goal. Work added here can be claimed by one conversation at a time, with its files owned while the claim lives."}
               onClick={openAdd}
             >
               <PlusIcon />
@@ -565,22 +571,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             and the refusal, when something is still live, is read here rather
             than thrown away, because it is an answer rather than a failure. */}
         {intents.length === 0 ? (
-          <EmptyState
-            icon={<PlanIcon />}
-            title="Nothing on the board"
-            description="Work added here — by you, or by any agent that can reach the board — can be claimed by one conversation at a time, with its files owned while the claim lives."
-          >
-            <Button size="sm" className="self-center" disabled={record} title={record ? RECORD_REASON : undefined} onClick={openAdd}>
-              <PlusIcon />
-              Add the first job
-            </Button>
-            {emptyGoal && (
-              <Button size="sm" variant="secondary" disabled={record} title={record ? RECORD_REASON : undefined} className="self-center" onClick={() => setStartingTeam(true)}>
-                <TeamIcon />
-                Start with a team
-              </Button>
-            )}
-          </EmptyState>
+          <PaneColumn inset="reading">
+            <EmptyState variant="inline" align="start" title="Nothing on the board yet" />
+          </PaneColumn>
         ) : (
           <Board wrap derived>
             {shown.map((column) => {
@@ -1209,10 +1202,10 @@ const IntentCard = ({
         onClose={() => setReviewDialog(null)}
         footer={(
           <>
-            <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
             <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending || record} title={record ? RECORD_REASON : undefined} onClick={() => void confirmReview()}>
               {reviewDialog.pending ? 'Saving…' : 'Record answer'}
             </Button>
+            <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
           </>
         )}
       >

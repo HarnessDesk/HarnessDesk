@@ -26,11 +26,11 @@ export const worktreeMethods = {
   // sides. The lexical check before it could not see a link: with A open,
   // `A/elsewhere -> B` passed as inside A, and `git -C` followed the link and
   // cut a worktree and a branch in B, which nobody opened. Not the repository
-  // rule the verbs around it use: the store asks this of the open folder
-  // itself, and that rule judges the checkouts `git worktree list` names,
-  // which for a submodule or a `--separate-git-dir` checkout is its git
-  // directory, so it refuses the very folder that is open. Git then runs in
-  // the path that was judged, not in the wire's spelling resolved again.
+  // rule the verbs around it use: the store asks this only of the open folder
+  // itself, which this rule admits without running git anywhere but in the
+  // open roots. That rule runs git in the path it judges, and admits every
+  // checkout of a repository open here. Git then runs in the path that was
+  // judged, not in the wire's spelling resolved again.
   'worktree/create': async (ctx, params) => {
     const root = await ctx.workspaces.confineGitRoot(params.root)
     return ctx.worktrees.create(root, {
