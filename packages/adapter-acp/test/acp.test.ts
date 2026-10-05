@@ -3244,3 +3244,15 @@ test('a marked Agent brief remains a notice with its kind when the turn complete
   assert.ok(next.turn.items[0]?.type === 'notice')
   assert.equal(next.turn.items[0].kind, undefined)
 })
+
+test('ACP presentation supplies only verified native commit credits', async (t) => {
+  for (const [id, credit] of [
+    ['claude', { name: 'Claude', email: 'noreply@anthropic.com' }],
+    ['cursor', { name: 'Cursor Agent', email: 'cursoragent@cursor.com' }],
+    ['unknown', null],
+  ] as const) {
+    const runtime = new AcpRuntime({ id, name: 'Preview Agent', command: process.execPath, args: [FAKE] })
+    t.after(() => runtime.dispose())
+    assert.deepEqual(runtime.info.presentation.coAuthor, credit)
+  }
+})

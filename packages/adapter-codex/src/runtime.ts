@@ -205,6 +205,8 @@ const CAPABILITIES = {
  * describes a different runtime accurately without knowing anything about it.
  */
 const PRESENTATION = {
+  // Native credit: https://github.com/openai/codex/pull/11617
+  coAuthor: { name: 'Codex', email: 'noreply@openai.com' },
   name: 'Codex',
   brand: 'codex',
   tagline: "OpenAI's coding agent, running locally through the Codex CLI.",

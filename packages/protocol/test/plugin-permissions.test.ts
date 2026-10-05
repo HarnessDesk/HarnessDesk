@@ -59,6 +59,12 @@ test('several hosts are one line, because the surface renders one row per line',
   assert.equal(reach[0], 'Reach api.example.com, logs.example.com, cdn.example.com')
 })
 
+test('forge consent includes every signed kind of publication', () => {
+  assert.deepEqual(describePermissions(grant({ forge: true })), [
+    'Sign pull requests, reviews and comments for the conversation, and put what it published in the transcript',
+  ])
+})
+
 /**
  * Every grant the type allows, one at a time.
  *

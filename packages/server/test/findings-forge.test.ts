@@ -276,5 +276,11 @@ test('batch signature matches existing formatter', () => {
     assert.equal(body.split(MARKER_PREFIX).length, 2)
     assert.equal(segmentsOf(body).length, 1)
   }
-  assert.equal(renderSignature(DEFAULT_REVIEW_SIGNATURE, forgeSeatOf(seat)), '**Review by Beta · model-x · High · via HarnessDesk**')
+  assert.equal(renderSignature(DEFAULT_REVIEW_SIGNATURE, forgeSeatOf(seat)), '**Reviewer** · Beta · model-x · High · via HarnessDesk')
+  const body = renderBody({key:'pub-2',evidence:['ev-1'],finding:'finding-1'}, {
+    records:new Map([['ev-1',raise]]), seat:()=>seat, template:DEFAULT_REVIEW_SIGNATURE,
+    teamOf:()=> 'Widgets', reviewRoundOf:()=>2,
+  })!
+  assert.equal(body.split('\n')[1], '**Reviewer · round 2** · Beta · model-x · High · via HarnessDesk')
+  assert.equal(renderSignature('{role} · {round} · {team}', forgeSeatOf(seat, 'Widgets', 2)), 'Reviewer · round 2 · Widgets')
 })

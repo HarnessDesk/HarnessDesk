@@ -121,7 +121,7 @@ export interface GoalPlanePort extends GoalOperationPort {
    * Goal's own persisted origin — never from the request: a Goal a trigger
    * opened seats under the unattended ceiling policy.
    */
-  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean; readonly requireHeld?: true }): Promise<SeatRecord>
+  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean; readonly requireHeld?: true; readonly role: string | null }): Promise<SeatRecord>
   /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
   /** A trigger firing still landing on this Goal: true, or the sentence that says why it waits and what clears it. */
   intakeHeld?(goal: string): boolean | string
@@ -856,12 +856,12 @@ export class GoalPlane {
    * (#1053). A base always isolates: the project's own checkout is never
    * moved to it.
    */
-  seat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord> {
+  seat(input: GoalSeatRequest & { readonly role?: string; readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
       // These host-only choices come from the trigger origin or the run’s frozen policy; wire seating cannot supply them.
-      const policy = { unattended: goal.origin.kind === 'trigger' || input.unattended === true, ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
+      const policy = { role: input.role ?? null, unattended: goal.origin.kind === 'trigger' || input.unattended === true, ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
       // A Goal pinned to a commit seats nobody in the project's own checkout: each Seat gets its own, cut from that commit.
       const isolate = input.base !== undefined || goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
       const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy), {

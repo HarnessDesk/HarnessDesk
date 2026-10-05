@@ -1015,6 +1015,15 @@ export class Host {
             return record.session.options ?? []
           }
         },
+        teamOf: (runtime, sessionId) => {
+          const seat = this.#evidence.seats.latestKeptOf(runtime, sessionId)
+          if (!seat?.board || seat.closed) return null
+          const board = this.#team.stateFor(seat.board)
+          const card = board.intents.find((one) => one.claim?.runtime === runtime && one.claim.sessionId === sessionId)
+          const run = card ? this.#flows.executionsFor(seat.board).find((one) => one.rounds.some((round) => round.cards.includes(card.id))) : null
+          const round = run && card ? this.#flows.findingRun(run.id)?.rounds.find((one) => one.cards.includes(card.id)) : null
+          return { role: seat.role, team: board.name || null, round: round?.reviews ? round.n : null }
+        },
         record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
@@ -1301,7 +1310,7 @@ export class Host {
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
-      commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
+      commitWork: (cwd, before, message, seat) => commitCardWork(cwd, before, message, this.#runtimes.get(seat.session.runtime)?.info.presentation.coAuthor ?? null),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
       assertCheckCleanup: (goal, card) => this.#evidence.assertFlowCheckCleanup(goal, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
@@ -1493,6 +1502,12 @@ export class Host {
       ledger: (project) => this.#findings.ledgerOf(project),
       seat: (id) => this.#evidence.seats.byId(id),
       template: () => this.#reviewSignature(),
+      teamOf: (board) => { try { return this.#team.stateFor(board).name || null } catch { return null } },
+      reviewRoundOf: (seat, round) => {
+        if (!seat.board || round === null) return null
+        const run = this.#flows.executionsFor(seat.board).find((one) => one.operations.some((op) => op.kind === 'seat' && op.seat === seat.id))
+        return run && this.#flows.findingRun(run.id)?.rounds.some((one) => one.n === round && one.reviews) ? round : null
+      },
       appendPost: (input) => this.#findings.appendPost(input),
       forge: options.findingForge ?? new GhFindingForge(),
       // A trigger's run posts each closed round as one review; every other run, comment by comment.
@@ -1733,7 +1748,7 @@ export class Host {
         }
         return (await seatAgent(this.#context, asked, {
           board: goal.id,
-          role: null,
+          role: policy.role,
           ...(input.grant === undefined ? {} : { grant: input.grant }),
           ...(policy.unattended ? { unattended: true } : {}),
           ...(policy.requireHeld ? { requireHeld: true as const } : {}),

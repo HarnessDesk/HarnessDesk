@@ -49,7 +49,7 @@ export const describePermissions = (permissions: PluginPermissions): string[] =>
   // What the grant adds is the desk's part — the seat and the record — not
   // the reach, which is the shell's and gh's; the sentence names the part.
   if (permissions.forge) {
-    out.push('Sign pull requests and reviews for the conversation, and put what it published in the transcript')
+    out.push('Sign pull requests, reviews and comments for the conversation, and put what it published in the transcript')
   }
   if (permissions.workspace.read) out.push('Read files in the open project')
   if (permissions.workspace.write) out.push('Change files in the open project')

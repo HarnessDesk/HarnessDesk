@@ -40,10 +40,13 @@ const count = (value: unknown): number | null => {
  * blanked it. `{seat}` is the agent, its model and its effort as one label;
  * the parts are there for anyone composing a different line.
  */
-export const DEFAULT_SIGNATURE = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})'
+export const DEFAULT_SIGNATURE = '🤖 {role}: {seat} · via [HarnessDesk](https://harnessdesk.app)'
 
 /** The line a review opens with; same placeholders, same blank-means-none. */
-export const DEFAULT_REVIEW_SIGNATURE = '**Review by {seat} · via HarnessDesk**'
+export const DEFAULT_REVIEW_SIGNATURE = '**{role} · {round}** · {seat} · via HarnessDesk'
+
+/** The first line of a pull request or issue comment. */
+export const DEFAULT_COMMENT_SIGNATURE = '**{role} · {seat}** · via HarnessDesk'
 
 /**
  * The mark the desk leaves on the line it wrote, so that what it replaces
@@ -208,7 +211,7 @@ const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g
 
 /** GitHub's text without the desk's mark, for a card and for an excerpt. */
 export const unmarked = (text: string): string =>
-  text.replace(/ ?<!-- harnessdesk:signature -->/g, '').replace(/^<!-- harnessdesk:post -->(?:\n|$)/, '')
+  text.replace(/ ?<!-- harnessdesk:authors:[^\n]*? -->/g, '').replace(/ ?<!-- harnessdesk:signature -->/g, '').replace(/^<!-- harnessdesk:post -->(?:\n|$)/, '')
 
 /** A body with the desk's post marker taken off its first line, as an agent may pass a read back. */
 const unmarkedPost = (body: string): string =>
@@ -232,6 +235,7 @@ interface GitConfig {
   branchContext?: boolean
   logLimit?: number
   signature?: string
+  commentSignature?: string
   reviewSignature?: string
 }
 
@@ -242,6 +246,7 @@ interface GitConfig {
  * blank is no signature at all.
  */
 export const renderSignature = (template: string, seat: ForgeSeat): string => {
+  const role = seat.role ?? ''
   const parts: Record<string, string> = {
     seat: seat.label,
     agent: seat.agent,
@@ -249,14 +254,21 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
     effort: seat.effort ?? '',
     version: seat.version ?? '',
     thinking: seat.thinking ? 'Thinking' : '',
+    role: ['writer', 'reviewer', 'fixer'].includes(role) ? role.charAt(0).toUpperCase() + role.slice(1) : role,
+    round: seat.round != null && seat.round > 1 ? `round ${seat.round}` : '',
+    team: seat.team ?? '',
   }
-  const filled = template.replace(/\{(seat|agent|model|effort|version|thinking)\}/g, (_match, key: string) => parts[key] ?? '')
-  return filled
-    .split(' · ')
-    .map((part) => part.replace(/\s{2,}/g, ' ').trim())
-    .filter((part) => part !== '')
-    .join(' · ')
-    .trim()
+  // Remove the colon earned by a role, and keep optional bold groups balanced.
+  // An ordinary conversation's review uses its seat as the bold opening.
+  const chosen = !role && template === DEFAULT_REVIEW_SIGNATURE ? DEFAULT_COMMENT_SIGNATURE : template
+  const filled = chosen.replace(/\{role\}:\s*/g, parts.role ? `${parts.role}: ` : '')
+    .replace(/\{(seat|agent|model|effort|version|thinking|role|round|team)\}/g, (_match, key: string) => parts[key] ?? '')
+  const tidy = (value: string): string => value.split(' · ')
+    .map((part) => part.replace(/\s{2,}/g, ' ').trim()).filter(Boolean).join(' · ')
+  return tidy(filled.replace(/\*\*([^*]*)\*\*/g, (_match, value: string) => {
+    const text = tidy(value)
+    return text ? `**${text}**` : ''
+  }))
 }
 
 /**
@@ -290,6 +302,50 @@ export const signBody = (body: string, signature: string | null, previous: strin
   if (signature === null || signature === '') return stripped
   const line = `${signature} ${SIGNATURE_MARK}`
   return stripped === '' ? line : `${stripped}\n\n${line}`
+}
+
+/** Structured contributors survive edits to the visible credit and changes of template. */
+const AUTHORS_MARK = /<!-- harnessdesk:authors:([^\n]*?) -->/
+const authorsOf = (body: string | null | undefined): ForgeSeat[] => {
+  const lines = (body ?? '').split('\n')
+  const at = markedLineIn(lines)
+  const encoded = at === null ? null : AUTHORS_MARK.exec(lines[at] ?? '')?.[1]
+  if (!encoded) return []
+  try {
+    const value: unknown = JSON.parse(decodeURIComponent(encoded))
+    if (!Array.isArray(value)) return []
+    return value.filter((entry): entry is ForgeSeat => entry && typeof entry === 'object' &&
+      typeof entry.label === 'string' && typeof entry.agent === 'string' && typeof entry.thinking === 'boolean' &&
+      ['role', 'team', 'model', 'effort', 'version'].every((key) => entry[key] === null || typeof entry[key] === 'string') &&
+      (entry.round === null || Number.isSafeInteger(entry.round)))
+  } catch { return [] }
+}
+
+/** Render every earlier role/seat pair under today's template, sharing its prefix and suffix. */
+export const signDescription = (body: string, template: string, seat: ForgeSeat | null, previousBody?: string | null): string => {
+  const previous = previousSignature(previousBody)
+  if (template.trim() === '') return signBody(body, null, previous)
+  const authors = authorsOf(previousBody)
+  if (seat && !authors.some((author) => author.role === seat.role && author.label === seat.label)) authors.push(seat)
+  if (!authors.length) return signBody(body, null, previous)
+  const matches = [...template.matchAll(/\{(?:role|seat|agent|model|effort|version|thinking|team|round)\}/g)]
+  const first = matches[0]?.index
+  const last = matches.at(-1)
+  const line = first !== undefined && last
+    ? template.slice(0, first) + authors.map((author) => renderSignature(template.slice(first, last.index! + last[0].length), author)).filter(Boolean).join(' · ') + template.slice(last.index! + last[0].length)
+    : renderSignature(template, authors[0]!)
+  const clean = signBody(body, line.trim(), previous)
+  if (!line.trim()) return clean
+  return clean.slice(0, -SIGNATURE_MARK.length) + `<!-- harnessdesk:authors:${encodeURIComponent(JSON.stringify(authors))} --> ${SIGNATURE_MARK}`
+}
+
+/** A marked opening line for comments, including edits passed back by an agent. */
+const signComment = (body: string, signature: string | null): string => {
+  const lines = unmarkedPost(body).split('\n')
+  const at = markedLineIn(lines)
+  if (at === 0) lines.splice(0, 1)
+  const rest = lines.join('\n').replace(/^\n+/, '')
+  return signature ? `${signature} ${SIGNATURE_MARK}${rest ? `\n\n${rest}` : ''}` : rest
 }
 
 /** GitHub's own JSON for a pull request, in the fields the tools read. */
@@ -521,6 +577,7 @@ export const gitPlugin: HarnessPlugin = {
     permissions: { workspace: { read: true, write: false }, shell: true, forge: true },
     configSchema: {
       type: 'object',
+      description: 'Signature placeholders: {role}, {round}, {team}, {seat}, {agent}, {model}, {effort}, {version}, {thinking}. {seat} includes the agent, model and effort. Round appears after round 1; Team fields are omitted outside a Team. Leave a template empty to turn that signature off.',
       properties: {
         branchContext: {
           type: 'boolean',
@@ -534,16 +591,22 @@ export const gitPlugin: HarnessPlugin = {
         },
         signature: {
           type: 'string',
-          title: 'Pull request signature',
+          title: 'Description signature',
           description:
-            'Ends every pull request an agent opens or edits from a conversation. {seat} is the agent, its model and its effort; {agent}, {model}, {effort} and {version} are the parts. Leave empty to sign nothing.',
+            'Ends the description and keeps each role and seat that wrote it.',
           default: DEFAULT_SIGNATURE,
         },
         reviewSignature: {
           type: 'string',
           title: 'Review signature',
-          description: 'Opens every review an agent posts from a conversation. Same placeholders; leave empty for none.',
+          description: 'Opens each review.',
           default: DEFAULT_REVIEW_SIGNATURE,
+        },
+        commentSignature: {
+          type: 'string',
+          title: 'Comment signature',
+          description: 'Opens each pull request or issue comment.',
+          default: DEFAULT_COMMENT_SIGNATURE,
         },
       },
     },
@@ -862,7 +925,7 @@ export const gitPlugin: HarnessPlugin = {
           }
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', deskMarked(signBody(body, signed.line))]
+          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', deskMarked(signDescription(unmarkedPost(body), signed.template, seat))]
           if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
           if (args.draft === true) argv.push('--draft')
           const created = await gh(argv)
@@ -881,7 +944,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'pr_update',
         description:
-          'Change a pull request’s title, description or base branch, through HarnessDesk. A new description is signed for this conversation’s seat, replacing any earlier HarnessDesk line; do not write one yourself. Names the pull request by number, or takes the one open for the current branch.',
+          'Change a pull request’s title, description or base branch, through HarnessDesk. A new description retains earlier role and seat credits and adds this conversation’s seat; do not write one yourself. Names the pull request by number, or takes the one open for the current branch.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -904,7 +967,7 @@ export const gitPlugin: HarnessPlugin = {
           if (typeof args.body === 'string') {
             // What the desk signed with last time is read off GitHub's own
             // copy, so a body passed back without the mark still loses it.
-            argv.push('--body', deskMarked(signBody(unmarkedPost(args.body), signed.line, previousSignature(current.body))))
+            argv.push('--body', deskMarked(signDescription(unmarkedPost(args.body), signed.template, seat, current.body)))
             changed += 1
           }
           if (typeof args.base === 'string' && args.base.trim() !== '') {
@@ -919,7 +982,7 @@ export const gitPlugin: HarnessPlugin = {
               kind: 'pullRequest',
               action: 'updated',
               via: await viaOf(scope),
-              signature: typeof args.body === 'string' ? signed.line : null,
+              signature: typeof args.body === 'string' ? previousSignature(pr.body) : null,
             }),
             scope,
           )
@@ -1056,7 +1119,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'pr_comment',
         description:
-          'Leave a comment on a pull request’s conversation, through HarnessDesk. Comments are not signed. Names the pull request by number, or takes the one open for the current branch.',
+          'Leave a comment on a pull request’s conversation, through HarnessDesk. The desk signs the opening line for this conversation’s role and seat. Names the pull request by number, or takes the one open for the current branch.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1070,9 +1133,11 @@ export const gitPlugin: HarnessPlugin = {
           if (body === '') throw new Error('A comment needs a body.')
           await publicationAllowed(scope)
           const pr = await pullRequestFor(args.number)
-          const posted = await gh(['pr', 'comment', String(pr.number), '--body', deskMarked(body)])
+          const seat = await seatFor(scope)
+          const signed = signatureFor(seat, config?.commentSignature, DEFAULT_COMMENT_SIGNATURE)
+          const posted = await gh(['pr', 'comment', String(pr.number), '--body', deskMarked(signComment(body, signed.line))])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
-          const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url }), scope)
+          const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url, signature: signed.line }), scope)
           return [`Commented on pull request #${pr.number}: ${pr.title}`, url, note]
             .filter((line) => line !== null && line !== '')
             .join('\n')
@@ -1152,7 +1217,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'issue_comment',
-        description: 'Leave a comment on a GitHub issue, through HarnessDesk. Comments are not signed.',
+        description: 'Leave a comment on a GitHub issue, through HarnessDesk. The desk signs the opening line for this conversation’s role and seat.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1169,7 +1234,9 @@ export const gitPlugin: HarnessPlugin = {
           // An issue number may be the bound pull request's own conversation: the embargo holds here too.
           await publicationAllowed(scope)
           const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
-          const posted = await gh(['issue', 'comment', String(issue.number), '--body', deskMarked(body)])
+          const seat = await seatFor(scope)
+          const signed = signatureFor(seat, config?.commentSignature, DEFAULT_COMMENT_SIGNATURE)
+          const posted = await gh(['issue', 'comment', String(issue.number), '--body', deskMarked(signComment(body, signed.line))])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? issue.url
           const note = await publish(
             {
@@ -1187,7 +1254,7 @@ export const gitPlugin: HarnessPlugin = {
               files: null,
               excerpt: excerptOf(body),
               via: await viaOf(scope),
-              signature: null,
+              signature: signed.line,
             },
             scope,
           )

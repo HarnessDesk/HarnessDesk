@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
+import type { RuntimePresentation } from '@harnessdesk/protocol'
+
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
@@ -46,7 +48,7 @@ export const COMMIT_MESSAGE_LIMIT = 8_000
 /** The desk's attribution; the checkout's configured identity owns the commit. */
 const COAUTHOR_TRAILER = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
-const attributedMessage = async (cwd: string, message: string): Promise<string> => {
+const attributedMessage = async (cwd: string, message: string, credit: RuntimePresentation['coAuthor']): Promise<string> => {
   const comments: string[] = []
   for (const key of ['core.commentChar', 'core.commentString']) {
     const value = await git(cwd, ['config', '--get', key], { env: readEnv() }).catch(() => '')
@@ -58,7 +60,9 @@ const attributedMessage = async (cwd: string, message: string): Promise<string> 
   // this checkout's scissors cutoff even with a global or system prefix.
   return gitWithInput(cwd, [
     '--git-dir=/dev/null', ...comments, 'interpret-trailers',
-    '--where=end', '--if-exists=addIfDifferent', '--if-missing=add', '--trailer', COAUTHOR_TRAILER,
+    '--where=end', '--if-exists=addIfDifferent', '--if-missing=add',
+    ...(credit ? ['--trailer', `Co-authored-by: ${credit.name} <${credit.email}>`] : []),
+    '--trailer', COAUTHOR_TRAILER,
   ], message, isolatedEnv())
 }
 
@@ -241,7 +245,7 @@ const zEntries = (out: string): { readonly status: string; readonly path: string
  * with `message`, and answers the new commit — or one sentence saying why
  * nothing was committed.
  */
-export const commitCardWork = async (cwd: string, before: readonly string[], message: string): Promise<CardCommit> => {
+export const commitCardWork = async (cwd: string, before: readonly string[], message: string, credit: RuntimePresentation['coAuthor'] = null): Promise<CardCommit> => {
   if (message.trim() === '') return { refused: 'Refused: a commit needs a message, so nothing was committed.' }
   if (message.length > COMMIT_MESSAGE_LIMIT) {
     return { refused: `Refused: the message is longer than ${COMMIT_MESSAGE_LIMIT} characters, so nothing was committed.` }
@@ -312,7 +316,7 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     const pathspecs = join(scratch, 'paths')
     const text = join(scratch, 'message')
     await writeFile(pathspecs, paths.join('\0') + '\0')
-    await writeFile(text, await attributedMessage(top, message))
+    await writeFile(text, await attributedMessage(top, message, credit))
     const env = isolatedEnv({
       GIT_AUTHOR_NAME: identity.name,
       GIT_AUTHOR_EMAIL: identity.email,

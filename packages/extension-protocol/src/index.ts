@@ -425,6 +425,9 @@ export interface TeamCallScope {
 
 /** The forge plane's answers, as they cross the child boundary. */
 export interface ForgeSeatInfo {
+  readonly role: string | null
+  readonly round: number | null
+  readonly team: string | null
   readonly agent: string
   readonly version: string | null
   readonly model: string | null
