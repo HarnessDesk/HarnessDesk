@@ -56,11 +56,23 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
     ...(seat.effort ? { effort: seat.effort } : {}),
     ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
   }
+  let controls = read.value
+  const applied: Record<string, OptionValue> = selectedModel ? { model: selectedModel } : {}
   for (const [id, value] of Object.entries(picks)) {
-    const option = findOption(read.value, id)
+    const option = findOption(controls, id)
     if (!option) return unsupported(id === 'effort' ? `${label} has no effort levels.` : `${label} has no thinking switch.`)
     const refused = refuseOptionValue(option, value)
     if (refused) return unsupported(`${label}: ${refused}`)
+    applied[id] = value
+    if (id === 'effort' && seat.thinking !== undefined) {
+      // Effort can reveal or enable thinking. Validate that next control
+      // against what the agent reports after effort, as opening does.
+      const afterEffort = await within(() => runtime.defaultSessionOptions!(cwd, applied, { fresh: true }), deadline)
+      if (runtime.health().state === 'idle') return idleProblem()
+      if (afterEffort.settled === 'late') return unavailable(`${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`)
+      if (afterEffort.settled === 'error') return readFailure(label, afterEffort.error)
+      controls = afterEffort.value
+    }
   }
   // Opening applies model, effort, then thinking, and clears a movable
   // thinking switch when the Seat did not ask for it. A model's individual

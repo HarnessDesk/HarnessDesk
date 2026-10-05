@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +29,7 @@ seed: { role: competitor, title: Compare the change }
 rules: []
 `
 
-const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant', env: Record<string, string> = {}) => {
+const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls', env: Record<string, string> = {}) => {
   const base = tempDir('hd-flow-options-')
   const root = join(base, 'project')
   const stateDir = join(base, 'state')
@@ -38,7 +38,9 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant', env: Recor
   await writeFile(join(stateDir, 'agents', 'writer', 'AGENT.md'), '---\nname: Writer\nceiling: edit\nanswers: [done]\n---\nCompare the change.\n')
   const runtime: AgentRuntime = kind === 'codex'
     ? new CodexRuntime({ binaryPath: fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url)), clientName: 'harnessdesk-test' })
-    : new AcpRuntime({ id: 'claude-code', name: 'Claude', command: process.execPath, args: [fileURLToPath(new URL(kind === 'variant' ? '../../../adapter-acp/dist/test/fixtures/variant-acp-agent.mjs' : './fixtures/seat-options-acp.mjs', import.meta.url))], env, toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } })
+    : new AcpRuntime({ id: 'claude-code', name: 'Claude', command: process.execPath, args: [fileURLToPath(new URL(kind === 'variant' ? '../../../adapter-acp/dist/test/fixtures/variant-acp-agent.mjs' : kind === 'controls' ? '../../../adapter-acp/dist/test/fixtures/option-controls-acp.mjs' : './fixtures/seat-options-acp.mjs', import.meta.url))], env,
+      ...(kind === 'controls' ? { secrets: [{ env: 'EXAMPLE_API_KEY', label: 'Example API key' }] } : {}),
+      toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } })
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: join(base, 'builtins'), catalogRefreshMs: 0 })
   host.register(runtime)
   t.after(() => host.dispose())
@@ -46,6 +48,58 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant', env: Recor
   await host.call('workspace/open', { path: root })
   return { host, root, runtime }
 }
+
+test('ACP preview accepts thinking revealed by effort, as opening does', async (t) => {
+  const { host, root, runtime } = await rig(t, 'controls')
+  const seat = { runtime: 'claude-code', model: 'fam', effort: 'high', thinking: true }
+  const opened = await runtime.createSession({ cwd: root, model: seat.model, options: { effort: seat.effort, thinking: seat.thinking } })
+  assert.equal(openedOtherwise(seat, runningOf(opened.options(), opened.settings())), null)
+  const preview = await host.call('flow/preview', { root, source: source('claude-code=fam/high+thinking') })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  assert.equal(await seatOptionsProblem(runtime, seat, root), null)
+  assert.match((await seatOptionsProblem(runtime, { ...seat, effort: 'low' }, root))?.text ?? '', /has no thinking switch/)
+})
+
+test('ACP timed-out fresh option reads recover through explicit refresh and retry', async (t) => {
+  const block = join(tempDir('hd-option-timeout-'), 'block')
+  const { runtime, root } = await rig(t, 'controls', { OPTION_READ_BLOCK: block })
+  await runtime.defaultSessionOptions!(root)
+  await writeFile(block, '')
+  const problem = await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root, 20)
+  assert.equal(problem?.availability, true)
+  assert.match(problem?.text ?? '', /within 20 ms/)
+  await rm(block)
+  assert.deepEqual(await runtime.refreshCatalog!(), { refreshed: true }, 'refresh rejects the unanswered probe before restarting')
+  assert.equal(await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root), null)
+  assert.equal(await runtime.reloadSecrets!(), 'restarted', 'the old read no longer holds the runtime busy')
+  await runtime.defaultSessionOptions!(root)
+  assert.equal(await runtime.stopForIdle!(), true)
+})
+
+test('ACP refresh of a timed-out option read never interrupts a real turn', async (t) => {
+  const block = join(tempDir('hd-option-busy-'), 'block')
+  const { runtime, root } = await rig(t, 'controls', { OPTION_READ_BLOCK: block })
+  await runtime.defaultSessionOptions!(root)
+  const personal = await runtime.createSession({ cwd: root })
+  await personal.send([{ type: 'text', text: 'Hold this turn until interrupted.' }])
+  assert.ok((await runtime.readSession(personal.id)).turns.some((turn) => turn.status === 'inProgress'))
+  await writeFile(block, '')
+  assert.equal((await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root, 20))?.availability, true)
+  assert.deepEqual(await runtime.refreshCatalog!(), { refreshed: false, reason: 'A turn is in flight; it will re-read once that finishes.' })
+  assert.ok((await runtime.readSession(personal.id)).turns.some((turn) => turn.status === 'inProgress'))
+  assert.equal(await runtime.reloadSecrets!(), 'busy')
+  assert.equal(await runtime.stopForIdle!(), false)
+  const completed = new Promise<void>((resolve) => {
+    const off = runtime.subscribe((event) => {
+      if (event.type === 'turn/completed' && event.sessionId === personal.id) { off(); resolve() }
+    })
+  })
+  await personal.interrupt()
+  await completed
+  await rm(block)
+  assert.deepEqual(await runtime.refreshCatalog!(), { refreshed: true })
+  assert.equal(await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root), null)
+})
 
 for (const answer of ['announce', 'reply']) {
   test(`ACP ${answer}: preview refuses individually supported options that cannot settle together`, async (t) => {

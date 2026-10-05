@@ -23,7 +23,6 @@ for (const answer of ['announce', 'reply']) {
       runtime.defaultSessionOptions('/tmp/acp-draft', { model: 'fam', effort: 'medium', thinking: true }, { fresh: true }),
     ])
     assert.equal(await runtime.stopForIdle(), false, 'an outstanding read keeps the helper awake')
-    assert.deepEqual(await runtime.refreshCatalog(), { refreshed: false, reason: 'Session options are being read.' })
     const [fresh, supported] = await pending
     assert.equal(findOption(fresh, 'effort')?.currentValue, 'high')
     assert.equal(findOption(fresh, 'thinking')?.currentValue, false)
@@ -38,6 +37,41 @@ for (const answer of ['announce', 'reply']) {
     assert.equal(await runtime.stopForIdle(), true, 'completed probes do not keep the helper awake')
   })
 }
+
+test('a real conversation retires a probe ID reused after helper refresh', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-acp-reused-probes-'))
+  const identities = join(home, 'probe-sessions.jsonl')
+  // A durable record left by an earlier helper must lose to a real open too.
+  await writeFile(identities, '"variant-2"\n')
+  const runtime = new AcpRuntime({
+    id: 'variant', name: 'Variant', command: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/variant-acp-agent.mjs', import.meta.url))],
+    probeSessionsFile: identities,
+  })
+  t.after(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }) })
+  await runtime.start()
+  await runtime.defaultSessionOptions('/tmp/acp-draft')
+  await runtime.defaultSessionOptions('/tmp/acp-draft', {}, { fresh: true })
+  await runtime.defaultSessionOptions('/tmp/acp-draft', {}, { fresh: true })
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+  await runtime.defaultSessionOptions('/tmp/acp-draft')
+  const personal = await runtime.createSession({ cwd: '/tmp/acp-draft' })
+  assert.equal(personal.id, 'variant-2', 'the restarted peer really reuses an old probe ID')
+  assert.deepEqual((await runtime.listSessions()).data.map((row) => row.id), [personal.id])
+  assert.equal(await runtime.resumeSession(personal.id), personal)
+  assert.equal((await runtime.readSession(personal.id)).id, personal.id)
+  assert.equal((await readFile(identities, 'utf8')).includes('variant-2'), false, 'retire the durable record as well')
+  assert.equal(await runtime.stopForIdle(), false)
+  assert.deepEqual(await runtime.refreshCatalog(), {
+    refreshed: false, reason: 'It keeps no conversations of its own, so restarting it would lose the ones that are open.',
+  })
+  await personal.close()
+  const next = await runtime.createSession({ cwd: '/tmp/acp-draft' })
+  assert.equal(next.id, 'variant-3')
+  assert.deepEqual((await runtime.listSessions()).data.map((row) => row.id), [next.id])
+  assert.equal(await runtime.resumeSession(next.id), next)
+  assert.equal(await runtime.stopForIdle(), false, 'an ephemeral probe from the old generation is no longer a probe')
+})
 
 
 test('stored option probes stay hidden across refresh, idle, later reads and desk recreation', async (t) => {

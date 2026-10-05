@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -857,7 +857,7 @@ export class AcpRuntime implements AgentRuntime {
         for (const line of readFileSync(config.probeSessionsFile, 'utf8').split('\n').filter(Boolean)) {
           const id: unknown = JSON.parse(line)
           if (typeof id !== 'string') throw new Error('Invalid option probe identity.')
-          this.#optionProbeIds.add(makeSessionId(id))
+          this.#storedProbeIds.add(makeSessionId(id))
         }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -1303,6 +1303,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#openedIn.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#opening = null
   }
 
@@ -1318,6 +1319,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#resuming.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#setHealth({ state: 'idle' })
     return true
   }
@@ -1414,7 +1416,10 @@ export class AcpRuntime implements AgentRuntime {
     // was told its agent died when it exited. Any other not-ready state — a
     // start in progress, a launch the host blocked, a stop that overtook a
     // start — is left to the path that put it there.
-    if (this.#optionReads > 0) return { restarted: false, reason: 'Session options are being read.' }
+    // Explicit refresh is also recovery from a peer that never answered a
+    // probe. Stop will reject those requests; automatic restarts still wait.
+    // The real-session guards below must pass before any helper is stopped.
+    if (this.#optionReads > 0 && why !== 'refresh') return { restarted: false, reason: 'Session options are being read.' }
     const crashed = this.#health.state === 'unavailable' && this.#health.reason === 'crashed'
     if (this.#health.state !== 'ready' && !crashed) {
       return { restarted: false, reason: 'It is not running.' }
@@ -1454,6 +1459,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#opening = null
     // The catalogue was the old process's answer; the new one re-declares it
     // on its first session, default and all — commands included, since an
@@ -1492,6 +1498,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#opening = null
     this.#catalogDefault = null
     this.#commands = []
@@ -2216,11 +2223,15 @@ export class AcpRuntime implements AgentRuntime {
 
   #probe: AcpSession | null = null
   #probeId: SessionId | null = null
-  /** Only sessions this adapter opened to read controls; never inferred from a listing. */
+  /** Option probes in this helper generation, including agents with no stored history. */
   readonly #optionProbeIds = new Set<SessionId>()
+  /** Only agents that keep conversations can leave a probe in durable history. */
+  readonly #storedProbeIds = new Set<SessionId>()
   #rememberProbe(id: SessionId): void {
-    if (this.#optionProbeIds.has(id)) return
     this.#optionProbeIds.add(id)
+    if (!this.info.capabilities.resume && !this.info.capabilities.listHistory) return
+    if (this.#storedProbeIds.has(id)) return
+    this.#storedProbeIds.add(id)
     const file = this.#config.probeSessionsFile
     if (file) {
       mkdirSync(dirname(file), { recursive: true })
@@ -2229,9 +2240,20 @@ export class AcpRuntime implements AgentRuntime {
       appendFileSync(file, `${JSON.stringify(String(id))}\n`, { mode: 0o600 })
     }
   }
+  #retireProbe(id: SessionId): void {
+    this.#optionProbeIds.delete(id)
+    if (this.#probeId === id) {
+      this.#probe = null
+      this.#probeId = null
+    }
+    if (this.#storedProbeIds.delete(id) && this.#config.probeSessionsFile) {
+      writeFileSync(this.#config.probeSessionsFile,
+        [...this.#storedProbeIds].map((one) => `${JSON.stringify(String(one))}\n`).join(''), { mode: 0o600 })
+    }
+  }
   #optionReads = 0
   #isProbe(id: SessionId): boolean {
-    return id === this.#probeId || this.#optionProbeIds.has(id)
+    return this.#optionProbeIds.has(id) || this.#storedProbeIds.has(id)
   }
   /** The probe being opened right now, so concurrent askers share one. */
   #opening: Promise<AcpSession> | null = null
@@ -2499,6 +2521,9 @@ export class AcpRuntime implements AgentRuntime {
           : {}),
     }, options.attachments)
     const session = new AcpSession(this, result, options.cwd)
+    // A new real open owns its identity, even if an earlier helper used it
+    // for an option probe. Retire the durable mark before exposing the handle.
+    this.#retireProbe(session.id)
     this.#sessions.set(session.id, session)
     this.#invalidateSearchListing()
     if (heldCeiling) this.#sessionCeilings.set(session.id, heldCeiling)
@@ -2856,7 +2881,11 @@ export class AcpRuntime implements AgentRuntime {
     for (const session of this.#sessions.values()) {
       session.agentDied()
       this.#tasks?.forget(session.id)
+      if (this.#isProbe(session.id)) this.#sessions.delete(session.id)
     }
+    this.#optionProbeIds.clear()
+    this.#probe = null
+    this.#probeId = null
   }
 
   /** The agent's own long-running work, for agents that report it. */
