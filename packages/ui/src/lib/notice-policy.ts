@@ -94,6 +94,9 @@ export interface NoticePolicy {
 const SEEN_LIMIT = 40
 const KEPT_LIMIT = 40
 
+// Content memory is permanent; window-scoped standing keys keep their existing bound.
+const boundedKept = (keys: readonly string[]): readonly string[] => [...keys.filter(key => key.startsWith('content:')), ...keys.filter(key => !key.startsWith('content:')).slice(-KEPT_LIMIT)]
+
 /**
  * How many times a kind has to be put away before its dismiss control offers
  * to silence it. Two, so the offer only ever appears on the third sighting of
@@ -136,7 +139,7 @@ export const readNoticePolicy = (raw: unknown): NoticePolicy => {
     records,
     seen: strings(source.seen).slice(-SEEN_LIMIT),
     surfaces,
-    kept: strings(source.kept).slice(-KEPT_LIMIT),
+    kept: boundedKept(strings(source.kept)),
   }
 }
 
@@ -190,7 +193,7 @@ export const wasKept = (policy: NoticePolicy, key: string): boolean => policy.ke
 
 /** Records that a standing notice's key has been copied into the inbox, so it is not copied again while it holds. */
 export const withKept = (policy: NoticePolicy, key: string): NoticePolicy =>
-  policy.kept.includes(key) ? policy : { ...policy, kept: [...policy.kept, key].slice(-KEPT_LIMIT) }
+  policy.kept.includes(key) ? policy : { ...policy, kept: boundedKept([...policy.kept, key]) }
 
 /**
  * Forgets that a key was copied into the inbox — called the moment a
@@ -244,7 +247,7 @@ export interface NoticeKind {
  * (`design/patterns/Notices.tsx`). A toast is not among them: it is for the
  * result of something just done, which no setting moves.
  */
-export type NoticeSurface = 'card' | 'composer' | 'strip' | 'inbox'
+export type NoticeSurface = 'card' | 'composer' | 'strip' | 'inbox' | 'conversation'
 
 /**
  * Why a message exists, which decides where it can sensibly go.
@@ -257,9 +260,13 @@ export type NoticeSurface = 'card' | 'composer' | 'strip' | 'inbox'
  *                inbox, or, when it is waiting on a decision, on its own
  *                conversation's composer. Never a card, a strip or a toast.
  */
-export type NoticeUse = 'blocks' | 'convenient' | 'agents'
+export type NoticeUse = 'blocks' | 'convenient' | 'agents' | 'info' | 'conversation'
+
+export { classifyNotice, contentKeyFor } from '@harnessdesk/protocol'
 
 export const NOTICE_USES: readonly { readonly use: NoticeUse; readonly title: string; readonly detail: string }[] = [
+  { use: 'info', title: 'Runtime information', detail: 'Quietly kept in the Inbox. Unchanged content never becomes news again.' },
+  { use: 'conversation', title: 'In a conversation', detail: 'Quiet lines in the conversation they are about.' },
   {
     use: 'blocks',
     title: 'When something stops a turn',
@@ -283,6 +290,7 @@ export const SURFACE_LABEL: Readonly<Record<NoticeSurface, string>> = {
   composer: 'Above the composer',
   strip: 'Strip above the pane',
   inbox: 'Inbox only',
+  conversation: 'In the conversation',
 }
 
 /** Where a kind is shown now — or null when it has been turned off. */
@@ -312,6 +320,21 @@ export const withSurface = (policy: NoticePolicy, kind: string, surface: NoticeS
 }
 
 export const NOTICE_KINDS: readonly NoticeKind[] = [
+  ...([
+    ['runtime:config', 'Configuration warnings', 'Settings the runtime ignored, with the configuration file and what it runs without.'],
+    ['runtime:deprecation', 'Retiring settings', 'Settings or features the runtime is retiring, with its guidance.'],
+    ['runtime:warning', 'Runtime warnings', 'Information from a runtime that is not about one conversation.'],
+    ['app:background', 'Background reads', 'A background read or extension reported a problem.'],
+    ['app:drafts', 'Draft storage', 'A draft could not be saved for a later window.'],
+    ['usage:crossing', 'Usage changes', 'An agent crossed a usage threshold. Its standing condition stays beside the composer.'],
+  ] as const).map(([kind, title, detail]): NoticeKind => ({ kind, title, detail, lifetime: 'occurrence', use: 'info', surfaces: ['inbox'] })),
+  ...([
+    ['conversation:warning', 'Conversation warnings', 'Information the runtime reports about this conversation.'],
+    ['conversation:compacted', 'Context compacted', 'The runtime made room for more of the conversation.'],
+    ['conversation:rerouted', 'Model changed', 'The runtime changed the model for this conversation.'],
+    ['conversation:fork', 'Branch history', 'The new branch needs its history read again.'],
+    ['conversation:verification', 'Verification cancelled', 'A verification request could not be completed.'],
+  ] as const).map(([kind, title, detail]): NoticeKind => ({ kind, title, detail, lifetime: 'occurrence', use: 'conversation', surfaces: ['conversation'] })),
   {
     kind: 'usage:pace',
     lifetime: 'occurrence',

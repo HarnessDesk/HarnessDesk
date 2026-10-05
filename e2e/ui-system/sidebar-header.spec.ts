@@ -28,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
         const css = getComputedStyle(node)
         return {
           sidebar: rect(node), search: rect(search), searchGlyph: rect(search.querySelector('svg')!),
-          bell: rect(bell), bellGlyph: rect(bell.querySelector('svg')!), unread: rect(bell.querySelector('[data-slot="inbox-button"] > span')!), plus: rect(plus), display: rect(display),
+          bell: rect(bell), bellGlyph: rect(bell.querySelector('svg')!), unread: rect(bell.querySelector('[data-slot="inbox-dot"]')!), plus: rect(plus), display: rect(display),
           wordmark: rect(node.querySelector('[data-role="wordmark"]')!),
           badges: [...node.querySelectorAll('[aria-label="Main sections"] [data-slot="sidebar-menu-badge"]')].map(rect),
           target: Number.parseFloat(css.getPropertyValue('--hd-icon-target')),
@@ -45,7 +45,9 @@ for (const theme of ['light', 'dark'] as const) {
       expect(measured.bellInFooter).toBe(false)
       expect(Math.abs(measured.bellGlyph.x - measured.display.x)).toBeLessThanOrEqual(0.5)
       expect(Math.abs(measured.searchGlyph.x - measured.bellGlyph.x - measured.step)).toBeLessThanOrEqual(0.5)
-      expect(measured.unread.right, 'unread count stays clear of the search glyph').toBeLessThanOrEqual(measured.searchGlyph.left)
+      expect(measured.unread.width).toBeGreaterThan(0)
+      expect(measured.unread.width).toBe(measured.unread.height)
+      expect(measured.unread.right, 'unread dot stays clear of the search glyph').toBeLessThanOrEqual(measured.searchGlyph.left)
       for (const icon of [measured.search, measured.bell]) {
         expect(icon.width).toBe(measured.target)
         expect(icon.height).toBe(measured.target)

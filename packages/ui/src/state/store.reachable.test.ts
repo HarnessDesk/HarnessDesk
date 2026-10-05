@@ -79,7 +79,10 @@ it('asking what applies here sends the scope, and one absent part is left out', 
 })
 
 it('a host that refuses the capability question answers with nothing, not a throw', async () => {
+  vi.spyOn(store.transport, 'request').mockResolvedValueOnce({} as never)
+  await store.loadPreferences()
   vi.spyOn(store.transport, 'request').mockRejectedValue(new Error('no plugin host'))
   expect(await store.listCapabilities('tool', {})).toEqual([])
-  expect(store.getSnapshot().notices.at(-1)?.message).toContain('no plugin host')
+  expect(store.getSnapshot().inbox.at(-1)?.title).toContain('no plugin host')
+  expect(store.getSnapshot().notices).toEqual([])
 })

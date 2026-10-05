@@ -24,6 +24,16 @@ import type {
  * that dropped deltas still converges.
  */
 
+export type NoticeClass = 'result' | 'actionable' | 'info' | 'conversation'
+
+/** Runtime-owned configuration facts, kept structured for every client. */
+export interface NoticeDetail {
+  readonly summary: string
+  readonly details?: string
+  readonly settings: readonly string[]
+  readonly file?: string
+}
+
 export type NoticeLevel = 'info' | 'warning' | 'error'
 
 export interface AgentError {
@@ -194,6 +204,14 @@ export type AgentEvent =
     }
   | {
       readonly type: 'notice'
+      readonly class?: NoticeClass
+      readonly kind?: string
+      readonly contentKey?: string
+      readonly count?: number
+      readonly detail?: NoticeDetail
+      /** Host-stamped occurrence identity and time, shared by all clients. */
+      readonly id?: string
+      readonly at?: number
       readonly sessionId?: SessionId
       readonly level: NoticeLevel
       readonly message: string
