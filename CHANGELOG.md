@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Read what each room member is doing.** Conversation titles wrap beneath
+  the nickname alongside the task or reason, instead of being cut off on
+  the name's line. (Fixes #1185)
+
 - **An Agent’s brief starts folded.** A newly seated conversation and its
   Side by side tile open on one **Agent brief** row. Open it to read the
   standing order with its headings and lists intact. (Fixes #1379)
