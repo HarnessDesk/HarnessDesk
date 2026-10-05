@@ -172,18 +172,31 @@ const deskWith = async (
     fetch?: (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>
     /** How long an answer is kept; 0 sends every ask to the registry. */
     ttlMs?: number
+    /** Called when each measurement finishes. */
+    measured?: () => void
   } = {},
 ) => {
   const dir = tempDir('hd-update-host-')
+  const checker = new UpdateChecker({
+    cachePath: join(dir, 'update-checks.json'),
+    fetch: options.fetch ?? registry(LATEST).fetch,
+    ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+  })
   const host = new Host({
     logger: silent,
     state: new StateStore(join(dir, 'state.json')),
     catalogRefreshMs: 0,
-    updates: new UpdateChecker({
-      cachePath: join(dir, 'update-checks.json'),
-      fetch: options.fetch ?? registry(LATEST).fetch,
-      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
-    }),
+    updates: options.measured
+      ? {
+          updateFor: async (runtime: RuntimeInfo) => {
+            try {
+              return await checker.updateFor(runtime)
+            } finally {
+              options.measured?.()
+            }
+          },
+        }
+      : checker,
     ...(options.chosen ? { installs: { last: () => ({ chosen: { version: options.chosen } }) } as never } : {}),
   })
   t.after(() => host.dispose())
@@ -399,36 +412,35 @@ test('a runtime still moving after three measurements is left unmeasured until t
   // runtime has left.
   const { runtime, move } = upgradable('0.149.0')
   let asked = 0
-  let releaseNextMeasurement!: () => void
-  const nextMeasurement = new Promise<void>((resolve) => {
-    releaseNextMeasurement = resolve
-  })
   const fetch = async () => {
     asked += 1
     if (asked <= 3) move(`0.15${asked}.0`)
-    if (asked === 4) await nextMeasurement
     return { ok: true, json: async () => ({ latest: LATEST }) }
   }
-  const desk = await deskWith(t, runtime, { fetch, ttlMs: 0 })
-  let read: RuntimeInfo | undefined
-  try {
-    // Keep the next answer held so the fourth ask proves the preceding three
-    // measurements finished and this read started a fresh measurement.
-    await until(async () => {
-      read = await desk.shown()
-      return asked === 4
-    }, 'the next read to start a fresh measurement')
-    assert.equal(read?.version, '0.153.0')
-    assert.equal(read?.update, undefined)
-    assert.equal(desk.told(), undefined, 'nothing was kept, so nothing was pushed')
-  } finally {
-    releaseNextMeasurement()
-  }
+  let measured = 0
+  const desk = await deskWith(t, runtime, {
+    fetch,
+    ttlMs: 0,
+    measured: () => {
+      measured += 1
+    },
+  })
 
-  // The read that followed the three moving measurements measures 0.153.0.
+  // No read has happened, so the third returned answer must end this
+  // measurement before a fresh one can start.
+  await until(() => measured >= 3, 'the host to take the third answer')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(asked, 3, 'the measurement gave up after three asks')
+  assert.equal(desk.told(), undefined, 'nothing was kept, so nothing was pushed')
+
+  // The next read measures the version the runtime ended on.
+  const read = await desk.shown()
+  assert.equal(read.version, '0.153.0')
+  assert.equal(read.update, undefined)
+
   await until(
     () => desk.told()?.version === '0.153.0' && desk.told()?.update?.version === LATEST,
-    'the next measurement to announce 0.153.0',
+    'the read to have measured 0.153.0',
   )
   assert.equal(asked, 4)
 })
