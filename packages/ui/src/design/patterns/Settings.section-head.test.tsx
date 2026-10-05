@@ -68,7 +68,7 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
  * style; `e2e/ui-system/page-grammar.spec.ts` measures the two cases live.
  */
 it('earns its card inset only when a Rows card is the very next thing it names', () => {
-  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='rows'\]\)\s*\{[^}]*padding-inline:/s)
+  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='rows'\]\),\s*\.sectionHead:has\(\+ \[role='radiogroup'\]\)\s*\{[^}]*padding-inline:/s)
   // The bare `.sectionHead` rule — the one every head gets — carries no
   // inline padding of its own; only the conditional one does.
   const bare = /\.sectionHead\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''

@@ -393,6 +393,24 @@ body {
      (#835). `GitPane.tsx`'s `ROW` mirrors this value, and a test pins the
      two together. */
   --hd-table-row-h: 26px;
+  /* Tables and rows. One anatomy, centred on the whole row. The compact
+     scope below overrides only these decisions; the windowed log pitch above
+     remains 26px. */
+  --hd-table-head-h: 40px;
+  --hd-table-head-size: var(--hd-text-sm);
+  --hd-table-head-ink: var(--hd-secondary-foreground);
+  --hd-table-row-min: 56px;
+  --hd-table-row-min-bare: 44px;
+  --hd-table-cell-x: var(--hd-inset-row);
+  --hd-table-edge: var(--hd-card-padding);
+  --hd-table-face: 32px;
+  --hd-table-face-radius: calc(var(--hd-face-radius) * 4 / 3);
+  --hd-table-lead-gap: var(--hd-space-3);
+  --hd-table-name-size: var(--hd-text);
+  --hd-table-fact-size: var(--hd-text-xs);
+  --hd-table-sentence-size: var(--hd-text-sm);
+  --hd-table-line-gap: var(--hd-space-0-5);
+  --hd-table-end-gap: var(--hd-space-3);
   /* The floor of the history's resizable commit detail. Its action and
      filter bars stand on the tool pane's own bar rung now (`ToolPaneBar`). */
   --hd-history-detail-min-h: 160px;
@@ -1596,4 +1614,37 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
      because 2px *is* the rule — one rung down — and a literal here would go
      stale the next time the page rung moves. */
   --hd-btn-h-sm: calc(var(--hd-control-h-lg) - 2px);
+}
+
+/* --- table density ----------------------------------------------------
+   A table scope owns its density, including list and settings examples.
+   Restating the comfortable values lets nested scopes opt back in. */
+[data-hd-table='comfortable'] {
+  --hd-table-head-h: 40px;
+  --hd-table-head-size: var(--hd-text-sm);
+  --hd-table-row-min: 56px;
+  --hd-table-row-min-bare: 44px;
+  --hd-table-cell-x: var(--hd-inset-row);
+  --hd-table-edge: var(--hd-card-padding);
+  --hd-table-face: 32px;
+  --hd-table-face-radius: calc(var(--hd-face-radius) * 4 / 3);
+  --hd-table-lead-gap: var(--hd-space-3);
+  --hd-table-name-size: var(--hd-text);
+  --hd-table-sentence-size: var(--hd-text-sm);
+  --hd-table-end-gap: var(--hd-space-3);
+}
+
+[data-hd-table='compact'] {
+  --hd-table-head-h: 32px;
+  --hd-table-head-size: var(--hd-text-xs);
+  --hd-table-row-min: 40px;
+  --hd-table-row-min-bare: 32px;
+  --hd-table-cell-x: var(--hd-inset-dense);
+  --hd-table-edge: var(--hd-inset-row);
+  --hd-table-face: 24px;
+  --hd-table-face-radius: var(--hd-face-radius);
+  --hd-table-lead-gap: var(--hd-space-2-5);
+  --hd-table-name-size: var(--hd-text-sm);
+  --hd-table-sentence-size: var(--hd-text-xs);
+  --hd-table-end-gap: var(--hd-space-2);
 }

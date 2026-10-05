@@ -79,7 +79,7 @@ const declarationsOf = (css) => {
  * palette overlay (`body[data-hd-palette=…]`) stays out of the snapshot — it
  * varies the snapshot rather than being it.
  */
-const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'default', corners = 'default', faces = 'square' }) =>
+const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'default', corners = 'default', faces = 'square', tableDensity = 'comfortable' }) =>
   selector.some((one) => {
     const trimmed = one.trim()
     if (trimmed === ':root' || trimmed === 'html' || trimmed === 'body') return true
@@ -95,11 +95,14 @@ const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'de
     const wantedAccent = value('data-hd-accent')
     const wantedCorners = value('data-hd-corners')
     const wantedFaces = value('data-hd-faces')
+    // Local compact tables vary the foundation; the snapshot is the page default.
+    const wantedTable = value('data-hd-table')
     return (!wantedInterface || wantedInterface === (studio ? 'studio' : 'desk'))
       && (!wantedPalette || wantedPalette === palette)
       && (!wantedAccent || wantedAccent === accent)
       && (!wantedCorners || wantedCorners === corners)
       && (!wantedFaces || wantedFaces === faces)
+      && (!wantedTable || wantedTable === tableDensity)
   })
 
 /**
@@ -172,7 +175,7 @@ const splitTopLevel = (text) => {
 /**
  * Every token and what it resolves to, for one theme.
  *
- * @param {{root?: string, dark?: boolean, studio?: boolean}} options
+ * @param {{root?: string, dark?: boolean, studio?: boolean, tableDensity?: 'comfortable' | 'compact'}} options
  * @returns {Map<string, string>} token name -> computed value, sorted by name.
  */
 export const resolveTokens = ({
@@ -182,13 +185,14 @@ export const resolveTokens = ({
   palette = 'harnessdesk',
   accent = 'default',
   corners = 'default',
+  tableDensity = 'comfortable',
 } = {}) => {
   const table = new Map()
   for (const file of TOKEN_SOURCES) {
     const full = path.join(root, file)
     if (!fs.existsSync(full)) continue
     for (const entry of declarationsOf(fs.readFileSync(full, 'utf8'))) {
-      if (applies(entry.selector, { dark, studio, palette, accent, corners })) table.set(entry.name, entry.value)
+      if (applies(entry.selector, { dark, studio, palette, accent, corners, tableDensity })) table.set(entry.name, entry.value)
     }
   }
   const resolved = new Map()

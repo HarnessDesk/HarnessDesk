@@ -1,3 +1,4 @@
+import { TablesFamily } from './tables-family'
 import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunControlsBoard } from '../../preview/frames-run-controls'
 import { StopRunBoard } from '../../preview/frames-stop-run'
@@ -743,7 +744,7 @@ const ListBoard = () => (
                 </Avatar>
               }
               title="Review the migration"
-              subtitle="Shane · asked 5m ago"
+              subtitle="Jane Doe · asked 5m ago"
             />
             <ListRow
               interactive
@@ -2236,7 +2237,7 @@ const AdoptedBoard = () => {
                     </DataTableColumnHeader>
                   </TableHead>
                   <TableHead>Agent</TableHead>
-                  <TableHead className="text-right">
+                  <TableHead numeric>
                     <DataTableColumnHeader
                       direction={sort?.key === 'spend' ? sort.direction : null}
                       onClick={() => toggle('spend')}
@@ -2258,7 +2259,7 @@ const AdoptedBoard = () => {
                     </TableCell>
                     <TableCell>{one.session}</TableCell>
                     <TableCell className="text-(--hd-muted-foreground)">{one.agent}</TableCell>
-                    <TableCell align="end">${one.spend}</TableCell>
+                    <TableCell numeric>${one.spend}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -2836,6 +2837,12 @@ const PlansTableBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  {
+    id: 'tables',
+    title: 'Tables',
+    about: 'One row anatomy, in comfortable and compact: tables, lists, settings, matrices and key-value facts.',
+    render: TablesFamily,
+  },
   {
     id: 'panel-controls',
     title: 'Window · panel controls',
