@@ -606,6 +606,15 @@ in [extending.md](extending.md).
   ([context-usage.md](context-usage.md)).
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
+- **A conversation that cannot be read returns its pane to a fresh draft.**
+  The error still says why it could not open; the next message starts a new
+  conversation in the draft's chosen folder rather than addressing the one
+  that failed. Words and chips entered while it was opening stay available
+  through Restore in the fresh composer's notice. While it opens, typing stays
+  available and Send waits for the conversation to load. Restore keeps newer
+  text and chips available to swap back in the destination composer's list,
+  including a fresh draft or another conversation. A transcript already loaded
+  stays available when reopening fails.
 - **A conversation whose folder has been deleted has no composer**, because
   there is nowhere for a message to go. In its place the pane states the fact
   in the agent's own words and offers *Open a copy in another folder*, which
@@ -967,6 +976,17 @@ carries a warning chip rather than reading as already satisfied. Editing the
 source or a variable invalidates Start immediately; a stale reply can never
 re-enable it. Starting a flow opens exactly one new Goal, through one host
 operation — never a bare Goal made first and a flow started into it after.
+The preview checks each chosen model's effort and thinking controls with the
+agent's own session options, checking thinking after effort has settled, then
+checks what the full combination settles on.
+Each check starts with new-session defaults, independent of earlier draft picks.
+An explicit `default` effort must be accepted by the agent's own controls.
+An unsupported choice names its reason on that Seat and refuses Start before
+a Run, Goal or lane is created. If the agent cannot yet report its catalogue
+or controls, the preview says so and must be read again when the agent is ready.
+Refreshing the agent's catalogue clears an unanswered option read so it can
+be tried again; it waits for real turns to finish and keeps conversations an
+agent cannot reopen.
 
 **`/race`** opens a dialog asking for one Agent and two explicit, isolated
 seats — never the other installed runtime, never two ordinary drafts. It
@@ -1051,6 +1071,9 @@ routing ids stay out of the reason. Below 800px Seats become list rows. A questi
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
+Each member row names its nickname, with a distinct conversation title in the
+wrapping subtitle. Its task or message refusal shares that subtitle, so the
+work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
 Board-only Chat keeps the consequence of its messaging mode on screen.

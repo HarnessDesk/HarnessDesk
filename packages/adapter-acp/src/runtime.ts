@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { extname, isAbsolute, join } from 'node:path'
+import { dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   approvalId,
@@ -339,6 +339,8 @@ export interface AcpAgentConfig {
    * server's own `instructions`, if it accepted one.
    */
   readonly instructions?: () => string
+  /** Host-owned identities of option-only sessions, retained across desk recreation. */
+  readonly probeSessionsFile?: string
   readonly logger?: {
     debug?(message: string, details?: unknown): void
     info?(message: string, details?: unknown): void
@@ -850,6 +852,17 @@ export class AcpRuntime implements AgentRuntime {
 
   constructor(config: AcpAgentConfig) {
     this.#config = config
+    if (config.probeSessionsFile) {
+      try {
+        for (const line of readFileSync(config.probeSessionsFile, 'utf8').split('\n').filter(Boolean)) {
+          const id: unknown = JSON.parse(line)
+          if (typeof id !== 'string') throw new Error('Invalid option probe identity.')
+          this.#storedProbeIds.add(makeSessionId(id))
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
     this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
@@ -1290,13 +1303,14 @@ export class AcpRuntime implements AgentRuntime {
     this.#openedIn.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#opening = null
   }
 
   /** Stop only the helper process; the host keeps the session and catalogue records. */
   async stopForIdle(): Promise<boolean> {
-    if (this.#health.state !== 'ready' || this.#opening !== null) return false
-    const live = [...this.#sessions.values()].filter((session) => session.id !== this.#probeId)
+    if (this.#health.state !== 'ready' || this.#opening !== null || this.#optionReads > 0) return false
+    const live = [...this.#sessions.values()].filter((session) => !this.#isProbe(session.id))
     if (live.length > 0 || live.some((session) => session.busy)) return false
     this.#probeOptions = this.#probe?.options() ?? this.#probeOptions
     this.#idleInfo = this.info
@@ -1305,6 +1319,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#resuming.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#setHealth({ state: 'idle' })
     return true
   }
@@ -1401,13 +1416,17 @@ export class AcpRuntime implements AgentRuntime {
     // was told its agent died when it exited. Any other not-ready state — a
     // start in progress, a launch the host blocked, a stop that overtook a
     // start — is left to the path that put it there.
+    // Explicit refresh is also recovery from a peer that never answered a
+    // probe. Stop will reject those requests; automatic restarts still wait.
+    // The real-session guards below must pass before any helper is stopped.
+    if (this.#optionReads > 0 && why !== 'refresh') return { restarted: false, reason: 'Session options are being read.' }
     const crashed = this.#health.state === 'unavailable' && this.#health.reason === 'crashed'
     if (this.#health.state !== 'ready' && !crashed) {
       return { restarted: false, reason: 'It is not running.' }
     }
     const live = crashed
       ? []
-      : [...this.#sessions.values()].filter((session) => session.id !== this.#probeId)
+      : [...this.#sessions.values()].filter((session) => !this.#isProbe(session.id))
     const busy = live.filter((session) => session.busy)
     if (busy.length > 0) {
       this.#config.logger?.debug?.('agent restart deferred; a turn is in flight', {
@@ -1440,6 +1459,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#opening = null
     // The catalogue was the old process's answer; the new one re-declares it
     // on its first session, default and all — commands included, since an
@@ -1465,9 +1485,9 @@ export class AcpRuntime implements AgentRuntime {
     if ((this.#config.secrets?.length ?? 0) === 0) return 'unsupported'
     if (this.#health.state !== 'ready') return 'restarted'
     const busy = [...this.#sessions.values()].some(
-      (session) => session.id !== this.#probeId && session.busy,
+      (session) => !this.#isProbe(session.id) && session.busy,
     )
-    if (busy) {
+    if (busy || this.#optionReads > 0) {
       this.#config.logger?.info?.('secret changed but a turn is in flight; it applies next start', {
         agent: this.#config.id,
       })
@@ -1478,6 +1498,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null
+    this.#optionProbeIds.clear()
     this.#opening = null
     this.#catalogDefault = null
     this.#commands = []
@@ -1839,7 +1860,7 @@ export class AcpRuntime implements AgentRuntime {
     if (query?.cursor) return { data: [], nextCursor: null }
     if (this.#health.state === 'idle') return this.#historyCache ?? { data: [], nextCursor: null }
     const live = [...this.#sessions.values()]
-      .filter((session) => session.id !== this.#probeId)
+      .filter((session) => !this.#isProbe(session.id))
       .map((session) => session.summary())
     if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.list) {
       return { data: live, nextCursor: null }
@@ -1883,7 +1904,7 @@ export class AcpRuntime implements AgentRuntime {
           : { ...summary, title, preview }
       })
       const stored = rows
-        .filter((row) => !this.#sessions.has(makeSessionId(row.sessionId)))
+        .filter((row) => !this.#isProbe(makeSessionId(row.sessionId)) && !this.#sessions.has(makeSessionId(row.sessionId)))
         .map(
           (row): SessionSummary => ({
             id: makeSessionId(row.sessionId),
@@ -1942,7 +1963,7 @@ export class AcpRuntime implements AgentRuntime {
     const matches = new Map<SessionId, SessionSummary>()
     for (const row of rows) {
       const id = makeSessionId(row.sessionId)
-      if (id === this.#probeId) continue
+      if (this.#isProbe(id)) continue
       const title = titleOf(row)
       const preview = openingOf(row.preview ?? '').slice(0, 120) || null
       if (title) this.#titles.set(id, title)
@@ -1963,7 +1984,7 @@ export class AcpRuntime implements AgentRuntime {
     // A live summary wins over the listed form for a duplicate id, while
     // retaining metadata learned from the agent's latest listing.
     for (const session of this.#sessions.values()) {
-      if (session.id === this.#probeId) continue
+      if (this.#isProbe(session.id)) continue
       const summary = session.summary()
       const title = summary.title ?? this.#titles.get(session.id) ?? null
       const preview = summary.preview ?? this.#previews.get(session.id) ?? null
@@ -1982,7 +2003,7 @@ export class AcpRuntime implements AgentRuntime {
     const resuming = this.#resuming.get(id)
     if (resuming) return (await resuming as AcpSession).snapshot()
     const live = this.#sessions.get(id)
-    if (live && id !== this.#probeId) return live.snapshot()
+    if (live && !this.#isProbe(id)) return live.snapshot()
     // ACP has no read-only fetch; loading replays without prompting. A read
     // owns its temporary handle until an explicit resume takes ownership.
     this.#transientReads.add(id)
@@ -2059,7 +2080,29 @@ export class AcpRuntime implements AgentRuntime {
   async defaultSessionOptions(
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
+    request?: { readonly fresh: boolean },
   ): Promise<readonly ConfigOption[]> {
+    if (request?.fresh) {
+      if (this.#health.state === 'idle') throw new Error(`${this.#config.name}'s session options cannot be read while idle.`)
+      this.#optionReads++
+      let probe: AcpSession | undefined
+      try {
+        const where = cwd ?? homedir()
+        // Match the initial metadata used by createSession: some bridges
+        // can only apply a dimension while spawning the agent.
+        const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', {
+          cwd: where,
+          ...(Object.keys(values ?? {}).length > 0 ? { _meta: { harnessdesk: { options: values } } } : {}),
+        })
+        probe = AcpSession.probe(this, opened, where)
+        this.#rememberProbe(probe.id)
+        this.#sessions.set(probe.id, probe)
+        return await this.#draftOptions(probe, values)
+      } finally {
+        if (probe) this.#sessions.delete(probe.id)
+        this.#optionReads--
+      }
+    }
     if (this.#health.state === 'idle') {
       let options = [...(this.#probeOptions ?? [])]
       const entries = Object.entries(values ?? {}).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))
@@ -2086,6 +2129,11 @@ export class AcpRuntime implements AgentRuntime {
       return options
     }
     const probe = await this.#openProbe(cwd)
+    this.#probeOptions = await this.#draftOptions(probe, values)
+    return this.#probeOptions
+  }
+
+  async #draftOptions(probe: AcpSession, values?: Readonly<Record<string, OptionValue>>): Promise<readonly ConfigOption[]> {
     // Draft picks are applied to the probe for real: session/set_* is free of
     // token spend, and only the agent knows which options a pick reveals —
     // choosing a model family may declare that family's effort and thinking
@@ -2120,8 +2168,7 @@ export class AcpRuntime implements AgentRuntime {
       }
       this.#config.logger?.debug?.('draft pick dropped', { option: id, reason: refusal })
     }
-    this.#probeOptions = probe.options()
-    return this.#probeOptions
+    return probe.options()
   }
 
   /**
@@ -2162,6 +2209,7 @@ export class AcpRuntime implements AgentRuntime {
     const where = cwd ?? homedir()
     const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', { cwd: where })
     const probe = AcpSession.probe(this, opened, where)
+    this.#rememberProbe(probe.id)
     // Registered so the agent's follow-up notifications (an agent may
     // re-declare its options after set_model) reach it — but silent, and
     // hidden from every listing.
@@ -2175,6 +2223,38 @@ export class AcpRuntime implements AgentRuntime {
 
   #probe: AcpSession | null = null
   #probeId: SessionId | null = null
+  /** Option probes in this helper generation, including agents with no stored history. */
+  readonly #optionProbeIds = new Set<SessionId>()
+  /** Only agents that keep conversations can leave a probe in durable history. */
+  readonly #storedProbeIds = new Set<SessionId>()
+  #rememberProbe(id: SessionId): void {
+    this.#optionProbeIds.add(id)
+    if (!this.info.capabilities.resume && !this.info.capabilities.listHistory) return
+    if (this.#storedProbeIds.has(id)) return
+    this.#storedProbeIds.add(id)
+    const file = this.#config.probeSessionsFile
+    if (file) {
+      mkdirSync(dirname(file), { recursive: true })
+      // Append before applying picks: a refused read still created a draft.
+      // JSON lines also preserve opaque ids containing whitespace or newlines.
+      appendFileSync(file, `${JSON.stringify(String(id))}\n`, { mode: 0o600 })
+    }
+  }
+  #retireProbe(id: SessionId): void {
+    this.#optionProbeIds.delete(id)
+    if (this.#probeId === id) {
+      this.#probe = null
+      this.#probeId = null
+    }
+    if (this.#storedProbeIds.delete(id) && this.#config.probeSessionsFile) {
+      writeFileSync(this.#config.probeSessionsFile,
+        [...this.#storedProbeIds].map((one) => `${JSON.stringify(String(one))}\n`).join(''), { mode: 0o600 })
+    }
+  }
+  #optionReads = 0
+  #isProbe(id: SessionId): boolean {
+    return this.#optionProbeIds.has(id) || this.#storedProbeIds.has(id)
+  }
   /** The probe being opened right now, so concurrent askers share one. */
   #opening: Promise<AcpSession> | null = null
   /** Last options from the draft probe; a picker can keep working while stopped. */
@@ -2441,6 +2521,9 @@ export class AcpRuntime implements AgentRuntime {
           : {}),
     }, options.attachments)
     const session = new AcpSession(this, result, options.cwd)
+    // A new real open owns its identity, even if an earlier helper used it
+    // for an option probe. Retire the durable mark before exposing the handle.
+    this.#retireProbe(session.id)
     this.#sessions.set(session.id, session)
     this.#invalidateSearchListing()
     if (heldCeiling) this.#sessionCeilings.set(session.id, heldCeiling)
@@ -2521,7 +2604,7 @@ export class AcpRuntime implements AgentRuntime {
     // The draft probe is a session the agent counts, and no conversation.
     // Handed out by its id it was held as one, and its folder opened with it;
     // a turn sent to it would vanish into a session that never speaks.
-    if (id === this.#probeId) throw new SessionGoneError(`${this.#config.name} has no conversation ${id}.`)
+    if (this.#isProbe(id)) throw new SessionGoneError(`${this.#config.name} has no conversation ${id}.`)
     const inFlight = this.#resuming.get(id)
     if (inFlight) {
       await inFlight
@@ -2798,7 +2881,11 @@ export class AcpRuntime implements AgentRuntime {
     for (const session of this.#sessions.values()) {
       session.agentDied()
       this.#tasks?.forget(session.id)
+      if (this.#isProbe(session.id)) this.#sessions.delete(session.id)
     }
+    this.#optionProbeIds.clear()
+    this.#probe = null
+    this.#probeId = null
   }
 
   /** The agent's own long-running work, for agents that report it. */

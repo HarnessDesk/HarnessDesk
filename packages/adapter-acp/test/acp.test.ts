@@ -2556,9 +2556,9 @@ test('an agent that keeps no listing reopens a conversation opened here in its o
   assert.deepEqual(await reopening(runtime, String(session.id)), { cwd: here })
   assert.equal((await runtime.readSession(session.id)).turns.length, 1)
   // The controls: one from an earlier run is still refused, and so is the
-  // probe, which is nobody's conversation and was never remembered as one.
+  // probe, whose option-only identity survives the helper restart.
   assert.deepEqual(await reopening(runtime, 'earlier'), { refused: unplaced('earlier'), gone: true })
-  assert.deepEqual(await reopening(runtime, probe.sessionId), { refused: unplaced(probe.sessionId), gone: true })
+  assert.deepEqual(await reopening(runtime, probe.sessionId), { refused: `Fake ACP Agent has no conversation ${probe.sessionId}.`, gone: true })
   // The agent was asked to load one conversation, in its own folder.
   assert.deepEqual(
     opened().filter((open) => open.method === 'session/load'),

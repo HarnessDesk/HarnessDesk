@@ -1830,29 +1830,10 @@ const MemberCard = ({
 }
 
 /**
- * A member, as a row.
- *
- * A `ListRow`, because that is what a roster down the side of a screen is made
- * of and a third row idiom is not a thing this app has. What changed is what
- * goes in the slots. The old row spent its one subtitle on three unrelated
- * facts joined by a middle dot — what the conversation calls itself, what it
- * is holding, whether it is mid-turn — and then truncated at the rail's 232px,
- * so the fact that survived was whichever happened to be shortest.
- *
- * Now each fact takes the form it deserves, and they stop competing:
- *
- *   Working    is a light on the tile, not a word in a sentence. It changes
- *              many times a minute and the eye must find it without reading.
- *   The name   the conversation gave itself moves up beside the nickname,
- *              where it is an adjective on *who this is* rather than a
- *              competitor to what they are doing.
- *   The job    gets the whole second line, so `#3` — the thing a person types
- *              back to an agent — is no longer the half that truncates.
- *
- * The second line stays earned. A member with no job and no name of its own
- * gets no second line at all: the agent it runs is already on the row as its
- * mark, and spelling "Claude Code" underneath a row whose icon is the Claude
- * mark is the exact restatement `docs/design.md` forbids.
+ * A member's nickname is its navigation name. The conversation title says
+ * what it is doing, so it shares the existing wrapping subtitle with the
+ * task or reason rather than competing with the name's ellipsis. Working
+ * remains a light; an untitled member still earns no line just for existing.
  */
 const MemberRow = ({
   member,
@@ -1890,6 +1871,49 @@ const MemberRow = ({
 }) => {
   const { peer } = member
   const inboundState = INBOUND_MODES.find((mode) => mode.value === peer.inbound)?.state ?? null
+  const title = member.title && member.title !== peer.nickname ? member.title : null
+  const taskShown = member.canUseBoard && !inboundState ? member.onTask : null
+  const context = (
+    !member.canUseBoard ? (
+      /* Outranks everything else on the row: what a member is called and
+         what it holds do not matter if it cannot take a job at all.
+         HarnessDesk's tools reach an agent through a server the agent has
+         to accept, and one that refused it can claim nothing — which used
+         to be discoverable only by an agent trying and being refused. */
+      <Text role="meta" tone="warning" className={styles.memberWarn}>
+        <ShieldOffIcon size={11} />
+        cannot take jobs — tools not reachable
+      </Text>
+    ) : inboundState ? (
+      /* Second, above every other second line, because it is the one that
+         changes what happens when you write to this member — and because
+         it is the only one somebody chose. A held or refused member that
+         also holds a job would otherwise show the job and hide the reason
+         the messages are going nowhere, which is the state this control
+         exists to make visible. `accept` says nothing at all: it is the
+         default on every member of every room. */
+      <span className={styles.memberInbound}>{inboundState}</span>
+    ) : member.onTask ? (
+      <>
+        <Text role="meta" tint="violet">#{member.onTask.id}</Text>{' '}
+        {member.onTask.title}
+      </>
+    ) : member.idleOnBoard && !idleSaidAbove ? (
+      /* The lesser of the two cautions, and the reason both exist: the line
+         above is what the harness says about itself, this is what the board
+         has seen. A member can read as able, take nothing, and until now
+         nothing on screen said so. No glyph — it is a doubt, not a refusal,
+         and it must not shout as loudly as one. */
+      <span className={styles.memberIdle}>has not used the board</span>
+    ) : !member.here ? (
+      /* Last of the four, because the three above are all *more* specific
+         and a row shows one. It is here at all because a dimmed mark on
+         its own is a hint, and this row's whole job after a relaunch is to
+         say that the room is intact and nothing is warm yet — including
+         what will happen if you write to it. */
+      <span className={styles.memberIdle}>not open — a message opens it</span>
+    ) : undefined
+  )
   const row = (
     <ListRow
       size="sm"
@@ -1915,74 +1939,21 @@ const MemberRow = ({
           {member.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
         </span>
       }
-      /* One run of text, not a flex row of two. The row's own `truncate` then
-         cuts from the right — which is the behaviour wanted, because the
-         nickname is at the left and is what an agent is addressed by — and the
-         space between the two names is a real character, so what a screen
-         reader reads is what the eye sees. A flex layout would have swallowed
-         it. */
       title={
         <>
           {/* The *nickname*: the one name guaranteed to exist and to be unique
               here — three Cursor conversations on three models arrive untitled
               and identical, and used to draw three rows all reading "Cursor". */}
           {member.displayName ?? peer.nickname}
-          {/* What the conversation calls itself, when it has a name of its
-              own *and* that name says something the nickname does not — the
-              same guard `cardFacts` already reads this member's hover card
-              through. A trigger seats an agent under its own name, so an
-              untitled conversation's title and its nickname are the same
-              word: "Triager" the agent, "Triager" the conversation nobody
-              renamed. Printed both, the row read "Triager Triager" — the name
-              and the role said back as if they were two facts. */}
-          {member.title && member.title !== peer.nickname && (
-            <Text role="meta"> {member.title}</Text>
-          )}
           {member.busy && <span className="sr-only"> — working</span>}
           {!member.here && <span className="sr-only"> — not open</span>}
         </>
       }
       subtitle={withCeiling(
         member.ceiling,
-        !member.canUseBoard ? (
-          /* Outranks everything else on the row: what a member is called and
-             what it holds do not matter if it cannot take a job at all.
-             HarnessDesk's tools reach an agent through a server the agent has
-             to accept, and one that refused it can claim nothing — which used
-             to be discoverable only by an agent trying and being refused. */
-          <Text role="meta" tone="warning" className={styles.memberWarn}>
-            <ShieldOffIcon size={11} />
-            cannot take jobs — tools not reachable
-          </Text>
-        ) : inboundState ? (
-          /* Second, above every other second line, because it is the one that
-             changes what happens when you write to this member — and because
-             it is the only one somebody chose. A held or refused member that
-             also holds a job would otherwise show the job and hide the reason
-             the messages are going nowhere, which is the state this control
-             exists to make visible. `accept` says nothing at all: it is the
-             default on every member of every room. */
-          <span className={styles.memberInbound}>{inboundState}</span>
-        ) : member.onTask ? (
-          <>
-            <Text role="meta" tint="violet">#{member.onTask.id}</Text>{' '}
-            {member.onTask.title}
-          </>
-        ) : member.idleOnBoard && !idleSaidAbove ? (
-          /* The lesser of the two cautions, and the reason both exist: the line
-             above is what the harness says about itself, this is what the board
-             has seen. A member can read as able, take nothing, and until now
-             nothing on screen said so. No glyph — it is a doubt, not a refusal,
-             and it must not shout as loudly as one. */
-          <span className={styles.memberIdle}>has not used the board</span>
-        ) : !member.here ? (
-          /* Last of the four, because the three above are all *more* specific
-             and a row shows one. It is here at all because a dimmed mark on
-             its own is a hint, and this row's whole job after a relaunch is to
-             say that the room is intact and nothing is warm yet — including
-             what will happen if you write to it. */
-          <span className={styles.memberIdle}>not open — a message opens it</span>
-        ) : undefined,
+        context === undefined ? title ?? undefined : (
+          <>{context}{title && title !== taskShown?.title && <> · {title}</>}</>
+        ),
       )}
       trail={
         /* Watching beside, on every row and at all times.

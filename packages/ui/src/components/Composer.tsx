@@ -254,6 +254,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // Only a missing workspace or a runtime that is not ready blocks input.
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
   const canType = !record && (Boolean(session) || (ready && Boolean(snapshot.workspace)))
+  // A revealed key is not a conversation until its read succeeds. Keep the
+  // draft editable, but never clear and submit it to a handle not yet open.
+  const awaitingConversation = key !== null && !session
   // A hand-off chip rides on the draft only; it leaves with the first message.
   const handoff = session ? null : snapshot.draftHandoff
   /* What may be offered *here* — this conversation, its agent, this project.
@@ -364,6 +367,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   )
   const canSend =
     canType &&
+    !awaitingConversation &&
     (text.trim().length > 0 || attachments.length > 0 || handoff !== null || pendingPlanNote !== null)
   const root = snapshot.workspace?.path ?? session?.cwd
 
@@ -608,14 +612,17 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       .map((item) => ({ key: UNSCOPED_RECOVERY_KEY, item })),
   ]
   const restoreStoredDraft = useCallback((ownerKey: ReturnType<typeof sessionKey>, id: number) => {
-    const restored = store.restoreRecoverableDraft(ownerKey, id)
+    const restored = store.restoreRecoverableDraft(ownerKey, id, {
+      key,
+      draft: { text, attachments, imagesWillBeLostOnReload: imageReloadWarning },
+    })
     if (!restored) return
     setText(restored.text)
     setAttachments(restored.attachments.map((attachment) => ({ ...attachment, id: nextAttachmentId() })))
     setImageReloadWarning(
       restored.imagesWillBeLostOnReload === true || restored.attachments.some((attachment) => attachment.kind === 'image'),
     )
-  }, [store])
+  }, [store, key, text, attachments, imageReloadWarning])
 
   const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
     // `/open src/a.ts` is a command with an argument, not a message that
@@ -1009,6 +1016,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (!session && !canType) {
       return snapshot.workspace ? 'Waiting for the runtime…' : 'Choose a project folder to begin'
     }
+    if (awaitingConversation) return 'Opening the conversation — you can keep typing'
     if (!session) return 'Describe a task to start a session — / for commands, @ for files'
     if (busy) {
       return canSteer
@@ -1019,7 +1027,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
     return 'Describe a task — / for commands, @ for files'
-  }, [record, busy, canSteer, canType, session, snapshot.workspace, waiting])
+  }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.
   // A running turn is the usual reason; a queue held behind a stopped turn
@@ -1028,15 +1036,17 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // What the button says on hover. Only when there is something it would not
   // be obvious about — a disabled button explains itself in the placeholder
   // above it, and "Send" on a send button is noise.
-  const sendTitle = !canSend
-    ? undefined
-    : busy
-      ? canSteer
-        ? 'Sends when this turn ends. ⌘↵ adds it to the turn instead.'
-        : 'Sends when this turn ends'
-      : waiting > 0
-        ? `Goes after the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
-        : undefined
+  const sendTitle = awaitingConversation
+    ? 'Waiting for the conversation to open'
+    : !canSend
+      ? undefined
+      : busy
+        ? canSteer
+          ? 'Sends when this turn ends. ⌘↵ adds it to the turn instead.'
+          : 'Sends when this turn ends'
+        : waiting > 0
+          ? `Goes after the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
+          : undefined
 
   const menuTitle =
     trigger.kind === 'choose' && trigger.command.kind.type === 'choose'

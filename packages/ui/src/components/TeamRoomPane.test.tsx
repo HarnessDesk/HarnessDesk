@@ -431,6 +431,39 @@ it('draws a member’s name in the rail in the navigation role', async () => {
   expect(title?.className).not.toContain('font-semibold')
 })
 
+it.each([
+  ['task', true, true, 'accept', '#1 Migrate auth callers'],
+  ['away', false, true, 'accept', 'not open — a message opens it'],
+  ['unreachable tools', true, false, 'accept', 'cannot take jobs — tools not reachable'],
+  ['held messages', true, true, 'hold', 'messages held'],
+] as const)('keeps a long conversation title in the wrapping subtitle alongside %s', async (kind, here, pluginTools, inbound, reason) => {
+  const title = 'Check retry behaviour when the checkout request fails again'
+  const peer = { ...CODEX, sessionId: 'long-title', nickname: 'Assistant', title, here, inbound }
+  const { store } = rig([peer], [{ id: 'codex', presentation: { name: 'Assistant' }, capabilities: { pluginTools } }], {
+    intents: kind === 'task' ? [{ ...state.intents[0]!, claim: { ...state.intents[0]!.claim!, sessionId: peer.sessionId } }] : [],
+  })
+  await render(store)
+
+  const member = row('Assistant')
+  const name = member.querySelector('[data-slot="list-row-title"]')!
+  expect(name.textContent).not.toContain(title)
+  const subtitle = member.querySelector('[data-slot="list-row-subtitle"]')!
+  expect(subtitle.textContent).toContain(title)
+  expect(subtitle.textContent).toContain(reason)
+  expect(subtitle.hasAttribute('data-wrap-subtitle')).toBe(true)
+  expect(member.querySelectorAll('[data-slot="list-row-subtitle"]')).toHaveLength(1)
+})
+
+it('keeps the conversation title when a refusal replaces its matching task title', async () => {
+  const peer = { ...CODEX, sessionId: 'refused-title', nickname: 'Assistant', title: state.intents[0]!.title, inbound: 'hold' as const }
+  const { store } = rig([peer], undefined, {
+    intents: [{ ...state.intents[0]!, claim: { ...state.intents[0]!.claim!, sessionId: peer.sessionId } }],
+  })
+  await render(store)
+  const subtitle = row('Assistant').querySelector('[data-slot="list-row-subtitle"]')!
+  expect(subtitle.textContent).toBe(`messages held · ${peer.title}`)
+})
+
 /**
  * A trigger seats an agent under its own name, so an untitled conversation's
  * nickname and its title are the same word — "Triager" the agent, "Triager"
