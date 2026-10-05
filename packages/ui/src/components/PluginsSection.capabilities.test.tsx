@@ -317,3 +317,20 @@ it('keeps distinct marks when a built-in plugin is in the list', () => {
   const mark = container.querySelector('[data-slot="row-mark"]')
   expect(mark?.querySelector('svg')).toBeTruthy()
 })
+
+it('keeps mixed and superseded plugin glyphs when search matches only an outside plugin', () => {
+  const store = makeStore(runtime('one', 'First Agent', true))
+  const outside = { ...plugin('outside', 'Outside helper', []), identity: { id: 'outside', name: 'Outside helper', source: { kind: 'local' as const, path: '/work/plugins/outside' } } }
+  const oldGit = { ...plugin('git', 'Old Git', []), instanceId: plugin('old-git', 'Old Git', []).instanceId, identity: { id: 'git', name: 'Old Git', source: { kind: 'local' as const, path: '/work/plugins/git' } } }
+  const snapshot = { ...store.getSnapshot(), plugins: [plugin('git', 'Git', []), outside, oldGit] }
+  store.getSnapshot = () => snapshot
+  mount(store)
+  expect(container.querySelectorAll('[data-slot="row-mark"] svg')).toHaveLength(3)
+  const outsideRow = [...container.querySelectorAll('[data-slot="row-title"]')].find(row => row.textContent?.includes('Outside helper'))!.closest('button')!
+  expect(outsideRow.querySelector('[data-slot="row-mark"] .lucide-puzzle')).toBeTruthy()
+  const superseded = [...container.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.includes('Superseded by'))!
+  expect(superseded.querySelector('[data-slot="row-mark"] svg')).toBeTruthy()
+  setValue(container.querySelector('input')!, 'Outside helper')
+  expect(container.querySelectorAll('[data-slot="row-mark"] svg')).toHaveLength(1)
+  expect(container.querySelector('[data-slot="row-mark"] .lucide-puzzle')).toBeTruthy()
+})

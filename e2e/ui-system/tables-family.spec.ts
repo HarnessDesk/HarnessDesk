@@ -169,3 +169,26 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`runtime record faces share the table family corner in ${theme}`, async ({ page }) => {
+    await page.goto('/preview.html')
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('runtimes')
+    const face = page.locator('[data-frame-id="settings-sheet"] [data-slot="row-face"] [data-shape="face"]').first()
+    await expect(face).toBeVisible()
+    for (const density of ['comfortable', 'compact']) {
+      await face.evaluate((el, density) => el.closest('[data-kind="record"]')!.setAttribute('data-hd-table', density), density)
+      const corner = await face.evaluate(el => {
+        const probe = document.createElement('span')
+        probe.style.borderRadius = 'var(--hd-table-face-radius)'
+        el.parentElement!.append(probe)
+        const expected = getComputedStyle(probe).borderTopLeftRadius
+        probe.remove()
+        return { width: el.getBoundingClientRect().width, corner: getComputedStyle(el).borderTopLeftRadius, expected }
+      })
+      expect(corner.width).toBe(density === 'comfortable' ? 32 : 24)
+      expect(corner.corner).toBe(corner.expected)
+    }
+  })
+}

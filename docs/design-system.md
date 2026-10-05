@@ -2040,6 +2040,12 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 
 Compact facts whose dot separators belong to the role, not to each caller.
 
+### `SettingsRowMenu`
+
+`packages/ui/src/design/patterns/SettingsRowMenu.tsx`
+
+A Settings record's actions: its name and distinguishing location, with destructive removal.
+
 ### `SidebarMenuState`
 
 `packages/ui/src/design/patterns/SidebarMenuState.tsx`

@@ -10,6 +10,7 @@ import {
   projectName,
   seatTaken,
 } from '../lib/agents'
+import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
 import { AgentIcon } from './Icons'
@@ -39,11 +40,12 @@ const EMPTY: Readonly<Record<AgentOrigin, string>> = {
   builtin: 'None ship with this build',
 }
 
-/** The origin names where an Agent is kept, without exposing a home path. */
-const footnote = (origin: AgentOrigin): string => {
+/** The checkout actually read, never the main checkout a linked worktree belongs to. */
+const footnote = (origin: AgentOrigin, folder: string | null, home: string | null): string => {
   if (origin === 'builtin') return 'Ships with HarnessDesk, and changes only when HarnessDesk does.'
-  if (origin === 'user') return 'Read from your Agents folder — yours, on this Mac only.'
-  return 'Read from the Agents folder in this project, and committed with the code: everyone who clones it has these.'
+  const where = folder ? shortPath(`${folder}/agents`, home) : 'the Agents folder'
+  if (origin === 'user') return `Read from ${where} — yours, on this Mac only.`
+  return `Read from ${where}, and committed with the code: everyone who clones it has these.`
 }
 
 export const AgentsRosterSection = ({
@@ -75,6 +77,11 @@ export const AgentsRosterSection = ({
   const project = projectName(snapshot.workspace)
   const sections = bySection(agents)
   const opened = open ? agents.find((one) => one.id === open) : undefined
+  // The folder is named only for the roster on screen. While the one read for the workspace open before is still shown
+  // (the new load in flight, or failed), the open workspace's folder would name files these rows were not read from.
+  const projectFolder = snapshot.workspace && snapshot.agentsProject === snapshot.workspace.path
+    ? `${snapshot.workspace.checkoutRoot ?? snapshot.workspace.path}/.harnessdesk`
+    : null
   if (opened) {
     return (
       <AgentPage
@@ -132,7 +139,7 @@ export const AgentsRosterSection = ({
                 />
               ))}
             </Rows>
-            <Note ink="muted" inset="row">{footnote(origin)}</Note>
+            <Note ink="muted" inset="row">{footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}</Note>
           </Section>
         )
       })}

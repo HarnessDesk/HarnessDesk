@@ -135,7 +135,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
     size="stack"
     aria-label={`Loaded by ${members.map(member => member.name).join(', ')}`}
     members={members}
-  /> : <span>{narrow && <span className="sr-only">Loaded by </span>}<Text role="muted" ink="muted">None</Text></span>
+  /> : <span>{narrow && <span className="sr-only">Loaded by </span>}<Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text></span>
   if (narrow) return <ListRow
     as="button"
     interactive
