@@ -1,0 +1,21 @@
+{
+  "rounds": [
+    "write",
+    "check",
+    "review",
+    "write",
+    "check",
+    "review",
+    "land"
+  ],
+  "frames": [
+    "01-write-light.png",
+    "01-write-dark.png",
+    "02-review-light.png",
+    "02-review-dark.png",
+    "03-repair-light.png",
+    "03-repair-dark.png",
+    "04-handoff-light.png",
+    "04-handoff-dark.png"
+  ]
+}
