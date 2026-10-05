@@ -1,7 +1,7 @@
 import { Select as SelectPrimitive } from '@base-ui/react/select'
 import type * as React from 'react'
 
-import { CaretIcon, CheckIcon, MoveUpIcon } from '@/components/Icons'
+import { CaretIcon, CheckIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
 import { floatingMotion } from './motion'
 
@@ -129,7 +129,7 @@ const SelectScrollUpButton = ({
     className={cn('flex cursor-default items-center justify-center py-1', className)}
     {...props}
   >
-    <MoveUpIcon size={14} />
+    <CaretIcon size={14} className="rotate-180" />
   </SelectPrimitive.ScrollUpArrow>
 )
 

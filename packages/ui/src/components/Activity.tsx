@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import type { AuditRow } from '../state/store'
-import { RuntimeMark } from './BrandIcons'
+import { RuntimeFace } from './RuntimeFace'
 import type { ReportFoot } from './Details'
 import { AlertIcon, CheckIcon, SessionIcon, ShieldIcon, ZapIcon } from './Icons'
 import { IconTile } from '../design'
-import { runtimeTint } from '../lib/accounts'
 import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
 
 /**
@@ -164,9 +163,7 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
                      event's own glyph, which is not someone, so it stays a plain
                      square tile whatever shape faces are. */
                   info ? (
-                    <IconTile size="sm" shape="face" tint={runtimeTint(info.id, snapshot.accountsByRuntime, snapshot.accountPrefs)}>
-                      <RuntimeMark runtime={info} size={12} />
-                    </IconTile>
+                    <RuntimeFace size="sm" runtime={info} />
                   ) : <IconTile size="sm" shape="square">{iconOf(row)}</IconTile>
                 }
                 title={describe(row)}

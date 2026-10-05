@@ -314,3 +314,28 @@ for (const theme of ['light','dark'] as const) {
   }
  })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`identity badges stay outside the crop and use their row surface in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?icon-followups')
+    const face = page.locator('[data-frame-id="icon-settings"] [data-slot="icon-tile"][data-shape="face"]').first()
+    await expect(face.locator('[data-slot="face-badge"]')).toBeVisible()
+    expect(await face.evaluate(el => {
+      const badge = el.querySelector('[data-slot="face-badge"]')!
+      const rows = el.closest('[data-slot="rows"]')!
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = 'var(--stack-surface,var(--hd-background))'
+      el.append(probe)
+      const surface = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      const a = el.getBoundingClientRect(), b = badge.getBoundingClientRect()
+      return {
+        visible: getComputedStyle(el).overflow === 'visible',
+        outside: b.right > a.right && b.bottom > a.bottom,
+        matching: surface === getComputedStyle(rows).backgroundColor,
+        cutout: getComputedStyle(badge).boxShadow.includes(surface),
+      }
+    })).toEqual({ visible: true, outside: true, matching: true, cutout: true })
+  })
+}

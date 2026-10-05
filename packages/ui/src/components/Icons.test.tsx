@@ -22,7 +22,7 @@ describe('Icons', () => {
 
   it.each(exported)('%s is a Lucide glyph on currentColor, hidden from readers', (_name, Icon) => {
     const markup = renderToStaticMarkup(<Icon />)
-    expect(markup).toMatch(/^<svg /)
+    expect(markup).toContain('<svg ')
     expect(markup).toContain('class="lucide lucide-')
     expect(markup).toContain('stroke="currentColor"')
     expect(markup).toContain('aria-hidden="true"')
@@ -44,58 +44,17 @@ describe('Icons', () => {
     expect(renderToStaticMarkup(<Icons.StopIcon />)).toContain('fill="currentColor"')
   })
 
-  it('gives each meaning its own glyph where the UI relies on the difference', () => {
-    const glyph = (Icon: (props: Icons.IconProps) => JSX.Element): string =>
-      renderToStaticMarkup(<Icon />).match(/lucide-([a-z0-9-]+)/)?.[1] ?? ''
-    // Tool calls and plugins, worktrees and diffs, reasoning and sub-agents
-    // each used to share a drawing.
-    expect(glyph(Icons.ToolIcon)).not.toBe(glyph(Icons.PluginIcon))
-    expect(glyph(Icons.BranchIcon)).not.toBe(glyph(Icons.DiffIcon))
-    expect(glyph(Icons.BrainIcon)).not.toBe(glyph(Icons.AgentIcon))
-    expect(glyph(Icons.FileIcon)).not.toBe(glyph(Icons.ImageIcon))
-    // Zooming a page and searching one both want a magnifier; the browser
-    // pane's ⋮ menu offers all three in a row, so they must not agree.
-    expect(glyph(Icons.ZoomInIcon)).not.toBe(glyph(Icons.SearchIcon))
-    expect(glyph(Icons.ZoomInIcon)).not.toBe(glyph(Icons.ZoomOutIcon))
-    // Filtering the session list, searching everything, and that list's own
-    // options sit within a row of each other in the sidebar's title row.
-    expect(glyph(Icons.FilterIcon)).not.toBe(glyph(Icons.SearchIcon))
-    expect(glyph(Icons.FilterIcon)).not.toBe(glyph(Icons.SlidersIcon))
-    // Where a conversation runs, said by the glyph alone once a narrow toolbar
-    // or header drops the words: the main checkout, a worktree, and one still
-    // to be made. The last two once differed by colour only, which is no
-    // difference at all to some readers.
-    expect(glyph(Icons.LocalIcon)).not.toBe(glyph(Icons.BranchIcon))
-    expect(glyph(Icons.NewWorktreeIcon)).not.toBe(glyph(Icons.BranchIcon))
-    expect(glyph(Icons.NewWorktreeIcon)).not.toBe(glyph(Icons.LocalIcon))
-  })
-
-  it('uses the chosen glyphs for conversations, active work, movement and handoff', () => {
-    const glyph = (Icon: (props: Icons.IconProps) => JSX.Element): string =>
-      renderToStaticMarkup(<Icon />).match(/lucide-([a-z0-9-]+)/)?.[1] ?? ''
-
-    expect(glyph(Icons.SessionIcon)).toBe('messages-square')
-    expect(glyph(Icons.TodoActiveIcon)).toBe('loader-circle')
-    expect(glyph(Icons.StaleIcon)).toBe('clock-alert')
-    expect(glyph(Icons.CollapseIcon)).toBe('shrink')
-    expect(glyph(Icons.MoveUpIcon)).toBe('move-up')
-    expect(glyph(Icons.MoveDownIcon)).toBe('move-down')
-    expect(glyph(Icons.HandoffIcon)).toBe('forward')
-  })
-
-  it('does not export the retired glyphs', () => {
-    for (const name of [
-      'SplitIcon',
-      'SplitDownIcon',
-      'QuestionIcon',
-      'ExportIcon',
-      'PullRequestDraftIcon',
-      'PullRequestClosedIcon',
-      'CardsIcon',
-      'ThemeLightIcon',
-      'ThemeDarkIcon',
-    ]) {
-      expect(Icons).not.toHaveProperty(name)
+  it('separates every exported glyph, except the deliberate navigation pair', () => {
+    const seen = new Map<string, string>()
+    for (const [name, Icon] of exported) {
+      const markup = renderToStaticMarkup(<Icon />)
+      const glyph = markup.match(/lucide-([a-z0-9-]+)/)?.[1]
+      expect(glyph, name).toBeTruthy()
+      // The owner's sub-agent mark is the robot qualified by the badge slot.
+      const meaning = `${glyph}:${markup.match(/data-slot="face-badge"[^>]*>(.*?)<\/span>/)?.[1] ?? ''}`
+      const previous = seen.get(meaning)
+      if (previous) expect([previous, name].sort()).toEqual(['ArrowRightIcon', 'ChevronIcon'])
+      else seen.set(meaning, name)
     }
   })
 

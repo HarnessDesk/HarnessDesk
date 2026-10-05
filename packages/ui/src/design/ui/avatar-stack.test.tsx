@@ -57,3 +57,15 @@ it('names a generic group with a pluralised member count and accepts the caller�
 it('gives Board assignees their card’s ring surface', () => {
  expect(renderToStaticMarkup(<BoardCard title="Review the change" assignees={members} />)).toContain('[--stack-surface:var(--hd-card)]')
 })
+
+
+it('keeps a member badge outside the image crop, cut out on the stack surface', () => {
+  const box = document.createElement('div')
+  box.innerHTML = renderToStaticMarkup(<AvatarStack members={[{ id: 'writer', name: 'Writer', badge: '↳' }]} />)
+  const avatar = box.querySelector('[data-slot="avatar"]')!
+  expect(avatar.className).toContain('overflow-visible')
+  const badge = avatar.querySelector('[data-slot="face-badge"]')!
+  expect(badge.textContent).toBe('↳')
+  expect(badge.className).toContain('--stack-surface')
+  expect(badge.getAttribute('data-corner')).toBe('bottom-right')
+})

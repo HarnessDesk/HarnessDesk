@@ -383,6 +383,14 @@ composer; one *outside* every pane speaks for the default — the seat, the
 status banner, the palette's *Start with* (which opens a draft, because it
 promised a conversation).
 
+A saved Agent wears the robot; a sub-agent wears the robot with a ↳ badge
+at the bottom-right, and its title names the parent conversation. Runtimes
+has a server glyph; runtime rows keep their own brand faces. When two or more
+accounts of the same runtime are signed in, their faces carry unique account
+initials from 24px up (two letters when initials collide). Smaller faces keep
+the account tint and a title naming the account. Top-right is reserved for
+attention counts.
+
 ### Archive and delete
 
 **Two verbs, and only one of them is expensive.** Archiving takes a

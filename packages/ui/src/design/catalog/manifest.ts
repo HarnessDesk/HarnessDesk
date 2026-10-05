@@ -359,7 +359,7 @@ Object.assign(SIZES, {
   card: ['default', 'compact'],
   input: ['default', 'compact', 'bare', 'row'],
   attachment: ['sm', 'default', 'lg'],
-  'icon-tile': ['stack', 'xs', 'sm', 'default', 'lg'],
+  'icon-tile': ['navigation', 'stack', 'xs', 'sm', 'default', 'lg'],
   'disclosure-chevron': ['xs', 'sm', 'default', 'lg'],
   'native-select': ['default', 'compact'],
   switch: ['default', 'sm'],

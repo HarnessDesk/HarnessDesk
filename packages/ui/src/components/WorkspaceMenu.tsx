@@ -17,6 +17,7 @@ import {
   PinIcon,
   PlusIcon,
   RetryIcon,
+  ResetIcon,
   SettingsIcon,
   TerminalIcon,
   TrashIcon,
@@ -328,7 +329,7 @@ const WorkspaceRows = ({
           onSelect={() => move(place === -1 ? order.length : place + 1)}
         />
         <MenuItem
-          icon={<MoveDownIcon size={14} />}
+          icon={<ResetIcon size={14} />}
           label="Back to automatic order"
           keepOpen
           disabled={!pinned ? 'Already in automatic order.' : false}
