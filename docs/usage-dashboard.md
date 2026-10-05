@@ -816,7 +816,7 @@ Left is one reading per shape: a continuous bar and percent for a window or allo
 
 Project usage compares named Goals or Agents in a table, with Run and Seat counts and Cost when amounts exist. Team and frozen Run records supply names, flow and branch facts; unread Run counts remain a dash. Project usage labels its own Last 30 days or Last 24 hours range, offers a return to 30 days, and resets to 30 days when the project changes. A range whose amounts cannot be read has one unknown-amounts warning; a partial read with figures says amounts are incomplete and keeps the known-subtotal qualification in the Cost cell. Both offer Last 24 hours until that range is already active. Unattributed usage is the footer. Receipt Cost uses numeric KeyValue rows, puts Recorded usage under a strong footer rule, and keeps source sentences in Sources.
 
-Every meter list in an account card, the plan popover, roster, account menu and composer quota popover uses the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
+Every meter list in an account card, the plan popover, roster, account menu and composer quota popover uses the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Their fixed reading/countdown tracks align consecutive 4px meters; the roster separates each account from its agent’s name. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
 
 When the account provides its own activity history, the expanded Plans row
 adds an **All machines** band: its daily token counts cover the account across

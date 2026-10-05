@@ -248,7 +248,7 @@ it('shows observed zero counts when an Agent has no Seats or Runs in the range',
 it('labels Project usage’s range, restores it and resets it on a project switch', async () => {
   const base = report()
   const unknown = { ...base, totals: { ...base.totals, usd: metric(null) }, breakdowns: base.breakdowns.map(b => ({ ...b, rows: b.rows.map(row => ({ ...row, amounts: { ...row.amounts, usd: metric(null) } })) })) }
-  const readUsageInsight = vi.fn(async () => unknown)
+  const readUsageInsight = vi.fn(async (_query: unknown) => unknown)
   let snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const listeners = new Set<() => void>()
   const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal: vi.fn() } as unknown as AppStore

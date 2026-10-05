@@ -228,6 +228,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-row-min-bare` | `44px` |
 | `--hd-table-cell-x` | `12px` |
 | `--hd-table-edge` | `12px` |
+| `--hd-usage-meter-reading` | `64px` |
+| `--hd-usage-meter-reset` | `128px` |
 | `--hd-table-face` | `32px` |
 | `--hd-table-face-radius` | `calc(6px * 4 / 3)` |
 | `--hd-table-lead-gap` | `12px` |
@@ -2012,6 +2014,8 @@ A quiet conversation or room state ends on the inset rail and folds to a dot for
 `packages/ui/src/design/patterns/UsageMeterRow.tsx`
 
 The same four readings in a plan card, a quota popover and an account menu.
+Fixed foundation tracks align the reading and reset columns across rows.
+The 4px meter and its row use phrasing content so they can sit in a button.
 
 ## Known drift
 

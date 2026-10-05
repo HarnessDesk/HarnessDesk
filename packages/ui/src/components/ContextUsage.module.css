@@ -29,11 +29,3 @@
   white-space: nowrap;
   margin-inline-start: auto;
 }
-
-.window {
-  margin-bottom: var(--hd-space-0-5);
-}
-
-.windowProgress {
-  margin: var(--hd-space-px) var(--hd-space-2) var(--hd-space-1-5);
-}

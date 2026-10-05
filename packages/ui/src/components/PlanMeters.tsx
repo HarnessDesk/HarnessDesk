@@ -249,7 +249,7 @@ const Rest = ({
                   onOpen(meter.runtime)
                 }}
               >
-                <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="min-w-0 truncate">{meter.name}{meter.account && <Text role="meta">{meter.account}</Text>}</span></span>} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} tone={toneOf(meter.tone)} standalone />
+                <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><span className="truncate">{meter.name}</span>{meter.account && <Text role="meta" truncate>{meter.account}</Text>}</span></span>} label={`${meter.name}${meter.account ? ` · ${meter.account}` : ''} — what is left`} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} tone={toneOf(meter.tone)} standalone />
               </Button>
             ))}
             {/* The agents with no bar. They are why the count and the bars can

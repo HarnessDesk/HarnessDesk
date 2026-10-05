@@ -403,6 +403,10 @@ body {
   --hd-table-row-min-bare: 44px;
   --hd-table-cell-x: var(--hd-inset-row);
   --hd-table-edge: var(--hd-inset-row); /* desk: table-family outer edge 16 → row tier 12 (#1363) */
+  /* Fixed reading tracks keep stacked usage meters aligned, including
+     "100% left" and "blocked for 2 h 14 m". */
+  --hd-usage-meter-reading: 64px;
+  --hd-usage-meter-reset: 128px;
   --hd-table-face: 32px;
   --hd-table-face-radius: calc(var(--hd-face-radius) * 4 / 3);
   --hd-table-lead-gap: var(--hd-space-3);

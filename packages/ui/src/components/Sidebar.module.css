@@ -213,8 +213,7 @@
 }
 
 .accountLabel,
-.youLabel,
-.usageLaneName {
+.youLabel {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -246,16 +245,6 @@
   margin-block: var(--hd-space-1);
 }
 
-.usageLane {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: var(--hd-space-2);
-}
-
-.usageLaneReset {
-  white-space: nowrap;
-}
 
 .accountMenuConfirmActions {
   display: flex;
