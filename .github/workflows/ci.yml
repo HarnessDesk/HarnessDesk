@@ -9,6 +9,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['*']
   pull_request:
 
 # A superseded run has nothing to tell us; cancel it rather than queue behind it.
@@ -21,6 +22,35 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changes:
+    name: UI integration inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      browser: ${{ steps.paths.outputs.browser }}
+      native: ${{ steps.paths.outputs.native }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Select UI integration jobs
+        id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          list="$RUNNER_TEMP/ci-changed-paths"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Compare the merge to its base parent. Disable rename detection
+            # so moving an input out of a tested directory still runs its suite.
+            if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
+              rm -f "$list"
+            fi
+          fi
+          node script/ci-changes.mjs "$list" >> "$GITHUB_OUTPUT"
+
   verify:
     name: Build, typecheck, test
     # The portable gate runs on Linux; packaging and native UI stay on macOS.
@@ -234,6 +264,8 @@ jobs:
           retention-days: 7
 
   ui-system-browser:
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
     name: UI system browser integration shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
     strategy:
@@ -274,22 +306,35 @@ jobs:
   ui-system-browser-integration:
     name: UI system browser integration
     runs-on: ubuntu-latest
-    needs: ui-system-browser
+    needs: [changes, ui-system-browser]
     if: always()
     timeout-minutes: 5
 
     steps:
-      - name: Require every browser shard to succeed
+      - name: Require browser success or an intentional skip
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          BROWSER: ${{ needs.changes.outputs.browser }}
           SHARDS_RESULT: ${{ needs.ui-system-browser.result }}
         run: |
-          if [ "$SHARDS_RESULT" != "success" ]; then
-            echo "UI system browser shards did not all succeed (matrix result: $SHARDS_RESULT)."
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "UI integration input selection did not succeed ($CHANGES_RESULT)."
             exit 1
           fi
+          if [ "$SHARDS_RESULT" = "success" ]; then
+            exit 0
+          fi
+          if [ "$BROWSER" = "false" ] && [ "$SHARDS_RESULT" = "skipped" ]; then
+            echo "No browser integration inputs changed."
+            exit 0
+          fi
+          echo "UI system browser shards did not all succeed (matrix result: $SHARDS_RESULT)."
+          exit 1
 
   ui-system-native:
-    name: UI system native integration
+    name: UI system native smoke
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: macos-14
     timeout-minutes: 20
 
@@ -315,3 +360,31 @@ jobs:
           name: ui-system-native-report
           path: output/native-ui-system/
           retention-days: 7
+
+  ui-system-native-integration:
+    name: UI system native integration
+    runs-on: ubuntu-latest
+    needs: [changes, ui-system-native]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Require native success or an intentional skip
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          NATIVE: ${{ needs.changes.outputs.native }}
+          SMOKE_RESULT: ${{ needs.ui-system-native.result }}
+        run: |
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "UI integration input selection did not succeed ($CHANGES_RESULT)."
+            exit 1
+          fi
+          if [ "$SMOKE_RESULT" = "success" ]; then
+            exit 0
+          fi
+          if [ "$NATIVE" = "false" ] && [ "$SMOKE_RESULT" = "skipped" ]; then
+            echo "No native integration inputs changed."
+            exit 0
+          fi
+          echo "UI system native smoke did not succeed ($SMOKE_RESULT)."
+          exit 1
