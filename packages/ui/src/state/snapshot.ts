@@ -179,6 +179,9 @@ export interface RouteInfo {
 }
 
 export interface Notice {
+  readonly class?: import('@harnessdesk/protocol').NoticeClass
+  readonly kind?: string
+  readonly contentKey?: string
   readonly id: string
   readonly level: NoticeLevel
   readonly message: string

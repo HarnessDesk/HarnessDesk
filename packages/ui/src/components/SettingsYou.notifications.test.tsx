@@ -92,8 +92,9 @@ it('says how many messages are kept and clears them', () => {
   const inbox = kept(kept([], { id: 'a', tone: 'info', title: 'A', at: 1 }), { id: 'b', tone: 'info', title: 'B', at: 2 })
   const { read } = mount({ inbox })
   expect(container.textContent).toContain('2 kept, 2 unread.')
-  // The same bell the seat wears, with the same count.
-  expect(container.querySelector('[data-slot="inbox-button"]')?.textContent).toBe('2')
+  // The same unread dot the seat wears; the count remains accessible.
+  expect(container.querySelector('[data-slot="inbox-button"]')?.textContent).toBe('Inbox, 2 unread')
+  expect(container.querySelector('[data-slot="inbox-dot"]')).not.toBeNull()
   act(() => [...container.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!.click())
   expect(read().inbox).toEqual([])
   expect(container.textContent).toContain('Nothing kept.')

@@ -5,8 +5,8 @@ import { runtimeId, type HostMethodName, type UsageReport, type WireNotification
 import { AppStore } from './store'
 
 /**
- * Where a crossing becomes a toast: the store compares two refreshes and says
- * what it saw. `notice()` dedupes on the sentence, so two accounts of one agent
+ * Where a crossing becomes an Inbox entry: the store compares two refreshes and says
+ * what it saw. Content keys deduplicate the sentence, so two accounts of one agent
  * that cross one line only reach the person twice if the sentence names each
  * account (#179).
  */
@@ -32,14 +32,15 @@ const report = (account: string | null, usedPercent: number, runtime = 'codex'):
 let store: AppStore
 let answers: Partial<Record<HostMethodName, unknown>>
 
-beforeEach(() => {
+beforeEach(async () => {
   store = new AppStore('ws://localhost:0/')
   answers = {}
-  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => answers[method] ?? null) as never)
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => method === 'app/state/get' ? {} : answers[method] ?? null) as never)
+  await store.loadPreferences()
 })
 
 describe('usage alerts from a refresh', () => {
-  it('toasts each account of one agent that crosses a line, by its own name', async () => {
+  it('keeps each account in the Inbox of one agent that crosses a line, by its own name', async () => {
     seatTwoAccounts()
     answers['usage/refresh'] = [report('work', 70), report('personal', 70, 'codex-2')]
     await store.refreshUsage()
@@ -47,10 +48,11 @@ describe('usage alerts from a refresh', () => {
 
     answers['usage/refresh'] = [report('work', 85), report('personal', 85, 'codex-2')]
     await store.refreshUsage()
-    const said = store.getSnapshot().notices.map((notice) => notice.message)
+    const said = store.getSnapshot().inbox.map((notice) => notice.title)
     expect(said).toHaveLength(2)
-    expect(said[0]).toMatch(/^OpenAI Codex \(work\) — .* is 80% used/)
-    expect(said[1]).toMatch(/^OpenAI Codex \(personal\) — .* is 80% used/)
+    expect(store.getSnapshot().notices).toEqual([])
+    expect(said[1]).toMatch(/^OpenAI Codex \(work\) — .* is 80% used/)
+    expect(said[0]).toMatch(/^OpenAI Codex \(personal\) — .* is 80% used/)
   })
 })
 
@@ -83,7 +85,7 @@ describe('what the store keeps and says (review of #216)', () => {
     await store.refreshUsage()
     answers['usage/refresh'] = [report('olivia@acme.dev', 85)]
     await store.refreshUsage()
-    expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([expect.stringMatching(/^codex — .* is 80% used/)])
+    expect(store.getSnapshot().inbox.map((notice) => notice.title)).toEqual([expect.stringMatching(/^codex — .* is 80% used/)])
   })
 })
 
@@ -98,7 +100,7 @@ const push = (notification: WireNotification): void => {
  * sharing a slot. One runtime id carrying two accounts is a shape nothing can
  * emit — the host caches one report per runtime id, and `accounts.add` returns
  * a runtime of its own — and it was the shape these tests used, which is why
- * they passed while the toast named nobody (round 2 of #216).
+ * they passed while the entry named nobody (round 2 of #216).
  */
 const seatTwoAccounts = (): void => {
   for (const id of ['codex', 'codex-2']) {
@@ -110,8 +112,8 @@ const seatTwoAccounts = (): void => {
 }
 
 describe('usage alerts as the host pushes them, one account at a time', () => {
-  // Review of #216: the path the running app takes, where #179's two identical toasts came from.
-  it('toasts each account that crosses a line, by its own name', () => {
+  // Review of #216: the path the running app takes, where #179's two identical messages came from.
+  it('keeps each account in the Inbox that crosses a line, by its own name', () => {
     seatTwoAccounts()
     const both = [
       ['work', 'codex'],
@@ -120,10 +122,11 @@ describe('usage alerts as the host pushes them, one account at a time', () => {
     for (const [account, runtime] of both) push({ method: 'usage/updated', params: { report: report(account, 70, runtime) } })
     expect(store.getSnapshot().notices).toEqual([])
     for (const [account, runtime] of both) push({ method: 'usage/updated', params: { report: report(account, 85, runtime) } })
-    const said = store.getSnapshot().notices.map((notice) => notice.message)
+    const said = store.getSnapshot().inbox.map((notice) => notice.title)
     expect(said).toHaveLength(2)
-    expect(said[0]).toMatch(/^OpenAI Codex \(work\) — .* is 80% used/)
-    expect(said[1]).toMatch(/^OpenAI Codex \(personal\) — .* is 80% used/)
+    expect(store.getSnapshot().notices).toEqual([])
+    expect(said[1]).toMatch(/^OpenAI Codex \(work\) — .* is 80% used/)
+    expect(said[0]).toMatch(/^OpenAI Codex \(personal\) — .* is 80% used/)
   })
 
   it('keeps one reading of an account whose none arrives spelled two ways', () => {

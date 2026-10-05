@@ -3,6 +3,8 @@ import { homedir } from 'node:os'
 import { installedBrowsers } from '@harnessdesk/cordis-host'
 import { PROTOCOL_VERSION } from '@harnessdesk/protocol'
 
+import { keepRuntimeInboxEntry, mergeNoticePreferences } from '../runtime-notices.js'
+
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -34,11 +36,17 @@ export const appMethods = {
 
   'app/browsers': () => installedBrowsers(),
 
+  'app/inbox/keepInfo': async (ctx, params) => {
+    const patch = keepRuntimeInboxEntry(ctx.state.state.preferences, params.entry)
+    if (patch) await ctx.state.setPreferences(patch)
+    return ctx.state.state.preferences
+  },
+
   'app/state/set': async (ctx, params) => {
-    await ctx.state.setPreferences(params.patch)
+    await ctx.state.setPreferences(mergeNoticePreferences(ctx.state.state.preferences, params.patch, params.noticeBase))
     // Where pages open is the one preference that is not only the
     // window's business: plugins in another process act on it.
     if ('browserPrefs' in params.patch) ctx.settings.applyBrowser()
-    return null
+    return ctx.state.state.preferences
   },
 } satisfies MethodsUnder<'host/' | 'diagnostics/' | 'backup/' | 'app/'>

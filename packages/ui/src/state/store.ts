@@ -6,6 +6,8 @@ import {
   questionWaitOf,
   type QuestionWait,
   mergeRead,
+  readRuntimeNotices,
+  runtimeNoticeKey,
   orderTasks,
   reduceSession,
   sessionKey,
@@ -138,7 +140,7 @@ import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
-import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
+import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
@@ -153,14 +155,17 @@ import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
 import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
-import { kept as keptInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
+import { kept as keptInInbox, repeated as repeatedInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
+  classifyNotice,
+  contentKeyFor,
   afterDismiss,
   type NoticeIdentity,
   type NoticePolicy,
   type NoticeSurface,
   readNoticePolicy,
   surfaceFor,
+  wasKept,
   withKept,
   withMuted,
   withoutKept,
@@ -544,7 +549,7 @@ export class AppStore {
 
   constructor(url = transportUrl()) {
     this.drafts = new Drafts(undefined, {
-      onMemoryOnly: () => this.notice('warning', 'Draft not saved for a reload — it stays only while this window is open.'),
+      onMemoryOnly: () => this.infoNotice('warning', 'Draft not saved for a reload — it stays only while this window is open.', 'app:drafts'),
     })
     this.#snapshot = { ...this.#snapshot, recoverableDrafts: this.drafts.recoverableSnapshot() }
     this.drafts.onRecoverableChange(() => this.#patch({ recoverableDrafts: this.drafts.recoverableSnapshot() }))
@@ -774,16 +779,19 @@ export class AppStore {
           // what a run status surface should be showing right now.
           const { execution } = notification.params
           const flowExecutions = new Map(this.#snapshot.flowExecutions)
+          const previous = flowExecutions.get(execution.id)
+          const selectionChanged = acceptedFindingEvidence(previous) !== acceptedFindingEvidence(execution)
           flowExecutions.set(execution.id, execution)
           this.#patch({ flowExecutions })
           // A person authorising extra rounds changes the findings run's budget
           // and current blind-round counts without changing the findings ledger.
           // Refresh the cached run views from this same push, rather than leaving
           // the Findings tab with the old denominator until it is reopened —
-          // only the run views: this push fires on every step of a run, and
-          // reloading the list with it would throw a person paging through
-          // findings back to the first page each time (#1094, #1091).
-          this.#findingRunsRefresh(execution.goal)
+          // Accepted route evidence also changes which attempts read Not kept.
+          // Reload the list for that transition; routine pushes still preserve
+          // a person's paging position (#1094, #1091).
+          if (selectionChanged) this.#findingsRefresh(execution.goal)
+          else this.#findingRunsRefresh(execution.goal)
         }
         if (notification.method === 'evidence/changed') {
           const { room, evidence } = notification.params
@@ -1031,7 +1039,7 @@ export class AppStore {
       await this.transport.request('routes/save', route)
       await this.loadRoutes()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1040,7 +1048,7 @@ export class AppStore {
       await this.transport.request('routes/delete', { id })
       await this.loadRoutes()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1068,7 +1076,7 @@ export class AppStore {
     try {
       await this.transport.request('app/state/set', { patch: { permissionPolicy: rules } })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1100,7 +1108,7 @@ export class AppStore {
     scope: ScopeQuery,
   ): Promise<readonly CapabilityContribution[]> {
     return this.transport.request('capability/list', { kind, ...scope }).catch((error) => {
-      this.notice('error', describe(error))
+      this.infoNotice('error', describe(error))
       return [] as readonly CapabilityContribution[]
     })
   }
@@ -1111,7 +1119,7 @@ export class AppStore {
       const { ref } = await this.transport.request('credentials/store', { name, value })
       return ref
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return null
     }
   }
@@ -1130,7 +1138,7 @@ export class AppStore {
       await this.transport.request('credentials/delete', { ref })
       return true
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -1189,7 +1197,7 @@ export class AppStore {
       const start = await this.transport.request('runtime/login', { runtime, method })
       this.#setLogin(runtime, startedLogin(method, start))
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1366,7 +1374,7 @@ export class AppStore {
     try {
       await this.transport.request('workspace/reveal', { path })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1391,7 +1399,7 @@ export class AppStore {
       }
     }
     if (failed > 0) {
-      this.notice('error', `${failed} of ${sessions.length} sessions could not be archived.`)
+      this.resultNotice('error', `${failed} of ${sessions.length} sessions could not be archived.`)
     }
     await this.loadHistory({ reset: true })
   }
@@ -1402,7 +1410,7 @@ export class AppStore {
       await this.transport.request('workspace/forget', { path })
       await this.loadWorkspaces()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1428,7 +1436,7 @@ export class AppStore {
       for (const path of known) await this.transport.request('workspace/forget', { path })
       await this.loadWorkspaces()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1606,14 +1614,14 @@ export class AppStore {
       } catch (error) {
         // "Could not ask" is not "has no way in". The old sentence sent people
         // to a terminal over a socket that had blinked.
-        this.notice('error', `${name} could not be asked how to sign in: ${describe(error)}`)
+        this.resultNotice('error', `${name} could not be asked how to sign in: ${describe(error)}`)
         return
       }
     }
     const method = methods.find((entry) => entry.flow === 'browser' || entry.flow === 'deviceCode')
     if (!method) {
       const key = methods.find((entry) => entry.flow === 'apiKey')
-      this.notice(
+      this.resultNotice(
         'error',
         key
           ? `${name} signs in with a key. Open its sign-in page and paste one there.`
@@ -1648,7 +1656,7 @@ export class AppStore {
       const name = this.#snapshot.runtimes.find((info) => info.id === runtime)?.presentation.name
       // An agent reads its environment at startup, so what the user needs to
       // know is not "saved" but whether the key is in the agent yet.
-      this.notice(
+      this.resultNotice(
         'info',
         applied === 'restarted'
           ? `Key stored. ${name ?? 'The agent'} restarted with it.`
@@ -1658,7 +1666,7 @@ export class AppStore {
       )
       return true
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -1669,7 +1677,7 @@ export class AppStore {
       await this.loadAccounts()
       if (runtime === this.#snapshot.activeRuntime) await this.refreshRuntime()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1697,7 +1705,7 @@ export class AppStore {
       return true
     } catch (error) {
       // The host's refusal is a sentence about the code, never the code.
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -1721,7 +1729,7 @@ export class AppStore {
       await this.loadAccounts()
       return added
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return null
     }
   }
@@ -1747,7 +1755,7 @@ export class AppStore {
       await this.loadAccounts()
       return added
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return null
     }
   }
@@ -1783,7 +1791,7 @@ export class AppStore {
   async addAgent(request: AgentRegisterRequest): Promise<RuntimeId | null> {
     const outcome = await this.addAgentTelling(request)
     if ('error' in outcome) {
-      this.notice('error', outcome.error)
+      this.resultNotice('error', outcome.error)
       return null
     }
     return outcome.runtime
@@ -1820,7 +1828,7 @@ export class AppStore {
     try {
       return await this.transport.request('runtime/installs/use', { runtime, path })
     } catch (error) {
-      this.notice('error', `The install could not be chosen: ${describe(error)}`)
+      this.resultNotice('error', `The install could not be chosen: ${describe(error)}`)
       return null
     }
   }
@@ -1831,7 +1839,7 @@ export class AppStore {
       await this.transport.request('acp/update', { runtime })
       return true
     } catch (error) {
-      this.notice('error', `The update did not go through: ${describe(error)}`)
+      this.resultNotice('error', `The update did not go through: ${describe(error)}`)
       return false
     }
   }
@@ -1841,7 +1849,7 @@ export class AppStore {
       await this.transport.request('acp/remove', { runtime })
       return true
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -1852,7 +1860,7 @@ export class AppStore {
       await this.transport.request('runtime/account/remove', { runtime })
       await this.loadAccounts()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1862,7 +1870,7 @@ export class AppStore {
       await this.loadAccounts()
       if (runtime === this.#snapshot.activeRuntime) await this.refreshRuntime()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -1962,7 +1970,7 @@ export class AppStore {
         this.#snapshot.accountPrefs,
       )
     for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, Date.now())) {
-      this.notice('warning', alert.message)
+      this.infoNotice('warning', alert.message, 'usage:crossing')
     }
   }
 
@@ -2024,7 +2032,7 @@ export class AppStore {
       await this.transport.request('runtime/options/set', { runtime, optionId: id, value })
       if (runtime === this.#snapshot.activeRuntime) await this.refreshRuntime()
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -2036,7 +2044,7 @@ export class AppStore {
       await this.transport.request('runtime/logout', { runtime })
       await this.refreshRuntime()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -2298,7 +2306,7 @@ export class AppStore {
         this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
       }
       if (isHeldElsewhere(error)) {
-        this.notice('error', describe(error), {
+        this.resultNotice('error', describe(error), {
           label: 'Open a copy',
           run: () => void this.forkSession(key),
         })
@@ -2392,7 +2400,7 @@ export class AppStore {
        out of it — the copy a folder-gone conversation offers included — back
        into the same refused `session/create`. */
     if (!runtime || !workspace || this.#snapshot.foldersGone.has(workspace)) {
-      this.notice('warning', 'Choose a project folder before starting a session.')
+      this.resultNotice('warning', 'Choose a project folder before starting a session.')
       return null
     }
     try {
@@ -2434,7 +2442,7 @@ export class AppStore {
       void this.loadHistory({ reset: true })
       return key
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return null
     }
   }
@@ -2574,7 +2582,7 @@ export class AppStore {
       })
     } catch (error) {
       if (!held) {
-        this.notice('warning', describe(error))
+        this.resultNotice('warning', describe(error))
         return null
       }
     }
@@ -2673,7 +2681,7 @@ export class AppStore {
     try {
       await this.transport.request('turn/send', { ...address(key), input })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -2686,7 +2694,7 @@ export class AppStore {
       this.#showInPane(sessionKey(runtime, session.id), 'row')
       void this.loadHistory({ reset: true })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -2728,7 +2736,7 @@ export class AppStore {
     try {
       await this.transport.request('session/goal', { ...address(key), objective })
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -2762,7 +2770,7 @@ export class AppStore {
       })
       if (runtime === this.#snapshot.activeRuntime) await this.loadSkills()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       throw error
     }
   }
@@ -2837,12 +2845,12 @@ export class AppStore {
       const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
       if (pane) this.closePane(pane.id)
       await this.loadHistory({ reset: true })
-      this.notice('info', label ? `Archived "${label}".` : 'Archived.', {
+      this.resultNotice('info', label ? `Archived "${label}".` : 'Archived.', {
         label: 'Undo',
         run: () => void this.unarchiveSession(id, owner),
       })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -2852,7 +2860,7 @@ export class AppStore {
       await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: false })
       await this.loadHistory({ reset: true })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -2963,7 +2971,7 @@ export class AppStore {
       }
       void this.loadHistory({ reset: true })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -3482,7 +3490,7 @@ export class AppStore {
     const session = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
     const cwd = options.cwd ?? session?.cwd ?? this.#snapshot.workspace?.path
     if (!runtime || !cwd) {
-      this.notice('warning', 'Choose a project folder before opening a terminal.')
+      this.resultNotice('warning', 'Choose a project folder before opening a terminal.')
       return
     }
     const epoch = this.#dockEpoch
@@ -3511,7 +3519,7 @@ export class AppStore {
         }),
       )
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -3542,7 +3550,7 @@ export class AppStore {
         )
       }
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -3596,7 +3604,7 @@ export class AppStore {
       if (!match) return
       cleanup()
       const url = `http://localhost:${match[1]}`
-      this.notice('info', `Dev server is up — opening ${url}`)
+      this.resultNotice('info', `Dev server is up — opening ${url}`)
       openExternal(url)
     })
     const timer = setTimeout(() => cleanup(), 60_000)
@@ -4065,7 +4073,7 @@ export class AppStore {
       if (listed && now !== null && now.length > 0 && !now.some((entry) => entry.path === path)) {
         // What a removal does, and the words where they will stay: the dialog
         // that asked closes with the pane it belongs to.
-        this.notice('warning', home)
+        this.resultNotice('warning', home)
         if (main && this.#snapshot.workspace && inside(this.#snapshot.workspace.path)) await this.openWorkspace(main)
         this.#closeConversationsWhere(inside)
       }
@@ -4073,12 +4081,12 @@ export class AppStore {
     }
 
     const folder = home.root.split('/').filter(Boolean).at(-1) ?? home.root
-    this.notice(
+    this.resultNotice(
       'info',
       `${home.from ? `${folder} switched from ${home.from} to ${home.branch}.` : `${folder} is on ${home.branch} now.`} ` +
         'The worktree folder is gone; the branch keeps every commit.',
     )
-    if (home.warning) this.notice('warning', home.warning)
+    if (home.warning) this.resultNotice('warning', home.warning)
     // A worktree opened as the workspace went with its folder.
     if (this.#snapshot.workspace && inside(this.#snapshot.workspace.path)) await this.openWorkspace(home.root)
     const session = key ? this.#snapshot.sessions.get(key) : undefined
@@ -4704,7 +4712,7 @@ export class AppStore {
       this.#patch({ flowExecutions })
       return execution
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
       return null
     }
   }
@@ -5092,7 +5100,7 @@ export class AppStore {
     try {
       agents = await this.transport.request('agent/list', project ? { project } : {})
     } catch (error) {
-      if (generation === this.#agentsGeneration) this.notice('warning', describe(error))
+      if (generation === this.#agentsGeneration) this.infoNotice('warning', describe(error))
       return
     }
     // A newer load started while this one was in flight: its answer, not this one, belongs on screen.
@@ -5119,7 +5127,7 @@ export class AppStore {
       plans = await this.transport.request('agent/seat/dry', project ? { project } : {})
     } catch (error) {
       if (generation !== this.#agentPlansGeneration) return
-      this.notice('warning', describe(error))
+      this.infoNotice('warning', describe(error))
       // A row with no plan for its Agent otherwise reads "Checking seats…"
       // forever for an answer that already isn't coming.
       this.#patch({ agentPlansFailed: true })
@@ -5170,7 +5178,7 @@ export class AppStore {
     const cwd = options.cwd ?? this.#snapshot.workspace?.path
     // As `newSession`: a folder this app has proof is gone is never where a conversation starts.
     if (!cwd || this.#snapshot.foldersGone.has(cwd)) {
-      this.notice('warning', 'Choose a project folder before starting a conversation.')
+      this.resultNotice('warning', 'Choose a project folder before starting a conversation.')
       return null
     }
     const entry = this.#snapshot.agents?.find((one) => one.id === id)
@@ -5179,7 +5187,7 @@ export class AppStore {
     try {
       ;[plan] = await this.transport.request('agent/seat/dry', { ids: [id], project: cwd })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return null
     }
     // The fresher answer replaces the one the menus drew — for the roster this window holds, not another folder's.
@@ -5222,10 +5230,10 @@ export class AppStore {
       // `rejectionFor` (`lib/transport.ts`) puts the host's code on `.code`,
       // never `.wireCode`, which is the host-side check on the class itself.
       if ((error as { code?: unknown } | null)?.code === 'briefNotHandedOver') {
-        this.notice('error', `${name} was seated, and its brief could not be handed over, so the conversation was closed.`)
+        this.resultNotice('error', `${name} was seated, and its brief could not be handed over, so the conversation was closed.`)
         return null
       }
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return null
     }
   }
@@ -5241,7 +5249,7 @@ export class AppStore {
     try {
       await this.transport.request('agent/reveal', { id, ...(origin ? { origin } : {}), ...(project ? { project } : {}) })
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5296,7 +5304,7 @@ export class AppStore {
     try {
       seating = await this.transport.request('agent/seating/read', {})
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.infoNotice('warning', describe(error))
       return
     }
     if (seating.revision < (this.#snapshot.seating?.revision ?? -1)) return
@@ -5344,7 +5352,7 @@ export class AppStore {
     try {
       await this.setSeating(id, null)
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5394,7 +5402,7 @@ export class AppStore {
         path,
         ...(force ? { force: true } : {}),
       })
-      this.notice('info', branch ? `Worktree removed. Branch ${branch} was kept.` : 'Worktree removed.')
+      this.resultNotice('info', branch ? `Worktree removed. Branch ${branch} was kept.` : 'Worktree removed.')
       // Panes living in the removed checkout point at a directory that no
       // longer exists; leaving them open invites edits into the void.
       for (const pane of panes(this.#snapshot.layout.root)) {
@@ -5407,7 +5415,7 @@ export class AppStore {
       await this.loadWorktrees()
       return true
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
       return false
     }
   }
@@ -5425,7 +5433,7 @@ export class AppStore {
     try {
       await this.transport.request('session/options/set', { ...address(key), optionId: id, value })
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5486,13 +5494,13 @@ export class AppStore {
       for (const dropped of Object.keys(asked)) {
         if (dropped in values || dropped === id || options.length === 0) continue
         const option = findOption(options, dropped)
-        this.notice(
+        this.resultNotice(
           'info',
           option?.disabled ?? `This model has no ${option?.label ?? dropped} setting, so it was left alone.`,
         )
       }
       const refused = findOption(options, id)
-      if (refused?.disabled && !(id in values)) this.notice('info', refused.disabled)
+      if (refused?.disabled && !(id in values)) this.resultNotice('info', refused.disabled)
       this.#draftsByRuntime[runtime] = values
       if (this.#snapshot.activeRuntime === runtime) {
         this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
@@ -5500,7 +5508,7 @@ export class AppStore {
       void this.#writePreference({ draftValues: this.#draftsByRuntime }, 'The draft options')
       return options
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
       return this.newSessionDefaultsFor(runtime)
     }
   }
@@ -5566,7 +5574,7 @@ export class AppStore {
         await this.transport.request('session/options/set', { ...address(key), optionId: id, value })
       }
     } catch (error) {
-      this.notice('warning', `${preset.name}: ${describe(error)}`)
+      this.resultNotice('warning', `${preset.name}: ${describe(error)}`)
     }
   }
 
@@ -5578,9 +5586,9 @@ export class AppStore {
     if (!key) return
     try {
       await this.transport.request('session/rollback', { ...address(key), turns })
-      this.notice('info', turns === 1 ? 'Dropped the last turn.' : `Dropped the last ${turns} turns.`)
+      this.resultNotice('info', turns === 1 ? 'Dropped the last turn.' : `Dropped the last ${turns} turns.`)
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -5634,7 +5642,7 @@ export class AppStore {
         skipped.length > 0
           ? ` ${skipped.join(', ')} ${skipped.length === 1 ? 'was' : 'were'} left alone: the agent recorded nothing to put back there.`
           : ''
-      this.notice(
+      this.resultNotice(
         skipped.length > 0 ? 'warning' : 'info',
         (direction === 'undo'
           ? one
@@ -5646,7 +5654,7 @@ export class AppStore {
       )
       return { done: true, unrecoverable: false, partial: false }
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       /* Read off the code the host put on the refusal, never off the sentence:
          the interface can only offer the way out if it can tell this failure
          from every other one, and English changes. */
@@ -5666,7 +5674,7 @@ export class AppStore {
     try {
       await this.transport.request('session/compact', address(key))
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -5674,9 +5682,9 @@ export class AppStore {
     if (!key) return
     try {
       await this.transport.request('session/memory', { ...address(key), enabled })
-      this.notice('info', enabled ? 'Memory on for this conversation.' : 'Memory off for this conversation.')
+      this.resultNotice('info', enabled ? 'Memory on for this conversation.' : 'Memory off for this conversation.')
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5695,7 +5703,7 @@ export class AppStore {
       this.#showInPane(sessionKey(side.runtime, side.id))
       void this.loadHistory({ reset: true })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -5714,9 +5722,9 @@ export class AppStore {
     if (!runtime) return
     try {
       await this.transport.request('runtime/imports/apply', { runtime, items })
-      this.notice('info', 'Imported. Restart the runtime if changes do not appear.')
+      this.resultNotice('info', 'Imported. Restart the runtime if changes do not appear.')
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -5727,7 +5735,7 @@ export class AppStore {
     return this.transport
       .request('runtime/catalog', { runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}) })
       .catch((error: unknown) => {
-        this.notice('warning', describe(error))
+        this.infoNotice('warning', describe(error))
         return { plugins: [], marketplaces: [], loadErrors: [], featured: [] }
       })
   }
@@ -5762,7 +5770,7 @@ export class AppStore {
       if (installed) await this.transport.request('runtime/plugin/install', { runtime, marketplace, pluginName })
       else await this.transport.request('runtime/plugin/uninstall', { runtime, pluginId: id })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -5781,7 +5789,7 @@ export class AppStore {
       const { url } = await this.transport.request('runtime/mcp/login', { runtime, name })
       openExternal(url)
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -5790,9 +5798,9 @@ export class AppStore {
     if (!runtime) return
     try {
       await this.transport.request('runtime/mcp/reload', { runtime })
-      this.notice('info', 'MCP configuration reloaded.')
+      this.resultNotice('info', 'MCP configuration reloaded.')
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5802,7 +5810,7 @@ export class AppStore {
     try {
       await this.transport.request('runtime/options/set', { runtime, optionId: id, value })
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5818,7 +5826,7 @@ export class AppStore {
       return true
     } catch (error) {
       if (onFailure) onFailure(describe(error))
-      else this.notice('error', describe(error))
+      else this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -5828,7 +5836,7 @@ export class AppStore {
     try {
       await this.transport.request('turn/interrupt', address(key))
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5867,7 +5875,7 @@ export class AppStore {
       await this.transport.request('turn/queue', { ...address(key), input })
       return true
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -5877,7 +5885,7 @@ export class AppStore {
     try {
       await this.transport.request('turn/queue/cancel', { ...address(key), id })
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5892,7 +5900,7 @@ export class AppStore {
     try {
       await this.transport.request('turn/queue/move', { ...address(key), id, to })
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5902,7 +5910,7 @@ export class AppStore {
     try {
       await this.transport.request('turn/queue/flush', address(key))
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5911,7 +5919,7 @@ export class AppStore {
     try {
       await this.transport.request('turn/queue/clear', address(key))
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5947,11 +5955,11 @@ export class AppStore {
       // between the list being drawn and the button being pressed. Say so,
       // and re-read rather than leaving a row that cannot be stopped again.
       if (!stopped) {
-        this.notice('info', 'That task had already finished.')
+        this.resultNotice('info', 'That task had already finished.')
         void this.refreshTasks(key)
       }
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5961,7 +5969,7 @@ export class AppStore {
     try {
       await this.transport.request('tasks/clear', address(key))
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5974,7 +5982,7 @@ export class AppStore {
         this.#setSession({ ...session, settings: { ...session.settings, ...patch } })
       }
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -5995,7 +6003,7 @@ export class AppStore {
       return { ok: true }
     } catch (error) {
       const message = describe(error)
-      this.notice('error', message)
+      this.resultNotice('error', message)
       // A newer request may have reused this id while the older one was
       // optimistically absent. Keep that live request in place rather than
       // restoring a duplicate with an older requestedAt.
@@ -6011,6 +6019,8 @@ export class AppStore {
   async loadPreferences(): Promise<void> {
     try {
       const preferences = await this.transport.request('app/state/get', {})
+      this.#infoPreferencesLoaded = true
+      this.#pendingInfo.unshift(...readRuntimeNotices(preferences['runtimeNotices']).reverse().map(entry => ({ runtime: entry.runtime, event: entry.event })))
       // The runtime the user last selected comes back, provided it still
       // exists — a registry edit must not strand the shell on a ghost.
       const savedRuntime = preferences['activeRuntime']
@@ -6167,6 +6177,9 @@ export class AppStore {
       this.#patch({ preferencesLoaded: true })
     }
     this.#drainPendingPersonNotices()
+    const info = this.#pendingInfo
+    this.#pendingInfo = []
+    for (const pending of info) this.#keepInfo(pending.event, pending.runtime)
   }
 
   /**
@@ -6190,7 +6203,7 @@ export class AppStore {
     try {
       await this.transport.request('app/state/set', { patch: { customPresets: presets } })
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
     }
   }
 
@@ -6208,7 +6221,7 @@ export class AppStore {
       if (changed && this.#layouts) this.#restoreLayout(workspace?.path ?? null)
       void this.loadWorktrees()
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.infoNotice('warning', describe(error))
     }
   }
 
@@ -6218,7 +6231,7 @@ export class AppStore {
     try {
       return await this.transport.request('git/branches', { root })
     } catch (error) {
-      this.notice('error', describe(error))
+      this.infoNotice('error', describe(error))
       return []
     }
   }
@@ -6230,11 +6243,11 @@ export class AppStore {
   async checkoutBranch(root: string, branch: string, options: { readonly create?: boolean } = {}): Promise<boolean> {
     try {
       await this.transport.request('git/checkout', { root, branch, ...(options.create ? { create: true } : {}) })
-      this.notice('info', options.create ? `Created and switched to ${branch}.` : `Switched to ${branch}.`)
+      this.resultNotice('info', options.create ? `Created and switched to ${branch}.` : `Switched to ${branch}.`)
       await this.loadWorkspaces()
       return true
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return false
     }
   }
@@ -6254,7 +6267,7 @@ export class AppStore {
       // Another folder is another project's Agents.
       if (this.#agentsRequested) void this.loadAgents()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -6299,7 +6312,7 @@ export class AppStore {
       const label = session.title?.trim() || session.preview?.trim() || 'another session'
       return wrapContext(`Session: ${label}`, lines.slice(-8).join('\n\n'))
     } catch (error) {
-      this.notice('warning', describe(error))
+      this.resultNotice('warning', describe(error))
       return null
     }
   }
@@ -6438,12 +6451,12 @@ export class AppStore {
    * would be whichever one nobody had got to yet. Answers `true` when the
    * host took it, so a caller with more to do can tell.
    */
-  async #writePreference(patch: Record<string, unknown>, what: string): Promise<boolean> {
+  async #writePreference(patch: Record<string, unknown>, what: string, result = true): Promise<boolean> {
     try {
       await this.transport.request('app/state/set', { patch })
       return true
     } catch (error) {
-      this.notice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
+      if (result) this.resultNotice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
       return false
     }
   }
@@ -6778,8 +6791,9 @@ export class AppStore {
   }
 
   #setInbox(inbox: readonly InboxEntry[]): void {
+    const noticeBase = { inbox: this.#snapshot.inbox }
     this.#patch({ inbox })
-    void this.#writePreference({ inbox }, 'The inbox')
+    void this.#writeNoticePreference({ inbox }, noticeBase, 'The inbox')
   }
 
   /** One macOS notification switch — `enabled` is the master, the rest are kinds. */
@@ -6790,8 +6804,26 @@ export class AppStore {
   }
 
   #setNoticePolicy(noticePolicy: NoticePolicy): void {
+    const noticeBase = { noticePolicy: this.#snapshot.noticePolicy }
     this.#patch({ noticePolicy })
-    void this.#writePreference({ noticePolicy }, 'The message settings')
+    void this.#writeNoticePreference({ noticePolicy }, noticeBase, 'The message settings')
+  }
+
+  #noticeRevision = 0
+
+  #applyNoticePreferences(preferences: Readonly<Record<string, unknown>>, revision: number): void {
+    if (!preferences || revision !== this.#noticeRevision) return
+    this.#patch({ inbox: readInbox(preferences['inbox']), noticePolicy: readNoticePolicy(preferences['noticePolicy']) })
+  }
+
+  async #writeNoticePreference(patch: Record<string, unknown>, noticeBase: Record<string, unknown>, what: string): Promise<void> {
+    const revision = ++this.#noticeRevision
+    try {
+      const preferences = await this.transport.request('app/state/set', { patch, noticeBase })
+      this.#applyNoticePreferences(preferences, revision)
+    } catch (error) {
+      this.resultNotice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
+    }
   }
 
   setBrowserPrefs(patch: Partial<AppSnapshot['browserPrefs']>): void {
@@ -6821,7 +6853,8 @@ export class AppStore {
       // asking again has to clear it too, or the fresh toast is swallowed.
       if (this.#lastToast?.level === level && this.#lastToast.message === message) this.#lastToast = null
     }
-    this.notice(level, message)
+    if (how.refresh) this.resultNotice(level, message)
+    else this.infoNotice(level, message)
   }
 
   /**
@@ -6836,7 +6869,12 @@ export class AppStore {
    */
   #lastToast: { readonly level: NoticeLevel; readonly message: string; readonly at: number } | null = null
 
+  /** Public controls report the outcome of their own action here. */
   notice(level: NoticeLevel, message: string, action?: NoticeAction): void {
+    this.resultNotice(level, message, action)
+  }
+
+  private resultNotice(level: NoticeLevel, message: string, action?: NoticeAction): void {
     // The same failure often reaches us twice — once as the turn's error and
     // once as the runtime's error notification. One toast is information;
     // two identical toasts is a bug report about the toasts. A toast that
@@ -6854,12 +6892,65 @@ export class AppStore {
     if (!action) this.#lastToast = { level, message, at: now }
     const notice: Notice = {
       id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+      class: 'result',
+      kind: 'action:result',
+      contentKey: contentKeyFor('result', 'action:result', [level, message]),
       level,
       message,
       at: now,
       ...(action ? { action } : {}),
     }
     this.#patch({ notices: [...this.#snapshot.notices.slice(-4), notice] })
+  }
+
+  /** A failure during startup or a background operation is kept quietly. */
+  backgroundFailure(message: string): void {
+    this.infoNotice('error', message)
+  }
+
+  #infoPreferencesLoaded = false
+  #pendingInfo: { runtime?: RuntimeId; event: Extract<AgentEvent, { type: 'notice' }> }[] = []
+
+  private infoNotice(level: NoticeLevel, message: string, kind = 'app:background'): void {
+    this.#keepInfo({ type: 'notice', class: 'info', kind, level, message })
+  }
+
+  #keepInfo(event: Extract<AgentEvent, { type: 'notice' }>, runtime?: RuntimeId): void {
+    if (!this.#infoPreferencesLoaded) {
+      this.#pendingInfo.push({ event, ...(runtime ? { runtime } : {}) })
+      return
+    }
+    const kind = event.kind ?? 'runtime:warning'
+    const policy = this.#snapshot.noticePolicy
+    const detail = event.detail
+    const key = event.contentKey ?? (runtime ? runtimeNoticeKey(runtime, event) : contentKeyFor('info', kind, [event.level, event.message]))
+    const old = this.#snapshot.inbox.find(entry => entry.id === key)
+    // Cached policy can decide the optimistic paint, never the host's decision.
+    const skipPaint = surfaceFor(policy, kind) === null || (!old && wasKept(policy, key)) ||
+      (event.id && old?.lastEvent === event.id) ||
+      (old && event.id && event.count !== undefined && event.at !== undefined && event.at <= old.at && event.count <= (old.count ?? 1))
+    const name = this.#snapshot.runtimes.find(info => info.id === runtime)?.presentation.name ?? 'The agent'
+    const settings = detail?.settings ?? []
+    const title = kind === 'runtime:config' && settings.length > 0
+      ? `${name} ignored ${settings.length} ${settings.length === 1 ? 'setting' : 'settings'} in its config file`
+      : runtime ? `${name}: ${detail?.summary ?? event.message}` : event.message
+    const inbox = repeatedInInbox(this.#snapshot.inbox, {
+      id: key, contentKey: key, kind, title,
+      ...(event.id ? { lastEvent: event.id } : {}),
+      ...(event.count ? { count: event.count } : {}),
+      tone: event.level === 'error' ? 'danger' : event.level === 'warning' ? 'warning' : 'info',
+      ...(detail?.details ? { body: detail.details } : {}),
+      ...(kind === 'runtime:config' && settings.length > 0 ? { body: [detail?.summary ?? event.message, `${name} runs without these settings.`, detail?.details].filter(Boolean).join(' ') } : {}),
+      ...(detail?.file ? { file: detail.file } : {}),
+      ...(settings.length ? { settings } : {}),
+      at: event.at ?? Date.now(),
+    })
+    const noticePolicy = withKept(policy, key)
+    if (!skipPaint) this.#patch({ inbox, noticePolicy })
+    // Send only this occurrence. Another window may already have read, cleared or muted it.
+    const { read: _read, ...entry } = inbox[0]!
+    const revision = ++this.#noticeRevision
+    void this.transport.request('app/inbox/keepInfo', { entry: { ...entry, contentKey: key, kind, count: event.count ?? entry.count ?? 1 } }).then(preferences => this.#applyNoticePreferences(preferences, revision)).catch(() => {})
   }
 
   dismissNotice(id: string): void {
@@ -6881,7 +6972,7 @@ export class AppStore {
       await this.transport.request('plugin/setEnabled', { pluginId, enabled })
       await this.loadPlugins()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -6895,9 +6986,9 @@ export class AppStore {
     try {
       await this.transport.request('plugin/install', { specifier: source.path })
       await this.loadPlugins()
-      this.notice('info', `${plugin.identity.name} updated from ${source.path}.`)
+      this.resultNotice('info', `${plugin.identity.name} updated from ${source.path}.`)
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -6905,9 +6996,9 @@ export class AppStore {
     try {
       await this.transport.request('plugin/uninstall', { pluginId })
       await this.loadPlugins()
-      this.notice('info', 'Plugin uninstalled.')
+      this.resultNotice('info', 'Plugin uninstalled.')
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -6919,7 +7010,7 @@ export class AppStore {
       await this.transport.request('plugin/configure', { pluginId, config })
       await this.loadPlugins()
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
     }
   }
 
@@ -6938,7 +7029,7 @@ export class AppStore {
       })
       return result.handled
     } catch (error) {
-      this.notice('error', describe(error))
+      this.resultNotice('error', describe(error))
       return true
     }
   }
@@ -6976,7 +7067,7 @@ export class AppStore {
         return
       }
       case 'extension/log':
-        if (event.level === 'error') this.notice('error', event.message)
+        if (event.level === 'error') this.infoNotice('error', event.message)
         return
     }
   }
@@ -7052,18 +7143,22 @@ export class AppStore {
       return
     }
     if (event.type === 'notice') {
-      this.notice(event.level, event.message)
-      return
+      const surface = classifyNotice(event)
+      if (surface === 'inbox') { this.#keepInfo(event, runtime); return }
+      if (surface === 'toast') { this.resultNotice(event.level, event.message); return }
+      // Conversation information folds below, through the shared transcript reducer.
     }
     if (event.type === 'error') {
-      if (event.sessionId) this.notice('error', event.error.message)
-      else this.#patch({ fatal: event.error })
+      if (!event.sessionId) {
+        this.#patch({ fatal: event.error })
+        this.infoNotice('error', event.error.message)
+      }
       // Credit and auth failures change what the whole app can do, so refresh
       // the runtime view rather than only showing a toast.
       if (event.error.code === 'credits' || event.error.code === 'auth') {
         void this.refreshRuntime()
       }
-      return
+      if (!event.sessionId) return
     }
     if (event.type === 'session/started') {
       this.#setSession(event.session)

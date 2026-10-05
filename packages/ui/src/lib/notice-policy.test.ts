@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  classifyNotice,
+  contentKeyFor,
   afterDismiss,
   emptyNoticePolicy,
   isSilenced,
@@ -185,6 +187,26 @@ describe('where a kind is shown', () => {
       expect(NOTICE_USES.map((use) => use.use)).toContain(entry.use)
       expect(entry.surfaces.length).toBeGreaterThan(0)
       if (entry.use === 'blocks') expect(entry.surfaces).not.toContain('card')
+    }
+  })
+})
+
+
+describe('message routing', () => {
+  it('only results toast; scoped runtime information belongs to its conversation', () => {
+    expect(classifyNotice({ class: 'result', kind: 'action' })).toBe('toast')
+    expect(classifyNotice({ sessionId: 's1' })).toBe('conversation')
+    expect(classifyNotice({ kind: 'runtime:config', sessionId: 's1' })).toBe('inbox')
+    expect(classifyNotice({})).toBe('inbox')
+  })
+  it('keys content with its class and kind, without conflating ambiguous concatenations', () => {
+    expect(contentKeyFor('info', 'runtime:warning', ['a', 'bc'])).not.toBe(contentKeyFor('info', 'runtime:warning', ['ab', 'c']))
+    expect(contentKeyFor('info', 'runtime:warning', ['same'])).not.toBe(contentKeyFor('conversation', 'runtime:warning', ['same']))
+  })
+  it('every quiet runtime kind defaults to Inbox only and can be turned off', () => {
+    for (const kind of ['runtime:config', 'runtime:deprecation', 'runtime:warning', 'app:background']) {
+      expect(surfaceFor(emptyNoticePolicy(), kind)).toBe('inbox')
+      expect(surfaceFor(withSurface(emptyNoticePolicy(), kind, null), kind)).toBeNull()
     }
   })
 })

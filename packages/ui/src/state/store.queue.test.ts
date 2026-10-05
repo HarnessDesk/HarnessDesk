@@ -172,18 +172,20 @@ describe('the queue in the store', () => {
     expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY]).toBeUndefined()
   })
 
-  it('explains when recovery could not be saved for a reload', () => {
+  it('explains when recovery could not be saved for a reload', async () => {
+    vi.spyOn(store.transport, 'request').mockResolvedValue({} as never)
+    await store.loadPreferences()
     vi.useFakeTimers()
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
-    const notice = vi.spyOn(store, 'notice')
     store.addRecoverableDraft(KEY, { text: 'memory only', attachments: [], detail: 'Restore it.' })
     vi.advanceTimersByTime(300)
     expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.detail).toBe(
       "Restore it. Not saved for a reload — it stays only while this window is open.",
     )
     expect(sessionStorage.getItem('harnessdesk:drafts:v1')).toBeNull()
-    expect(notice).toHaveBeenCalledTimes(1)
-    expect(notice).toHaveBeenCalledWith('warning', expect.stringContaining('stays only while this window is open'))
+    expect(store.getSnapshot().inbox).toHaveLength(1)
+    expect(store.getSnapshot().inbox[0]).toMatchObject({ kind: 'app:drafts', title: expect.stringContaining('stays only while this window is open') })
+    expect(store.getSnapshot().notices).toEqual([])
     vi.useRealTimers()
   })
 })

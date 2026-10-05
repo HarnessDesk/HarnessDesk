@@ -1794,3 +1794,63 @@ left that Run and returned before it answered.
 
 **The rule:** chips follow the host's recorded state, actions follow its
 offered door, and a person presses before a posting is sent.
+
+
+## Messages follow what caused them — 2026-10-04
+
+Runtime information arriving at launch is neither a failed action nor a reason
+to interrupt a conversation. Its structured facts belong in the Inbox, while a
+notice scoped to one session belongs in that transcript. Only user-action
+results open toasts. Standing conditions retain the existing policy and outlets.
+
+Runtime information is retained in host preferences before clients connect.
+Content keys are exact serialized class, kind and content, independent of event
+identity and time. Occurrence IDs make replay idempotent; repeats update count
+and last time without resetting read state. Cleared information keeps its
+content memory, so another runtime start cannot raise it as new. Kind-level
+mutes remain available in Notifications and the expanded Inbox row. Counts
+outlive the bounded retained history, so muted traffic cannot reset a visible
+row’s count. Older queued events do not recount retained startup information.
+Windows offer individual runtime occurrences to the host, which merges them
+with its current read, clear and mute memory; a cached window cannot replace
+that memory while receiving background messages. Every merge, including a replay
+or a refused occurrence, returns the current Inbox and policy to the window.
+Reads, clears and policy edits carry their prior snapshot so the host applies
+only the changed rows or kinds, retaining other windows’ edits. A late response
+cannot undo a newer local action.
+
+Host-created transcript notices survive richer reads of their own turn and
+unmatched synthetic notice turns survive cold reads. They never get copied
+into unrelated fork turns or preserve work turns removed by rollback. Repeated
+conversation updates are counted within the turn they accompany.
+Retrying errors preserve live state; an error already carried by a failed turn
+uses that turn's existing explanation.
+
+## A comparison gates the subject its review selected
+
+*Issue #1382.* A judge could select one attempt while raising blockers on
+another, and the keep step waited forever on work nobody would repair.
+The evidence guard already selects the one subject every required reviewer
+chose; the findings gate now uses that same selection. It subtracts only
+readable, locally raised blockers attributed to the unselected checkouts.
+A selected subject’s blockers, findings from elsewhere, damage and pending
+exceptions still hold the rule.
+
+The alternative was to close the other findings as “not kept”. A selection
+is about which attempt continues, not whether a claim was correct, so the
+findings stay open. The accepted route’s durable review evidence explains
+**Not kept** in their list and detail; no new lifecycle event or verdict is
+invented. An ordinary single-subject review excludes nothing.
+The explanation is tied to the claim’s raising review round and immutable
+checkout, including advisory claims outside the frozen blocking set. Later
+reviews of the kept attempt do not replace that accepted selection. The open
+list and any open detail reload when a route’s evidence changes, while
+routine Run updates keep their paging positions. A detail keeps the person's
+typed reason and discards reads superseded by that selection. Downstream
+gates honour the same accepted selection even after their dependency walk
+contains only the kept attempt.
+
+A reviewer can also correct a mistaken claim before finishing its raising
+card: a reasoned withdrawal is allowed there. Confirming or rejecting a
+repair still needs a later review of the raising Agent. The same ownership,
+revision, sequence and open-card checks apply to both paths.

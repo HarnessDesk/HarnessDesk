@@ -1,3 +1,5 @@
+import { NoticesFrame } from './frames-notices'
+import { CatalogueRefusedUndo } from '../design/explorer/boards'
 import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
@@ -37,7 +39,7 @@ import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
-import { ApprovalDialog, ApprovalReason, NativeSelect } from '../design'
+import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { AppWindowMode } from '../components/AppWindow'
@@ -67,7 +69,7 @@ import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } fr
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
 import { MessageQueue } from '../components/MessageQueue'
-import { GoalFrames } from './frames-goals'
+import { FindingFrames, GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
 import { CoverageFrames, NoticePlacementFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
@@ -1113,11 +1115,31 @@ const PublicationPreview = () => {
   return <ReviewPublicationFrames />
 }
 
+const RefusedUndoPreview = () => {
+  const theme = useTheme()
+  return <div data-frame-id="undo-refused" className="h-screen bg-background">
+    <PaneColumn inset="reading" page>
+      <CatalogueRefusedUndo theme={theme} />
+    </PaneColumn>
+  </div>
+}
+
+const FindingsPreview = () => {
+  useTheme()
+  return <div className="min-h-screen bg-background p-4 text-foreground"><FindingFrames scene={new URLSearchParams(window.location.search).get('findings')} /></div>
+}
+
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('agent-brief')
+        {new URLSearchParams(window.location.search).has('undo-refused')
+          ? <RefusedUndoPreview />
+          : new URLSearchParams(window.location.search).has('notices')
+          ? <NoticesFrame />
+          : new URLSearchParams(window.location.search).has('findings')
+          ? <FindingsPreview />
+          : new URLSearchParams(window.location.search).has('agent-brief')
           ? <AgentBriefFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
