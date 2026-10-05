@@ -246,6 +246,8 @@ export interface CompactionItem extends ItemBase {
 export interface NoticeItem extends ItemBase {
   readonly type: 'notice'
   readonly text: string
+  /** Host-marked standing order; other housekeeping keeps its plain row. */
+  readonly kind?: 'agentBrief'
 }
 
 /** Entering or leaving a runtime-managed review sub-mode. */

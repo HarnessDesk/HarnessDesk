@@ -2981,7 +2981,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'team-record',
     title: 'The wrapped Team',
-    about: 'The receipt, conversations and Run stay readable after work ends.',
+    about: 'The wrapped Team’s reading column: summary, titled work, prose answers and Record, with its retained conversations and Run.',
     render: TeamRecordBoard,
   },
   {

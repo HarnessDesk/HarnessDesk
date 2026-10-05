@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { FLOW_BOARD_TOOL_NAMES, type ApprovalDecision, type FlowExecution, type GoalView, type Intent, type TriggerHistoryPage, type WireNotification } from '@harnessdesk/protocol'
+import { FLOW_BOARD_TOOL_NAMES, type AgentSession, type ApprovalDecision, type FlowExecution, type GoalView, type Intent, type TriggerHistoryPage, type WireNotification } from '@harnessdesk/protocol'
 
 import { QUESTION_STOP } from '../src/findings/rounds.js'
 import type { QuestionTimers } from '../src/host.js'
@@ -186,6 +186,7 @@ interface Asking {
   readonly session: FakeSession
   /** Every message the Seat was sent, in order. */
   readonly sent: string[]
+  readonly sendOptions: Parameters<AgentSession['send']>[1][]
   /** Every denial the Team was told of, by conversation. */
   readonly denials: string[]
 }
@@ -211,7 +212,8 @@ const stoppedOnAQuestion = async (
   const d = await intakeDesk({ repo, questionTimers: timers })
   t.after(() => d.stop())
   const sent: string[] = []
-  d.runtime.onSend = (_session, text) => { sent.push(text) }
+  const sendOptions: Parameters<AgentSession['send']>[1][] = []
+  d.runtime.onSend = (_session, text, opts) => { sent.push(text); sendOptions.push(opts) }
   const denials: string[] = []
   const team = d.host.teamPlane
   const noted = team.noteDenial.bind(team)
@@ -244,7 +246,7 @@ const stoppedOnAQuestion = async (
   assert.match(stalled.reason ?? '', /asked a question nobody can answer/)
   await stoppingHold?.stopped
   assert.equal(session.busy, Boolean(stoppingHold), 'the Seat’s turn stays live only while the test holds the stop')
-  return { d, timers, run: stalled, card: card!, session, sent, denials, ...(stoppingHold ? { stoppingHold } : {}) }
+  return { d, timers, run: stalled, card: card!, session, sent, sendOptions, denials, ...(stoppingHold ? { stoppingHold } : {}) }
 }
 
 const hasQuestion = (a: Asking): boolean =>
@@ -265,6 +267,7 @@ const resolutions = (pushed: readonly WireNotification[]): unknown[] => pushed.f
 test('an answered question resumes the trigger’s Seat that asked it, and the run goes on to its end', E2E, async (t) => {
   const a = await stoppedOnAQuestion(t)
   assert.ok(hasQuestion(a), 'the question is still on the desk for a person to answer')
+  assert.deepEqual(a.sendOptions[0], { recordAs: 'notice', noticeKind: 'agentBrief' }, 'the standing brief is explicitly marked')
   const before = a.sent.length
 
   await answerIt(a)
@@ -280,6 +283,7 @@ test('an answered question resumes the trigger’s Seat that asked it, and the r
   const handed = a.sent.at(-1)!
   assert.match(handed, /Which base branch should the fix go on\?/)
   assert.match(handed, /Their answer: main/)
+  assert.deepEqual(a.sendOptions.at(-1), { recordAs: 'notice' }, 'a delivered answer stays an ordinary notice')
   assert.doesNotMatch(handed, /\bnext\b/, 'the answer the person chose, not the other option')
   assert.match(handed, new RegExp(`Card #${a.card.id} on this Goal is yours`), 'and its own card, again')
   assert.equal(hasQuestion(a), false, 'the question is withdrawn once it is answered')
@@ -297,6 +301,21 @@ test('an answered question resumes the trigger’s Seat that asked it, and the r
   assert.doesNotMatch(said, /^Refused/, said)
   a.session.finish()
   await until(async () => ((await runOf(a)).state === 'settled' ? true : null), 'the run at its end')
+})
+
+test('only the standing Agent brief is marked; a later Flow assignment stays an ordinary notice', E2E, async (t) => {
+  const d = await desk(t)
+  const sent: { text: string; opts: Parameters<AgentSession['send']>[1] }[] = []
+  d.runtimes[0]!.onSend = (session, text, opts) => {
+    sent.push({ text, opts })
+    if (sent.length === 1) session.finish()
+  }
+  const run = await start(d, FLOW, TASK)
+  await claimed(d, run.goal, 'fixer', 1)
+  await whenChanged(d, () => sent.length >= 2 ? true : null, 'the card order after the brief finished')
+  assert.deepEqual(sent[0]!.opts, { recordAs: 'notice', noticeKind: 'agentBrief' }, 'the standing brief is explicitly marked')
+  assert.match(sent[1]!.text, /Card #/)
+  assert.deepEqual(sent[1]!.opts, { recordAs: 'notice' }, 'the later card order is an ordinary notice')
 })
 
 test('an answer before the scheduled interrupt lands keeps the live turn running', E2E, async (t) => {

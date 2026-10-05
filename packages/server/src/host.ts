@@ -3791,7 +3791,7 @@ export class Host {
       },
       seats: {
         open: (seat, where) => this.#openSeat(seat, where),
-        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
+        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text, 'agentBrief'),
         hold: (runtime, sessionId, level) => this.#holdSeat(runtime, sessionId, level),
         retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
         discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
@@ -5911,7 +5911,7 @@ export class Host {
     return holdCeiling(live, level, control)
   }
 
-  async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
+  async #orderSeat(runtime: string, sessionId: string, text: string, noticeKind?: 'agentBrief'): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
     // Whether the values reached the agent's environment, the same rule that
@@ -5919,7 +5919,9 @@ export class Host {
     const handed = laneEnvironmentFor(this.#runtime({ runtime }), environment) !== undefined
     await live.send(
       [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
-      { recordAs: 'notice' },
+      // Only the Agent seating entry point marks its standing brief. Flow
+      // assignments and delivered answers share this send path, but stay plain.
+      { recordAs: 'notice', ...(noticeKind ? { noticeKind } : {}) },
     )
   }
 

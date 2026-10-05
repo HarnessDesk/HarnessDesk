@@ -65,9 +65,10 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
    const hidden=snapshot.teamsPrefs.hidden[row.id]===row.change
    return <ListRow key={row.id} data-team-row={row.id} className={styles.row}
     lead={row.seats.length ? <span aria-label={`${row.seats.length} seats`} className="flex -space-x-2">{row.seats.slice(0,4).map(seat=><IconTile key={seat.seat} shape="face" size="sm" title={words(seat.name)}>{marks.get(seat.seat)?<RuntimeMark runtime={marks.get(seat.seat)!}/>:<AgentIcon/>}</IconTile>)}{row.seats.length>4 && <Text role="meta">+{row.seats.length-4}</Text>}</span> : undefined}
+    mark={row.unread ? <Dot aria-label="Unread changes" tone="info"/> : false}
     title={<div className="flex min-w-0 items-center gap-2">
-     <Button variant="link" size="inline-link" className="min-w-0 flex-1 justify-start" onClick={()=>open(row)} title={words(row.sentence)}>
-      {row.unread && <Dot aria-label="Unread changes" tone="info"/>}<Text role="row" truncate>{words(row.sentence)}</Text>
+     <Button variant="link" size="inline-link" bordered={false} className="min-w-0 flex-1 justify-start" onClick={()=>open(row)} title={words(row.sentence)}>
+      <Text role="row" truncate>{words(row.sentence)}</Text>
      </Button>
      <Chip variant="quiet" tone={row.state==='needs-you'?'warning':['working','unread','wrapping'].includes(row.state)?'info':'neutral'}>{stateLabels[row.state]}</Chip>
     </div>}

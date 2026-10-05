@@ -3704,7 +3704,7 @@ class AcpSession implements AgentSession {
    * disagree with it. `busy` is false while a loaded session's history is
    * being replayed, which is a turn re-read rather than one in flight.
    */
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
     if (this.busy) {
       throw new Error(
         `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
@@ -3716,7 +3716,11 @@ class AcpSession implements AgentSession {
     // `NoticeItem` already carries for a `/model` echo: housekeeping, not speech.
     const userItem: AgentItem =
       opts?.recordAs === 'notice'
-        ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
+        ? {
+            id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input),
+            ...(opts.noticeKind ? { kind: opts.noticeKind } : {}),
+            startedAt: Date.now(),
+          }
         : (() => {
             const { content, context } = peelUserContent(input, ACP_ENVELOPE)
             return {
