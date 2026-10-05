@@ -804,11 +804,24 @@ why. The section appears only once the project has a checks file.
 
 ## Out-of-band messages
 
-One `Banner` card for everything that is not conversation: neutral surface,
-hairline ring, severity in the icon alone, the fact as a title and what it
-means underneath, actions on the right. Amber is reserved for approvals and
-risk — "past sessions are still readable" is not a warning. Toasts are the
-same card, compacted.
+Only the result of a person's action opens a toast: success leaves on its
+own; failure stays until closed. Conditions needing attention keep their
+existing composer, strip or sidebar card, with their action and Inbox option.
+
+Runtime information belongs quietly in the Inbox. The bell shows an unread
+dot. One row per kind and content keeps a count and the latest time; reading
+or clearing unchanged content prevents another unread notification, including
+after a restart. The host retains startup information before a window connects.
+Configuration warnings keep the runtime's summary, settings and file as separate
+facts. Expanding the row reveals guidance, a home-shortened path, Open the file
+and Don't show this again. Settings › Notifications offers Inbox only or Off.
+
+Conversation warnings, context compaction and model changes stay as quiet
+transcript lines outside the work fold. Errors keep one inline explanation and
+the sidebar's failure state; an automatic retry keeps the conversation working.
+A failed send still reports the result of that action. Inbox rows expand to show
+the complete message text and destination-labelled actions, grouped by day beneath
+Inbox · N new · Mark all read.
 
 ## Type and rhythm
 

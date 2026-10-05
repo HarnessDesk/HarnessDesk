@@ -412,7 +412,7 @@ export class TranscriptStore {
       // host recorded. Put back at its place, whichever list stands.
       const published = publicationsIn(kept.items)
       const carry = (items: readonly AgentItem[]): readonly AgentItem[] => {
-        const classified = preserveNoticeItems(items, kept.items)
+        const classified = preserveNoticeItems(items, kept.items, true)
         return published.every(({ item }) => classified.some((entry) => entry.id === item.id))
           ? classified
           : withPublications(classified, published)
@@ -451,6 +451,18 @@ export class TranscriptStore {
         completedAt: kept.completedAt ?? turn.completedAt ?? null,
       }
     })
+    // These rows are host-owned and have no vendor turn to pair with.
+    // Keep only their missing items; omitted work turns still belong to rollback.
+    for (let index = 0; index < stored.turns.length; index++) {
+      const held = stored.turns[index]!
+      if (!String(held.id).startsWith('notice:') || turns.some(turn => turn.id === held.id)) continue
+      const items = held.items.filter(item => item.type === 'notice' && !homes.has(String(item.id)))
+      if (items.length === 0) continue
+      const next = stored.turns.slice(index + 1).find(turn => turns.some(read => read.id === turn.id))
+      const at = next ? turns.findIndex(turn => turn.id === next.id) : turns.length
+      turns.splice(at, 0, { ...held, items })
+      changed = true
+    }
     const usage = restorableUsage(session, stored, pairs)
     if (!changed && !usage) return session
     return { ...session, turns, ...(usage ? { usage } : {}) }
