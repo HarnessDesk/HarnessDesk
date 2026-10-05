@@ -160,18 +160,6 @@
   gap: var(--hd-space-2);
 }
 
-.lane {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(56px, 88px) 38px 46px;
-  align-items: center;
-  gap: var(--hd-space-2);
-}
-
-.laneName,
-.laneProgress {
-  min-width: 0;
-}
-
 .cardWord {
   display: flex;
   gap: var(--hd-space-2);
@@ -282,47 +270,6 @@
   margin-bottom: var(--hd-space-4);
 }
 
-.ranked {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.rank {
-  display: grid;
-  /* The donut's own name column and the plain-table's second name column
-     collapse into one now that every pivot draws the same row shape. The
-     by-agent change chip gets its own 72px track below, keyed on the pivot,
-     rather than reserved here — a model or a project pivot never has a chip
-     to show, and a track that is always empty is a dead gap, not a column. */
-  grid-template-columns: 15px minmax(0, 1fr) 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 44px 88px 92px, the ranked table's own columns collapsing to one shape for every pivot */
-  align-items: center;
-  gap: var(--hd-space-3);
-}
-
-.rank[data-compact] {
-  /* Overview's bento column has no room for six columns; mark, name and
-     share are the three that still answer "where did it go" at a glance. */
-  grid-template-columns: 15px minmax(0, 1fr) 44px;
-}
-
-.rank[data-pivot='runtime']:not([data-compact]) {
-  /* The by-agent pivot alone earns the chip column — see `Usage.tsx`, which
-     always emits the cell for this pivot (so a row with no previous total
-     still reserves its width) and never renders it for the other two. */
-  grid-template-columns: 15px minmax(0, 1fr) 72px 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 72px 44px 88px 92px, the by-agent pivot's own chip column */
-}
-
-.rankChange {
-  min-width: 0;
-}
-
-.rankMark {
-  display: inline-grid;
-  place-items: center;
-}
-
-
 /* --------------------------------------------------------------------------
    The Overview strip (claude/overview-strip). Layout-only, per AGENTS.md
    rule 11: the bordered card is `ChartFrame`/`ChartCard` (the same matted
@@ -428,89 +375,33 @@
   container-type: inline-size;
 }
 
-/* The disclosure control's own box: `Button`'s `variant="row" size="table-row"`
-   supplies the row's fixed height and hover/press fill (design/ui/button.tsx)
-   — the `flex`/`gap-(--hd-space-1-5)`/`w-full` utilities on the element are
-   what tell tailwind-merge to replace its default `inline-flex`/`gap-1.5`
-   with these, the same collision `Segmented`'s own comment documents. It sits
-   inside the Account column's own cell now (review of #1069, B8), not
-   standing in for the whole row. */
-.plansDisclosure {
-  width: 100%;
-}
-
 .plansName {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-.plansBar {
-  min-width: 0;
-  width: 100%;
-}
-
-.colAccount {
-  width: auto;
+.plansReading {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
   min-width: 0;
 }
 
-/* The four columns a narrow window gives up first: the shape chip (already
-   said again in the expanded body's own header), the bar (the percent
-   column keeps the reading), the vendor's own unit and the turn estimate —
-   Account, Status, %, and Resets are what answers "which one, how bad, when"
-   (review of #1069, B8). */
-.colShape {
-  width: 92px;
-  min-width: 0;
-}
-
-.colLeft {
-  width: 100px;
-  min-width: 0;
-}
-
-.colAmount {
-  width: 160px;
-  min-width: 0;
-}
-
-.colTurns {
-  width: 48px;
-  min-width: 0;
-}
+.plansReading > :first-child { flex: 1; min-width: 0; }
+.plansPercent { width: calc(var(--hd-space-10)); flex: none; }
+.colAccount { width: auto; min-width: 0; }
+.colLeft { width: 180px; }
+.colStatus { width: 112px; }
+.colResets { width: 136px; }
+.colDetails { width: 60px; }
 
 @container (max-width: 640px) {
-  .colShape,
-  .colLeft,
-  .colAmount,
-  .colTurns {
-    display: none;
-  }
-
-  /* With four columns gone, the remaining four (Account, Status, %, Resets)
-     fit the container without their own scrollbar only if the table stops
-     sizing columns off content — `table-layout: fixed` divides the width by
-     what each column declares. Status and Resets get enough for their
-     longest word ("On overage", "18d"); Account (the one column with no
-     width of its own) takes whatever is left, which is what lets its name
-     actually truncate instead of pushing the rest off-screen. */
-  :global([data-slot='table']) {
-    table-layout: fixed;
-    width: 100%;
-  }
-
-  .colStatus {
-    width: 76px;
-  }
-
-  .colPercent {
-    width: 40px;
-  }
-
-  .colResets {
-    width: 40px;
-  }
+  .colResets { display: none; }
+  :global([data-slot='plans-table']) :global([data-slot='table']) { table-layout: fixed; }
+  .colStatus { width: 96px; }
+  .colLeft { width: 120px; }
+  .colDetails { width: 52px; }
 }
 
 /* The frame every shape body but Windows (which reuses `Card`) is drawn in. */

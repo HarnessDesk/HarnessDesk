@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { AppSnapshot } from '../../state/store'
 import type { RuntimeId, RuntimeInfo, UsagePreference, UsageReport } from '@harnessdesk/protocol'
 
-import { prefsForUsage } from '../../lib/accounts'
+import { prefsForUsage, runtimeTint } from '../../lib/accounts'
 import type { RunwaySummary } from '../../lib/usage'
 import { planRows, shapeCountsOf } from '../../lib/plans-table'
 import { Row, Rows, Button, SectionHead } from '../../design'
@@ -72,7 +72,8 @@ export const PlansView = ({
   // a borrowed (unverified) sign-in (review of #1069, B3).
   const rows = useMemo(() => planRows(reports, now, preferenceFor), [reports, now, preferenceFor])
 
-  const scopedSilent = silent.filter((agent) => scoped === null || scoped.id === agent.info.id)
+  const represented = new Set(rows.map(row => row.report.runtime))
+  const scopedSilent = silent.filter((agent) => (scoped === null || scoped.id === agent.info.id) && !represented.has(agent.info.id))
   const counts = useMemo(
     () => shapeCountsOf(rows.map((row) => row.shape), scopedSilent.length),
     [rows, scopedSilent.length],
@@ -98,6 +99,9 @@ export const PlansView = ({
       <section className={styles.band} aria-label="What is left">
         <PlansTable
           rows={rows}
+          onSignIn={onSignIn}
+          signInRuntimes={new Set(silent.map(agent => agent.info.id))}
+          tintFor={runtime => runtimeTint(runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)}
           byId={byId}
           now={now}
           filter={filter}
@@ -128,7 +132,7 @@ export const PlansView = ({
             {untracked.map((info) => (
               <Row
                 key={info.id}
-                mark={<RuntimeMark runtime={info} size={15} />}
+                mark={<RuntimeMark runtime={info} size={16} />}
                 title={info.presentation.name}
                 desc="Nothing is asked of it. What it already spent is still counted."
                 control={

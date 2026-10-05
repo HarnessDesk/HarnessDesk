@@ -87,7 +87,8 @@ describe('the "has nothing to report" callout', () => {
 
   it('still offers a sign-in once the agent has answered and confirmed nobody is', async () => {
     await render({ [codex.id]: signedOut })
-    expect(document.body.textContent).toContain('has nothing to report')
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Show details for OpenAI Codex"]')!.click())
+    expect(document.body.textContent).toContain('Sign in to read plan usage')
     expect(document.body.textContent).toContain('Sign in to OpenAI Codex')
   })
 })

@@ -10,7 +10,7 @@ const INSIGHT_OPTIONS = [
   { value: 'agent', label: 'By Agent' },
 ] as const
 
-/** Projects: project usage, by goal or by agent — unchanged from today. */
+/** Project accounting by Goal or Agent, sharing the Dashboard’s range. */
 export const ProjectsView = ({
   root,
   scope,
@@ -19,6 +19,7 @@ export const ProjectsView = ({
   onGoal,
   insightReport,
   insightProblem,
+  onShorterRange,
 }: {
   root: string | null
   scope: RuntimeId | null
@@ -28,6 +29,7 @@ export const ProjectsView = ({
   /** Loaded once per scope/root by `Usage.tsx` — see `InsightUsage`. */
   insightReport: InsightReport | null
   insightProblem: string | null
+  onShorterRange: () => void
 }) => (
   <section className={styles.band} aria-label="Project usage">
     <BandHead
@@ -41,6 +43,6 @@ export const ProjectsView = ({
         />
       }
     />
-    <InsightUsage root={root} runtime={scope} view={insightView} onGoal={onGoal} report={insightReport} problem={insightProblem} />
+    <InsightUsage root={root} runtime={scope} view={insightView} onGoal={onGoal} report={insightReport} problem={insightProblem} onShorterRange={onShorterRange} />
   </section>
 )

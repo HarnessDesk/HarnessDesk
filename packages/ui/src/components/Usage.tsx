@@ -97,6 +97,7 @@ export const Usage = ({
    */
   const [wideLedger, setWideLedger] = useState<LedgerReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [insightDays, setInsightDays] = useState(30)
   const [insightView, setInsightView] = useState<'goal' | 'agent'>('goal')
   /**
    * "When it ran"'s own query and toggles, owned here rather than by the
@@ -182,7 +183,7 @@ export const Usage = ({
       cancelled = true
     }
     const to = Date.now()
-    const from = to - 30 * 86_400_000
+    const from = to - insightDays * 86_400_000
     void store
       .readUsageInsight({ root: projectRoot, from, to, ...(scope ? { runtime: scope } : {}) })
       .then((next) => {
@@ -194,7 +195,7 @@ export const Usage = ({
     return () => {
       cancelled = true
     }
-  }, [store, projectRoot, scope])
+  }, [store, projectRoot, scope, insightDays])
 
   const off = useMemo(() => new Set(snapshot.usageOff), [snapshot.usageOff])
   const tracked = useMemo(
@@ -475,6 +476,7 @@ export const Usage = ({
               onGoal={(goal) => store.openGoal(goal)}
               insightReport={insightReport}
               insightProblem={insightProblem}
+              onShorterRange={() => setInsightDays(1)}
             />
           )}
         </div>

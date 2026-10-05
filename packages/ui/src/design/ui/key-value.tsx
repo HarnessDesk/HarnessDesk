@@ -150,6 +150,7 @@ const KeyValueRow = ({
   label,
   children,
   emphasis,
+  footer = false,
   numeric = false,
   kind = 'text',
   variant = 'default',
@@ -158,21 +159,23 @@ const KeyValueRow = ({
   label: React.ReactNode
   children: React.ReactNode
   emphasis?: boolean
+  /** The total of the preceding readings, under the shared strong rule. */
+  footer?: boolean
   /** A count, a total, money: right-aligned on tabular figures so a column of them lines up by place. */
   numeric?: boolean
   /** `path` gives up the middle of a string value rather than its end, with the whole in its title while cut. */
   kind?: 'text' | 'path'
   variant?: 'default' | 'panel'
 }) => (
-  /* `display: contents` so the pair joins the parent grid's columns; wrapping
-     each pair in its own box would give every row its own idea of where the
-     value column starts, which is the drift this component exists to stop. */
+  /* Ordinary pairs join the parent columns; a footer inherits those same
+     columns through subgrid, so its strong rule crosses the whole list. */
   <div
     data-slot="key-value-row"
+    {...(footer ? { 'data-footer': '' } : {})}
     data-variant={variant}
     {...(numeric ? { 'data-numeric': '' } : {})}
     {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
-    className={cn('contents', className)}
+    className={cn(footer ? 'col-span-full grid grid-cols-subgrid items-center border-t border-(--hd-border-strong) pt-(--hd-space-3)' : 'contents', className)}
     {...props}
   >
     <dt

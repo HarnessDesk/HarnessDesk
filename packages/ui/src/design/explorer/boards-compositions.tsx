@@ -2781,16 +2781,16 @@ const PlansTableBoard = () => {
           <PlansCase label="Low — an amber row">
             <div data-catalog-case="low">{oneUp('low')}</div>
           </PlansCase>
-          <PlansCase label="Out — a spent window">
+          <PlansCase label="Spent — a spent window">
             <div data-catalog-case="out">{oneUp('out')}</div>
           </PlansCase>
-          <PlansCase label="On overage — metered spend already in use">
+          <PlansCase label="Low — metered spend already in use">
             <div data-catalog-case="overage">{oneUp('overage')}</div>
           </PlansCase>
-          <PlansCase label="Key, no budget — &ldquo;No limit&rdquo; rather than an empty bar">
+          <PlansCase label="Key, no budget — &ldquo;No limit&rdquo; in Left">
             <div data-catalog-case="key-no-budget">{oneUp('key-no-budget')}</div>
           </PlansCase>
-          <PlansCase label="Balance, spent — Out, never a reset">
+          <PlansCase label="Balance, spent — Spent, never a reset">
             <div data-catalog-case="balance-negative">{oneUp('balance-negative')}</div>
           </PlansCase>
           <PlansCase label='Balance, no draw yet — runway reads "—"'>
@@ -2825,8 +2825,7 @@ const PlansTableBoard = () => {
         </div>
       </Specimen>
       <Rule>
-        A row is thin on purpose: mark, name, the shape and status chips, a bar, a percent, the
-        vendor&rsquo;s own unit, an approximate turn count and the reset. The account&rsquo;s own
+        A row has one reading per shape: face, account and window, a status chip, one Left reading and the reset. The account&rsquo;s own
         story &mdash; the lanes, the pace, the money &mdash; belongs to the shape body a row expands
         into, one of five plus the existing Windows card. <code>reportNeedsAttention</code> decides
         Low, not a second reading of the headline&rsquo;s own tone, so a healthy headline pinned over

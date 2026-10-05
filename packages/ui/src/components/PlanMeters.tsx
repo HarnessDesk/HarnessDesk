@@ -1,4 +1,4 @@
-import { Button, Chip, Progress, Separator, Text, type Tone } from '../design'
+import { Button, Chip, Progress, UsageMeterRow, Separator, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -182,23 +182,7 @@ const Meter = ({
             {view.report.lanes.map((raw) => {
               const lane = describeLane(raw, now, view.report.lanes)
               return (
-                <div key={lane.id} className={styles.laneRow} data-tone={lane.tone}>
-                  <Text role="muted" truncate>{lane.title}</Text>
-                  <Progress
-                    className={styles.laneProgress}
-                    value={lane.remainingPercent}
-                    measure="remaining"
-                    label={false}
-                    size="sm"
-                    aria-label={`${lane.title} — what is left`}
-                  />
-                  <Text role="value" align="end" tone={toneOf(lane.tone)}>
-                    {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}% left`}
-                  </Text>
-                  <Text role="meta" align="end" truncate>
-                    {lane.gatedUntil !== null ? `blocked ${lane.gatedFor ?? ''}` : (lane.shortCountdown ?? '')}
-                  </Text>
-                </div>
+                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} tone={toneOf(lane.tone)} standalone />
               )
             })}
           </div>
@@ -258,30 +242,14 @@ const Rest = ({
               <Button
                 key={`${meter.runtime}:${meter.report.account ?? ''}`}
                 type="button"
-                variant="row" size="row" className={styles.rosterRow}
+                variant="row" size="row" className="w-full"
                 data-tone={meter.tone}
                 onClick={() => {
                   close()
                   onOpen(meter.runtime)
                 }}
               >
-                <RuntimeMark runtime={meter.info} size={14} />
-                <span className={styles.rosterName}>
-                  <Text role="row" truncate>{meter.name}</Text>
-                  {meter.account && <Text role="meta" truncate>{meter.account}</Text>}
-                </span>
-                <Progress
-                  className={styles.laneProgress}
-                  value={meter.lane.remainingPercent}
-                  measure="remaining"
-                  label={false}
-                  size="sm"
-                  aria-label={`${meter.lane.title} — what is left`}
-                />
-                <Text role="value" align="end" tone={toneOf(meter.tone)}>{meter.lane.remainingPercent}% left</Text>
-                <Text role="meta" align="end" truncate>
-                  {meter.out ? (meter.lane.shortCountdown ?? 'out') : (meter.lane.shortCountdown ?? '')}
-                </Text>
+                <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="min-w-0 truncate">{meter.name}{meter.account && <Text role="meta">{meter.account}</Text>}</span></span>} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} tone={toneOf(meter.tone)} standalone />
               </Button>
             ))}
             {/* The agents with no bar. They are why the count and the bars can

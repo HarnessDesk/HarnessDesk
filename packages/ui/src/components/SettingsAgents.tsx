@@ -33,7 +33,8 @@ import {
   registryOrder,
   registrySentence,
 } from '../lib/acp-registry'
-import { describeLimits, formatReset } from '../lib/limits'
+import { describeLimits } from '../lib/limits'
+import { formatResetCountdown } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
@@ -72,7 +73,7 @@ import {
   Textarea,
   PageHead,
   PlanCard,
-  Progress,
+  UsageMeterRow,
   Row,
   RowButton,
   RowMark,
@@ -260,28 +261,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
  */
 export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
-  const reset = formatReset(window.resetsAt)
-  return (
-    <Row
-      title={window.label}
-      {...(reset ? { desc: `Resets ${reset}` } : {})}
-      control={
-        <>
-          <Progress
-            className="w-40"
-            value={remaining}
-            measure="remaining"
-            size="sm"
-            label={false}
-            aria-label={`${window.label} remaining`}
-          />
-          <Text role="muted" numeric align="end" className="min-w-16">
-            {remaining}% left
-          </Text>
-        </>
-      }
-    />
-  )
+  return <UsageMeterRow name={window.label} percent={remaining} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} label={`${window.label} remaining`} standalone />
 }
 
 /**

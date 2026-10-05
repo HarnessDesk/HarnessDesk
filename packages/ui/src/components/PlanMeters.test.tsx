@@ -239,8 +239,8 @@ it('opens the roster behind the token, named account by account', () => {
   act(() => token?.click())
   const rows = [...document.querySelectorAll('[role="menu"] button')]
   expect(rows.map((row) => row.textContent)).toEqual([
-    'Agent Bwork51% left',
-    'Agent Bpersonal12% left',
+    'Agent Bwork51% left—',
+    'Agent Bpersonal12% left—',
     'Agent CNeeds sign-in',
     'Agent DNeeds sign-in',
     'Agent ENeeds sign-in',

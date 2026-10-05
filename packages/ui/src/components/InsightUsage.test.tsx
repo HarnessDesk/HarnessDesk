@@ -30,8 +30,8 @@ it('loads By Goal on the Dashboard’s Projects view', async () => {
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal } as unknown as AppStore
   await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
   expect(readUsageInsight).toHaveBeenCalledOnce()
-  expect(container.textContent).toContain('One Goal')
-  const goal = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('One Goal'))
+  expect(container.textContent).toContain('Goal goal-1')
+  const goal = [...container.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Open Goal goal-1')
   await act(async () => goal?.click())
   expect(openGoal).toHaveBeenCalledWith('goal-1')
 })
@@ -55,10 +55,10 @@ it('clears the previous project attribution while the next project loads', async
   const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
   await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
-  expect(container.textContent).toContain('One Goal')
+  expect(container.textContent).toContain('Goal goal-1')
   await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/other" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
   expect(container.textContent).toContain('Reading recorded usage…')
-  expect(container.textContent).not.toContain('One Goal')
+  expect(container.textContent).not.toContain('Goal goal-1')
   await act(async () => { resolveNext?.(report()) })
 })
 
@@ -69,7 +69,7 @@ it('keeps safe unreadable-source warnings visible when the Dashboard has no attr
     sources: [{ id: 'unreadable', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Recorded usage source could not be discovered.' }],
     gaps: ['Recorded usage may be incomplete.'],
   }
-  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => unreadable), openGoal: vi.fn() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot=emptySnapshot(); return () => snapshot })(), readUsageInsight: vi.fn(async () => unreadable), openGoal: vi.fn() } as unknown as AppStore
 
   await act(async () => {
     root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
@@ -94,7 +94,7 @@ it('wraps every unavailable source’s full failure sentence instead of clipping
       { id: 'unreadable-two', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: secondSentence },
     ],
   }
-  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => multiFailure), openGoal: vi.fn() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot=emptySnapshot(); return () => snapshot })(), readUsageInsight: vi.fn(async () => multiFailure), openGoal: vi.fn() } as unknown as AppStore
 
   await act(async () => {
     root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
@@ -104,19 +104,13 @@ it('wraps every unavailable source’s full failure sentence instead of clipping
   // `data-wrap` is what the stylesheet keys on to let a sentence run to a
   // second line instead of being ellipsised — see Row's description, which wraps unless it is a name or a path (`truncateDesc`).
   const wrapped = [...container.querySelectorAll('[data-wrap]')]
-  expect(wrapped.map((el) => el.textContent)).toEqual([longSentence, secondSentence])
+  expect(wrapped.map((el) => el.textContent)).toEqual(['Unknown historical usage remains unassigned.', longSentence, secondSentence])
 })
 
-it('wraps the unattributed row’s reason sentence instead of clipping it', async () => {
-  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => report()), openGoal: vi.fn() } as unknown as AppStore
-
-  await act(async () => {
-    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
-    await Promise.resolve()
-  })
-
-  const row = [...container.querySelectorAll('[data-wrap]')].find((el) => el.textContent === 'No unique historical Seat could be established.')
-  expect(row).toBeTruthy()
+it('keeps the unattributed reason on the table footer', async () => {
+ const store={subscribe:()=>()=>{},getSnapshot:(() => { const snapshot=emptySnapshot(); return () => snapshot })()} as unknown as AppStore
+ await act(async()=>root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={()=>{}} report={report()} /></StoreProvider>))
+ expect(container.querySelector('tfoot td')?.getAttribute('title')).toBe('No unique historical Seat could be established.')
 })
 
 it('wraps the empty-state reason sentence instead of clipping it', async () => {
@@ -124,7 +118,7 @@ it('wraps the empty-state reason sentence instead of clipping it', async () => {
     ...report(),
     breakdowns: [{ dimension: 'goal' as const, rows: [], unattributed: report().breakdowns[0]!.unattributed, reason: null }],
   }
-  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => empty), openGoal: vi.fn() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot=emptySnapshot(); return () => snapshot })(), readUsageInsight: vi.fn(async () => empty), openGoal: vi.fn() } as unknown as AppStore
 
   await act(async () => {
     root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
@@ -135,26 +129,11 @@ it('wraps the empty-state reason sentence instead of clipping it', async () => {
   expect(row).toBeTruthy()
 })
 
-it('wraps a Goal row’s joined fact list — a RowButton, not just a Row — instead of losing facts to clipping', async () => {
-  const unfresh = {
-    ...report(),
-    sources: [{ id: 'source', kind: 'corpus' as const, label: 'Transcript', observedAt: null, checkedAt: 10, stale: false, problem: null }],
-  }
-  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => unfresh), openGoal: vi.fn() } as unknown as AppStore
-
-  await act(async () => {
-    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
-    await Promise.resolve()
-  })
-
-  // 'One Goal' has a `goal`, so it renders as a RowButton, not a Row — the
-  // fact this joined desc still carries `data-wrap` is what proves RowButton
-  // grew the same option Row already had.
-  const goalButton = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('One Goal'))
-  expect(goalButton).toBeTruthy()
-  const desc = goalButton!.querySelector('[data-wrap]')
-  expect(desc).toBeTruthy()
-  expect(desc!.textContent).toContain('Observation time unavailable')
+it('retains source age and cost qualification on the numeric cost cell', async () => {
+ const unfresh={...report(),sources:[{id:'source',kind:'corpus' as const,label:'Transcript',observedAt:null,checkedAt:10,stale:false,problem:null}]}
+ const store={subscribe:()=>()=>{},getSnapshot:(() => { const snapshot=emptySnapshot(); return () => snapshot })()} as unknown as AppStore
+ await act(async()=>root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={()=>{}} report={unfresh} /></StoreProvider>))
+ expect(container.querySelector('tbody td:nth-child(4) [title]')?.getAttribute('title')).toContain('Observation time unavailable')
 })
 
 it('keeps a group-level gap note outside the Rows card rather than flush against it', async () => {
@@ -164,7 +143,7 @@ it('keeps a group-level gap note outside the Rows card rather than flush against
     sources: [{ id: 'unreadable', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Recorded usage source could not be discovered.' }],
     gaps: ['Recorded usage may be incomplete.'],
   }
-  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => withGapAndFailure), openGoal: vi.fn() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot=emptySnapshot(); return () => snapshot })(), readUsageInsight: vi.fn(async () => withGapAndFailure), openGoal: vi.fn() } as unknown as AppStore
 
   await act(async () => {
     root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
@@ -183,10 +162,44 @@ it('keeps a group-level gap note outside the Rows card rather than flush against
   expect(card.contains(note!)).toBe(false)
 })
 
-it('shows a budget-limited report as a single Partial chip', async () => {
+it('shows a budget-limited report as one whole-range warning', async () => {
   const partial = Object.assign(report(), { scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'] })
-  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot = emptySnapshot(); return () => snapshot })() } as unknown as AppStore
   await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={partial} /></StoreProvider>) })
-  expect([...container.querySelectorAll('[data-slot="chip"]')].filter((chip) => chip.textContent === 'Partial')).toHaveLength(1)
+  expect(container.textContent).toContain('Reading stopped at 64 MiB')
+  expect(container.querySelector('tbody')?.textContent).not.toContain('Partial')
   expect(container.textContent).not.toContain('Insight stopped at')
+})
+
+it('replaces unknown amounts with one range warning and offers a shorter read', async () => {
+ const base=report()
+ const unknown={...base,scan:'partial' as const,totals:{...base.totals,usd:metric(null)},gaps:['Insight stopped at 64 MiB of source data. Choose a narrower range.'],breakdowns:base.breakdowns.map(b=>({...b,rows:b.rows.map(row=>({...row,amounts:{...row.amounts,usd:metric(null)}}))}))}
+ const readUsageInsight=vi.fn(async (_query: unknown)=>unknown)
+ const store={subscribe:()=>()=>{},getSnapshot:(() => { const snapshot=emptySnapshot(); return () => snapshot })(),readUsageInsight} as unknown as AppStore
+ await act(async()=>{root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={()=>{}} /></StoreProvider>);await Promise.resolve()})
+ expect(container.textContent).toContain('Amounts are unknown for this range')
+ expect(container.textContent).toContain('64 MiB')
+ expect(container.querySelectorAll('thead th').length).toBeGreaterThan(1)
+ expect(container.querySelector('tbody')?.textContent).not.toContain('Unknown')
+ expect(container.querySelector('tfoot')?.textContent).toContain('Not attributed to a Goal')
+ const shorter=[...container.querySelectorAll('button')].find(b=>b.textContent==='Last 24 hours')!
+ await act(async()=>{shorter.click();await Promise.resolve()})
+ const query=readUsageInsight.mock.calls.at(-1)![0] as unknown as {from:number,to:number}
+ expect(query.to-query.from).toBe(86400000)
+})
+
+it('reads Team names and range-scoped Run counts without showing the Goal brief', async () => {
+ const base=report()
+ const goal={id:'goal-1',sentence:'A very long instruction that should never become the row name',origin:{kind:'person'}} as never
+ const snapshot={...emptySnapshot(),goals:new Map([['goal-1',{goal,board:{name:'Storefront'}} as never]]),flowExecutions:new Map([
+  ['recent',{goal:'goal-1',startedAt:5,document:{flow:{name:'Build'}},base:{branch:'feature/storefront'}} as never],
+  ['older',{goal:'goal-1',startedAt:-1,document:{flow:{name:'Build'}}} as never],
+ ])}
+ const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,loadGoals:vi.fn(async()=>{}),loadTeamRuns:vi.fn(async()=>{})} as unknown as AppStore
+ await act(async()=>{root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={()=>{}} report={{...base,goals:[goal]}} /></StoreProvider>);await Promise.resolve();await Promise.resolve()})
+ const row=container.querySelector('tbody tr')!
+ expect(row.textContent).toContain('Storefront')
+ expect(row.textContent).toContain('Team Storefront · Build flow · branch feature/storefront')
+ expect(row.textContent).not.toContain('A very long instruction')
+ expect(row.children[1]?.textContent).toBe('1')
 })

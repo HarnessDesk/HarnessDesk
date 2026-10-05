@@ -60,7 +60,7 @@ export const NotReportingList = ({ entries }: { entries: readonly NotReportingEn
         {entries.map((entry) => (
           <Row
             key={entry.key}
-            mark={<RuntimeMark runtime={entry.info} size={15} />}
+            mark={<RuntimeMark runtime={entry.info} size={16} />}
             title={entry.title}
             desc={entry.reason}
             control={
@@ -68,9 +68,7 @@ export const NotReportingList = ({ entries }: { entries: readonly NotReportingEn
                 <Button variant="outline" size="sm" onClick={entry.fix.onClick}>
                   {entry.fix.label}
                 </Button>
-              ) : (
-                <span>—</span>
-              )
+              ) : undefined
             }
           />
         ))}

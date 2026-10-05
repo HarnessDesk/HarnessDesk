@@ -58,6 +58,9 @@ import {
   Chip,
   EmptyState,
   Progress,
+  UsageMeterRow,
+  IconTile,
+  Table, TableHeader, TableHead, TableBody, TableRow, TableCell,
   SectionHead,
   Segmented,
   Separator,
@@ -417,27 +420,7 @@ export const Card = ({
           <div className={styles.lanes}>
             <Separator />
           {view.all.map((lane) => (
-            <div
-              key={lane.id}
-              className={styles.lane}
-              {...(lane.id === view.heroId ? { 'data-hero': '' } : {})}
-            >
-              <Text className={styles.laneName} role="muted" truncate title={lane.title}>
-                {lane.title}
-              </Text>
-              <Progress
-                className={styles.laneProgress}
-                value={lane.known ? lane.remainingPercent : null}
-                measure="remaining"
-                size="xs"
-                label={false}
-                aria-label={`${lane.title} — what is left`}
-              />
-              <Text role="muted" align="end" tone={paletteTone(lane.tone)} numeric>
-                {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
-              </Text>
-              <Text role="meta" align="end" numeric>{lane.shortCountdown ?? ''}</Text>
-            </div>
+            <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} tone={paletteTone(lane.tone)} />
           ))}
           {view.overflow > 0 && (
             <Text as="div" role="meta">
@@ -1125,59 +1108,31 @@ export const Ranked = ({
           .filter((part) => part.value > 0)}
       />
 
-      <SurfaceCard className={styles.ranked}>
-        {rows.map((row, index) => {
+      <Table variant="framed" density={compact ? 'compact' : 'comfortable'} className="table-fixed">
+        <TableHeader><TableRow>
+          <TableHead className={compact ? 'w-2/3' : 'w-1/2'}>Name</TableHead>
+          {!compact && pivot === 'runtime' && <TableHead numeric>Change</TableHead>}
+          <TableHead numeric>Share</TableHead>
+          {!compact && <><TableHead numeric>Tokens</TableHead><TableHead numeric>Cost</TableHead></>}
+        </TableRow></TableHeader>
+        <TableBody>{rows.map((row, index) => {
           const info = row.runtime ? byId.get(row.runtime) : null
           const label = nameOf(row)
           const share = shareOf(row.cost, total)
-          const change =
-            row.key === OTHER_KEY
-              ? null
-              : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
-          return (
-            <CardContent
-              key={row.key}
-              className={styles.rank}
-              data-pivot={pivot}
-              {...(compact ? { 'data-compact': '' } : {})}
-            >
-              <Text role="meta" className={styles.rankMark}>
-                {row.key === OTHER_KEY ? (
-                  <SeriesDot tint={tintAt(index, row)} />
-                ) : pivot === 'runtime' ? (
-                  <RuntimeMark
-                    runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)}
-                    size={15}
-                  />
-                ) : (
-                  <SeriesDot tint={tintAt(index, row)} />
-                )}
-              </Text>
-              <Text role="subject" truncate title={label}>
-                {label}
-              </Text>
-              {!compact && pivot === 'runtime' && (
-                <span className={styles.rankChange}>
-                  {change !== null && <Delta value={Math.round(change)} better="down" />}
-                </span>
-              )}
-              <Text role="muted" align="end" numeric>
-                {share === null ? '' : share < 1 ? '<1%' : `${Math.round(share)}%`}
-              </Text>
-              {!compact && (
-                <>
-                  <Text role="muted" align="end" numeric>
-                    {row.tokens === null ? '—' : formatTokens(row.tokens)}
-                  </Text>
-                  <Text role="value" align="end" numeric>
-                    {row.cost === null ? 'unpriced' : (formatMoney(row.cost, ledger.currency) ?? '—')}
-                  </Text>
-                </>
-              )}
-            </CardContent>
-          )
-        })}
-      </SurfaceCard>
+          const change = row.key === OTHER_KEY ? null : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
+          return <TableRow key={row.key}>
+            <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={tintAt(index, row)}><RuntimeMark runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)} /></IconTile> : <SeriesDot tint={tintAt(index, row)} />}>
+              <Text role="subject" truncate title={label}>{label}</Text>
+            </TableCell>
+            {!compact && pivot === 'runtime' && <TableCell numeric>{change === null ? <Text role="meta">—</Text> : <Delta value={Math.round(change)} better="down" />}</TableCell>}
+            <TableCell numeric><Text role="muted" numeric>{share === null ? '—' : share < 1 ? '<1%' : `${Math.round(share)}%`}</Text></TableCell>
+            {!compact && <>
+              <TableCell numeric><Text role="muted" numeric>{row.tokens === null ? '—' : formatTokens(row.tokens)}</Text></TableCell>
+              <TableCell numeric><Text role="value" numeric>{row.cost === null ? <Text role="meta">—</Text> : (formatMoney(row.cost, ledger.currency) ?? '—')}</Text></TableCell>
+            </>}
+          </TableRow>
+        })}</TableBody>
+      </Table>
       <Text as="div" role="meta">
         {pricedNote(unpriced, ledger.provenance)}
       </Text>

@@ -13,6 +13,7 @@ import { SessionListControls, SessionTree } from './SessionTree'
 import './TaskPanel'
 import {
   AccountMark,
+  UsageMeterRow,
   Bar,
   Button,
   Dot,
@@ -841,15 +842,7 @@ export const AccountFooter = ({
               <div className={styles.usageDetails} data-usage-details>
                 <div className={styles.usageLanes}>
                   {usageView.all.map((lane) => (
-                    <div className={styles.usageLane} key={lane.id}>
-                      <Text role="muted" truncate className={styles.usageLaneName}>{lane.title}</Text>
-                      <Text role="muted" tone={usageReadingTone(lane.tone)} numeric className={styles.accountMenuMeta}>
-                        {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
-                      </Text>
-                      <Text role="meta" numeric className={styles.usageLaneReset}>
-                        {lane.shortCountdown ? `in ${lane.shortCountdown}` : '—'}
-                      </Text>
-                    </div>
+                    <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone />
                   ))}
                 </div>
                 {/* No link to the dashboard here: Dashboard is in the

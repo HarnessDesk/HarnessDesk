@@ -91,7 +91,7 @@ import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixtu
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
-import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
+import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor, sceneFlowExecution } from './flow-fixture'
 import { frontDoorPreviewFor } from './front-door-fixture'
 import { triggerArmPreview, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
 /* The editor surface opens this file, and is given this file — its real
@@ -1854,6 +1854,30 @@ class PreviewStore {
    * is why they were never found by a fiber walk that starts from the DOM.
    * One breakdown, one row, is enough to draw the real thing.
    */
+  readUsageInsight = async (query: import('@harnessdesk/protocol').InsightQuery): Promise<import('@harnessdesk/protocol').InsightReport> => {
+    const base = insightReportFor(PREVIEW_GOAL.goal.id)
+    const unknown = new URLSearchParams(window.location.search).get('amounts') === 'unknown'
+    const usd = unknown ? { ...base.totals.usd, value: null, quality: 'unknown' as const, coverage: 'none' as const } : base.totals.usd
+    const row = base.breakdowns[0]!.rows[0]!
+    const goal = { ...PREVIEW_GOAL, board: { ...PREVIEW_GOAL.board, name: 'Storefront' } }
+    const seat = { ...PREVIEW_SEAT, board: goal.goal.id }
+    const execution = { ...sceneFlowExecution('pinned'), goal: goal.goal.id, startedAt: query.to - 3_600_000,
+      base: { branch: 'feature/storefront', at: 'a'.repeat(40), remote: 'origin' } }
+    this.patch({ goals: new Map(this.#snapshot.goals).set(goal.goal.id, goal),
+      flowExecutions: new Map(this.#snapshot.flowExecutions).set(execution.id, execution) })
+    return { ...base, query, goals: [goal.goal], seats: [seat],
+      scan: unknown ? 'partial' : 'complete', totals: { ...base.totals, usd },
+      breakdowns: ['goal', 'agent'].map(dimension => ({ dimension: dimension as 'goal' | 'agent',
+        rows: [{ ...row, goal: dimension === 'goal' ? goal.goal.id : null, key: dimension === 'goal' ? `goal:${PREVIEW_GOAL.goal.id}` : 'agent:project:scout', label: dimension === 'goal' ? goal.board.name : 'Scout', amounts: { ...row.amounts, usd } }],
+        unattributed: { ...base.breakdowns[0]!.unattributed, usd: unknown ? usd : base.breakdowns[0]!.unattributed.usd }, reason: 'No unique historical Seat could be established.',
+      })), gaps: unknown ? ['Insight stopped at 64 MiB of source data. Choose a narrower range.'] : [],
+    }
+  }
+
+  /** The fixture already contains the retained Team metadata and Run. */
+  loadGoals = async (): Promise<void> => {}
+  loadTeamRuns = async (): Promise<void> => {}
+
   readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor(goal)
 
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
