@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
   sessionKey,
+  runtimeId,
   type BoardEvidence,
   type FindingRunView,
   type GoalView,
@@ -969,7 +970,7 @@ it('the attempt dialog asks for both an attempt and a declared answer before rec
   expect(document.body.textContent).toContain('attempt-one · abcdef0')
   expect(document.body.textContent).toContain('Pass')
   expect(document.body.textContent).not.toContain('Fail')
-  const row = document.querySelector<HTMLElement>('[role="radio"]')
+  const row = document.querySelector<HTMLElement>('[role="dialog"] [role="radio"]')
   expect(row).not.toBeNull()
   const confirm = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Record answer')
   expect(confirm).toBeDefined()
@@ -1013,7 +1014,7 @@ it('a one-outcome person review uses its only answer without adding an answer co
   const dialog = document.body.querySelector('[role="dialog"]')
   expect(dialog).not.toBeNull()
   expect(dialog?.querySelector('[data-slot="chip"]')).toBeNull()
-  const attemptRow = document.querySelector<HTMLElement>('[role="radio"]')
+  const attemptRow = document.querySelector<HTMLElement>('[role="dialog"] [role="radio"]')
   expect(attemptRow).not.toBeNull()
   act(() => attemptRow!.click())
   await act(async () => {})
@@ -1595,7 +1596,7 @@ it('an attempt question already open stops recording an answer when the Team wra
   const wrap = wrapsLater(live)
   await render(live)
   await pick(1, 'Pick an attempt…')
-  act(() => document.querySelector<HTMLElement>('[role="radio"]')!.click())
+  act(() => document.querySelector<HTMLElement>('[role="dialog"] [role="radio"]')!.click())
   await act(async () => {})
   const record = (): HTMLButtonElement =>
     [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Record answer')!
@@ -1620,4 +1621,71 @@ it('keeps an empty Board quiet with one add-work control in its toolbar',async()
  expect(empty?.querySelector('h3,svg,button')).toBeNull()
  expect(container.textContent?.split('Nothing on the board yet')).toHaveLength(2)
  expect(container.querySelectorAll('button[aria-label^="New job"]')).toHaveLength(1)
+})
+
+it('lists every job, including completed work awaiting evidence, with Needs you first', async () => {
+  const { store } = rig([
+    intent({ id: 1, title: 'Recent job', updatedAt: 100 }),
+    intent({ id: 2, title: 'Blocked job', state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose the target', updatedAt: 2 }),
+    intent({ id: 3, title: 'Finished job', state: 'done', updatedAt: 50 }),
+  ])
+  await render(store)
+  act(() => button('List').click())
+  const table = container.querySelector('table')!
+  expect(table).not.toBeNull()
+  expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
+    'Blocked jobChoose the target', 'Recent job', 'Finished job',
+  ])
+  expect(table.textContent).toContain('Checking evidence')
+  expect(table.textContent).toContain('Unassigned')
+  expect(container.querySelector('button[aria-label="All jobs"]')?.getAttribute('aria-pressed')).toBe('true')
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Needs you jobs"]')!.click())
+  expect(table.querySelectorAll('tbody tr')).toHaveLength(1)
+  expect(table.textContent).toContain('Blocked job')
+  act(() => button('Board').click())
+  expect(container.querySelector('[data-slot="board"]')).not.toBeNull()
+})
+
+it('keeps list actions routed to the same host verbs and opens the exact assignee', async () => {
+  const { store } = rig([
+    intent({ id: 1, title: 'Held job', state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
+  ], { nicknames: { 'codex\u0000c1': 'Implementer' } })
+  await render(store)
+  act(() => button('List').click())
+  act(() => button('Implementer').click())
+  expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
+  act(() => button('Mark done').click())
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done')
+  await pick(1, 'Stop it')
+  expect(whyField()).not.toBeNull()
+})
+
+it('keeps stale checks qualified and separates pull requests and changes in the list', async () => {
+  const { store } = rig([intent({ state: 'done' })], {}, {
+    room: ROOM, stamp: 1, checks: [], refused: [], unreadable: null,
+    cards: [cardEvidence(1, [prView('open'), checkView({ freshness: { state: 'behind', commits: 2 } }),
+      factView({ kind: 'diff', files: 1, added: 38, removed: 12, from: 'a'.repeat(40), to: 'b'.repeat(40) })])],
+  })
+  await render(store)
+  act(() => button('List').click())
+  const row = container.querySelector('tbody tr')!
+  expect(row.textContent).toContain('#12')
+  expect(row.textContent).toContain('Stale')
+  expect(row.textContent).not.toContain('Passed')
+  expect(row.querySelector('[data-slot="change-stats"]')?.textContent).toBe('+38−12')
+})
+
+it('retains a completing assignee after the host clears the claim, ignoring refused claims', async () => {
+  const { store } = rig([intent({ state: 'done', note: 'Published the pull request' })], {
+    nicknames: { 'codex\u0000c1': 'Implementer' },
+    channel: [
+      { kind: 'signal', id: 'finished', at: 1, intent: 1, title: 'Migrate auth callers', signal: 'completed', by: { kind: 'agent', runtime: runtimeId('codex'), sessionId: 'c1', title: 'Implementer' } },
+      { kind: 'signal', id: 'refused', at: 2, intent: 1, title: 'Migrate auth callers', signal: 'conflict', by: { kind: 'agent', runtime: runtimeId('other'), sessionId: 'c1', title: 'Other agent' } },
+    ],
+  }, { room: ROOM, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] })
+  await render(store)
+  act(() => button('List').click())
+  expect(container.querySelector('tbody tr')?.textContent).toContain('Implementer')
+  act(() => button('Implementer').click())
+  expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
 })

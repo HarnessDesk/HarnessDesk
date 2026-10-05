@@ -42,6 +42,7 @@ import { RuntimesSection } from '../components/SettingsAgents'
 import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
+import { BoardListFrames } from './frames-board-list'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
@@ -1154,6 +1155,8 @@ createRoot(container).render(
       <AppWindowMode.Provider value="embedded">
         {new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
+          : new URLSearchParams(window.location.search).has('board-list')
+          ? <BoardListFrames />
           : new URLSearchParams(window.location.search).has('tables')
           ? <TablesPreview />
           : new URLSearchParams(window.location.search).has('undo-refused')

@@ -806,6 +806,16 @@ that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
 
+**As a list.** Board · List switches the same jobs into a framed table. Filter
+jobs by words or state; All starts pressed, and the default order puts Needs
+you first, then the most recent. Job kind stays beside its title, with the last
+recorded note beneath it. Assignee, state, pull request, checks, changes and
+updated time each have a column; stale or unknown facts keep their qualification.
+Completed jobs still awaiting their first evidence read remain visible as
+Checking evidence. A row keeps one action visible, with its other verbs in the
+menu on hover or keyboard focus. The view menu chooses columns and sort, and
+the footer names the displayed count and order.
+
 **A conversation's Seat record.** A conversation seated as an Agent shows its
 Seat record at the head of its Agents inspector, above the sub-agents it
 started: the Agent and where it came from, what it runs on, what was passed

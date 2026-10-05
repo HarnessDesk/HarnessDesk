@@ -12,7 +12,10 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { Chip, Dialog, Field, Input, Note, RowChoice, Rows, Text } from '../design'
+import { ChangeStats, Chip, Dialog, Dot, Field, Input, Note, RowChoice, Rows, Segmented, TableCell, TableRow, Text } from '../design'
+import { TeamBoardList, type JobColumn } from './TeamBoardList'
+import { chipOf, ciVerdict, isCurrent, standingWords } from '../lib/evidence'
+import { openExternal } from '../lib/desktop'
 import { runtimeTint } from '../lib/accounts'
 import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
@@ -203,6 +206,7 @@ const CHECKS_FILE_WORDS = '.harnessdesk/checks.yml'
 export const TeamBoardPane = ({ room }: { room: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const [view, setView] = useState<'board' | 'list'>('board')
   const [trouble, setTrouble] = useState<string | null>(null)
   /**
    * The long form, and the goal it was opened from.
@@ -340,10 +344,10 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   )
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!watchingLeases) return
+    if (!watchingLeases && view !== 'list') return
     const timer = setInterval(() => setNow(Date.now()), 30_000)
     return () => clearInterval(timer)
-  }, [watchingLeases])
+  }, [watchingLeases, view])
 
   const waiting = useMemo(() => new Set(snapshot.approvals.map((one) => one.key)), [snapshot.approvals])
   const flowRun = (snapshot.flowRuns.get(room) ?? []).find(
@@ -469,8 +473,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        work keeps its label to the last. */
     <ToolPane variant="integrated" className="@container/board">
       <ToolPaneHeader
-        contentInset="board"
-        icon={<PlanIcon />}
+        contentInset={view === 'list' ? 'reading-table' : 'board'}
+        icon={view === 'board' ? <PlanIcon /> : undefined}
         title="Board"
         /* The state of the work, not the path. The room's rail already says
            which project this is, and in a pane of its own the tab does — a
@@ -537,6 +541,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               aria-label="New job — add work with files, dependencies and a goal"
               disabled={record}
               title={record ? RECORD_REASON : "Add work with files, dependencies and a goal. Work added here can be claimed by one conversation at a time, with its files owned while the claim lives."}
+              variant="outline"
               onClick={openAdd}
             >
               <PlusIcon />
@@ -545,10 +550,11 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                   losing the action. `@container/board` is on the pane. */}
               <span className="hidden @[26rem]/board:inline">New job</span>
             </Button>
+            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board' }, { value: 'list', label: 'List' }]} onChange={setView} />
           </div>
         }
       />
-      <ToolPaneBody>
+      <ToolPaneBody bleed={view === 'list'}>
         {trouble && <Note tone="bad">{trouble}</Note>}
         {waitingForEvidence && (
           <Banner
@@ -574,6 +580,16 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           <PaneColumn inset="reading">
             <EmptyState variant="inline" align="start" title="Nothing on the board yet" />
           </PaneColumn>
+        ) : view === 'list' ? (
+          <TeamBoardList intents={intents} placed={placed} renderRow={(intent, columns) => (
+            <IntentCard key={intent.id} listColumns={columns} intent={intent} room={room}
+              placement={placed.get(intent.id) ?? null} now={now} attached={attached}
+              evidence={evidence?.cards.find(one => one.card === intent.id)} checks={evidence ?? NO_CHECKS}
+              onRunCheck={name => runCheck(intent.id, name)}
+              onAssign={goal && !intent.claim && intent.state === 'open' ? () => setAssigning(intent.id) : undefined}
+              onOpenHolder={() => openHolder(intent)}
+              onAct={(verb, outcome) => verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)} />
+          )} />
         ) : (
           <Board wrap derived>
             {shown.map((column) => {
@@ -752,6 +768,7 @@ import { seatCeilingOf } from '../lib/ceilings'
 import { CeilingChip } from './CeilingChip'
 
 const IntentCard = ({
+  listColumns,
   intent,
   room,
   placement,
@@ -764,6 +781,7 @@ const IntentCard = ({
   onOpenHolder,
   onAct,
 }: {
+  listColumns?: ReadonlySet<JobColumn>
   intent: Intent
   room: string
   placement: Placement | null
@@ -847,19 +865,26 @@ const IntentCard = ({
     }
   }
 
+  const lifecycle = snapshot.teams.get(room)?.channel.slice().reverse().find(one =>
+    one.kind === 'signal' && one.intent === intent.id && one.signal !== 'conflict')
+  const former = lifecycle?.kind === 'signal' && lifecycle.by.kind === 'agent' &&
+    ((intent.state === 'done' && lifecycle.signal === 'completed') ||
+     (intent.state === 'blocked' && intent.blockedBy === 'hand' && lifecycle.signal === 'blocked'))
+    ? lifecycle.by : null
+  const assignee = intent.claim ?? (listColumns ? former : null)
   const record = isRecord(snapshot.goals.get(room))
-  const runtime = intent.claim
-    ? (snapshot.runtimes.find((one) => one.id === intent.claim?.runtime) ?? null)
+  const runtime = assignee
+    ? (snapshot.runtimes.find((one) => one.id === assignee?.runtime) ?? null)
     : null
-  const session = intent.claim
-    ? snapshot.sessions.get(sessionKey(intent.claim.runtime, intent.claim.sessionId as SessionId))
+  const session = assignee
+    ? snapshot.sessions.get(sessionKey(assignee.runtime, assignee.sessionId as SessionId))
     : null
   const stranded = strandedFor(intent, now, attached)
   /* The board carries the names, so a card can say who holds it without
      fetching a roster — and without drawing "(untitled)" in the gap before an
      answer that may never come for a conversation nobody named. */
-  const holder = intent.claim
-    ? nicknameOf(snapshot.teams.get(room)?.nicknames, intent.claim)
+  const holder = assignee
+    ? nicknameOf(snapshot.teams.get(room)?.nicknames, assignee)
     : undefined
   /* The holder by its *room name*. Reading the conversation's own title first
      and falling back to "(untitled)" — which is what an ACP conversation
@@ -868,8 +893,8 @@ const IntentCard = ({
   const holderName = holder ?? session?.title ?? runtime?.presentation.name ?? '(untitled)'
   /* The holder's own ring, so the face on a card and the row in the rail are
      visibly the same account — see lib/accounts.ts on what the ring is for. */
-  const holderTint = intent.claim
-    ? runtimeTint(intent.claim.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)
+  const holderTint = assignee
+    ? runtimeTint(assignee.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)
     : 'blue'
   const holderCeiling = intent.claim
     ? seatCeilingOf(session?.settings, snapshot.flowRuns.get(room) ?? [], intent.claim.runtime, intent.claim.sessionId)
@@ -996,9 +1021,94 @@ const IntentCard = ({
             : []),
         ]
 
+  const primary = verbs.find(one => !one.danger)
+  const actions = (
+        verbs.length > 0 || checkItems.length > 0 || onAssign ? (
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+            {(close) => (
+              <Menu close={close}>
+                {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}
+                {onAssign && (checkItems.length > 0 || verbs.length > 0) ? <MenuSeparator /> : null}
+                {checkItems.map((one) => (
+                  <MenuItem
+                    key={`check:${one.key}`}
+                    label={one.label}
+                    disabled={record ? RECORD_REASON : one.why ?? false}
+                    onSelect={() => onRunCheck(one.key)}
+                  />
+                ))}
+                {checkItems.length > 0 && verbs.length > 0 && <MenuSeparator />}
+                {verbs.filter(one => !listColumns || one !== primary).map((one) => (
+                  <MenuItem
+                    key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
+                    label={one.label}
+                    disabled={record ? RECORD_REASON : false}
+                    danger={one.danger}
+                    onSelect={() => one.review ? void openReviewDialog() : onAct(one.verb, one.outcome)}
+                  />
+                ))}
+              </Menu>
+            )}
+          </Popover>
+        ) : undefined
+  )
+  const latest = (kind: 'pr' | 'diff') => [...evidence?.facts ?? []]
+    .filter(one => one.record.fact.kind === kind).sort((a, b) => b.record.observedAt - a.record.observedAt)[0]
+  const pr = latest('pr')
+  const diff = latest('diff')
+  const checkFacts = [...evidence?.facts ?? []].filter(one => one.record.fact.kind === 'check' || one.record.fact.kind === 'ci')
+  // The host normally folds facts; retain only the newest observation of each check here too.
+  const latestChecks = new Map<string, typeof checkFacts[number]>()
+  for (const one of [...checkFacts].sort((a, b) => a.record.observedAt - b.record.observedAt)) {
+    const fact = one.record.fact
+    latestChecks.set(fact.kind === 'check' ? `check:${fact.name}` : fact.kind, one)
+  }
+  const checksNow = [...latestChecks.values()]
+  const checkWords = evidence?.running.length ? 'Running'
+    : checksNow.length === 0 ? '—'
+    : checksNow.some(one => !isCurrent(one.freshness)) ? 'Stale or unknown'
+    : checksNow.some(one => chipOf(one).outcome === 'failed' || chipOf(one).outcome === 'timed out') ? 'Failed'
+    : checksNow.some(one => one.record.fact.kind === 'ci' && ciVerdict(one.record.fact.checks) === 'running') ? 'Running'
+    : checksNow.every(one => chipOf(one).outcome === 'passed') ? 'Passed' : 'Not passed'
+  const stateWords = placement ? FACT_COLUMNS.find(one => one.id === placement.column)!.title : 'Checking evidence'
+  const lastWords = intent.blockedReason ?? repairLead ?? intent.note ??
+    (lifecycle?.kind === 'signal' ? lifecycle.detail ?? null : null) ?? intent.detail
+  const brand = runtime ? brandForRuntime(runtime) : null
+  const face = <IconTile shape={assignee ? "face" : "round"} tint={holderTint} empty={!assignee}>
+    {assignee && (brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />)}
+  </IconTile>
+
   return (
     <>
-    <BoardCard
+    {listColumns ? (
+      <TableRow interactive className="group/job" data-job={intent.id}>
+        <TableCell className="whitespace-normal min-w-64">
+          <span className="flex items-center gap-2"><Text role="row">{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
+          {lastWords && <Text role="meta" className="block whitespace-normal">{lastWords}</Text>}
+        </TableCell>
+        {listColumns.has('assignee') && <TableCell>
+          {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="gap-2">{face}{holderName}</Button>
+            : <span className="inline-flex items-center gap-2">{face}<Text role="meta">Unassigned</Text></span>}
+        </TableCell>}
+        {listColumns.has('state') && <TableCell><Chip tone={placement?.column === 'needs' ? 'warning' : placement?.column === 'ready' ? 'success' : 'neutral'}>{stateWords}</Chip></TableCell>}
+        {listColumns.has('pr') && <TableCell>
+          {pr?.record.fact.kind === 'pr' ? <Button variant="link" size="inline" disabled={!pr.record.fact.url} title={standingWords(pr.freshness)} onClick={() => pr.record.fact.kind === 'pr' && pr.record.fact.url && openExternal(pr.record.fact.url)}>
+            #{pr.record.fact.number}{!isCurrent(pr.freshness) && ' · stale or unknown'}
+          </Button> : <Text role="meta">—</Text>}
+        </TableCell>}
+        {listColumns.has('checks') && <TableCell><span className="inline-flex items-center gap-1.5" title={checksNow.map(one => `${chipOf(one).label}: ${standingWords(one.freshness)}`).join(' · ')}>
+          {checkWords !== '—' && <Dot tone={checkWords === 'Passed' ? 'success' : checkWords === 'Failed' ? 'danger' : 'neutral'} />}<Text role="meta">{checkWords}</Text>
+        </span></TableCell>}
+        {listColumns.has('changes') && <TableCell numeric>
+          {diff?.record.fact.kind === 'diff' ? <span title={standingWords(diff.freshness)}><ChangeStats added={diff.record.fact.added} removed={diff.record.fact.removed} />{!isCurrent(diff.freshness) && <Text role="meta"> · stale or unknown</Text>}</span> : <Text role="meta">—</Text>}
+        </TableCell>}
+        {listColumns.has('updated') && <TableCell numeric><Text role="meta" numeric title={new Date(intent.updatedAt).toLocaleString()}>{describeAge(now - intent.updatedAt)}</Text></TableCell>}
+        <TableCell align="end"><span className="inline-flex items-center gap-1.5">
+          {primary && !record && <Button variant="outline" size="sm" onClick={() => primary.review ? void openReviewDialog() : onAct(primary.verb, primary.outcome)}>{primary.label}</Button>}
+          <span className="opacity-0 group-hover/job:opacity-100 group-focus-within/job:opacity-100 has-[[aria-expanded=true]]:opacity-100">{actions}</span>
+        </span></TableCell>
+      </TableRow>
+    ) : <BoardCard
       title={
         <>
           <Text role="meta">#{intent.id}</Text>{' '}
@@ -1163,37 +1273,8 @@ const IntentCard = ({
           )}
         </span>
       }
-      actions={
-        verbs.length > 0 || checkItems.length > 0 || onAssign ? (
-          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
-            {(close) => (
-              <Menu close={close}>
-                {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}
-                {onAssign && (checkItems.length > 0 || verbs.length > 0) ? <MenuSeparator /> : null}
-                {checkItems.map((one) => (
-                  <MenuItem
-                    key={`check:${one.key}`}
-                    label={one.label}
-                    disabled={record ? RECORD_REASON : one.why ?? false}
-                    onSelect={() => onRunCheck(one.key)}
-                  />
-                ))}
-                {checkItems.length > 0 && verbs.length > 0 && <MenuSeparator />}
-                {verbs.map((one) => (
-                  <MenuItem
-                    key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
-                    label={one.label}
-                    disabled={record ? RECORD_REASON : false}
-                    danger={one.danger}
-                    onSelect={() => one.review ? void openReviewDialog() : onAct(one.verb, one.outcome)}
-                  />
-                ))}
-              </Menu>
-            )}
-          </Popover>
-        ) : undefined
-      }
-    />
+      actions={actions}
+    />}
     {reviewDialog && (
       <Dialog
         title={intent.title}
