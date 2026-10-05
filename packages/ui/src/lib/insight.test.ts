@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { INSIGHT_ROW_NOTES } from '@harnessdesk/protocol'
 
-import { metricWords } from './insight.js'
+import { commonRowNote, metricWords } from './insight.js'
 
 const source = { id: 'source', kind: 'corpus' as const, label: 'Agent transcript', observedAt: 0, checkedAt: 60_000, stale: true, problem: null }
 const metric = (value: number | null, quality: 'exact' | 'floor' | 'estimate' | 'unknown', coverage: 'complete' | 'partial' | 'none' = 'complete') => ({
@@ -33,4 +34,13 @@ it('deduplicates corpus labels and retains the oldest of four file observations'
   const words = metricWords({ ...metric(4, 'exact'), sourceIds: sources.map(s => s.id) }, sources, 240_000)
   expect(words.source).toBe('Recorded usage · 4 files')
   expect(words.freshness).toBe('4 minutes since observation')
+})
+
+it('keeps missing brief exceptions attached to their Seats even when every brief is missing', () => {
+  expect(commonRowNote([{ note: 'Brief cohort unavailable' }, { note: 'Brief cohort unavailable' }])).toBeNull()
+})
+
+
+it.each([INSIGHT_ROW_NOTES.goal, INSIGHT_ROW_NOTES.agent, INSIGHT_ROW_NOTES.cohort])('hoists the shared host note %s while retaining exceptions', note => {
+  expect(commonRowNote([{ note }, { note }, { note: INSIGHT_ROW_NOTES.missingCohort }])).toBe(note)
 })

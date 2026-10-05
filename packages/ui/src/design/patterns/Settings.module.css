@@ -690,6 +690,28 @@
   min-width: 0;
 }
 
+.note[data-action] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.note[data-action] > [data-slot='note-text'] {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.note[data-action][data-icon] > [data-slot='note-text'] {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--hd-space-1);
+}
+
+.note[data-action] > [data-slot='note-action'] {
+  flex: none;
+}
+
 .formStack + .note {
   margin-top: var(--hd-space-3);
 }

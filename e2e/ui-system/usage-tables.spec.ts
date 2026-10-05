@@ -193,6 +193,12 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(frame.getByText('Recorded corpus rows without a unique historical Seat remain unattributed.', { exact: true })).toBeVisible()
       await expect(frame.getByText('Recorded brief cohort', { exact: true })).toHaveCount(1)
       await expect(frame.getByText(/4 files/)).toBeVisible()
+      const footerGap = await frame.locator('[data-footer]').evaluate(node => {
+        const value = node.querySelector('dd')!.getBoundingClientRect()
+        const note = node.querySelector('[data-slot="key-value-note"]')!.getBoundingClientRect()
+        return note.top - value.bottom
+      })
+      expect(footerGap).toBe(2)
       const pairs = await frame.locator('[data-slot="key-value-row"]').evaluateAll(nodes => nodes.map(node => {
         const key = node.querySelector('dt')!; const value = node.querySelector('dd')!
         const note = node.querySelector('[data-slot="key-value-note"]')
@@ -216,3 +222,62 @@ test('partial Project preview has available Team counts through the default load
   await expect(frame.locator('tbody tr')).toHaveCount(1)
   for (const cell of await frame.locator('tbody td:nth-child(2)').all()) await expect(cell).toHaveText(/^[0-9]+$/)
 })
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`blocked plan popover names the gate clock in ${theme}`, async ({ page }) => {
+    await page.goto('/preview.html')
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const gate = await page.evaluate(() => {
+      const { store } = (window as unknown as { __hdPreview: { store: import('../../packages/ui/src/state/store').AppStore & { patch(value: object): void } } }).__hdPreview
+      const until = Date.now() + 3 * 86400000
+      store.patch({ usage: store.getSnapshot().usage.map(report => ({ ...report, lanes: report.lanes.length ? [
+        { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + 3600000 },
+        { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: until },
+      ] : [] })) })
+      return until
+    })
+    await page.getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
+    const menu = page.getByRole('menu').filter({ has: page.getByText('blocked 3d', { exact: true }) })
+    const row = menu.locator('[data-slot="usage-meter-row"]').filter({ hasText: 'Session' })
+    await expect(row).toContainText('blocked 3d')
+    const clock = await page.evaluate(async gate => {
+      const { formatReset } = await import('/src/lib/limits.ts' as string)
+      return formatReset(gate)
+    }, gate)
+    await expect(row.locator(':scope > :last-child')).toHaveAttribute('title', `blocked until ${clock}`)
+    await page.evaluate(async () => { await document.fonts.ready })
+    if (process.env.USAGE_REPAIR_FRAMES === '1') await menu.screenshot({ path: `output/usage-round2/blocked-plan-${theme}.png` })
+  })
+
+  test(`By Goal retries refused history and wraps its recovery action in ${theme}`, async ({ page }) => {
+    await page.route('**/src/preview/usage-fixture.ts*', async route => {
+      const response = await route.fetch()
+      const body = (await response.text())
+        .replace('loaded: new Set(teams)', 'loaded: new Set(window.__historyRecovered ? teams : [])')
+        .replace('unavailable: new Set()', 'unavailable: new Set(window.__historyRecovered ? [] : teams)')
+      await route.fulfill({ response, body })
+    })
+    await page.goto('/preview.html?view=projects')
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+    const project = dashboard.locator('[aria-label="Project usage"]')
+    const note = project.locator('[data-slot="note"]').filter({ hasText: 'Run counts are unavailable for some Teams.' })
+    await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+    await expect(project.locator('tbody td').nth(1)).toHaveText('—')
+    await note.evaluate(node => { (node as HTMLElement).style.width = '260px' })
+    const geometry = await note.evaluate(node => {
+      const text = node.querySelector('[data-slot="note-text"]')!.getBoundingClientRect()
+      const action = node.querySelector('button')!.getBoundingClientRect()
+      return { textBottom: text.bottom, actionTop: action.top, actionLeft: action.left, noteLeft: node.getBoundingClientRect().left, client: node.clientWidth, scroll: node.scrollWidth }
+    })
+    expect(geometry.actionTop).toBeGreaterThan(geometry.textBottom)
+    expect(geometry.actionLeft).toBe(geometry.noteLeft)
+    expect(geometry.scroll).toBe(geometry.client)
+    await page.evaluate(async () => { await document.fonts.ready })
+    if (process.env.USAGE_REPAIR_FRAMES === '1') await project.screenshot({ path: `output/usage-round2/by-goal-retry-${theme}.png` })
+    await page.evaluate(() => { (window as unknown as { __historyRecovered: boolean }).__historyRecovered = true })
+    await note.getByRole('button', { name: 'Try again', exact: true }).click()
+    await expect(note).toHaveCount(0)
+    await expect(project.locator('tbody td').nth(1)).toHaveText('1')
+  })
+}

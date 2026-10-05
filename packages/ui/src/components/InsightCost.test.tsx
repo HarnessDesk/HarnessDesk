@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { InsightMetric, InsightReport, InsightSource } from '@harnessdesk/protocol'
 
 import { InsightCost } from './InsightCost'
@@ -17,6 +17,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
 const source: InsightSource = {
@@ -188,11 +189,12 @@ it('leaves varying cohort exceptions on their own full-width note line', () => {
 
 
 it('names four scanned Goal files once in the recorded total', () => {
+  vi.spyOn(Date, 'now').mockReturnValue(12 * 60_000)
   const base = report()
   const sources = [1, 2, 3, 4].map(n => ({ ...source, id: `file-${n}` }))
   const fourFiles = { ...base, sources, totals: { ...base.totals, usd: { ...base.totals.usd, sourceIds: sources.map(s => s.id) } } }
   act(() => root.render(<InsightCost report={fourFiles} loading={false} problem={null} onRefresh={() => {}} />))
-  expect(container.querySelector('[data-footer] [data-slot="key-value-note"]')?.textContent).toContain('Recorded usage · 4 files')
+  expect(container.querySelector('[data-footer] [data-slot="key-value-note"]')?.textContent).toBe('4 files · 12 minutes since observation')
   expect(container.querySelector('[data-footer]')?.textContent).not.toContain('Recorded usage, Recorded usage')
 })
 

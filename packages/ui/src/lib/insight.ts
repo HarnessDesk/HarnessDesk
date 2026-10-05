@@ -1,4 +1,5 @@
 import type { InsightMetric, InsightSource } from '@harnessdesk/protocol'
+import { INSIGHT_ROW_NOTES } from '@harnessdesk/protocol'
 
 export interface MetricWords {
   readonly value: string
@@ -48,8 +49,8 @@ export function receiptMetricWords(metric: InsightMetric, sources: readonly Insi
 
 /** Host dimension notes belong to the group; cohort exceptions stay on their Seats. */
 export const commonRowNote = (rows: readonly { readonly note: string | null }[]): string | null => {
-  const ordinary = rows.find(row => row.note === 'Historical Seats' || row.note === 'Historical Agent Seats' || row.note === 'Recorded brief cohort')?.note
+  const ordinary = rows.find(row => row.note === INSIGHT_ROW_NOTES.goal || row.note === INSIGHT_ROW_NOTES.agent || row.note === INSIGHT_ROW_NOTES.cohort)?.note
   if (ordinary) return ordinary
   const note = rows[0]?.note
-  return note && rows.every(row => row.note === note) ? note : null
+  return note && note !== INSIGHT_ROW_NOTES.missingCohort && rows.every(row => row.note === note) ? note : null
 }

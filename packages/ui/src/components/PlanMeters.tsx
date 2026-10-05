@@ -182,7 +182,7 @@ const Meter = ({
             {view.report.lanes.map((raw) => {
               const lane = describeLane(raw, now, view.report.lanes)
               return (
-                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={toneOf(lane.tone)} standalone />
+                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} countdownTitle={lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={toneOf(lane.tone)} standalone />
               )
             })}
           </div>

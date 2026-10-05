@@ -48,6 +48,10 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     pending: new Map<string, Promise<void>>(), goals: null as Promise<void> | null,
   }), [store, report, root])
   const [, redrawHistory] = useState(0)
+  const [historyAttempt, retryHistory] = useState(0)
+  // Entering either view retries refusals, while successful and in-flight
+  // reads remain shared with the other view.
+  useEffect(() => { history.unavailable.clear() }, [history, view])
   const readTeams = history.read
   const unavailableTeams = history.unavailable
   const teamIds = useMemo(() => {
@@ -74,7 +78,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       if (!current) return
       const missing = teamIds.filter(team => !history.read.has(team) && !history.unavailable.has(team) && !history.pending.has(team))
       if (missing.length > 0) {
-        const batch = (async () => {
+        const batch = Promise.resolve().then(async () => {
           try {
             if (!store.loadTeamRunsBatch) throw new Error('Run history unavailable')
             const loaded = await store.loadTeamRunsBatch(missing)
@@ -82,15 +86,17 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
             for (const team of loaded.unavailable) history.unavailable.add(team)
           } catch {
             for (const team of missing) history.unavailable.add(team)
+          } finally {
+            for (const team of missing) history.pending.delete(team)
           }
-        })()
+        })
         for (const team of missing) history.pending.set(team, batch)
       }
       await Promise.all(teamIds.map(team => history.pending.get(team)))
       if (current) redrawHistory(value => value + 1)
     })()
     return () => { current = false }
-  }, [store, report, root, teamIds, history])
+  }, [store, report, root, teamIds, history, historyAttempt])
   if (!root) return <Note>Choose a project to see its Goals.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
@@ -153,7 +159,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       </TableRow></TableFooter>
     </Table>}
     {groupNote && <Note>{groupNote}</Note>}
-    {teamIds.some(team => unavailableTeams.has(team)) && <Note tone="warn">Run counts are unavailable for some Teams.</Note>}
+    {teamIds.some(team => unavailableTeams.has(team)) && <Note tone="warn" action={<Button variant="outline" size="sm" onClick={() => { history.unavailable.clear(); retryHistory(value => value + 1) }}>Try again</Button>}>Run counts are unavailable for some Teams.</Note>}
     {failedSources.length > 0 && <Rows>{failedSources.map(source => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}</Rows>}
     {report.gaps.filter(gap => gap !== scanGap).map(gap => <Note key={gap} tone="warn">{gap}</Note>)}
   </>

@@ -48,7 +48,8 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
     return <div className="flex flex-col items-end">{part.value}{[qualifier, part.coverage].filter(Boolean).length > 0 && <Text as="div" role="meta">{[qualifier, part.coverage].filter(Boolean).join(' · ')}</Text>}</div>
   }
   const groupNote = commonRowNote(selected?.rows ?? [])
-  const totalSourceAndAge = words.source === 'Recorded usage' ? words.freshness : `${words.source} · ${words.freshness}`
+  const sourceParts = words.source.split(' · ')
+  const totalSourceAndAge = [...(sourceParts[0] === 'Recorded usage' ? sourceParts.slice(1) : sourceParts), words.freshness].join(' · ')
 
   return (
     <section aria-label="Cost">

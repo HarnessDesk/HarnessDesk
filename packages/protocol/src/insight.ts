@@ -7,6 +7,14 @@ export interface Measure {
   readonly quality: 'exact' | 'floor' | 'estimate' | 'unknown'
 }
 
+/** Shared host and presentation vocabulary for historical attribution notes. */
+export const INSIGHT_ROW_NOTES = {
+  goal: 'Historical Seats',
+  agent: 'Historical Agent Seats',
+  cohort: 'Recorded brief cohort',
+  missingCohort: 'Brief cohort unavailable',
+} as const
+
 export interface InsightSource {
   readonly id: string
   /** Runtime that owns this source when it is known; absent records stay unscoped for compatibility. */

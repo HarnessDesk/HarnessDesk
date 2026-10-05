@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 
 import type { RuntimeId, RuntimeInfo, UsagePreference } from '@harnessdesk/protocol'
 
-import { paletteTone, usageReadingTone } from '../../lib/limits'
+import { usageReadingTone } from '../../lib/limits'
 import {
   moneyRowOf,
   SHAPE_CHIP_LABEL,

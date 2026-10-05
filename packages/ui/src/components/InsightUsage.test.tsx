@@ -415,7 +415,7 @@ it('retains Team reads across views and requests only newly visible Teams', asyn
  expect(loadTeamRunsBatch).toHaveBeenCalledTimes(2)
 })
 
-it('keeps a cached history refusal scoped to visible Teams and discards it with the report', async () => {
+it('retries refused Teams on view entry while retaining successful reads', async () => {
  const base = report(); const b = base.breakdowns[0]!
  const seat = { ...scopedSeat('other', 'alpha', 0, null), board: 'team-two' }
  const shown = { ...base, seats: [seat], breakdowns: [b, { ...b, dimension: 'agent' as const, rows: [{ ...b.rows[0]!, key: 'agent:project:builder', label: 'Builder' }] }] }
@@ -431,8 +431,31 @@ it('keeps a cached history refusal scoped to visible Teams and discards it with 
  expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('0')
  await show('agent')
  expect(container.textContent).toContain('Run counts are unavailable')
- expect(loadTeamRunsBatch).toHaveBeenCalledTimes(2)
+ expect(loadTeamRunsBatch.mock.calls.map(c => c[0])).toEqual([['team-two'], ['goal-1'], ['team-two']])
  await show('goal', { ...shown, query: { ...shown.query, root: '/other' } })
- expect(loadTeamRunsBatch).toHaveBeenCalledTimes(3)
+ expect(loadTeamRunsBatch).toHaveBeenCalledTimes(4)
  expect(loadGoals).toHaveBeenCalledTimes(2)
+})
+
+
+it('retries only refused Teams from the note and recovers their counts', async () => {
+ const base = report(); const b = base.breakdowns[0]!
+ const shown = { ...base, breakdowns: [{ ...b, rows: [b.rows[0]!, { ...b.rows[0]!, key: 'team-two', goal: 'team-two', label: 'Second Goal' }] }] }
+ const snapshot = emptySnapshot()
+ const loadTeamRunsBatch = vi.fn()
+   .mockResolvedValueOnce({ loaded: new Set(['goal-1']), unavailable: new Set(['team-two']) })
+   .mockRejectedValueOnce(new Error('Timeout'))
+   .mockResolvedValueOnce({ loaded: new Set(['team-two']), unavailable: new Set() })
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals: vi.fn(async () => {}), loadTeamRunsBatch } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
+ expect(container.querySelector('tbody tr:first-child td:nth-child(2)')?.textContent).toBe('0')
+ expect(container.querySelector('tbody tr:last-child td:nth-child(2)')?.textContent).toBe('—')
+ const retry = () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')
+ expect(retry()).toBeTruthy()
+ await act(async () => retry()!.click())
+ expect(container.textContent).toContain('Run counts are unavailable')
+ await act(async () => retry()!.click())
+ expect(loadTeamRunsBatch.mock.calls.map(c => c[0])).toEqual([['goal-1', 'team-two'], ['team-two'], ['team-two']])
+ expect(container.textContent).not.toContain('Run counts are unavailable')
+ expect(container.querySelector('tbody tr:last-child td:nth-child(2)')?.textContent).toBe('0')
 })

@@ -127,6 +127,8 @@ export interface LaneView {
   readonly gatedUntil: number | null
   /** How long that hold lasts, in one unit, for the row that has to say it. */
   readonly gatedFor: string | null
+  /** The clock time when the longer spent window releases this lane. */
+  readonly gatedClock: string | null
 }
 
 export type PaceStage = 'onTrack' | 'ahead' | 'behind'
@@ -282,6 +284,7 @@ export const describeLane = (
     burn: burn(lane, now),
     gatedUntil: gate,
     gatedFor: gate === null ? null : formatCountdownShort(gate - now),
+    gatedClock: formatReset(gate, now),
   }
 }
 

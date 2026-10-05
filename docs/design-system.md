@@ -629,6 +629,14 @@ having written the judgement down.
 
 ### Everything else with a rule
 
+### `action`
+
+**Use** — One recovery action for the group note: pass action to Note so it follows the sentence and wraps beneath it when narrow.
+
+**Not** — A button embedded in the sentence, or a separate screen layout for the same note and action.
+
+**Why** — The explanation stays whole while its recovery control remains reachable at narrow widths.
+
 ### `box ÷ cap ≈ 3.2`
 
 **Use** — Any control with a word in it — a button, an input, a select, a segmented cell.
@@ -1802,6 +1810,7 @@ Tone follows the one contract (`design/usage.ts`, family `tone`): `warn`
 only when the person must act now, `bad` only when something is broken or
 will be lost. Ordinary information — including a stop the person asked for,
 or a limit that is simply how the thing works — is an untoned note.
+An optional action follows the sentence and wraps beneath it when narrow.
 
 ### `NoteList`
 

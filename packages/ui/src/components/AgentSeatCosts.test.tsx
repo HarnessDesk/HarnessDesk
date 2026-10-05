@@ -160,3 +160,17 @@ it('keeps a group-level gap note outside the Rows card rather than flush against
   const card = wrappedDesc!.parentElement!.parentElement!.parentElement!
   expect(card.contains(note!)).toBe(false)
 })
+
+
+it('shares the normal cohort note and keeps missing briefs with their Seats', async () => {
+ const base = report()
+ const shown = { ...base, seats: [...base.seats, { ...base.seats[0]!, id: 'missing', seatLabel: 'Missing brief', briefDigest: null }] }
+ const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight: vi.fn(async () => shown) } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+ expect([...container.querySelectorAll('[data-slot="note"]')].filter(note => note.textContent === 'Recorded brief cohort')).toHaveLength(1)
+ const rows = [...container.querySelectorAll('[data-slot="row"]')]
+ expect(rows).toHaveLength(3)
+ for (const row of rows) expect(row.textContent).not.toContain('Recorded brief cohort')
+ expect(container.textContent).toContain('Missing briefBrief cohort unavailable')
+})

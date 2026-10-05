@@ -14,6 +14,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { PlanMeters } from './PlanMeters'
+import { formatReset } from '../lib/limits'
 
 /**
  * The strip's contract, through the DOM.
@@ -254,11 +255,12 @@ it('opens the roster behind the token, named account by account', () => {
 })
 
 it('keeps a shorter lane blocked until the account-wide window resets', () => {
+ const gate = Date.now() + 3 * 24 * HOUR
  mount({
   runtimes: [runtime('a', 'Agent A')],
   usage: [report('a', [
    { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + HOUR },
-   { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 3 * 24 * HOUR },
+   { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: gate },
   ])],
   ...conversationWith('a'),
  })
@@ -266,6 +268,7 @@ it('keeps a shorter lane blocked until the account-wide window resets', () => {
  const lane = [...document.querySelectorAll('[data-slot="usage-meter-row"]')].find(row => row.textContent?.startsWith('Session'))
  expect(lane?.textContent).toContain('blocked 3d')
  expect(lane?.textContent).not.toContain('in 1 h')
+ expect(lane?.lastElementChild?.getAttribute('title')).toBe(`blocked until ${formatReset(gate)}`)
 })
 
 it('says nothing at all when a signed-in agent reports no usage', () => {
