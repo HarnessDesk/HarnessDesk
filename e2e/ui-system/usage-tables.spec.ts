@@ -27,7 +27,7 @@ const stageWindows = async (page: Page) => {
     } }).__hdPreview
     const snapshot = store.getSnapshot()
     const windows = [
-      { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + 23 * 3600000 + 59 * 60000 },
+      { id: 'session', label: 'Session', usedPercent: 0, windowMinutes: 300, resetsAt: Date.now() + 23 * 3600000 + 59 * 60000 },
       { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 6 * 86400000 + 23 * 3600000 },
     ]
     store.patch({
@@ -42,13 +42,18 @@ const wholeMeterNames = async (rows: Locator) => {
   const readings = await rows.evaluateAll(nodes => nodes.map(node => {
     const name = node.firstElementChild as HTMLElement
     const reset = node.lastElementChild as HTMLElement
+    const reading = node.children[2] as HTMLElement
+    const range = document.createRange()
+    range.selectNodeContents(reading)
+    const lines = new Set([...range.getClientRects()].map(box => Math.round(box.top)))
     return { name: name.textContent, width: node.getBoundingClientRect().width,
       nameWidth: name.clientWidth, nameScroll: name.scrollWidth, title: name.title,
-      resetWidth: reset.clientWidth, resetScroll: reset.scrollWidth }
+      resetWidth: reset.clientWidth, resetScroll: reset.scrollWidth, readingLines: lines.size }
   }))
   for (const reading of readings) {
     expect(reading.nameScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.nameWidth)
     expect(reading.title).toBe(reading.name)
+    expect(reading.readingLines, JSON.stringify(reading)).toBe(1)
     expect(reading.resetScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.resetWidth)
   }
   await alignedMeters(rows)
