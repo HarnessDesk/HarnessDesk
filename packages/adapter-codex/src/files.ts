@@ -29,6 +29,9 @@ export class CodexFiles implements RuntimeFiles {
 
   constructor(private readonly server: CodexAppServer) {}
 
+  /** A watch needs the process until its subscriber lets it go. */
+  get busy(): boolean { return this.#watchers.size > 0 }
+
   async search(roots: readonly string[], query: string, limit: number): Promise<readonly FileMatch[]> {
     if (query.trim().length === 0 || roots.length === 0) return []
     const response = await this.server.request('fuzzyFileSearch', {

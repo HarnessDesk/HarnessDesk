@@ -3,6 +3,7 @@ import { TablesFamily } from '../design/explorer/tables-family'
 import { NoticesFrame } from './frames-notices'
 import { CatalogueRefusedUndo } from '../design/explorer/boards'
 import { SidebarStructureExample } from './sidebar-structure-fixture'
+import { SiteRunPreview } from '../../site-demo/run-demo'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
@@ -1142,7 +1143,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('tables')
+        {new URLSearchParams(window.location.search).has('site-run')
+          ? <SiteRunPreview />
+          : new URLSearchParams(window.location.search).has('tables')
           ? <TablesPreview />
           : new URLSearchParams(window.location.search).has('undo-refused')
           ? <RefusedUndoPreview />
