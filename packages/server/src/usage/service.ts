@@ -64,7 +64,7 @@ export interface UsageServiceOptions {
   }
   /** Called for each report as it lands, so a slow source never delays a fast one. */
   readonly onReport: (report: UsageReport) => void
-  /** Called once when a cached report's source goes silent, so clients drop that account's previous figures. */
+  /** Drops a cached account when its source goes silent or its replacement belongs to another account. */
   readonly onRemoved?: (runtime: RuntimeId, account: string | null) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
@@ -214,8 +214,16 @@ export class UsageService {
       }
     }
     const overlaid = this.#options.overlay ? await this.#options.overlay(complete) : complete
+    const previous = this.#cache.get(id)
     this.#cache.set(id, overlaid)
-    if (!this.#disposed) this.#options.onReport(overlaid)
+    if (!this.#disposed) {
+      // Silence may still earn a ledger-only report with no signed-in account.
+      // Retire the former identity before clients merge the replacement.
+      if (previous && (previous.account?.trim() ?? '') !== (overlaid.account?.trim() ?? '')) {
+        this.#options.onRemoved?.(id, previous.account)
+      }
+      this.#options.onReport(overlaid)
+    }
     return overlaid
   }
 

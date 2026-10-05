@@ -274,6 +274,39 @@ test('silence with no cached report or with ledger spend emits no removal', asyn
   } finally { usage.dispose() }
 })
 
+test('silence replaces a named quota report with ledger spend, removing its old account first', async () => {
+  const events: (UsageReport | { runtime: RuntimeId; account: string | null })[] = []
+  const reading = { ...weekly(30, 1_000), account: 'dev@example.com' }
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([reading, 'the quota service is down', null, null, reading])]]),
+    spend: { spendFor: () => money(3) },
+    onReport: (report) => events.push(report),
+    onRemoved: (runtime, account) => events.push({ runtime, account }),
+  })
+  try {
+    await usage.refresh()
+    await usage.refresh()
+    events.length = 0
+    const [ledger] = await usage.refresh()
+    assert.equal(ledger?.source.kind, 'ledger')
+    assert.equal(ledger?.account, null)
+    assert.deepEqual(ledger?.lanes, [])
+    assert.equal(ledger?.error, null)
+    assert.equal(ledger?.spend?.windowCost, 3)
+    assert.deepEqual(events, [{ runtime: METERED, account: reading.account }, ledger])
+    assert.equal(usage.cached(METERED), ledger)
+
+    events.length = 0
+    const [again] = await usage.refresh()
+    assert.deepEqual(events, [again], 'continued silence keeps only the ledger report')
+    events.length = 0
+    const [returned] = await usage.refresh()
+    assert.deepEqual(events, [{ runtime: METERED, account: null }, returned])
+    assert.equal(returned?.lanes[0]?.usedPercent, 30)
+  } finally { usage.dispose() }
+})
+
 test('a pending silent read emits no removal after disposal', async () => {
   let finish: (reading: MeterReading | null) => void = () => undefined
   const removed: RuntimeId[] = []
