@@ -245,6 +245,7 @@ it('opens the roster behind the token, named account by account', () => {
     expect(name.className).toContain('gap-(--hd-space-1-5)')
     expect([...name.children].map(child => child.textContent)).toEqual(['Agent B', index === 0 ? 'work' : 'personal'])
     expect(row.querySelector('div')).toBeNull()
+    expect(row.querySelector('[data-slot="usage-meter-row"] > :first-child')?.getAttribute('title')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
     expect(row.querySelector('[role="progressbar"]')?.getAttribute('aria-label')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
   }
   expect(rows.slice(2).map(row => row.textContent)).toEqual([

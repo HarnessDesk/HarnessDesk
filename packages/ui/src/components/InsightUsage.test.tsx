@@ -32,7 +32,7 @@ it('loads By Goal on the Dashboard’s Projects view', async () => {
   expect(readUsageInsight).toHaveBeenCalledOnce()
   expect(container.textContent).toContain('Goal')
   expect(container.textContent).not.toContain('goal-1')
-  const goal = [...container.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Open Goal')
+  const goal = [...container.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Open One Goal')
   await act(async () => goal?.click())
   expect(openGoal).toHaveBeenCalledWith('goal-1')
 })
@@ -112,7 +112,7 @@ it('wraps every unavailable source’s full failure sentence instead of clipping
 it('keeps the unattributed reason on the table footer', async () => {
  const store={subscribe:()=>()=>{},getSnapshot:(() => { const snapshot=emptySnapshot(); return () => snapshot })()} as unknown as AppStore
  await act(async()=>root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={()=>{}} report={report()} /></StoreProvider>))
- expect(container.querySelector('tfoot td')?.getAttribute('title')).toBe('No unique historical Seat could be established.')
+ expect(container.querySelector('tfoot td')?.hasAttribute('title')).toBe(false)
  expect(container.querySelector('tfoot td')?.textContent).toContain('No unique historical Seat could be established.')
 })
 
@@ -131,17 +131,17 @@ it('does not count an unassigned Seat as belonging to a null Goal row', async ()
  expect(container.querySelector('tbody tr td:nth-child(3)')?.textContent).toBe('0')
 })
 
-it('uses a generic Goal label while Goal records are pending', async () => {
+it('uses the report sentence while Goal records are pending', async () => {
  const base = report()
- const privateBrief = 'A private instruction that is not a Goal title.'
- const waiting = { ...base, breakdowns: [{ ...base.breakdowns[0]!, rows: [{ ...base.breakdowns[0]!.rows[0]!, label: privateBrief }] }] }
+ const goalSentence = 'Repair the storefront checkout.'
+ const waiting = { ...base, breakdowns: [{ ...base.breakdowns[0]!, rows: [{ ...base.breakdowns[0]!.rows[0]!, label: goalSentence }] }] }
  let finishLoading: (() => void) | undefined
  const loading = new Promise<void>(resolve => { finishLoading = resolve })
  const snapshot = emptySnapshot()
  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals: vi.fn(() => loading), loadTeamRunsBatch: vi.fn(async (teams: readonly string[]) => ({ loaded: new Set(teams), unavailable: new Set<string>() })) } as unknown as AppStore
  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={waiting} /></StoreProvider>))
- expect(container.querySelector('tbody tr')?.textContent).toContain('Goal')
- expect(container.textContent).not.toContain(privateBrief)
+ expect(container.querySelector('tbody tr')?.textContent).toContain(goalSentence)
+ expect(container.querySelector('button[aria-label]')?.getAttribute('aria-label')).toBe(`Open ${goalSentence}`)
  expect(container.textContent).not.toContain('goal-1')
  await act(async () => { finishLoading?.(); await Promise.resolve(); await Promise.resolve() })
 })
@@ -199,7 +199,7 @@ it('keeps row notes and the compact Cost qualification visible while leaving the
  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
  const rowElement = container.querySelector('tbody tr')!
  const costCell = rowElement.querySelector('td:nth-child(4)')!
- expect(rowElement.textContent).toContain('Streaming usage remains a floor.')
+ expect(container.querySelector('[data-slot="note"]')?.textContent).toBe('Streaming usage remains a floor.')
  expect(container.querySelector('tfoot')?.textContent).toContain('No unique historical Seat could be established for this amount.')
  expect(costCell.textContent).toContain('Estimate')
  expect(costCell.textContent).toContain('Known subtotal')
@@ -366,4 +366,73 @@ it('labels Project usage’s range, restores it and resets it on a project switc
   expect(span()).toBe(30 * 86400000)
   expect(readUsageInsight).toHaveBeenLastCalledWith(expect.objectContaining({ root: '/other' }))
   expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 30 days')
+})
+
+
+it('states Historical Seats once beneath the table and omits a restated footer reason', async () => {
+ const base = report(); const b = base.breakdowns[0]!
+ const shown = { ...base, breakdowns: [{ ...b, reason: 'Not attributed to a Goal.', rows: [1, 2].map(n => ({ ...b.rows[0]!, key: `goal-${n}`, note: 'Historical Seats' })) }] }
+ const snapshot = emptySnapshot()
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
+ expect(container.querySelector('tbody')?.textContent).not.toContain('Historical Seats')
+ expect([...container.querySelectorAll('[data-slot="note"]')].filter(n => n.textContent === 'Historical Seats')).toHaveLength(1)
+ expect(container.querySelector('tfoot td')?.textContent).toBe('Not attributed to a Goal')
+})
+
+it('uses only Known subtotal for an exact partial cost', async () => {
+ const base = report(); const b = base.breakdowns[0]!
+ const shown = { ...base, breakdowns: [{ ...b, rows: [{ ...b.rows[0]!, amounts: { ...b.rows[0]!.amounts, usd: { ...metric(2), coverage: 'partial' as const } } }] }] }
+ const snapshot = emptySnapshot()
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
+ expect(container.querySelector('tbody td:nth-child(4)')?.textContent).toBe('$2.00Known subtotal')
+})
+
+it('retains Team reads across views and requests only newly visible Teams', async () => {
+ const base = report(); const b = base.breakdowns[0]!
+ const seats = [scopedSeat('current', 'alpha', 0, null), { ...scopedSeat('other', 'alpha', 0, null), board: 'team-two' }]
+ const shown = { ...base, seats, breakdowns: [b, { ...b, dimension: 'agent' as const, rows: [{ ...b.rows[0]!, key: 'agent:project:builder', label: 'Builder' }] }] }
+ const snapshot = { ...emptySnapshot(), flowExecutions: new Map([['run', { goal: 'goal-1', startedAt: 5, document: { flow: { name: 'Build' } }, rounds: [{ seats: ['current'] }] } as never]]) }
+ let finish: (() => void) | undefined
+ const loadTeamRunsBatch = vi.fn(async (teams: readonly string[]) => {
+   if (teams.includes('team-two')) await new Promise<void>(resolve => { finish = resolve })
+   return { loaded: new Set(teams), unavailable: new Set<string>() }
+ })
+ const loadGoals = vi.fn(async () => {})
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals, loadTeamRunsBatch } as unknown as AppStore
+ const show = async (view: 'goal' | 'agent') => { await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view={view} onGoal={() => {}} report={shown} /></StoreProvider>); await Promise.resolve(); await Promise.resolve() }) }
+ await show('goal')
+ expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('1')
+ await show('agent')
+ expect(loadTeamRunsBatch.mock.calls.map(c => c[0])).toEqual([['goal-1'], ['team-two']])
+ await show('goal')
+ expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('1')
+ expect(loadGoals).toHaveBeenCalledOnce()
+ await act(async () => { finish?.(); await Promise.resolve() })
+ await show('agent')
+ expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('1')
+ expect(loadTeamRunsBatch).toHaveBeenCalledTimes(2)
+})
+
+it('keeps a cached history refusal scoped to visible Teams and discards it with the report', async () => {
+ const base = report(); const b = base.breakdowns[0]!
+ const seat = { ...scopedSeat('other', 'alpha', 0, null), board: 'team-two' }
+ const shown = { ...base, seats: [seat], breakdowns: [b, { ...b, dimension: 'agent' as const, rows: [{ ...b.rows[0]!, key: 'agent:project:builder', label: 'Builder' }] }] }
+ const snapshot = emptySnapshot()
+ const loadTeamRunsBatch = vi.fn(async (teams: readonly string[]) => ({ loaded: new Set(teams.filter(t => t !== 'team-two')), unavailable: new Set(teams.filter(t => t === 'team-two')) }))
+ const loadGoals = vi.fn(async () => {})
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals, loadTeamRunsBatch } as unknown as AppStore
+ const show = async (view: 'goal' | 'agent', selected = shown) => { await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root={selected.query.root} runtime={null} view={view} onGoal={() => {}} report={selected} /></StoreProvider>); await Promise.resolve(); await Promise.resolve() }) }
+ await show('agent')
+ expect(container.textContent).toContain('Run counts are unavailable')
+ await show('goal')
+ expect(container.textContent).not.toContain('Run counts are unavailable')
+ expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('0')
+ await show('agent')
+ expect(container.textContent).toContain('Run counts are unavailable')
+ expect(loadTeamRunsBatch).toHaveBeenCalledTimes(2)
+ await show('goal', { ...shown, query: { ...shown.query, root: '/other' } })
+ expect(loadTeamRunsBatch).toHaveBeenCalledTimes(3)
+ expect(loadGoals).toHaveBeenCalledTimes(2)
 })

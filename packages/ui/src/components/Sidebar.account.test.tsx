@@ -231,7 +231,7 @@ it('enters the canonical menu with ArrowDown and returns focus on Escape', () =>
 
 it('expands Usage remaining inline and lists the current account windows', () => {
   const report = usageReport(CLAUDE, [
-    lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),
+    lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300, resetsAt: Date.now() + 3600000 }),
     lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
   ])
   mount({ usage: [report] })
@@ -254,6 +254,7 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
   // The fold is the windows only; Dashboard is the sidebar nav's.
   expect(document.querySelector('[data-usage-details] [role="menuitem"]')).toBeNull()
+  expect(document.querySelector('[data-usage-details] [data-slot="usage-meter-row"] > :last-child')?.getAttribute('title')).toMatch(/^resets /)
 })
 
 it.each([

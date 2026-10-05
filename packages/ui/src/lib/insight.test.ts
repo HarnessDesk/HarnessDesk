@@ -26,3 +26,11 @@ describe('metricWords', () => {
     expect(metricWords(mixed, [source], 60_000).qualifier).toContain('Vendor-metered and list-price cost')
   })
 })
+
+
+it('deduplicates corpus labels and retains the oldest of four file observations', () => {
+  const sources = [0, 1, 2, 3].map(n => ({ ...source, id: `file-${n}`, label: 'Recorded usage', observedAt: n * 60_000 }))
+  const words = metricWords({ ...metric(4, 'exact'), sourceIds: sources.map(s => s.id) }, sources, 240_000)
+  expect(words.source).toBe('Recorded usage · 4 files')
+  expect(words.freshness).toBe('4 minutes since observation')
+})

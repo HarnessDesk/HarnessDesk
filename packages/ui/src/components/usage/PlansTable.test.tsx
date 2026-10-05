@@ -781,3 +781,16 @@ it('keeps a plain account row and does not repeat the runtime when it is the tit
  expect(texts[0]?.textContent).toBe('Alpha')
  expect(texts[1]?.textContent).toBe('free tier')
 })
+
+
+it('uses one neutral tone for a Ready chip and its remaining bar', () => {
+  const a = info('a', 'Agent A')
+  mount(<PlansTable rows={rowsFor([report({ lanes: [lane({ id: 'weekly', usedPercent: 20 })] })])}
+    byId={byIdOf(a)} now={NOW} filter="all" preferenceFor={() => ({})}
+    onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />)
+  const row = host.querySelector('tbody tr')!
+  const chip = row.querySelector('[data-slot="chip"]')!
+  expect(chip.textContent).toBe('Ready')
+  expect(chip.getAttribute('data-tone')).toBe('neutral')
+  expect(row.querySelector('[data-slot="progress"]')?.getAttribute('data-tone')).toBe('neutral')
+})

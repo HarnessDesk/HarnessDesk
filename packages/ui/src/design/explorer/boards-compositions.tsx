@@ -806,7 +806,7 @@ const KeyValueBoard = () => (
           <KeyValueRow label="Prompt" numeric>5.9M</KeyValueRow>
           <KeyValueRow label="Completion" numeric>2.5M</KeyValueRow>
           <KeyValueRow label="Cached" numeric>−1.8M</KeyValueRow>
-          <KeyValueRow label="Charged" numeric emphasis>
+          <KeyValueRow label="Charged" numeric emphasis note="Recorded usage · 4 files · 12 minutes since observation">
             $212.40
           </KeyValueRow>
         </KeyValue>
@@ -2423,7 +2423,7 @@ const PlanCardBoard = () => (
   </>
 )
 
-const USAGEMETERROW_CATALOG_VARIANTS = ['default'] as const
+const USAGEMETERROW_CATALOG_VARIANTS = ['default', 'barless'] as const
 const USAGEMETERROW_CATALOG_SIZES = ['default'] as const
 const USAGEMETERROW_CATALOG_STATES = ['default', 'warning', 'error', 'unknown'] as const
 const UsageMeterRowBoard = () => (
@@ -2436,7 +2436,8 @@ const UsageMeterRowBoard = () => (
               percent={state === 'unknown' ? null : state === 'error' ? 0 : state === 'warning' ? 12 : 79}
               countdown={state === 'unknown' ? '—' : state === 'error' ? 'blocked 3d' : 'in 2 h 14 m'}
               tone={state === 'warning' ? 'warning' : state === 'error' ? 'danger' : 'neutral'}
-              standalone={state === 'warning' || state === 'error'} />
+              standalone={state === 'warning' || state === 'error'} barless={variant === 'barless'}
+              countdownTitle={state === 'unknown' ? undefined : 'resets Mon, Oct 5, 2:14 PM'} />
           </div>
         ))}
       </div>
@@ -2801,16 +2802,16 @@ const PlansTableBoard = () => {
           <PlansCase label="Low — an amber row">
             <div data-catalog-case="low">{oneUp('low')}</div>
           </PlansCase>
-          <PlansCase label="Spent — a spent window">
+          <PlansCase label="Out — a spent window">
             <div data-catalog-case="out">{oneUp('out')}</div>
           </PlansCase>
-          <PlansCase label="Low — metered spend already in use">
+          <PlansCase label="On overage — metered spend already in use">
             <div data-catalog-case="overage">{oneUp('overage')}</div>
           </PlansCase>
           <PlansCase label="Key, no budget — &ldquo;No limit&rdquo; in Left">
             <div data-catalog-case="key-no-budget">{oneUp('key-no-budget')}</div>
           </PlansCase>
-          <PlansCase label="Balance, spent — Spent, never a reset">
+          <PlansCase label="Balance, spent — Out, never a reset">
             <div data-catalog-case="balance-negative">{oneUp('balance-negative')}</div>
           </PlansCase>
           <PlansCase label='Balance, no draw yet — runway reads "—"'>

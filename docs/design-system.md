@@ -901,6 +901,14 @@ having written the judgement down.
 
 **Why** — A totals column that lines up by place is read in one glance; the same alignment on a sentence is read in none.
 
+### `note`
+
+**Use** — A varying explanation or source sentence below a KeyValue pair: give KeyValueRow a note that wraps across both tracks, leaving only the label to size the key column.
+
+**Not** — A sentence in the label track, or a constant repeated below every row. A shared note belongs once below the list.
+
+**Why** — Accounting figures need their own column at narrow widths; an explanation must not take its width from them.
+
 ### `path`
 
 **Use** — A file or folder path as a value: `kind="path"` (or `MiddleTruncate` elsewhere) gives up the middle, keeps the last segment, and names the whole in its title while cut.

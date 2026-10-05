@@ -842,7 +842,7 @@ export const AccountFooter = ({
               <div className={styles.usageDetails} data-usage-details>
                 <div className={styles.usageLanes}>
                   {usageView.all.map((lane) => (
-                    <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone barless />
+                    <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone barless />
                   ))}
                 </div>
                 {/* No link to the dashboard here: Dashboard is in the

@@ -265,3 +265,24 @@ it('loads several Teams of Runs in one store patch and reports partial failures'
   expect(store.getSnapshot().flowExecutions.get('first-run')).toEqual(first)
   expect(patches).toHaveBeenCalledTimes(1)
 })
+
+
+it('limits history list and ended Run reads to eight requests at a time', async () => {
+  let active = 0; let peak = 0
+  const teams = Array.from({ length: 25 }, (_, n) => `team-${n}`)
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { team?: string; run?: string }) => {
+    active++; peak = Math.max(peak, active)
+    await new Promise(resolve => setTimeout(resolve, 1))
+    active--
+    if (method === 'flow/executions') return [{ id: `run-${params.team}`, goal: params.team, state: 'settled' }]
+    return { ...EXECUTION, id: params.run!, goal: params.run!.replace('run-', ''), state: 'settled' }
+  }) as never)
+  const patches = vi.fn(); const off = store.subscribe(patches)
+  const result = await store.loadTeamRunsBatch(teams)
+  await new Promise(resolve => setTimeout(resolve, 40)); off()
+  expect(peak).toBeLessThanOrEqual(8)
+  expect(result.loaded).toEqual(new Set(teams))
+  expect(result.unavailable.size).toBe(0)
+  expect(store.getSnapshot().flowExecutions.size).toBe(25)
+  expect(patches).toHaveBeenCalledOnce()
+})

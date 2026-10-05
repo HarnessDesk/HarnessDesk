@@ -250,8 +250,8 @@ export const GoalFrames = () => {
         <div className="p-4">
           <InsightUsage root={PREVIEW_ROOT} runtime={null} view="goal" onGoal={() => {}} report={{
             ...INSIGHT_REPORT, totals: { ...INSIGHT_REPORT.totals, usd: { ...INSIGHT_REPORT.totals.usd, coverage: 'partial' } }, scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'],
-            breakdowns: INSIGHT_REPORT.breakdowns.map((breakdown) => ({ ...breakdown, dimension: 'goal',
-              rows: breakdown.rows.map((row) => ({ ...row, amounts: { ...row.amounts, usd: { ...row.amounts.usd, coverage: 'partial' } } })),
+            breakdowns: INSIGHT_REPORT.breakdowns.map((breakdown) => ({ ...breakdown, dimension: 'goal', reason: 'Not attributed to a Goal.',
+              rows: [{ ...breakdown.rows[0]!, key: `goal:${INSIGHT_REPORT.goal}`, note: 'Historical Seats', amounts: { ...INSIGHT_REPORT.totals, usd: { ...INSIGHT_REPORT.totals.usd, coverage: 'partial' } } }],
             })),
           }} />
         </div>

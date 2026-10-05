@@ -154,3 +154,14 @@ it('splits on graphemes and on either separator', () => {
   expect(head + tail).toBe(`notes-for-the-release-${family}-final`)
   expect(Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(tail)).length).toBe(12)
 })
+
+
+it('keeps an accounting note out of the shared key column', () => {
+  const note = 'Recorded corpus rows without a unique historical Seat remain unattributed.'
+  const list = draw(<KeyValue><KeyValueRow label="Unattributed" numeric note={note}>$123.45</KeyValueRow></KeyValue>)
+  expect(list.querySelector('dt')?.textContent).toBe('Unattributed')
+  expect(list.querySelector('dd')?.textContent).toBe('$123.45')
+  const line = list.querySelector('[data-slot="key-value-note"]')!
+  expect(line.textContent).toBe(note)
+  expect(line.closest('[data-slot="key-value-row"]')).toBeTruthy()
+})

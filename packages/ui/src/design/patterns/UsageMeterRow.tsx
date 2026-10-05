@@ -19,7 +19,7 @@ export const UsageMeterRow = ({ name, percent, countdown, tone = 'neutral', stan
   countdownTitle?: string
 }) => (
   <span data-slot="usage-meter-row" className={`grid w-full min-w-0 ${barless ? 'grid-cols-[minmax(0,1fr)_var(--hd-usage-meter-reading)_var(--hd-usage-meter-reset)]' : 'grid-cols-[minmax(0,2fr)_minmax(32px,1fr)_var(--hd-usage-meter-reading)_var(--hd-usage-meter-reset)]'} items-center gap-(--hd-space-2)`}>
-    <Clipped className="min-w-0 truncate text-sm text-(--hd-secondary-foreground)">{name}</Clipped>
+    <Clipped title={typeof name === 'string' ? undefined : label} className="min-w-0 truncate text-sm text-(--hd-secondary-foreground)">{name}</Clipped>
     {!barless && <Progress as="span" size="sm" value={percent} tone={tone} measure="remaining" label={false} aria-label={label ?? (typeof name === 'string' ? `${name} — what is left` : 'What is left')} />}
     <Text role="muted" align="end" tone={tone} numeric>{percent === null ? '—' : `${percent}%${standalone ? ' left' : ''}`}</Text>
     <Text role="meta" align="end" numeric title={countdownTitle}>{countdown}</Text>

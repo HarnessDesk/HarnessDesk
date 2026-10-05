@@ -395,6 +395,13 @@ export const ELEMENTS: readonly UsageRule[] = [
   },
   {
     family: 'key-value',
+    variant: 'note',
+    when: 'A varying explanation or source sentence below a KeyValue pair: give KeyValueRow a note that wraps across both tracks, leaving only the label to size the key column.',
+    never: 'A sentence in the label track, or a constant repeated below every row. A shared note belongs once below the list.',
+    because: 'Accounting figures need their own column at narrow widths; an explanation must not take its width from them.',
+  },
+  {
+    family: 'key-value',
     variant: 'path',
     when: 'A file or folder path as a value: `kind="path"` (or `MiddleTruncate` elsewhere) gives up the middle, keeps the last segment, and names the whole in its title while cut.',
     never: 'A bare path in a value: it has no break opportunities, so it either runs past the container or loses the file name at the end.',

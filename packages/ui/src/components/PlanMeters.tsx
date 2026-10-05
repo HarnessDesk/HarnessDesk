@@ -182,7 +182,7 @@ const Meter = ({
             {view.report.lanes.map((raw) => {
               const lane = describeLane(raw, now, view.report.lanes)
               return (
-                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} tone={toneOf(lane.tone)} standalone />
+                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={toneOf(lane.tone)} standalone />
               )
             })}
           </div>
@@ -249,7 +249,7 @@ const Rest = ({
                   onOpen(meter.runtime)
                 }}
               >
-                <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><span className="truncate">{meter.name}</span>{meter.account && <Text role="meta" truncate>{meter.account}</Text>}</span></span>} label={`${meter.name}${meter.account ? ` · ${meter.account}` : ''} — what is left`} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} tone={toneOf(meter.tone)} standalone />
+                <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><span className="truncate">{meter.name}</span>{meter.account && <Text role="meta" truncate>{meter.account}</Text>}</span></span>} label={`${meter.name}${meter.account ? ` · ${meter.account}` : ''} — what is left`} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} countdownTitle={meter.lane.resetClock ? `resets ${meter.lane.resetClock}` : undefined} tone={toneOf(meter.tone)} standalone />
               </Button>
             ))}
             {/* The agents with no bar. They are why the count and the bars can

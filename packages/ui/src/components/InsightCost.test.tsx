@@ -153,5 +153,59 @@ it('puts the recorded total after its numeric KeyValue parts and keeps source se
  expect(rows.at(-1)?.textContent).toContain('Recorded usage')
  expect(rows.at(-1)?.textContent).toContain('$3.00')
  expect(container.querySelector('dl')?.textContent).toContain('minutes since observation')
- expect(rows.find(r=>r.textContent?.includes('Unattributed'))?.getAttribute('title')).toContain('No unique historical Seat')
+ expect(rows.find(r=>r.textContent?.includes('Unattributed'))?.hasAttribute('title')).toBe(false)
+})
+
+
+it('shows common host notes once beneath Cost and keeps figures paired with short keys', () => {
+  const base = report()
+  const breakdown = base.breakdowns[0]!
+  const repeated = { ...base, breakdowns: [{ ...breakdown,
+    rows: [1, 2, 3, 4].map(n => ({ ...breakdown.rows[0]!, key: `seat-${n}`, label: `Seat ${n}`, note: 'Recorded brief cohort' })),
+    reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.',
+  }] }
+  act(() => root.render(<InsightCost report={repeated} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.querySelector('dl')?.textContent).not.toContain('Recorded brief cohort')
+  expect([...container.querySelectorAll('[data-slot="note"]')].filter(n => n.textContent === 'Recorded brief cohort')).toHaveLength(1)
+  expect([...container.querySelectorAll('dt')].map(n => n.textContent)).toEqual(['Seat 1', 'Seat 2', 'Seat 3', 'Seat 4', 'Unattributed', 'Recorded usage'])
+  expect(container.querySelector('dt [data-role="subject"]')).toBeNull()
+  expect(container.querySelector('[data-slot="key-value-note"]')?.textContent).toContain('Recorded corpus rows')
+})
+
+it('leaves varying cohort exceptions on their own full-width note line', () => {
+  const base = report()
+  const b = base.breakdowns[0]!
+  const varied = { ...base, breakdowns: [{ ...b, rows: [
+    { ...b.rows[0]!, note: 'Recorded brief cohort' },
+    { ...b.rows[0]!, key: 'missing', label: 'Seat two', note: 'Brief cohort unavailable' },
+  ] }] }
+  act(() => root.render(<InsightCost report={varied} loading={false} problem={null} onRefresh={() => {}} />))
+  const row = [...container.querySelectorAll('[data-slot="key-value-row"]')].find(n => n.textContent?.includes('Seat two'))!
+  expect(row.querySelector('dt')?.textContent).toBe('Seat two')
+  expect(row.querySelector('[data-slot="key-value-note"]')?.textContent).toBe('Brief cohort unavailable')
+  expect(row.hasAttribute('title')).toBe(false)
+})
+
+
+it('names four scanned Goal files once in the recorded total', () => {
+  const base = report()
+  const sources = [1, 2, 3, 4].map(n => ({ ...source, id: `file-${n}` }))
+  const fourFiles = { ...base, sources, totals: { ...base.totals, usd: { ...base.totals.usd, sourceIds: sources.map(s => s.id) } } }
+  act(() => root.render(<InsightCost report={fourFiles} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.querySelector('[data-footer] [data-slot="key-value-note"]')?.textContent).toContain('Recorded usage · 4 files')
+  expect(container.querySelector('[data-footer]')?.textContent).not.toContain('Recorded usage, Recorded usage')
+})
+
+it('keeps the normal cohort note shared while missing briefs remain tied to their Seats', () => {
+  const base = report(); const b = base.breakdowns[0]!
+  const varied = { ...base, breakdowns: [{ ...b, rows: [
+    { ...b.rows[0]!, key: 'one', label: 'Seat one', note: 'Recorded brief cohort' },
+    { ...b.rows[0]!, key: 'two', label: 'Seat two', note: 'Recorded brief cohort' },
+    { ...b.rows[0]!, key: 'missing', label: 'Seat three', note: 'Brief cohort unavailable' },
+  ] }] }
+  act(() => root.render(<InsightCost report={varied} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.querySelector('dl')?.textContent).not.toContain('Recorded brief cohort')
+  expect([...container.querySelectorAll('[data-slot="note"]')].filter(n => n.textContent === 'Recorded brief cohort')).toHaveLength(1)
+  const row = [...container.querySelectorAll('[data-slot="key-value-row"]')].find(n => n.textContent?.includes('Seat three'))!
+  expect(row.querySelector('[data-slot="key-value-note"]')?.textContent).toBe('Brief cohort unavailable')
 })

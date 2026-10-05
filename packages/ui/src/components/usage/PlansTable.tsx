@@ -191,7 +191,7 @@ const LeftCell = ({ row, name }: { row: PlanRow; name: string }) => {
   </div>
   if (row.left.percent === null) return <Text role="meta">—</Text>
   return <div className={styles.plansReading}>
-    <Progress value={row.left.percent} label={false} tone={row.status === 'ready' ? 'success' : paletteTone(STATUS_TONE[row.status])} aria-label={`${name} — what is left`} />
+    <Progress value={row.left.percent} label={false} tone={statusPresentation(row.status).tone} aria-label={`${name} — what is left`} />
     <Text className={styles.plansPercent} role="value" numeric tone={usageReadingTone(STATUS_TONE[row.status])}>{Math.round(row.left.percent)}%</Text>
   </div>
 }
