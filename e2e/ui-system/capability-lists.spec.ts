@@ -80,21 +80,25 @@ for (const theme of ['light', 'dark'] as const) {
       return {
         row: getComputedStyle(row).opacity,
         mark: read('[data-slot="row-mark"]'),
-        title: read('[data-slot="row-title"]'),
+        title: read('[data-slot="endpoint-name"]'),
+        chip: read('[data-slot="chip"]'),
         description: read('[data-slot="row-desc"]'),
         reason: read('[data-slot="row-desc"] span'),
       }
     })
-    expect(opacity).toEqual({ row: '1', mark: '0.55', title: '0.55', description: '1', reason: '1' })
+    expect(opacity).toEqual({ row: '1', mark: '0.55', title: '0.55', chip: '1', description: '1', reason: '1' })
     await expect(sheet.getByRole('button', { name: 'Remove…', exact: true })).toHaveCount(0)
     await sheet.locator('button[title="More actions for Team proxy"]').click()
-    await page.getByRole('menuitem', { name: 'Remove…', exact: true }).click()
+    const removeEndpoint = page.getByRole('menuitem', { name: 'Remove…', exact: true })
+    await expect(removeEndpoint).toHaveAttribute('data-danger', '')
+    await expect(removeEndpoint.locator('svg')).toHaveCount(1)
+    await removeEndpoint.click()
     await expect(sheet.getByRole('heading', { name: 'Remove Team proxy?', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
 
     await dial.selectOption('extensions')
     await expect(sheet.getByText('Reference', { exact: true })).toBeVisible()
-    await expect(sheet.getByText('Off', { exact: true })).toBeVisible()
+    await expect(sheet.getByText('Turned off by an administrator', { exact: true })).toBeVisible()
     await sheet.getByRole('tab', { name: 'MCP servers', exact: true }).click()
     await expect(sheet.getByText('2 tools · 3 resources', { exact: true })).toBeVisible()
     await expect(sheet.getByText('1 tool · 0 resources', { exact: true })).toBeVisible()
@@ -176,6 +180,12 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await rows.evaluateAll(rows => rows.some(row => row.hasAttribute('data-problem')))).toBe(false)
       const loaded = rows.filter({ hasText: 'Shared review' })
       await expect(loaded.locator('[data-shape="face"]')).toHaveCount(4)
+      if (narrow) {
+        await expect(
+          sheet.getByRole('button', { name: /Loaded by Alpha/ }).filter({ hasText: 'Shared review' }),
+        ).toHaveCount(1)
+        await expect(sheet.getByRole('button', { name: /Loaded by None/ }).first()).toBeVisible()
+      }
       if (!narrow) {
         const descriptionBounds = await loaded.locator('[data-skill-description]').evaluate(node => {
           const cell = node.closest('td')!
@@ -195,7 +205,9 @@ for (const theme of ['light', 'dark'] as const) {
           expect(line.right).toBeLessThanOrEqual(descriptionBounds.right + 1)
         }
       }
-      expect(await rows.first().evaluate(node => node.parentElement!.scrollWidth <= node.parentElement!.clientWidth)).toBe(true)
+      const list = sheet.locator('[data-slot="skill-list"]')
+      const measured = narrow ? list : list.locator('[data-slot="table-container"]')
+      expect(await measured.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
       if (!narrow) expect(await loaded.locator('td').first().evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(192)
       const opener = narrow ? loaded : loaded.locator('button').first()
       await opener.hover()
@@ -228,5 +240,23 @@ for (const theme of ['light', 'dark'] as const) {
     const full = sheet.getByText('Explore requirements, constraints and the design before implementation. '.repeat(12).trim(), { exact: true })
     await expect(full).toBeVisible()
     expect(await full.evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(60)
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`built-in plugin marks and disabled extension reasons read clearly in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 })
+    await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    const dial = page.getByRole('combobox', { name: 'settings page', exact: true })
+
+    await dial.selectOption('plugins')
+    const builtin = sheet.getByRole('button', { name: /Version control/ })
+    await expect(builtin.locator('[data-slot="row-mark"] svg')).toHaveCount(1)
+    await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(12)
+
+    await dial.selectOption('extensions')
+    await expect(sheet.getByText('Turned off by an administrator', { exact: true })).toBeVisible()
   })
 }

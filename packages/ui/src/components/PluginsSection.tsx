@@ -231,12 +231,13 @@ const PluginToggle = ({ plugin }: { plugin: PluginInstance }) => {
  * older revision. The one honest action is to remove it, and the row says why
  * it is here so that removing it does not feel like guesswork.
  */
-const SupersededRow = ({ plugin }: { plugin: PluginInstance }) => {
+const SupersededRow = ({ plugin, marked }: { plugin: PluginInstance; marked: boolean }) => {
   const store = useStore()
   const [busy, setBusy] = useState(false)
   const where = plugin.identity.source.kind === 'local' ? plugin.identity.source.path : null
   return (
     <Row
+      mark={marked ? pluginGlyph(plugin, 16) : undefined}
       title={<Text role="subject">{plugin.identity.name}</Text>}
       desc={`Superseded by the built-in ${plugin.identity.name}, which does the same job. This copy is switched off${
         where ? ` and still on disk, installed from ${where}` : ''
@@ -477,6 +478,7 @@ export const PluginsSection = () => {
   )
   const plugins = matching.filter((plugin) => !supersededIds.has(plugin.instanceId))
   const superseded = matching.filter((plugin) => supersededIds.has(plugin.instanceId))
+  const marked = matching.some((plugin) => Boolean(PLUGIN_GLYPH[plugin.identity.id]))
 
   const open = openId ? (snapshot.plugins.find((plugin) => plugin.instanceId === openId) ?? null) : null
   // A plugin removed while its page is up goes back to the list.
@@ -608,6 +610,7 @@ export const PluginsSection = () => {
             plugins.map((plugin) => (
               <RowButton
                 key={plugin.instanceId}
+                mark={marked ? pluginGlyph(plugin, 16) : undefined}
                 onClick={() => setOpenId(plugin.instanceId)}
                 title={<Text role="subject">{plugin.identity.name}</Text>}
                 {...(plugin.identity.description ? { desc: plugin.identity.description } : {})}
@@ -622,7 +625,7 @@ export const PluginsSection = () => {
             ))
           )}
           {superseded.map((plugin) => (
-            <SupersededRow key={plugin.instanceId} plugin={plugin} />
+            <SupersededRow key={plugin.instanceId} plugin={plugin} marked={marked} />
           ))}
         </Rows>
       ) : (

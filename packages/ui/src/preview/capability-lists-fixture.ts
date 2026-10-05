@@ -6,12 +6,17 @@ import previewMark from '../assets/brand/mark.svg?raw'
 /** Isolated Settings data: every changed list has rows to inspect, never a desk's accounts. */
 export const capabilityListsStore = (stress = false) => {
   const base = previewStore().getSnapshot()
+  const plugins = stress ? base.plugins.map((plugin, index) => index === 0 ? {
+    ...plugin,
+    identity: { ...plugin.identity, id: 'git', name: 'Version control' },
+  } : plugin) : undefined
   const own = previewStore({
     ...(stress ? { skills: base.skills.map((skill, index) => ({ ...skill,
       ...(index === 0 ? { iconUrl: `data:image/svg+xml,${encodeURIComponent(previewMark)}` } : {}),
       ...(index === 2 ? { iconUrl: 'data:image/png;base64,AA==' } : {}),
       ...(index === 1 ? { description: 'Explore requirements, constraints and the design before implementation. '.repeat(12) } : {}),
     })) } : {}),
+    ...(plugins ? { plugins } : {}),
     runtimes: [...base.runtimes, ...(stress ? [runtime('preview-delta', 'Delta')] : [])].map(info => info.id === base.activeRuntime ? {
       ...info,
       capabilities: { ...NO_CAPABILITIES, ...info.capabilities, skills: true, hooks: true, mcp: true, extensionStore: true },
@@ -42,7 +47,7 @@ export const capabilityListsStore = (stress = false) => {
   own.loadCatalog = async () => ({
     plugins: [
       { id: 'docs', name: 'Project docs', category: 'Reference', description: 'Find project reference material.', installed: true, enabled: true },
-      { id: 'checks', name: 'Project checks', category: 'Development', description: 'Run the project checks.', installed: true, enabled: false },
+      { id: 'checks', name: 'Project checks', category: 'Development', description: 'Run the project checks.', installed: true, enabled: false, disabledReason: 'turned off by an administrator' },
       { id: 'notes', name: 'Release notes', category: 'Writing', description: 'Draft release notes for the project.', installed: false, enabled: false },
       { id: 'connect', name: 'Team calendar', category: 'Planning', description: 'Read the team’s shared calendar.', installed: false, enabled: false, external: true, installUrl: 'https://acme.dev/connect' },
     ], marketplaces: [], loadErrors: [], featured: [],

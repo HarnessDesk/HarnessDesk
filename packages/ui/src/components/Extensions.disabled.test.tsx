@@ -120,7 +120,9 @@ it('an installed plugin the runtime will not run says why, beside the one that w
   ])
   await act(async () => {})
 
-  expect(rowFor('Blocked plugin').textContent).toContain('turned off by an administrator')
+  expect(rowFor('Blocked plugin').querySelector('[data-slot="chip"]')?.textContent).toBe(
+    'Turned off by an administrator',
+  )
   /* The control. Both rows say "Installed" — that was the whole of what the
      list used to report — and only one of them is off. */
   expect(rowFor('Blocked plugin').textContent).toContain('Installed')

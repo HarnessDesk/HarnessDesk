@@ -308,3 +308,12 @@ it('sorts plugin names naturally and omits a repeated glyph', () => {
   expect(rows.map(row => row.textContent)).toEqual(['Plugin 2', 'Plugin 10'])
   expect(container.querySelector('[data-slot="row-mark"]')).toBeNull()
 })
+
+it('keeps distinct marks when a built-in plugin is in the list', () => {
+  const store = makeStore(runtime('one', 'First Agent', true))
+  const snapshot = { ...store.getSnapshot(), plugins: [plugin('git', 'Git', [])] }
+  store.getSnapshot = () => snapshot
+  mount(store)
+  const mark = container.querySelector('[data-slot="row-mark"]')
+  expect(mark?.querySelector('svg')).toBeTruthy()
+})

@@ -25,6 +25,9 @@ const PAGE = 12
 /** How many failed marketplaces to show before asking: five pushed the tabs below the fold (#219). */
 const FAILURES = 3
 
+const disabledLabel = (reason?: string | null): string =>
+  reason ? `${reason.charAt(0).toUpperCase()}${reason.slice(1)}` : 'Off'
+
 export const ExtensionsSection = () => {
   const store = useStore()
   const runtime = useRuntime()
@@ -255,7 +258,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
                 offers a verb that turns one back on, so the honest control
                 is a word, and the removal button beside it. */}
             {plugin.installed && !plugin.enabled && (
-              <Chip state="broken" label={plugin.disabledReason ?? 'Off'} />
+              <Chip state="broken" label={disabledLabel(plugin.disabledReason)} />
             )}
             <Button
               size="sm"

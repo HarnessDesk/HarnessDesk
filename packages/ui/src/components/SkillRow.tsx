@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { LibraryEntry } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { Button, Chip, CodeText, IconTile, ListRow, ListRows, Monogram, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { Button, Chip, CodeText, IconTile, ListRow, ListRows, Monogram, Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { runtimeTint } from '../lib/accounts'
 import { useSnapshot } from '../state/context'
@@ -122,7 +122,8 @@ export const SkillRow = ({ entry, columns, onOpen }: {
   const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal ${narrow ? 'line-clamp-2 text-balance' : 'block [overflow-wrap:anywhere]'}`}>
     {entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')}
   </Text>
-  const faces = <span className={styles.faces} role={narrow ? 'group' : undefined} aria-label={narrow ? 'Loaded by' : undefined} title={narrow ? 'Loaded by' : undefined}>
+  const faces = <span className={styles.faces}>
+    {narrow && <span className="sr-only">Loaded by </span>}
     {loaded.length === 0 ? <Text role="muted" ink="muted">None</Text> : loaded.map(reach => {
       const column = columns.find(column => column.id === reach.runtime)
       if (!column) return null
@@ -201,6 +202,9 @@ export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactN
   return <div ref={setBox} data-slot="skill-list" data-layout={narrow ? 'list' : 'table'}>
     <NarrowList.Provider value={narrow}>
     {narrow ? <ListRows>{children}</ListRows> : <Table variant="framed">
+    <TableCaption variant="sr-only">
+      Each row is one entry; its state and the agents that load it appear in separate columns.
+    </TableCaption>
     <TableHeader>
       <TableRow>
         <TableHead>{kind === 'skill' ? 'Skill' : 'Server'}</TableHead>

@@ -314,7 +314,7 @@ const RoutesRows = () => {
             mark={<RouteIcon size={15} />}
             title={
               <>
-                {route.name}
+                <span data-slot="endpoint-name">{route.name}</span>
                 {route.usable === false && (
                   <Chip tone="neutral" size="sm" className={styles.inlineBadge}>
                     Not available
@@ -332,7 +332,7 @@ const RoutesRows = () => {
             </>}
             control={
               <Popover title={`More actions for ${route.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
-                {close => <Menu close={close}><MenuItem label="Remove…" onSelect={() => setRemoving(route)} /></Menu>}
+                {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(route)} /></Menu>}
               </Popover>
             }
           />
@@ -446,7 +446,7 @@ const KeysRows = () => {
               }
               control={
                 <Popover title={`More actions for ${key.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
-                  {close => <Menu close={close}><MenuItem label="Remove…" onSelect={() => setRemoving(key)} /></Menu>}
+                  {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(key)} /></Menu>}
                 </Popover>
               }
             />
@@ -875,7 +875,7 @@ const PresetsRows = () => {
                   Apply
                 </Button>
                 <Popover title={`More actions for ${preset.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
-                  {close => <Menu close={close}><MenuItem label="Remove…" onSelect={() => setRemoving(preset)} /></Menu>}
+                  {close => <Menu close={close}><MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => setRemoving(preset)} /></Menu>}
                 </Popover>
               </>
             }

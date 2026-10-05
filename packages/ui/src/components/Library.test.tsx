@@ -1833,6 +1833,9 @@ it('the List compares Skill, State and Loaded by without a repeated monogram', a
   await mount(library([entry('alpha', ['reaches', 'absent']), entry('empty', ['hollow', 'absent'])]))
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
+  expect(table.querySelector('caption')?.textContent).toBe(
+    'Each row is one entry; its state and the agents that load it appear in separate columns.',
+  )
   expect([...table.querySelectorAll('thead th')].map((head) => head.textContent)).toEqual(['Skill', 'State', 'Loaded by'])
   const rows = [...table.querySelectorAll('tbody tr')]
   expect(rows[0]?.querySelector('[data-slot="row-mark"]')).toBeNull()
@@ -1867,10 +1870,11 @@ it('the List responds to its container and retains definition access in the narr
   expect(row.querySelector('[data-slot="list-row-subtitle"]')?.textContent).toBe(description)
   expect(row.querySelector('[data-slot="chip"]')?.textContent).toBe('Ready')
   expect(row.querySelector('[data-slot="list-row-trail"] [data-shape="face"]')?.getAttribute('aria-label')).toBe('First Agent')
-  const loadedBy = row.querySelector('[data-slot="list-row-trail"] [role="group"]')
-  expect(loadedBy?.getAttribute('aria-label')).toBe('Loaded by')
-  expect(loadedBy?.getAttribute('title')).toBe('Loaded by')
-  expect(container.querySelectorAll('[data-slot="skill-row"]')[1]?.textContent).toContain('Empty on disk')
+  expect(row.textContent).toContain('Loaded by ')
+  const emptyRow = container.querySelectorAll('[data-slot="skill-row"]')[1]
+  expect(emptyRow?.textContent).toContain('Empty on disk')
+  expect(emptyRow?.textContent).toContain('Loaded by ')
+  expect(emptyRow?.textContent).toContain('None')
   await act(async () => row.click())
   expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(description)
   await setWidth(600)
