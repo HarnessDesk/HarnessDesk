@@ -61,11 +61,11 @@ for (const theme of ['light', 'dark'] as const) {
         expect(geometry.whitespace).toBe('normal')
         expect(geometry.overflowWrap).toBe('normal')
         expect(geometry.ellipsis).not.toBe('ellipsis')
-        // The approved row anatomy centres the face on the whole row as the subtitle grows.
+        // The face keeps the whole row's centre as the subtitle grows, as every row of the table family does.
         const leadOffset = await row.evaluate(node => {
           const face = node.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
-          const row = node.getBoundingClientRect()
-          return Math.abs((face.top + face.bottom - row.top - row.bottom) / 2)
+          const bounds = node.getBoundingClientRect()
+          return Math.abs((face.top + face.bottom - bounds.top - bounds.bottom) / 2)
         })
         expect(leadOffset).toBeLessThan(1.5)
       }
