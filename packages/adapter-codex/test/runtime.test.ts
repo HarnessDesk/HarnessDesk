@@ -413,7 +413,8 @@ test('a full turn streams through as an ordered event sequence', async (t) => {
   await tape.until((events) => events.some((event) => event.type === 'turn/completed'))
 
   const folded = reduceAll(baseSession(), tape.events)
-  const items = allItems(folded)
+  // Conversation warnings are quiet rows beside the turn's ordered content.
+  const items = allItems(folded).filter(item => item.type !== 'notice')
   assert.deepEqual(
     items.map((item) => item.type),
     ['userMessage', 'assistantMessage', 'command'],
@@ -1337,7 +1338,8 @@ for (const order of ['separate', 'one-chunk']) {
     await session.respondToApproval(requested.approval.id, { type: 'option', optionId: 'opt-0' })
     await tape.until(events => events.some(event => event.type === 'turn/completed'))
     const items = allItems(reduceAll(baseSession(String(session.id)), tape.events))
-    const opening = items.find(item => item.type === 'notice')
+    // The retained tool declaration is also a notice; select the marked brief.
+    const opening = items.find(item => item.type === 'notice' && item.kind === 'agentBrief')
     assert.ok(opening?.type === 'notice')
     assert.equal(opening.kind, 'agentBrief')
     const from = tape.events.length
