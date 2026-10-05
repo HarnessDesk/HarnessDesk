@@ -20,10 +20,9 @@ const inboxAt = (row: Record<string, unknown>): number | undefined => typeof row
 // advance. Only a standing row's `at` distinguishes a new occurrence of its id.
 const inboxOccurrenceAt = (row: Record<string, unknown>): number | undefined => typeof row['contentKey'] === 'string' ? undefined : inboxAt(row)
 
-// A cleared row is gone from `inbox`, but its occurrence identity must remain
-// so a delayed copy cannot put that same occurrence back. The inbox itself is
-// bounded to 100 rows; twice that many receipts covers those live rows and a
-// recent set of cleared ids without letting preferences grow forever.
+// A cleared row is gone from `inbox`, but a recent occurrence receipt keeps a
+// delayed copy from putting it back. Receipts are bounded with live rows and
+// recent cleared ids prioritized; a sufficiently old cleared receipt expires.
 const INBOX_OCCURRENCE_LIMIT = 200
 
 /** Apply only the new occurrence; a window never supplies read or policy state. */
@@ -106,11 +105,23 @@ export const mergeNoticePreferences = (preferences: Readonly<Record<string, unkn
       const currentAt = inboxAt(row)
       const oldAt = inboxAt(old)
       const nextAt = inboxAt(next)
-      if (currentAt !== undefined && nextAt !== undefined && nextAt < currentAt) return row
-      if (typeof row['id'] === 'string' && kept.includes(row['id']) && oldAt !== undefined && nextAt !== undefined && nextAt > oldAt) return row
+      const currentOccurrenceAt = inboxOccurrenceAt(row)
+      const oldOccurrenceAt = inboxOccurrenceAt(old)
+      const nextOccurrenceAt = inboxOccurrenceAt(next)
+      if (currentOccurrenceAt !== undefined && nextOccurrenceAt !== undefined && nextOccurrenceAt < currentOccurrenceAt) return row
+      if (currentOccurrenceAt !== undefined && typeof row['id'] === 'string' && kept.includes(row['id']) && oldOccurrenceAt !== undefined && nextOccurrenceAt !== undefined && nextOccurrenceAt > oldOccurrenceAt) return row
+      const sameContent = typeof row['contentKey'] === 'string' && row['contentKey'] === old['contentKey'] && row['contentKey'] === next['contentKey']
+      const staleContentCopy = sameContent && currentAt !== undefined && nextAt !== undefined && nextAt < currentAt
       const changed = { ...row }
       for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
         if (JSON.stringify(old[key]) === JSON.stringify(next[key])) continue
+        // A content row's later `at` is a repeat of the same content, not a
+        // new occurrence. Keep its newer details, but merge a read from an
+        // older window because that read still applies to the same content.
+        if (staleContentCopy) {
+          if (key === 'read' && next['read'] === true) changed['read'] = true
+          continue
+        }
         if (key in next) changed[key] = next[key]
         else delete changed[key]
       }

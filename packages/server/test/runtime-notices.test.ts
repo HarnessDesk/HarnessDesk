@@ -174,7 +174,7 @@ test('a runtime Inbox merge returns current memory even for a replay, cleared co
   assert.deepEqual(await call(), await host.call('app/state/get', {}))
 })
 
-test('opening a stale Inbox row cannot restore cleared content or erase newer rows', async t => {
+test('stale content Inbox writes preserve the latest details while merging read state', async t => {
   const base = tempDir('hd-inbox-stale-write-')
   const state = new StateStore(join(base, 'state.json'))
   const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
@@ -188,7 +188,10 @@ test('opening a stale Inbox row cannot restore cleared content or erase newer ro
   const latest = { ...old, at: 3, count: 3 }
   await state.setPreferences({ inbox: [latest, newer] })
   await host.call('app/state/set', { patch: { inbox: [{ ...old, read: true }] }, noticeBase: { inbox: [old] } })
-  assert.deepEqual(state.state.preferences['inbox'], [latest, newer], 'a stale read cannot mark the newer occurrence read')
+  assert.deepEqual(state.state.preferences['inbox'], [{ ...latest, read: true }, newer], 'a stale content read keeps the current details and marks that content read')
+  const readSnapshot = { ...old, read: true }
+  await host.call('app/state/set', { patch: { inbox: [old, newer] }, noticeBase: { inbox: [readSnapshot, newer] } })
+  assert.deepEqual(state.state.preferences['inbox'], [{ ...latest, read: true }, newer], 'a stale unread copy cannot reverse a read')
   await host.call('app/state/set', { patch: { inbox: [] }, noticeBase: { inbox: [old] } })
   assert.deepEqual(state.state.preferences['inbox'], [newer], 'clearing the content-keyed row preserves other newer rows')
 })

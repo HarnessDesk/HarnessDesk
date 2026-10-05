@@ -1858,7 +1858,9 @@ time after a row is cleared:
 the same or an older copy stays cleared, while a later occurrence is admitted
 unread. A read or clear from a window whose snapshot predates that occurrence
 cannot change it. These receipts are host-owned and bounded, with live rows
-retained ahead of cleared ids.
+retained ahead of recent cleared ids. If a cleared receipt is eventually
+evicted and its kept key has also been released, a very delayed insertion can
+be admitted again.
 
 Host-created transcript notices survive richer reads of their own turn and
 unmatched synthetic notice turns survive cold reads. They never get copied
