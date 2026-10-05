@@ -172,18 +172,31 @@ const deskWith = async (
     fetch?: (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>
     /** How long an answer is kept; 0 sends every ask to the registry. */
     ttlMs?: number
+    /** Called when each measurement finishes. */
+    measured?: () => void
   } = {},
 ) => {
   const dir = tempDir('hd-update-host-')
+  const checker = new UpdateChecker({
+    cachePath: join(dir, 'update-checks.json'),
+    fetch: options.fetch ?? registry(LATEST).fetch,
+    ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+  })
   const host = new Host({
     logger: silent,
     state: new StateStore(join(dir, 'state.json')),
     catalogRefreshMs: 0,
-    updates: new UpdateChecker({
-      cachePath: join(dir, 'update-checks.json'),
-      fetch: options.fetch ?? registry(LATEST).fetch,
-      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
-    }),
+    updates: options.measured
+      ? {
+          updateFor: async (runtime: RuntimeInfo) => {
+            try {
+              return await checker.updateFor(runtime)
+            } finally {
+              options.measured?.()
+            }
+          },
+        }
+      : checker,
     ...(options.chosen ? { installs: { last: () => ({ chosen: { version: options.chosen } }) } as never } : {}),
   })
   t.after(() => host.dispose())
@@ -210,7 +223,10 @@ const deskWith = async (
 }
 
 const until = async (check: () => boolean | Promise<boolean>, what: string): Promise<void> => {
-  const deadline = Date.now() + 2_000
+  // This only bounds a missing event. Loaded CI can take more than two seconds
+  // to finish a sequence of host-side measurements; successful waits return
+  // as soon as their observed state appears.
+  const deadline = Date.now() + 10_000
   while (!(await check())) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 5))
@@ -401,15 +417,27 @@ test('a runtime still moving after three measurements is left unmeasured until t
     if (asked <= 3) move(`0.15${asked}.0`)
     return { ok: true, json: async () => ({ latest: LATEST }) }
   }
-  const desk = await deskWith(t, runtime, { fetch, ttlMs: 0 })
-  await until(() => asked === 3, 'the third ask of the registry')
-  await settle()
+  let measured = 0
+  const desk = await deskWith(t, runtime, {
+    fetch,
+    ttlMs: 0,
+    measured: () => {
+      measured += 1
+    },
+  })
+
+  // No read has happened, so the third returned answer must end this
+  // measurement before a fresh one can start.
+  await until(() => measured >= 3, 'the host to take the third answer')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(asked, 3, 'the measurement gave up after three asks')
   assert.equal(desk.told(), undefined, 'nothing was kept, so nothing was pushed')
 
-  // The next read of the description measures the build it is on.
+  // The next read measures the version the runtime ended on.
   const read = await desk.shown()
   assert.equal(read.version, '0.153.0')
   assert.equal(read.update, undefined)
+
   await until(
     () => desk.told()?.version === '0.153.0' && desk.told()?.update?.version === LATEST,
     'the read to have measured 0.153.0',
