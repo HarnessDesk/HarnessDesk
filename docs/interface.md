@@ -694,7 +694,8 @@ behaviour. Older route names still land on the right page.
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and
 only agents that load the entry appear as faces; Matrix and the entry’s sheet
-keep the per-agent detail. Skills and Plugins omit a repeated generic face.
+keep the per-agent detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
+the generic plugin glyph is omitted only when the list has no mapped glyphs.
 Model efforts are words beside the description, and endpoint, key and preset
 removals live in their row’s actions menu. Keyboard shortcuts show one keycap
 per key, with the four focus-tile shortcuts grouped as 1 – 4.
