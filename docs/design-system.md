@@ -636,7 +636,7 @@ having written the judgement down.
 
 ### Everything else with a rule
 
-### `action`
+### `Note · action`
 
 **Use** — One recovery action for the group note: pass action to Note so it follows the sentence and wraps beneath it when narrow.
 

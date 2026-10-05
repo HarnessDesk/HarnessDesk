@@ -924,7 +924,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Text>
       </ToolPaneBar>
 
-      {provenance.error && <Note>Provenance could not be read. <Button variant="link" onClick={provenance.retry}>Retry provenance</Button></Note>}
+      {provenance.error && <Note action={<Button variant="link" onClick={provenance.retry}>Retry provenance</Button>}>Provenance could not be read.</Note>}
 
       <div className={styles.body}>
         {fit.rail && railOpen && refsSummary && (

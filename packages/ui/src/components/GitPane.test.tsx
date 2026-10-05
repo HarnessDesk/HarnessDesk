@@ -325,6 +325,17 @@ it('offers a provenance retry when the selected batch and detail read both fail'
   expect([...detail.querySelectorAll('button')].some((item) => item.textContent === 'Retry provenance')).toBe(true)
 })
 
+it('puts the history provenance retry outside its warning sentence and recovers', async () => {
+  await mount({ log: [commit('aaaa1111111', 'tip')], provenanceReads: [new Error('offline')] })
+  const note = [...container.querySelectorAll('[data-slot="note"]')].find(node => node.textContent?.includes('Provenance could not be read.'))!
+  const retry = note.querySelector<HTMLButtonElement>('button')!
+  expect(note.querySelector('[data-slot="note-text"]')?.textContent).toBe('Provenance could not be read.')
+  expect(note.querySelector('[data-slot="note-text"]')?.contains(retry)).toBe(false)
+  expect(retry.textContent).toBe('Retry provenance')
+  await act(async () => retry.click())
+  expect(container.textContent).not.toContain('Provenance could not be read.')
+})
+
 it('uses the shared search field for history and refs, with history clearable', async () => {
   await mount({})
   const history = container.querySelector<HTMLInputElement>('input[aria-label="Search history"]')

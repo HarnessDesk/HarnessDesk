@@ -459,3 +459,29 @@ it('retries only refused Teams from the note and recovers their counts', async (
  expect(container.textContent).not.toContain('Run counts are unavailable')
  expect(container.querySelector('tbody tr:last-child td:nth-child(2)')?.textContent).toBe('0')
 })
+
+it('keeps the focused retry and refusal visible until a delayed retry settles', async () => {
+ const shown = report()
+ const snapshot = emptySnapshot()
+ let settle: ((value: { loaded: Set<string>; unavailable: Set<string> }) => void) | undefined
+ const loadTeamRunsBatch = vi.fn()
+   .mockResolvedValueOnce({ loaded: new Set(), unavailable: new Set(['goal-1']) })
+   .mockImplementationOnce(() => new Promise(resolve => { settle = resolve }))
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadGoals: vi.fn(async () => {}), loadTeamRunsBatch } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
+ const retry = [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!
+ retry.focus()
+ await act(async () => retry.click())
+ expect(container.textContent).toContain('Run counts are unavailable for some Teams.')
+ expect(retry.isConnected).toBe(true)
+ expect(retry.textContent).toBe('Trying again…')
+ expect(retry.getAttribute('aria-disabled')).toBe('true')
+ expect(document.activeElement).toBe(retry)
+ await act(async () => retry.click())
+ expect(loadTeamRunsBatch).toHaveBeenCalledTimes(2)
+ await act(async () => settle!({ loaded: new Set(), unavailable: new Set(['goal-1']) }))
+ expect(retry.textContent).toBe('Try again')
+ expect(retry.getAttribute('aria-disabled')).not.toBe('true')
+ expect(document.activeElement).toBe(retry)
+ expect(container.textContent).toContain('Run counts are unavailable for some Teams.')
+})
