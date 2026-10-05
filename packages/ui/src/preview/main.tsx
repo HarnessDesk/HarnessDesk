@@ -61,6 +61,7 @@ import {
   TEAM,
 } from './harness'
 import { PublicationCard } from '../components/Publication'
+import { usagePreviewStore } from './usage-fixture'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
 import { sidebarProjectsFixture, sidebarProjectsUnloadedSearchFixture } from './sidebar-projects-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
@@ -504,6 +505,7 @@ const Preview = () => {
     (DASHBOARD_VIEW_PARAM as DashboardView | null) ?? 'overview',
   )
   const [dashboardScope, setDashboardScope] = useState<RuntimeId | null>(null)
+  const dashboardStore = useMemo(() => usagePreviewStore(), [])
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <section aria-label="Provenance preview">
@@ -761,14 +763,16 @@ const Preview = () => {
           four frames up. */}
       <Frame id="dashboard-overview" title="Dashboard — what is left, what it cost, where it went">
         <div className="relative h-[900px]" style={{ transform: 'translateZ(0)' }}>
-          <Usage
-            view={dashboardView}
-            scope={dashboardScope}
-            onView={setDashboardView}
-            onScope={setDashboardScope}
-            onClose={() => {}}
-            onSignIn={() => {}}
-          />
+          <StoreProvider store={dashboardStore}>
+            <Usage
+              view={dashboardView}
+              scope={dashboardScope}
+              onView={setDashboardView}
+              onScope={setDashboardScope}
+              onClose={() => {}}
+              onSignIn={() => {}}
+            />
+          </StoreProvider>
         </div>
       </Frame>
       <div className="my-4 flex flex-wrap items-center gap-3">
