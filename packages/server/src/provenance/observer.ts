@@ -56,7 +56,8 @@ export class Coalesced {
           await this.scan(this.controller.signal)
         } catch (error) {
           if (!this.#closed) this.failed(error)
-          this.#dirty = false
+          // A wake received during the failed scan still needs its own scan.
+          // With no pending wake, a failure alone must not cause a retry loop.
         }
         await setImmediate()
       }

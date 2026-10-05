@@ -89,6 +89,8 @@ export type PublicationEntry = (FindingPublication | ReviewPublication | Summary
   readonly expected: string | null
   /** The comment's content chain once this write lands: the next append's `expected`. Null for a review comment. */
   readonly wrote: string | null
+  /** A dispatch refusal lifts automatically; other reasons require a person. */
+  readonly dispatchHeld?: true
   /** The last thing a person decided about this operation — post it again, or skip it — and why. Absent until one does. */
   readonly person?: { readonly action: 'post-again' | 'skip'; readonly reason: string | null; readonly at: number }
 }
@@ -182,6 +184,7 @@ export const publicationOf = (value: unknown): StoredPublication => {
     if (entry['state'] === 'posted' && entry['location'] === null && !(Object.hasOwn(entry, 'summary') && entry['posted'] !== null)) {
       throw new Error('has a publication marked posted with no location')
     }
+    if (entry['dispatchHeld'] !== undefined && entry['dispatchHeld'] !== true) throw new Error('has an unreadable publication dispatch hold')
     const person = entry['person']
     if (person !== undefined && (!object(person) || (person['action'] !== 'post-again' && person['action'] !== 'skip') ||
       !orNull(person['reason'], text) || !Number.isSafeInteger(person['at']))) throw new Error('has a person’s publication decision it cannot describe')
@@ -935,7 +938,7 @@ export class Publications implements FindingPublisher {
       }
       // Never sent, or read back and not there: the person asked, so it starts again from its checks.
       await this.#transition(run, key, ['prepared', 'started', 'uncertain'], (one) => ({
-        ...one, state: 'prepared', reason: null, placement: null, expected: null, wrote: null,
+        ...one, state: 'prepared', reason: null, dispatchHeld: undefined, placement: null, expected: null, wrote: null,
         ...(isFindingPublication(one) ? { parent: null } : {}), person,
       }))
       await this.#one(run, entry.round, key)
@@ -1071,7 +1074,7 @@ export class Publications implements FindingPublisher {
       }))
       return
     }
-    await this.#transition(run, entry.key, ['prepared', 'started', 'uncertain'], (one) => ({ ...one, state: 'prepared', reason: null, sent: null, person }))
+    await this.#transition(run, entry.key, ['prepared', 'started', 'uncertain'], (one) => ({ ...one, state: 'prepared', reason: null, dispatchHeld: undefined, sent: null, person }))
     await this.#one(run, entry.round, entry.key)
   }
 
@@ -1133,7 +1136,7 @@ export class Publications implements FindingPublisher {
   async recover(): Promise<void> {
     for (const { run } of this.#port.runs()) {
       const rounds = await this.#port.journal(run, async (journal) => [...new Set(journal.entries()
-        .filter((entry) => entry.state === 'started' || entry.state === 'uncertain' || (entry.state === 'prepared' && entry.reason === null))
+        .filter((entry) => entry.state === 'started' || entry.state === 'uncertain' || (entry.state === 'prepared' && (entry.reason === null || entry.dispatchHeld === true)))
         .map((entry) => entry.round))].sort((a, b) => a - b))
       for (const round of rounds) void this.#enqueue(() => this.#drain(run, round)).catch((error: unknown) => this.#failed(run, error))
     }
@@ -1181,7 +1184,7 @@ export class Publications implements FindingPublisher {
   #publicationState(entries: readonly PublicationEntry[]): Exclude<FindingRoundPublication['state'], 'none'> {
     if (entries.length === 0) return 'local'
     if (entries.some((entry) => entry.state === 'uncertain')) return 'uncertain'
-    if (entries.some((entry) => entry.state === 'started' || (entry.state === 'prepared' && entry.reason === null))) return 'pending'
+    if (entries.some((entry) => entry.state === 'started' || (entry.state === 'prepared' && (entry.reason === null || entry.dispatchHeld === true)))) return 'pending'
     if (entries.every((entry) => entry.state === 'posted')) return 'posted'
     return 'partial'
   }
@@ -1220,7 +1223,36 @@ export class Publications implements FindingPublisher {
     for (const key of decision.keys) await this.#one(run, round, key)
   }
 
+  /** Record an intake hold without turning it into a pause only a person can clear. */
+  async #dispatch(run: string, key: string, goal: string): Promise<boolean> {
+    const gate = await this.#port.beforeDispatch?.(goal) ?? { ok: true }
+    const entry = await this.#read(run, key)
+    if (entry?.state !== 'prepared' || (entry.reason !== null && !entry.dispatchHeld)) return false
+    if (!gate.ok || entry.dispatchHeld) {
+      await this.#transition(run, key, ['prepared'], (current) => {
+        if (current.reason !== null && !current.dispatchHeld) return current
+        return gate.ok ? { ...current, reason: null, dispatchHeld: undefined }
+          : { ...current, reason: gate.detail, dispatchHeld: true }
+      })
+    }
+    const current = await this.#read(run, key)
+    return gate.ok && current?.state === 'prepared' && current.reason === null
+  }
+
+  /** A readiness failure is a stated pause, including on a person's retry. */
   async #one(run: string, round: number, key: string): Promise<void> {
+    try {
+      await this.#post(run, round, key)
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error)
+      await this.#transition(run, key, ['prepared'], (entry) => ({
+        ...entry, reason: `The desk could not check whether this can be posted (${why}). Post again to retry.`, dispatchHeld: undefined,
+      }))
+      this.#port.log('posting a closed round could not be checked', { run, key, error: why })
+    }
+  }
+
+  async #post(run: string, round: number, key: string): Promise<void> {
     const first = await this.#read(run, key)
     if (!first || first.state === 'posted' || first.state === 'skipped') return
     if (isSummaryPublication(first)) {
@@ -1228,14 +1260,14 @@ export class Publications implements FindingPublisher {
       return
     }
     // Paused for a person — a moved head, an edited comment, an unreadable target: never resumed on its own.
-    if (first.state === 'prepared' && first.reason !== null) return
+    if (first.state === 'prepared' && first.reason !== null && !first.dispatchHeld) return
     const snapshot = this.#port.run(run)
     if (!snapshot) return
     // A wrapped Goal's receipt froze what was known: no automatic writer appends to it afterwards, not even a read-back.
     if (first.state !== 'prepared' && !this.#port.goal(snapshot.goal)?.open) return
     let ready: Extract<Ready, { kind: 'go' }> | null = null
     if (first.state === 'prepared') {
-      if (!(await this.#port.beforeDispatch?.(snapshot.goal) ?? { ok: true }).ok) return
+      if (!await this.#dispatch(run, key, snapshot.goal)) return
       const decided = await this.#ready(first, snapshot.goal)
       if (decided.kind !== 'go') {
         await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, state: decided.kind === 'skip' ? 'skipped' : 'prepared', reason: decided.reason }))
@@ -1336,19 +1368,19 @@ export class Publications implements FindingPublisher {
    */
   async #summaryOne(run: string, round: number, first: SummaryPublication & PublicationEntry): Promise<void> {
     const key = first.key
-    if (first.state === 'prepared' && first.reason !== null) return
+    if (first.state === 'prepared' && first.reason !== null && !first.dispatchHeld) return
     const snapshot = this.#port.run(run)
     if (!snapshot) return
     if (first.state !== 'prepared' && !this.#port.goal(snapshot.goal)?.open) return
     const forge = this.#port.forge
     if (!forge.publishSummary || !forge.reconcileSummary) {
-      await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, reason: 'This desk cannot post a round as one review, so it stays on the desk.' }))
+      await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, reason: 'This desk cannot post a round as one review, so it stays on the desk.', dispatchHeld: undefined }))
       return
     }
     let sent: SummaryPayload | null = null
     if (first.state === 'prepared') {
-      // Held by the intake gate: nothing is read or sent, and nothing is recorded that a person must clear.
-      if (!(await this.#port.beforeDispatch?.(snapshot.goal) ?? { ok: true }).ok) return
+      // Dispatch holds carry their reason but lift without a person's action.
+      if (!await this.#dispatch(run, key, snapshot.goal)) return
       const decided = await this.#readySummary(first, snapshot.goal)
       if ('reason' in decided) {
         await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, state: decided.kind === 'skip' ? 'skipped' : 'prepared', reason: decided.reason }))
