@@ -74,9 +74,7 @@ const mount = async (page: Page, width: number, commits: readonly object[] = [])
 
 test('consecutive graph slices fill their exact 26px row pitch and the head marks the graph edge', async ({ page }) => {
   const frame = await mount(page, 900, HISTORY)
-  // The search field's native select also exposes options; a commit row is
-  // the option that carries a graph slice.
-  const rows = frame.getByRole('option').filter({ has: page.locator('svg') })
+  const rows = frame.getByRole('grid', { name: 'Commits' }).locator('[role="row"][aria-selected]')
   await expect(rows).toHaveCount(HISTORY.length)
 
   const slices = await rows.evaluateAll(nodes => nodes.slice(0, 2).map(node => {

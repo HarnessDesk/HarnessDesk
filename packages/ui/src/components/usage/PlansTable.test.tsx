@@ -583,6 +583,8 @@ describe('PlansTable', () => {
     const row = rowFor('me@example.com')
     expect(row.closest('td')?.parentElement?.tagName).toBe('TR')
     expect(row.getAttribute('aria-controls')).toBeTruthy()
+    // The table owns the full-width row rule; its embedded disclosure has no edge.
+    expect(row.classList.contains('border-b')).toBe(false)
   })
 
   // Escape inside the expanded body — its own Refresh button, say — collapses

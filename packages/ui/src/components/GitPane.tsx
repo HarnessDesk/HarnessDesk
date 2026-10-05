@@ -699,6 +699,17 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent): void => {
       if (total === 0 || (event.target as HTMLElement).closest('[role="columnheader"]')) return
+      if (event.key === 'PageDown' || event.key === 'PageUp') {
+        // Focus belongs to the grid; page its inner viewport as the old
+        // scrolling list did, without moving the active or selected commit.
+        event.preventDefault()
+        const list = listRef.current
+        if (list) {
+          const direction = event.key === 'PageDown' ? 1 : -1
+          list.scrollTop = Math.max(0, Math.min(list.scrollHeight - list.clientHeight, list.scrollTop + direction * list.clientHeight))
+        }
+        return
+      }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
         event.preventDefault()
         const at = commits.findIndex((commit) => commit.sha === (currentActiveSha ?? selected))

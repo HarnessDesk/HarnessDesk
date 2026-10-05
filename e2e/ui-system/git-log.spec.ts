@@ -1,6 +1,33 @@
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`Page Up and Page Down scroll only the Git history (${theme})`, async ({ page }) => {
+    await page.goto(`/preview.html?theme=${theme}`)
+    await page.locator('select').filter({ has: page.locator('option[value="git tools"]') }).selectOption('git tools')
+    const grid = page.locator('[data-frame-id="tools-git"]').getByRole('grid', { name: 'Commits' })
+    const list = grid.getByRole('rowgroup')
+    await expect(grid.locator('[role="row"][aria-selected]')).toHaveCount(9)
+    // The same windowed log in a short pane, so its real rowgroup overflows.
+    await list.evaluate(el => { el.style.flex = 'none'; el.style.height = '78px' })
+    await grid.focus()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    const active = await grid.getAttribute('aria-activedescendant')
+    const pageTop = await page.evaluate(() => window.scrollY)
+    await page.keyboard.press('PageDown')
+    await expect.poll(() => list.evaluate(el => el.scrollTop)).toBe(78)
+    await expect(grid).toHaveAttribute('aria-activedescendant', active!)
+    await expect(grid.locator('[aria-selected="true"]')).toHaveAttribute('id', active!)
+    expect(await page.evaluate(() => window.scrollY)).toBe(pageTop)
+    await page.keyboard.press('PageUp')
+    await expect.poll(() => list.evaluate(el => el.scrollTop)).toBe(0)
+    await page.keyboard.press('PageUp')
+    expect(await list.evaluate(el => el.scrollTop)).toBe(0)
+    for (let index = 0; index < 4; index++) await page.keyboard.press('PageDown')
+    await expect.poll(() => list.evaluate(el => el.scrollTop)).toBe(156)
+    await expect(grid).toBeFocused()
+  })
+
   test(`the Git and Library logs keep their table geometry (${theme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?theme=${theme}`)

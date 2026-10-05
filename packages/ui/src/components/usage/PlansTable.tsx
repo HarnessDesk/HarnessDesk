@@ -208,6 +208,7 @@ const TableRowGroup = ({
           ref={buttonRef}
           variant="row"
           size="table-row"
+          bordered={false}
           className={`${styles.plansDisclosure} flex w-full items-center gap-(--hd-space-1-5)`}
           aria-expanded={isOpen}
           aria-controls={bodyId}

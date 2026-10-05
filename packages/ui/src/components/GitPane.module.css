@@ -195,7 +195,8 @@
 
 .gutter {
   flex: none;
-  height: 100%;
+  /* The SVG owns the whole pitch, including the row's divider. */
+  align-self: flex-start;
   overflow: hidden;
 }
 

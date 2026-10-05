@@ -1249,6 +1249,44 @@ it('navigates and activates commits from the one-stop grid', async () => {
   expect(document.activeElement).toBe(list)
 })
 
+it('pages the overflowing history from the grid without changing its active or selected commit', async () => {
+  await mount({ log: Array.from({ length: 100 }, (_, index) => commit(`sha${index}`, `Commit ${index}`)) })
+  const grid = container.querySelector<HTMLElement>('[role="grid"][aria-label="Commits"]')!
+  const list = grid.querySelector<HTMLElement>('[role="rowgroup"]')!
+  Object.defineProperties(list, {
+    clientHeight: { value: 130 },
+    scrollHeight: { value: 2600 },
+  })
+  const press = (key: string): KeyboardEvent => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    act(() => grid.dispatchEvent(event))
+    return event
+  }
+  grid.focus()
+  press('ArrowDown')
+  await act(async () => { press('Enter') })
+  const active = grid.getAttribute('aria-activedescendant')
+  const selected = grid.querySelector('[aria-selected="true"]')
+
+  expect(press('PageDown').defaultPrevented).toBe(true)
+  expect(list.scrollTop).toBe(130)
+  expect(grid.getAttribute('aria-activedescendant')).toBe(active)
+  expect(selected?.getAttribute('aria-selected')).toBe('true')
+  expect(press('PageUp').defaultPrevented).toBe(true)
+  expect(list.scrollTop).toBe(0)
+  press('PageUp')
+  expect(list.scrollTop).toBe(0)
+  list.scrollTop = 2500
+  press('PageDown')
+  expect(list.scrollTop).toBe(2470)
+  expect(document.activeElement).toBe(grid)
+
+  // Paging on a column resize control stays outside history navigation.
+  const grip = grid.querySelector<HTMLElement>('[aria-label="Resize the Commit column"]')!
+  act(() => grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true, cancelable: true })))
+  expect(list.scrollTop).toBe(2470)
+})
+
 it('reconciles and activates the nearest commit after a search removes the active row', async () => {
   await mount({ logResponses: [
     [commit('aaaa111', 'First'), commit('bbbb222', 'Second'), commit('cccc333', 'Third')],
