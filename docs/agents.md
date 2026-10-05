@@ -282,7 +282,8 @@ normal uncommitted project diff for its author to review and commit.
 **Agents** in the sidebar opens a window of its own: *All Agents*, then the
 open project's Agents, yours and the built-in ones in the rail. The overview
 uses the same three sections — *In <project>*, *Yours*, *Built in* — and names
-the folder each reads. A row is an Agent's name and what it is for, with its
+the folder each reads, shortened under home; a linked worktree names its own
+checkout. A row is an Agent's name and what it is for, with its
 ceiling and the seat it would take here, or *Can't seat here* and the first
 reason; a shadowed copy is muted and says what shadows it; a file that will not
 parse says why. Each row opens the Agent's page: its file, with *Open file* and
