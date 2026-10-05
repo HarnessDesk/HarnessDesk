@@ -45,7 +45,7 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, runRules, statusLine, defaultExpanded = false, onStop, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
+export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, runRules, statusLine, defaultExpanded = false, onStop, onWrap, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
   model: ReturnType<typeof teamOverview>
   onFindings?: (() => void) | undefined
   faceTints?: ReadonlyMap<string, Tint>
@@ -60,6 +60,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   answers?: NeedsYouAnswers | undefined
   onRun?: () => void
   onStop?: (() => void) | undefined
+  onWrap?: (() => void) | undefined
   runName?: string
   runReason?: string | null
   runRules?: readonly { readonly id: string }[] | undefined
@@ -114,6 +115,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
+        {onWrap && <div data-slot="overview-header" className="flex justify-end"><Button onClick={onWrap}>Wrap</Button></div>}
         {run && (
           <Card spacing="compact">
             <section aria-label="Run" className="flex flex-col gap-2">

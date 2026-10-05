@@ -943,12 +943,10 @@ observation age and qualifications; differing amount qualifications remain
 beside that amount. Older cards show their
 number when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
-A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
-rail. The header says **Wrapped** once, beside the project and wrap date,
-and draws no Wrap control or reason line. The wrapped rail hides Side by side
-and adding an Agent; Board omits its unclaimed count, and Agents show name and
-role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where the
-Agents list is one tap behind it. The Team’s Agents list keeps the same
+A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, round member faces and count, and target revision, followed by ghost tools and More. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is the primary action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
+and adding an Agent; Board omits its unclaimed count, and members show name and
+role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where members open from the bar. The Team’s Agents list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one keeps **Conversation not kept** in its hover title, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than

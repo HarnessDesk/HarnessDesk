@@ -1,10 +1,5 @@
-/* The group project's two columns: who is here, and what they said.
- *
- * Geometry only. Everything with a colour, a type step or an edge is a
- * component — the bar, the rail's sections, the presence light, the pill that
- * says how far behind the reader is; this file decides where the rail is and
- * that both halves scroll on their own — which is the whole reason it is a
- * pane and not a panel.
+/* The Team frame and its single content column. Appearance belongs to the
+ * shared header, tabs, member rows and composer; this sheet owns geometry.
  */
 
 .pane {
@@ -39,28 +34,19 @@
   overflow: hidden;
 }
 
-/* Other destinations keep the bar's original single line. A receipt's title
-   stands over its reading column; the rail's mark and window controls keep
-   their own column, sharing the rail width and its separating hairline. */
-.bar[data-receipt-column] {
-  display: grid;
-  grid-template-columns: calc(var(--room-rail-width) + var(--hd-border-width) - max(var(--hd-bar-ink), var(--titlebar-inset, 0px)) - var(--hd-bar-gap)) minmax(0, 1fr);
+.members {
+  display: flex; /* desk: membership moves from the receipt’s rail grid into a popover. */
+  flex-direction: column;
+  width: var(--room-rail-width);
+  max-width: 100%;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
-.bar[data-receipt-column] .barLeading {
+.tabs {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--hd-bar-gap);
-}
-
-.bar[data-receipt-column] .barContent {
-  grid-column: 2;
-  display: flex;
-  align-items: center;
   min-width: 0;
-  gap: var(--hd-bar-gap);
-  margin-left: calc(var(--hd-space-6) + var(--hd-table-edge) + var(--hd-border-width)); /* desk: receipt title follows its row-content edge, 41 → 37 (#1363) */
+  overflow-x: auto;
 }
 
 .barName {
@@ -111,27 +97,12 @@
   margin-left: auto;
 }
 
-/* Messaging and Wrap are actions, not facts — the bar's own `overflow:
-   hidden` may not clip either, only swap both for the one ⋯ menu that
-   presses the same things. A docked room rail, not the window's own width,
-   is what forces this: the `hd-header` container is this bar's own, nested
-   inside the room's. `PanelActions` is deliberately not folded in here — its
-   move/fill/close is that component's own shared surface. */
+/* Narrow headers put their tools in the existing overflow menu. */
 .barWrapFull {
   display: inline-flex;
 }
-
-.barVerbsCompact {
+.barWrapFull[hidden] {
   display: none;
-}
-
-@container hd-header (max-width: 22rem) {
-  .barWrapFull {
-    display: none;
-  }
-  .barVerbsCompact {
-    display: inline-flex;
-  }
 }
 
 /* The two halves, under the row that names them both. */
@@ -142,31 +113,6 @@
   min-width: 0;
 }
 
-/* --- the rail ------------------------------------------------------------ */
-
-.rail {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  width: var(--room-rail-width, 232px);
-  min-height: 0;
-  /* Its own container, nested inside the room's: a split view can hand the
-     rail a width far narrower than 232px regardless of the room pane's own
-     size, and the roster row below reads that width directly rather than
-     the room's. */
-  container: hd-room-rail / inline-size;
-}
-
-/* Below this a roster row has no room left for either the name or the job to
-   read as words — avatars only. The name and the job stay reachable through
-   the hover card every row already opens (MemberCard/MemberHoverCard), so
-   nothing here is lost, only not printed where it cannot be read. */
-@container hd-room-rail (max-width: 7rem) {
-  .memberRow [data-slot="list-row-content"] {
-    display: none;
-  }
-}
-
 /* The job line's own "#1 Seat 1" pairs a number with a name a person did
    not write to fit this column — `wrapSubtitle` wraps it, correctly, but the
    shared row's own `overflow-wrap: anywhere` will still split a word that
@@ -174,16 +120,6 @@
    not the unbroken URL or hash that rule exists for. */
 .memberRow [data-slot="list-row-subtitle"] {
   overflow-wrap: normal;
-}
-
-/* Board and room are the rail's head (`RailSection`), above the agents with a
-   rule under them: the work and the place it is agreed come before any one
-   worker. The agents' own label is the sidebar's (`NavigationGroupHeader`). */
-.railPinned {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-0-5);
-  flex-shrink: 0;
 }
 
 /* The sidebar's own filter field, on the rail's gutter. */
@@ -201,12 +137,6 @@
 
 .railEmpty {
   margin: 0;
-}
-
-/* The rail's edge is a rule of its own, beside it: the narrow room below takes
-   it away with the split, when the rail is the whole pane. */
-.railEdge {
-  flex: none;
 }
 
 /* `margin-left: auto` here and nowhere else in the row. The roster heading
@@ -362,77 +292,14 @@
   margin-inline: auto;
 }
 
-/* The way back to the roster, drawn only when there is no room for both. */
-.back {
-  display: none;
-  align-items: center;
-  gap: var(--hd-space-1);
-  flex-shrink: 0;
-
+@container hd-header (max-width: 38rem) {
+  .barFacts > [data-role='meta'] {
+    display: none;
+  }
 }
 
-/* --- one column at a time -------------------------------------------------
- *
- * Two columns need 232px of rail *and* a chat body worth reading. A message
- * at the room's 14px with a 36px gutter wants about 360px before the lines
- * get too short to scan, so the pair needs ~592px and the threshold is 38rem.
- * Below it the room stops trying: the rail becomes the whole pane, and opening
- * a row swaps it for that row's surface with a way back. The split that
- * produces this is one keystroke away — a third pane, or the details panel
- * open beside a room.
- */
-@container hd-room (max-width: 38rem) {
-  .bar[data-receipt-column] {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
-
-  .bar[data-receipt-column] .barLeading {
-    display: none;
-  }
-
-  .bar[data-receipt-column] .barContent {
-    margin-left: calc(var(--hd-space-6) + var(--hd-table-edge) + var(--hd-border-width) - max(var(--hd-bar-ink), var(--titlebar-inset, 0px)) - var(--hd-bar-gap)); /* desk: narrow receipt title follows its row-content edge, 41 → 37 (#1363) */
-  }
-
-  /* At the native corner the window controls still need the original line
-     and traffic-light clearance when the narrow pane has no sidebar. */
-  .bar[data-receipt-column][data-window-controls] {
-    display: flex;
-  }
-
-  .bar[data-receipt-column][data-window-controls] .barLeading {
-    display: flex;
-  }
-
-  .bar[data-receipt-column][data-window-controls] .barContent {
-    flex: 1;
-    margin-left: 0;
-  }
-
-  .rail {
-    width: 100%;
-  }
-
-  .pane[data-showing='body'] .rail {
-    display: none;
-  }
-
-  .pane[data-showing='rail'] .body {
-    display: none;
-  }
-
-  .back {
-    display: flex;
-  }
-
-  .railEdge {
-    display: none;
-  }
-
-  /* Four short numbers are not worth a truncated sentence. At this width the
-     row keeps the room's name and the verbs, which are the two things that
-     cannot be got any other way. */
-  .barFacts {
+@container hd-header (max-width: 22rem) {
+  .barFacts [data-slot='avatar-stack'] {
     display: none;
   }
 }
@@ -476,33 +343,6 @@
    ✕ that closes one.
 
    The narrow room hands it straight back, in the query directly below. */
-.columns[data-columns='1'] .columnHead {
-  display: none;
-}
-
-/*
- * …and here it is, and *here* is the only place it can be.
- *
- * `@container` adds no specificity. This selector and the one directly above
- * it are character-for-character identical, so the only thing deciding between
- * them is which comes later in the file — and this rule lived fifty lines
- * *earlier*, in the narrow-room block with the rail's own hiding. It therefore
- * lost every time: measured at a 560px room, the rail was `display: none` and
- * the head was `display: none` with it, which is a transcript with nothing on
- * screen saying whose it is. Exactly the state the base rule above is allowed
- * to create only because this one undoes it.
- *
- * Kept beside the rule it overrides rather than with the room's other narrow
- * behaviour, because adjacency is what makes the pair readable *and* is what
- * makes it correct. `TeamRoomPane.css.test.ts` fails if they are separated
- * again or reordered.
- */
-@container hd-room (max-width: 38rem) {
-  .columns[data-columns='1'] .columnHead {
-    display: flex;
-  }
-}
-
 /* The member, as one card trigger: the mark, the name and what it runs. It
    takes the head's slack itself, which keeps the ✕ beside it at the far end —
    the job `.columnSub` did while the three sat loose in the head, and still

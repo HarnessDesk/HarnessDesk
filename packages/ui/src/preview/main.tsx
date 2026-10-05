@@ -1,3 +1,4 @@
+import { TeamFrame } from './frames-team-frame'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
 import { CompactPanelFrames, compactAgentsStore, compactChangesStore } from './compact-panels-fixture'
@@ -1152,7 +1153,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('site-run')
+        {new URLSearchParams(window.location.search).has('team-frame')
+          ? <TeamFrame />
+          : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
           : new URLSearchParams(window.location.search).has('tables')
           ? <TablesPreview />
