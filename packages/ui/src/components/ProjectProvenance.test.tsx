@@ -142,3 +142,11 @@ it('an uninspected recent workspace is not declared non-Git', async () => {
   snapshot = { ...snapshot, workspaces: [{ path: PROVENANCE_ROOT, name: 'project', lastOpenedAt: 1, git: null }] }
   await render(); expect(store.loadCaptureHealth).toHaveBeenCalledWith(PROVENANCE_ROOT); expect(host.textContent).not.toContain('This folder has no Git history to capture.')
 })
+
+it('names the status row and leaves its chip in the reading slot', async () => {
+  await render()
+  const row = [...host.querySelectorAll('[data-slot="row"]')].find(node => node.querySelector('[data-slot="chip"]'))
+  expect(row?.querySelector('[data-slot="row-title"]')?.textContent).toBe('Capture status')
+  expect(row?.querySelector('[data-slot="row-title"] [data-slot="chip"]')).toBeNull()
+  expect(row?.querySelector('[data-slot="row-ctl"] [data-slot="chip"]')).not.toBeNull()
+})

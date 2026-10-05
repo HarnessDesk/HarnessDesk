@@ -86,7 +86,7 @@ it('an agent that has not answered yet says so plainly and offers nothing', asyn
 
   expect(container.textContent).toContain('Has not answered yet whether it needs a sign-in.')
   expect(container.textContent).not.toContain("OpenAI Codex's tagline.")
-  expect(container.textContent).not.toContain('Ready.')
+  expect(container.textContent).not.toContain('Ready')
   expect(button('Sign in')).toBeUndefined()
   expect(button('Use this agent')).toBeUndefined()
 })
@@ -120,6 +120,7 @@ it('a signed-out agent gets its sign-in, a healthy one the offer to work', async
   )
 
   expect(container.textContent).toContain('Signed out — a session sent to it would not start.')
+  expect(container.textContent).toContain("Healthy's tagline.")
   button('Sign in')?.click()
   expect(onSignIn).toHaveBeenCalledWith('out')
 

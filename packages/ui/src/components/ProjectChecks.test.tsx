@@ -58,9 +58,9 @@ it('lists each check with its command verbatim, whether this Mac has approved it
     'pnpm lint --max-warnings 0',
     'pnpm typecheck',
   ])
-  expect(text).toContain('Approved on this Mac')
-  expect(text).toContain('Changed since approved here')
-  expect(text).toContain('Not approved on this Mac')
+  expect(text).toContain('Approved')
+  expect(text).toContain('Changed')
+  expect(text).toContain('Not approved')
   expect(text).not.toContain('Your working copy')
 })
 
@@ -90,4 +90,14 @@ it('checks that cannot be read say so, in the host’s words', async () => {
   })
   expect(container.textContent).toContain('Its checks could not be read')
   expect(container.textContent).toContain('is outside every open workspace')
+})
+
+it('keeps every state in the trailing reading, with attention tones only for changed and refused checks', async () => {
+  await mount(async () => PREVIEW_CHECKS)
+  const rows = [...container.querySelectorAll('[data-slot="list-row"]')]
+  expect(rows).toHaveLength(4)
+  expect(rows.map(row => row.lastElementChild?.textContent)).toEqual(['Approved', 'Changed', 'Not approved', 'Not offered'])
+  expect(rows.map(row => row.querySelector('[data-slot="chip"]')?.getAttribute('data-tone') ?? null)).toEqual([null, 'warning', null, 'danger'])
+  expect(rows.every(row => row.querySelector('[data-slot="list-row-title"]')?.querySelector('[data-slot="chip"]') === null)).toBe(true)
+  expect(rows[3]?.querySelector('[data-slot="list-row-subtitle"]')?.hasAttribute('data-wrap-subtitle')).toBe(true)
 })

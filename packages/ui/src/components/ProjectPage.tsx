@@ -18,6 +18,7 @@ import {
   Chip,
   DetailHead,
   DetailMark,
+  EmptyState,
   NativeSelect,
   Note,
   Row,
@@ -130,9 +131,9 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
           {problem && <Row title={problem} />}
           {!problem && agents === null && <Row title="Reading…" />}
           {agents?.length === 0 && (
-            <Row
+            <EmptyState variant="row"
               title="No Agents of its own"
-              desc="Save one from a conversation with Save as an Agent…, or copy one here with Customize… on its page."
+              description="Save one from a conversation with Save as an Agent…, or copy one here with Customize… on its page."
             />
           )}
           {agents?.map((entry) => {

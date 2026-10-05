@@ -173,7 +173,7 @@
    before it can erase the subject beside it. */
 .chip[data-tint],
 .chip[data-tone='brand'][data-emphasis] {
-  max-width: 190px;
+  max-width: min(100%, 190px); /* desk: 190px → min(100%, 190px), so a chip never outgrows a narrow board card */
 }
 
 .chipWords {
@@ -1054,7 +1054,7 @@
 }
 
 /* Face, copy and controls share the whole row's centre, even with a sentence. */
-.row:has(.rowDesc, .rowMark) {
+.row:has(.rowDesc, .rowMark, .rowFace) {
   min-height: var(--hd-table-row-min);
 }
 
@@ -1330,6 +1330,10 @@
   background: var(--hd-muted);
   color: var(--hd-secondary-foreground);
   box-shadow: inset 0 0 0 1px var(--hd-border);
+}
+
+.detailMark[data-shape='face'] {
+  border-radius: var(--hd-face-radius-lg);
 }
 
 .detailText {
@@ -1651,6 +1655,7 @@
 /* A ledger record's meaning keeps a full line when metadata and state compete
    for a narrow reading column. Settings rows retain their usual composition. */
 .rowRecord .rowTitle {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 
@@ -1668,6 +1673,69 @@
   .rowRecord .rowCtl {
     margin-inline-start: 0;
   }
+}
+
+/* Record identity follows the table family; settings controls keep their label role. */
+.row[data-kind='record'] .rowTitle {
+  font-size: var(--hd-table-name-size);
+  line-height: var(--hd-line);
+}
+
+.rowClippedTitle {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowRecord .rowClippedTitle {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.row[data-kind='record'] .rowDescTruncate {
+  font-size: var(--hd-table-fact-size);
+  line-height: var(--hd-line-xs);
+}
+
+.rowFace {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+  margin-inline-end: calc(var(--hd-table-lead-gap) - var(--hd-space-6));
+}
+
+.rowFace > * {
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+}
+
+.avatarRow {
+  width: var(--hd-table-face);
+  height: var(--hd-table-face);
+}
+
+.note[data-inset='row'] {
+  padding-inline: var(--hd-table-edge);
+}
+
+/* A title mark stays in the column while its name yields the remaining width. */
+.rowTitleWithChip {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.rowTitleName {
+  min-width: 0;
+}
+
+.rowTitleChip {
+  flex: none;
+  display: inline-flex;
 }
 
 .metaListMuted { color: var(--hd-muted-foreground); }

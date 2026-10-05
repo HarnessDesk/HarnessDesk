@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 
 import type { AttachmentDeclaration, SeatAttachmentsRecord, SeatId } from '@harnessdesk/protocol'
 
-import { Chip, Row, Rows, SectionHead } from '../design'
+import { Chip, Text } from '../design'
 import { useSnapshot, useStore } from '../state/context'
-import { GroupLine, PanelEmpty } from './Panel'
+import { GroupLine, PanelEmpty, PanelRow } from './Panel'
 
 /**
  * A Seat's frozen attachment history — what an Agent declared, and what its
@@ -65,14 +65,14 @@ export const SeatAttachments = ({
   const declarationRow = (declaration: AttachmentDeclaration) => {
     const { loaded, reason } = statusOf(declaration)
     return (
-      <Row
+      <PanelRow
         key={`${declaration.kind}:${declaration.name}`}
         title={declaration.name}
-        {...(reason ? { desc: reason } : {})}
+        {...(reason ? { ask: reason, askLines: 'all' as const } : {})}
         // Loaded is the resting, working state a declared attachment is
         // meant to be in — health takes no tone, so it reads untoned; Not
         // loaded is the one that stands out.
-        control={<Chip tone={loaded ? 'neutral' : 'warning'}>{loaded ? 'Loaded' : 'Not loaded'}</Chip>}
+        trail={loaded ? <Text role="meta">Loaded</Text> : <Chip tone="warning">Not loaded</Chip>}
       />
     )
   }
@@ -91,14 +91,14 @@ export const SeatAttachments = ({
         <>
           {skills.length > 0 && (
             <>
-              <SectionHead name="Skills" />
-              <Rows>{skills.map(declarationRow)}</Rows>
+              <GroupLine left="Skills" />
+              {skills.map(declarationRow)}
             </>
           )}
           {servers.length > 0 && (
             <>
-              <SectionHead name="Servers" />
-              <Rows>{servers.map(declarationRow)}</Rows>
+              <GroupLine left="Servers" />
+              {servers.map(declarationRow)}
             </>
           )}
         </>

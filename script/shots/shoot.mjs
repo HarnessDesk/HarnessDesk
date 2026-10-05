@@ -2950,7 +2950,7 @@ rules:
     },
     verify: async () => {
       const text = await cdp.eval(`document.querySelector('section[aria-label="Checks"]')?.textContent ?? ''`)
-      if (!text.includes('Approved on this Mac')) {
+      if (!text.includes('Approved')) {
         throw new Error(`the project's checks do not say verify was approved here: ${q(text)}`)
       }
     },

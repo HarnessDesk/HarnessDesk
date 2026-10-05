@@ -86,3 +86,20 @@ it('opening Update or Customize is the only thing that reads a preview — never
   const customize = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Customize…')
   expect(customize).toBeDefined()
 })
+
+it('uses compact record rows under a label at the same inset', async () => {
+  render(fakeStore([{ id: 'old', origin: 'project', path: '.harnessdesk/flows/old.yml', name: 'Old', description: null, format: 'legacy', problem: null, shadows: [] }]))
+  await settle()
+  expect(container.querySelector('[data-slot="list-row"]')?.getAttribute('data-hd-table')).toBe('compact')
+  expect(container.querySelector('[data-slot="inspector-group"]')?.textContent).toBe('In this project · 1')
+})
+
+it('keeps each flow layer as a heading and a named group', async () => {
+  render(fakeStore(['project', 'user', 'builtin'].map((origin, index) => ({
+    id: `flow-${index}`, origin: origin as FlowEntry['origin'], path: `flow-${index}.yml`, name: `Flow ${index}`,
+    description: null, format: 'agents', problem: null, shadows: [],
+  }))))
+  await settle()
+  expect([...container.querySelectorAll('h3 [data-role="meta"]')].map(node => node.textContent)).toEqual(['In this project · 1', 'Yours · 1', 'Built in · 1'])
+  expect([...container.querySelectorAll('[role="group"]')].map(node => node.getAttribute('aria-label'))).toEqual(['In this project', 'Yours', 'Built in'])
+})

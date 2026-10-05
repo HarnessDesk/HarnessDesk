@@ -145,7 +145,7 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
           // fails. Codex gives its children threads; Claude Code does not.
           {...(agent.openable
             ? {
-                tooltip: `Open ${agent.sessionId}`,
+                tooltip: [`Open ${agent.sessionId}`, agent.prompt].filter(Boolean).join('\n\n'),
                 // A sub-agent runs under the agent that started it, so this
                 // session's runtime is the one that can read it. Without that,
                 // the id goes to whichever agent happens to be active.
@@ -153,7 +153,7 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
                   if (session) void store.openSession(agent.sessionId as SessionId, { runtime: session.runtime })
                 },
               }
-            : { tooltip: 'Ran inside this conversation; it has none of its own to open.' })}
+            : { tooltip: ['Ran inside this conversation; it has none of its own to open.', agent.prompt].filter(Boolean).join('\n\n') })}
         />
       ))}
     </>

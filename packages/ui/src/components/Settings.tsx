@@ -12,6 +12,7 @@ import type {
   Worktree,
 } from '@harnessdesk/protocol'
 
+import { withCount } from '../lib/with-count'
 import { desktop, hasInlineBrowser } from '../lib/desktop'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
@@ -80,6 +81,11 @@ import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
   BackLink,
+  BoardMenuButton,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
   Button,
   Chip,
   CodeText,
@@ -168,10 +174,6 @@ export const resolveSection = (name: string | null | undefined, fallback: Sectio
   name && (SECTIONS as readonly string[]).includes(name)
     ? (name as Section)
     : (name && MOVED[name]) || fallback
-
-/** A section head with its count, the one way every page writes one. */
-const withCount = (label: string, count: number): string => (count > 0 ? `${label} · ${count}` : label)
-
 
 /**
  * A custom endpoint: this agent's conversations run against another
@@ -1512,17 +1514,16 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
       <SectionHead name={withCount('Folders', snapshot.workspaces.length)} />
       <Rows>
         {snapshot.workspaces.length === 0 && (
-          <Row title="No folders opened yet" desc="Open one from File › Open Folder, or ⌘O." />
+          <EmptyState variant="row" title="No folders opened yet" description="Open one from File › Open Folder, or ⌘O." />
         )}
         {snapshot.workspaces.map((workspace) => (
           <RowButton
             key={workspace.path}
-            mark={<FolderIcon size={15} />}
+            kind="record"
+            mark={<FolderIcon size={16} />}
             title={workspace.name}
+            titleChip={workspace.path === snapshot.workspace?.path ? <Chip tone="neutral" size="sm">Current</Chip> : undefined}
             desc={shortPath(workspace.path, snapshot.home)} truncateDesc
-            {...(workspace.path === snapshot.workspace?.path
-              ? { control: <Chip state="ready" label="Current" /> }
-              : {})}
             onClick={() => setOpen(workspace.path)}
           />
         ))}
@@ -1690,13 +1691,17 @@ const WorktreeRows = () => {
         {managed.map((worktree) => (
           <Row
             key={worktree.path}
-            mark={<BranchIcon size={15} />}
+            kind="record"
+            mark={<BranchIcon size={16} />}
             title={worktree.branch ?? '(detached)'}
-            desc={worktree.path} truncateDesc
+            desc={shortPath(worktree.path, snapshot.home)} truncateDesc
             control={
-              <Button size="sm" variant="ghost" onClick={() => setRemoving(worktree)}>
-                Remove…
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${worktree.branch ?? 'Worktree'} actions · ${shortPath(worktree.path, snapshot.home)}`} />} />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem variant="destructive" onClick={() => setRemoving(worktree)}>Remove…</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             }
           />
         ))}

@@ -1,3 +1,4 @@
+import { PluginPanelTableExample } from '../../preview/plugin-panel-table'
 import { TablesFamily } from './tables-family'
 import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunControlsBoard } from '../../preview/frames-run-controls'
@@ -2278,10 +2279,7 @@ const AdoptedBoard = () => {
                 </TableRow>
               </TableBody>
             </Table>
-            <Table variant="panel" data-catalog-variant="panel">
-              <TableHeader><TableRow variant="panel"><TableHead variant="panel">Panel fact</TableHead></TableRow></TableHeader>
-              <TableBody><TableRow variant="panel"><TableCell variant="panel">Compact value</TableCell></TableRow></TableBody>
-            </Table>
+            <PluginPanelTableExample />
           </SectionBody>
           <DataTablePagination
             className="border-t-0"

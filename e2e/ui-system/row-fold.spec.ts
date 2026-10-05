@@ -75,15 +75,15 @@ test('a folding row draws one rule open, none folded, and one box either way', a
   expect(Number.isFinite(centres.chevron)).toBe(true)
   expect(Math.abs(centres.fold - centres.chevron)).toBeLessThanOrEqual(1)
 
-  // The head's name is the subject step, a step above the row titles under it.
+  // A runtime and an account are records: one family name role on both.
   const sizes = await card.evaluate((node) => {
-    const name = node.querySelector('[data-slot="row-folding"] [data-role="subject"]') as HTMLElement
+    const name = node.querySelector('[data-slot="row-folding"] [data-slot="row-title"]') as HTMLElement
     const account = [...node.querySelectorAll('button')].find((one) => one.textContent?.includes('dev@example.com'))
     const title = [...(account?.querySelectorAll('span') ?? [])].find((one) => one.textContent === 'dev') as HTMLElement
     return { name: parseFloat(getComputedStyle(name).fontSize), title: parseFloat(getComputedStyle(title).fontSize) }
   })
   expect(sizes.name).toBe(14)
-  expect(sizes.name).toBeGreaterThan(sizes.title)
+  expect(sizes.name).toBe(sizes.title)
 })
 
 test('a labelled checkbox is named by its words and ticked by them', async ({ page }) => {

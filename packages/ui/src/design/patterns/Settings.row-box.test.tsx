@@ -151,3 +151,20 @@ it('centres a described row’s mark and control on the whole row', () => {
 it('leaves exactly one full-width divider to the action or fold wrapper', () => {
   expect(css).toMatch(/\.rowFolding > \.rowButton::after\s*\{[^}]*display:\s*none/s)
 })
+
+it('record rows share a name role and accept an already-drawn face without a mark tile', () => {
+  const markup = renderToStaticMarkup(<Rows>
+    <Row kind="record" face={<i data-testid="face" />} title="Jane Doe" desc="dev@example.com" truncateDesc />
+    <RowButton kind="record" face={<i data-testid="face" />} title="Gamma" onClick={() => {}} />
+  </Rows>)
+  expect(markup.match(/data-kind="record"/g)).toHaveLength(2)
+  expect(markup.match(/data-slot="row-face"/g)).toHaveLength(2)
+  expect(markup).not.toContain('data-slot="row-mark"')
+  expect(css).toMatch(/\.row\[data-kind='record'\] \.rowTitle\s*\{[^}]*font-size:\s*var\(--hd-table-name-size\)/s)
+  expect(css).toMatch(/\.row\[data-kind='record'\] \.rowDescTruncate\s*\{[^}]*font-size:\s*var\(--hd-table-fact-size\)/s)
+})
+
+it('a record layout keeps its title wrapping even when the record kind is present', () => {
+  expect(css).toMatch(/\.rowRecord \.rowTitle\s*\{[^}]*white-space:\s*normal/s)
+  expect(css).not.toMatch(/\.row\[data-kind='record'\] \.rowTitle\s*\{[^}]*white-space:\s*nowrap/s)
+})

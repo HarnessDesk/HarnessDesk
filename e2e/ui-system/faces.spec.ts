@@ -64,6 +64,7 @@ const PAGES: readonly { readonly name: string; readonly url: string; readonly re
       { what: 'a channel’s senders', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'a person’s face in a channel', frame: 'room-channel-grouping', selector: 'span[data-shape="face"]:not([data-slot])' },
       { what: 'the seat’s face', frame: 'sidebar-column', selector: 'span[data-shape="face"]' },
+      { what: 'the setup survey’s runtime faces', frame: 'setup-survey', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'the profile’s face', frame: 'settings-sheet', selector: 'span[data-shape="face"]' },
     ],
   },
@@ -92,10 +93,7 @@ const PAGES: readonly { readonly name: string; readonly url: string; readonly re
  */
 type Excused = readonly { readonly frame: string; readonly slot: string; readonly shape: string }[]
 
-const NOT_SOMEONE: Excused = [
-  // A harness the desk found on this Mac is a thing, so it is a square.
-  { frame: 'setup-survey', slot: 'icon-tile', shape: 'square' },
-]
+const NOT_SOMEONE: Excused = []
 
 const dial = (page: Page, label: string) =>
   page.locator('label').filter({ hasText: new RegExp(`^${label}`) }).locator('select').first()
@@ -264,7 +262,7 @@ test.describe('rule: faces', () => {
     expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
   })
 
-  test('rule: faces — the checker catches an agent’s mark in a tile that is not a face, and lets the named exception stand', async ({ page }) => {
+  test('rule: faces — the checker catches an agent’s mark in a tile that is not a face, with no setup exception', async ({ page }) => {
     const spec = PAGES[0]!
     await open(page, spec.url, spec.ready)
     const before = await faceReport(page, NOT_SOMEONE)
@@ -276,7 +274,10 @@ test.describe('rule: faces', () => {
     })
     const after = await faceReport(page, NOT_SOMEONE)
     expect(after.findings.some((f) => f.rule === 'mark' && f.where === 'goal-roster')).toBe(true)
-    // Without its exception the harness tile is that same finding, so the list is doing work.
+    // Setup now follows the same rule; putting its old square back is caught.
+    await page.evaluate(() => {
+      document.querySelector('[data-frame-id="setup-survey"] [data-slot="icon-tile"]')?.setAttribute('data-shape', 'square')
+    })
     const bare = await faceReport(page, [])
     expect(bare.findings.some((f) => f.rule === 'mark' && f.where === 'setup-survey')).toBe(true)
   })

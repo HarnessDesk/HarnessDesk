@@ -384,7 +384,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
   AppWindow: 'packages/ui/src/components/AppWindow.tsx',
   Change: 'packages/ui/src/components/GitPane.tsx',
-  RefusedAction: 'packages/ui/src/components/Archive.tsx',
+  RefusedAction: 'packages/ui/src/components/ComposerControls.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',

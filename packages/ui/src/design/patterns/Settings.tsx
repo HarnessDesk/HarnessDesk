@@ -480,8 +480,8 @@ export const Note = ({
   tone?: 'warn' | 'bad'
   ink?: 'secondary' | 'muted'
   icon?: ReactNode
-  /** Follow a pane title's small icon tile and bar ink column. */
-  inset?: 'pane-title'
+  /** Follow a pane title’s ink column, or the table family’s row inset. */
+  inset?: 'pane-title' | 'row'
   className?: string
 }) => {
   /* In a dialog the form stack spaces the note; a page's note carries its
@@ -919,9 +919,22 @@ const RowDesc = ({ truncate, children }: { truncate: boolean; children: ReactNod
   </span>
 )
 
+/* A title's chip keeps its own width; only the record name is clipped. */
+const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: ReactNode; chip?: ReactNode }) => (
+  <span className={cx(styles.rowTitle, Boolean(chip) && styles.rowTitleWithChip)} data-slot="row-title">
+    {kind === 'record'
+      ? <Clipped className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
+      : chip ? <span className={styles.rowTitleName}>{title}</span> : title}
+    {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip">{chip}</span> : null}
+  </span>
+)
+
 export const Row = ({
   mark,
+  face,
+  kind = 'setting',
   title,
+  titleChip,
   desc,
   truncateDesc = false,
   control,
@@ -929,17 +942,23 @@ export const Row = ({
   ...props
 }: {
   mark?: ReactNode
+  /** A face that draws its own ground or ring, without another tile. */
+  face?: ReactNode
+  /** Records use the table family name and fact roles; controls retain settings labels. */
+  kind?: 'setting' | 'record'
   title: ReactNode
+  /** A chip beside the title, kept visible while a record name gives way. */
+  titleChip?: ReactNode
   desc?: ReactNode
   /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
   truncateDesc?: boolean
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
-  <div className={cx(styles.row, className)} data-slot="row" {...props}>
-    {mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
+  <div className={cx(styles.row, className)} data-slot="row" data-kind={kind} {...props}>
+    {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
-      <span className={styles.rowTitle} data-slot="row-title">{title}</span>
+      <RowTitle kind={kind} title={title} chip={titleChip} />
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
     {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
@@ -984,7 +1003,10 @@ export interface RowFold {
  */
 export const RowButton = ({
   mark,
+  face,
+  kind = 'setting',
   title,
+  titleChip,
   layout = 'default',
   desc,
   truncateDesc = false,
@@ -997,7 +1019,13 @@ export const RowButton = ({
   ...rest
 }: {
   mark?: ReactNode
+  /** A face that draws its own ground or ring, without another tile. */
+  face?: ReactNode
+  /** Records use the table family name and fact roles; controls retain settings labels. */
+  kind?: 'setting' | 'record'
   title: ReactNode
+  /** A chip beside the title, kept visible while a record name gives way. */
+  titleChip?: ReactNode
   /** A record keeps its human title whole; narrow rows put metadata and state below it. */
   layout?: 'default' | 'record'
   desc?: ReactNode
@@ -1023,12 +1051,13 @@ export const RowButton = ({
     <Button variant="row" size="pattern"
       type="button"
       className={cx(styles.row, styles.rowButton, layout === 'record' && styles.rowRecord, className)}
+      data-kind={kind}
       onClick={onClick}
       {...rest}
     >
-      {mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
+      {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
       <span className={styles.rowText}>
-        <span className={styles.rowTitle} data-slot="row-title">{title}</span>
+        <RowTitle kind={kind} title={title} chip={titleChip} />
         {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
       </span>
       {/* The control and the chevron are one trailing item, so a row too narrow
@@ -1361,8 +1390,8 @@ export const RowMark = ({ children, className }: { children: ReactNode; classNam
   <span className={cx(styles.rowMark, className)}>{children}</span>
 )
 
-export const DetailMark = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cx(styles.detailMark, className)}>{children}</span>
+export const DetailMark = ({ children, className, shape = 'square' }: { children: ReactNode; className?: string; shape?: 'square' | 'face' }) => (
+  <span className={cx(styles.detailMark, className)} data-shape={shape}>{children}</span>
 )
 
 /**
@@ -1428,7 +1457,7 @@ export const AccountMark = ({
 }: Omit<HTMLAttributes<HTMLElement>, 'data-tint'> & {
   as?: 'span' | 'button'
   /** `dot` is the account's colour alone, for a line whose owner is already drawn. */
-  size?: 'sm' | 'lg' | 'dot'
+  size?: 'sm' | 'lg' | 'dot' | 'row'
   /** One of the accounts' own tints — never a design-system tint at large: #991 once shipped teal and orange, neither of which is a tint an account can wear. */
   'data-tint'?: AccountTint
   children: ReactNode
@@ -1438,7 +1467,7 @@ export const AccountMark = ({
   // the two apart on a screen that draws both.
   'data-shape': 'round',
   ...(as === 'button' ? { type: 'button' } : {}),
-  className: cx(styles.avatar, as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, className),
+  className: cx(styles.avatar, as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, className),
 }, children)
 
 export const FileButton = ({

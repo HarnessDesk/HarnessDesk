@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Clipped } from './Settings'
+import { Chip, Clipped, Row, RowButton } from './Settings'
 
 /**
  * `Clipped`: a line that says itself whole on hover only while it is cut, so
@@ -56,4 +56,37 @@ it('says itself whole on hover while it is cut, and nothing once it fits', () =>
   hover(label)
   expect(label.hasAttribute('title')).toBe(false)
   expect(container.querySelector('button')?.getAttribute('title')).toBe('New sessions run as Codex')
+})
+
+it.each(['row', 'button'] as const)('a record %s says its cut title whole on hover', (kind) => {
+  const name = 'Review the workspace settings with a title that distinguishes this conversation'
+  act(() => root.render(kind === 'row'
+    ? <Row kind="record" title={name} />
+    : <RowButton kind="record" title={name} onClick={() => {}} />))
+  const title = container.querySelector<HTMLElement>('[data-slot="row-title"]')!
+  const label = title.firstElementChild as HTMLElement | null
+  expect(label).not.toBeNull()
+  sized(label!, 400, 100)
+  hover(label!)
+  expect(label!.getAttribute('title')).toBe(name)
+  sized(label!, 80, 100)
+  hover(label!)
+  expect(label!.hasAttribute('title')).toBe(false)
+})
+
+it.each(['row', 'button'] as const)('a record %s keeps its title chip outside the cut name', (kind) => {
+  const name = 'Jane Doe, Keeper of Several Long Names'
+  const chip = <Chip tone="neutral" size="sm">Default</Chip>
+  act(() => root.render(kind === 'row'
+    ? <Row kind="record" title={name} titleChip={chip} />
+    : <RowButton kind="record" title={name} titleChip={chip} onClick={() => {}} />))
+  const title = container.querySelector<HTMLElement>('[data-slot="row-title"]')!
+  const mark = title.querySelector('[data-slot="chip"]')
+  expect(mark).not.toBeNull()
+  const label = title.firstElementChild as HTMLElement
+  expect(label.contains(mark)).toBe(false)
+  sized(label, 400, 100)
+  hover(label)
+  expect(label.getAttribute('title')).toBe(name)
+  expect(mark!.textContent).toBe('Default')
 })

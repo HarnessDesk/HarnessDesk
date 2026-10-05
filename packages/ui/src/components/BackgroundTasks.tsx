@@ -177,7 +177,7 @@ const TaskCard = ({
     <article data-slot="task-card" data-state={task.state} className="flex flex-col gap-1">
       <PanelRow
         mark={<StateMark task={task} />}
-        title={done ? <Text role="navigation" ink="secondary">{task.label}</Text> : task.label}
+        title={done ? <Text role="row" ink="secondary">{task.label}</Text> : task.label}
         meta={meta}
         tooltip={taskTooltip(task)}
         trail={

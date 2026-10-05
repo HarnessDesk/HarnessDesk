@@ -2,6 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { runtimeId } from '@harnessdesk/protocol'
+
+import { runtimeTint } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore, type AuditRow } from '../state/store'
 import { Activity } from './Activity'
@@ -46,9 +49,10 @@ it('heads each day of the log with the inspector’s one group line', async () =
 
   const days = [...container.querySelectorAll('[data-slot="inspector-group"]')]
   expect(days).toHaveLength(2)
-  // The day is the group line's own label: the muted role, in the secondary ink.
+  // Compact group labels use the 12px facts role, with medium secondary ink.
   const label = days[0]?.querySelector('[data-slot="text"]')
-  expect(label?.getAttribute('data-role')).toBe('muted')
+  expect(label?.getAttribute('data-role')).toBe('meta')
+  expect(label?.getAttribute('data-weight')).toBe('medium')
   expect(label?.getAttribute('data-ink')).toBe('secondary')
   expect(label?.textContent).toContain('25')
 })
@@ -73,6 +77,8 @@ it('draws the agent that acted as a face, which follows the shape chosen for fac
   await mountWith([{ id: 'codex', presentation: { name: 'Agent runtime' }, capabilities: {} }])
   const tile = container.querySelector('[data-slot="icon-tile"]')
   expect(tile?.className).toContain('rounded-(--hd-face-radius)')
+  const snapshot = emptySnapshot()
+  expect(tile?.getAttribute('data-tint')).toBe(runtimeTint(runtimeId('codex'), snapshot.accountsByRuntime, snapshot.accountPrefs))
 })
 
 it('keeps the event glyph a plain square when the agent cannot be named, so it is never taken for someone', async () => {

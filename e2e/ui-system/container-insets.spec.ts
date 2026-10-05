@@ -9,16 +9,17 @@ const contracts = [
   { selector: '[data-slot="board-card"]', tier: 'card' },
   { selector: '[data-slot="bubble"][data-variant="secondary"]', tier: 'card' },
   { selector: '[data-slot="agent-card-band"]', tier: 'row' },
-  { selector: '[data-slot="inspector-group"]', tier: 'dense' },
+  { selector: '[data-slot="inspector-group"]', tier: 'dense', inlineTier: 'row' },
   { selector: '[data-slot="section"][data-variant="panel"]', tier: 'row' },
   { selector: '[data-slot="approval-code"]', tier: 'row' },
-  { selector: '[data-slot="list-row"][data-size="default"]', tier: 'row' },
+  { selector: '[data-slot="list-row"][data-size="default"]:not([data-hd-table="compact"])', tier: 'row' },
+  { selector: '[data-slot="list-row"][data-size="default"][data-hd-table="compact"]', tier: 'row', blockInset: 1 },
   { selector: '[data-slot="chart-card"]', tier: 'card' },
   { selector: '[data-slot="row"]', tier: 'row' },
   { selector: '[data-slot="summary-item"]', tier: 'row' },
 ] as const
 
-const readInsets = (contracts: readonly { selector: string; tier: string }[]) => {
+const readInsets = (contracts: readonly { selector: string; tier: string; inlineTier?: string; blockInset?: number }[]) => {
   const visible = (element: Element) => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
     && !element.closest('.sr-only, [hidden]')
   const contents = (element: Element): DOMRect[] => {
@@ -73,16 +74,23 @@ const readInsets = (contracts: readonly { selector: string; tier: string }[]) =>
       return new DOMRect(left, top, right - left, bottom - top)
     }).filter(rect => rect.width > 0 && rect.height > 0)
   }
-  return contracts.map(({ selector, tier }) => {
+  return contracts.map(({ selector, tier, inlineTier, blockInset }) => {
     const probe = document.createElement('div')
     probe.style.padding = `var(--hd-inset-${tier})`
     document.body.append(probe)
     const minimum = parseFloat(getComputedStyle(probe).paddingLeft)
+    probe.style.padding = `var(--hd-inset-${inlineTier ?? tier})`
+    const inlineMinimum = parseFloat(getComputedStyle(probe).paddingLeft)
     probe.remove()
-    return { selector, minimum, boxes: [...document.querySelectorAll(selector)].filter(visible).map(element => {
+    const expectedPadding = [blockInset ?? minimum, inlineMinimum, blockInset ?? minimum, inlineMinimum]
+    return { selector, minimum, expectedPadding, boxes: [...document.querySelectorAll(selector)].filter(visible).map(element => {
       const css = getComputedStyle(element), box = element.getBoundingClientRect(), content = contents(element)
       return {
         label: element.textContent?.slice(0, 100),
+        height: box.height,
+        rowFloor: element.matches('[data-slot="list-row"][data-hd-table="compact"]')
+          ? parseFloat(css.getPropertyValue(element.querySelector('[data-slot="list-row-subtitle"], [data-slot="list-row-lead"]') ? '--hd-table-row-min' : '--hd-table-row-min-bare'))
+          : null,
         padding: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft].map(parseFloat),
         insets: content.length ? [
           Math.min(...content.map(rect => rect.top)) - box.top,
@@ -140,14 +148,15 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await expect(page.locator('[data-slot="agent-card-band"]').filter({ hasText: 'The context budget is nearly full.' })).toBeVisible()
     const readings = await page.evaluate(readInsets, contracts)
     const faults: string[] = []
-    for (const { selector, minimum, boxes } of readings) {
+    for (const { selector, expectedPadding, boxes } of readings) {
       expect(boxes.length, `${selector} must have shipped coverage`).toBeGreaterThan(0)
       for (const box of boxes) {
-        if (box.padding.some(value => Math.abs(value - minimum) > 1)) faults.push(`${selector}: padding ${box.padding} differs from ${minimum}`)
+        if (box.padding.some((value, side) => Math.abs(value - expectedPadding[side]!) > (box.rowFloor != null ? 0.5 : 1))) faults.push(`${selector}: padding ${box.padding} differs from ${expectedPadding}`)
         if (Math.abs(box.padding[0]! - box.padding[2]!) > 1) faults.push(`${selector}: asymmetric vertical inset ${box.padding}`)
+        if (box.rowFloor != null && box.height < box.rowFloor) faults.push(`${selector}: height ${box.height} < ${box.rowFloor}`)
         // Ranges include font ascenders outside a line's nominal box. Two
         // pixels allow that ink overhang, while zero padding still fails.
-        if (box.insets?.some(value => value < minimum - 2)) faults.push(`${selector}: content insets ${box.insets} < ${minimum}: ${box.label}`)
+        if (box.insets?.some((value, side) => value < expectedPadding[side]! - 2)) faults.push(`${selector}: content insets ${box.insets} < ${expectedPadding}: ${box.label}`)
       }
     }
     expect(faults).toEqual([])

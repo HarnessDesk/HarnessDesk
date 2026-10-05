@@ -176,7 +176,7 @@ try {
   await cdp.eval(`${STORE}.askSettings('workspaces', ${q(project)})`)
   try {
     await waitForSnapshot(
-      () => cdp.eval(`document.querySelector('[aria-label="Triggers"]')?.textContent?.includes('open triager') ?? false`),
+      () => cdp.eval(`document.querySelector('[aria-label="Triggers"] [role="switch"][aria-label="Arm triage-issue"]')?.getAttribute('aria-checked') === 'false'`),
       Boolean,
       { attempts: 100 },
     )
@@ -206,7 +206,7 @@ try {
   }
   await click(cdp, `[...document.querySelectorAll('[role="alertdialog"] button')].find(b => b.textContent.trim() === 'Arm')`)
   await waitForSnapshot(
-    () => cdp.eval(`document.querySelector('[aria-label="Triggers"]')?.textContent?.includes('Armed') ?? false`),
+    () => cdp.eval(`document.querySelector('[aria-label="Triggers"] [role="switch"][aria-label="Arm triage-issue"]')?.getAttribute('aria-checked') === 'true'`),
     Boolean,
     { attempts: 150 },
   )

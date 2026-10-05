@@ -1009,7 +1009,10 @@ it('a one-outcome person review uses its only answer without adding an answer co
   expect(document.body.textContent).toContain('Choose the attempt this step answers for.')
   expect(document.body.textContent).not.toContain('checked revision')
   expect(document.body.querySelector('[role="radiogroup"][aria-label="Answer"]')).toBeNull()
-  expect(document.body.querySelector('[data-slot="chip"]')).toBeNull()
+  // Board role tags are chips too; only the review dialog must omit an answer chip.
+  const dialog = document.body.querySelector('[role="dialog"]')
+  expect(dialog).not.toBeNull()
+  expect(dialog?.querySelector('[data-slot="chip"]')).toBeNull()
   const attemptRow = document.querySelector<HTMLElement>('[role="radio"]')
   expect(attemptRow).not.toBeNull()
   act(() => attemptRow!.click())

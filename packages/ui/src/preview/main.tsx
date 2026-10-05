@@ -1,3 +1,4 @@
+import { CompactPanelFrames, compactAgentsStore, compactChangesStore } from './compact-panels-fixture'
 import { TablesFamily } from '../design/explorer/tables-family'
 import { NoticesFrame } from './frames-notices'
 import { CatalogueRefusedUndo } from '../design/explorer/boards'
@@ -685,7 +686,7 @@ const Preview = () => {
           frame. It is the only way to see the settings surface at the 980px
           it actually opens at. */}
       <Frame id="settings-sheet" title="Settings — the sheet, its nav, and a page">
-        <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
+        <div className="relative h-[940px]" style={{ transform: 'translateZ(0)' }}>
           {/* The page is the caller's, so the dial drives it directly and the
               sheet's own nav rail writes back to the same state — no remount,
               and clicking around in here moves the dial with it. */}
@@ -715,7 +716,7 @@ const Preview = () => {
           top-level screen, never a Settings page — the same containment
           trick as Settings and Usage, both `AppWindow`s too. */}
       <Frame id="agents-roster" title="Agents — the roster, and a selected Agent">
-        <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
+        <div className="relative h-[940px]" style={{ transform: 'translateZ(0)' }}>
           <AgentsWindow
             focus={agentsFocus === 'overview' ? null : agentsFocus}
             onClose={() => {}}
@@ -737,12 +738,12 @@ const Preview = () => {
         />
       </div>
       <Frame id="workspace-project" title="Settings › Workspaces — a project">
-        <div className="max-h-[560px] overflow-y-auto p-4">
+        <div className="p-4">
           <WorkspacesSection focus={PREVIEW_ROOT} />
         </div>
       </Frame>
       <Frame id="workspace-triggers" title="Settings › Workspaces — Triggers on this Mac">
-        <div className="max-h-[560px] overflow-y-auto p-4">
+        <div className="p-4">
           <WorkspacesSection />
         </div>
       </Frame>
@@ -909,7 +910,7 @@ const Preview = () => {
                 sessionKey: PREVIEW_SESSION_KEY,
               }}
             >
-              <ChangesView />
+              <StoreProvider store={compactChangesStore}><ChangesView /></StoreProvider>
             </PaneProvider>
           </div>
         </Frame>
@@ -926,7 +927,7 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
-        <Frame id="panel-agents" title="Side panel — Agents, with the Seat record">
+        <Frame id="panel-agents" title="Side panel — Agents">
           <div className="h-[420px]">
             <PaneProvider
               scope={{
@@ -935,7 +936,7 @@ const Preview = () => {
                 sessionKey: PREVIEW_SESSION_KEY,
               }}
             >
-              <AgentsView />
+              <StoreProvider store={compactAgentsStore}><AgentsView /></StoreProvider>
             </PaneProvider>
           </div>
         </Frame>
@@ -981,6 +982,8 @@ const Preview = () => {
           </div>
         </Frame>
       </div>
+
+      {new URLSearchParams(window.location.search).has('compact-panels') && <CompactPanelFrames />}
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The sidebar at its real width, on the plate it really sits on:
