@@ -224,7 +224,7 @@ export const AgentPage = ({
       <BackLink to="Agents" onClick={onBack} />
       <DetailHead
         mark={
-          <DetailMark>
+          <DetailMark shape="face">
             <AgentIcon size={22} />
           </DetailMark>
         }

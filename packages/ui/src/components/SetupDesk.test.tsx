@@ -180,3 +180,11 @@ it('composes the shared card and list-row roles', async () => {
   expect(container.querySelector('[data-slot="list-row"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="icon-tile"]')).not.toBeNull()
 })
+
+it('a ready runtime without a tagline has no empty subtitle', async () => {
+  const info = runtime('custom', 'Custom runtime')
+  const { tagline: _tagline, ...presentation } = info.presentation
+  await mount([{ ...info, presentation }], { custom: { state: 'ready' } }, { custom: signedIn })
+  expect(container.querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
+  expect(container.textContent).toContain('Custom runtime')
+})

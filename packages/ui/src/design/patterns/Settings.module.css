@@ -1738,9 +1738,15 @@
   margin-inline-end: calc(var(--hd-table-lead-gap) - var(--hd-space-6));
 }
 
-.rowFace > * {
+/* A face's own size utility yields to the family slot in compact density. */
+.rowFace > *,
+.rowFace > [data-shape='face'] {
   width: var(--hd-table-face);
   height: var(--hd-table-face);
+}
+
+.rowFace > [data-shape='face'] {
+  border-radius: var(--hd-table-face-radius);
 }
 
 .avatarRow {
