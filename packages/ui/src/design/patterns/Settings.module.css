@@ -913,9 +913,9 @@
   padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
 }
 
-/* The summary card owns its padding token rather than the Rows inset. */
+/* Summary facts own the row inset rather than the table family's density. */
 .sectionHead:has(+ [data-slot='summary-list']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-card-padding));
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-row)); /* desk: summary label inset 17 → 13, matching the row-tier facts (#1363) */
 }
 
 .sectionHead:first-child {
@@ -1037,7 +1037,7 @@
   align-items: center;
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   min-height: var(--hd-table-row-min-bare);
-  padding: var(--hd-inset-row) var(--hd-table-edge);
+  padding: var(--hd-inset-row) var(--hd-table-edge); /* desk: row inset 12/16 → 12 on all sides (#1363) */
   border-bottom: 0; /* desk: separator lives in ::after so row rules do not read as surfaces */
   padding-bottom: calc(var(--hd-inset-row) + var(--hd-border-width));
 }

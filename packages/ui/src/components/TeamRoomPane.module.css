@@ -60,7 +60,7 @@
   align-items: center;
   min-width: 0;
   gap: var(--hd-bar-gap);
-  margin-left: calc(var(--hd-space-6) + var(--hd-inset-card) + var(--hd-border-width));
+  margin-left: calc(var(--hd-space-6) + var(--hd-table-edge) + var(--hd-border-width)); /* desk: receipt title follows its row-content edge, 41 → 37 (#1363) */
 }
 
 .barName {
@@ -391,7 +391,7 @@
   }
 
   .bar[data-receipt-column] .barContent {
-    margin-left: calc(var(--hd-space-6) + var(--hd-inset-card) + var(--hd-border-width) - max(var(--hd-bar-ink), var(--titlebar-inset, 0px)) - var(--hd-bar-gap));
+    margin-left: calc(var(--hd-space-6) + var(--hd-table-edge) + var(--hd-border-width) - max(var(--hd-bar-ink), var(--titlebar-inset, 0px)) - var(--hd-bar-gap)); /* desk: narrow receipt title follows its row-content edge, 41 → 37 (#1363) */
   }
 
   /* At the native corner the window controls still need the original line

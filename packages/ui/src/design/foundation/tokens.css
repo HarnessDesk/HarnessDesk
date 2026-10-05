@@ -402,7 +402,7 @@ body {
   --hd-table-row-min: 56px;
   --hd-table-row-min-bare: 44px;
   --hd-table-cell-x: var(--hd-inset-row);
-  --hd-table-edge: var(--hd-inset-row);
+  --hd-table-edge: var(--hd-inset-row); /* desk: table-family outer edge 16 → row tier 12 (#1363) */
   --hd-table-face: 32px;
   --hd-table-face-radius: calc(var(--hd-face-radius) * 4 / 3);
   --hd-table-lead-gap: var(--hd-space-3);
@@ -1625,7 +1625,7 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
   --hd-table-row-min: 56px;
   --hd-table-row-min-bare: 44px;
   --hd-table-cell-x: var(--hd-inset-row);
-  --hd-table-edge: var(--hd-inset-row);
+  --hd-table-edge: var(--hd-inset-row); /* desk: comfortable table-family outer edge 16 → row tier 12 (#1363) */
   --hd-table-face: 32px;
   --hd-table-face-radius: calc(var(--hd-face-radius) * 4 / 3);
   --hd-table-lead-gap: var(--hd-space-3);
