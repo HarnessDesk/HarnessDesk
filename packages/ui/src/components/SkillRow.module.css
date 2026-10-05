@@ -13,6 +13,10 @@
   width: 100%;
 }
 
+.narrowName {
+  flex-wrap: nowrap; /* desk: narrow rows keep the name and command on their title line */
+}
+
 .faces {
   gap: 0; /* desk: loaded-agent faces overlap as a stack instead of spaced reach markers */
 }

@@ -47,6 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 const runtime = (id: string, name: string): RuntimeInfo =>
@@ -1840,6 +1841,34 @@ it('the List compares Skill, State and Loaded by without a repeated monogram', a
   expect(rows[0]?.querySelector('[data-shape="face"]')?.getAttribute('aria-label')).toBe('First Agent')
   expect(rows[1]?.textContent).toContain('Empty on disk')
   expect(rows[1]?.textContent).toContain('None')
+})
+
+it('the List responds to its container and retains definition access in the narrow form', async () => {
+  let resize!: ResizeObserverCallback
+  const disconnect = vi.fn()
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: ResizeObserverCallback) { resize = callback }
+    observe() {}
+    disconnect = disconnect
+  })
+  const description = 'A complete description that remains available in the definition.'
+  await mount(library([entry('code-review', ['reaches', 'absent'], { description }), entry('empty', ['hollow', 'absent'])]))
+  expect(resize, 'the list must observe its own container').toBeTypeOf('function')
+  const setWidth = async (width: number) => act(async () => resize([{ contentRect: { width } }] as ResizeObserverEntry[], {} as ResizeObserver))
+  await setWidth(599)
+  expect(container.querySelector('table')).toBeNull()
+  const row = container.querySelector<HTMLButtonElement>('[data-slot="skill-row"]')!
+  expect(row.tagName).toBe('BUTTON')
+  expect(row.querySelector('[data-slot="list-row-title"]')?.textContent).toContain('/code-review')
+  expect(row.querySelector('[data-slot="list-row-subtitle"]')?.textContent).toBe(description)
+  expect(row.querySelector('[data-slot="chip"]')?.textContent).toBe('Ready')
+  expect(row.querySelector('[data-slot="list-row-trail"] [data-shape="face"]')?.getAttribute('aria-label')).toBe('First Agent')
+  expect(container.querySelectorAll('[data-slot="skill-row"]')[1]?.textContent).toContain('Empty on disk')
+  await act(async () => row.click())
+  expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(description)
+  await setWidth(600)
+  expect(container.querySelector('thead')?.textContent).toBe('SkillStateLoaded by')
+  expect(container.querySelector('[data-slot="list-row-content"]')).toBeNull()
 })
 
 it('the server List uses the same labelled columns, without a skill invocation', async () => {

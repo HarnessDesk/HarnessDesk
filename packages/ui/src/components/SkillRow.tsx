@@ -1,15 +1,21 @@
-import { useMemo } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 import type { LibraryEntry } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { Button, Chip, CodeText, IconTile, Monogram, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { Button, Chip, CodeText, IconTile, ListRow, ListRows, Monogram, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { runtimeTint } from '../lib/accounts'
 import { useSnapshot } from '../state/context'
 import { ChevronIcon } from './Icons'
 import type { LibraryColumn } from './LibraryActions'
 import styles from './SkillRow.module.css'
+
+// Trailing facts use 283px in the four-agent rig. At 558px total, the
+// remaining copy still splits descriptions into two-word lines; 600px
+// leaves about 293px of text. Teams uses the same container-width cutoff.
+const NARROW_LIST_WIDTH = 600
+const NarrowList = createContext(false)
 
 /**
  * The one or two letters on the mark.
@@ -104,8 +110,51 @@ export const SkillRow = ({ entry, columns, onOpen }: {
   onOpen: () => void
 }) => {
   const snapshot = useSnapshot()
+  const narrow = useContext(NarrowList)
   const finding = useMemo(() => findingFor(entry, columns), [entry, columns])
   const loaded = entry.reach.filter(reach => reach.state === 'reaches')
+  const title = <span className={`${styles.name} ${narrow ? styles.narrowName : ''}`}>
+    <Text role="subject" truncate>{entry.title ?? entry.name}</Text>
+    <Text role="meta" ink="muted" truncate className={narrow ? 'max-w-1/2 shrink-0' : 'max-w-full shrink-0'}>
+      <CodeText as="code" size="inherit">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
+    </Text>
+  </span>
+  const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal ${narrow ? 'line-clamp-2 text-balance' : 'block'}`}>
+    {entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')}
+  </Text>
+  const faces = <span className={styles.faces}>
+    {loaded.length === 0 ? <Text role="muted" ink="muted">None</Text> : loaded.map(reach => {
+      const column = columns.find(column => column.id === reach.runtime)
+      if (!column) return null
+      return (
+        <Tooltip key={reach.runtime}>
+          <TooltipTrigger render={
+            <IconTile
+              size="stack"
+              shape="face"
+              tint={runtimeTint(reach.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)}
+              role="img"
+              aria-label={column.label}
+            />
+          }>
+            {column.info ? <RuntimeMark runtime={column.info} size={12} /> : <Monogram>{column.label[0]}</Monogram>}
+          </TooltipTrigger>
+          <TooltipContent>{column.label}</TooltipContent>
+        </Tooltip>
+      )
+    })}
+  </span>
+  if (narrow) return <ListRow
+    as="button"
+    interactive
+    data-slot="skill-row"
+    onClick={onOpen}
+    title={title}
+    subtitle={description}
+    wrapSubtitle
+    meta={<Chip tone={finding?.tone === 'warn' ? 'warning' : 'neutral'} size="sm">{finding?.text ?? 'Ready'}</Chip>}
+    trail={<>{faces}<ChevronIcon size={15} /></>}
+  />
   return (
     <TableRow
       interactive
@@ -113,22 +162,15 @@ export const SkillRow = ({ entry, columns, onOpen }: {
       onClick={onOpen}
       className="cursor-pointer"
     >
-      <TableCell className="whitespace-normal">
+      <TableCell className="min-w-48 whitespace-normal">
         <Button
           variant="ghost"
           size="content"
           onClick={event => { event.stopPropagation(); onOpen() }}
           className="w-0 min-w-full flex-col items-start justify-start gap-0 text-left"
         >
-          <span className={styles.name}>
-            <Text role="subject" truncate>{entry.title ?? entry.name}</Text>
-            <Text role="meta" ink="muted" truncate className="max-w-full shrink-0">
-              <CodeText as="code" size="inherit">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
-            </Text>
-          </span>
-          <Text as="span" role="muted" ink="muted" className="block whitespace-normal">
-            {entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')}
-          </Text>
+          {title}
+          {description}
         </Button>
       </TableCell>
       <TableCell className="w-px whitespace-nowrap">
@@ -138,28 +180,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
       </TableCell>
       <TableCell className="w-px whitespace-nowrap">
         <span className="flex items-center justify-between gap-3">
-          <span className={styles.faces}>
-            {loaded.length === 0 ? <Text role="muted" ink="muted">None</Text> : loaded.map(reach => {
-              const column = columns.find(column => column.id === reach.runtime)
-              if (!column) return null
-              return (
-                <Tooltip key={reach.runtime}>
-                  <TooltipTrigger render={
-                    <IconTile
-                      size="stack"
-                      shape="face"
-                      tint={runtimeTint(reach.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)}
-                      role="img"
-                      aria-label={column.label}
-                    />
-                  }>
-                    {column.info ? <RuntimeMark runtime={column.info} size={12} /> : <Monogram>{column.label[0]}</Monogram>}
-                  </TooltipTrigger>
-                  <TooltipContent>{column.label}</TooltipContent>
-                </Tooltip>
-              )
-            })}
-          </span>
+          {faces}
           <ChevronIcon size={15} />
         </span>
       </TableCell>
@@ -167,8 +188,18 @@ export const SkillRow = ({ entry, columns, onOpen }: {
   )
 }
 
-export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactNode; kind?: 'skill' | 'mcp' }) => (
-  <Table variant="framed">
+export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactNode; kind?: 'skill' | 'mcp' }) => {
+  const [box, setBox] = useState<HTMLDivElement | null>(null)
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    if (!box || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setNarrow((entry?.contentRect.width ?? Infinity) < NARROW_LIST_WIDTH))
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [box])
+  return <div ref={setBox} data-slot="skill-list" data-layout={narrow ? 'list' : 'table'}>
+    <NarrowList.Provider value={narrow}>
+    {narrow ? <ListRows>{children}</ListRows> : <Table variant="framed">
     <TableHeader>
       <TableRow>
         <TableHead>{kind === 'skill' ? 'Skill' : 'Server'}</TableHead>
@@ -177,5 +208,7 @@ export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactN
       </TableRow>
     </TableHeader>
     <TableBody>{children}</TableBody>
-  </Table>
-)
+    </Table>}
+    </NarrowList.Provider>
+  </div>
+}

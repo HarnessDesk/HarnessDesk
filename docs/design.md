@@ -1822,3 +1822,9 @@ only when it tells rows apart. Only interactive rows hover; selected table,
 matrix and record-list rows use the same selected fill. Navigation keeps its
 own destination semantics. The Tables catalogue board and “Tables: the family”
 preview frame mount the same real components in both densities.
+
+Library switches from its Skill/Server, State and Loaded by table to list rows
+below 600px of list-container width. The title keeps the name and command,
+the description wraps for at most two lines with its full sentence in the
+definition, the state sits on the meta line, and loading faces and the opening
+chevron keep the trail. Wider tables keep a 192px floor on the identity cell.

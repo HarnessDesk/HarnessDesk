@@ -101,14 +101,53 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   test(`Library warnings and four loading faces stay whole at narrow widths in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
     const sheet = page.locator('[data-frame-id="settings-sheet"]')
-    for (const width of [900, 720]) {
+    for (const width of [1024, 900, 720]) {
       await page.setViewportSize({ width, height: 900 })
       await expect(sheet.getByText('Shared review', { exact: true })).toBeVisible()
-      const readings = await sheet.locator('tbody tr').evaluateAll(rows => rows.map(row => {
-        const cells = [...row.querySelectorAll('td')]
-        return cells.slice(1).map(cell => {
+      const narrow = width < 1024
+      await expect(sheet.locator('[data-slot="skill-list"]')).toHaveAttribute('data-layout', narrow ? 'list' : 'table')
+      const rows = sheet.locator('[data-slot="skill-row"]')
+      const readability = await rows.evaluateAll(rows => rows.map(row => {
+        const name = row.querySelector('[data-slot="text"][data-role="subject"]')!
+        const description = row.querySelector('[data-skill-description]')!
+        const nameText = name.firstChild!
+        const prefix = document.createRange()
+        prefix.setStart(nameText, 0)
+        prefix.setEnd(nameText, Math.min(8, nameText.textContent!.length))
+        const nameBox = name.getBoundingClientRect()
+        const lines = new Map<number, string[]>()
+        const text = description.firstChild!
+        const box = description.getBoundingClientRect()
+        for (const match of text.textContent!.matchAll(/\S+/g)) {
+          const word = document.createRange()
+          word.setStart(text, match.index!)
+          word.setEnd(text, match.index! + match[0].length)
+          const rect = word.getBoundingClientRect()
+          if (rect.top >= box.bottom) continue // the full sentence lives in detail
+          const line = lines.get(rect.top) ?? []
+          line.push(match[0]); lines.set(rect.top, line)
+        }
+        const font = getComputedStyle(name)
+        const canvas = document.createElement('canvas').getContext('2d')!
+        canvas.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
+        const ellipsis = name.scrollWidth > name.clientWidth ? canvas.measureText('…').width : 0
+        return { name: name.textContent, prefixRight: prefix.getBoundingClientRect().right, nameRight: nameBox.right - ellipsis, lines: [...lines.values()], clamp: getComputedStyle(description).webkitLineClamp }
+      }))
+      for (const reading of readability) {
+        expect(reading.prefixRight, reading.name ?? '').toBeLessThanOrEqual(reading.nameRight)
+        expect(reading.clamp).toBe(narrow ? '2' : 'none')
+        expect(reading.lines.length).toBeGreaterThan(0)
+        if (narrow) {
+          expect(reading.lines.length).toBeLessThanOrEqual(2)
+          for (const line of reading.lines) expect(line.length, line.join(' ')).toBeGreaterThanOrEqual(3)
+        }
+      }
+      const readings = await rows.evaluateAll(rows => rows.map(row => {
+        const cells = row.matches('tr') ? [...row.querySelectorAll('td')].slice(1) : [row]
+        return cells.map(cell => {
           const css = getComputedStyle(cell), rect = cell.getBoundingClientRect()
           const content = [...cell.querySelectorAll('[data-slot="chip"], [data-slot="chip"] span, [data-shape="face"], svg')].map(node => {
             const box = node.getBoundingClientRect()
@@ -122,21 +161,27 @@ for (const theme of ['light', 'dark'] as const) {
         expect(box.left).toBeGreaterThanOrEqual(cell.left - 1)
         expect(box.right).toBeLessThanOrEqual(cell.right + 1)
       }
-      await expect(sheet.locator('tbody tr[data-problem]')).toHaveCount(0)
-      const loaded = sheet.locator('tbody tr').filter({ hasText: 'Shared review' })
+      expect(await rows.evaluateAll(rows => rows.some(row => row.hasAttribute('data-problem')))).toBe(false)
+      const loaded = rows.filter({ hasText: 'Shared review' })
       await expect(loaded.locator('[data-shape="face"]')).toHaveCount(4)
-      const table = sheet.locator('table')
-      expect(await table.evaluate(node => node.parentElement!.scrollWidth <= node.parentElement!.clientWidth)).toBe(true)
-      const opener = loaded.locator('button').first()
+      expect(await rows.first().evaluate(node => node.parentElement!.scrollWidth <= node.parentElement!.clientWidth)).toBe(true)
+      if (!narrow) expect(await loaded.locator('td').first().evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(192)
+      const opener = narrow ? loaded : loaded.locator('button').first()
       await opener.hover()
       expect(await opener.evaluate(node => getComputedStyle(node).textDecorationLine)).toBe('none')
-      expect(await opener.evaluate(node => node.closest('tr')!.hasAttribute('data-problem'))).toBe(false)
+      expect(await opener.evaluate(node => node.closest('[data-slot="skill-row"]')!.hasAttribute('data-problem'))).toBe(false)
+      await sheet.getByRole('button', { name: /brainstorming/ }).click()
+      const detail = sheet.locator('[data-slot="dialog-description"]').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
+      await expect(detail).toBeVisible()
+      expect(await detail.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('none')
+      await page.keyboard.press('Escape')
     }
   })
 
   test(`mixed skills keep fallback marks small and long descriptions bounded in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 720, height: 900 })
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('skills')
     const sheet = page.locator('[data-frame-id="settings-sheet"]')
     await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(6) // four skills, two hooks
