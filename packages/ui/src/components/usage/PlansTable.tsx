@@ -137,7 +137,7 @@ export const PlansTable = ({
             <TableHead className={styles.colAccount}>Account</TableHead>
             <TableHead className={styles.colStatus}>Status</TableHead>
             <TableHead className={styles.colLeft} numeric>Left</TableHead>
-            <TableHead className={styles.colResets} numeric>Resets</TableHead>
+            <TableHead className={styles.colResets} collapseBelow="sm" numeric>Resets</TableHead>
             <TableHead className={styles.colDetails}><span className="sr-only">Details</span></TableHead>
           </TableRow>
         </TableHeader>
@@ -243,7 +243,7 @@ const TableRowGroup = ({
       <TableCell className={styles.colLeft} numeric>
         <LeftCell row={row} name={row.report.account ?? name} />
       </TableCell>
-      <TableCell className={styles.colResets} numeric>
+      <TableCell className={styles.colResets} collapseBelow="sm" numeric>
         <Text role="muted" numeric>{row.resets}</Text>
       </TableCell>
       <TableCell className={styles.colDetails} align="end">
