@@ -1209,3 +1209,47 @@ it('accounts, gateways and unanswered slots share one unwrapped face slot', asyn
   expect(records.find(row => row.textContent?.includes('Acme gateway'))?.querySelector('[data-slot="row-face"] [data-shape="face"]')).not.toBeNull()
   expect(records.find(row => row.textContent?.includes('Not answered yet'))?.querySelector('[data-slot="row-face"] [data-shape="face"]')).not.toBeNull()
 })
+
+it('removes a gateway immediately and labels the menu action Remove', async () => {
+  const removeAccount = vi.fn(async () => {})
+  const gateway = runtime({ id: 'alpha#3', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } } })
+  await mountList({ runtimes: [...ROSTER.runtimes, gateway], store: { removeAccount } })
+  await act(async () => line('Alpha').click())
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="Acme gateway actions"]')!
+  await act(async () => trigger.click())
+  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(item.textContent).toBe('Remove')
+  await act(async () => item.click())
+  expect(removeAccount).toHaveBeenCalledWith('alpha#3')
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+it('removes an empty account slot immediately and labels the menu action Remove', async () => {
+  const removeAccount = vi.fn(async () => {})
+  await mountList({ accountsByRuntime: { ...ROSTER.accountsByRuntime, 'alpha#2': signedIn([], ['browser']) }, store: { removeAccount } })
+  await act(async () => line('Alpha').click())
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="Alpha actions"]')!
+  await act(async () => trigger.click())
+  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(item.textContent).toBe('Remove')
+  await act(async () => item.click())
+  expect(removeAccount).toHaveBeenCalledWith('alpha#2')
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+it('the signed-in account page labels Remove with an ellipsis and asks before removing', async () => {
+  const removeAccount = vi.fn(async () => {})
+  await mountList({ store: { removeAccount, limitsFor: async () => null } })
+  await act(async () => line('Alpha').click())
+  const account = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('grace@example.com'))!
+  await act(async () => account.click())
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="grace actions"]')!
+  await act(async () => trigger.click())
+  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(item.textContent).toBe('Remove…')
+  await act(async () => item.click())
+  expect(removeAccount).not.toHaveBeenCalled()
+  const confirm = [...document.body.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Remove account')!
+  await act(async () => confirm.click())
+  expect(removeAccount).toHaveBeenCalledWith('alpha#2')
+})

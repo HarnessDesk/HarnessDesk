@@ -455,11 +455,11 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
  */
 const withCount = (label: string, count: number): string => count > 0 ? `${label} · ${count}` : label
 
-const AccountRemoveMenu = ({ name, onRemove }: { name: string; onRemove: () => void }) => (
+const AccountRemoveMenu = ({ name, label = 'Remove…', onRemove }: { name: string; label?: 'Remove' | 'Remove…'; onRemove: () => void }) => (
   <DropdownMenu>
     <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${name} actions`} />} />
     <DropdownMenuContent align="end">
-      <DropdownMenuItem variant="destructive" onClick={onRemove}>Remove…</DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onClick={onRemove}>{label}</DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
 )
@@ -768,7 +768,7 @@ const AgentAccounts = ({
             desc={entry.slot?.gateway?.endpoint}
             truncateDesc
             control={
-              <AccountRemoveMenu name={entry.slot?.gateway?.name ?? 'Gateway'} onRemove={() => void store.removeAccount(entry.id)} />
+              <AccountRemoveMenu name={entry.slot?.gateway?.name ?? 'Gateway'} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
             }
           />
         ))}
@@ -811,7 +811,7 @@ const AgentAccounts = ({
                   <SignInIcon size={13} />
                   Sign in
                 </Button>
-                <AccountRemoveMenu name={entry.name} onRemove={() => void store.removeAccount(entry.id)} />
+                <AccountRemoveMenu name={entry.name} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
               </>
             }
           />
