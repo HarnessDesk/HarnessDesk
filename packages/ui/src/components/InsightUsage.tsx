@@ -70,7 +70,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   const shorter = () => { if (onShorterRange) onShorterRange(); else if (owned) setDays(1) }
   const cost = (value: InsightReport['totals']['usd']) => {
     const words = metricWords(value, report.sources, Date.now())
-    return <Text as="div" role="value" align="end" numeric title={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')}>{value.value === null ? <Text role="meta">—</Text> : <>{words.value}{words.qualifier && <Text as="div" role="meta">{words.qualifier}</Text>}{value.coverage !== 'complete' && words.coverage && <Text as="div" role="meta">{words.coverage}</Text>}</>}</Text>
+    return <Text as="div" role="value" align="end" numeric title={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')}>{value.value === null ? <Text role="meta">—</Text> : <>{words.value}{words.qualifier && <Text as="div" role="meta" className="whitespace-normal">{words.qualifier}</Text>}{value.coverage !== 'complete' && words.coverage && <Text as="div" role="meta" className="whitespace-normal">{words.coverage}</Text>}</>}</Text>
   }
   return <>
     {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}

@@ -111,3 +111,27 @@ for (const theme of ['light', 'dark'] as const) {
     await wholeMeterNames(rows)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`partial cost qualifiers stay inside narrow cells in ${theme}`, async ({ page }) => {
+    await page.route('**/src/preview/frames-goals.tsx*', async route => {
+      const response = await route.fetch()
+      // Exercise the longest real qualifier, with both cost bases and an
+      // unknown portion, while retaining the preview's known figures.
+      await route.fulfill({ response, body: (await response.text()).replaceAll('coverage: "partial"', 'coverage: "partial", basis: "mixed"') })
+    })
+    await page.goto('/preview.html')
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const frame = page.locator('[data-frame-id="insight-partial"]')
+    await frame.evaluate(node => { (node as HTMLElement).style.width = '632px' })
+    await expect(frame.getByText('Amounts are incomplete for this range', { exact: true })).toBeVisible()
+    await expect(frame.getByText('Vendor- or list-price cost; another portion is unknown', { exact: true }).first()).toBeVisible()
+    await expect(frame.getByText('Estimated known subtotal', { exact: true }).first()).toBeVisible()
+    const cells = await frame.locator('th, td').evaluateAll(nodes => nodes.map(node => ({
+      text: node.textContent, width: node.clientWidth, scroll: node.scrollWidth,
+    })))
+    for (const cell of cells) expect(cell.scroll, JSON.stringify(cell)).toBeLessThanOrEqual(cell.width)
+    const container = frame.locator('[data-slot="table-container"]')
+    expect(await container.evaluate(node => node.scrollWidth)).toBe(await container.evaluate(node => node.clientWidth))
+  })
+}
