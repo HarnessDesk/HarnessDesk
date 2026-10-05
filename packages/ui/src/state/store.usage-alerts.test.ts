@@ -135,3 +135,92 @@ describe('usage alerts as the host pushes them, one account at a time', () => {
     expect(store.getSnapshot().usage).toHaveLength(1)
   })
 })
+
+describe('usage reports that go silent', () => {
+  const remove = (account: string | null, runtime = 'codex'): void => {
+    push({ method: 'usage/removed', params: { runtime: runtimeId(runtime), account } })
+  }
+
+  it('removes only the reported account, including its previous failure', async () => {
+    const silent = { ...report('work', 70), error: { message: 'the quota service is down' } }
+    const other = report('personal', 70, 'codex-2')
+    answers['usage/refresh'] = [silent, other]
+    await store.refreshUsage()
+    remove('work')
+    expect(store.getSnapshot().usage).toEqual([other])
+    answers['usage/refresh'] = []
+    await store.refreshUsage(runtimeId('codex'))
+    expect(store.getSnapshot().usage).toHaveLength(1)
+    remove('work')
+    expect(store.getSnapshot().usage).toHaveLength(1)
+    expect(store.getSnapshot().notices).toEqual([])
+  })
+
+  it('normalizes anonymous account spellings and accepts a returning reading', () => {
+    push({ method: 'usage/updated', params: { report: report(null, 70) } })
+    remove('  ')
+    expect(store.getSnapshot().usage).toEqual([])
+    push({ method: 'usage/updated', params: { report: report(null, 85) } })
+    expect(store.getSnapshot().usage).toHaveLength(1)
+    expect(store.getSnapshot().notices).toEqual([])
+  })
+
+  it('does not drop a different account now held by the runtime', () => {
+    push({ method: 'usage/updated', params: { report: report('new', 70) } })
+    remove('old')
+    expect(store.getSnapshot().usage).toHaveLength(1)
+  })
+
+  for (const method of ['usage/refresh', 'usage/reports'] as const) {
+    it(`does not restore a removed account from a delayed ${method} reply`, async () => {
+      const old = { ...report('work', 70), error: { message: 'the quota service is down' } }
+      const other = report('personal', 70, 'codex-2')
+      push({ method: 'usage/updated', params: { report: old } })
+      let reply!: (reports: UsageReport[]) => void
+      vi.mocked(store.transport.request).mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }) as never)
+      // The host finished this runtime first, but waits for a slow sibling
+      // before returning the batch. Meanwhile another read finds silence.
+      const pending = method === 'usage/refresh' ? store.refreshUsage() : store.loadUsage()
+      remove('work')
+      reply([old, other])
+      await pending
+      expect(store.getSnapshot().usage).toEqual([other])
+
+      answers['usage/refresh'] = []
+      await store.refreshUsage(runtimeId('codex'))
+      expect(store.getSnapshot().usage).toEqual([other])
+      push({ method: 'usage/updated', params: { report: report('work', 85) } })
+      expect(store.getSnapshot().usage).toHaveLength(2)
+      expect(store.getSnapshot().notices).toEqual([])
+    })
+
+    it(`keeps a newer account pushed during a delayed ${method} reply`, async () => {
+      const old = report('work', 70)
+      const current = report('new', 85)
+      const other = report('personal', 70, 'codex-2')
+      push({ method: 'usage/updated', params: { report: old } })
+      let reply!: (reports: UsageReport[]) => void
+      vi.mocked(store.transport.request).mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }) as never)
+      const pending = method === 'usage/refresh' ? store.refreshUsage() : store.loadUsage()
+      remove('work')
+      push({ method: 'usage/updated', params: { report: current } })
+      reply([old, other])
+      await pending
+      expect(store.getSnapshot().usage).toEqual([current, other])
+      expect(store.getSnapshot().notices).toEqual([])
+    })
+
+    it(`keeps a newer reading of the same account during a delayed ${method} reply`, async () => {
+      const old = report('work', 70)
+      const current = report('work', 75)
+      push({ method: 'usage/updated', params: { report: old } })
+      let reply!: (reports: UsageReport[]) => void
+      vi.mocked(store.transport.request).mockImplementationOnce(() => new Promise((resolve) => { reply = resolve }) as never)
+      const pending = method === 'usage/refresh' ? store.refreshUsage() : store.loadUsage()
+      push({ method: 'usage/updated', params: { report: current } })
+      reply([old])
+      await pending
+      expect(store.getSnapshot().usage).toEqual([current])
+    })
+  }
+})
