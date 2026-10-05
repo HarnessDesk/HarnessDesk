@@ -159,13 +159,6 @@ const NOT_SOMEONE: readonly Exception[] = [
     tiles: 1,
     why: 'the crest follows what its subject is (a runtime, session or member a face, an account a ring), and its mark arrives as a prop; AgentCard.test.tsx pins the shape of each kind',
   },
-  {
-    file: 'components/Activity.tsx',
-    shape: 'face|square',
-    identity: '<RuntimeMark runtime={info} size={12} />',
-    tiles: 1,
-    why: 'a row whose agent is known wears its mark as a face; the square branch is an event\'s own glyph, which is not someone',
-  },
 ]
 
 /**

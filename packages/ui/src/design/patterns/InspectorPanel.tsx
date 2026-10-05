@@ -58,17 +58,18 @@ const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => 
  * without the heading that says which group it is in — a turn of a
  * trajectory, say.
  */
-const GroupLine = ({ left, right, sticky = false }: { left: ReactNode; right?: ReactNode; sticky?: boolean }) => (
-  <div
+const GroupLine = ({ left, right, sticky = false, as = 'div' }: { left: ReactNode; right?: ReactNode; sticky?: boolean; as?: 'div' | 'h3' }) => {
+  const Element = as
+  return <Element
     data-slot="inspector-group"
     {...(sticky ? { 'data-sticky': '' } : {})}
-    className={cn('flex items-center gap-2 p-(--hd-inset-dense)', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
+    className={cn('m-0 flex items-center gap-2 p-(--hd-inset-dense) px-(--hd-inset-row)', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
   >
-    <Text role="muted" ink="secondary">{left}</Text>
+    <Text role="meta" weight="medium" ink="secondary">{left}</Text>
     <span className="flex-1" />
     {right != null && <Text role="meta">{right}</Text>}
-  </div>
-)
+  </Element>
+}
 
 const PanelEmpty = ({ children }: { children: ReactNode }) => (
   <p data-slot="inspector-empty" className="m-0 px-2.5 py-6 text-center text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)">
@@ -82,6 +83,7 @@ const PanelRow = ({
   title,
   sub,
   ask,
+  askLines = 2,
   meta,
   trail,
   subPath,
@@ -101,6 +103,8 @@ const PanelRow = ({
   title: ReactNode
   sub?: ReactNode
   ask?: ReactNode
+  /** Prompts stay at two lines; a refusal must be readable in full. */
+  askLines?: 2 | 'all'
   meta?: ReactNode
   trail?: ReactNode
   subPath?: boolean
@@ -119,23 +123,23 @@ const PanelRow = ({
       {mark ? (
         <span
           data-slot="inspector-row-mark"
-          className={cn('inline-grid shrink-0 place-items-center text-(--hd-muted-foreground)', (tall || ask || meta) && 'mt-px')}
+          className="inline-grid size-(--hd-table-face) shrink-0 place-items-center rounded-(--hd-table-face-radius) text-(--hd-muted-foreground) [&>[data-slot=icon-tile]]:size-full [&>[data-slot=icon-tile]]:rounded-[inherit]"
         >
           {mark}
         </span>
       ) : null}
       <span className="flex min-w-0 flex-1 flex-col">
-        <Text role="navigation" truncate={!wrapTitle} className={cn('flex min-w-0 gap-2', wrapTitle ? 'items-start' : 'items-center')}>{title}</Text>
+        <Text role="row" truncate={!wrapTitle} className={cn('flex min-w-0 gap-2', wrapTitle ? 'items-start' : 'items-center')}>{title}</Text>
         {sub ? (
           <Text
             role="meta"
             truncate
-            className={cn('mt-px', subPath && 'text-left [direction:rtl] [unicode-bidi:plaintext]')}
+            className={cn('mt-(--hd-table-line-gap)', subPath && 'text-left [direction:rtl] [unicode-bidi:plaintext]')}
           >
             {sub}
           </Text>
         ) : null}
-        {ask ? <Text role="meta" ink="secondary" className="mt-px line-clamp-2">{ask}</Text> : null}
+        {ask ? <Text role="meta" ink="secondary" className={cn('mt-(--hd-table-line-gap) [overflow-wrap:anywhere]', askLines === 2 && 'line-clamp-2')}>{ask}</Text> : null}
         {meta ? <Text role="meta" numeric className="mt-1">{meta}</Text> : null}
       </span>
       {trail}
@@ -143,11 +147,13 @@ const PanelRow = ({
   )
   const className = cn(
     buttonVariants({ variant: 'row', size: 'row' }),
-    'w-full',
-    (tall || ask || meta) && 'items-start py-2',
+    'w-full items-center gap-(--hd-table-lead-gap) px-(--hd-table-edge)',
+    (sub || tall || ask || meta) ? 'min-h-(--hd-table-row-min) py-0' : 'min-h-(--hd-table-row-min-bare) py-1',
+    !onClick && 'cursor-default hover:bg-transparent',
   )
   const attrs = {
     'data-slot': 'inspector-row',
+    'data-hd-table': 'compact',
     ...(selected ? { 'data-selected': '' } : {}),
     ...(tooltip ? { title: tooltip } : {}),
   }

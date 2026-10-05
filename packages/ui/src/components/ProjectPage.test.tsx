@@ -267,7 +267,9 @@ it('a project’s own trigger is listed off by default, next to its checks and f
   await settle()
   const text = container.querySelector('section[aria-label="Triggers"]')?.textContent ?? ''
   expect(text).toContain('When a pull request opens or is pushed')
-  expect(text).toContain('Off')
+  const arm = container.querySelector('section[aria-label="Triggers"] [role="switch"]')
+  expect(arm).not.toBeNull()
+  expect(arm?.getAttribute('aria-checked')).toBe('false')
 })
 
 it('asking for “Triggers on this Mac” while a project is open returns to the list rather than staying on that project', async () => {

@@ -173,7 +173,7 @@
    before it can erase the subject beside it. */
 .chip[data-tint],
 .chip[data-tone='brand'][data-emphasis] {
-  max-width: 190px;
+  max-width: min(100%, 190px); /* desk: 190px → min(100%, 190px), so a chip never outgrows a narrow board card */
 }
 
 .chipWords {

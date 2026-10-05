@@ -317,3 +317,12 @@ describe('BoardAddCard', () => {
     )
   })
 })
+
+it('uses the system small tag and tone priority chips on a board card', () => {
+  act(() => root.render(<BoardCard title="Review" tag={{ label: 'reviewer', tint: 'violet' }} priority={{ label: 'High', tone: 'warning' }} />))
+  const chips = [...container.querySelectorAll('[data-slot="chip"]')]
+  expect(chips.map(one => one.textContent)).toEqual(['reviewer', 'High'])
+  expect(chips[0]?.getAttribute('data-size')).toBe('sm')
+  expect(chips[0]?.getAttribute('data-tint')).toBe('violet')
+  expect(chips[1]?.getAttribute('data-tone')).toBe('warning')
+})

@@ -154,9 +154,9 @@ bottom hairline is additional to its content inset.
 | Container role | Tier | Token | Slots that own it |
 | --- | --- | --- | --- |
 | Card and board card, chart's inner card, sent-message bubble | card · 16px | `--hd-inset-card` | A card's header, content and footer share its inline inset; its outer top and bottom share the same tier. A standalone board card, chart card or bubble owns all four sides. |
-| Settings row, summary fact, default list row, compact report card, agent/publication card band and crest, approval's code block | row · 12px | `--hd-inset-row` | Each row owns its inset, including inside a flush outer card. A label over a `Rows` card aligns with the row tier plus the card's border. |
+| Settings row, summary fact, comfortable list row, compact report card, agent/publication card band and crest, approval's code block | row · 12px | `--hd-inset-row` | Each row owns its inset, including inside a flush outer card. A label over a `Rows` card aligns with the row tier plus the card's border. |
 | Activity lines above a composer | row · 12px | `--hd-inset-row` | Each filled line in `ComposerTail` owns all four sides, overriding the unframed live line's smaller rhythm. Faces are content too. |
-| Board column around its cards, inspector group band, tool-pane content aligned with its bar | dense · 8px | `--hd-inset-dense` | The filled inspector band keeps symmetric vertical air; a non-bleeding tool body shares its header's leading edge. |
+| Board column around its cards, inspector group band, tool-pane content aligned with its bar | dense · 8px | `--hd-inset-dense` | The filled inspector band keeps symmetric vertical air and the rows' 12px inline edge; a non-bleeding tool body shares its header's leading edge. |
 | Compact panel section | row · 12px | `--hd-inset-row` | The section owns all four sides. |
 | Modal question or sheet | dialog · 24px | `--hd-inset-dialog` | Header, body and footer; a bare primitive dialog owns the outer inset instead. A flush list body delegates to its rows. A subhead is a bar, keeping the same inline edge. |
 | Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
@@ -173,6 +173,8 @@ its label shares that edge. An unframed empty body uses `SectionBody spacing="in
 leaving its vertical rhythm to the inline empty state. The table family's
 `--hd-table-edge` follows the row inset in both densities; its minimum row
 heights, face sizes and centring remain the family's own geometry.
+An explicitly compact `ListRow` keeps 1px symmetric vertical padding and its
+40px full or 32px bare row floor, while retaining the 12px inline inset.
 A responsive framed table uses `Table inset="row"`
 to keep the same inline cell inset as the list replacing it. The table retains
 its existing head and data-cell pitch; this contract only sets the content edge. Borders stay outside
@@ -1806,7 +1808,9 @@ names things with a reading; settings rows label controls; a matrix compares
 reach; a log keeps its windowed pitch; key-value rows describe one object.
 Comfortable is the page default (40px header, 56px row or 44px bare).
 `data-hd-table="compact"` uses 32px headers, 40px rows or 32px bare rows;
-panel tables choose compact. Git's log keeps its fixed 26px pitch.
+panel tables choose compact. Inspectors and project panels use the same compact
+record anatomy: 13px medium names, 12px quiet facts, and centred readings.
+Git's log keeps its fixed 26px pitch.
 
 A data table compares three or more facts and has a header. Three or more
 unlabelled numbers also need a header. Omit a column empty in every row; show

@@ -6,6 +6,7 @@ import { RuntimeMark } from './BrandIcons'
 import type { ReportFoot } from './Details'
 import { AlertIcon, CheckIcon, SessionIcon, ShieldIcon, ZapIcon } from './Icons'
 import { IconTile } from '../design'
+import { runtimeTint } from '../lib/accounts'
 import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
 
 /**
@@ -162,9 +163,11 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
                      whose runtime this window cannot name falls back to the
                      event's own glyph, which is not someone, so it stays a plain
                      square tile whatever shape faces are. */
-                  <IconTile size="sm" shape={info ? 'face' : 'square'}>
-                    {info ? <RuntimeMark runtime={info} size={12} /> : iconOf(row)}
-                  </IconTile>
+                  info ? (
+                    <IconTile size="sm" shape="face" tint={runtimeTint(info.id, snapshot.accountsByRuntime, snapshot.accountPrefs)}>
+                      <RuntimeMark runtime={info} size={12} />
+                    </IconTile>
+                  ) : <IconTile size="sm" shape="square">{iconOf(row)}</IconTile>
                 }
                 title={describe(row)}
                 sub={nameOf(row.runtime)}
