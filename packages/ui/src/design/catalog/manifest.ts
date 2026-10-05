@@ -153,6 +153,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph',
   'heat-grid', 'PlanCard', 'SidebarMenuState',
+  'SettingsRowMenu',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -249,6 +250,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   PlanCard: ['default'],
   UsageMeterRow: ['default', 'barless'],
   SidebarMenuState: ['default'],
+  SettingsRowMenu: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -348,6 +350,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   // error: plans.json's own refusal, shown as a Note.
   PlanCard: ['empty', 'derived', 'populated', 'warning', 'error'],
   UsageMeterRow: ['default', 'warning', 'error', 'unknown'],
+  SettingsRowMenu: ['closed', 'open'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -397,6 +400,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   PlanCard: 'packages/ui/src/components/SettingsAgents.tsx',
   UsageMeterRow: 'packages/ui/src/components/SettingsAgents.tsx',
   SidebarMenuState: 'packages/ui/src/components/SessionTree.tsx',
+  SettingsRowMenu: 'packages/ui/src/components/Settings.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -428,6 +432,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   PaneColumn: 'packages/ui/src/design/explorer/boards.tsx',
   PlanCard: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   UsageMeterRow: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SettingsRowMenu: 'packages/ui/src/design/explorer/boards.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -540,6 +545,7 @@ export const CANONICAL_UI_MODULES = [
 export const CANONICAL_PATTERN_MODULES = [
   ['SidebarMenuState', 'sidebar', 'A conversation or room state chip folding onto the action rail'],
   ['Settings', 'row', 'Settings pages, sections, rows and form layouts'],
+  ['SettingsRowMenu', 'row', 'A Settings record’s actions: its name and distinguishing location, with destructive removal'],
   ['ModalDialog', 'dialog', 'Application reading and form dialog'],
   ['DialogForm', 'dialog', 'Dialog form rhythm, fieldset legend and compact choice list'],
   ['ApprovalDialog', 'conversation', 'Pane-local consequential approval policy'],

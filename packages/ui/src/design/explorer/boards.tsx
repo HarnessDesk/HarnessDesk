@@ -124,6 +124,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuState,
+  SettingsRowMenu,
   GroupLabel,
   Separator,
 } from '..'
@@ -646,6 +647,16 @@ const RowBoard = () => {
             title="Qwen Code"
             onClick={() => {}}
             action={<Button size="sm" variant="outline">Sign in</Button>}
+          />
+        </Rows>
+        <SectionHead name="A settings record’s actions" />
+        <Rows data-catalog-case="settings-row-menu">
+          <Row
+            kind="record"
+            mark={<BranchIcon size={15} />}
+            title="Preview worktree"
+            desc="/workspace"
+            control={<SettingsRowMenu name="Preview worktree" location="/workspace" onRemove={() => {}} />}
           />
         </Rows>
         <Checkbox
