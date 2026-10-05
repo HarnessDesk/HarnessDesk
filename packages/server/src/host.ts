@@ -3794,7 +3794,7 @@ export class Host {
       },
       seats: {
         open: (seat, where) => this.#openSeat(seat, where),
-        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
+        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text, 'agentBrief'),
         hold: (runtime, sessionId, level) => this.#holdSeat(runtime, sessionId, level),
         retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
         discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
@@ -3989,23 +3989,116 @@ export class Host {
     // admitted whenever, read from wherever the app had been started, it led
     // into an open folder.
     assertAbsolute(root)
-    const roots = this.#openRoots()
+    // One deadline covers path resolution, top levels, and database membership.
+    // Every child read shares its signal; a late answer can never admit a root.
+    const signal = AbortSignal.timeout(20_000)
+    let expired!: () => void
+    const deadline = new Promise<never>((_, reject) => {
+      expired = () => reject(new Error(gitOps.GIT_LOOKUP_RETRY))
+      signal.addEventListener('abort', expired, { once: true })
+    })
+    try {
+      return await Promise.race([this.#confineGitRootWithin(root, signal), deadline])
+    } finally {
+      signal.removeEventListener('abort', expired)
+    }
+  }
+
+  async #confineGitRootWithin(root: string, signal: AbortSignal): Promise<string> {
+    const roots = [...new Set(this.#openRoots())]
     // Real paths on both sides. `confine` collapses `..` but cannot see a
     // symlink, so `opened/elsewhere -> /other/repo` passed a lexical test and
     // `git -C` then dutifully followed it into a repository the user never
     // opened. Resolving the roots too keeps the legitimate case working: on
     // macOS a workspace is routinely reached through /tmp or /var.
     const real = await this.#realPath(root)
-    const opened = await Promise.all(roots.map((entry) => this.#realPath(entry)))
+    const opened = [...new Set(await Promise.all(roots.map((entry) => this.#realPath(entry))))]
+    signal.throwIfAborted()
+    // The folder rule: `real` is inside an open root, or it is the top level of
+    // the repository an open root sits in. Either admits it as a folder.
+    let admitted = true
+    let fallbackOpened: string[] | undefined
     try {
-      return confine(real, opened)
+      confine(real, opened)
     } catch (refusal) {
-      for (const open of roots) {
-        const top = await gitOps.topLevel(open)
-        if (top !== null && (await this.#realPath(top)) === real) return real
+      admitted = false
+      fallbackOpened = []
+      for (const open of opened) {
+        const top = await gitOps.checkedTopLevel(open, signal)
+        signal.throwIfAborted()
+        if (top !== null && (await this.#realPath(top)) === real) {
+          admitted = true
+          fallbackOpened.push(open)
+        }
       }
-      throw refusal
+      if (!admitted) throw refusal
     }
+    // A folder is not a repository. `git -C` follows a `.git` *file* the way it
+    // follows a symlink, and `realpath` cannot see file contents: a folder
+    // `A/x` inside open `A` holding `gitdir: <B>/.git` passes the rule above,
+    // and then every git verb runs against B — its refs, config and hooks — a
+    // repository nobody opened. So the repository git actually resolves for
+    // `real` is judged too, by where its database lives.
+    await this.#assertGitDatabaseOpen(real, opened, signal, fallbackOpened)
+    signal.throwIfAborted()
+    return real
+  }
+
+  /**
+   * Refuses when git, run in an admitted folder, reaches a repository whose
+   * database is neither inside what the user opened nor shared with an open
+   * checkout — the gitfile (or symlink) escape.
+   *
+   * The database is the git common directory, the folder git reads and writes
+   * whatever a pointer says. It counts as open when it sits inside `real` or an
+   * open root — the ordinary layout, where `.git` is under the working tree —
+   * or when it is the very database of an open checkout, which is how a linked
+   * worktree, a submodule and a `--separate-git-dir` tree each keep their `.git`
+   * outside their own folder yet remain legitimate. Git finding no repository
+   * leaves nothing to escape into, so the folder admission stands. A top-level
+   * fallback must instead share the database of a checkout that supplied it.
+   */
+  async #assertGitDatabaseOpen(
+    real: string,
+    opened: readonly string[],
+    signal: AbortSignal,
+    fallbackOpened?: readonly string[],
+  ): Promise<void> {
+    // Request-local: duplicates (including aliases and the requested root itself)
+    // share a read, but the next request observes any changed repository layout.
+    const databases = new Map<string, Promise<string | null>>()
+    const databaseOf = (path: string): Promise<string | null> => {
+      signal.throwIfAborted()
+      let read = databases.get(path)
+      if (!read) {
+        read = gitOps.commonDir(path, signal)
+        databases.set(path, read)
+      }
+      return read
+    }
+    const database = await databaseOf(real)
+    if (fallbackOpened !== undefined) {
+      // core.worktree can report a top level which resolves another database.
+      // The requested folder's own .git cannot justify this fallback admission.
+      if (database !== null) {
+        for (const open of fallbackOpened) {
+          if ((await databaseOf(open)) === database) return
+        }
+      }
+      throw new Error(
+        `${real} is the top level of an open checkout, but git there resolves to a different repository. ` +
+          'Open its folder first to work in it.',
+      )
+    }
+    if (database === null) return
+    if (isInside(database, real) || opened.some((open) => isInside(database, open))) return
+    for (const open of opened) {
+      if ((await databaseOf(open)) === database) return
+    }
+    throw new Error(
+      `${real} is inside an open folder, but git there resolves to a repository (${database}) that is not open. ` +
+        'Open that repository to work in it.',
+    )
   }
 
   /**
@@ -5821,7 +5914,7 @@ export class Host {
     return holdCeiling(live, level, control)
   }
 
-  async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
+  async #orderSeat(runtime: string, sessionId: string, text: string, noticeKind?: 'agentBrief'): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
     // Whether the values reached the agent's environment, the same rule that
@@ -5829,7 +5922,9 @@ export class Host {
     const handed = laneEnvironmentFor(this.#runtime({ runtime }), environment) !== undefined
     await live.send(
       [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
-      { recordAs: 'notice' },
+      // Only the Agent seating entry point marks its standing brief. Flow
+      // assignments and delivered answers share this send path, but stay plain.
+      { recordAs: 'notice', ...(noticeKind ? { noticeKind } : {}) },
     )
   }
 
@@ -7295,6 +7390,9 @@ const ACCOUNT_NAME_DEADLINE_MS = 2_000
  * the registry and the renderer use for the same pair, so the host has one
  * spelling of "this conversation" and the separator question is answered once.
  */
+/** Whether one real, absolute path is the same as another or nested inside it. */
+const isInside = (path: string, base: string): boolean => path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
+
 const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, record.session.id)
 
 const describeError = (error: unknown): string =>

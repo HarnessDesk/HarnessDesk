@@ -70,6 +70,23 @@ describe('the queue in the store', () => {
     await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY)).resolves.toBe(true)
   })
 
+  for (const reason of ['turn already ended', 'The connection to HarnessDesk was lost.', 'The request timed out.']) {
+    it(`lets the composer own the steer failure: ${reason}`, async () => {
+      vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error(reason))
+      const onFailure = vi.fn((message: string) => store.addRecoverableDraft(KEY, {
+        text: 'keep this', attachments: [{ name: 'spec.md', path: '/w/spec.md', kind: 'file' }], detail: message,
+      }))
+      await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY, onFailure)).resolves.toBe(false)
+      expect(onFailure).toHaveBeenCalledExactlyOnceWith(reason)
+      expect(store.getSnapshot().notices).toHaveLength(0)
+      window.dispatchEvent(new Event('pagehide'))
+      const reopened = new AppStore('ws://localhost:0/')
+      expect(reopened.getSnapshot().recoverableDrafts.get(KEY)?.[0]).toMatchObject({
+        text: 'keep this', detail: reason, attachments: [{ name: 'spec.md', path: '/w/spec.md' }],
+      })
+    })
+  }
+
   it('starts with nothing, and takes the whole list the host sends', () => {
     expect(store.getSnapshot().queues.size).toBe(0)
     feed({ type: 'session/queue', sessionId: sessionId('s1'), queue: queue('a', 'b') })

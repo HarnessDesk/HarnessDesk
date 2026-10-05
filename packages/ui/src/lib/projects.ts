@@ -104,6 +104,15 @@ export const folderShown = (path: string, home: string | null | undefined, proje
   return shortPath(path, home)
 }
 
+/** A command for reading, never execution: shorten only this home's path tokens. */
+export const commandShown = (command: string, home: string | null | undefined): string => {
+  const root = home?.replace(/\/+$/, '')
+  if (!root) return command
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const token = new RegExp(`(^|[\\s"'=:;|&()<>])${escaped}(?=$|[/\\s"':;|&()<>])`, 'g')
+  return command.replace(token, (_, before: string) => `${before}${shortPath(root, root)}`)
+}
+
 /** The folder a project is named after and acts on, when git named a checkout. */
 const ROOT = 'root:'
 /** A project known by its remote: every folder that shares one is one project. */
@@ -226,6 +235,17 @@ export const groupByProject = (
       if (root !== undefined && !originByRoot.has(root)) originByRoot.set(root, origin)
     }
     if (root !== undefined) rootByFolder.set(summary.cwd, root)
+  }
+
+  // Search may return uncached rows outside full-history identity. Let their
+  // explicit origin teach matching visible rows which clone they belong to,
+  // while keeping their dates and folder counts out of home selection.
+  for (const summary of history) {
+    const origin = originOf(summary)
+    if (origin === null) continue
+    const root = summary.repo?.root
+    if (!originByFolder.has(summary.cwd)) originByFolder.set(summary.cwd, origin)
+    if (root !== undefined && !originByRoot.has(root)) originByRoot.set(root, origin)
   }
 
   // Only checkouts something else in the list has vouched for. A guess read

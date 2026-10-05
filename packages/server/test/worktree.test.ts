@@ -153,12 +153,24 @@ test('a submodule names the folder it is checked out at, not the git directory u
   const linked = join(base, 'submodule-worktree')
   await git(inside, 'worktree', 'add', '-q', linked, '-b', 'side')
   assert.deepEqual(await repositoryOf(linked), { root: inside, worktree: true })
-  assert.equal(await new Worktrees(stateDir).list(linked).then((all) => all[0]?.isMain), true)
+
+  // And the listing names the main checkout by that folder, from either
+  // checkout, where git names the git directory: the interface starts
+  // conversations in the path it reads here.
+  for (const from of [inside, linked]) {
+    assert.deepEqual(
+      (await new Worktrees(stateDir).list(from)).map((entry) => [entry.path, entry.isMain]),
+      [
+        [inside, true],
+        [linked, false],
+      ],
+    )
+  }
 })
 
 /** A repository whose git directory is somewhere else entirely. */
 test('a checkout with a separate git directory names the checkout', async (t) => {
-  const { repo } = await fixture(t)
+  const { repo, stateDir } = await fixture(t)
   const base = join(repo, '..')
   const work = join(base, 'work')
   const gitDir = join(base, 'elsewhere')
@@ -168,6 +180,22 @@ test('a checkout with a separate git directory names the checkout', async (t) =>
   await git(work, 'commit', '-q', '-m', 'init')
 
   assert.deepEqual(await repositoryOf(work), { root: work, worktree: false })
+
+  // The listing names that checkout too, where git names the directory kept
+  // apart. From a linked worktree nothing records the folder, and git's name
+  // stands rather than a guess: never the worktree it was asked from.
+  const linked = join(base, 'work-linked')
+  await git(work, 'worktree', 'add', '-q', linked, '-b', 'side')
+  const listed = async (from: string): Promise<(string | boolean)[][]> =>
+    (await new Worktrees(stateDir).list(from)).map((entry) => [entry.path, entry.isMain])
+  assert.deepEqual(await listed(work), [
+    [work, true],
+    [linked, false],
+  ])
+  assert.deepEqual(await listed(linked), [
+    [gitDir, true],
+    [linked, false],
+  ])
 })
 
 test('two conversations in two worktrees edit the same path without seeing each other', async (t) => {

@@ -85,6 +85,7 @@ import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './fram
 import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
+import { AgentBriefFrames } from './frames-agent-brief'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -1117,7 +1118,11 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('notices') ? <NoticesFrame /> : new URLSearchParams(window.location.search).has('cli-install')
+        {new URLSearchParams(window.location.search).has('notices')
+          ? <NoticesFrame />
+          : new URLSearchParams(window.location.search).has('agent-brief')
+          ? <AgentBriefFrames />
+          : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('review-publication')
           ? <PublicationPreview />

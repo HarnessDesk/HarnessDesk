@@ -39,7 +39,10 @@ const LEVEL_WORD: Readonly<Record<CeilingLevel, string>> = { read: 'Read', edit:
 export const ceilingWords = (level: CeilingLevel): string => LEVEL_WORD[level]
 
 /** A seat's effective ceiling and whether its runtime holds it. */
-export const seatCeilingWords = (ceiling: SeatCeiling): string => `${LEVEL_WORD[ceiling.level]} · ${ceiling.hold}`
+export const seatCeilingWords = (ceiling: SeatCeiling): string => {
+  const level = ceiling.level === 'read' ? 'Read only' : LEVEL_WORD[ceiling.level]
+  return ceiling.hold === 'held' ? level : `${level} · asked, not enforced`
+}
 
 /** What a ceiling tells a seat, for a title: the rule, and that nothing holds it to the rule. */
 export const ceilingMeaning = (level: CeilingLevel): string =>

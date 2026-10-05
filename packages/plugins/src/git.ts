@@ -800,15 +800,57 @@ export const gitPlugin: HarnessPlugin = {
             // The remote to name: the repository's own, which is not always `origin`.
             const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
             const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
-            throw new Error(
-              `Branch ${branch} has not been pushed. Push it first — \`git push -u ${remote} ${branch}\` — then call pr_create again; this tool never pushes.`,
-            )
-          }
-          const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
-          if (unpushed !== '0') {
-            throw new Error(
-              `${unpushed} commit${unpushed === '1' ? ' is' : 's are'} not pushed yet. Run \`git push\`, then call pr_create again; this tool never pushes.`,
-            )
+            const remoteRef = `refs/heads/${branch}`
+            const remoteHead = await ctx.shell.run('git', ['ls-remote', '--heads', remote, remoteRef])
+            if (remoteHead.exitCode === -1) {
+              throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
+            }
+            if (remoteHead.exitCode !== 0) {
+              throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
+            }
+            const publishedHead = remoteHead.stdout
+              .split('\n')
+              .map((line) => line.trim().split(/\s+/))
+              .find(([, ref]) => ref === remoteRef)?.[0]
+            if (!publishedHead) {
+              throw new Error(
+                `Branch ${branch} has not been pushed. Push it first — \`git push -u ${remote} ${branch}\` — then call pr_create again; this tool never pushes.`,
+              )
+            }
+            const head = await git(['rev-parse', 'HEAD'])
+            if (publishedHead !== head) {
+              // Fetch the advertised object to count commits even when the
+              // remote has moved from another checkout and its tip is unknown
+              // locally. This writes no branch or FETCH_HEAD, never pushes,
+              // and must not run repository-configured hooks or maintenance.
+              const fetched = await ctx.shell.run('git', [
+                ...GIT_READ_HARDENING_ARGS,
+                '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+                'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', remote, publishedHead,
+              ])
+              if (fetched.exitCode !== 0) {
+                throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: ${fetched.stderr.trim()}`)
+              }
+              const difference = await git(['rev-list', '--left-right', '--count', `${publishedHead}...HEAD`])
+              const [remoteAhead, localAhead] = difference.split(/\s+/).map(Number)
+              if (!Number.isSafeInteger(remoteAhead) || !Number.isSafeInteger(localAhead)) {
+                throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: git returned an invalid commit count.`)
+              }
+              if (remoteAhead !== 0 || localAhead !== 0) {
+                throw new Error(
+                  `Branch ${branch} is ${localAhead} commit${localAhead === 1 ? '' : 's'} ahead of ${remote}/${branch} and ` +
+                    `${remoteAhead} commit${remoteAhead === 1 ? '' : 's'} behind it. ` +
+                    `Reconcile them before calling pr_create; this tool never pushes.`,
+                )
+              }
+            }
+          } else {
+            const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
+            if (unpushed !== '0') {
+              throw new Error(
+                `${unpushed} commit${unpushed === '1' ? ' is' : 's are'} not pushed yet. Run \`git push\`, then call pr_create again; this tool never pushes.`,
+              )
+            }
           }
           const existing = JSON.parse(
             await gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,url']),

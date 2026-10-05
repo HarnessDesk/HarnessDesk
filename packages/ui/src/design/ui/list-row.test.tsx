@@ -150,3 +150,14 @@ it('pins a wrapped record title and its lead to the first line', () => {
   expect(markup).toContain('whitespace-normal')
   expect(markup).not.toContain('truncate')
 })
+
+it('keeps a state mark outside the title and subtitle text column', () => {
+ const host=document.createElement('div')
+ host.innerHTML=renderToStaticMarkup(<ListRow mark={<span>unread</span>} lead={<span>face</span>} title="Team" subtitle="Waiting" />)
+ const mark=host.querySelector('[data-slot="list-row-mark"]')!
+ const content=host.querySelector('[data-slot="list-row-content"]')!
+ expect(mark).not.toBeNull()
+ expect(content.contains(mark)).toBe(false)
+ expect(content.querySelector('[data-slot="list-row-title"]')?.textContent).toBe('Team')
+ expect(content.querySelector('[data-slot="list-row-subtitle"]')?.textContent).toBe('Waiting')
+})

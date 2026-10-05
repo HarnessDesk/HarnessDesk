@@ -1384,6 +1384,11 @@ const Compaction = (_: { item: CompactionItem }) => (
  */
 const Notice = ({ item }: { item: NoticeItem }) => {
   const snapshot = useSnapshot()
+  if (item.kind === 'agentBrief') return (
+    <Row icon={<InfoIcon size={14} />} title="Agent brief">
+      <Markdown text={item.text} document />
+    </Row>
+  )
   if (item.kind && surfaceFor(snapshot.noticePolicy, item.kind) === null) return null
   const text = snapshot.home ? item.text.split(`${snapshot.home}/`).join('~/') : item.text
   return <Note ink="muted" icon={<InfoIcon size={12} className={styles.noticeIcon} />}>

@@ -340,7 +340,17 @@ for (const change of ['core.worktree=/', 'core.worktree=another repository', '.g
     const scope = { runtime: d.agent.info.id, sessionId: opened.id }
     await assert.rejects(d.host.call('context/resolve', { id: d.where.id, ...scope }), /project checkout changed/i)
     await assert.rejects(d.host.call('context/resolve', { id: d.where.id }), /project checkout changed/i)
-    await assert.rejects(d.seat(), /project checkout changed|outside every project opened here/i)
+    const create = t.mock.method(d.agent, 'createSession')
+    if (change === '.git replaced by a gitdir file') {
+      await assert.rejects(d.seat(), /project checkout changed|outside every project opened here/i)
+    } else {
+      const top = change === 'core.worktree=/' ? '/' : d.other
+      await assert.rejects(d.seat(), {
+        message: `${top} is the top level of an open checkout, but git there resolves to a different repository. ` +
+          'Open its folder first to work in it.',
+      })
+    }
+    assert.equal(create.mock.callCount(), 0, 'the refusal never starts another Agent')
     await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, scope), /project checkout changed/i)
     await assert.rejects(d.kernel.resolveContext(scope), /project checkout changed/i)
   })
@@ -398,7 +408,12 @@ test('POSIX core.worktree slash/backslash collision invalidates identity and ref
   await assert.rejects(d.host.call('context/resolve', { id: d.diff.id, ...scope }), /project checkout changed/i)
   await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, scope), /project checkout changed/i)
   await assert.rejects(d.kernel.resolveContext(scope), /project checkout changed/i)
-  await assert.rejects(d.seat(), /project checkout changed|outside every project opened here/i)
+  const create = t.mock.method(d.agent, 'createSession')
+  await assert.rejects(d.seat(), {
+    message: `${d.other} is the top level of an open checkout, but git there resolves to a different repository. ` +
+      'Open its folder first to work in it.',
+  })
+  assert.equal(create.mock.callCount(), 0, 'the refusal never starts another Agent')
 })
 
 test('POSIX browser lane membership keeps slash/backslash checkouts distinct', { skip: process.platform === 'win32' }, async (t) => {

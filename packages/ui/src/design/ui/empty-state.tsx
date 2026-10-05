@@ -27,7 +27,8 @@ import { Row, Text } from '../patterns/Settings'
  *   push the columns beside it off the screen.
  * - `inline`: one muted line, no icon, no heading — for inside a list, a
  *   column or a pane that already says what it is. `description` joins the
- *   same line.
+ *   same line. `align="start"` keeps a quiet pane sentence on its existing
+ *   content edge, with no second inset and only a small vertical step.
  * - `row`: a row inside a `Rows` card, with a Row's own padding and hairline,
  *   its title in secondary ink so it never reads as one more item.
  *   `children` is its trailing control.
@@ -65,6 +66,8 @@ type EmptyStateProps = EmptyStateBase &
     | {
         /** One muted line inside a list, a column or a pane. */
         variant: 'inline'
+        /** A pane already has a content column; keep its quiet line on that edge. */
+        align?: 'center' | 'start'
         icon?: never
         footer?: never
         tight?: never
@@ -80,7 +83,9 @@ type EmptyStateProps = EmptyStateBase &
   )
 
 const EmptyState = (allProps: EmptyStateProps) => {
-  const { className, variant = 'panel', icon, title, description, footer, tight, children, ...props } = allProps
+  const align = 'align' in allProps ? allProps.align : undefined
+  const { align: _align, ...restProps } = allProps as EmptyStateProps & { align?: 'center' | 'start' }
+  const { className, variant = 'panel', icon, title, description, footer, tight, children, ...props } = restProps
   if (variant === 'inline') {
     /* A `div`, not a `p`: the line may carry an element — a link, a button —
        and a paragraph cannot hold a block. The look is the one the sidebar,
@@ -92,7 +97,8 @@ const EmptyState = (allProps: EmptyStateProps) => {
         data-slot="empty-state"
         data-variant="inline"
         className={cn(
-          'min-w-0 px-2.5 py-6 text-center text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)',
+          'min-w-0 text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)',
+          align === 'start' ? 'py-2 text-left' : 'px-2.5 py-6 text-center',
           className,
         )}
         {...props}
