@@ -38,12 +38,9 @@ export const ProjectProvenance = ({ root }: { readonly root: string }) => {
     finally { if (activeRoot.current === root) setBusy(false) }
   }
   const open = snapshot.status === 'open'
-  // Two rows and nothing around them: the setting, then how it is going.
-  // The state's word is the status row's title, said once — never a title
-  // and a chip repeating each other — with the host's reason under it and
-  // the one thing to do about it on the row's end.
+  // The setting and its named status row share one trailing reading column.
   const status = (tone: 'success' | 'warning' | 'neutral' | 'danger', label: string, desc: string, action?: ReactNode) => (
-    <Row title={<Chip tone={tone} label={label} />} desc={desc} {...(action ? { control: action } : {})} />
+    <Row title="Capture status" desc={desc} control={<><Chip tone={tone} label={label} />{action}</>} />
   )
   const statusRow = !open
     ? status('neutral', 'Offline', 'Capture status is unavailable while disconnected.')

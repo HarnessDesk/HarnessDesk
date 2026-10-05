@@ -6,20 +6,17 @@ import {
   agentName,
   bySection,
   firstReason,
-  markFor,
   originWords,
   projectName,
   seatTaken,
 } from '../lib/agents'
-import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
-import type { AppSnapshot } from '../state/store'
 import { useSnapshot, useStore } from '../state/context'
-import { RuntimeMark } from './BrandIcons'
+import { AgentIcon } from './Icons'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
-import { Button, Chip, Note, PageHead, Row, RowButton, RowValue, Rows, Section, Text } from '../design'
-import styles from './AgentRoster.module.css'
+import { CeilingChip } from './CeilingChip'
+import { Button, Chip, EmptyState, IconTile, Note, PageHead, Row, RowButton, RowValue, Rows, Section } from '../design'
 
 /**
  * The Agents window's overview: who does the work.
@@ -31,8 +28,7 @@ import styles from './AgentRoster.module.css'
  * take here at the right. One that cannot be seated here stays, with *Can't
  * seat here* and the first reason. A copy another tier shadows is listed
  * where it lives, in the same idiom Settings › Plugins lists a superseded
- * plugin — a chip and a sentence, never a muted title the app draws nowhere
- * else. A file that will not parse is a row whose line says why.
+ * plugin — a quiet word and a sentence, at full ink. A file that will not parse is a row whose line says why.
  */
 
 const ORDER: readonly AgentOrigin[] = ['project', 'user', 'builtin']
@@ -43,31 +39,11 @@ const EMPTY: Readonly<Record<AgentOrigin, string>> = {
   builtin: 'None ship with this build',
 }
 
-/**
- * The folder a project's Agents are read from: the top of the checkout the
- * open folder sits in, or a linked worktree's own top — the same folder
- * `agent/list` reads (Task 12's `projectOf`), read here from an entry's own
- * path when the roster already has one, or from `checkoutRoot` otherwise
- * (`projectName`'s own rule, `lib/agents.ts`) — never `workspace.repo.root`,
- * which deliberately names the *main* checkout for a linked worktree.
- */
-const projectFolder = (snapshot: AppSnapshot): string | null => {
-  const first = (snapshot.agents ?? []).find((one) => one.origin === 'project')
-  if (first) return first.path.split('/').slice(0, -2).join('/')
-  const workspace = snapshot.workspace
-  if (!workspace) return null
-  const root = workspace.checkoutRoot ?? workspace.path
-  return `${root}/.harnessdesk/agents`
-}
-
-const footnote = (origin: AgentOrigin, snapshot: AppSnapshot): string => {
+/** The origin names where an Agent is kept, without exposing a home path. */
+const footnote = (origin: AgentOrigin): string => {
   if (origin === 'builtin') return 'Ships with HarnessDesk, and changes only when HarnessDesk does.'
-  if (origin === 'user') {
-    const folder = snapshot.stateDir ? shortPath(`${snapshot.stateDir}/agents`, snapshot.home) : 'agents in HarnessDesk’s folder'
-    return `Read from ${folder} — yours, on this Mac only.`
-  }
-  const folder = projectFolder(snapshot)
-  return `Read from ${folder ? shortPath(folder, snapshot.home) : 'the project'}, and committed with the code: everyone who clones it has these.`
+  if (origin === 'user') return 'Read from your Agents folder — yours, on this Mac only.'
+  return 'Read from the Agents folder in this project, and committed with the code: everyone who clones it has these.'
 }
 
 export const AgentsRosterSection = ({
@@ -132,7 +108,7 @@ export const AgentsRosterSection = ({
         return (
           <Section key={origin} title={heading}>
             <Rows>
-              {rows.length === 0 && shadowed.length === 0 && <Row title={EMPTY[origin]} />}
+              {rows.length === 0 && shadowed.length === 0 && <EmptyState variant="row" title={EMPTY[origin]} />}
               {rows.map((entry) => (
                 <AgentRow
                   key={entry.id}
@@ -146,6 +122,8 @@ export const AgentsRosterSection = ({
               {shadowed.map(({ winner, path }) => (
                 <Row
                   key={path}
+                  kind="record"
+                  face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
                   /* A copy that is not used, said as a fact rather than a
@@ -154,7 +132,7 @@ export const AgentsRosterSection = ({
                 />
               ))}
             </Rows>
-            <Note>{footnote(origin, snapshot)}</Note>
+            <Note ink="muted" inset="row">{footnote(origin)}</Note>
           </Section>
         )
       })}
@@ -174,7 +152,6 @@ export const AgentsRosterSection = ({
 }
 
 import { flagWords } from '../lib/ceilings'
-import { CeilingChip } from './CeilingChip'
 
 /** One Agent in force, or one whose file will not parse — each a way into its page. */
 export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
@@ -184,6 +161,8 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
     const problem = entry.problems.find((one) => one.level === 'error')
     return (
       <RowButton
+        kind="record"
+        face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
         title={entry.id}
         desc={problem ? `${problem.at} — ${problem.text}` : 'Its file could not be read.'}
         control={<Chip state="broken" label="Will not parse" />}
@@ -195,34 +174,19 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
   const seat = seatTaken(plan)
   const reason = plan ? firstReason(plan) : null
   const flag = flagWords(definition)
-  const desc = [definition.description, flag].filter((part): part is string => Boolean(part)).join(' ')
+  const description = [definition.description, flag].filter((part): part is string => Boolean(part)).join(' ')
+  const desc = [description, seat?.label, !seat && reason].filter(Boolean).join(' · ')
+  const ceiling = plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' as const }
   return (
     <RowButton
+      kind="record"
+      face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
       title={definition.name}
       {...(desc ? { desc } : {})}
       control={
-        <Text role="muted" className={styles.facts}>
-          {/* The declared ceiling, always through the one chip every governed
-              seat reads it through — held plan or none. A plan with no seat
-              (every candidate passed) and no plan at all are the same fact
-              here: nothing has held this ceiling yet, so it is only asked,
-              same as the row beside it whose plan did land one. A bare,
-              unstyled word here — no chip, no "asked" or "held" — was the one
-              row in the roster that did not read like the others. */}
-          <CeilingChip ceiling={plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' }} />
-          {seat ? (
-            <Text role="muted" ink="primary" className={styles.seat}>
-              <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={12} />
-              {seat.label}
-            </Text>
-          ) : plan ? (
-            <Text role="muted" tone="warning">Can't seat here{reason ? ` · ${reason}` : ''}</Text>
-          ) : snapshot.agentPlansFailed ? (
-            <Text role="muted" tone="warning">Its seats could not be checked</Text>
-          ) : (
-            <span>Checking seats…</span>
-          )}
-        </Text>
+        !seat && plan ? <Chip tone="warning">Can't seat here</Chip>
+          : !plan ? <RowValue>{snapshot.agentPlansFailed ? 'Its seats could not be checked' : 'Checking seats…'}</RowValue>
+          : <CeilingChip ceiling={ceiling} />
       }
       onClick={onOpen}
     />

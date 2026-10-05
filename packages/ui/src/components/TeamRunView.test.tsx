@@ -410,7 +410,7 @@ it('uses the separately read check history for the Flow count and keeps incomple
     expect(check().textContent).toContain('×2')
     await view.show({ incompleteAttempts: new Set([2]) })
     expect(check().textContent).not.toContain('×2')
-    expect(view.container.querySelector('[data-step-row="verify"]')!.textContent).toContain('Run count unavailable')
+    expect(view.container.querySelector('[data-step-row="verify"] [data-slot="list-row-trail"]')!.lastElementChild!.textContent).toBe('—')
   } finally { view.close() }
 })
 
@@ -423,8 +423,9 @@ it('keeps a check count unknown when a failed refresh retains older results, and
     expect(check().textContent).toContain('×2')
     await view.show({ attemptsRead: 'failed' })
     expect(check().textContent).not.toContain('×2')
-    expect(view.container.querySelector('[data-step-row="verify"]')!.textContent).toContain('Run count unavailable')
+    expect(view.container.querySelector('[data-step-row="verify"] [data-slot="list-row-trail"]')!.lastElementChild!.textContent).toBe('—')
     await view.show({ attemptsRead: undefined })
     expect(check().textContent).toContain('×2')
+    expect(view.container.querySelector('[data-step-row="verify"] [data-slot="list-row-trail"]')!.lastElementChild!.textContent).toBe('2 runs')
   } finally { view.close() }
 })

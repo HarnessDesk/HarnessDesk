@@ -15,24 +15,8 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { RuntimesSection } from './SettingsAgents'
 
-/**
- * The "Default" chip, on all three surfaces that draw it.
- *
- * The chip means "new sessions run as this", and it was derived three ways:
- * the agent's full readiness in the list header, and `unavailable → broken,
- * else ready` on the agent's page and on its account's page. Health alone
- * cannot see a missing credential or a spent plan window, so a signed-out
- * default read "needs sign-in" in the list and green on its own page, and one
- * at its limit read green on both pages (#131).
- *
- * What is pinned here is **agreement**, not three separate expectations: each
- * test collects the chip from every surface that draws it and asserts the set
- * has one member. A test that checked each surface against its own hardcoded
- * value would still pass with the divergence restored, which is exactly the
- * bug — so the assertion is that the surfaces cannot disagree, and a second
- * assertion says which state they agree on so that "all three wrong together"
- * is caught too.
- */
+/** Default is a neutral mode on a record's name line. Detail pages still
+ * report readiness separately; a neutral list mode must not erase that fact. */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -128,24 +112,18 @@ const chip = (): string => {
   return found.getAttribute('data-state') ?? ''
 }
 
-it('names each runtime in the subject role', async () => {
-  // It wore the subject role and a size of its own on top; the role alone
-  // now says how a card's subject is named.
+it('names each runtime through one record title role', async () => {
   await mount({})
-  const name = [...container.querySelectorAll('[data-slot="text"]')].find(
-    (node) => node.textContent === 'Claude Code',
-  )
-  expect(name?.getAttribute('data-role')).toBe('subject')
-  // The subject step — 14px medium — a step above the 13px row titles of the
-  // accounts under it; measured in the engine in e2e/ui-system/row-fold.spec.ts.
-  expect(name?.className).toContain('text-base')
-  expect(name?.className).toContain('font-medium')
+  const row = container.querySelector('[data-slot="agent-row"]')
+  expect(row?.getAttribute('data-kind')).toBe('record')
+  expect(row?.querySelector('[data-slot="runtime-name"]')?.textContent).toBe('Claude Code')
+  expect(row?.querySelector('[data-role="subject"]')).toBeNull()
 })
 
 /** The button that opens the agent's own page: the one carrying its name. */
 const agentName = (): Element | undefined =>
   [...container.querySelectorAll('button')].find((node) =>
-    node.querySelector('[data-slot="text"][data-role="subject"]'),
+    node.querySelector('[data-slot="runtime-name"]'),
   )
 
 const click = async (node: Element | null | undefined, what: string): Promise<void> => {
@@ -165,16 +143,18 @@ const back = async (): Promise<void> => {
 
 /** The chip as the list header draws it, and as the agent's own page draws it. */
 const listAndAgentPage = async (): Promise<string[]> => {
-  const header = chip()
+  const header = [...container.querySelectorAll('[data-slot="chip"]')].find(node => node.textContent?.trim() === 'Default')
+  expect(header?.getAttribute('data-tone')).toBe('neutral')
+  expect(header?.closest('[data-slot="row-title"]')).not.toBeNull()
   await click(agentName(), 'the agent name')
   const agentPage = chip()
   await back()
-  return [header, agentPage]
+  return [agentPage]
 }
 
 /** The same, plus the chip on the account's own page. */
 const everySurface = async (): Promise<string[]> => {
-  const [header, agentPage] = await listAndAgentPage()
+  const [agentPage] = await listAndAgentPage()
   // The account is on the agent's own page, one line in.
   await click(agentName(), 'the agent name')
   await click(
@@ -183,7 +163,7 @@ const everySurface = async (): Promise<string[]> => {
     ),
     'the account row',
   )
-  return [header as string, agentPage as string, chip()]
+  return [agentPage as string, chip()]
 }
 
 it('a default that is signed out says so on its own page, not only in the list', async () => {

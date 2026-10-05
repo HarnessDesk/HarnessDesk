@@ -14,7 +14,9 @@ import { sanitizeHtml, sanitizeText } from '../../lib/sanitize'
 import { formatDuration } from '../../components/TurnTail'
 import { IconTile } from '../ui/icon-tile'
 import type { Tint } from '../ui/tone'
-import { Chip, Row, RowButton, Rows, SectionHead, Text } from './Settings'
+import { EmptyState } from '../ui/empty-state'
+import { ListRow, ListRows } from '../ui/list-row'
+import { Chip, Row, Rows, SectionHead, Text } from './Settings'
 
 /**
  * A Flow, drawn to be looked at and read from the list under it.
@@ -208,42 +210,33 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
       <div data-slot="flow-list" className="flex min-w-0 flex-col gap-4">
         <section aria-label="Steps">
           <SectionHead name="Steps" />
-          <Rows>
+          <ListRows>
             {model.steps.map((step) => {
               const { tint, Mark } = KIND[step.kind]
-              const more = [
-                ...(step.count > 1 ? [`${step.count} at once`] : []),
-                ...step.agents,
-              ]
               const run = overlay?.steps.get(step.id)
               const activity = activities.get(step.id)!
-              const StateRow = onSelectStep ? RowButton : Row
-              return (
-                <StateRow
-                  key={step.id}
-                  onClick={() => onSelectStep?.(step.id)}
-                  {...(onSelectStep ? { 'aria-pressed': selectedStep === step.id } : {})}
-                  data-step-row={step.id}
-                  data-state={run?.state}
-                  mark={<FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints} size="sm" fallback={<IconTile size="sm" tint={tint}><Mark /></IconTile>} />}
-                  title={<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><span className="min-w-0 truncate">{step.name}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip>
-                    {run && (run.state === 'working' || run.state === 'waiting' || run.state === 'blocked'
-                      ? <Chip size="sm" tone={run.state === 'waiting' ? 'warning' : run.state === 'working' ? 'info' : 'neutral'}>{statusOf(run)}</Chip>
-                      : <Text role="meta">{statusOf(run)}</Text>)}
-                    {run && durationOf(run, now) !== null && <Text role="meta" numeric>{durationOf(run, now)}</Text>}
-                    {run?.runs !== undefined && run.runs !== null && run.runs > 1 && <Text role="meta" numeric>{run.runs} runs</Text>}
-                  </span>}
-                  desc={<span title={titleOf(step, run, activity.object)}>{[lineOf(step, run, activity.object), activity.text, ...more, ...(run ? [durationOf(run, now) === null ? 'Time not recorded' : null, run.runs === null ? 'Run count unavailable' : null] : [])].filter(Boolean).join(' · ')}</span>}
-                />
-              )
+              const more = [...(step.count > 1 ? [`${step.count} at once`] : []), ...step.agents]
+              return <ListRow key={step.id} data-step-row={step.id} data-state={run?.state}
+                as={onSelectStep ? 'button' : 'div'} interactive={Boolean(onSelectStep)} selected={selectedStep === step.id}
+                onClick={onSelectStep ? () => onSelectStep(step.id) : undefined}
+                lead={<FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints}
+                  fallback={<IconTile shape="face" tint={tint}><Mark /></IconTile>} />}
+                title={<span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate">{step.name}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
+                subtitle={<span title={titleOf(step, run, activity.object)}>{[step.kind === 'agent' && (run?.state === 'stopped' || run?.state === 'stopping') ? step.line : lineOf(step, run, activity.object), activity.text, ...more].filter(Boolean).join(' · ')}</span>}
+                wrapSubtitle
+                trail={run && run.state !== 'future' ? <>
+                  {run.state === 'working' || run.state === 'waiting' ? <Chip tone={run.state === 'waiting' ? 'warning' : 'info'}>{statusOf(run)}</Chip> : <Text role="meta">{statusOf(run)}</Text>}
+                  <Text role="meta" numeric title={durationOf(run, now) === null ? 'Time not recorded' : undefined}>{durationOf(run, now) ?? '—'}</Text>
+                  <Text role="meta" numeric title={run.runs === null ? 'Run count unavailable' : undefined}>{run.runs === null ? '—' : `${run.runs} ${run.runs === 1 ? 'run' : 'runs'}`}</Text>
+                </> : undefined} />
             })}
-          </Rows>
+          </ListRows>
         </section>
 
         <section aria-label="Rules">
           <SectionHead name="Rules" />
           <Rows>
-            {model.rules.length === 0 && <Row title="No rules" desc="The first round runs, then the Run ends." />}
+            {model.rules.length === 0 && <EmptyState variant="row" title="No rules" description="The first round runs, then the Run ends." />}
             {model.rules.map((rule) => (
               <Row
                 key={rule.id}

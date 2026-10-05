@@ -101,7 +101,7 @@ it('keeps a tinted icon and long identity inside one edged chip', () => {
   )
   expect(chip.querySelector('[data-slot="chip-words"]')?.children).toHaveLength(2)
   expect(css).toMatch(/\.chipWords\s*\{[^}]*display:\s*inline-flex[^}]*gap:\s*var\(--hd-space-1\)[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s)
-  expect(css).toMatch(/\.chip\[data-tint][^}]*max-width:\s*190px/s)
+  expect(css).toMatch(/\.chip\[data-tint][^}]*max-width:\s*min\(100%, 190px\)/s)
   expect(css).toMatch(/\.chip\[data-tint='blue'\][^}]*box-shadow:\s*inset 0 0 0 1px var\(--hd-tint-blue-edge\)/s)
 })
 

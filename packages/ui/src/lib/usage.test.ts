@@ -10,6 +10,7 @@ import {
   drawnReport,
   formatAge,
   formatCountdown,
+  formatResetCountdown,
   formatCountdownShort,
   formatMoney,
   gatedUntil,
@@ -753,3 +754,10 @@ describe('workingAccount', () => {
     expect(workingAccount([])).toBeNull()
   })
 })
+
+ it('formats meter resets with the same two-unit countdown and quiet missing value', () => {
+  expect(formatResetCountdown(3 * DAY)).toBe('in 3 d')
+  expect(formatResetCountdown(2 * HOUR + 14 * MINUTE)).toBe('in 2 h 14 m')
+  expect(formatResetCountdown(null)).toBe('—')
+  expect(formatResetCountdown(-1)).toBe('—')
+ })

@@ -227,7 +227,9 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-row-min` | `56px` |
 | `--hd-table-row-min-bare` | `44px` |
 | `--hd-table-cell-x` | `12px` |
-| `--hd-table-edge` | `16px` |
+| `--hd-table-edge` | `12px` |
+| `--hd-usage-meter-reading` | `64px` |
+| `--hd-usage-meter-reset` | `88px` |
 | `--hd-table-face` | `32px` |
 | `--hd-table-face-radius` | `calc(6px * 4 / 3)` |
 | `--hd-table-lead-gap` | `12px` |
@@ -511,7 +513,7 @@ A table scope owns its density, including list and settings examples. Restating 
 | token | comfortable | compact |
 | --- | --- | --- |
 | `--hd-table-cell-x` | `12px` | `8px` |
-| `--hd-table-edge` | `16px` | `12px` |
+| `--hd-table-edge` | `12px` | `12px` |
 | `--hd-table-end-gap` | `12px` | `8px` |
 | `--hd-table-face` | `32px` | `24px` |
 | `--hd-table-face-radius` | `calc(6px * 4 / 3)` | `6px` |
@@ -842,7 +844,7 @@ having written the judgement down.
 
 ### `face`
 
-**Use** — A face tells rows apart, centred beside the whole text block in either density.
+**Use** — A face tells rows apart, centred beside the whole text block in either density. A table lead keeps a FaceStack at its full width, including the remainder count.
 
 **Not** — The same decorative glyph repeated on every row. Leave the face out when it identifies nothing.
 
@@ -948,8 +950,8 @@ reference it is, when the card has one.
 The top of a card: a mark at rest, then a text column beside it.
 
 Not `AgentCard`'s alone — `Publication.tsx`'s forge card was redrawing this
-exact `flex items-start gap-2.5 px-3 pt-3 pb-2.5` by hand, down to the
-pixel, until this crest gave both a single place to read it from.
+same mark-and-text crest by hand until both shared this anatomy.
+The row inset belongs to the crest, including its bottom edge.
 
 ### `CardCrestBody`
 
@@ -2007,6 +2009,14 @@ Compact facts whose dot separators belong to the role, not to each caller.
 
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
+### `UsageMeterRow`
+
+`packages/ui/src/design/patterns/UsageMeterRow.tsx`
+
+The same four readings in a plan card, a quota popover and an account menu.
+Fixed foundation tracks align the reading and reset columns across rows.
+The 4px meter and its row use phrasing content so they can sit in a button.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
@@ -2020,7 +2030,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 0 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's three own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value. |
-| `singleAreaPrimitive` | 21 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
+| `singleAreaPrimitive` | 19 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |

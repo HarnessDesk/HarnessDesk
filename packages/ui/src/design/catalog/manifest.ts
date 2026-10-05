@@ -247,6 +247,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'heat-grid': ['default'],
   PaneColumn: ['default'],
   PlanCard: ['default'],
+  UsageMeterRow: ['default'],
   SidebarMenuState: ['default'],
 }
 
@@ -346,6 +347,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   // populated: a fee is set. warning: a key/metered account's budget row.
   // error: plans.json's own refusal, shown as a Note.
   PlanCard: ['empty', 'derived', 'populated', 'warning', 'error'],
+  UsageMeterRow: ['default', 'warning', 'error', 'unknown'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -384,7 +386,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
   AppWindow: 'packages/ui/src/components/AppWindow.tsx',
   Change: 'packages/ui/src/components/GitPane.tsx',
-  RefusedAction: 'packages/ui/src/components/Archive.tsx',
+  RefusedAction: 'packages/ui/src/components/ComposerControls.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
@@ -393,6 +395,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   FlowGraph: 'packages/ui/src/components/RunFlow.tsx',
   PaneColumn: 'packages/ui/src/components/Conversation.tsx',
   PlanCard: 'packages/ui/src/components/SettingsAgents.tsx',
+  UsageMeterRow: 'packages/ui/src/components/SettingsAgents.tsx',
   SidebarMenuState: 'packages/ui/src/components/SessionTree.tsx',
 }
 
@@ -424,6 +427,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   PaneColumn: 'packages/ui/src/design/explorer/boards.tsx',
   PlanCard: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  UsageMeterRow: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -561,6 +565,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
+  ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

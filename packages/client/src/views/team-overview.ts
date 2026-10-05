@@ -2,7 +2,7 @@
  * Portable Overview contract (also the contract for the later client selector):
  * SeatState = 'needs-you' | 'unread' | 'working' | 'idle'.
  * SeatRow = { seat, name, role, card: { id, title } | null, round, state, done,
- *             reason, doing, since, cost: { unit: 'money' | 'turns', value, estimated } | null }.
+ *             reason, doing, since, durationMs, cost: { unit: 'money' | 'turns', value, estimated } | null }.
  * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since,
  *                  approval?: the open request's id, on a question or an approval }.
  * RunStrip = { run, state: 'running' | 'settled' | 'stopped' | 'stalled', round,
@@ -41,6 +41,7 @@ import {
   type TeamSignal,
   sessionKey,
 } from '@harnessdesk/protocol'
+import { runNeedsAttention, waitingForEvidence, waitingForFindings } from './run-attention.js'
 
 export type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'
 
@@ -55,6 +56,8 @@ export interface SeatRow {
   reason: string | null
   doing: string | null
   since: number | null
+  /** Fixed first-claim (or first turn) to last completed-turn duration; unknown stays null. */
+  durationMs?: number | null
   cost: { unit: 'money' | 'turns'; value: number; estimated: boolean } | null
 }
 
@@ -75,6 +78,8 @@ export interface RunStrip {
   findingRun?: FindingRunView | null
   publicationOn?: boolean
   needsYou?: boolean
+  waitingEvidence?: boolean
+  waitingFindings?: boolean
   run: string
   state: 'running' | 'settled' | 'stopped' | 'stalled'
   round: number | null
@@ -254,8 +259,16 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const latest = session ? inFlightItem(session) : undefined
     const held = input.cards.filter(one => ownerOf(one)?.record.id === seat.record.id)
     const done = state === 'idle' && held.length > 0 && held.every(one => one.state === 'done')
+    const claims = (input.signals ?? []).filter(one => one.signal === 'claimed' && one.at >= seat.record.openedAt &&
+      one.by.kind === 'agent' && one.by.runtime === seat.record.session.runtime && one.by.sessionId === seat.record.session.sessionId)
+      .map(one => one.at)
+    const turns = session?.turns.filter(one => typeof one.startedAt === 'number' && one.startedAt >= seat.record.openedAt) ?? []
+    const starts = claims.length ? claims : turns.flatMap(one => typeof one.startedAt === 'number' ? [one.startedAt] : [])
+    const ends = turns.flatMap(one => one.completedAt === null || one.completedAt === undefined ? [] : [one.completedAt])
+    const durationMs = done && starts.length && ends.length ? Math.max(0, Math.max(...ends) - Math.min(...starts)) : null
+
     return {
-      done,
+      done, durationMs,
       seat: seat.record.id, name: seat.name, role: card?.role ?? round?.role ?? seat.record.role,
       card: card ? { id: card.id, title: card.title + (dependencies.length ? ` · after ${dependencies.map((id) => `#${id}`).join(', ')}` : '') } : null,
       round: round?.n ?? null, state, reason: blocked?.blockedReason ?? waiting?.summary ?? null,
@@ -279,7 +292,9 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   const run: RunStrip | null = execution && input.run ? {
     run: execution.id, state: execution.state, round: lastRound?.n ?? null, role: lastRound?.role ?? null,
     startedAt: input.run.startedAt,
-    needsYou: Boolean(reviewNeedsYou) || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget',
+    waitingEvidence: waitingForEvidence(execution),
+    waitingFindings: waitingForFindings(execution),
+    needsYou: runNeedsAttention(execution, Boolean(reviewNeedsYou)),
     ...(findingRun ? { findingRun, publicationOn: input.publicationOn !== false } : {}),
     reviewRounds: execution.findings ? {
       used: execution.findings.closedRounds.length,

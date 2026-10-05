@@ -1,5 +1,6 @@
 import { LibrarySection } from '../../components/Library'
 import { previewStore } from '../../preview/harness'
+import { PluginPanelTableExample } from '../../preview/plugin-panel-table'
 import { TablesFamily } from './tables-family'
 import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunControlsBoard } from '../../preview/frames-run-controls'
@@ -229,6 +230,7 @@ import { IconBoard } from './icon-board'
 import { Specimen } from './specimen'
 import styles from './explorer.module.css'
 import { PlanCard } from '../patterns/PlanCard'
+import { UsageMeterRow } from '../patterns/UsageMeterRow'
 
 /**
  * The composition layer, board by board.
@@ -2280,10 +2282,7 @@ const AdoptedBoard = () => {
                 </TableRow>
               </TableBody>
             </Table>
-            <Table variant="panel" data-catalog-variant="panel">
-              <TableHeader><TableRow variant="panel"><TableHead variant="panel">Panel fact</TableHead></TableRow></TableHeader>
-              <TableBody><TableRow variant="panel"><TableCell variant="panel">Compact value</TableCell></TableRow></TableBody>
-            </Table>
+            <PluginPanelTableExample />
           </SectionBody>
           <DataTablePagination
             className="border-t-0"
@@ -2424,6 +2423,27 @@ const PlanCardBoard = () => (
       A <code>plans.json</code> that fails to read shows its own refusal rather than going blank.
     </Rule>
   </>
+)
+
+const USAGEMETERROW_CATALOG_VARIANTS = ['default'] as const
+const USAGEMETERROW_CATALOG_SIZES = ['default'] as const
+const USAGEMETERROW_CATALOG_STATES = ['default', 'warning', 'error', 'unknown'] as const
+const UsageMeterRowBoard = () => (
+  <Specimen measure="page" caption="Remaining usage, standing alone or inside a What is left list">
+    {USAGEMETERROW_CATALOG_VARIANTS.map(variant => USAGEMETERROW_CATALOG_SIZES.map(size => (
+      <div key={`${variant}:${size}`} className="grid gap-4" data-catalog-variant={variant} data-catalog-size={size}>
+        {USAGEMETERROW_CATALOG_STATES.map(state => (
+          <div key={state} data-catalog-state={state}>
+            <UsageMeterRow name={state === 'unknown' ? 'Unreported window' : 'Weekly'}
+              percent={state === 'unknown' ? null : state === 'error' ? 0 : state === 'warning' ? 12 : 79}
+              countdown={state === 'unknown' ? '—' : state === 'error' ? 'blocked for 3 d' : 'in 2 h 14 m'}
+              tone={state === 'warning' ? 'warning' : state === 'error' ? 'danger' : 'neutral'}
+              standalone={state === 'warning' || state === 'error'} />
+          </div>
+        ))}
+      </div>
+    )))}
+  </Specimen>
 )
 
 /**
@@ -2783,16 +2803,16 @@ const PlansTableBoard = () => {
           <PlansCase label="Low — an amber row">
             <div data-catalog-case="low">{oneUp('low')}</div>
           </PlansCase>
-          <PlansCase label="Out — a spent window">
+          <PlansCase label="Spent — a spent window">
             <div data-catalog-case="out">{oneUp('out')}</div>
           </PlansCase>
-          <PlansCase label="On overage — metered spend already in use">
+          <PlansCase label="Low — metered spend already in use">
             <div data-catalog-case="overage">{oneUp('overage')}</div>
           </PlansCase>
-          <PlansCase label="Key, no budget — &ldquo;No limit&rdquo; rather than an empty bar">
+          <PlansCase label="Key, no budget — &ldquo;No limit&rdquo; in Left">
             <div data-catalog-case="key-no-budget">{oneUp('key-no-budget')}</div>
           </PlansCase>
-          <PlansCase label="Balance, spent — Out, never a reset">
+          <PlansCase label="Balance, spent — Spent, never a reset">
             <div data-catalog-case="balance-negative">{oneUp('balance-negative')}</div>
           </PlansCase>
           <PlansCase label='Balance, no draw yet — runway reads "—"'>
@@ -2827,8 +2847,7 @@ const PlansTableBoard = () => {
         </div>
       </Specimen>
       <Rule>
-        A row is thin on purpose: mark, name, the shape and status chips, a bar, a percent, the
-        vendor&rsquo;s own unit, an approximate turn count and the reset. The account&rsquo;s own
+        A row has one reading per shape: face, account and window, a status chip, one Left reading and the reset. The account&rsquo;s own
         story &mdash; the lanes, the pace, the money &mdash; belongs to the shape body a row expands
         into, one of five plus the existing Windows card. <code>reportNeedsAttention</code> decides
         Low, not a second reading of the headline&rsquo;s own tone, so a healthy headline pinned over
@@ -2876,6 +2895,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about:
       'A plan\'s price and a key or metered account\'s monthly budget, in every state the card can be in.',
     render: PlanCardBoard,
+  },
+  {
+    id: 'usage-meter-row',
+    title: 'Usage meter row',
+    about: 'The same reading in a plan card, a quota popover and an account menu.',
+    render: UsageMeterRowBoard,
   },
   {
     id: 'section',

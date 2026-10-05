@@ -810,47 +810,20 @@ is about to run out, so `sortRows` puts the account about to bite first — any
 `'out'` row leads regardless of its percentage, then by what is left (a tie
 breaks by status severity, then the soonest reset, then the runtime and the
 account, so the order is stable across refreshes), then the shapes with
-nothing measurable, `'none'` last of all. Built on `design/ui/table` — a real
-`<table>`, with column headers (Account, Shape, Status, Left, %, Amount, ≈
-Turns, Resets) and a disclosure `Button` in the row's first cell
-(`aria-expanded`/`aria-controls`), not a `Button` standing in for the whole
-row: a screen reader used to announce one long button name with a meter
-nested inside it. A container query drops Shape, the bar, Amount and ≈ Turns
-below about 640px, keeping Account, Status, % and Resets — "which one, how
-bad, when." Each row carries the mark and name (`presentation.name` — rule 8,
-never a runtime id), the account, a shape chip, a status chip
-(`Ready`/`Low`/`Out`/`On overage`/`No limit`, from `statusOf`, which reads
-**one** needs-attention rule — `reportNeedsAttention` (`lib/usage.ts`), the
-same one Overview's "N low" count reads — never a second, disagreeing
-judgement of whether an account is in trouble; the row and its expanded
-body's own chip cannot say two different things because both are `statusOf`),
-a "left" bar, its percent, the figure in the vendor's own unit ("312 of 500
-requests", "$0.88 balance", "$22.40 of $50 budget" — or "—" rather than
-"$0.00" when the spend behind a figure is unknown), an approximate turn count
-("~97", only where `turns.unitsPerTurn` is known **and** the lane's own unit
-is one a turn count can honestly divide — requests for an allowance, the
-report's own currency for a balance or a key's budget — never for a plain
-percent window, which has no rate to approximate with), and the binding
-lane's own reset. Enter, Space or a click on the disclosure expands the row
-in place into that account's own shape body, drawn as a full-width row of its
-own; Escape collapses it, whether focus is on the row or inside the body
-itself (moving focus back to the row's own button); one is open at a time.
+nothing measurable, `'none'` last of all. Built on `design/ui/table`, with Account, Status, Left, Resets and a trailing detail button. The plain account cell centres its identity face beside the account and its runtime/window fact. The shape filters show only nonzero counts, as “All · N”, and return to All when the selected shape has no accounts. A runtime already represented by a ledger row is counted once; its sign-in action stays in the expanded detail.
+
+Left is one reading per shape: a continuous bar and percent for a window or allowance, the prepaid amount and a known approximate turn count for a balance, remaining budget for a metered key, and “No limit” for a free tier or unbudgeted key. The status says Ready, Low or Spent; unavailable plan usage stays Not reporting. Below 640px, Account, Status, Left and the detail button remain. Enter, Space or a click on its Details button expands the row, and Escape collapses it and returns focus to the button.
+
+Project usage compares named Goals or Agents in a table, with Run and Seat counts and Cost when amounts exist. Team and frozen Run records supply names, flow and branch facts; unread Run counts remain a dash. Project usage labels its own Last 30 days or Last 24 hours range, offers a return to 30 days, and resets to 30 days when the project changes. A range whose amounts cannot be read has one unknown-amounts warning; a partial read with figures says amounts are incomplete and keeps the known-subtotal qualification in the Cost cell. Both offer Last 24 hours until that range is already active. Unattributed usage is the footer. Receipt Cost uses numeric KeyValue rows, puts Recorded usage under a strong footer rule, and keeps source sentences in Sources.
+
+Every meter list in an account card, the plan popover, roster, account menu and composer quota popover uses the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Their fixed reading/countdown tracks align consecutive 4px meters; the roster separates each account from its agent’s name. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
 
 When the account provides its own activity history, the expanded Plans row
 adds an **All machines** band: its daily token counts cover the account across
 every machine, so the 30-day total can exceed the figures above, which come
 only from this machine's transcripts.
 
-**Each shape's bar means something different, because the shapes are not the
-same kind of fact.** Windows and Allowance draw the binding lane's own percent
-left — the same figure the card's headline promotes. Balance has no window at
-all, so its bar is a **runway**: the balance divided by the mean of the
-window's own non-zero days, plotted against a flat 30-day scale — a fresh
-account with no spend history yet draws no bar rather than a false "plenty."
-Key draws what is left of a person's own budget, when one is set, and no bar
-at all without one — a vendor limit is not this account's own cap. Free draws
-no bar, ever: there is nothing in it to run out of, and an empty track would
-say the opposite of what the row means.
+**The sort still compares the shape's remaining scale.** Windows and Allowance use their binding lane, Balance uses its runway against a 30-day span, and Key uses its budget. Balance displays its amount rather than that internal sorting scale. A source with no draw history stays unscaled; a spent balance remains Spent.
 
 **The six shape bodies share one frame** — mark, name, account, plan chip,
 shape chip and status chip in the header; source, age and one action in the

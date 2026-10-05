@@ -268,9 +268,9 @@ test.describe('preview coverage', () => {
     // `?composer`, `?empty`, `?board-tool-approvals` and `?notice-placement` gate
     // frames the plain page never draws — a composer with a picture, a queue,
     // and the pane with no session at all; the board's tool approvals; whole
-    // windows whose Workbench draws the notice's fallback host — so each is
-    // visited too.
-    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement']) {
+    // windows whose Workbench draws the notice's fallback host; compact
+    // inspectors include the Seat record and its attachments — so each is visited too.
+    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels']) {
       await page.goto(`/preview.html${query}`)
       await page.waitForTimeout(1200)
       const result = await collectCoverage(page)

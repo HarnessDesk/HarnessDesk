@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
+import { runtimeTint } from '../lib/accounts'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -72,26 +73,26 @@ export const SetupDesk = ({
                   ? 'Its plan window is spent; it comes back when the window resets.'
                   : state === 'unknown'
                     ? 'Has not answered yet whether it needs a sign-in.'
-                    : (info.presentation.tagline ?? 'Ready.')
+                    : info.presentation.tagline
           const which = whichOf(info)
           return (
             <ListRow
               key={info.id}
-              lead={<IconTile size="sm">
-                <RuntimeMark runtime={info} size={14} />
+              lead={<IconTile shape="face" tint={runtimeTint(info.id, snapshot.accountsByRuntime, snapshot.accountPrefs)}>
+                <RuntimeMark runtime={info} size={16} />
               </IconTile>}
               title={<span className={styles.rowName}>
-                <Text role="subject">{info.presentation.name}</Text>
+                <span className="truncate">{info.presentation.name}</span>
                 {which && <Chip tone="neutral" size="sm">{which}</Chip>}
               </span>}
-              subtitle={<Text role="muted">{sentence}</Text>}
+              subtitle={<Text role="meta" ink="muted">{sentence}</Text>}
               wrapSubtitle
               trail={state === 'signin' ? (
-                  <Button size="sm" variant="default" onClick={() => onSignIn(info.id)}>
+                  <Button size="sm" variant="outline" onClick={() => onSignIn(info.id)}>
                     Sign in
                   </Button>
                 ) : state === 'ready' && info.id !== snapshot.activeRuntime ? (
-                  <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
+                  <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>
                     Use this agent
                   </Button>
                 ) : null}

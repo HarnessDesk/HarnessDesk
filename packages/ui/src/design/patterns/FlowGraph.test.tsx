@@ -142,7 +142,7 @@ it('keeps the drawing out of the accessibility tree and gives the list to everyo
 it('lists every step and says what each is, so a screen reader reaches what the drawing shows', () => {
   draw(blueprint(), new Map([['write', ran('edit', 'held')]]))
   const steps = container.querySelector<HTMLElement>('section[aria-label="Steps"]')!
-  const rows = [...steps.querySelectorAll('[data-slot="row"]')]
+  const rows = [...steps.querySelectorAll('[data-slot="list-row"]')]
   expect(rows).toHaveLength(6)
   expect(rows[0]!.textContent).toContain('Write')
   expect(rows[0]!.textContent).toContain('Agent')
@@ -238,11 +238,13 @@ it('draws recorded Run state with faces, a badge and duration, a working ring an
     faces={new Map([['alpha', <span>Alpha mark</span>], ['beta', <span>Beta mark</span>], ['gamma', <span>Gamma mark</span>]])}
     doing={new Map([['alpha', 'Editing src/retry.ts']])} />))
   const write = container.querySelector('[data-step="write"]')!
+  expect(container.querySelector('[data-step-row="land"] [data-slot="list-row-trail"]')).toBeNull()
   expect(write.getAttribute('data-state')).toBe('done')
   expect(write.querySelector('[data-slot="flow-complete"]')).not.toBeNull()
   expect(write.querySelector('[data-slot="flow-duration"]')?.textContent).toBe('11m')
   expect(write.querySelector('[data-shape="face"]')?.textContent).toContain('Alpha mark')
   expect(container.querySelector('[data-step="review"]')!.querySelectorAll('[data-shape="face"]')).toHaveLength(2)
+  expect([...container.querySelectorAll('[data-slot="flow-faces"] [data-shape="face"]')].every(face => !face.hasAttribute('title'))).toBe(true)
   const fix = container.querySelector('[data-step="fix"]')!
   expect(fix.textContent).toContain('Working')
   expect(fix.textContent).toContain('Editing src/retry.ts')
@@ -264,8 +266,9 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
   const list = container.querySelector('[data-slot="flow-list"]')!
   expect(list.textContent).toContain('Needs you')
   expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
+  expect(list.querySelector('[data-step-row="write"] [title="Time not recorded"]')?.textContent).toBe('—')
   expect(list.textContent).toContain('2 runs')
-  expect(list.textContent).toContain('Time not recorded')
+  expect(list.querySelector('[data-step-row="write"] [data-slot="list-row-trail"]')?.textContent).toBe('Done—2 runs')
   expect(container.textContent).not.toContain('<script>')
   expect(container.querySelector('script')).toBeNull()
 })
@@ -354,4 +357,14 @@ it('shows a person waiting for evidence as Waiting without asking for another an
   expect(you.querySelector('[data-slot="flow-state"]')?.textContent).toBe('Waiting')
   expect(you.textContent).not.toContain('Needs you')
   expect(you.querySelector('[data-slot="flow-complete"], [data-slot="flow-ring"]')).toBeNull()
+})
+
+it('keeps explanations on unknown readings of an unconfirmed check',()=>{
+ const model=flowModel(blueprint())
+ act(()=>root.render(<FlowGraph model={model} overlay={{rules:new Map(),steps:new Map([
+  ['check',{state:'blocked',runs:null,durationMs:null,since:null,line:null,seats:[]}],
+ ])}}/>))
+ const readings=container.querySelector('[data-step-row="check"] [data-slot="list-row-trail"]')!
+ expect(readings.querySelector('[title="Time not recorded"]')?.textContent).toBe('—')
+ expect(readings.querySelector('[title="Run count unavailable"]')?.textContent).toBe('—')
 })

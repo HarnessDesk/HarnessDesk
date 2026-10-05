@@ -784,8 +784,10 @@ comment — is bounded, untrusted prose that can never become one. It arrives
 with a clone like any other file; nothing runs because it exists.
 
 **Arming.** A project's page lists every declared source as a sentence —
-"When a pull request opens or is pushed, open review-pr, at most 4 at
-once" — with its arm state and what last happened. Turning one on opens the
+"When a pull request opens or is pushed, review it (review-pr)" — with the
+exact target and concurrency below, followed by what last happened. The switch
+shows whether it is on; Changed, Refused and Paused keep their own toned chips.
+Turning one on opens the
 exact decision before it is armed: the committed file it read, whether the
 working copy differs from it, every Seat the resolved flow would open and
 every candidate passed over with why, each trusted command verbatim with its

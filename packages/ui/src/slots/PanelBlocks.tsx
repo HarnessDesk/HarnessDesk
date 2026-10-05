@@ -298,7 +298,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
       return (
         // Wide tables scroll inside the panel; the panel itself never grows a
         // horizontal scrollbar, because the sidebar it sits in cannot.
-        <Table variant="panel" containerClassName={styles.tableScroll}>
+        <Table variant="panel" density="compact" containerClassName={styles.tableScroll}>
             {block.caption && <TableCaption variant="panel">{block.caption}</TableCaption>}
             <TableHeader>
               <TableRow variant="panel">
@@ -317,16 +317,18 @@ export const Block = ({ block }: { block: UiBlock }) => {
             <TableBody>
               {block.rows.map((row, index) => (
                 <TableRow key={index} variant="panel">
-                  {block.columns.map((column) => (
-                    <TableCell
+                  {block.columns.map((column) => {
+                    const cell = row[column.key]
+                    const text = typeof cell === 'string' ? cell : cell == null ? '' : String(cell)
+                    return <TableCell
                       key={column.key}
                       variant="panel"
                       align={column.align === 'end' ? 'end' : 'start'}
                     >
                       {/* Keyed, not positional: a cell the row omits is empty, never the next column's. */}
-                      {row[column.key] ?? ''}
+                      {text.trim() ? text : <Text role="meta">—</Text>}
                     </TableCell>
-                  ))}
+                  })}
                 </TableRow>
               ))}
             </TableBody>

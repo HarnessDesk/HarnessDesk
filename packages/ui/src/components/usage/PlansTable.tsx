@@ -20,7 +20,8 @@ import {
   Chip,
   EmptyState,
   Segmented,
-  SegmentMeter,
+  Progress,
+  IconTile,
   Table,
   TableBody,
   TableCell,
@@ -31,6 +32,8 @@ import {
 } from '../../design'
 import { formatTokens } from '../../lib/context-usage'
 import { accountActivitySummary, type AccountActivitySummary } from '../../lib/usage'
+import { defaultTint } from '../../lib/accounts'
+import { CaretIcon } from '../Icons'
 import { RuntimeMark } from '../BrandIcons'
 import { Card } from './shared'
 import { AllowanceBody, BalanceBody, FreeBody, KeyBody } from './ShapeBodies'
@@ -42,16 +45,14 @@ import styles from './usage.module.css'
  * The Plans table: shape filters above one table, one row per account, and
  * an expand-in-place into that account's own shape body.
  *
- * Design: `docs/usage-dashboard.md`, "The screen › Plans". The table's own
- * row is deliberately thin — mark, name, the two chips, the bar, and four
- * short columns — because the account's own story (the lanes, the pace, the
- * money) belongs to the shape body it expands into, not to a row that would
- * otherwise try to say all of it in one line.
+ * Design: `docs/usage-dashboard.md`, "The screen › Plans". One reading per
+ * shape; the account's lanes, pace and money remain in its expanded detail.
+ * The account cell is plain content and the trailing button owns disclosure.
  *
  * Built on `design/ui/table` — a real `<table>`, not a `Button` standing in
  * for a row (review of #1069, B8): a screen reader used to announce the
  * whole row as one long button name, with no column headers and a meter
- * nested inside it. Each row's first cell holds the disclosure control
+ * nested inside it. Each row's trailing cell holds the disclosure control
  * (`aria-expanded`/`aria-controls`); the expanded body is a full-width row
  * of its own, `<TableCell colSpan>`.
  */
@@ -74,8 +75,8 @@ export const ShapeFilters = ({
     value={value}
     onChange={(next) => onChange(next as ShapeFilter)}
     options={[
-      { value: 'all' as const, label: `All ${counts.all}` },
-      ...SHAPE_FILTER_ORDER.map((shape) => ({ value: shape, label: `${SHAPE_CHIP_LABEL[shape]} ${counts[shape]}` })),
+      { value: 'all' as const, label: `All · ${counts.all}` },
+      ...SHAPE_FILTER_ORDER.filter((shape) => counts[shape] > 0).map((shape) => ({ value: shape, label: `${SHAPE_CHIP_LABEL[shape]} · ${counts[shape]}` })),
     ]}
   />
 )
@@ -96,6 +97,9 @@ export const PlansTable = ({
   onStopTracking,
   onOpenPlanSettings,
   initialExpanded = null,
+  onSignIn,
+  signInRuntimes,
+  tintFor = defaultTint,
 }: {
   /** Every row, already described and sorted — `planRows(...)`, computed once by the caller (review of #1069, B3) and never recomputed here. */
   rows: readonly PlanRow[]
@@ -108,6 +112,9 @@ export const PlansTable = ({
   onOpenPlanSettings: (runtime: RuntimeId) => void
   /** Opens one row already expanded — the catalogue's own `row-expanded` case. */
   initialExpanded?: string | null
+  onSignIn?: (runtime: RuntimeId) => void
+  signInRuntimes?: ReadonlySet<RuntimeId>
+  tintFor?: (runtime: RuntimeId) => import('../../design').Tint
 }) => {
   const [expanded, setExpanded] = useState<string | null>(initialExpanded)
   const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
@@ -128,13 +135,10 @@ export const PlansTable = ({
         <TableHeader>
           <TableRow>
             <TableHead className={styles.colAccount}>Account</TableHead>
-            <TableHead className={styles.colShape}>Shape</TableHead>
             <TableHead className={styles.colStatus}>Status</TableHead>
-            <TableHead className={styles.colLeft}>Left</TableHead>
-            <TableHead className={styles.colPercent} align="end">%</TableHead>
-            <TableHead className={styles.colAmount} align="end">Amount</TableHead>
-            <TableHead className={styles.colTurns} align="end">≈ Turns</TableHead>
-            <TableHead className={styles.colResets} align="end">Resets</TableHead>
+            <TableHead className={styles.colLeft} numeric>Left</TableHead>
+            <TableHead className={styles.colResets} collapseBelow="sm" numeric>Resets</TableHead>
+            <TableHead className={styles.colDetails}><span className="sr-only">Details</span></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -150,6 +154,8 @@ export const PlansTable = ({
                 row={row}
                 info={info}
                 name={name}
+                tint={tintFor(row.report.runtime)}
+                onSignIn={onSignIn && signInRuntimes?.has(row.report.runtime) ? () => onSignIn(row.report.runtime) : undefined}
                 bodyId={bodyId}
                 isOpen={isOpen}
                 onToggle={toggle}
@@ -172,10 +178,30 @@ export const PlansTable = ({
   )
 }
 
+const shapeWords = (row: PlanRow): string => ({
+  windows: `${row.view.hero?.title.toLowerCase() ?? 'plan'} window`,
+  allowance: 'plan allowance', balance: 'prepaid balance', metered: 'metered key', free: 'free tier', none: 'plan usage unavailable',
+})[row.shape]
+
+const LeftCell = ({ row, name }: { row: PlanRow; name: string }) => {
+  if (row.shape === 'free' || (row.shape === 'metered' && !row.report.billing?.budget)) return <Text role="muted">No limit</Text>
+  if (row.shape === 'balance') return <div className="flex flex-col items-end">
+    <Text role="value" numeric>{row.ownUnit.replace(/ balance$/, '')}</Text>
+    {row.approxTurns !== '—' && <Text role="meta" numeric>≈ {row.approxTurns.replace(/^~/, '')} turns</Text>}
+  </div>
+  if (row.left.percent === null) return <Text role="meta">—</Text>
+  return <div className={styles.plansReading}>
+    <Progress value={row.left.percent} label={false} tone={row.status === 'ready' ? 'success' : paletteTone(STATUS_TONE[row.status])} aria-label={`${name} — what is left`} />
+    <Text className={styles.plansPercent} role="value" numeric tone={usageReadingTone(STATUS_TONE[row.status])}>{Math.round(row.left.percent)}%</Text>
+  </div>
+}
+
 const TableRowGroup = ({
   row,
   info,
   name,
+  tint,
+  onSignIn,
   bodyId,
   isOpen,
   onToggle,
@@ -190,6 +216,8 @@ const TableRowGroup = ({
   row: PlanRow
   info: RuntimeInfo | null
   name: string
+  tint: import('../../design').Tint
+  onSignIn?: () => void
   bodyId: string
   isOpen: boolean
   onToggle: () => void
@@ -202,80 +230,34 @@ const TableRowGroup = ({
   onOpenPlanSettings: () => void
 }) => (
   <>
-    <TableRow interactive data-state={isOpen ? 'selected' : undefined}>
-      <TableCell className={styles.colAccount}>
-        <Button
-          ref={buttonRef}
-          variant="row"
-          size="table-row"
-          className={`${styles.plansDisclosure} flex w-full items-center gap-(--hd-space-1-5)`}
-          aria-expanded={isOpen}
-          aria-controls={bodyId}
-          onClick={onToggle}
-          onKeyDown={(event) => {
-            // Enter/Space are a native button's own activation keys, but
-            // nothing here should depend on exactly how the underlying
-            // primitive wires its own keyboard activation, so this answers
-            // them explicitly too — the same rule the row kept before B8.
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              onToggle()
-            } else if (event.key === 'Escape' && isOpen) {
-              event.preventDefault()
-              onCollapse()
-            }
-          }}
-        >
-          <span className={styles.rankMark}>{info && <RuntimeMark runtime={info} size={15} />}</span>
-          <span className={styles.plansName}>
-            <Text role="subject" truncate>{row.report.account ?? name}</Text>
-            {row.report.account && <Text role="meta" truncate>{name}</Text>}
-          </span>
-        </Button>
+    <TableRow data-state={isOpen ? 'selected' : undefined}>
+      <TableCell className={styles.colAccount} lead={info && <IconTile shape="face" {...(row.shape === 'metered' || row.shape === 'free' ? { tone: 'neutral' as const } : { tint })}><RuntimeMark runtime={info} /></IconTile>}>
+        <span className={styles.plansName}>
+          <Text role="subject" truncate>{row.report.account ?? name}</Text>
+          <Text role="meta" truncate>{[row.report.account && name, shapeWords(row)].filter(Boolean).join(' · ')}</Text>
+        </span>
       </TableCell>
-      <TableCell className={styles.colShape}><ShapeChip shape={row.shape} /></TableCell>
       <TableCell className={styles.colStatus}>
-        <Chip tone={paletteTone(STATUS_TONE[row.status])} label={STATUS_LABEL[row.status]} />
+        <Chip tone={row.status === 'ready' || row.status === 'unlimited' ? 'success' : paletteTone(STATUS_TONE[row.status])} label={STATUS_LABEL[row.status]} />
       </TableCell>
-      <TableCell className={styles.colLeft}>
-        {/* No limit is "never full, never empty" — an empty (hollow-segment)
-            track reads as "nothing left," which Free, a budgetless Key and a
-            not-reporting row are not saying. Only a row with an actual
-            percent to plot draws a meter at all; the rest is the cell's own
-            "—", never a bar. A spent account (`leftOf`'s own 0, not null)
-            still draws its track — that zero is real. */}
-        {row.left.percent === null ? (
-          <Text role="muted">—</Text>
-        ) : (
-          <SegmentMeter
-            className={styles.plansBar}
-            percent={row.left.percent}
-            tone={paletteTone(STATUS_TONE[row.status])}
-            segments={16}
-            label={`${row.report.account ?? name} — what is left`}
-          />
-        )}
+      <TableCell className={styles.colLeft} numeric>
+        <LeftCell row={row} name={row.report.account ?? name} />
       </TableCell>
-      <TableCell className={styles.colPercent} align="end">
-        <Text role="value" numeric tone={usageReadingTone(STATUS_TONE[row.status])}>
-          {row.left.percent === null ? '—' : `${Math.round(row.left.percent)}%`}
-        </Text>
+      <TableCell className={styles.colResets} collapseBelow="sm" numeric>
+        <Text role="muted" numeric>{row.resets}</Text>
       </TableCell>
-      <TableCell className={styles.colAmount} align="end">
-        <Text role="muted" truncate title={row.ownUnit}>{row.ownUnit}</Text>
-      </TableCell>
-      <TableCell className={styles.colTurns} align="end">
-        <Text role="muted" numeric>{row.approxTurns}</Text>
-      </TableCell>
-      <TableCell className={styles.colResets} align="end">
-        <Text role="muted">{row.resets}</Text>
+      <TableCell className={styles.colDetails} align="end">
+        <Button ref={buttonRef} variant="ghost" size="icon-sm" aria-label={`Details for ${row.report.account ?? name}`} aria-expanded={isOpen} aria-controls={bodyId} onClick={onToggle} onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onToggle() }
+          else if (event.key === 'Escape' && isOpen) { event.preventDefault(); onCollapse() }
+        }}><CaretIcon className={isOpen ? 'rotate-180' : undefined} size={14} /></Button>
       </TableCell>
     </TableRow>
     {isOpen && (
       <TableRow>
         <TableCell
           id={bodyId}
-          colSpan={8}
+          colSpan={5}
           variant="detail"
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
@@ -288,6 +270,7 @@ const TableRowGroup = ({
           <ExpandedBody
             row={row}
             info={info}
+            onSignIn={onSignIn}
             preference={preference}
             now={now}
             onRefresh={onRefresh}
@@ -301,6 +284,7 @@ const TableRowGroup = ({
 )
 
 const ExpandedBody = ({
+  onSignIn,
   row,
   info,
   preference,
@@ -309,6 +293,7 @@ const ExpandedBody = ({
   onStopTracking,
   onOpenPlanSettings,
 }: {
+  onSignIn?: () => void
   row: PlanRow
   info: RuntimeInfo | null
   preference: UsagePreference
@@ -344,7 +329,7 @@ const ExpandedBody = ({
         return <FreeBody row={row} info={info} now={now} />
       case 'none':
         return info ? (
-          <NotReportingList entries={entriesFromReports([row.report], new Map([[row.report.runtime, info]]), onRefresh)} />
+          <NotReportingList entries={entriesFromReports([row.report], new Map([[row.report.runtime, info]]), onRefresh).map(entry => onSignIn ? { ...entry, reason: 'Sign in to read plan usage. Recorded spend is kept.', fix: { label: `Sign in to ${info.presentation.name}`, onClick: onSignIn } } : entry)} />
         ) : null
     }
   })()
@@ -354,6 +339,7 @@ const ExpandedBody = ({
   return (
     <>
       {body}
+      {onSignIn && row.shape !== 'none' && <Button variant="outline" size="sm" onClick={onSignIn}>Sign in to {info?.presentation.name ?? 'the account'}</Button>}
       {summary && <AccountActivityBand summary={summary} />}
     </>
   )

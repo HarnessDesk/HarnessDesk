@@ -44,3 +44,12 @@ it('declares compact density and bare rows, with panel tables compact by default
   expect(element(renderToStaticMarkup(<Table variant="panel" />), 'table').dataset['hdTable']).toBe('compact')
   expect(element(renderToStaticMarkup(<Table variant="panel" density="comfortable" />), 'table').dataset['hdTable']).toBe('comfortable')
 })
+
+it('keeps a collapsible column in the semantic table without leaking its policy prop', () => {
+  const markup = renderToStaticMarkup(<Table><thead><TableRow><TableHead>Account</TableHead><TableHead collapseBelow="sm">Resets</TableHead></TableRow></thead><tbody><TableRow><TableCell>Name</TableCell><TableCell collapseBelow="sm">in 3 d</TableCell></TableRow></tbody></Table>)
+  const host = document.createElement('div'); host.innerHTML = markup
+  expect(host.querySelectorAll('th')).toHaveLength(2)
+  expect(host.querySelectorAll('td')).toHaveLength(2)
+  expect(host.querySelectorAll('[data-collapse-below="sm"]')).toHaveLength(2)
+  expect(markup).not.toContain('collapseBelow=')
+})

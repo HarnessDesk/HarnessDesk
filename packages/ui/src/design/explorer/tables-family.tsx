@@ -1,9 +1,9 @@
 import {
-  Button, Chip, EmptyState, Face, IconTile, KeyValue, KeyValueRow, ListRow, ListRows,
+  AccountMark, Button, Chip, EmptyState, Face, FaceStack, IconTile, KeyValue, KeyValueRow, ListRow, ListRows,
   Row, RowButton, RowChoice, RowValue, Rows, SectionHead, Switch,
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from '..'
-import { FolderIcon, ShieldAlertIcon } from '../../components/Icons'
+import { AgentIcon, FolderIcon, ShieldAlertIcon } from '../../components/Icons'
 
 const DENSITIES = ['comfortable', 'compact'] as const
 const LONG_NAME = 'Review the shared workspace and its library of reusable project checks'
@@ -32,17 +32,20 @@ export const TablesFamily = () => (
               <TableCell><Chip tone="neutral">Ready</Chip></TableCell><TableCell numeric>$12.34</TableCell>
             </TableRow>
             <TableRow data-state="selected"><TableCell><Name fact="dev@example.com">Jane Doe</Name></TableCell><TableCell><Chip tone="neutral">Selected</Chip></TableCell><TableCell numeric>$0.00</TableCell></TableRow>
-            <TableRow><TableCell><Name>{LONG_NAME}</Name></TableCell><TableCell><Chip tone="warning">Warning</Chip></TableCell><TableCell numeric><span className="text-(--hd-muted-foreground)">—</span></TableCell></TableRow>
+            <TableRow><TableCell lead={<FaceStack faces={Array.from({length:6}, (_,n)=>({id:String(n),name:`Agent ${n+1}`,tint:(['blue','violet','rose'] as const)[n%3]!,mark:<AgentIcon />}))} />}><Name>{LONG_NAME}</Name></TableCell><TableCell><Chip tone="warning">Warning</Chip></TableCell><TableCell numeric><span className="text-(--hd-muted-foreground)">—</span></TableCell></TableRow>
           </TableBody>
         </Table>
+        <SectionHead name="Face stack" />
+        <FaceStack faces={Array.from({length:6}, (_,n)=>({id:String(n),name:`Agent ${n+1}`,tint:(['blue','violet','rose'] as const)[n%3]!,mark:<AgentIcon />}))} />
         <SectionHead name="List · 3" />
         <ListRows>
           <ListRow as="button" data-catalog-size={density} interactive lead={<Face avatar="wizard" />} title={LONG_NAME} subtitle="acme.dev / storefront" trail={<RowValue numeric>12</RowValue>} />
           <ListRow selected title="Review project checks" subtitle="3 checks" trail={<Chip tone="neutral">Selected</Chip>} />
           <ListRow lead={<IconTile tone="warning"><ShieldAlertIcon /></IconTile>} title="Workspace unavailable" subtitle={SENTENCE} wrapSubtitle trail={<Button size="sm" variant="outline">Choose…</Button>} />
         </ListRows>
-        <SectionHead name="Settings rows · 3" />
+        <SectionHead name="Settings rows · 4" />
         <Rows data-catalog-size={density}>
+          <Row kind="record" face={<AccountMark size="row" data-tint="blue">JD</AccountMark>} title="Jane Doe" desc="dev@example.com" truncateDesc />
           <Row mark={<FolderIcon />} title="Working folder" desc={SENTENCE} control={<Button size="sm" variant="outline">Choose…</Button>} />
           <RowButton title="Library" desc="3 shared skills" onClick={() => {}} action={<Button size="sm" variant="outline">Manage</Button>} />
           <Row title="Start automatically" control={<Switch aria-label={`Start automatically (${density})`} defaultChecked />} />
@@ -62,7 +65,7 @@ export const TablesFamily = () => (
           </TableBody>
         </Table>
         <SectionHead name="Key-value" />
-        <KeyValue><KeyValueRow label="Owner">Jane Doe</KeyValueRow><KeyValueRow label="Host">acme.dev</KeyValueRow><KeyValueRow label="Recorded cost" numeric>$12.34</KeyValueRow></KeyValue>
+        <KeyValue><KeyValueRow label="Owner">Jane Doe</KeyValueRow><KeyValueRow label="Host">acme.dev</KeyValueRow><KeyValueRow label="Recorded cost" numeric footer emphasis>$12.34</KeyValueRow></KeyValue>
         <SectionHead name="Empty list" />
         <Rows><EmptyState variant="row" title="No projects" description="Projects appear here after you choose a folder." /></Rows>
         <p className="text-(length:--hd-text-xs) text-(--hd-muted-foreground)">Log: see the Git surface for its fixed 26px row pitch. Hover the first project to see the interactive row.</p>

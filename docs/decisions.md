@@ -1948,3 +1948,15 @@ A reviewer can also correct a mistaken claim before finishing its raising
 card: a reasoned withdrawal is allowed there. Confirming or rejecting a
 repair still needs a later review of the raising Agent. The same ownership,
 revision, sequence and open-card checks apply to both paths.
+
+## A runtime wears the face shape — 2026-10-05
+
+The owner chose the face shape for runtimes: a runtime is who does the work
+in these lists, and one meaning keeps one shape everywhere. Settings,
+setup, Add a runtime, gateway rows and the runtime card all follow the
+person's Faces setting — square corners by default, round when chosen.
+Accounts keep their rings; plugins, skills, files and sections keep their
+square tiles.
+
+**The rule:** a runtime is a face, and its corner comes from the Faces
+setting wherever its mark appears.

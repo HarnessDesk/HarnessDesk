@@ -430,7 +430,7 @@ const mountList = async (
 /** The name of every agent currently drawn, in order — read off its line. */
 const listed = (): string[] =>
   [...document.body.querySelectorAll('[data-slot="agent-row"]')].map(
-    (node) => node.querySelector('[data-role="subject"]')?.textContent ?? '',
+    (node) => node.querySelector('[data-slot="runtime-name"]')?.textContent ?? '',
   )
 
 /** The agents under each group's head, by group. */
@@ -439,7 +439,7 @@ const grouped = (): Record<string, string[]> =>
     [...document.body.querySelectorAll('[data-group]')].map((group) => [
       group.getAttribute('data-group'),
       [...group.querySelectorAll('[data-slot="agent-row"]')].map(
-        (node) => node.querySelector('[data-role="subject"]')?.textContent ?? '',
+        (node) => node.querySelector('[data-slot="runtime-name"]')?.textContent ?? '',
       ),
     ]),
   )
@@ -447,7 +447,7 @@ const grouped = (): Record<string, string[]> =>
 /** An agent's line, by its name. */
 const line = (name: string): HTMLButtonElement =>
   [...document.body.querySelectorAll('[data-slot="agent-row"]')].find(
-    (node) => node.querySelector('[data-role="subject"]')?.textContent === name,
+    (node) => node.querySelector('[data-slot="runtime-name"]')?.textContent === name,
   ) as HTMLButtonElement
 
 it("each agent's line says who it is signed in as, and at its end only what is not fine", async () => {
@@ -524,6 +524,25 @@ it('an unanswered default wears its Default chip alone', async () => {
   expect(chips).toEqual(['Default'])
 })
 
+it.each([
+  ['unanswered', {}],
+  ['unavailable', { healthByRuntime: { gamma: { state: 'unavailable', reason: 'crashed', message: 'exited' } } }],
+  ['without desk accounts', { runtimes: [runtime({ id: 'gamma', name: 'Gamma', capabilities: { ...NO_CAPABILITIES } })] }],
+  ['with an unanswered sibling', {
+    runtimes: [ROSTER.runtimes[3], runtime({ id: 'gamma#2', name: 'Gamma', slot: { agent: 'gamma' } })],
+    accountsByRuntime: { gamma: signedIn([], ['browser']) },
+  }],
+])('does not claim sign-out for a runtime %s', async (_state, over) => {
+  await mountList({ accountsByRuntime: {}, ...over })
+  expect(line('Gamma').textContent).not.toContain('Not signed in')
+})
+
+it('reports a confirmed sign-out and retains an anonymous sign-in', async () => {
+  await mountList({ accountsByRuntime: { ...ROSTER.accountsByRuntime, beta: signedIn([{ anonymous: true }], []) } })
+  expect(line('Gamma').textContent).toContain('Not signed in')
+  expect(line('Beta').textContent).toContain('Signed in')
+})
+
 it('an unanswered row that is not the default carries no control at all', async () => {
   const accounts = { ...ROSTER.accountsByRuntime }
   delete (accounts as Record<string, unknown>).gamma
@@ -566,7 +585,7 @@ it("an extra account that has not answered is not \"waiting to be signed in\"", 
   // Its line is where its credential lives, the one fact that varies.
   expect(document.body.textContent).toContain('/tmp/alpha-2')
   expect(document.body.textContent).not.toContain('Waiting to be signed in')
-  expect(button('Remove')).toBeTruthy()
+  expect(container.querySelector('button[aria-label="Alpha actions · /tmp/alpha-2"]')).toBeTruthy()
 })
 
 it('an extra account that could not start says so on its page, as the list does (#1038)', async () => {
@@ -615,7 +634,8 @@ it('removing an extra account that has not answered asks first — it may be sig
     store: { removeAccount: async (id: string) => void removed.push(id) },
   })
   await act(async () => line('Alpha').click())
-  await act(async () => button('Remove')!.click())
+  await act(async () => (container.querySelector('button[aria-label="Alpha actions · /tmp/alpha-2"]') as HTMLButtonElement).click())
+  await act(async () => (document.body.querySelector('[role="menuitem"]') as HTMLElement).click())
   expect(removed).toEqual([])
   const confirm = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Remove account')
   expect(confirm).toBeTruthy()
@@ -637,7 +657,8 @@ it('keeping an unanswered extra account removes nothing, and its confirm names w
   // The row's line is the credential home, shortened against the host's home.
   expect(document.body.textContent).toContain('~/alpha-2')
   expect(document.body.textContent).not.toContain('/tmp/alpha-2')
-  await act(async () => button('Remove')!.click())
+  await act(async () => (container.querySelector('button[aria-label="Alpha actions · ~/alpha-2"]') as HTMLButtonElement).click())
+  await act(async () => (document.body.querySelector('[role="menuitem"]') as HTMLElement).click())
   expect(document.body.textContent).toContain('Its sign-in at ~/alpha-2 is forgotten')
   const keep = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Keep')
   await act(async () => keep!.click())
@@ -817,7 +838,7 @@ it('a pin on a copy that has gone says so, and names the copy that runs (#219)',
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const open = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as HTMLButtonElement
+  const open = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="runtime-name"]')) as HTMLButtonElement
   await act(async () => open.click())
   expect(document.body.textContent).toContain('Running 1.18.29 · via Homebrew')
   expect(document.body.textContent).not.toContain('Pinned to')
@@ -842,7 +863,7 @@ const openInstall = async (install: InstallInfo): Promise<void> => {
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const head = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as
+  const head = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="runtime-name"]')) as
     | HTMLButtonElement
     | undefined
   if (head) await act(async () => head.click())
@@ -1142,4 +1163,111 @@ it('opened on a second account\u2019s runtime, the page answers for the agent', 
   expect(document.body.textContent).not.toContain('Waiting to be signed in')
   const ada = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.includes('ada'))
   expect(ada?.textContent).toContain('Default')
+})
+
+it('template records draw one face, a quiet Added word, and an outline Add action', async () => {
+  await mount()
+  const records = container.querySelectorAll('[data-kind="record"]')
+  expect(records.length).toBeGreaterThanOrEqual(3)
+  expect(records[0]?.querySelector('[data-slot="row-face"]')).not.toBeNull()
+  expect(records[0]?.querySelector('[data-slot="row-mark"]')).toBeNull()
+  expect(button('Add')?.getAttribute('data-variant')).toBe('outline')
+  const added = [...container.querySelectorAll('[data-kind="record"] span')].find(node => node.textContent === 'Added' && node.children.length === 0)
+  expect(added).toBeDefined()
+})
+
+it('runtime records keep Default on the name line and Sign in as an outline action', async () => {
+  await mountList({ activeRuntime: 'gamma' })
+  const row = line('Gamma')
+  expect(row.getAttribute('data-kind')).toBe('record')
+  expect(row.querySelector('[data-slot="row-title"] [data-slot="chip"]')?.textContent).toBe('Default')
+  expect(row.querySelector('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('neutral')
+  expect(row.querySelector('[data-role="subject"]')).toBeNull()
+  const action = row.closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button')
+  expect(action?.getAttribute('data-variant')).toBe('outline')
+})
+
+
+it('accounts, gateways and unanswered slots share one unwrapped face slot', async () => {
+  const gateway = runtime({
+    id: 'alpha#3', name: 'Alpha',
+    slot: { agent: 'alpha', home: '~/accounts/gateway', removable: true, canAdd: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } },
+  })
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({ runtimes: [...ROSTER.runtimes, gateway], accountsByRuntime: accounts })
+  const alpha = [...container.querySelectorAll<HTMLElement>('[data-slot="agent-row"]')].find(row => row.querySelector('[data-slot="row-title"]')?.textContent?.startsWith('Alpha'))!
+  await act(async () => alpha.click())
+  const records = [...container.querySelectorAll('[data-kind="record"]')]
+  expect(records).toHaveLength(3)
+  for (const row of records) {
+    expect(row.querySelectorAll('[data-slot="row-face"]')).toHaveLength(1)
+    expect(row.querySelector('[data-slot="row-mark"]')).toBeNull()
+    expect(row.querySelector('[data-slot="icon-tile"] [data-slot="icon-tile"]')).toBeNull()
+  }
+  expect(records[0]?.querySelector('[data-slot="row-face"] [data-shape="round"]')).not.toBeNull()
+  expect(records.find(row => row.textContent?.includes('Acme gateway'))?.querySelector('[data-slot="row-face"] [data-shape="face"]')).not.toBeNull()
+  expect(records.find(row => row.textContent?.includes('Not answered yet'))?.querySelector('[data-slot="row-face"] [data-shape="face"]')).not.toBeNull()
+})
+
+it('removes a gateway immediately and labels the menu action Remove', async () => {
+  const removeAccount = vi.fn(async () => {})
+  const gateway = runtime({ id: 'alpha#3', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } } })
+  await mountList({ runtimes: [...ROSTER.runtimes, gateway], store: { removeAccount } })
+  await act(async () => line('Alpha').click())
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="Acme gateway actions"]')!
+  await act(async () => trigger.click())
+  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(item.textContent).toBe('Remove')
+  await act(async () => item.click())
+  expect(removeAccount).toHaveBeenCalledWith('alpha#3')
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+it('removes an empty account slot immediately and labels the menu action Remove', async () => {
+  const removeAccount = vi.fn(async () => {})
+  await mountList({ accountsByRuntime: { ...ROSTER.accountsByRuntime, 'alpha#2': signedIn([], ['browser']) }, store: { removeAccount } })
+  await act(async () => line('Alpha').click())
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="Alpha actions"]')!
+  await act(async () => trigger.click())
+  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(item.textContent).toBe('Remove')
+  await act(async () => item.click())
+  expect(removeAccount).toHaveBeenCalledWith('alpha#2')
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+it('the signed-in account page labels Remove with an ellipsis and asks before removing', async () => {
+  const removeAccount = vi.fn(async () => {})
+  await mountList({ store: { removeAccount, limitsFor: async () => null } })
+  await act(async () => line('Alpha').click())
+  const account = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('grace@example.com'))!
+  await act(async () => account.click())
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="grace actions"]')!
+  await act(async () => trigger.click())
+  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+  expect(item.textContent).toBe('Remove…')
+  await act(async () => item.click())
+  expect(removeAccount).not.toHaveBeenCalled()
+  const confirm = [...document.body.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Remove account')!
+  await act(async () => confirm.click())
+  expect(removeAccount).toHaveBeenCalledWith('alpha#2')
+})
+
+it('unanswered extra account menus name the credential homes that distinguish them', async () => {
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  const extra = runtime({ id: 'alpha#3', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true } })
+  await mountList({ runtimes: [...ROSTER.runtimes, extra], accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  const names = [...container.querySelectorAll('button[aria-label^="Alpha actions"]')].map(node => node.getAttribute('aria-label'))
+  expect(names).toEqual(['Alpha actions · /tmp/alpha-2', 'Alpha actions · /tmp/alpha-3'])
+})
+
+it('a runtime detail mark follows the Faces setting through the shared detail pattern', async () => {
+  await mountList()
+  await act(async () => line('Alpha').click())
+  const title = container.querySelector('[data-slot="detail-title"]')!
+  expect(title.textContent).toBe('Alpha')
+  expect(title.parentElement?.parentElement?.parentElement?.querySelector('[data-shape="face"]')).not.toBeNull()
 })

@@ -162,8 +162,8 @@ it('lists three sections in precedence order, each naming the folder it reads', 
   mount()
   const headings = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
   expect(headings).toEqual(['In storefront', 'Yours', 'Built in'])
-  expect(sectionText('In storefront')).toContain('/w/storefront/.harnessdesk/agents')
-  expect(sectionText('Yours')).toContain('~/.harnessdesk/agents')
+  expect(sectionText('In storefront')).toContain('in this project')
+  expect(sectionText('Yours')).toContain('on this Mac only')
   expect(sectionText('Built in')).toContain('Ships with HarnessDesk')
 })
 
@@ -172,37 +172,27 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   const project = sectionText('In storefront')
   expect(project).toContain('Storefront reviewer')
   expect(project).toContain('Storefront reviewer does the work.')
-  expect(project).toContain('Edit')
+  expect(project).toContain('Edit · asked, not enforced')
   expect(project).toContain('Claude · Opus 5 · High')
   // No wire: never the spec, never the digest.
   expect(container.textContent).not.toContain('claude-code')
   expect(container.textContent).not.toContain('=opus')
 })
 
-/**
- * `security-reviewer`'s plan has no seat (every candidate passed on it), so
- * `plan.ceiling` is `null` — the same branch a runtime with no computed plan
- * at all falls into. It used to fall out of `CeilingChip` entirely there,
- * into a bare, unstyled ceiling word ("Edit") with no "asked"/"held" and no
- * chip around it, the one row in the roster that did not read like the
- * others (#898).
- */
-it('draws every Agent’s ceiling through the same chip, held plan or none', () => {
+/** A refusal is the row’s one reading; the ceiling is not repeated beside it. */
+it('a refused Agent has one warning reading instead of a second ceiling chip', () => {
   mount()
-  const built = sectionText('Built in')
-  expect(built).toContain('Edit · asked, not enforced')
-  const row = [...container.querySelectorAll('button')].find((one) =>
-    one.textContent?.includes('Security reviewer'),
-  )
-  const chip = row?.querySelector('[data-ceiling]')
-  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
+  const row = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Security reviewer'))!
+  expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+  expect(row.querySelector('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('warning')
+  expect(row.querySelector('[data-ceiling]')).toBeNull()
 })
 
 it('keeps an Agent that cannot be seated here, with the first reason on screen', () => {
   mount()
-  expect(sectionText('Built in')).toContain("Can't seat here · Cursor is signed out")
+  expect(sectionText('Built in')).toContain("Cursor is signed outCan't seat here")
   // Said in the warning tone: the person has to act before it can seat here.
-  const refusal = [...container.querySelectorAll('section[aria-label="Built in"] [data-slot="text"][data-tone="warning"]')]
+  const refusal = [...container.querySelectorAll('section[aria-label="Built in"] [data-slot="chip"][data-tone="warning"]')]
     .find((one) => one.textContent?.startsWith("Can't seat here"))
   expect(refusal).toBeDefined()
 })
@@ -218,6 +208,7 @@ it('lists a shadowed copy where it lives, in the Plugins-superseded idiom — a 
   expect(value).toBeDefined()
   expect(value?.closest('[data-tone]')).toBeNull()
   expect(value?.className ?? '').not.toContain('warning')
+  expect(value?.closest('[data-slot="row"]')?.className).not.toContain('opacity-50')
 })
 
 it('lists a file that will not parse, with why', () => {
@@ -268,8 +259,7 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
   expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')
   const chip = container.querySelector('section[aria-label="In storefront"] [data-ceiling]')
   expect(chip?.getAttribute('data-hold')).toBe('asked')
-  // Neutral: `asked` is the ordinary state for a ceiling with no runtime
-  // control that holds it, not a warning (#898).
+  // Asked is the ordinary ceiling state, so the shared chip stays neutral.
   expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
   expect(sectionText('Yours')).toContain('Edit')
 })
@@ -336,4 +326,18 @@ it('an unfinished save is titled by where it is, not by its own sentence, names 
   expect(sectionText('Unfinished saves')).toContain('This save stopped before any file was known to be written')
   expect(sectionText('Unfinished saves')).not.toContain('agents/scout/AGENT.md')
   expect(sectionText('Unfinished saves')).not.toContain('agents/code-reviewer/AGENT.md')
+})
+
+it('gives each roster record one reading, and moves its seat and refusal reason to line two', async () => {
+  mount()
+  await act(async () => {})
+  const reviewer = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('Storefront reviewer'))!
+  expect(reviewer.querySelector('[data-slot="row-face"]')).not.toBeNull()
+  expect(reviewer.querySelector('[data-slot="row-desc"]')?.textContent).toContain(' · Claude · Opus 5 · High')
+  expect(reviewer.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+  expect(reviewer.querySelector('[data-slot="chip"]')?.textContent).toBe('Edit · asked, not enforced')
+  const refused = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('Security reviewer'))!
+  expect(refused.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+  expect(refused.querySelector('[data-slot="chip"]')?.textContent).toBe("Can't seat here")
+  expect(refused.querySelector('[data-slot="row-desc"]')?.textContent).toContain('Cursor is signed out')
 })

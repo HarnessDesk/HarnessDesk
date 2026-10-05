@@ -22,7 +22,7 @@ export type RunViewTab = 'timeline' | 'flow'
 const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ home, model, number, selectedRow, selectedRows, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber }: {
+export const RunView = ({ home, model, number, selectedRow, selectedRows, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber, onDetails }: {
   home?: string | null
   model: ReturnType<typeof runTimeline>
   number: number
@@ -46,6 +46,8 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
   onBoard?: () => void
   onReviewCheck?: () => void
   runChooser?: ReactNode
+  /** Opens the Run summary from its header tool row. */
+  onDetails?: () => void
   continuesNumber?: number
 }) => {
   const [kept, keep] = useState<RunViewTab>('timeline')
@@ -69,6 +71,7 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
       {header.continues && <Text role="meta">Continues {continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</Text>}
       {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
       {header.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
+      {showing === 'timeline' && onDetails && <Button variant="link" size="inline-link" onClick={onDetails}>Run details</Button>}
       {flow && <span className="ml-auto"><Segmented label="Show the Run as" value={showing} options={TABS}
         onChange={showView} /></span>}
     </PaneColumn>
@@ -78,7 +81,7 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
         {showing === 'flow' ? flow : <>
         {pending && <Text role="meta" as="div">Reading checks and findings…</Text>}
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
-        <ListRows size="sm" aria-label="Run timeline">
+        <ListRows aria-label="Run timeline">
           {model.rows.map(row => {
             if (row.kind === 'end') {
               // Status and aggregate publication belong to the header. The ending
@@ -128,11 +131,11 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
               {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
-            // *Run again…* is the row's sibling, never inside its button: centred over the end of the whole row, where an invisible spacer in the row's trail keeps the row's own words clear of it.
+            // The retry is a trailing control; the row remains keyboard-selectable without nesting buttons.
             const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
-            const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id || selectedRows?.includes(row.id)}
-              onClick={() => onSelect(row.id)} title={title}
-              trail={again ? <span aria-hidden className="invisible mx-1.5 whitespace-nowrap">Run again…</span> : undefined}
+            const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as={again ? "div" : "button"} tabIndex={again ? 0 : undefined} onKeyDown={event => { if (again && event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onSelect(row.id) } }} interactive selected={selectedRow === row.id || selectedRows?.includes(row.id)}
+              onClick={event => { if (!event.currentTarget.contains(event.target as Node)) return; if (!(event.target as Element).closest('[data-slot="list-row-trail"]')) onSelect(row.id) }} title={title}
+              trail={again ? <RunAgain run={header.run} card={row.card!} refusal={null} onRow /> : undefined}
               className={row.kind === 'round' ? 'mt-4' : undefined}
               lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
                 : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
@@ -141,9 +144,7 @@ export const RunView = ({ home, model, number, selectedRow, selectedRows, onSele
               wrapSubtitle
               meta={row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
             return <Fragment key={row.id}>
-              {again ? <div data-slot="run-row" className="relative">{item}
-                <div className="absolute end-4 top-1/2 -translate-y-1/2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
-              </div> : item}
+              {item}
             </Fragment>
           })}
         </ListRows>

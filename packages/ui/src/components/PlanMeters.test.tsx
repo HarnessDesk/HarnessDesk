@@ -238,14 +238,33 @@ it('opens the roster behind the token, named account by account', () => {
   const token = triggers()[triggers().length - 1]
   act(() => token?.click())
   const rows = [...document.querySelectorAll('[role="menu"] button')]
-  expect(rows.map((row) => row.textContent)).toEqual([
-    'Agent Bwork51% left',
-    'Agent Bpersonal12% left',
-    'Agent CNeeds sign-in',
-    'Agent DNeeds sign-in',
-    'Agent ENeeds sign-in',
-    'Agent FNeeds sign-in',
+  const meters = rows.slice(0, 2)
+  for (const [index, row] of meters.entries()) {
+    const name = row.querySelector('[data-slot="usage-meter-row"] > span > span > span')!
+    expect(name.className).toContain('flex')
+    expect(name.className).toContain('gap-(--hd-space-1-5)')
+    expect([...name.children].map(child => child.textContent)).toEqual(['Agent B', index === 0 ? 'work' : 'personal'])
+    expect(row.querySelector('div')).toBeNull()
+    expect(row.querySelector('[role="progressbar"]')?.getAttribute('aria-label')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
+  }
+  expect(rows.slice(2).map(row => row.textContent)).toEqual([
+    'Agent CNeeds sign-in', 'Agent DNeeds sign-in', 'Agent ENeeds sign-in', 'Agent FNeeds sign-in',
   ])
+})
+
+it('keeps a shorter lane blocked until the account-wide window resets', () => {
+ mount({
+  runtimes: [runtime('a', 'Agent A')],
+  usage: [report('a', [
+   { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + HOUR },
+   { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 3 * 24 * HOUR },
+  ])],
+  ...conversationWith('a'),
+ })
+ act(() => triggers()[0]?.click())
+ const lane = [...document.querySelectorAll('[data-slot="usage-meter-row"]')].find(row => row.textContent?.startsWith('Session'))
+ expect(lane?.textContent).toContain('blocked 3d')
+ expect(lane?.textContent).not.toContain('in 1 h')
 })
 
 it('says nothing at all when a signed-in agent reports no usage', () => {

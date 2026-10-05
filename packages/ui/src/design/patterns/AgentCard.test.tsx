@@ -72,11 +72,11 @@ it('draws nothing but the crest when that is all it knows', () => {
  * The crest's mark arrives through `subject.mark`, so the source scan in
  * `design/faces.census.test.ts` cannot see what an `AgentCard` holds. What
  * keeps the crest one shape with its subject's everywhere else is this: a
- * harness is a thing (square), an account a ring, a session or a member someone
- * (a face, which follows the Faces setting).
+ * runtime, session or member is someone (a face, which follows the Faces
+ * setting), and an account keeps its ring.
  */
 it.each([
-  ['agent', 'square'],
+  ['agent', 'face'],
   ['account', 'round'],
   ['session', 'face'],
   ['member', 'face'],
@@ -291,9 +291,7 @@ it('CardShell, CardCrest and CardCrestBody draw the anatomy on their own, for a 
   expect(shell?.dataset['kind']).toBe('pullRequest')
   expect(shell?.className).toContain('text-(--hd-card-foreground)')
   const crest = shell?.firstElementChild as HTMLElement | null
-  expect(crest?.className).toContain('px-3')
-  expect(crest?.className).toContain('pt-3')
-  expect(crest?.className).toContain('pb-2.5')
+  expect(crest?.className).toContain('p-(--hd-inset-row)')
   const lead = crest?.firstElementChild as HTMLElement | null
   expect(lead?.className).toContain('h-(--hd-line)')
   expect(lead?.querySelector('svg')).toBeTruthy()

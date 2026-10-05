@@ -12,6 +12,16 @@
 
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {}
 
+// CodeMirror measures text ranges during its animation-frame layout pass.
+// jsdom gives elements empty geometry but omits the same APIs on Range.
+// Match that no-layout contract here; real geometry is tested in the browser.
+if (!Range.prototype.getClientRects) {
+  Range.prototype.getClientRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList
+}
+if (!Range.prototype.getBoundingClientRect) {
+  Range.prototype.getBoundingClientRect = () => new DOMRect()
+}
+
 if (!('ResizeObserver' in globalThis)) {
   ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
     observe(): void {}

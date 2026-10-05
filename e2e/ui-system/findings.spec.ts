@@ -13,7 +13,8 @@ import { expect, test } from '@playwright/test'
 test('keyboard reaches the findings filters, a row’s detail, and back', async ({ page }) => {
   await page.goto('/preview.html')
 
-  const findingsRow = page.locator('[data-slot="list-row"]', { hasText: 'Findings' }).first()
+  const goal = page.locator('[data-frame-id="goal-roster"]')
+  const findingsRow = goal.locator('aside').getByRole('button', { name: 'Findings', exact: true })
   await findingsRow.click()
 
   const openTab = page.getByRole('tab', { name: 'Open' })
@@ -27,7 +28,7 @@ test('keyboard reaches the findings filters, a row’s detail, and back', async 
   const allTab = page.getByRole('tab', { name: 'All' })
   await allTab.click()
 
-  const openRow = page.getByRole('button', { name: /finding-open-1/ })
+  const openRow = goal.getByRole('button', { name: /finding-open-1/ })
   await expect(openRow).toBeVisible()
   await openRow.focus()
   await page.keyboard.press('Enter')
@@ -51,7 +52,8 @@ test('desktop and narrow layouts keep every sentence inside the pane', async ({ 
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/preview.html')
 
-      const findingsRow = page.locator('[data-slot="list-row"]', { hasText: 'Findings' }).first()
+      const goal = page.locator('[data-frame-id="goal-roster"]')
+  const findingsRow = goal.locator('aside').getByRole('button', { name: 'Findings', exact: true })
       await findingsRow.click()
 
       const pane = page.locator('[aria-label="Findings"]').first()
@@ -66,7 +68,7 @@ test('desktop and narrow layouts keep every sentence inside the pane', async ({ 
       })
       expect(overflow, `at ${width}px, ${colorScheme}`).toBeLessThanOrEqual(1)
 
-      const openRow = page.getByRole('button', { name: /finding-open-1/ })
+      const openRow = goal.getByRole('button', { name: /finding-open-1/ })
       await openRow.click()
       const dialog = page.getByRole('dialog', { name: /checkout path/ })
       await expect(dialog).toBeVisible()

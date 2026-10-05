@@ -82,12 +82,12 @@ it('a loaded skill and an unsupported server are shown distinctly, each with its
   expect(text).toContain('search')
   expect(text).toContain('This runtime cannot load this attachment for one Seat.')
   const tones = [...container.querySelectorAll('[data-tone]')].map((node) => node.textContent)
-  expect(tones).toContain('Loaded')
+  expect(tones).not.toContain('Loaded')
   expect(tones).toContain('Not loaded')
   // Health takes no tone: loaded is the resting state and reads untoned, so
   // "Not loaded" is the one that stands out.
   const toneOf = (word: string) => [...container.querySelectorAll<HTMLElement>('[data-tone]')].find((node) => node.textContent === word)?.dataset.tone
-  expect(toneOf('Loaded')).toBe('neutral')
+  expect([...container.querySelectorAll('[data-role=meta]')].some(node => node.textContent === 'Loaded')).toBe(true)
   expect(toneOf('Not loaded')).toBe('warning')
 })
 
@@ -124,4 +124,13 @@ it('names the runtime by its presentation, never its id (rule 8)', async () => {
   const text = container.textContent ?? ''
   expect(text).toContain('Currently on Pretty Agent')
   expect(text).not.toMatch(/on one\b/)
+})
+
+it('draws declarations as compact inspector rows, with a refusal kept whole', async () => {
+  act(() => root.render(<StoreProvider store={storeFor(RECORD)}><SeatAttachments seat={SEAT} /></StoreProvider>))
+  await settle()
+  const rows = [...container.querySelectorAll('[data-slot="inspector-row"]')]
+  expect(rows).toHaveLength(2)
+  expect(rows.every(row => row.getAttribute('data-hd-table') === 'compact')).toBe(true)
+  expect(rows[1]?.textContent).toContain('This runtime cannot load this attachment for one Seat.')
 })

@@ -171,9 +171,9 @@ export type RowStatus = 'ready' | 'low' | 'out' | 'overage' | 'unlimited' | 'not
 export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   ready: 'Ready',
   low: 'Low',
-  out: 'Out',
-  overage: 'On overage',
-  unlimited: 'No limit',
+  out: 'Spent',
+  overage: 'Low',
+  unlimited: 'Ready',
   notReporting: 'Not reporting',
 }
 
@@ -316,7 +316,7 @@ export const approxTurnsOf = (shape: RowShape, report: UsageReport): string => {
 }
 
 /** The binding lane's own reset, one unit, or "—". */
-export const resetsOf = (view: ReportView): string => view.hero?.shortCountdown ?? '—'
+export const resetsOf = (view: ReportView): string => view.hero?.resetCountdown ?? '—'
 
 export interface PlanRow {
   readonly key: string

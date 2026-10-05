@@ -6,7 +6,8 @@ import { MoreIcon, PaperclipIcon, PlusIcon, ReviewIcon } from '@/components/Icon
 import { AvatarStack, type StackMember } from './avatar-stack'
 import { buttonEdge } from './button'
 import { EmptyState } from './empty-state'
-import { dotTint, softTone, softTint, type Tint, type Tone } from './tone'
+import { dotTint, type Tint, type Tone } from './tone'
+import { Chip } from '../patterns/Settings'
 
 /**
  * Work in columns: what is waiting, what is being done, and who has it.
@@ -159,12 +160,14 @@ const BoardColumn = ({
          of one column and a very different one on a board of five inside a
          room's right half. */
       '@container/board-column flex w-(--hd-board-column-width) min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
-      'border border-(--hd-border-strong) bg-(--hd-muted) p-2.5',
+      'border border-(--hd-border-strong) bg-(--hd-muted) p-(--hd-inset-dense)',
       className,
     )}
     {...props}
   >
-    <header className="flex items-center gap-1.5 pb-0.5">
+    {/* The state dot hangs before the card's text column. Its size and gap
+        spend part of the card inset; the rest is clearance for the heading. */}
+    <header className="flex items-center gap-1.5 pb-0.5 ps-[calc(var(--hd-inset-card)+var(--hd-border-width)-2*var(--hd-space-1-5))]">
       <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', dotTint({ tint }))} />
       <h3 className="min-w-0 flex-1 truncate text-base font-medium">{title}</h3>
       {count != null && (
@@ -200,7 +203,7 @@ const BoardColumn = ({
     </header>
     <div className="flex min-w-0 flex-col gap-2">{children}</div>
     {derived && empty && (
-      <EmptyState variant="inline" data-slot="board-empty" className="my-auto ps-3 text-left" title="Nothing here" />
+      <EmptyState variant="inline" data-slot="board-empty" className="my-auto ps-[calc(var(--hd-inset-card)+var(--hd-border-width))] text-left" title="Nothing here" />
     )}
     {/* The second entry point, at the foot where the eye ends after reading the
         column. A composer when the column can take a title on the spot, and a
@@ -390,7 +393,7 @@ const BoardCard = ({
            a card floating on the column's own grey needs to enclose, and the
            4%-black hairline it had reads as a fold in the ground rather than
            as the edge of an object. */
-        'flex min-w-0 flex-col gap-2.5 rounded-(--hd-radius) border border-(--hd-border-strong) bg-(--hd-card) p-2.5 shadow-(--hd-shadow-xs)',
+        'flex min-w-0 flex-col gap-2.5 rounded-(--hd-radius) border border-(--hd-border-strong) bg-(--hd-card) p-(--hd-inset-card) shadow-(--hd-shadow-xs)',
         className,
       )}
       {...props}
@@ -450,36 +453,17 @@ const BoardCard = ({
               <span className="mr-auto text-xs text-(--hd-muted-foreground)">Unassigned</span>
             ))}
           {tag && (
-            /* One line, however long the label. The chip is a fixed height,
-               so a label that wrapped — three owned paths joined with commas —
-               spilled over the note above and the foot below, and the card
-               read as three overlapping paragraphs. The whole label rides on
-               the title, where a hover can read it. */
-            <span
-              className={cn(
-                'inline-flex h-(--hd-chip-h) min-w-0 max-w-full items-center truncate rounded-(--hd-radius-sm) px-1.5 text-xs font-medium',
-                softTint({ tint: tag.tint }),
-              )}
+            <Chip
+              size="sm"
+              tint={tag.tint}
+              className="min-w-0 max-w-full truncate"
               {...(typeof tag.label === 'string' ? { title: tag.label } : {})}
             >
-              <span className="truncate">{tag.label}</span>
-            </span>
+              {tag.label}
+            </Chip>
           )}
           {priority && (
-            /* `shrink-0` and `whitespace-nowrap`, for the reason the tag
-               beside it already carries: the chip is a fixed height, so a
-               label allowed to wrap inside one — "stranded 40m" in a column
-               narrowed by the room's rail — spills through its own pill and
-               over the rule under it. The judgement is the news on the card,
-               so it keeps its width and the tag gives way. */
-            <span
-              className={cn(
-                'inline-flex h-(--hd-chip-h) shrink-0 items-center rounded-full px-2 text-xs font-medium whitespace-nowrap',
-                softTone({ tone: priority.tone }),
-              )}
-            >
-              {priority.label}
-            </span>
+            <Chip tone={priority.tone} className="shrink-0 whitespace-nowrap">{priority.label}</Chip>
           )}
         </div>
       )}

@@ -8,6 +8,10 @@
   margin: var(--hd-space-0-5) var(--hd-space-2) var(--hd-space-2);
 }
 
+.window {
+  margin: var(--hd-space-1) var(--hd-space-2); /* desk: no inset → row inset, align plan windows with panel labels */
+}
+
 .row {
   margin: var(--hd-space-1) var(--hd-space-2);
 }
@@ -28,12 +32,4 @@
 .rowReading > [data-role='meta'] {
   white-space: nowrap;
   margin-inline-start: auto;
-}
-
-.window {
-  margin-bottom: var(--hd-space-0-5);
-}
-
-.windowProgress {
-  margin: var(--hd-space-px) var(--hd-space-2) var(--hd-space-1-5);
 }

@@ -34,7 +34,7 @@ const bubbleVariants = cva('flex flex-col', {
          read as one bubble rather than a full-width slab. `items-start`
          keeps the plate hugging its own text rather than stretching to the
          cap it may never reach. */
-      secondary: 'max-w-[66.6667%] items-start rounded-(--hd-radius-xl) bg-(--hd-muted) px-(--hd-space-4) py-(--hd-space-2-5)',
+      secondary: 'max-w-[66.6667%] items-start rounded-(--hd-radius-xl) bg-(--hd-muted) p-(--hd-inset-card)',
       /* No frame at all: the full row, for prose that already carries its
          own headings, lists and code fences and would otherwise sit inside a
          second box on top of the ones Markdown already draws. `items-stretch`

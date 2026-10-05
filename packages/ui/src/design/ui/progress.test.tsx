@@ -97,3 +97,10 @@ describe('ProgressStack colours', () => {
     expect(kindParts[0]?.style.width).toBe('70%')
   })
 })
+
+it('can keep a meter inside a button in phrasing content', () => {
+  act(() => root.render(<button><Progress as="span" value={70} label={false} aria-label="Weekly — what is left" /></button>))
+  expect(container.querySelector('button div')).toBeNull()
+  expect(container.querySelector('[role="progressbar"]')?.tagName).toBe('SPAN')
+  expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('70')
+})

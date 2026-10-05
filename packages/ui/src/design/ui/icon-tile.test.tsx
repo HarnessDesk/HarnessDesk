@@ -65,5 +65,5 @@ it('declares the shape it drew, and a caller cannot say otherwise', () => {
 })
 
 it('has a 20px stack face step, without a screen overriding its size', () => {
-  expect(renderToStaticMarkup(<IconTile size="stack" shape="face">A</IconTile>)).toContain('size-5')
+  expect(renderToStaticMarkup(<IconTile size="stack" shape="face">A</IconTile>)).toContain('size-(--hd-space-5)')
 })

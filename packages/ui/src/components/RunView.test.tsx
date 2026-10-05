@@ -236,7 +236,8 @@ it('offers Run again… beside a check that may be asked again — outside the r
     const again = [...container.querySelectorAll('button')].find(one => one.textContent === 'Run again…')!
     const row = container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement
     expect(again).toBeDefined()
-    expect(row.contains(again)).toBe(false)
+    expect(row.querySelector('[data-slot="list-row-trail"]')?.contains(again)).toBe(true)
+    expect(again.closest('button')?.parentElement?.closest('button')).toBeNull()
     expect(row.closest('[data-slot="run-view"]')!.contains(again)).toBe(true)
     act(() => again.click())
     expect(previewFlowRetry).toHaveBeenCalledWith(GATE().id, 1)
@@ -310,4 +311,15 @@ it('shortens the Timeline check command while keeping its full hover title', () 
     expect(check.textContent).toContain('PATH=/usr/bin:~/bin node ~/tools/land.mjs --check')
     expect(check.querySelector('[title="PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
   } finally { act(() => root.unmount()) }
+})
+
+it('keeping the portalled Run again dialog does not select its check row', async () => {
+  const { container, onSelect, done } = mountGate(GATE())
+  try {
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Run again…')!.click())
+    const keep = [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Keep')!
+    expect(keep).toBeDefined()
+    await act(async () => keep.click())
+    expect(onSelect).not.toHaveBeenCalled()
+  } finally { done() }
 })
