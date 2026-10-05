@@ -214,7 +214,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                     <CodeText size="inherit" className="select-all">{row.id}</CodeText>
                     <MetaList>
                       {rowSecondLine(row)}
-                      {blockingWords(row) === 'Blocking' ? ' · Blocking' : ' · Advisory'}
+                      {` · ${blockingWords(row)}`}
                     </MetaList>
                   </span>
                 }
