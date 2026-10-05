@@ -78,8 +78,8 @@ const ToolPaneHeader = ({
   /** Leave room for the native window controls when this pane owns the corner. */
   corner?: boolean
   variant?: 'default' | 'window'
-  /** Align the title with text in the board’s nested column and card. */
-  contentInset?: 'board'
+  /** Align the title with board cards, or a framed table inside a reading PaneColumn. */
+  contentInset?: 'board' | 'reading-table'
   hint?: string
 }) => (
   <header
@@ -100,6 +100,9 @@ const ToolPaneHeader = ({
       contentInset === 'board' && (icon != null
         ? 'pl-[calc(2*var(--hd-inset-dense)+var(--hd-inset-card)+2*var(--hd-border-width)-var(--hd-space-4)-var(--hd-bar-gap))]'
         : 'pl-[calc(2*var(--hd-inset-dense)+var(--hd-inset-card)+2*var(--hd-border-width))]'),
+      contentInset === 'reading-table' && (icon != null
+        ? 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge)-var(--hd-space-4)-var(--hd-bar-gap))] pr-(--hd-space-6)'
+        : 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge))] pr-(--hd-space-6)'),
       className,
     )}
     {...props}
