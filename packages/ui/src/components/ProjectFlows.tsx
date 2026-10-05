@@ -89,8 +89,8 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
       {!problem && entries && LAYERS.map(({ origin, label }) => {
         const layer = entries.filter((entry) => entry.origin === origin)
         return layer.length === 0 ? null : [
-          <GroupLine key={`${origin}-head`} left={`${label} · ${layer.length}`} />,
-          <ListRows key={origin} aria-label={label}>
+          <GroupLine as="h3" key={`${origin}-head`} left={`${label} · ${layer.length}`} />,
+          <ListRows key={origin} role="group" aria-label={label}>
             {layer.map((entry) => (
               <FlowRow key={entry.id} root={root} entry={entry} onOpen={(mode) => setDialog({ id: entry.id, mode })} onEdit={() => void openEditor(entry.id)} />
             ))}

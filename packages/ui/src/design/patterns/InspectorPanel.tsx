@@ -58,17 +58,18 @@ const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => 
  * without the heading that says which group it is in — a turn of a
  * trajectory, say.
  */
-const GroupLine = ({ left, right, sticky = false }: { left: ReactNode; right?: ReactNode; sticky?: boolean }) => (
-  <div
+const GroupLine = ({ left, right, sticky = false, as = 'div' }: { left: ReactNode; right?: ReactNode; sticky?: boolean; as?: 'div' | 'h3' }) => {
+  const Element = as
+  return <Element
     data-slot="inspector-group"
     {...(sticky ? { 'data-sticky': '' } : {})}
-    className={cn('flex items-center gap-2 p-(--hd-inset-dense) px-(--hd-inset-row)', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
+    className={cn('m-0 flex items-center gap-2 p-(--hd-inset-dense) px-(--hd-inset-row)', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
   >
     <Text role="meta" weight="medium" ink="secondary">{left}</Text>
     <span className="flex-1" />
     {right != null && <Text role="meta">{right}</Text>}
-  </div>
-)
+  </Element>
+}
 
 const PanelEmpty = ({ children }: { children: ReactNode }) => (
   <p data-slot="inspector-empty" className="m-0 px-2.5 py-6 text-center text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)">
