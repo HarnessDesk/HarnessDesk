@@ -4,12 +4,13 @@ import type { BackgroundTask, SeatAttachmentsRecord, SeatId, SubagentItem } from
 import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { ProjectChecksView } from '../components/ProjectChecks'
 import { SeatAttachments } from '../components/SeatAttachments'
+import { SeatRecordBlock } from '../components/SeatRecordBlock'
 import { PanelBody, PanelFrame } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { PluginPanelTableExample } from './plugin-panel-table'
 import { PREVIEW_SESSION_KEY, previewStore, store } from './harness'
 import { Frame } from './main'
-import { PREVIEW_CHECKS } from './evidence-fixture'
+import { PREVIEW_CHECKS, PREVIEW_SEAT } from './evidence-fixture'
 
 const session = store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!
 const delegation: SubagentItem = {
@@ -76,6 +77,10 @@ const tasks: readonly BackgroundTask[] = [
 ]
 const panelStore = previewStore({ home: '/preview', tasks: new Map([[PREVIEW_SESSION_KEY, tasks]]) })
 panelStore.readSeatAttachments = async () => attachments
+panelStore.seatRecord = async () => ({
+  ...PREVIEW_SEAT, id: seat,
+  checkout: { ...PREVIEW_SEAT.checkout, cwd: '/preview/code/project', project: '/preview/code/project' },
+})
 panelStore.refreshTasks = async () => {}
 
 export const CompactPanelFrames = () => (
@@ -97,6 +102,15 @@ export const CompactPanelFrames = () => (
     <Frame id="panel-seat-attachments" title="Side panel — Seat attachments">
       <div className="h-[420px] w-[380px]">
         <StoreProvider store={panelStore}><PanelFrame><PanelBody><SeatAttachments seat={seat} /></PanelBody></PanelFrame></StoreProvider>
+      </div>
+    </Frame>
+    <Frame id="panel-seat-record" title="Side panel — Seat record">
+      <div className="w-[380px]">
+        <StoreProvider store={panelStore}>
+          <PaneProvider scope={{ paneId: 'compact-seat-record' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never, sessionKey: PREVIEW_SESSION_KEY }}>
+            <PanelFrame><PanelBody><SeatRecordBlock /></PanelBody></PanelFrame>
+          </PaneProvider>
+        </StoreProvider>
       </div>
     </Frame>
     <Frame id="plugin-panel-table" title="Plugin panel — Table">
