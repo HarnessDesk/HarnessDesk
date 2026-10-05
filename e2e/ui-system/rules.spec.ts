@@ -152,7 +152,10 @@ const namesViolations = (page: Page) =>
       const role = el.hasAttribute('data-slot') && el.getAttribute('data-slot') === 'page-title'
         ? 'page'
         : (el.getAttribute('data-role') ?? '')
-      const wanted = (pairs as Record<string, { size: number; weight: number }>)[role]
+      const basePair = (pairs as Record<string, { size: number; weight: number }>)[role]
+      const wanted = el.matches('[data-slot="list-row-title"][data-role="subject"]') && el.closest('[data-hd-table]')?.getAttribute('data-hd-table') === 'compact'
+        ? { size: 13, weight: 500 }
+        : basePair
       if (!wanted) continue
       if (!visible(el)) continue
       checked.add(el)

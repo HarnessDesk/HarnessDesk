@@ -139,9 +139,9 @@ it('offers the framed matrix table anatomy without changing the default table', 
   expect(container.querySelector('[data-slot="table-head"][data-pinned]')).not.toBeNull()
   expect(container.querySelector('[data-slot="table-head"][data-align="center"]')?.className).toContain('text-center')
   expect(container.querySelector('[data-slot="table-row"][data-state="selected"]')?.hasAttribute('data-interactive')).toBe(true)
-  expect(container.querySelector('[data-slot="table-row"][data-state="selected"]')?.className).toContain('data-[state=selected]:bg-(--hd-hover)')
-  expect(container.querySelector('[data-slot="table-head"][data-variant="row"]')?.className).toContain('group-hover/matrix:bg-(--hd-hover)')
-  expect(container.querySelector('[data-slot="table-cell"][data-variant="detail"]')?.className).toContain('px-3')
+  expect(container.querySelector('[data-slot="table-row"][data-state="selected"]')?.className).toContain('data-[state=selected]:bg-(--hd-selected)')
+  expect(container.querySelector('[data-slot="table-head"][data-variant="row"]')?.className).toContain('group-data-[interactive]/matrix:group-hover/matrix:[background:linear-gradient(var(--hd-hover),var(--hd-hover)),var(--hd-background)]')
+  expect(container.querySelector('[data-slot="table-cell"][data-variant="detail"]')?.className).toContain('px-(--hd-table-cell-x)')
   expect(container.querySelector('[data-slot="table-footer"]')?.getAttribute('data-variant')).toBe('plain')
 })
 

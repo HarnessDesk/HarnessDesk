@@ -4,8 +4,8 @@ import { expect, test, type Page } from '@playwright/test'
  * The spacing/alignment system holds five claims a screenshot cannot check
  * reliably but a rectangle's edges can: a `SectionHead` starts its label on
  * the same column as the card of rows it names, a settings row's mark and
- * trailing control land on the title's own line rather than the row's whole
- * block, a `Banner`'s icon and dismiss centre on the title's first line, a
+ * trailing control centre on the whole row, a `Banner`'s icon and dismiss
+ * centre on the title's first line, a
  * `Button`'s `edge="end"` pulls an icon-sized box far enough past the inset
  * that the glyph inside it — not the box — sits on the column, and a
  * `Checklist` step drawn as a button (the Tasks panel's reword row) still
@@ -110,22 +110,19 @@ test.describe('the layout system holds its own claims', () => {
     expect(Math.abs(rights.action - rights.control), `action ${rights.action} vs row control ${rights.control}`).toBeLessThanOrEqual(1)
   })
 
-  test('a row with a description keeps its trailing control centred on the title\'s first line, not the block', async ({ page }) => {
-    const reading = await page.evaluate(() => {
+  test('a described row centres its trailing control on the whole row and catches a first-line nudge', async ({ page }) => {
+    const read = () => page.evaluate(() => {
       const row = document.querySelector('[data-testid="rows-fixture"] [data-slot="row"]:has([data-slot="row-desc"])') as HTMLElement
-      const title = row.querySelector('[data-slot="row-title"]') as HTMLElement
       const control = row.querySelector('[data-slot="row-ctl"]') as HTMLElement
-      const t = title.getBoundingClientRect()
+      const r = row.getBoundingClientRect()
       const c = control.getBoundingClientRect()
-      return { titleCenter: (t.top + t.bottom) / 2, controlCenter: (c.top + c.bottom) / 2 }
+      return Math.abs((r.top + r.bottom) / 2 - (c.top + c.bottom) / 2)
     })
-    // A tight centre-to-centre bound, not merely "the control's box contains
-    // the title's line" — a control centred on the row's whole (taller)
-    // block, with a description under the title, still satisfies the loose
-    // form of that claim on both this branch and main, which is exactly the
-    // regression this spec exists to catch (a duplicate-on-main assertion is
-    // not a gate).
-    expect(Math.abs(reading.titleCenter - reading.controlCenter), `title ${reading.titleCenter} vs control ${reading.controlCenter}`).toBeLessThanOrEqual(1.5)
+    expect(await read(), 'the control shares the whole row centre').toBeLessThanOrEqual(1.5)
+    await page.locator('[data-testid="rows-fixture"] [data-slot="row"]:has([data-slot="row-desc"]) [data-slot="row-ctl"]').evaluate(el => {
+      (el as HTMLElement).style.marginTop = '-20px'
+    })
+    expect(await read(), 'a return to a first-line nudge is caught').toBeGreaterThan(1.5)
   })
 
   test('a banner\'s icon and dismiss centre on the title\'s first line', async ({ page }) => {

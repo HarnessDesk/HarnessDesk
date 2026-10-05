@@ -1,3 +1,4 @@
+import { TablesFamily } from '../design/explorer/tables-family'
 import { NoticesFrame } from './frames-notices'
 import { CatalogueRefusedUndo } from '../design/explorer/boards'
 import { SidebarStructureExample } from './sidebar-structure-fixture'
@@ -1073,6 +1074,7 @@ const Preview = () => {
         </div>
       </Frame>
 
+      <Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame>
       <SettingsFrames />
       <Frame id="typography-cjk" title="CJK — reading text and controls">
         <CjkSpecimen />
@@ -1110,6 +1112,11 @@ const RunPreview = () => {
 const container = document.getElementById('root')
 if (!container) throw new Error('#root is missing from preview.html')
 
+const TablesPreview = () => {
+  useTheme()
+  return <div className="bg-background p-4 text-foreground"><Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame></div>
+}
+
 const PublicationPreview = () => {
   useTheme()
   return <ReviewPublicationFrames />
@@ -1133,7 +1140,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('undo-refused')
+        {new URLSearchParams(window.location.search).has('tables')
+          ? <TablesPreview />
+          : new URLSearchParams(window.location.search).has('undo-refused')
           ? <RefusedUndoPreview />
           : new URLSearchParams(window.location.search).has('notices')
           ? <NoticesFrame />

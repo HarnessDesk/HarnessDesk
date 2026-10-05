@@ -169,7 +169,7 @@ it('a SummaryList composes inside a Section with no margin of its own', () => {
   expect(classes(wrap).some((one) => /^-?m[tbyxlr]?-/.test(one))).toBe(false)
 })
 
-it('a section head\'s row inset is earned only over a Rows card, not a Note or a button body', () => {
+it('a section head\'s row inset is earned over rows or choices, not a Note or a button body', () => {
   const overRows = draw(
     <Section title="Backup">
       <div data-slot="rows">card</div>
@@ -184,7 +184,9 @@ it('a section head\'s row inset is earned only over a Rows card, not a Note or a
   // own `:has()` decides whether it resolves to a padding, which jsdom does
   // not lay out — `e2e/ui-system/page-grammar.spec.ts` measures that part in
   // the real engine. This pins the selector the condition is keyed on.
-  const insetClass = 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-inset-row))]'
+  const insetClass = 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]'
+  const overChoices = draw(<Section title="Review mode"><div role="radiogroup">choices</div></Section>)
+  expect(classes(overChoices.querySelector('[data-slot="section-head"]'))).toContain('has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]')
   expect(classes(overRows.querySelector('[data-slot="section-head"]'))).toContain(insetClass)
   expect(classes(overNote.querySelector('[data-slot="section-head"]'))).toContain(insetClass)
   // The Note itself never grows the `rows` slot the class is keyed on.

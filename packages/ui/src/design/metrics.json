@@ -80,7 +80,7 @@
     "radius": 0
   },
   "adopted/table/variant/framed": {
-    "h": 53,
+    "h": 96,
     "text": 13,
     "weight": "400",
     "line": 20,
@@ -88,7 +88,7 @@
     "radius": 0
   },
   "adopted/table/variant/panel": {
-    "h": 49,
+    "h": 72,
     "text": 12,
     "weight": "400",
     "line": 16,
@@ -854,6 +854,54 @@
     "line": 20,
     "pad": "16 16 16 16",
     "radius": 10
+  },
+  "tables/list-row/size/comfortable": {
+    "h": 62,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "10 16 10 16",
+    "radius": 0
+  },
+  "tables/list-row/size/compact": {
+    "h": 62,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "10 12 10 12",
+    "radius": 0
+  },
+  "tables/rows/size/comfortable": {
+    "h": 201,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 14
+  },
+  "tables/rows/size/compact": {
+    "h": 201,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 14
+  },
+  "tables/table/size/comfortable": {
+    "h": 208.5,
+    "text": 13,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "tables/table/size/compact": {
+    "h": 182,
+    "text": 13,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
   },
   "tile/icon-tile/size/default": {
     "h": 32,

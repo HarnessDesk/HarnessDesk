@@ -39,6 +39,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   empty: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   kanban: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   adopted: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  tables: 'packages/ui/src/design/explorer/tables-family.tsx',
   spark: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   chart: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   foundation: 'packages/ui/src/design/explorer/Explorer.tsx',
@@ -94,6 +95,19 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   tone: 'packages/ui/src/components/usage/shared.tsx',
   tooltip: 'packages/ui/src/components/ConversationMap.tsx',
 }
+
+const TABLE_CONSUMERS = [
+  'packages/ui/src/components/Library.tsx',
+  'packages/ui/src/components/TeamOverview.tsx',
+  'packages/ui/src/components/usage/PlansTable.tsx',
+  'packages/ui/src/slots/PanelBlocks.tsx',
+] as const
+const KEY_VALUE_CONSUMERS = [
+  'packages/ui/src/components/TeamRoomPane.tsx',
+  'packages/ui/src/components/TriggerSettings.tsx',
+  'packages/ui/src/components/ContextUsage.tsx',
+  'packages/ui/src/components/GitPane.tsx',
+] as const
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   'flow-step': 'packages/ui/src/preview/frames-flow-overlay.tsx',
@@ -438,8 +452,8 @@ const primitive = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   sizes: sizesFor(name),
   states: statesFor(name),
   examples: [MODULE_EXAMPLE_CONSUMER[name] ?? EXAMPLE_CONSUMER[exampleId] ?? 'packages/ui/src/design/explorer/Explorer.tsx'],
-  consumers: PRIMITIVE_CONSUMER[name] ? [PRIMITIVE_CONSUMER[name]] : [],
-  catalogOnly: !PRIMITIVE_CONSUMER[name],
+  consumers: name === 'table' ? TABLE_CONSUMERS : name === 'key-value' ? KEY_VALUE_CONSUMERS : PRIMITIVE_CONSUMER[name] ? [PRIMITIVE_CONSUMER[name]] : [],
+  catalogOnly: name !== 'table' && name !== 'key-value' && !PRIMITIVE_CONSUMER[name],
   coverageExemption: compoundCoverageExemption(name, exampleId),
   visual: name !== 'tone',
 })
@@ -508,7 +522,7 @@ export const CANONICAL_UI_MODULES = [
   ['stat', 'stat', 'Primary reading tile'],
   ['stepper', 'stepper', 'Ordered progress steps'],
   ['switch', 'control', 'Immediate boolean control'],
-  ['table', 'adopted', 'Table anatomy'],
+  ['table', 'tables', 'Table anatomy'],
   ['tabs', 'badge', 'Roving-focus tab set'],
   ['textarea', 'field', 'Multiline text input'],
   ['toast', 'banner', 'Transient notification host'],

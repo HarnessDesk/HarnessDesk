@@ -155,7 +155,7 @@ const Section = (props: SectionProps) => {
              label a row inset right of a body that starts flush with the page. */
           className={cn('flex min-w-0 items-end gap-(--hd-space-3)',
             inset === 'row' ? 'px-(--hd-inset-row)' : inset === 'card' ? 'px-(--hd-inset-card)'
-              : 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-inset-row))]',
+              : 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))] has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]',
           )}
         >
           <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
@@ -239,6 +239,8 @@ const SectionAction = ({ className, ...props }: React.ComponentProps<'div'>) => 
  * `inset={false}` drops the horizontal padding, which is what a table or a list
  * of full-bleed rows needs — the rows draw their own padding and their hover
  * ground has to reach the card's edge or it looks like a mistake.
+ * `spacing="inline"` keeps the row inset at the sides while an unframed
+ * child's own rhythm owns its top and bottom, such as an inline empty state.
  */
 const SectionBody = ({
   className,
@@ -247,7 +249,7 @@ const SectionBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   inset?: boolean
-  spacing?: 'default' | 'compact'
+  spacing?: 'default' | 'compact' | 'inline'
 }) => (
   <div
     data-slot="section-body"
@@ -255,7 +257,7 @@ const SectionBody = ({
     className={cn(
       spacing === 'default' && 'py-4 first:pt-4 [&:not(:first-child)]:pt-3',
       spacing === 'compact' && 'py-3',
-      inset && (spacing === 'compact' ? 'px-3' : 'px-4'),
+      inset && (spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
       className,
     )}
     {...props}
