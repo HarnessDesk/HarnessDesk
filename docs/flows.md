@@ -855,7 +855,10 @@ design problem. A run saved before budgets existed keeps running as it was.
 **Findings are a ledger.** A reviewer raises each finding with
 `raise_finding` against a candidate it was offered; the writer claims a
 repair with `repair_finding` at its committed head; only the Agent that
-raised it confirms or withdraws it, from a later review card. A claimed
+raised it confirms or withdraws it, from a later review card. The raising
+card may also withdraw its own mistaken finding while it is still open;
+the reason is required and stays in the finding’s history. It cannot
+confirm a repair or reject one from that card. A claimed
 repair stays blocking until then. The first review of a subject freezes
 the blocking set; a later ordinary finding is advisory, and a later
 regression or security finding waits for a person. A ready rule also waits
@@ -1046,13 +1049,29 @@ when nothing passed does no rule fire, which stops the run for the person as
 above, naming each card and what it answered, rather than opening a judge
 round with nothing to weigh.
 
+When a review guard selects one attempt, only that attempt’s findings gate
+its keep step. Findings on an unselected attempt stay open: picking another
+attempt is no claim that they were repaired. Once the route opens, those
+findings read **Not kept**, with the selected revision as the reason. A
+losing advisory finding carries the same explanation. It belongs to the
+review that raised the finding and survives later reviews of the kept attempt.
+The open Findings list and detail refresh when the route accepts its evidence.
+Later gates keep that exclusion even when only the kept attempt remains in
+their dependency walk. A
+finding on the selected attempt still blocks, as does a blocker in an ordinary
+single-attempt write and review flow. Unreadable findings and pending
+exceptions still wait for a person.
+
 ## Findings, budgets and blind rounds
 
 A round that reviews raises **findings** — attributed claims recorded once,
 never a second copy of the same thing. `raise_finding`, `repair_finding`,
 `decide_finding` and `list_findings` are the four verbs a Seat has for this;
 the desk resolves which Seat, which card and which revision from the calling
-conversation itself, never from anything the request names. A repair is a
+conversation itself, never from anything the request names. A raising Agent
+can withdraw its own mistaken finding with a reason while
+the card that raised it is still open. Other verdicts need a later review
+card; a withdrawal’s reason is kept in its history. A repair is a
 *claim* until a later review of the same finding confirms it — `repaired`
 without `confirmed` is never shown as "Verified" — and a confirmed finding
 never reopens; a regression is a new, linked finding instead. A round

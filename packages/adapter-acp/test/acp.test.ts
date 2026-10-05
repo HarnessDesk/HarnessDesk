@@ -3221,3 +3221,26 @@ test('concurrent resumeSession deduplicates in-flight resume and returns same in
     await second.dispose()
   }
 })
+
+test('a marked Agent brief remains a notice with its kind when the turn completes', async (t) => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const tape = record(runtime)
+  const session = await runtime.createSession({ cwd: '/tmp/w' })
+  const text = '## Brief\n\n- Read the task.'
+  const options = { recordAs: 'notice' as const, noticeKind: 'agentBrief' as const }
+  await session.send([{ type: 'text', text }], options)
+  const completed = await tape.until(event => event.type === 'turn/completed')
+  assert.ok(completed.type === 'turn/completed')
+  const notice = completed.turn.items[0]
+  assert.ok(notice?.type === 'notice')
+  assert.equal(notice.text, text)
+  assert.equal(notice.kind, 'agentBrief')
+  const from = tape.events.length
+  await session.send([{ type: 'text', text: 'An ordinary notice after the brief.' }], { recordAs: 'notice' })
+  const next = tape.events.slice(from).find(event => event.type === 'turn/started')
+  assert.ok(next?.type === 'turn/started')
+  assert.ok(next.turn.items[0]?.type === 'notice')
+  assert.equal(next.turn.items[0].kind, undefined)
+})

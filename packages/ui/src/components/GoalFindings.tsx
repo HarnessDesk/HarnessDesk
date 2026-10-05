@@ -207,17 +207,16 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                   finding: row.id,
                   originRun: row.origin.goal === goal ? row.origin.run : null,
                 })}
-                title={
-                  <span className="flex min-w-0 items-baseline gap-2">
-                    <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled finding'}</span>
-                    <CodeText size="inherit" className="shrink-0 select-all">{row.id}</CodeText>
-                  </span>
-                }
+                layout="record"
+                title={row.title || 'Untitled finding'}
                 desc={
-                  <MetaList>
-                    {rowSecondLine(row)}
-                    {blockingWords(row) === 'Blocking' ? ' · Blocking' : ' · Advisory'}
-                  </MetaList>
+                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <CodeText size="inherit" className="select-all">{row.id}</CodeText>
+                    <MetaList>
+                      {rowSecondLine(row)}
+                      {` · ${blockingWords(row)}`}
+                    </MetaList>
+                  </span>
                 }
                 control={<Chip tone={lifecycleTone(row)}>{lifecycleWords(row)}</Chip>}
               />

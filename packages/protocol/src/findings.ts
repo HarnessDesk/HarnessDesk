@@ -132,11 +132,13 @@ export interface FindingView {
    * admitted set (a round's frozen baseline and whatever exceptions a
    * person has admitted). A carried finding starts outside that set until
    * its own first round closes, even though `blocking` still reads true.
-   * Present only on a `finding/list` row; absent from a finding read
-   * another way (`finding/read`, a frozen receipt), where no admitted set
-   * applies and the raw claim is what there is to show.
+   * Present on a `finding/list` row, and with `inactiveReason` on an
+   * unselected attempt’s detail or frozen receipt. Other detail and receipt
+   * rows carry only the raw claim; no admitted set applies there.
    */
   readonly activeBlocking?: boolean
+  /** Why a finding on an unselected attempt does not gate the accepted review route. Read-only; its claim stays open. */
+  readonly inactiveReason?: string
 }
 
 /**
@@ -145,8 +147,10 @@ export interface FindingView {
  * Seat may decide it right now, from the card it holds. Only ever present on
  * that one read — never on `finding/list`, `finding/read` or a frozen
  * receipt, which a person reads and where "yours" means nothing.
- * `decidableNow` mirrors who the findings plane's own `decide` lets decide
- * it (#1090); a call can still be refused for something only known at call
+ * `decidableNow` includes a reasoned withdrawal from the still-open raising
+ * card; confirming or rejecting a repair needs a later review. It mirrors
+ * who the findings plane's own `decide` lets decide it (#1090); a call can
+ * still be refused for something only known at call
  * time — a blind round still open, or a stale `expected` sequence.
  * `personDecides` marks a finding of yours that an earlier run on this Goal
  * raised: no Seat may decide it, only a person.
@@ -236,7 +240,7 @@ export interface RepairFindingInput {
   readonly note: string
 }
 
-/** The raising Agent's verdict on its own finding, from a later review card. */
+/** The raising Agent's verdict from a later review card, or a reasoned withdrawal from its still-open raising card. */
 export interface DecideFindingInput {
   readonly intent: number
   readonly candidate: string

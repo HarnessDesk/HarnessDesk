@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 import { INDEPENDENT } from '../src/flow-execution.js'
 import {
-  board, claimed, comparison, cwdOf, desk, E2E, execution, git, person, review, scopeOf, settled, start, TASK, UNKNOWN, whenChanged, write,
+  board, claimed, comparison, cwdOf, desk, E2E, execution, git, person, review, scopeOf, settled, shipped, start, TASK, UNKNOWN, whenChanged, write,
 } from './fixtures/flow-host-evidence.js'
 
 /*
@@ -170,4 +170,74 @@ test('a person review step lists the attempts, records the pick, and opens the r
   const done = await settled(d, run.id)
   assert.equal(decided.state, 'running')
   assert.ok(done.rounds.find((one) => one.role === 'referee')?.evidence.length)
+})
+
+for (const [findingOn, dirtyLoser] of [['loser', false], ['loser', true], ['picked', false]] as const) {
+  test(`comparison: a P1 on the ${findingOn} attempt ${findingOn === 'loser' ? 'does not block' : 'still blocks'} the person step${dirtyLoser ? ' after the losing checkout changes' : ''}`, E2E, async (t) => {
+    const d = await desk(t)
+    const run = await start(d, await comparison(d, 2), TASK)
+    const competitors = await claimed(d, run.goal, 'competitor', 2)
+    const heads: string[] = []
+    for (const [index, card] of competitors.entries()) heads.push(await write(d, card, `attempt ${index + 1}`))
+    const [judge] = await claimed(d, run.goal, 'judge', 1)
+    const scope = scopeOf(judge!)
+    const candidates = await d.host.teamPlane.reviewCandidates(judge!.id, scope)
+    const candidate = candidates.find((one) => one.at === heads[findingOn === 'loser' ? 0 : 1])!
+    const raised = await d.host.teamPlane.raiseFinding({
+      intent: judge!.id, candidate: candidate.id, request: 'p1', title: 'P1: the retry never stops',
+      body: 'A failed request retries forever.', blocking: true, category: 'ordinary',
+    }, scope)
+    await d.host.teamPlane.recordReview({ intent: judge!.id, candidate: candidates.find((one) => one.at === heads[0])!.id, verdict: 'neither' }, scope)
+    if (dirtyLoser) await writeFile(`${cwdOf(d, competitors[0]!)}/losing-local.txt`, 'A local change on the unselected attempt.\n')
+    await review(d, judge!, 'picked', heads[1]!)
+    if (findingOn === 'loser') {
+      await whenChanged(d, async () => {
+        const now = await execution(d, run.id)
+        return now.rounds.at(-1)?.state === 'waiting-evidence' || (await board(d, run.goal)).some((one) => one.role === 'referee') ? true : null
+      }, 'the rule to select the person step or report its blocker')
+      assert.ok((await board(d, run.goal)).some((one) => one.role === 'referee'), (await execution(d, run.id)).reason ?? 'no referee')
+      const referee = await person(d, run.goal, 'referee', 'merged')
+      assert.match(referee.detail ?? '', new RegExp(heads[1]!))
+      await settled(d, run.id)
+      const page = await d.host.call('finding/list', { goal: run.goal })
+      const finding = page.rows.find((one) => one.id === raised.id)!
+      assert.equal(finding.activeBlocking, false)
+      assert.match(finding.inactiveReason ?? '', /The review selected revision/)
+      assert.match(finding.inactiveReason ?? '', new RegExp(heads[1]!.slice(0, 12)))
+      assert.equal(finding.lifecycle.state, 'open')
+      assert.equal(page.totals?.blocking, 0)
+      assert.equal((await d.host.call('finding/list', { goal: run.goal, filter: 'blocking' })).rows.length, 0)
+      const detail = await d.host.call('finding/read', { goal: run.goal, finding: raised.id })
+      assert.equal(detail.finding.inactiveReason, finding.inactiveReason)
+    } else {
+      const stalled = await whenChanged(d, async () => {
+        const now = await execution(d, run.id)
+        return now.rounds.at(-1)?.state === 'waiting-evidence' ? now : null
+      }, 'picked attempt blocker to hold the rule')
+      assert.match(stalled.reason ?? '', /1 open blocking finding/)
+      assert.equal((await board(d, run.goal)).some((one) => one.role === 'referee'), false)
+    }
+    assert.equal(raised.lifecycle.state, 'open', 'selection never pretends the finding was repaired')
+  })
+}
+
+test('an ordinary write and review flow with review evidence still holds its person step on an admitted blocker', E2E, async (t) => {
+  const d = await desk(t)
+  const source = (await shipped(d, 'independent-review')).replace('when: { every: [approve] }', 'when: { every: [approve], evidence: [{ review: approve }] }')
+  const run = await start(d, source, TASK)
+  await write(d, (await claimed(d, run.goal, 'build', 1))[0]!, 'built')
+  const reviewers = await claimed(d, run.goal, 'specialists', 3)
+  const first = reviewers[0]!
+  const [candidate] = await d.host.teamPlane.reviewCandidates(first.id, scopeOf(first))
+  await d.host.teamPlane.raiseFinding({
+    intent: first.id, candidate: candidate!.id, request: 'ordinary-p1', title: 'P1: the retry never stops',
+    body: 'A failed request retries forever.', category: 'ordinary', blocking: true,
+  }, scopeOf(first))
+  for (const card of reviewers) await review(d, card, 'approve')
+  const waiting = await whenChanged(d, async () => {
+    const now = await execution(d, run.id)
+    return now.rounds.at(-1)?.state === 'waiting-evidence' ? now : null
+  }, 'ordinary review blocker to hold the person step')
+  assert.match(waiting.reason ?? '', /1 open blocking finding/)
+  assert.equal((await board(d, run.goal)).some((one) => one.role === 'ship'), false)
 })

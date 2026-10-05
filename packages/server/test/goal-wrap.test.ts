@@ -69,7 +69,7 @@ test('a preview owns immutable copies of every reviewed collection', () => {
     seat: 'seat-2', session: { runtime: 'fake', sessionId: 'two' }, turn: null,
     text: 'late', partial: true, stopReason: 'interrupted',
   })
-  ;(approved.cards as WrapChoices['cards'] & unknown[]).push({ id: 2, resolution: 'dropped', reason: 'late' })
+  ;(approved.cards as unknown as WrapChoices['cards'] & unknown[]).push({ id: 2, resolution: 'dropped', reason: 'late' })
   assert.equal(preview.receipt.answers.length, 1)
   assert.equal(preview.receipt.cards.length, 1)
   assert.equal(preview.stamp, wrapStamp(input(), choices()))
@@ -402,3 +402,23 @@ test('a receipt freezes each run attendance and overrides, and validates them on
   }
   assert.equal(receiptOf({...receipt,members:[{...member,session:{runtime:'fake',sessionId:'one'}}]},'g1','receipt'),true)
  })
+
+ test('a receipt freezes host card titles and holder Seats, never values supplied in wrap choices', () => {
+  const source = input({ cards: [{ id: 1, state: 'done', title: 'Bound the retry', seat: 'seat-1' }] as unknown as WrapInput['cards'] })
+  const approved = choices({ cards: [{ id: 1, resolution: 'finished', reason: null, title: 'Invented', seat: 'wrong' }] as unknown as WrapChoices['cards'] })
+  const preview = previewWrap(source, approved)
+  assert.deepEqual(preview.receipt.cards, [{ id: 1, resolution: 'finished', reason: null, title: 'Bound the retry', seat: 'seat-1' }])
+  assert.deepEqual(previewWrap(input(), approved).receipt.cards, [{ id: 1, resolution: 'finished', reason: null }])
+  assert.notEqual(preview.stamp, wrapStamp(input(), approved))
+})
+
+test('receipt card context and member roles are optional for old records and validated when present', () => {
+  const receipt = { ...previewWrap(input(), choices()).receipt, id: 'receipt', wrappedAt: 1 }
+  assert.equal(receiptOf(receipt, 'g1', 'receipt'), true)
+  for (const field of ['title', 'seat']) {
+    assert.equal(receiptOf({ ...receipt, cards: [{ ...receipt.cards[0], [field]: 'known' }] }, 'g1', 'receipt'), true)
+    for (const value of [null, 2, {}]) assert.equal(receiptOf({ ...receipt, cards: [{ ...receipt.cards[0], [field]: value }] }, 'g1', 'receipt'), false)
+  }
+  assert.equal(receiptOf({ ...receipt, members: [{ ...receipt.members![0], role: 'writer' }] }, 'g1', 'receipt'), true)
+  assert.equal(receiptOf({ ...receipt, members: [{ ...receipt.members![0], role: 2 }] }, 'g1', 'receipt'), false)
+})

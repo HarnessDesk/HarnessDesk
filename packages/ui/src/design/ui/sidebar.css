@@ -135,7 +135,19 @@
     --sidebar-menu-state-extra: var(--sidebar-menu-state-hover-reserve);
     --sidebar-menu-state-ink-inset: calc(var(--hd-space-1) - (var(--hd-icon-target) - var(--hd-space-2) + var(--hd-space-px)) / 2);
   }
+  [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"][data-compact-at-narrow]) {
+    --sidebar-menu-state-full: none;
+    --sidebar-menu-state-compact: inline-flex;
+    --sidebar-menu-state-position: absolute;
+    --sidebar-menu-state-width: var(--hd-icon-target);
+    --sidebar-menu-state-translate: 0 -50%;
+    --sidebar-menu-state-extra: var(--sidebar-menu-state-hover-reserve);
+    --sidebar-menu-state-ink-inset: calc(var(--hd-space-1) - (var(--hd-icon-target) - var(--hd-space-2) + var(--hd-space-px)) / 2);
+  }
   [data-nested="true"] [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"] {
+    inset-inline-end: calc(var(--sidebar-menu-end-rail) + (var(--sidebar-menu-trailing-marks) - 1) * var(--hd-sidebar-end-action-step) + var(--sidebar-menu-state-hover-reserve) - var(--sidebar-menu-count-yield));
+  }
+  [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"][data-compact-at-narrow]) [data-slot="sidebar-menu-state"] {
     inset-inline-end: calc(var(--sidebar-menu-end-rail) + (var(--sidebar-menu-trailing-marks) - 1) * var(--hd-sidebar-end-action-step) + var(--sidebar-menu-state-hover-reserve) - var(--sidebar-menu-count-yield));
   }
 }

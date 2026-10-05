@@ -1394,8 +1394,9 @@ export class CodexRuntime implements AgentRuntime {
   #deSpeak(event: AgentEvent): AgentEvent {
     if (event.type !== 'item/started' && event.type !== 'item/completed') return event
     if (event.item.type !== 'userMessage') return event
-    if (!this.#sessions.get(event.sessionId)?.isSilentTurn(event.turnId)) return event
-    return { ...event, item: noticeFromUserMessage(event.item) }
+    const session = this.#sessions.get(event.sessionId)
+    if (!session?.isSilentTurn(event.turnId)) return event
+    return { ...event, item: noticeFromUserMessage(event.item, session.noticeKindOf(event.turnId)) }
   }
 
   /** Walk an announced child thread to the conversation the desk opened. */
@@ -1551,9 +1552,10 @@ export class CodexRuntime implements AgentRuntime {
 }
 
 /** A silent order's opening item, told as `notice` instead of `userMessage` — see `CodexRuntime.#deSpeak`. */
-const noticeFromUserMessage = (item: UserMessageItem): AgentItem => ({
+const noticeFromUserMessage = (item: UserMessageItem, kind?: 'agentBrief'): AgentItem => ({
   id: item.id,
   type: 'notice',
+  ...(kind ? { kind } : {}),
   text: item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'),
   ...(item.startedAt !== undefined ? { startedAt: item.startedAt } : {}),
   ...(item.completedAt !== undefined ? { completedAt: item.completedAt } : {}),
