@@ -510,7 +510,7 @@ export const teamPlugin: HarnessPlugin = {
        * itself enforces.
        */
       const seatFindingLine = (view: FindingSeatRow): string =>
-        `${findingLine(view)}${!view.raisedByYou ? '' : view.personDecides ? ' · yours, from an earlier run — a person decides it' : view.decidableNow ? ' · yours — decide it now' : ' · yours, not yet (a later review card of a fresh Seat of yours)'}`
+        `${findingLine(view)}${!view.raisedByYou ? '' : view.personDecides ? ' · yours, from an earlier run — a person decides it' : view.decidableNow ? ' · yours — decide it now (raising card: withdrawal only)' : ' · yours, not yet (a later review card of a fresh Seat of yours)'}`
 
       ctx.tools.register({
         name: 'raise_finding',
@@ -574,7 +574,7 @@ export const teamPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'decide_finding',
         description:
-          'Judge a finding you raised in an earlier review, against a candidate `review_candidates` gave you now: `repaired` confirms a claimed repair, `open` says it is still wrong, `withdrawn` takes it back (say why). Only the Agent that raised a finding may decide it, and only from a later review card. A confirmed finding never reopens — raise a new, related one instead.',
+          'Judge a finding you raised, against a candidate `review_candidates` gave you now: `repaired` confirms a claimed repair, `open` says it is still wrong, `withdrawn` takes it back (say why). Only the Agent that raised a finding may decide it. It may withdraw a mistake with a reason while its raising card is still open; other verdicts require a later review card. A confirmed finding never reopens — raise a new, related one instead.',
         inputSchema: {
           type: 'object',
           properties: {
