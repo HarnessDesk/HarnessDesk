@@ -644,3 +644,12 @@ it('keeps a finding title separate from its literal id and lifecycle controls', 
   expect(button.querySelector(`.${stylesSettings.rowTitle}`)?.textContent).toBe('Race between two writers on the same lane')
   expect(button.querySelector('[data-slot="row-desc"]')?.textContent).toContain('finding-claim-1')
 })
+
+it('identifies restored findings in the muted list metadata', async () => {
+  const { store } = rig({ filter: 'all', rows: [row('restored', { restored: true }), row('live')], next: null,
+    totals: { all: 2, open: 2, blocking: 2 }, problem: null, loading: false, loadingMore: false, error: null, stale: false })
+  await render(store)
+  const rows = [...container.querySelectorAll('[data-slot="row-desc"]')]
+  expect(rows.find(one => one.textContent?.includes('#restored'))?.textContent).toContain('from a backup')
+  expect(rows.find(one => one.textContent?.includes('#live'))?.textContent).not.toContain('from a backup')
+})

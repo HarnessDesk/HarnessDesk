@@ -205,6 +205,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                   <MetaList ink="muted">
                     <CodeText size="inherit" className="select-all">#{row.id}</CodeText>
                     <span>{blockingWords(row)}</span>
+                    {row.restored && <span>from a backup</span>}
                   </MetaList>
                 }
                 control={<Chip tone={lifecycleTone(row)}>{lifecycleWords(row)}</Chip>}
