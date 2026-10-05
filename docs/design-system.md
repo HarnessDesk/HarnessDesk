@@ -571,14 +571,6 @@ having written the judgement down.
 
 ### Buttons
 
-### `stretched`
-
-**Use** — A positioned row opens something through a named Button with size="content-min" and bordered={false}; use hoverFill={false} when the row paints its hover.
-
-**Not** — Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.
-
-**Why** — The button keeps its own target and keyboard action; titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.
-
 ### `default`
 
 **Use** — The one action a surface exists to perform — the thing you came to do. At most one per screen, and often none.
@@ -635,9 +627,17 @@ having written the judgement down.
 
 **Why** — In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.
 
+### `stretched`
+
+**Use** — The positioned row handles clicks on its readings and ignores independent buttons; its named Button uses size="content-min" and bordered={false} for the keyboard target and row focus mark.
+
+**Not** — Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.
+
+**Why** — The button keeps its own target, with a minimum width of 24px, and keyboard action; its hover fill defaults off, titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.
+
 ### Everything else with a rule
 
-### `action`
+### `Note · action`
 
 **Use** — One recovery action for the group note: pass action to Note so it follows the sentence and wraps beneath it when narrow.
 
@@ -1850,7 +1850,9 @@ this pattern supplies the settings-specific segmented appearance.
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
-The page's 20px semibold name, matching the wordmark, one line saying what it is for, and anything it acts on.
+The page's 20px semibold name, matching the wordmark, one line saying what
+it is for, and anything it acts on. Actions wrap below the copy when the
+container cannot keep a readable description beside them.
 
 ### `Text`
 

@@ -223,6 +223,11 @@ test.describe('every catalogued case composes to the recorded number', () => {
     test(view, async ({ page }, testInfo) => {
       await page.goto(`/design.html?view=${view}`)
       await settle(page)
+      if (view === 'adopted') {
+        const panel = page.locator('table[data-catalog-variant="panel"]')
+        await expect(panel).toHaveCount(1)
+        await expect(panel).toHaveAttribute('data-hd-table', 'compact')
+      }
       /* The body's size on this view, so a drifted `text` says whether the
          component moved or the page it inherits from did. */
       const bodyText = await page.evaluate(() => getComputedStyle(document.body).fontSize)

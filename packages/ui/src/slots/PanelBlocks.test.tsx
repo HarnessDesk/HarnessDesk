@@ -134,6 +134,12 @@ describe('table', () => {
     expect([...container.querySelectorAll('tbody td:last-child')].map(cell => cell.textContent)).toEqual(['12', '0'])
   })
 
+  it('renders scalar readings and leaves malformed object cells empty without coercing them', () => {
+    const values: unknown[] = [false, true, 0n, 12n, {}, ['one', 'two'], null, undefined, Symbol('cell'), { toString: () => { throw new Error('do not coerce') } }]
+    mount([{ type: 'table', columns, rows: values.map((value, index) => ({ name: `Row ${index}`, count: value as string })) }])
+    expect([...container.querySelectorAll('tbody td:last-child')].map(cell => cell.textContent)).toEqual(['false', 'true', '0', '12', '—', '—', '—', '—', '—', '—'])
+  })
+
   it('renders a supplied blank string as the same quiet empty reading', () => {
     mount([{ type: 'table', columns, rows: [{ name: 'beta', count: '' }] }])
     const empty = container.querySelector('tbody td:last-child span')

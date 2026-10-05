@@ -55,14 +55,6 @@
     "pad": "16 0 16 0",
     "radius": 10
   },
-  "adopted/div/variant/panel": {
-    "h": 178,
-    "text": 14,
-    "weight": "400",
-    "line": 20,
-    "pad": "0 0 0 0",
-    "radius": 0
-  },
   "adopted/marker/variant/border": {
     "h": 30,
     "text": 12,
@@ -92,6 +84,14 @@
     "text": 13,
     "weight": "400",
     "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "adopted/table/variant/panel": {
+    "h": 72,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
     "pad": "0 0 0 0",
     "radius": 0
   },

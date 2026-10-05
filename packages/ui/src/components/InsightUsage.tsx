@@ -44,7 +44,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   // Cache belongs to this report and project, including reads still in flight
   // when the person switches dimensions. Each visible view awaits its own Teams.
   const history = useMemo(() => ({
-    read: new Set<string>(), unavailable: new Set<string>(),
+    read: new Set<string>(), unavailable: new Set<string>(), retrying: new Set<string>(),
     pending: new Map<string, Promise<void>>(), goals: null as Promise<void> | null,
   }), [store, report, root])
   const [, redrawHistory] = useState(0)
@@ -76,18 +76,18 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     void (async () => {
       await history.goals
       if (!current) return
-      const missing = teamIds.filter(team => !history.read.has(team) && !history.unavailable.has(team) && !history.pending.has(team))
+      const missing = teamIds.filter(team => !history.read.has(team) && (!history.unavailable.has(team) || history.retrying.has(team)) && !history.pending.has(team))
       if (missing.length > 0) {
         const batch = Promise.resolve().then(async () => {
           try {
             if (!store.loadTeamRunsBatch) throw new Error('Run history unavailable')
             const loaded = await store.loadTeamRunsBatch(missing)
-            for (const team of loaded.loaded) history.read.add(team)
+            for (const team of loaded.loaded) { history.read.add(team); history.unavailable.delete(team) }
             for (const team of loaded.unavailable) history.unavailable.add(team)
           } catch {
             for (const team of missing) history.unavailable.add(team)
           } finally {
-            for (const team of missing) history.pending.delete(team)
+            for (const team of missing) { history.pending.delete(team); history.retrying.delete(team) }
           }
         })
         for (const team of missing) history.pending.set(team, batch)
@@ -114,6 +114,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     return <Text as="div" role="value" align="end" numeric title={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')}>{value.value === null ? <Text role="meta">—</Text> : <>{words.value}{qualifier && <Text as="div" role="meta" className="whitespace-normal">{qualifier}</Text>}{value.coverage !== 'complete' && coverage && <Text as="div" role="meta" className="whitespace-normal">{coverage}</Text>}</>}</Text>
   }
   const groupNote = commonRowNote(breakdown?.rows ?? [])
+  const retrying = teamIds.some(team => history.retrying.has(team))
   const unattributedLabel = view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'
   const unattributedReason = breakdown?.reason ?? 'No unique historical Seat could be established.'
   const showReason = unattributedReason.replace(/[.]$/, '') !== unattributedLabel
@@ -159,7 +160,11 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       </TableRow></TableFooter>
     </Table>}
     {groupNote && <Note>{groupNote}</Note>}
-    {teamIds.some(team => unavailableTeams.has(team)) && <Note tone="warn" action={<Button variant="outline" size="sm" onClick={() => { history.unavailable.clear(); retryHistory(value => value + 1) }}>Try again</Button>}>Run counts are unavailable for some Teams.</Note>}
+    {(retrying || teamIds.some(team => unavailableTeams.has(team))) && <Note tone="warn" action={<Button variant="outline" size="sm" disabled={retrying} focusableWhenDisabled onClick={() => {
+      if (retrying) return
+      for (const team of teamIds) if (unavailableTeams.has(team)) history.retrying.add(team)
+      retryHistory(value => value + 1)
+    }}>{retrying ? 'Trying again…' : 'Try again'}</Button>}>Run counts are unavailable for some Teams.</Note>}
     {failedSources.length > 0 && <Rows>{failedSources.map(source => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}</Rows>}
     {report.gaps.filter(gap => gap !== scanGap).map(gap => <Note key={gap} tone="warn">{gap}</Note>)}
   </>

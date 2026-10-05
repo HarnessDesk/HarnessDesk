@@ -52,5 +52,5 @@ export const commonRowNote = (rows: readonly { readonly note: string | null }[])
   const ordinary = rows.find(row => row.note === INSIGHT_ROW_NOTES.goal || row.note === INSIGHT_ROW_NOTES.agent || row.note === INSIGHT_ROW_NOTES.cohort)?.note
   if (ordinary) return ordinary
   const note = rows[0]?.note
-  return note && note !== INSIGHT_ROW_NOTES.missingCohort && rows.every(row => row.note === note) ? note : null
+  return note && rows.every(row => row.note === note) ? note : null
 }

@@ -164,7 +164,8 @@ it('keeps a group-level gap note outside the Rows card rather than flush against
 
 it('shares the normal cohort note and keeps missing briefs with their Seats', async () => {
  const base = report()
- const shown = { ...base, seats: [...base.seats, { ...base.seats[0]!, id: 'missing', seatLabel: 'Missing brief', briefDigest: null }] }
+ const seats = [...base.seats, { ...base.seats[0]!, id: 'missing', seatLabel: 'Missing brief', briefDigest: null }]
+ const shown = withSeatNotes({ ...base, seats }, ['Recorded brief cohort', 'Recorded brief cohort', 'Brief cohort unavailable'])
  const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight: vi.fn(async () => shown) } as unknown as AppStore
  await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
@@ -173,4 +174,32 @@ it('shares the normal cohort note and keeps missing briefs with their Seats', as
  expect(rows).toHaveLength(3)
  for (const row of rows) expect(row.textContent).not.toContain('Recorded brief cohort')
  expect(container.textContent).toContain('Missing briefBrief cohort unavailable')
+})
+
+const withSeatNotes = (base: InsightReport, notes: readonly (string | null)[]): InsightReport => ({
+ ...base, breakdowns: [{ dimension: 'seat', reason: null, unattributed: base.totals,
+   rows: base.seats.map((seat, index) => ({ key: seat.id, seat: seat.id, label: seat.seatLabel, goal: seat.board, session: null, message: null,
+     amounts: base.totals, elapsedMs: base.elapsedMs, note: notes[index] ?? null })),
+ }],
+})
+
+it('reads varying cohort notes from the host seat rows, including a third state', async () => {
+ const shown = withSeatNotes(report(), ['Historical brief changed', null])
+ const snapshot = emptySnapshot()
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight: vi.fn(async () => shown) } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+ const rows = [...container.querySelectorAll('[data-slot="row"]')]
+ expect(rows[0]?.textContent).toContain('Historical brief changed')
+ expect(rows[1]?.textContent).not.toContain('Historical brief changed')
+ expect(container.textContent).not.toContain('Recorded brief cohort')
+})
+
+it('shares an all-missing cohort note outside the historical Seat rows', async () => {
+ const base = report()
+ const shown = withSeatNotes({ ...base, seats: base.seats.map(seat => ({ ...seat, briefDigest: null })) }, ['Brief cohort unavailable', 'Brief cohort unavailable'])
+ const snapshot = emptySnapshot()
+ const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight: vi.fn(async () => shown) } as unknown as AppStore
+ await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+ for (const row of container.querySelectorAll('[data-slot="row"]')) expect(row.textContent).not.toContain('Brief cohort unavailable')
+ expect([...container.querySelectorAll('[data-slot="note"]')].filter(note => note.textContent === 'Brief cohort unavailable')).toHaveLength(1)
 })

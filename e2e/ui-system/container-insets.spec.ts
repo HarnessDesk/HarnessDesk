@@ -13,7 +13,8 @@ const contracts = [
   { selector: '[data-slot="section"][data-variant="panel"]', tier: 'row' },
   { selector: '[data-slot="approval-code"]', tier: 'row' },
   { selector: '[data-slot="list-row"][data-size="default"]:not([data-hd-table="compact"])', tier: 'row' },
-  { selector: '[data-slot="list-row"][data-size="default"][data-hd-table="compact"]', tier: 'row', blockInset: 1 },
+  { selector: '[data-slot="list-row"][data-size="default"][data-hd-table="compact"]:not(:has([data-wrap-title], [data-wrap-subtitle]))', tier: 'row', blockInset: 1 },
+  { selector: '[data-slot="list-row"][data-size="default"][data-hd-table="compact"]:has([data-wrap-title], [data-wrap-subtitle])', tier: 'dense', inlineTier: 'row' },
   { selector: '[data-slot="chart-card"]', tier: 'card' },
   { selector: '[data-slot="row"]:has([data-slot="row-desc"], [data-slot="row-mark"], [data-slot="row-face"])', tier: 'row' },
   { selector: '[data-slot="row"]:not(:has([data-slot="row-desc"], [data-slot="row-mark"], [data-slot="row-face"]))', tier: 'row', blockInset: 8 },
@@ -115,13 +116,25 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       await route.fulfill({ response, body: `${source}
         import insetReact from ${JSON.stringify(reactUrl)};
         import { SummaryList as InsetSummary, SummaryItem as InsetFact, AgentCard as InsetAgentCard, ApprovalDialog as InsetApproval, ApprovalReason as InsetReason, ApprovalCode as InsetCode } from '/src/design/index.ts';
-        import { Row as InsetRow, Rows as InsetRows, IconTile as InsetTile, Button as InsetButton } from '/src/design/index.ts';
+        import { ListRow as InsetListRow, Row as InsetRow, Rows as InsetRows, IconTile as InsetTile, Button as InsetButton } from '/src/design/index.ts';
         import { AlertIcon as InsetWarning } from '/src/components/Icons.tsx';
         const rowHost = document.createElement('section');
         rowHost.style.width = '360px'; document.body.append(rowHost);
         createRoot(rowHost).render(insetReact.createElement(InsetRows, null,
           insetReact.createElement(InsetRow, { title: 'Jane Doe', face: insetReact.createElement(InsetTile, { shape: 'face' }, 'J') }),
           insetReact.createElement(InsetRow, { title: 'Choose a folder', control: insetReact.createElement(InsetButton, { size: 'sm' }, 'Choose…') })));
+        const singleHost = document.createElement('section');
+        singleHost.style.width = '240px'; document.body.append(singleHost);
+        createRoot(singleHost).render(insetReact.createElement(InsetListRow, {
+          density: 'compact', title: 'Review', 'data-inset-probe': 'single',
+        }));
+        const wrappedHost = document.createElement('section');
+        wrappedHost.style.width = '240px'; document.body.append(wrappedHost);
+        createRoot(wrappedHost).render(insetReact.createElement(InsetListRow, {
+          density: 'compact', wrapSubtitle: true, title: 'Review',
+          subtitle: 'Review the whole declaration before arming this trigger again.',
+          'data-inset-probe': 'wrapped',
+        }));
         const insetHost = document.createElement('section');
         insetHost.style.width = '360px'; document.body.append(insetHost);
         createRoot(insetHost).render(insetReact.createElement(InsetSummary, null,
@@ -159,6 +172,17 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       control: element.querySelector('button')!.getBoundingClientRect().height,
     }))
     expect(bareGeometry).toEqual({ row: 44, control: 28 })
+    const wrapped = page.locator('[data-inset-probe="wrapped"]')
+    await expect(wrapped).toBeVisible()
+    const wrappedGeometry = await wrapped.evaluate(element => {
+      const subtitle = element.querySelector('[data-slot="list-row-subtitle"]')!
+      const css = getComputedStyle(subtitle)
+      return subtitle.getBoundingClientRect().height / parseFloat(css.lineHeight)
+    })
+    expect(wrappedGeometry).toBeGreaterThan(1)
+    const wrappedReading = (await page.evaluate(readInsets, [{ selector: '[data-inset-probe="wrapped"]', tier: 'dense', inlineTier: 'row' }]))[0]!
+    expect(wrappedReading.boxes[0]!.padding).toEqual(wrappedReading.expectedPadding)
+    expect(wrappedReading.boxes[0]!.insets!.every((value, side) => value >= wrappedReading.expectedPadding[side]! - 2)).toBe(true)
     const readings = await page.evaluate(readInsets, contracts)
     const faults: string[] = []
     for (const { selector, expectedPadding, boxes } of readings) {

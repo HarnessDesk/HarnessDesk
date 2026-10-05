@@ -202,3 +202,18 @@ for(const theme of ['light','dark'] as const) {
   await expect(rig.locator('[aria-label="Findings"]').first()).toBeVisible()
  })
 }
+
+
+for (const theme of ['light', 'dark'] as const) {
+ test(`short Seat openers keep a 24px target in both layouts in ${theme}`, async ({ page }) => {
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  for (const width of [1440, 720]) {
+   await page.setViewportSize({ width, height: 1100 })
+   const opener = page.locator('#team-overview-live-running [data-slot="team-overview"]').getByRole('button', { name: /^Open / }).first()
+   await opener.locator('[data-role="subject"]').evaluate(node => { node.textContent = 'A' })
+   const box = (await opener.boundingBox())!
+   expect(box.width).toBeGreaterThanOrEqual(24)
+   expect(box.height).toBeGreaterThanOrEqual(24)
+  }
+ })
+}

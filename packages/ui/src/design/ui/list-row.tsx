@@ -126,7 +126,7 @@ const ListRow = ({
     className={cn(
       'flex items-center',
       as === 'button' && 'w-full text-left',
-      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : cn('gap-(--hd-table-lead-gap) px-(--hd-table-edge)', density === 'compact' ? 'py-px' : 'py-(--hd-inset-row)'),
+      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : cn('gap-(--hd-table-lead-gap) px-(--hd-table-edge)', density === 'compact' ? (wrapTitle || wrapSubtitle ? 'py-(--hd-inset-dense)' : 'py-px') : 'py-(--hd-inset-row)'), /* desk: compact wrapping inset 1px → dense (8px), so full sentences keep air above and below. */
       size === 'default' && (lead != null || subtitle != null || meta != null ? 'min-h-(--hd-table-row-min)' : 'min-h-(--hd-table-row-min-bare)'),
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
@@ -181,6 +181,7 @@ const ListRow = ({
     <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         data-slot="list-row-title"
+        {...(wrapTitle ? { 'data-wrap-title': '' } : {})}
         /* The title names the text role it is drawn in, so the names rule
            (`e2e/ui-system/rules.spec.ts`) measures it against that role's pair
            rather than against "any name pair". A small row is a roster down the

@@ -61,13 +61,6 @@ export type UsageRule = {
 export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
-    variant: 'stretched',
-    when: 'A positioned row opens something through a named Button with size="content-min" and bordered={false}; use hoverFill={false} when the row paints its hover.',
-    never: 'Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.',
-    because: 'The button keeps its own target and keyboard action; titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.',
-  },
-  {
-    family: 'button',
     variant: 'default',
     when: 'The one action a surface exists to perform — the thing you came to do. At most one per screen, and often none.',
     never: 'A second one on the same surface. Two ink buttons is two primaries, which is none.',
@@ -122,6 +115,13 @@ export const BUTTONS: readonly UsageRule[] = [
     because:
       'In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.',
   },
+  {
+    family: 'button',
+    variant: 'stretched',
+    when: 'The positioned row handles clicks on its readings and ignores independent buttons; its named Button uses size="content-min" and bordered={false} for the keyboard target and row focus mark.',
+    never: 'Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.',
+    because: 'The button keeps its own target, with a minimum width of 24px, and keyboard action; its hover fill defaults off, titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.',
+  },
 ]
 
 /**
@@ -134,7 +134,7 @@ export const BUTTONS: readonly UsageRule[] = [
 export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'note',
-    variant: 'action',
+    variant: 'Note · action',
     when: 'One recovery action for the group note: pass action to Note so it follows the sentence and wraps beneath it when narrow.',
     never: 'A button embedded in the sentence, or a separate screen layout for the same note and action.',
     because: 'The explanation stays whole while its recovery control remains reachable at narrow widths.',

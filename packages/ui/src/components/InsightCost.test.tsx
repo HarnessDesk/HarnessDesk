@@ -38,6 +38,26 @@ const report = (): InsightReport => ({
   sources: [source], recordedSpend: [], provenance: { state: 'unavailable', note: 'Commit associations are unavailable.' }, gaps: [],
 })
 
+it('keeps the Cost recovery action outside its warning sentence', () => {
+ const onRefresh = vi.fn()
+ act(() => root.render(<InsightCost report={null} loading={false} problem="Source unavailable." onRefresh={onRefresh} />))
+ const note = container.querySelector('[data-slot="note"]')!
+ const retry = note.querySelector<HTMLButtonElement>('button')!
+ expect(note.querySelector('[data-slot="note-text"]')?.textContent).toBe('Recorded usage could not be read. Source unavailable.')
+ expect(note.querySelector('[data-slot="note-text"]')?.contains(retry)).toBe(false)
+ expect(retry.textContent).toBe('Retry')
+ act(() => retry.click())
+ expect(onRefresh).toHaveBeenCalledOnce()
+})
+
+it('shares the all-missing cohort note beneath Receipt Cost', () => {
+ const base = report(); const b = base.breakdowns[0]!
+ const shown = { ...base, breakdowns: [{ ...b, rows: [1, 2].map(n => ({ ...b.rows[0]!, key: `seat-${n}`, label: `Seat ${n}`, note: 'Brief cohort unavailable' })) }] }
+ act(() => root.render(<InsightCost report={shown} loading={false} problem={null} detailOnly onRefresh={() => {}} />))
+ expect(container.querySelector('dl')?.textContent).not.toContain('Brief cohort unavailable')
+ expect([...container.querySelectorAll('[data-slot="note"]')].filter(note => note.textContent === 'Brief cohort unavailable')).toHaveLength(1)
+})
+
 it('keeps total fixed while alternate views retain zero, floor, estimate and unknown qualification', () => {
   act(() => root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={() => {}} onSeat={() => {}} onSession={() => {}} onMessage={() => {}} />))
   expect(container.textContent).toContain('$3.00')
