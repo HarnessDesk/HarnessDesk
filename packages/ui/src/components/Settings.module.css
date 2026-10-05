@@ -26,8 +26,7 @@
 .inlineBadge {
   margin-left: 8px;
 }
-/* A route the selected backend cannot speak: faded, with its reason on the
-   title's quiet chip — hiding it would look like it had been deleted. */
+/* A route the selected agent cannot use keeps its reason visible below the address. */
 .rowUnusable {
   opacity: 0.55;
 }
@@ -35,3 +34,11 @@
   margin-bottom: var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 /* @design-owners Extensions */
+
+/* List summaries leave the full trigger paragraph to the detail page. */
+.skillDesc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3; /* desk: unbounded → three wrapped lines, full text stays on the detail page */
+  overflow: hidden;
+}

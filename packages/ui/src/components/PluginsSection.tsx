@@ -693,10 +693,11 @@ export const PluginsSection = () => {
                     }}
                     mark={contributionIcon(contribution.kind, 15)}
                     title={contributionSentence(contribution)}
-                    /* Whose it is and where it applies, including global
-                       scope, so every capability has the same two facts. */
+                    /* A narrowed scope varies; global rows only name their owner. */
                     desc={
-                      `${pluginName(contribution.owner)} · ${scopeSentence(contribution.scope)}`
+                      contribution.scope.kind === 'global'
+                        ? pluginName(contribution.owner)
+                        : `${pluginName(contribution.owner)} · ${scopeSentence(contribution.scope)}`
                     }
                     control={
                       contribution.kind === 'tool' ? (

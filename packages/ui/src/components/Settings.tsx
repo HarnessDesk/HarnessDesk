@@ -316,14 +316,20 @@ const RoutesRows = () => {
               <>
                 {route.name}
                 {route.usable === false && (
-                  <Chip tone="neutral" size="sm" className={styles.inlineBadge}
-                    title={`Not available with ${runtime.presentation.name}: ${route.reason ?? 'Not supported'}`}>
+                  <Chip tone="neutral" size="sm" className={styles.inlineBadge}>
                     Not available
                   </Chip>
                 )}
               </>
             }
-            desc={`${route.endpoint}${route.model ? ` · ${route.model}` : ''}`}
+            desc={<>
+              {route.endpoint}{route.model ? ` · ${route.model}` : ''}
+              {route.usable === false && route.reason && (
+                <Text as="span" role="muted" ink="muted" className="block whitespace-normal">
+                  Not available with {runtime.presentation.name}: {route.reason}{/[.!?]$/.test(route.reason) ? '' : '.'}
+                </Text>
+              )}
+            </>}
             control={
               <Popover title={`More actions for ${route.name}`} label={<MoreIcon size={15} />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
                 {close => <Menu close={close}><MenuItem label="Remove…" onSelect={() => setRemoving(route)} /></Menu>}
@@ -1106,11 +1112,9 @@ const skillScopeLabel = (scope: string | undefined): string | null => {
  * `iconUrl` is a `data:` URI inlined from the installed skill; the adapter
  * drops remote ones, so nothing here reaches the network.
  */
-const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) => {
+const SkillMark = ({ skill, tile }: { skill: SkillInfo; tile: 'default' | 'sm' }) => {
   const [broken, setBroken] = useState(false)
-  // The plugin row's drawing: the logo cropped in an icon tile, else the
-  // listing's colour under its initial, at the tile step the glyph matches.
-  const tile = size >= 20 ? 'default' : 'xs'
+  // Logos use the caller's tile step; the row supplies the fallback's ground.
   if (skill.iconUrl && !broken) {
     return (
       <IconTile size={tile}>
@@ -1125,7 +1129,7 @@ const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) =>
       </IconTile>
     )
   }
-  return <SparkIcon size={size} />
+  return <SparkIcon size={15} />
 }
 
 const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
@@ -1167,7 +1171,7 @@ const SkillPage = ({
       <DetailHead
         mark={
           <DetailMark>
-            <SkillMark skill={skill} size={20} />
+            <SkillMark skill={skill} tile="sm" />
           </DetailMark>
         }
         name={skillTitle(skill)}
@@ -1283,14 +1287,14 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
                 <RowButton
                   key={skill.name}
                   onClick={() => setOpenName(skill.name)}
-                  mark={hasFaces ? <SkillMark skill={skill} size={32} /> : undefined}
+                  mark={hasFaces ? <SkillMark skill={skill} tile="default" /> : undefined}
                   title={<Text role="subject">{skillTitle(skill)}</Text>}
-                  desc={skill.shortDescription ?? skill.description}
+                  desc={<span className={styles.skillDesc}>{skill.shortDescription ?? skill.description}</span>}
                   control={
                     <>
                       <span className="w-16 text-right">{scope && <RowValue>{scope}</RowValue>}</span>
                       {skill.toggleable === false
-                        ? <span className="inline-flex w-(--hd-toggle-width) justify-center" title="Always on" aria-label="Always on" />
+                        ? <span className="inline-flex w-(--hd-toggle-width) justify-center" />
                         : <SkillToggle skill={skill} />}
                     </>
                   }
@@ -2039,11 +2043,8 @@ export const Settings = ({
         )}
       </WindowNav>
 
-      {/* Every page in this window stands on one measure, including the library.
-          It was the one exception, taken when its captions still wrapped and
-          twelve agent marks had to sit beside a paragraph; the caption is one
-          clamped line now, so the marks have their room at the ordinary width
-          and the window stops having a page that is a different shape. */}
+      {/* Every Settings page shares one measure. Library descriptions wrap;
+          State and Loaded by keep the space their contents need. */}
       <WindowPage key={section}>
             {section === 'profile' && <ProfileSection />}
             {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}

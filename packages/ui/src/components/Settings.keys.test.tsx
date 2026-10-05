@@ -264,12 +264,22 @@ it('puts model efforts in the description, with Default and Always thinks on lin
   expect(row.querySelector('[class*="efforts"]')).toBeNull()
 })
 
-it('an unavailable endpoint keeps endpoint and model on line two and its reason on the quiet chip', async () => {
+it('an unavailable endpoint keeps endpoint and model on line two and its reason visibly below it', async () => {
   mount([], [{ ...route, usable: false, reason: 'The protocol is not supported', model: 'Model A' }])
   await act(async () => {})
   const row = [...container.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.includes('Acme proxy'))!
-  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('https://proxy.acme.dev/v1 · Model A')
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('https://proxy.acme.dev/v1 · Model ANot available with OpenAI Codex: The protocol is not supported.')
   const chip = row.querySelector('[data-slot="chip"]')!
   expect(chip.textContent).toBe('Not available')
-  expect(chip.getAttribute('title')).toContain('The protocol is not supported')
+  expect(chip.hasAttribute('title')).toBe(false)
+})
+
+
+it('an unavailable endpoint without a reason does not invent a cause', async () => {
+  mount([], [{ ...route, usable: false }])
+  await act(async () => {})
+  const row = [...container.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.includes('Acme proxy'))!
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('https://proxy.acme.dev/v1')
+  expect(row.querySelector('[data-slot="chip"]')?.hasAttribute('title')).toBe(false)
+  expect(row.textContent).not.toContain('Not supported')
 })

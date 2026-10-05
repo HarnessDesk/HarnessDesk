@@ -139,11 +139,10 @@
   margin-inline: auto;
 }
 
-/* Library is the widest thing the app shows: a name, a caption, a reading and
-   twelve agent marks on one line. At 1120 the marks crowded the caption; the
-   step up buys the row its columns without letting any page follow the window. */
+/* The standalone Library has room for wrapped descriptions, State and
+   Loaded by. Settings keeps its ordinary shared reading measure. */
 .pageInner[data-wide] {
-  max-width: 1320px; /* desk: 1120 → 1320, room for twelve agent marks beside a caption */
+  max-width: 1320px; /* desk: 1120 → 1320, room for Library descriptions and content-sized trailing columns */
 }
 
 /* A short destination rail can become a top row in its own narrow window.

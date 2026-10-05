@@ -203,7 +203,7 @@ it('an agent that refuses the server is not told the tools are lost', () => {
   expect(container.textContent).not.toContain('cannot receive plugin tools')
 })
 
-it('a contribution that applies to one workspace says so; a global one names its scope', () => {
+it('a contribution that applies to one workspace says so; a global one only names its owner', () => {
   /* The scope has been on every contribution since the capability plane
      landed and on no row: a tool a plugin offered to one checkout read here
      exactly like one offered to every agent in the app. */
@@ -216,8 +216,9 @@ it('a contribution that applies to one workspace says so; a global one names its
   )
   openCapabilities()
   expect(container.textContent).toContain('only in /repo/api')
-  // The owner and scope share line two even for global contributions.
-  expect(container.textContent).toContain('Git · everywhere')
+  // Only a narrowed scope earns more than the owner's name.
+  expect(container.textContent).not.toContain('everywhere')
+  expect([...container.querySelectorAll('[data-slot="row-desc"]')].map(row => row.textContent)).toContain('Git')
 })
 
 it('“applies here” is the host’s answer, not the pushed list filtered again', async () => {

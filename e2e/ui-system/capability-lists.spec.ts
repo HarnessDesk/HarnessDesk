@@ -64,7 +64,7 @@ for (const theme of ['light', 'dark'] as const) {
     await dial.selectOption('skills')
     await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(2) // hooks, no repeated skill faces
     const description = sheet.locator('[data-slot="row-desc"]').nth(1)
-    expect(await description.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('none')
+    expect(await description.locator('span').evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('3')
     await expect(sheet.getByText('Hooks · 2', { exact: true })).toBeVisible()
     await expect(sheet.getByText('Trusted', { exact: true })).toBeVisible()
     await sheet.getByRole('button', { name: /Playwright/ }).click()
@@ -94,5 +94,62 @@ for (const theme of ['light', 'dark'] as const) {
     const tiles = sheet.locator('[data-slot="row"]').filter({ hasText: 'Focus tile' })
     await expect(tiles).toHaveCount(1)
     await expect(tiles.locator('kbd')).toHaveText(['⌥', '⌘', '1 – 4'])
+  })
+}
+
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Library warnings and four loading faces stay whole at narrow widths in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
+    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    for (const width of [900, 720]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(sheet.getByText('Shared review', { exact: true })).toBeVisible()
+      const readings = await sheet.locator('tbody tr').evaluateAll(rows => rows.map(row => {
+        const cells = [...row.querySelectorAll('td')]
+        return cells.slice(1).map(cell => {
+          const css = getComputedStyle(cell), rect = cell.getBoundingClientRect()
+          const content = [...cell.querySelectorAll('[data-slot="chip"], [data-slot="chip"] span, [data-shape="face"], svg')].map(node => {
+            const box = node.getBoundingClientRect()
+            return { left: box.left, right: box.right, clipped: node.scrollWidth > node.clientWidth }
+          })
+          return { label: cell.textContent, left: rect.left + parseFloat(css.paddingLeft), right: rect.right - parseFloat(css.paddingRight), content }
+        })
+      }))
+      for (const cells of readings) for (const cell of cells) for (const box of cell.content) {
+        expect(box.clipped, cell.label ?? '').toBe(false)
+        expect(box.left).toBeGreaterThanOrEqual(cell.left - 1)
+        expect(box.right).toBeLessThanOrEqual(cell.right + 1)
+      }
+      await expect(sheet.locator('tbody tr[data-problem]')).toHaveCount(0)
+      const loaded = sheet.locator('tbody tr').filter({ hasText: 'Shared review' })
+      await expect(loaded.locator('[data-shape="face"]')).toHaveCount(4)
+      const table = sheet.locator('table')
+      expect(await table.evaluate(node => node.parentElement!.scrollWidth <= node.parentElement!.clientWidth)).toBe(true)
+      const opener = loaded.locator('button').first()
+      await opener.hover()
+      expect(await opener.evaluate(node => getComputedStyle(node).textDecorationLine)).toBe('none')
+      expect(await opener.evaluate(node => node.closest('tr')!.hasAttribute('data-problem'))).toBe(false)
+    }
+  })
+
+  test(`mixed skills keep fallback marks small and long descriptions bounded in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 720, height: 900 })
+    await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('skills')
+    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(6) // four skills, two hooks
+    for (const name of ['Brainstorming', 'Deploy Notes']) {
+      const row = sheet.getByRole('button', { name: new RegExp(name) })
+      expect(await row.locator('[data-slot="row-mark"] svg').evaluate(node => node.getBoundingClientRect().width)).toBe(15)
+    }
+    const row = sheet.getByRole('button', { name: /Brainstorming/ })
+    const paragraph = row.locator('[data-slot="row-desc"] span')
+    expect(await paragraph.evaluate(node => node.getBoundingClientRect().height)).toBeLessThanOrEqual(60)
+    await row.click()
+    const full = sheet.getByText('Explore requirements, constraints and the design before implementation. '.repeat(12).trim(), { exact: true })
+    await expect(full).toBeVisible()
+    expect(await full.evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(60)
   })
 }

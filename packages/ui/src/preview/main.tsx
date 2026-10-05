@@ -133,7 +133,7 @@ const SIDEBAR_VARIANT_PARAM = new URLSearchParams(window.location.search).get('s
 /* Painted only when asked for: the fixture draws its two pictures at load. */
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
-const settingsListsStore = capabilityListsStore()
+const settingsListsStore = capabilityListsStore(new URLSearchParams(location.search).get('capability-lists') === 'stress')
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))

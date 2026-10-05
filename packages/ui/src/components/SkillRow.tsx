@@ -1,9 +1,6 @@
 import { useMemo } from 'react'
 
-import {
-  entryHasProblem,
-  type LibraryEntry,
-} from '@harnessdesk/protocol'
+import type { LibraryEntry } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
 import { Button, Chip, CodeText, IconTile, Monogram, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
@@ -114,19 +111,18 @@ export const SkillRow = ({ entry, columns, onOpen }: {
       interactive
       data-slot="skill-row"
       onClick={onOpen}
-      {...(entryHasProblem(entry) ? { 'data-problem': '' } : {})}
       className="cursor-pointer"
     >
       <TableCell className="whitespace-normal">
         <Button
-          variant="link"
+          variant="ghost"
           size="content"
           onClick={event => { event.stopPropagation(); onOpen() }}
-          className="w-full flex-col items-start justify-start gap-0 text-left"
+          className="w-0 min-w-full flex-col items-start justify-start gap-0 text-left"
         >
           <span className={styles.name}>
             <Text role="subject" truncate>{entry.title ?? entry.name}</Text>
-            <Text role="meta" ink="muted" truncate className="max-w-1/2 shrink-0">
+            <Text role="meta" ink="muted" truncate className="max-w-full shrink-0">
               <CodeText as="code" size="inherit">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
             </Text>
           </span>
@@ -135,12 +131,12 @@ export const SkillRow = ({ entry, columns, onOpen }: {
           </Text>
         </Button>
       </TableCell>
-      <TableCell className="whitespace-normal [overflow-wrap:anywhere]">
+      <TableCell className="w-px whitespace-nowrap">
         {finding?.tone === 'warn'
           ? <Chip tone="warning" size="sm">{finding.text}</Chip>
           : <Text role="muted" ink="muted">{finding?.text ?? 'Ready'}</Text>}
       </TableCell>
-      <TableCell>
+      <TableCell className="w-px whitespace-nowrap">
         <span className="flex items-center justify-between gap-3">
           <span className={styles.faces}>
             {loaded.length === 0 ? <Text role="muted" ink="muted">None</Text> : loaded.map(reach => {
@@ -172,12 +168,12 @@ export const SkillRow = ({ entry, columns, onOpen }: {
 }
 
 export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactNode; kind?: 'skill' | 'mcp' }) => (
-  <Table variant="framed" className="table-fixed">
+  <Table variant="framed">
     <TableHeader>
       <TableRow>
-        <TableHead className="w-3/5">{kind === 'skill' ? 'Skill' : 'Server'}</TableHead>
-        <TableHead>State</TableHead>
-        <TableHead>Loaded by</TableHead>
+        <TableHead>{kind === 'skill' ? 'Skill' : 'Server'}</TableHead>
+        <TableHead className="w-px whitespace-nowrap">State</TableHead>
+        <TableHead className="w-px whitespace-nowrap">Loaded by</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>{children}</TableBody>
