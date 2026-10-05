@@ -101,6 +101,7 @@ import {
   ListRows,
   Menu,
   MenuItem,
+  MenuToggle,
   NavigationGroupHeader,
   Note,
   PaneColumn,
@@ -1132,8 +1133,8 @@ export const TeamRoomPane = ({
           <Popover label={<MoreIcon size={14} />} title="More" align="right" triggerVariant={{variant:'ghost',size:'icon-sm'}}>
             {close => <Menu close={close}>
               {headerLayout.narrow && <>
-                {!record && <MenuItem label="Side by side" disabled={roster.length === 0 ? 'Seat an Agent first' : false} onSelect={() => {toggleSideBySide();close()}} />}
-                <MenuItem label={messaging ? 'Hold messages at the board' : 'Let members message each other'} disabled={record ? RECORD_REASON : false} onSelect={() => {void toggleMessaging();close()}} />
+                {!record && <MenuToggle label="Side by side" checked={open === 'side-by-side'} disabled={roster.length === 0 ? 'Seat an Agent first' : false} onChange={() => {toggleSideBySide();close()}} />}
+                <MenuToggle label="Hold messages at the board" checked={!messaging} disabled={record ? RECORD_REASON : false} onChange={() => {void toggleMessaging();close()}} />
                 {pullRequest && <MenuItem label={`Pull request #${pullRequest.number}`} onSelect={() => {void openExternal(pullRequest.url);close()}} />}
               </>}
               {goal && !record && <MenuItem label="Wrap…" disabled={wrapDisabled} onSelect={() => {setWrapping(true);close()}} />}
