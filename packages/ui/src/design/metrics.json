@@ -319,6 +319,14 @@
     "pad": "8 0 8 0",
     "radius": 8
   },
+  "button/button/size/log-row": {
+    "h": 26,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 0",
+    "radius": 8
+  },
   "button/button/size/navigation": {
     "h": 30,
     "text": 13,
