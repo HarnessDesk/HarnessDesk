@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Runtime information waits quietly in the Inbox.** Configuration warnings
+  and retiring settings show their details, a file action and a mute option.
+  Repeats update one row's count and time; unchanged content stays read across
+  launches. Conversation notices stay inline, and only action results open
+  toasts. Notifications settings includes every new kind.
+
 - **A comparison keeps the attempt its judge picked.** Findings on the other
   attempt no longer hold the person’s keep step; they stay open and explain
   why they were not kept, including advisory findings and after later reviews.

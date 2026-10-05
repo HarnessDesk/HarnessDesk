@@ -255,19 +255,6 @@
 
 /* --- inbox: the bell, and what it keeps ----------------------------------- */
 
-.bellCount,
-.tabCount {
-  min-width: var(--hd-space-4);
-  padding: 0 var(--hd-space-1);
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-primary);
-  color: var(--hd-primary-foreground);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-space-4);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
 .inbox {
   display: flex;
   flex-direction: column;
@@ -284,37 +271,6 @@
   align-items: center;
   gap: var(--hd-space-2);
   padding: var(--hd-space-1-5) 0 var(--hd-space-1) var(--hd-space-2-5); /* desk: right inset 4 → 0, edge-pulled clear glyph meets the inbox edge */
-}
-
-/* All / Unread: a small segmented pair beside the heading. */
-.inboxTabs {
-  display: inline-flex;
-  gap: var(--hd-space-0-5);
-  padding: var(--hd-space-0-5);
-  border-radius: var(--hd-radius-md);
-  background: var(--hd-muted);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs);
-}
-
-.inboxTab {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1);
-  padding: var(--hd-space-0-5) var(--hd-space-2);
-  border: 0;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hd-muted-foreground);
-  font: inherit;
-  cursor: pointer;
-}
-
-.inboxTab[aria-selected='true'] {
-  background: var(--hd-card);
-  box-shadow: var(--hd-shadow-xs);
-  color: var(--hd-foreground);
-  font-weight: var(--hd-weight-medium);
 }
 
 .empty {
@@ -408,9 +364,13 @@
   color: var(--hd-secondary-foreground);
   font: inherit;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .inboxItem[data-unread] .inboxTitle {
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 
@@ -418,7 +378,7 @@
 button.inboxTitle {
   /* Static, so the press below stretches over the whole row, not the button. */
   position: static;
-  display: inline;
+  display: block; /* desk: the Inbox title fills one line for ellipsis */
   height: auto;
   cursor: pointer;
 }
@@ -461,12 +421,6 @@ button.inboxTitle:focus-visible {
   opacity: 0.6;
 }
 
-.inboxAction {
-  position: relative;
-  z-index: 1;
-  margin-top: var(--hd-space-1-5);
-}
-
 .unreadDot {
   position: absolute;
   /* Centred on the first line, like the tile and the time beside it. */
@@ -492,9 +446,37 @@ button.inboxTitle:focus-visible {
 
 .bellCount {
   position: absolute;
-  top: calc(-1 * var(--hd-space-2));
-  right: calc(-1 * var(--hd-space-3));
-  box-shadow: 0 0 0 var(--hd-space-0-5) var(--hd-sidebar);
+  top: 0;
+  right: 0;
+  width: var(--hd-space-1-5);
+  height: var(--hd-space-1-5);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-primary);
+}
+
+.inboxActions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-1-5);
+  margin-top: var(--hd-space-1-5);
+}
+.inboxBody {
+  overflow-wrap: anywhere;
+  width: 100%;
+}
+
+.inboxSettings {
+  margin: 0;
+  padding-left: var(--hd-space-4);
+}
+.inboxDetail {
+  margin: 0;
+}
+
+.inboxSettings code {
+  overflow-wrap: normal;
 }
 
 /* A rail-sized trigger leaves the next glyph one action step away. */
