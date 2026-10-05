@@ -230,11 +230,11 @@ const TableRowGroup = ({
   onOpenPlanSettings: () => void
 }) => (
   <>
-    <TableRow interactive data-state={isOpen ? 'selected' : undefined}>
+    <TableRow data-state={isOpen ? 'selected' : undefined}>
       <TableCell className={styles.colAccount} lead={info && <IconTile shape="face" {...(row.shape === 'metered' || row.shape === 'free' ? { tone: 'neutral' as const } : { tint })}><RuntimeMark runtime={info} /></IconTile>}>
         <span className={styles.plansName}>
           <Text role="subject" truncate>{row.report.account ?? name}</Text>
-          <Text role="meta" truncate>{name} · {shapeWords(row)}</Text>
+          <Text role="meta" truncate>{[row.report.account && name, shapeWords(row)].filter(Boolean).join(' · ')}</Text>
         </span>
       </TableCell>
       <TableCell className={styles.colStatus}>

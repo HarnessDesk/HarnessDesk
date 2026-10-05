@@ -19,3 +19,19 @@ it('counts a signed-out runtime with ledger history once and keeps sign-in in it
  expect(signIn).toHaveBeenCalledWith(info.id)
  act(()=>root.unmount());container.remove()
 })
+
+it('falls back to All when a selected shape no longer has any accounts', () => {
+ const info = { id: runtimeId('alpha'), capabilities: NO_CAPABILITIES, presentation: { name: 'Alpha' } } as RuntimeInfo
+ const base: UsageReport = { runtime: info.id, account: null, plan: null, lanes: [], credits: null, spend: null, reached: null, source: { kind: 'ledger', label: 'Recorded tokens' }, fetchedAt: 1, staleAfterMs: 100, error: null }
+ const container = document.createElement('div'); document.body.append(container); const root = createRoot(container)
+ const draw = (reports: UsageReport[]) => act(() => root.render(<PlansView reports={reports} byId={new Map([[info.id, info]])} snapshot={emptySnapshot()} now={1} summary={{} as never} scoped={null} silent={[]} untracked={[]} onRefreshAccount={() => {}} onStopTracking={() => {}} onTrack={() => {}} onOpenPlanSettings={() => {}} />))
+ try {
+  draw([{ ...base, billing: { kinds: ['free'] } }])
+  act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Free · 1')!.click())
+  draw([base])
+  expect(container.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('All · 1')
+  expect(container.textContent).not.toContain('No account matches this filter')
+  draw([{ ...base, billing: { kinds: ['free'] } }, base])
+  expect(container.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('All · 2')
+ } finally { act(() => root.unmount()); container.remove() }
+})

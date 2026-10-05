@@ -733,3 +733,13 @@ it('combines each shape into one Left cell and moves disclosure to the trailing 
  expect(cells('window@example.com')[0]!.querySelector('button')).toBeNull()
  expect(rowFor('window@example.com').closest('td')).toBe(cells('window@example.com')[4])
 })
+
+it('keeps a plain account row and does not repeat the runtime when it is the title', () => {
+ const agent = info('alpha', 'Alpha')
+ mount(<PlansTable rows={rowsFor([report({ runtime: agent.id, billing: billing(['free']) })])} byId={byIdOf(agent)} now={NOW} filter="all" preferenceFor={() => ({})} onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />)
+ const row = host.querySelector('tbody tr')!
+ expect(row.hasAttribute('data-interactive')).toBe(false)
+ const texts = row.querySelectorAll('td:first-child [data-slot="text"]')
+ expect(texts[0]?.textContent).toBe('Alpha')
+ expect(texts[1]?.textContent).toBe('free tier')
+})

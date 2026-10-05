@@ -78,6 +78,8 @@ export const PlansView = ({
     () => shapeCountsOf(rows.map((row) => row.shape), scopedSilent.length),
     [rows, scopedSilent.length],
   )
+  if (filter !== 'all' && counts[filter] === 0) setFilter('all')
+
   // A report whose own shape is `'none'` already has a row in the table,
   // which expands into this same list (`PlansTable`'s `ExpandedBody`) — so
   // this band lists only the agents that never even answered
