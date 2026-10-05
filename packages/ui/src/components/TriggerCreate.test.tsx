@@ -88,6 +88,16 @@ it('the changed file’s path reads in the interface’s own face — a name, ne
   expect(document.body.querySelector('[data-slot="code-text"]')).toBeNull()
 })
 
+it('uses the list wording for the draft with its own id and concurrency facts', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store, { 'authoring/triggers/draft': () => DRAFT('fork-review', { kind: 'pull-request', events: ['opened', 'pushed'] }) })
+  render(store)
+  await settle()
+  expect(document.body.textContent).toContain('When a pull request opens or is pushed, review it (review-pr)')
+  expect(document.body.textContent).toContain('fork-review · once at a time')
+  expect(document.body.textContent).not.toContain(', open review-pr,')
+})
+
 it('saving a trigger calls only authoring/save/preview and authoring/save/apply — never trigger/arm or a machine preference', async () => {
   const store = new AppStore('ws://localhost:0/')
   const spy = fakeHost(store)

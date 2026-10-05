@@ -182,3 +182,15 @@ it('opts a record into compact density without making it a navigation row', () =
   expect(markup).toContain('py-px')
   expect(markup).toContain('leading-(--hd-line-xs)')
 })
+
+it('gives wrapping compact copy the dense inset and keeps unwrapped rows tight', () => {
+  for (const wrapping of [{ wrapTitle: true }, { wrapSubtitle: true }]) {
+    const host = document.createElement('div')
+    host.innerHTML = renderToStaticMarkup(<ListRow density="compact" title="Review" subtitle="A whole sentence" {...wrapping} />)
+    const row = host.firstElementChild!
+    expect(row.className).toContain('py-(--hd-inset-dense)')
+    expect(row.className).not.toContain('py-px')
+  }
+  expect(renderToStaticMarkup(<ListRow density="compact" title="Review" />)).toContain('py-px')
+  expect(renderToStaticMarkup(<ListRow size="sm" wrapTitle title="Review" />)).toContain('py-1.5')
+})

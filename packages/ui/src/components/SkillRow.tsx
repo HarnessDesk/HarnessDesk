@@ -1,10 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 
 import type { LibraryEntry } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { Button, Chip, CodeText, IconTile, ListRow, ListRows, Monogram, Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../design'
+import { Button, Chip, CodeText, AvatarStack, ListRow, ListRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { runtimeTint } from '../lib/accounts'
 import { useSnapshot } from '../state/context'
 import { ChevronIcon } from './Icons'
@@ -122,38 +122,29 @@ export const SkillRow = ({ entry, columns, onOpen }: {
   const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal ${narrow ? 'line-clamp-2 text-balance' : 'block [overflow-wrap:anywhere]'}`}>
     {entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')}
   </Text>
-  const faces = <span className={styles.faces}>
-    {narrow && <span className="sr-only">Loaded by </span>}
-    {loaded.length === 0 ? <Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text> : loaded.map(reach => {
-      const column = columns.find(column => column.id === reach.runtime)
-      if (!column) return null
-      return (
-        <Tooltip key={reach.runtime}>
-          <TooltipTrigger render={
-            <IconTile
-              size="stack"
-              shape="face"
-              tint={runtimeTint(reach.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)}
-              role="img"
-              aria-label={column.label}
-            />
-          }>
-            {column.info ? <RuntimeMark runtime={column.info} size={12} /> : <Monogram>{column.label[0]}</Monogram>}
-          </TooltipTrigger>
-          <TooltipContent>{column.label}</TooltipContent>
-        </Tooltip>
-      )
-    })}
-  </span>
+  const members = loaded.flatMap(reach => {
+    const column = columns.find(column => column.id === reach.runtime)
+    return column ? [{
+      id: reach.runtime,
+      name: column.label,
+      tint: runtimeTint(reach.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
+      mark: column.info ? <RuntimeMark runtime={column.info} size={12} /> : undefined,
+    }] : []
+  })
+  const faces = members.length ? <AvatarStack
+    size="stack"
+    aria-label={`Loaded by ${members.map(member => member.name).join(', ')}`}
+    members={members}
+  /> : <span>{narrow && <span className="sr-only">Loaded by </span>}<Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text></span>
   if (narrow) return <ListRow
     as="button"
     interactive
     data-slot="skill-row"
     onClick={onOpen}
-    title={title}
+    title={<>{title}{!finding && <span className="sr-only"> Ready</span>}</>}
     subtitle={description}
     wrapSubtitle
-    meta={<Chip tone={finding?.tone === 'warn' ? 'warning' : 'neutral'} size="sm">{finding?.text ?? 'Ready'}</Chip>}
+    meta={finding ? <Chip tone={finding.tone === 'warn' ? 'warning' : 'neutral'} size="sm">{finding.text}</Chip> : undefined}
     trail={<>{faces}<ChevronIcon size={15} /></>}
   />
   return (
@@ -191,17 +182,10 @@ export const SkillRow = ({ entry, columns, onOpen }: {
 }
 
 export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactNode; kind?: 'skill' | 'mcp' }) => {
-  const [box, setBox] = useState<HTMLDivElement | null>(null)
-  const [narrow, setNarrow] = useState(false)
-  useEffect(() => {
-    if (!box || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(([entry]) => setNarrow((entry?.contentRect.width ?? Infinity) < NARROW_LIST_WIDTH))
-    observer.observe(box)
-    return () => observer.disconnect()
-  }, [box])
-  return <div ref={setBox} data-slot="skill-list" data-layout={narrow ? 'list' : 'table'}>
-    <NarrowList.Provider value={narrow}>
-    {narrow ? <ListRows>{children}</ListRows> : <Table variant="framed">
+  const { ref, narrow } = useNarrowLayout<HTMLDivElement>(NARROW_LIST_WIDTH)
+  return <div ref={ref} data-slot="skill-list" data-layout={narrow === null ? 'unmeasured' : narrow ? 'list' : 'table'}>
+    <NarrowList.Provider value={narrow ?? false}>
+    {narrow === null ? null : narrow ? <ListRows>{children}</ListRows> : <Table variant="framed">
     <TableCaption variant="sr-only">
       Each row is one entry; its state and the agents that load it appear in separate columns.
     </TableCaption>

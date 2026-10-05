@@ -174,8 +174,9 @@ its label shares that edge. An unframed empty body uses `SectionBody spacing="in
 leaving its vertical rhythm to the inline empty state. The table family's
 `--hd-table-edge` follows the row inset in both densities; its minimum row
 heights, face sizes and centring remain the family's own geometry.
-An explicitly compact `ListRow` keeps 1px symmetric vertical padding and its
-40px full or 32px bare row floor, while retaining the 12px inline inset.
+An explicitly compact `ListRow` keeps 1px symmetric vertical padding for
+unwrapped copy; `wrapTitle` or `wrapSubtitle` earns the dense 8px block inset.
+Both keep the 40px full or 32px bare row floor and the 12px inline inset.
 A responsive framed table uses `Table inset="row"`
 to keep the same inline cell inset as the list replacing it. The table retains
 its existing head and data-cell pitch; this contract only sets the content edge. Borders stay outside
@@ -1124,9 +1125,9 @@ wrong keeps its own:
 
 - `lib/provenance.ts`'s `captureWords`: a healthy capture read "Healthy" in
   the success tone.
-- `components/ProjectTriggers.tsx`'s `STATE_WORDS.armed`: an armed trigger
-  read "Armed" in the success tone — the one state in that table that was
-  toned at all; `off` was already neutral.
+- `components/ProjectTriggers.tsx`'s former "Armed" chip read in the
+  success tone; the switch now carries Off and Armed, while Changed, Refused
+  and Paused retain their exceptional-state chips.
 - `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime reaches
   read "On" in the success tone; "Off" already had none.
 - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in the

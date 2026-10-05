@@ -185,6 +185,8 @@ for (const theme of ['light', 'dark'] as const) {
       const loaded = rows.filter({ hasText: 'Shared review' })
       await expect(loaded.locator('[data-shape="face"]')).toHaveCount(4)
       if (narrow) {
+        await expect(loaded).toHaveAccessibleName(/Ready.*Loaded by Alpha/)
+        await expect(loaded.locator('[data-slot="chip"]')).toHaveCount(0)
         await expect(
           sheet.getByRole('button', { name: /Loaded by Alpha/ }).filter({ hasText: 'Shared review' }),
         ).toHaveCount(1)
@@ -262,5 +264,27 @@ for (const theme of ['light', 'dark'] as const) {
 
     await dial.selectOption('extensions')
     await expect(sheet.getByText('Turned off by an administrator', { exact: true })).toBeVisible()
+  })
+}
+
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Library header actions wrap below readable copy at 720px and 560px in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
+    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    for (const width of [720, 560]) {
+      await page.setViewportSize({ width, height: 1100 })
+      const head = sheet.locator('[data-slot="page-head"]')
+      const blurb = head.locator('p')
+      const actions = head.getByRole('button')
+      const copy = (await blurb.boundingBox())!
+      const bounds = (await head.boundingBox())!
+      expect(copy.width).toBeGreaterThanOrEqual(bounds.width - 1)
+      for (const action of await actions.all()) expect((await action.boundingBox())!.y).toBeGreaterThanOrEqual(copy.y + copy.height)
+      expect(await head.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      await expect(sheet.locator('[data-slot="library-attention"] [data-part="banner-icon"]').first()).toBeVisible()
+    }
   })
 }

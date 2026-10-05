@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { AuthoringDocument, FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
 
-import { Button, Chip, GroupLine, ListRow, ListRows, Note, Row, Rows, Section } from '../design'
+import { Button, Chip, GroupLine, ListRow, ListRows, Note, Section } from '../design'
 import { useStore } from '../state/context'
 import { FlowUpdate } from './FlowUpdate'
 import { ShapeEditor } from './ShapeEditor'
@@ -78,13 +78,13 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
       title="Flows"
       description={<>Files in <code>.harnessdesk/flows</code>, versioned with its code: its own first, then yours, then the ones that ship.</>}
     >
-      {editProblem && <Rows><Row title="This shape could not be read" desc={editProblem} /></Rows>}
+      {editProblem && <ListRows><ListRow density="compact" title="This shape could not be read" subtitle={editProblem} wrapSubtitle /></ListRows>}
       {(problem || entries === null || entries.length === 0) && (
-        <Rows>
-          {problem && <Row title={problem} />}
-          {!problem && entries === null && <Row title="Reading…" />}
-          {entries?.length === 0 && <Row title="No flows of its own" desc="Customize a shipped one, below, to give this project its own." />}
-        </Rows>
+        <ListRows>
+          {problem && <ListRow density="compact" title={problem} wrapTitle />}
+          {!problem && entries === null && <ListRow density="compact" title="Reading…" />}
+          {entries?.length === 0 && <ListRow density="compact" title="No flows of its own" subtitle="Customize a shipped one, below, to give this project its own." wrapSubtitle />}
+        </ListRows>
       )}
       {!problem && entries && LAYERS.map(({ origin, label }) => {
         const layer = entries.filter((entry) => entry.origin === origin)

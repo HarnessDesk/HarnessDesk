@@ -5,6 +5,7 @@ import {
   IconTile, ListRow, ListRows, PaneColumn, Table, TableBody, TableCell,
   TableHead, TableHeader, TableRow, Text,
 } from '../design'
+import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { elapsedSince } from '../lib/clock'
 import { sanitizeHtml } from '../lib/sanitize'
 import type { NeedsYouAnswers } from '../lib/needs-you'
@@ -67,8 +68,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   defaultExpanded?: boolean
   runNeedsYou?: boolean
 }) => {
-  const box = useRef<HTMLDivElement>(null)
-  const [narrow, setNarrow] = useState(false)
+  const { ref: box, narrow } = useNarrowLayout<HTMLDivElement>(800)
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
@@ -80,12 +80,6 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [])
-  useEffect(() => {
-    if (!box.current || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(([entry]) => setNarrow((entry?.contentRect.width ?? Infinity) < 800))
-    observer.observe(box.current)
-    return () => observer.disconnect()
   }, [])
   const done = model.seats.filter(row => row.done)
   const rows = model.seats.filter(row => !row.done).concat(expanded ? done : [])
@@ -118,7 +112,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const publicationWait = Boolean(publication?.needsYou && onFindings)
   const reasonInWait = findingsWait || (publicationWait && reason === publicationReason)
   return (
-    <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
+    <div ref={box} data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
         {run && (
           <Card spacing="compact">
@@ -173,7 +167,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             <SectionBody spacing="inline">
               <EmptyState variant="inline" align="start" title="No agents in this Team yet" />
             </SectionBody>
-          ) : rows.length === 0 ? null : narrow ? (
+          ) : rows.length === 0 || narrow === null ? null : narrow ? (
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} interactive={opens(row)} className="relative isolate" onClick={opens(row) ? event => { if (event.currentTarget.contains(event.target as Node) && !(event.target as Element).closest('button')) onOpen?.(row.seat) } : undefined} lead={face(row)}

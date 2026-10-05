@@ -600,7 +600,11 @@ export const Segmented = <T extends string>({
 
 /* --- page furniture ------------------------------------------------------ */
 
-/** The page's 20px semibold name, matching the wordmark, one line saying what it is for, and anything it acts on. */
+/**
+ * The page's 20px semibold name, matching the wordmark, one line saying what
+ * it is for, and anything it acts on. Actions wrap below the copy when the
+ * container cannot keep a readable description beside them.
+ */
 export const PageHead = ({
   title,
   blurb,

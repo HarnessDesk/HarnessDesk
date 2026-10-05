@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { AppWindowMode } from './AppWindow'
 import { TeamsWindow } from './TeamsWindow'
@@ -13,7 +13,8 @@ import type { AppStore } from '../state/store'
 ;(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true
 const container=document.createElement('div'); document.body.append(container)
 const root=createRoot(container)
-afterEach(()=>{act(()=>root.render(null));vi.unstubAllGlobals()})
+beforeEach(()=>{vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({width:1000} as DOMRect)})
+afterEach(()=>{act(()=>root.render(null));vi.restoreAllMocks();vi.unstubAllGlobals()})
 const mount=async(scene:Parameters<typeof overviewTeamStore>[0]='running')=>{
  const base=overviewTeamStore(scene)
  const seen=vi.fn(); const hidden=vi.fn(); const open=vi.fn(); const close=vi.fn()
@@ -148,7 +149,8 @@ it('observes the page after the window mounts it and switches narrow Teams to li
  const observed=vi.fn()
  vi.stubGlobal('ResizeObserver',class {
   constructor(private callback:ResizeObserverCallback){}
-  observe(node:Element){observed(node);this.callback([{contentRect:{width:352}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
+  observe(node:Element){observed(node);this.callback([{target:node,contentRect:{width:352}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
+  unobserve(){}
   disconnect(){}
  })
  await mount()
@@ -160,7 +162,8 @@ it('observes the page after the window mounts it and switches narrow Teams to li
 it.each([352,1000])('a portalled Team menu panel does not open its row at %spx',async width=>{
  vi.stubGlobal('ResizeObserver',class {
   constructor(private callback:ResizeObserverCallback){}
-  observe(){this.callback([{contentRect:{width}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
+  observe(target:Element){if(target.matches('[data-slot="teams-page"]'))this.callback([{target,contentRect:{width}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
+  unobserve(){}
   disconnect(){}
  })
  const {seen,open,close}=await mount('done')
@@ -196,7 +199,7 @@ it('explains unavailable time and both known and unavailable money',async()=>{
  expect(money('team-1').getAttribute('title')).toBe('Recorded Team usage; money only from metered accounts with a known rate')
 })
 
-it('gives the wide Team a real named button, with menu clicks independent',async()=>{
+it('opens the wide Team once through its named button',async()=>{
  const {open}=await mount()
  const row=container.querySelector('[data-team-row]')!
  const action=row.querySelector<HTMLButtonElement>('button[aria-label^="Open "]')

@@ -1,4 +1,17 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import path from 'node:path'
+import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
+
+const capture = async (page: Page, frame: Locator, name: string) => {
+  if (!process.env.USAGE_TABLES_FRAMES_DIR) return
+  // Audit the photographed surface, including its tooltip and field values.
+  const seen = await frame.evaluate((root, collect) => {
+    const read = new Function('document', `return ${collect}`)
+    return read({ body: root, title: document.title, querySelectorAll: root.querySelectorAll.bind(root) })
+  }, COLLECT)
+  expect(textReasons(seen, { user: USER })).toEqual([])
+  await frame.screenshot({ path: path.join(process.env.USAGE_TABLES_FRAMES_DIR, name) })
+}
 
 const alignedMeters = async (rows: Locator) => {
   const boxes = await rows.locator('[data-slot="progress"]').evaluateAll(nodes => nodes.map(node => {
@@ -187,6 +200,7 @@ for (const theme of ['light', 'dark'] as const) {
   for (const width of [360, 480, 720]) {
     test(`Receipt Cost keeps figure space with real host notes at ${width}px in ${theme}`, async ({ page }) => {
       await page.goto('/preview.html')
+      await page.evaluate(async () => { await document.fonts.ready })
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       const frame = page.locator('[data-frame-id="goal-accounting"]')
       await frame.evaluate((node, width) => { (node as HTMLElement).style.width = `${width}px` }, width)
@@ -246,13 +260,14 @@ for (const theme of ['light', 'dark'] as const) {
     }, gate)
     await expect(row.locator(':scope > :last-child')).toHaveAttribute('title', `blocked until ${clock}`)
     await page.evaluate(async () => { await document.fonts.ready })
-    if (process.env.USAGE_REPAIR_FRAMES === '1') await menu.screenshot({ path: `output/usage-round2/blocked-plan-${theme}.png` })
+    await capture(page, menu, `blocked-plan-${theme}.png`)
   })
 
   test(`By Goal retries refused history and wraps its recovery action in ${theme}`, async ({ page }) => {
     await page.route('**/src/preview/usage-fixture.ts*', async route => {
       const response = await route.fetch()
       const body = (await response.text())
+        .replace(/=> \(\{\s*loaded:/, '=> (await new Promise(resolve => { if (window.__historyHold) window.__historyFinish = resolve; else resolve(); }), { loaded:')
         .replace('loaded: new Set(teams)', 'loaded: new Set(window.__historyRecovered ? teams : [])')
         .replace('unavailable: new Set()', 'unavailable: new Set(window.__historyRecovered ? [] : teams)')
       await route.fulfill({ response, body })
@@ -274,10 +289,72 @@ for (const theme of ['light', 'dark'] as const) {
     expect(geometry.actionLeft).toBe(geometry.noteLeft)
     expect(geometry.scroll).toBe(geometry.client)
     await page.evaluate(async () => { await document.fonts.ready })
-    if (process.env.USAGE_REPAIR_FRAMES === '1') await project.screenshot({ path: `output/usage-round2/by-goal-retry-${theme}.png` })
-    await page.evaluate(() => { (window as unknown as { __historyRecovered: boolean }).__historyRecovered = true })
-    await note.getByRole('button', { name: 'Try again', exact: true }).click()
+    await capture(page, dashboard, `by-goal-refused-${theme}.png`)
+    await page.evaluate(() => { (window as unknown as { __historyHold: boolean }).__historyHold = true })
+    const retry = note.getByRole('button', { name: 'Try again', exact: true })
+    await retry.focus()
+    await page.keyboard.press('Enter')
+    await page.waitForFunction(() => Boolean((window as unknown as { __historyFinish?: () => void }).__historyFinish))
+    const pending = await project.evaluate(node => {
+      const button = node.querySelector('[data-slot="note-action"] button')
+      return { label: button?.textContent, disabled: button?.getAttribute('aria-disabled'), focused: button === document.activeElement,
+        warning: node.textContent?.includes('Run counts are unavailable for some Teams.') }
+    })
+    await capture(page, dashboard, `by-goal-pending-${theme}.png`)
+    await page.evaluate(() => { (window as unknown as { __historyFinish: () => void }).__historyFinish() })
+    await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled()
+    await capture(page, dashboard, `by-goal-repeated-${theme}.png`)
+    const focusedAfterRefusal = await retry.evaluate(button => button === document.activeElement)
+    await page.evaluate(() => {
+      const rig = window as unknown as { __historyRecovered: boolean; __historyHold: boolean }
+      rig.__historyRecovered = true; rig.__historyHold = false
+    })
+    await retry.click()
     await expect(note).toHaveCount(0)
+    expect(pending).toEqual({ label: 'Trying again…', disabled: 'true', focused: true, warning: true })
+    expect(focusedAfterRefusal).toBe(true)
     await expect(project.locator('tbody td').nth(1)).toHaveText('1')
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Receipt Cost shares an all-missing cohort in ${theme}`, async ({ page }) => {
+    await page.route('**/src/preview/harness.tsx*', async route => {
+      const response = await route.fetch()
+      await route.fulfill({ response, body: (await response.text()).replaceAll("note: \"Recorded brief cohort\"", "note: \"Brief cohort unavailable\"") })
+    })
+    await page.goto('/preview.html')
+    await page.evaluate(async () => { await document.fonts.ready })
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const frame = page.locator('[data-frame-id="goal-accounting"]')
+    await frame.evaluate(node => { (node as HTMLElement).style.width = '480px' })
+    await expect(frame.getByRole('heading', { name: 'Cost', exact: true })).toBeVisible()
+    await capture(page, frame, `receipt-missing-cohort-${theme}.png`)
+    await expect(frame.getByText('Brief cohort unavailable', { exact: true })).toHaveCount(1)
+    await expect(frame.locator('dl')).not.toContainText('Brief cohort unavailable')
+  })
+
+  test(`Cost keeps its retry separate from the sentence in ${theme}`, async ({ page }) => {
+    await page.route('**/src/preview/frames-goals.tsx*', async route => {
+      const response = await route.fetch()
+      await route.fulfill({ response, body: (await response.text()).replace(/report: INSIGHT_REPORT,\s*loading: false,\s*problem: null/, 'report: null, loading: false, problem: "The source is temporarily unavailable."') })
+    })
+    await page.goto('/preview.html')
+    await page.evaluate(async () => { await document.fonts.ready })
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const frame = page.locator('[data-frame-id="insight-loaded"]')
+    await frame.evaluate(node => { (node as HTMLElement).style.width = '360px' })
+    await expect(frame.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+    await capture(page, frame, `cost-retry-${theme}.png`)
+    await expect(frame.locator('[data-slot="note-text"]')).toHaveText('Recorded usage could not be read. The source is temporarily unavailable.')
+    const geometry = await frame.locator('[data-slot="note"]').evaluate(node => {
+      const text = node.querySelector('[data-slot="note-text"]')!.getBoundingClientRect()
+      const action = node.querySelector('button')!.getBoundingClientRect()
+      return { textBottom: text.bottom, actionTop: action.top, actionLeft: action.left, noteLeft: node.getBoundingClientRect().left,
+        fits: node.scrollWidth === node.clientWidth }
+    })
+    expect(geometry.actionTop).toBeGreaterThan(geometry.textBottom)
+    expect(geometry.actionLeft).toBe(geometry.noteLeft)
+    expect(geometry.fits).toBe(true)
   })
 }

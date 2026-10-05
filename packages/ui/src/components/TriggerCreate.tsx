@@ -9,7 +9,7 @@ import {
 import {
   ActionError, Banner, Button, Dialog, Field, FormStack, Input, NativeSelect, Note, NoteList, Row, RowChoice, Rows, SectionHead, Switch, Text,
 } from '../design'
-import { triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerSentence } from '../lib/intake'
+import { triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerRowWords } from '../lib/intake'
 import { wholeTextDiff } from '../lib/diff'
 import { useStore } from '../state/context'
 import { DiffView } from './Diff'
@@ -170,6 +170,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
     }
   }
 
+  const words = definition ? triggerRowWords(definition) : null
   const fields = SOURCE_FIELDS[source]
   const subject = SOURCE_SUBJECT[source]
   const budget: TriggerBudget = definition?.budget ?? { usd: 5, rounds: 3, hours: 4, withoutProgress: 2 }
@@ -393,7 +394,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
                 <Note tone="warn">Stops when reported spend reaches the limit. Work already running can cost more before it stops.</Note>
               </section>
 
-              <Note>{triggerSentence(definition)}</Note>
+              {words && <Row title={words.title} desc={words.facts} />}
             </>
           )}
 
