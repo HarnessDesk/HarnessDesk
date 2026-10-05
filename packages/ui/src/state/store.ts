@@ -2297,6 +2297,24 @@ export class AppStore {
       if (goneFolder !== null) {
         this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
       }
+      if (!painted || (options.restoring && !isHeldElsewhere(error) && !isFolderGone(error))) {
+        // Without a transcript this is a draft, so its next message must
+        // create a conversation rather than address the failed one. On a
+        // restore, keep the existing cleanup for other reopening failures;
+        // held or folder-gone transcripts remain readable. Match the key,
+        // because a delayed refusal may arrive after the person moved on.
+        const pane = panes(this.#snapshot.layout.root).find(
+          (candidate) => sessionOf(candidate) === key,
+        )
+        if (pane) {
+          this.#setLayout(showIn(this.#snapshot.layout, pane.id, emptyView()))
+        } else {
+          const docked = mountedViewsIn(this.#snapshot.workbench).find(
+            (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === key,
+          )
+          if (docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, docked.mounted.id))
+        }
+      }
       if (isHeldElsewhere(error)) {
         this.notice('error', describe(error), {
           label: 'Open a copy',
@@ -2312,25 +2330,7 @@ export class AppStore {
            arrive as three identical toasts. Kept on a layout restore for the
            reason the held-elsewhere case is — the transcript is right there,
            and emptying the pane would throw away the only copy left of it. */
-      } else if (options.restoring) {
-        // The layout remembered a conversation the backend no longer holds
-        // — an ended ephemeral session, an ACP agent that was restarted.
-        // Toasting the same failure on every launch is nagging about
-        // history; the honest rendering is an empty pane, or — for one that
-        // was docked — no panel at all, since a panel cannot sit empty the
-        // way a pane can.
-        const pane = panes(this.#snapshot.layout.root).find(
-          (candidate) => sessionOf(candidate) === key,
-        )
-        if (pane) {
-          this.#setLayout(showIn(this.#snapshot.layout, pane.id, emptyView()))
-        } else {
-          const docked = mountedViewsIn(this.#snapshot.workbench).find(
-            (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === key,
-          )
-          if (docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, docked.mounted.id))
-        }
-      } else if (!isFolderGone(error) || firstForFolder) {
+      } else if (!options.restoring && (!isFolderGone(error) || firstForFolder)) {
         /* Nothing was painted, so there is no pane to carry the state and no
            transcript to call read-only — the news has nowhere else to go. Said
            once for the **folder** rather than once per conversation, which is

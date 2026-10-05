@@ -606,6 +606,11 @@ in [extending.md](extending.md).
   ([context-usage.md](context-usage.md)).
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
+- **A conversation that cannot be read returns its pane to a fresh draft.**
+  The error still says why it could not open; the next message starts a new
+  conversation in the draft's chosen folder rather than addressing the one
+  that failed. A transcript already loaded stays available when reopening
+  fails.
 - **A conversation whose folder has been deleted has no composer**, because
   there is nowhere for a message to go. In its place the pane states the fact
   in the agent's own words and offers *Open a copy in another folder*, which

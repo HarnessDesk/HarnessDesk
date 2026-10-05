@@ -129,6 +129,100 @@ describe('opening a conversation', () => {
   })
 })
 
+describe('a conversation that could not be read (#800)', () => {
+  const SAID = 'No stored conversation s-1.'
+
+  it.each([undefined, 'sessionFolderGone', 'sessionBusy'])(
+    'returns the pane to a draft when the read fails (%s)',
+    async (code) => {
+      vi.mocked(store.transport.request).mockRejectedValue(Object.assign(new Error(SAID), { code }))
+
+      await store.openSession(ID, { runtime: RUNTIME })
+
+      expect(panesOf().map((pane) => pane.view)).toEqual([{ kind: 'conversation', session: null }])
+      expect(store.getSnapshot().activeSessionKey).toBeNull()
+      expect(store.getSnapshot().sessions.has(KEY)).toBe(false)
+      expect(store.getSnapshot().loadingSessions.has(KEY)).toBe(false)
+      expect(store.getSnapshot().notices.at(-1)?.message).toBe(SAID)
+    },
+  )
+
+  it('creates a new conversation for the next composer send', async () => {
+    const fresh = session({ id: sessionId('fresh') })
+    answers['workspace/recent'] = [{ path: '/w', name: 'project', lastOpenedAt: 0 }]
+    answers['worktree/list'] = []
+    answers['session/create'] = fresh
+    await store.selectRuntime(RUNTIME)
+    await store.loadWorkspaces()
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method === 'session/read') throw new Error(SAID)
+      return answers[method] ?? null
+    }) as never)
+    await store.openSession(ID, { runtime: RUNTIME })
+
+    expect(await store.queue([{ type: 'text', text: 'Start here.' }])).toBe(true)
+
+    const calls = vi.mocked(store.transport.request).mock.calls
+    expect(calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({
+      runtime: RUNTIME, options: { cwd: '/w' },
+    })
+    expect(calls.filter(([method]) => method === 'turn/queue').map(([, params]) => params)).toEqual([
+      { runtime: RUNTIME, sessionId: fresh.id, input: [{ type: 'text', text: 'Start here.' }] },
+    ])
+  })
+
+  it('does not clear a newer conversation when a delayed read fails', async () => {
+    let refuse!: (error: Error) => void
+    vi.mocked(store.transport.request).mockReturnValueOnce(new Promise((_, reject) => { refuse = reject }))
+    const pending = store.openSession(ID, { runtime: RUNTIME })
+    const newer = session({ id: sessionId('newer') })
+    answers['session/read'] = newer
+    answers['session/resume'] = newer
+    await store.openSession(newer.id, { runtime: RUNTIME })
+
+    refuse(new Error(SAID))
+    await pending
+
+    expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(RUNTIME, newer.id))
+    expect(panesOf().map(sessionOf)).toEqual([sessionKey(RUNTIME, newer.id)])
+  })
+
+  it('does not replace the current view for a failed background open', async () => {
+    answers['session/read'] = session({ id: sessionId('current') })
+    answers['session/resume'] = answers['session/read']
+    await store.openSession(sessionId('current'), { runtime: RUNTIME })
+    const layout = store.getSnapshot().layout
+    vi.mocked(store.transport.request).mockRejectedValue(new Error(SAID))
+
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
+
+    expect(store.getSnapshot().layout).toBe(layout)
+  })
+
+  it('still restores an unreadable conversation as a draft without a notice', async () => {
+    vi.mocked(store.transport.request).mockRejectedValue(new Error(SAID))
+
+    await store.openSession(ID, { runtime: RUNTIME, restoring: true })
+
+    expect(panesOf().map((pane) => pane.view)).toEqual([{ kind: 'conversation', session: null }])
+    expect(store.getSnapshot().notices).toEqual([])
+  })
+
+  it.each([undefined, 'sessionBusy'])('keeps a transcript when resuming fails (%s)', async (code) => {
+    answers['session/read'] = working
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method === 'session/resume') throw Object.assign(new Error('The agent is unavailable.'), { code })
+      return answers[method] ?? null
+    }) as never)
+
+    await store.openSession(ID, { runtime: RUNTIME })
+
+    expect(panesOf().map(sessionOf)).toEqual([KEY])
+    expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(working.turns)
+    expect(store.getSnapshot().notices.at(-1)?.message).toBe('The agent is unavailable.')
+  })
+})
+
 /**
  * Opening a second conversation.
  *
