@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A conversation that cannot open leaves a usable draft.** When its
+  transcript cannot be read, the pane shows the error and returns to a fresh
+  draft, so the next message starts a new conversation. Words and attachments
+  entered while it was opening remain available to restore. Send waits for
+  the conversation to load, and Restore keeps newer text and attachments
+  available to swap back. (Fixes #800)
+
 - **Runtime information waits quietly in the Inbox.** Configuration warnings
   and retiring settings show their details, a file action and a mute option.
   Repeats update one row's count and time; unchanged content stays read across

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SessionKey } from '@harnessdesk/protocol'
 
-import { Drafts, draftsOf } from './drafts'
+import { Drafts, draftsOf, UNSCOPED_RECOVERY_KEY } from './drafts'
 
 const a = 'codex\u0000a' as SessionKey
 const b = 'claude\u0000b' as SessionKey
@@ -102,6 +102,33 @@ describe('draft reload storage', () => {
     expect(restored?.text).toBe('failed send')
     expect(drafts.live(a)?.text).toBe('failed send')
     expect(drafts.recoverable(a).map((item) => item.text)).toEqual(['typed meanwhile'])
+  })
+
+  it('restores an unscoped recovery into another conversation and persists its displaced draft', () => {
+    const drafts = new Drafts()
+    drafts.setLive(a, { text: 'newer', attachments: [{ id: 'file', kind: 'file', name: 'new.md', path: '/repo/new.md' }] })
+    const entry = drafts.addRecoverable(UNSCOPED_RECOVERY_KEY, { text: 'old', attachments: [], detail: 'Restore it.' })!
+    drafts.restore(UNSCOPED_RECOVERY_KEY, entry.id, { key: a, draft: drafts.live(a) })
+    const reloaded = new Drafts()
+    expect(reloaded.live(a)?.text).toBe('old')
+    expect(reloaded.live(UNSCOPED_RECOVERY_KEY)).toBeNull()
+    const displaced = reloaded.recoverable(a)[0]!
+    expect(displaced.text).toBe('newer')
+    expect(displaced.attachments[0]?.name).toBe('new.md')
+    expect(reloaded.restore(a, displaced.id)?.text).toBe('newer')
+    expect(reloaded.recoverable(a).map((draft) => draft.text)).toEqual(['old'])
+  })
+
+  it('saves a fresh composer draft on Restore without creating a phantom live owner', () => {
+    const drafts = new Drafts()
+    const entry = drafts.addRecoverable(UNSCOPED_RECOVERY_KEY, { text: 'old', attachments: [], detail: 'Restore it.' })!
+    drafts.restore(UNSCOPED_RECOVERY_KEY, entry.id, { key: null, draft: {
+      text: 'newer', attachments: [{ id: 'file', kind: 'file', name: 'new.md', path: '/repo/new.md' }],
+    } })
+    const reloaded = new Drafts()
+    expect(reloaded.live(UNSCOPED_RECOVERY_KEY)).toBeNull()
+    expect(reloaded.recoverable(UNSCOPED_RECOVERY_KEY)[0]?.text).toBe('newer')
+    expect(reloaded.recoverable(UNSCOPED_RECOVERY_KEY)[0]?.attachments[0]?.name).toBe('new.md')
   })
 
   it('mirrors text and path chips but never image data URLs', () => {
