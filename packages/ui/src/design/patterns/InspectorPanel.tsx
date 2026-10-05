@@ -82,6 +82,7 @@ const PanelRow = ({
   title,
   sub,
   ask,
+  askLines = 2,
   meta,
   trail,
   subPath,
@@ -101,6 +102,8 @@ const PanelRow = ({
   title: ReactNode
   sub?: ReactNode
   ask?: ReactNode
+  /** Prompts stay at two lines; a refusal must be readable in full. */
+  askLines?: 2 | 'all'
   meta?: ReactNode
   trail?: ReactNode
   subPath?: boolean
@@ -135,7 +138,7 @@ const PanelRow = ({
             {sub}
           </Text>
         ) : null}
-        {ask ? <Text role="meta" className="mt-(--hd-table-line-gap) [overflow-wrap:anywhere]">{ask}</Text> : null}
+        {ask ? <Text role="meta" ink="secondary" className={cn('mt-(--hd-table-line-gap) [overflow-wrap:anywhere]', askLines === 2 && 'line-clamp-2')}>{ask}</Text> : null}
         {meta ? <Text role="meta" numeric className="mt-1">{meta}</Text> : null}
       </span>
       {trail}

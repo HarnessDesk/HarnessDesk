@@ -15,9 +15,10 @@ import { PREVIEW_CHECKS, PREVIEW_SEAT } from './evidence-fixture'
 const session = store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!
 const delegation: SubagentItem = {
   id: itemId('compact-delegation'), type: 'subagent', action: 'spawn', status: 'completed',
-  prompt: 'Review the shared check declarations and report any commands that need approval before they can run.',
+  prompt: 'Review the shared check declarations and report any commands that need approval before they can run. '.repeat(16),
   members: [
     { sessionId: 'compact-reviewer', nickname: 'Reviewer', role: 'review', model: 'alpha-max', state: 'working', openable: false },
+    { sessionId: 'compact-auditor', nickname: 'Auditor', role: 'audit', model: 'alpha-max', state: 'working', openable: false },
     { sessionId: 'compact-tester', nickname: 'Tester', role: 'test', model: 'alpha-max', state: 'completed', openable: false },
   ],
 }

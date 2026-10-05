@@ -79,7 +79,22 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html?compact-panels')
     await page.evaluate(() => document.fonts.ready)
     const agents = page.locator('[data-frame-id="panel-agents"]')
-    await expect(agents.locator('[data-slot="inspector-row"]')).toHaveCount(2)
+    await expect(agents.locator('[data-slot="inspector-row"]')).toHaveCount(3)
+    const prompts = agents.locator('[data-role="meta"]').filter({ hasText: 'Review the shared check declarations' })
+    await expect(prompts).toHaveCount(3)
+    for (const prompt of await prompts.all()) {
+      const reading = await prompt.evaluate(node => ({
+        clamp: getComputedStyle(node).webkitLineClamp,
+        height: node.getBoundingClientRect().height,
+        lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+        full: node.textContent?.length ?? 0,
+        tooltip: node.closest('[data-slot="inspector-row"]')?.getAttribute('title'),
+      }))
+      expect(reading.clamp).toBe('2')
+      expect(reading.height).toBeLessThanOrEqual(reading.lineHeight * 2)
+      expect(reading.full).toBeGreaterThan(1500)
+      expect(reading.tooltip).toContain(await prompt.textContent())
+    }
     const panels = ['panel-activity', 'panel-agents', 'panel-trajectory', 'panel-changes', 'panel-background-tasks', 'panel-seat-attachments']
     for (const id of panels) {
       const frame = page.locator(`[data-frame-id="${id}"]`)

@@ -68,7 +68,7 @@ export const SeatAttachments = ({
       <PanelRow
         key={`${declaration.kind}:${declaration.name}`}
         title={declaration.name}
-        {...(reason ? { ask: reason } : {})}
+        {...(reason ? { ask: reason, askLines: 'all' as const } : {})}
         // Loaded is the resting, working state a declared attachment is
         // meant to be in — health takes no tone, so it reads untoned; Not
         // loaded is the one that stands out.

@@ -91,3 +91,17 @@ it('a reading inspector gives its tools and body one reading gutter', () => {
   expect(host.querySelector('[data-slot="inspector-body"] [data-slot="pane-column"]')!.getAttribute('data-inset')).toBe('reading')
   expect(host.querySelector('[data-slot="inspector-body"]')!.className).not.toContain('p-2')
 })
+
+it('clamps prompts to two lines in secondary ink while allowing full refusal sentences', () => {
+  act(() => root.render(<>
+    <PanelRow title="Reviewer" ask="A long delegated prompt" />
+    <PanelRow title="search" ask="A complete refusal sentence" askLines="all" />
+  </>))
+  const asks = [...container.querySelectorAll('[data-role="meta"]')]
+  expect(asks[0]?.className).toContain('line-clamp-2')
+  expect(asks[1]?.className).not.toContain('line-clamp')
+  for (const ask of asks) {
+    expect(ask.className).toContain('text-(--hd-secondary-foreground)')
+    expect(ask.className).toContain('[overflow-wrap:anywhere]')
+  }
+})
