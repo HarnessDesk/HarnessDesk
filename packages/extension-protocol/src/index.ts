@@ -167,7 +167,8 @@ export interface PluginHostMethods {
     result: { readonly label: string; readonly text: string } | null
   }
   'workspace/set': {
-    params: { readonly root: string | null; readonly branch: string | null }
+    /** `admitted`: the open folder's checkouts as real paths (`WorkspaceState.admitted` in the kernel). */
+    params: { readonly root: string | null; readonly branch: string | null; readonly admitted?: readonly string[] }
     result: null
   }
   'host/stats': { params: Record<string, never>; result: PluginHostStats }

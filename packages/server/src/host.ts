@@ -219,7 +219,8 @@ export interface ExtensionHost extends CapabilityRegistry {
     ref: string | undefined,
     scope: ScopeQuery,
   ): Promise<{ label: string; text: string; image?: ContextImage } | null>
-  setWorkspace(state: { root: string | null; branch: string | null }): void
+  /** `admitted`: the checkouts a conversation in this folder is admitted to, as real paths, so a call there runs in it. */
+  setWorkspace(state: { root: string | null; branch: string | null; admitted?: readonly string[] }): void
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
   setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
@@ -4717,7 +4718,11 @@ export class Host {
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
     this.#shellProject = shellIdentity.project
-    this.#extensions?.setWorkspace({ root: described.path, branch: git?.branch ?? null })
+    // A conversation here is admitted to the folder's checkout, or to its project's main checkout when it has no
+    // checkout of its own: a call admitted to either runs in this folder as it was opened.
+    this.#extensions?.setWorkspace({
+      root: described.path, branch: git?.branch ?? null, admitted: [shellIdentity.checkoutRoot, shellIdentity.project],
+    })
     // Fire-and-forget: opening a folder must not wait on re-pointing the
     // roster's watch, which walks every open project's ancestors afresh.
     void this.#watchProjects()

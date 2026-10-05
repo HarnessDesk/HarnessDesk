@@ -2,7 +2,7 @@ import { useInboxMessages } from './Notices'
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
-import { chordOf, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
+import { chordParts, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
 import { emptyNoticePolicy, NOTICE_KINDS, NOTICE_USES, surfaceFor, SURFACE_LABEL, type NoticeSurface } from '../lib/notice-policy'
 import { unreadCount } from '../lib/inbox'
 import { SYSTEM_NOTIFICATION_KINDS, systemNotificationOn } from '../lib/system-notifications'
@@ -801,7 +801,7 @@ const ChordRow = ({ shortcut }: { shortcut: Shortcut }) => (
     title={shortcut.label}
     control={
       <span className="flex gap-1">
-        {Array.from(chordOf(shortcut)).map((key, index) => <Keycap key={index} className={styles.chord}>{key}</Keycap>)}
+        {chordParts(shortcut).map((key, index) => <Keycap key={index} className={styles.chord}>{key}</Keycap>)}
       </span>
     }
   />
@@ -818,17 +818,26 @@ export const ShortcutsSection = () => (
       blurb="What the window answers to. Keys inside a pane belong to whatever has focus."
     />
     {GROUPS.map((group) => {
-      const rows = SHORTCUTS.filter((shortcut) => shortcut.group === group && !['tile-2', 'tile-3', 'tile-4'].includes(shortcut.action))
+      const tiles = SHORTCUTS.filter(shortcut => shortcut.group === group && /^tile-\d+$/.test(shortcut.action))
+      const first = tiles[0]
+      const last = tiles.at(-1)
+      const firstParts = first ? chordParts(first) : []
+      const modifiers = firstParts.slice(0, -1).join('')
+      // Different modifiers or nonconsecutive keys remain individual chords.
+      const groupTiles = tiles.length > 1 && tiles.every((tile, index) =>
+        chordParts(tile).slice(0, -1).join('') === modifiers && Number(tile.key) === Number(first!.key) + index)
+      const range = `${firstParts.at(-1)} – ${last ? chordParts(last).at(-1) : ''}`
+      const rows = SHORTCUTS.filter(shortcut => shortcut.group === group && (!groupTiles || !tiles.includes(shortcut) || shortcut === first))
       if (rows.length === 0) return null
       return (
         <div key={group}>
           <SectionHead name={group} />
           <Rows>
             {rows.map((shortcut) => (
-              shortcut.action === 'tile-1' ? (
-                <Row key={shortcut.action} title="Focus tile 1 – 4" control={
+              groupTiles && shortcut === first ? (
+                <Row key={shortcut.action} title={`Focus tile ${range}`} control={
                   <span className="flex gap-1">
-                    {['⌥', '⌘', '1 – 4'].map(key => <Keycap key={key} className={styles.chord}>{key}</Keycap>)}
+                    {[...firstParts.slice(0, -1), range].map(key => <Keycap key={key} className={styles.chord}>{key}</Keycap>)}
                   </span>
                 } />
               ) : <ChordRow key={shortcut.action} shortcut={shortcut} />

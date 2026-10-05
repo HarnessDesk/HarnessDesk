@@ -15,13 +15,13 @@ import { describe, expect, it } from 'vitest'
  * cannot mount (the Agents panel only draws a row once a session has
  * delegated). Three things are refused:
  *
- *   An `IconTile` that holds an agent's mark (`BrandMark`, `RuntimeMark`,
+ *   An `IconTile` or `DetailMark` that holds an agent's mark (`BrandMark`, `RuntimeMark`,
  *   `AgentIcon`) and is not a `face`: a `square` or `round` tile does not
  *   follow the setting, so it would be the one face that ignores it.
  *
  *   An `AvatarStack` that is not a face. Its members are someone.
  *
- *   An `IconTile` whose shape is decided at run time. A mark can arrive
+ *   An `IconTile` or `DetailMark` whose shape is decided at run time. A mark can arrive
  *   through a prop (`AgentCard`'s `subject.mark`), which this cannot see
  *   inside, so a shape it cannot read has to be named; the entry says what
  *   pins it instead.
@@ -117,7 +117,7 @@ const scanFaces = (file: string, source: string): Finding[] => {
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
       const tag = tagName(node)
       const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
-      if (tag === 'IconTile') {
+      if (tag === 'IconTile' || tag === 'DetailMark') {
         const shape = shapeOf(node, 'square')
         // An agent's mark in a tile that is not a face, or a shape this cannot
         // read at all: what such a tile holds may arrive through a prop.
@@ -275,6 +275,15 @@ describe('faces: every tile that draws someone is a face', () => {
       'const a = <IconTile shape="square"><BrandMark brand="codex" /></IconTile>',
     )[0]
     expect(finding?.identity).toBe('<BrandMark brand="codex" />')
+  })
+
+  it('reads DetailMark with the same shape rules as IconTile', () => {
+    for (const tag of ['IconTile', 'DetailMark']) {
+      expect(scanFaces('x.tsx', `<${tag}><AgentIcon /></${tag}>`).map(one => one.shape)).toEqual(['square'])
+      expect(scanFaces('x.tsx', `<${tag} shape={shape}>{mark}</${tag}>`).map(one => one.shape)).toEqual(['dynamic'])
+      expect(scanFaces('x.tsx', `<${tag} shape="face"><RuntimeMark /></${tag}>`)).toEqual([])
+      expect(scanFaces('x.tsx', `<${tag}><FolderIcon /></${tag}>`)).toEqual([])
+    }
   })
 
   it('refuses an AvatarStack that is not a face', () => {
