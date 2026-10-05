@@ -23,8 +23,8 @@ import { cn } from '@/lib/utils'
  *   stays lit.           menu is open. It reads from ARIA the app already sets,
  *                        so no call site has to remember a second flag.
  *   The press nudge.     `active:translate-y-px`, skipped on anything with a
- *                        popup — a menu trigger that sinks under the menu it
- *                        just opened looks like a glitch.
+ *                        popup or a positioned row focus mark — moving the
+ *                        trigger or its row mark looks like a glitch.
  *
  * What is NOT taken: the numbers. Every height, padding, radius, weight, label
  * size and fill still comes from the `--hd-btn-*` component tokens, which is
@@ -323,7 +323,7 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   cursor?: 'default' | 'pointer'
   /** A quiet row may brighten its inherited label on hover without changing warning ink. */
   quietHover?: boolean
-  /** Mark the positioned row on keyboard focus. Only the button owns its hit area; the row must handle clicks on its other readings. */
+  /** A positioned row’s keyboard target and focus mark. The row handles clicks on other readings; this button keeps its own hit area and defaults to no hover fill. */
   stretched?: boolean
   /** Whether this button paints its own hover fill. Set false when an interactive parent owns the hover surface. */
   hoverFill?: boolean
@@ -368,7 +368,7 @@ const Button = ({
     className={cn(
       buttonVariants({ variant, size, className }),
       !bordered && 'border-0',
-      stretched && "static text-left active:translate-none after:absolute after:inset-0 after:pointer-events-none after:content-[''] in-[:root:not([data-focus-input=pointer])]:focus-visible:after:shadow-[inset_0_0_0_var(--hd-ring-width)_var(--hd-ring-muted)]",
+      stretched && "static min-w-(--hd-target-min) text-left active:translate-none after:absolute after:inset-0 after:pointer-events-none after:content-[''] in-[:root:not([data-focus-input=pointer])]:focus-visible:after:shadow-[inset_0_0_0_var(--hd-ring-width)_var(--hd-ring-muted)]",
       cursor === 'default' && 'cursor-default',
       !hoverFill && 'hover:bg-transparent',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
