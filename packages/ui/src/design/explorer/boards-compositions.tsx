@@ -268,7 +268,7 @@ const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'
 const BADGE_CATALOG_SIZES = ['default'] as const
 const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
 
-const TABS_CATALOG_VARIANTS = ['default', 'line'] as const
+const TABS_CATALOG_VARIANTS = ['default', 'line', 'section'] as const
 const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 

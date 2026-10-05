@@ -79,7 +79,7 @@ const ToolPaneHeader = ({
   corner?: boolean
   variant?: 'default' | 'window'
   /** Align the title with text in the board’s nested column and card. */
-  contentInset?: 'board'
+  contentInset?: 'board' | 'reading'
   hint?: string
 }) => (
   <header
@@ -97,6 +97,7 @@ const ToolPaneHeader = ({
       variant === 'default' && 'px-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
+      contentInset === 'reading' && 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge)+var(--hd-border-width))]',
       contentInset === 'board' && (icon != null
         ? 'pl-[calc(2*var(--hd-inset-dense)+var(--hd-inset-card)+2*var(--hd-border-width)-var(--hd-space-4)-var(--hd-bar-gap))]'
         : 'pl-[calc(2*var(--hd-inset-dense)+var(--hd-inset-card)+2*var(--hd-border-width))]'),

@@ -77,6 +77,7 @@ const tabsListVariants = cva(
         /* The underline: no track, an indicator under the active tab. Belongs
            where the tabs sit *above* what they switch — a pane, a page — and
            the rule under them is shared with the content's own top edge. */
+        section: 'min-w-full justify-start gap-1 rounded-none bg-transparent border-b border-(--hd-border) px-(--hd-space-2) group-data-[orientation=horizontal]/tabs:h-(--hd-bar-h)',
         line: 'gap-1 rounded-none bg-transparent group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
       },
     },
@@ -87,12 +88,14 @@ const tabsListVariants = cva(
 const TabsList = ({
   className,
   variant = 'default',
+  contentInset,
   ...props
-}: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) => (
+}: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants> & { contentInset?: 'reading' }) => (
   <TabsPrimitive.List
     data-slot="tabs-list"
     data-variant={variant}
-    className={cn(tabsListVariants({ variant }), className)}
+    className={cn(tabsListVariants({ variant }),
+      contentInset === 'reading' && 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge)+var(--hd-border-width)-var(--hd-space-2))]', className)}
     {...props}
   />
 )
@@ -110,13 +113,13 @@ const TabsTrigger = ({ className, ...props }: TabsPrimitive.Tab.Props) => (
       /* Enclosed: the active tab becomes a raised card on the track. */
       'group-data-[variant=default]/tabs-list:data-active:bg-(--hd-card) group-data-[variant=default]/tabs-list:data-active:text-(--hd-foreground) group-data-[variant=default]/tabs-list:data-active:shadow-(--hd-shadow-sm)',
       /* Line: no fill at all, so the indicator is the only signal. */
-      'group-data-[variant=line]/tabs-list:data-active:bg-transparent group-data-[variant=line]/tabs-list:data-active:text-(--hd-foreground)',
+      'group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:bg-transparent group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:text-(--hd-foreground)',
       /* The indicator, drawn as an ::after so it costs no layout and cannot
          shift the row when it appears. Only the line variant reveals it. */
       'after:absolute after:bg-(--hd-foreground) after:opacity-0 after:transition-opacity',
       'group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:-bottom-px group-data-[orientation=horizontal]/tabs:after:h-0.5',
       'group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-px group-data-[orientation=vertical]/tabs:after:w-0.5',
-      'group-data-[variant=line]/tabs-list:data-active:after:opacity-100',
+      'group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:after:opacity-100',
       className,
     )}
     {...props}

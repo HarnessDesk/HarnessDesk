@@ -223,3 +223,23 @@ const PanelButton = ({
     {children}
   </Button>
 )
+
+/** The same mount actions inside a view’s existing overflow menu. */
+export const PanelActionMenuItems = () => {
+  const panel = useMountControls()
+  const titleOf = useViewTitle()
+  if (!panel || panel.chrome !== 'own') return null
+  return (
+    <>
+      <MenuItem
+        label={panel.zoom ? 'Back to the layout' : panel.zoomScope === 'window' ? 'Fill the window' : 'Give this panel the whole area'}
+        onSelect={() => panel.setZoom(panel.zoom ?? panel.zoomScope)}
+      />
+      {panel.destinations.length > 0 && <MenuLabel>Move</MenuLabel>}
+      {panel.destinations.map(area => (
+        <MenuItem key={area} label={`To ${AREA_NAME[area]}`} onSelect={() => panel.moveTo(area)} />
+      ))}
+      {panel.canClose && <MenuItem label={`Close ${titleOf(panel.view)}`} onSelect={panel.close} />}
+    </>
+  )
+}
