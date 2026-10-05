@@ -1,4 +1,4 @@
-import { approvalId, itemId, runtimeId, sessionId, sessionKey, turnId, type FlowExecution, type GoalView, type InsightAmounts, type InsightMetric, type InsightReport, type Intent, type SeatRecord, type Session } from '@harnessdesk/protocol'
+import { WAITING_LEDGER, approvalId, itemId, runtimeId, sessionId, sessionKey, turnId, type FlowExecution, type GoalView, type InsightAmounts, type InsightMetric, type InsightReport, type Intent, type SeatRecord, type Session } from '@harnessdesk/protocol'
 import { teamOverview, type TeamOverviewInput } from '../lib/team-overview'
 import { PREVIEW_GOAL } from './goal-fixture'
 import { previewStore } from './harness'
@@ -6,6 +6,7 @@ import { previewStore } from './harness'
 export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','comparison','narrow'] as const
 export type OverviewScene = typeof OVERVIEW_STATES[number]
 export const OVERVIEW_RUN_REASONS = {
+ 'unreadable-ledger': `Rule after-review: ${WAITING_LEDGER}`,
  'waiting-evidence': 'Rule after-review: Waiting for CI to go green at this revision.',
  'findings-and-posting': 'Rule after-review: Waiting for 3 open blocking findings to be confirmed resolved.',
  'stopped-unknown': 'The Run stopped; its ending time was not recorded.',
@@ -31,7 +32,7 @@ export const overviewModel = (scene:OverviewScene) => teamOverview(overviewInput
 
 /** Membership shape measured on the host rig, with the older list emptied to cover #1278. */
 export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
- const evidenceWait=scene==='waiting-evidence'||scene==='findings-and-posting'
+ const evidenceWait=scene==='waiting-evidence'||scene==='findings-and-posting'||scene==='unreadable-ledger'
  const input=overviewInput(evidenceWait?'idle':scene==='stopped-unknown'?'running':scene==='unrouted'?'done':scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
  const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}

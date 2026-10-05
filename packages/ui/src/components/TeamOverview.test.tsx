@@ -141,8 +141,9 @@ it('shows an evidence wait once with a Findings action and no engine id',()=>{
  const summary=overviewModel('idle');const onFindings=vi.fn()
  act(()=>root.render(<TeamOverview model={{...summary,run:{...summary.run!,needsYou:true,waitingEvidence:true,waitingFindings:true}}} runReason="Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved." onFindings={onFindings}/>))
  expect(box.textContent).not.toContain('to-referee')
- expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain('You or the reviewer')
+ expect(box.querySelector('[aria-label="Needs you"]')?.textContent).not.toContain('You or the reviewer')
  const action=[...box.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Open findings')!
+ expect(action.title).toBe('You or the reviewer can resolve this wait in Findings.')
  act(()=>action.click());expect(onFindings).toHaveBeenCalledOnce()
  expect(box.querySelector('[aria-label="Run"]')?.textContent).toContain('Needs you')
 })
@@ -189,6 +190,9 @@ it('preserves the supplied live line and its actions during a findings wait',()=
  expect(box.textContent).toContain('Waiting for a Seat to finish before releasing its checkout.')
  expect([...box.querySelectorAll('button')].some(one=>one.textContent==='Open trigger')).toBe(true)
  expect(statusLine).toHaveBeenCalled()
+ const findings=[...box.querySelectorAll('button')].find(one=>one.textContent==='Open findings')!
+ expect(findings.getAttribute('title')).toBe('You or the reviewer can resolve this wait in Findings.')
+ expect(box.textContent).not.toContain('You or the reviewer can resolve this wait in Findings.')
 })
 it.each(['Waiting for its evidence.','Waiting for a passing check at this revision.','Waiting for CI to go green at this revision.','Waiting for a structured review at this revision.','Waiting for the pull request to reach that state.','Waiting for an observed diff at this revision.','Waiting for card #7: findings-check has not passed.'])('keeps the evidence wait %s neutral with its reason in Run',reason=>{
  const summary=overviewModel('idle');const onRun=vi.fn();const onFindings=vi.fn()

@@ -1068,7 +1068,8 @@ to continue, showing each reason once. The header keeps the revision it
 reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**, above the rows.
-Agent names stretch, while the numeric columns align to the end. Now disappears
+Agent names stretch, while the numeric columns align to the end. Card titles
+are names: they truncate within their column and keep their full title on hover. Now disappears
 when no Seat has work or a reason to show, and Cost disappears when every amount is unknown. A done
 Seat's Time is its recorded working duration, fixed when its last turn ended.
 A findings wait, including a ledger that could not be read, raises **Needs you**

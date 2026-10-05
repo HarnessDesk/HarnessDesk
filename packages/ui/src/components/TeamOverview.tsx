@@ -151,8 +151,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
           <Section title="Needs you" inset="row" className="mt-0">
             <ListRows>
               {findingsWait && <ListRow title="Review the findings" subtitle={reason} wrapSubtitle
-                meta={<Text role="meta">You or the reviewer can resolve this wait in Findings.</Text>}
-                trail={onFindings && <Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>} />}
+                trail={onFindings && <Button variant="outline" size="sm" title="You or the reviewer can resolve this wait in Findings." onClick={onFindings}>Open findings</Button>} />}
               {publicationWait && <ListRow title="Post the review" subtitle={findingsWait && publicationReason === reason ? null : publicationReason} wrapSubtitle
                 trail={<Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>} />}
               {model.needsYou.map((item, index) => (

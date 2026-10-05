@@ -173,3 +173,20 @@ for (const theme of ['light', 'dark'] as const) {
 
  })
 }
+
+for(const theme of ['light','dark'] as const) {
+ test(`an unreadable findings ledger raises attention and opens Findings in ${theme}`,async({page})=>{
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  const rig=page.locator('#team-overview-live-unreadable-ledger')
+  const overview=rig.locator('[data-slot="team-overview"]')
+  const reason='Some findings could not be read, so this cannot be ready. A person has to look.'
+  await expect(overview.getByText('Needs you',{exact:true})).toBeVisible()
+  await expect(overview.locator('[aria-label="Needs you"]')).toContainText(reason)
+  expect((await overview.textContent())?.split(reason)).toHaveLength(2)
+  await expect(overview).not.toContainText('Rule after-review:')
+  const open=overview.getByRole('button',{name:'Open findings',exact:true})
+  await expect(open).toHaveAttribute('title','You or the reviewer can resolve this wait in Findings.')
+  await open.click()
+  await expect(rig.locator('[aria-label="Findings"]').first()).toBeVisible()
+ })
+}
