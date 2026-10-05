@@ -7,11 +7,22 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A conversation that cannot open leaves a usable draft.** When its
+  transcript cannot be read, the pane shows the error and returns to a fresh
+  draft, so the next message starts a new conversation. Words and attachments
+  entered while it was opening remain available to restore. Send waits for
+  the conversation to load, and Restore keeps newer text and attachments
+  available to swap back. (Fixes #800)
+
 - **Runtime information waits quietly in the Inbox.** Configuration warnings
   and retiring settings show their details, a file action and a mute option.
   Repeats update one row's count and time; unchanged content stays read across
   launches. Conversation notices stay inline, and only action results open
   toasts. Notifications settings includes every new kind.
+
+- **Read what each room member is doing.** Conversation titles wrap beneath
+  the nickname alongside the task or reason, instead of being cut off on
+  the name's line. (Fixes #1185)
 
 - **A comparison keeps the attempt its judge picked.** Findings on the other
   attempt no longer hold the person’s keep step; they stay open and explain
