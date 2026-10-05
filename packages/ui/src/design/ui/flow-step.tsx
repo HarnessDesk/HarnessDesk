@@ -51,7 +51,7 @@ export const FlowBaton = ({ path }: { path: string }) => {
 /** The marks of the actual Seats occupying a graph node, overlapping when the round fans out. */
 export const FlowFaces = ({ seats, faces, tints, size, fallback }: { seats?: readonly string[]; faces?: ReadonlyMap<string, ReactNode>; tints?: ReadonlyMap<string, Tint>; size?: 'sm'; fallback: ReactNode }) =>
   seats?.length ? seats.length > 1
-    ? <span data-slot="flow-faces"><FaceStack limit={seats.length} faces={seats.map(id => ({id, name: id, tint: tints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon />}))} /></span>
+    ? <span data-slot="flow-faces"><FaceStack limit={seats.length} faces={seats.map(id => ({id, tint: tints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon />}))} /></span>
     : <span data-slot="flow-faces"><IconTile shape="face" size={size ?? 'default'} tint={tints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
     : fallback
 

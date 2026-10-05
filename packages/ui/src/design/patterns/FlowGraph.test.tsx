@@ -243,6 +243,7 @@ it('draws recorded Run state with faces, a badge and duration, a working ring an
   expect(write.querySelector('[data-slot="flow-duration"]')?.textContent).toBe('11m')
   expect(write.querySelector('[data-shape="face"]')?.textContent).toContain('Alpha mark')
   expect(container.querySelector('[data-step="review"]')!.querySelectorAll('[data-shape="face"]')).toHaveLength(2)
+  expect([...container.querySelectorAll('[data-slot="flow-faces"] [data-shape="face"]')].every(face => !face.hasAttribute('title'))).toBe(true)
   const fix = container.querySelector('[data-step="fix"]')!
   expect(fix.textContent).toContain('Working')
   expect(fix.textContent).toContain('Editing src/retry.ts')
