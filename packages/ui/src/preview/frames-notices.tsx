@@ -41,6 +41,7 @@ export const NoticesFrame = () => {
   }, [])
   const started = useRef(false)
   useEffect(() => {
+    ;(window as unknown as { noticeStore: AppStore }).noticeStore = store
     if (started.current) return
     started.current = true
     const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: string, event: AgentEvent): void; onNotification(value: unknown): void } }).handlers
@@ -51,6 +52,7 @@ export const NoticesFrame = () => {
       handlers.onEvent('codex', config)
       handlers.onEvent('codex', config)
       handlers.onEvent('codex', depreciation)
+      if (new URLSearchParams(window.location.search).has('longNotice')) handlers.onEvent('codex', { type: 'notice', kind: 'runtime:warning', level: 'warning', message: 'A background configuration warning contains guidance that must stay readable all the way to the end of this long message, including the final instruction: check the configuration file before the next run.' })
       handlers.onEvent('codex', compacted)
       handlers.onNotification({ method: 'person/notice', params: { notice: { id: 'demo-agent', from: { runtime: 'codex', sessionId: 's1', name: 'Alpha' }, where: 'inbox', title: 'Alpha finished “Retry the checkout call”', body: 'All checks passed. The change is ready to review.', at: Date.now() - 90_000 } } })
     })

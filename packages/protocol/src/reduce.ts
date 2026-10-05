@@ -242,10 +242,10 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       const key = event.contentKey ?? JSON.stringify([event.kind ?? 'conversation:warning', event.message])
       const id = (event.id ?? `notice:${key}`) as ItemId
       if (session.turns.some(turn => turn.items.some(item => item.id === id || (item.type === 'notice' && item.lastEventId === id)))) return session
-      const repeated = session.turns.find(turn => turn.items.some(item => item.type === 'notice' && item.contentKey === key))
+      const last = session.turns.at(-1)
+      const repeated = last?.items.some(item => item.type === 'notice' && item.contentKey === key) ? last : undefined
       if (repeated) return mapTurn(session, repeated.id, turn => ({ ...turn, items: turn.items.map(item => item.type === 'notice' && item.contentKey === key ? { ...item, count: (item.count ?? 1) + 1, lastEventId: id, completedAt: event.at } : item) }))
       const item: AgentItem = { id, type: 'notice', kind: event.kind ?? 'conversation:warning', contentKey: key, text: event.message, count: 1, ...(event.at === undefined ? {} : { startedAt: event.at }) }
-      const last = session.turns.at(-1)
       return last ? mapTurn(session, last.id, turn => ({ ...turn, items: [...turn.items, item] })) : { ...session, turns: [{ id: `notice:${id}` as TurnId, status: 'completed', items: [item] }] }
     }
     case 'error': {

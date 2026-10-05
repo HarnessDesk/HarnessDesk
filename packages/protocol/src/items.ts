@@ -245,14 +245,12 @@ export interface CompactionItem extends ItemBase {
  */
 export interface NoticeItem extends ItemBase {
   readonly type: 'notice'
-  /** Present for runtime information, so the person's kind setting applies. */
+  /** Runtime information follows the kind setting; 'agentBrief' marks the host's standing order. */
   readonly kind?: string
   readonly count?: number
   readonly lastEventId?: string
   readonly contentKey?: string
   readonly text: string
-  /** Host-marked standing order; other housekeeping keeps its plain row. */
-  readonly kind?: 'agentBrief'
 }
 
 /** Entering or leaving a runtime-managed review sub-mode. */

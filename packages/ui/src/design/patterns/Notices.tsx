@@ -414,8 +414,9 @@ export const InboxList = ({
             {message.count && message.count > 1 ? <Chip tone="neutral">×{message.count}</Chip> : null}
             {message.at !== undefined ? <time className={styles.inboxTime}>{new Date(message.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time> : null}
           </span>
-          {open && (message.from || message.body || message.file || message.settings?.length) ? (
+          {open ? (
             <div className={styles.inboxBody}>
+              <div data-part="inbox-full-title">{message.title}</div>
               {message.from ? <span className={styles.inboxFrom}>{message.from}</span> : null}
               {message.from && message.body ? ' · ' : null}
               {message.settings?.length ? <ul className={styles.inboxSettings}>{message.settings.map(setting => <li key={setting}><code>{setting.split('.').map((part, index) => <span key={index}>{index > 0 ? <>.<wbr /></> : null}{part}</span>)}</code></li>)}</ul> : null}
