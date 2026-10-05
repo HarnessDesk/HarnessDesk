@@ -1751,7 +1751,9 @@ names things with a reading; settings rows label controls; a matrix compares
 reach; a log keeps its windowed pitch; key-value rows describe one object.
 Comfortable is the page default (40px header, 56px row or 44px bare).
 `data-hd-table="compact"` uses 32px headers, 40px rows or 32px bare rows;
-panel tables choose compact. Git's log keeps its fixed 26px pitch.
+panel tables choose compact. Inspectors and project panels use the same compact
+record anatomy: 13px medium names, 12px quiet facts, and centred readings.
+Git's log keeps its fixed 26px pitch.
 
 A data table compares three or more facts and has a header. Three or more
 unlabelled numbers also need a header. Omit a column empty in every row; show

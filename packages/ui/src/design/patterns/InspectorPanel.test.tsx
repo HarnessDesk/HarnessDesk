@@ -65,3 +65,21 @@ describe('the filter pill', () => {
     expect(step(dark)).toBeLessThanOrEqual(88)
   })
 })
+
+it.each([
+  { sub: 'A path' },
+  { tall: true, sub: 'A path' },
+  { ask: 'A question that needs an answer' },
+  { meta: 'Running · 12s' },
+])('centres the compact row, its face and trailing time through $sub $ask $meta', (extra) => {
+  act(() => root.render(<PanelRow title="Review" mark={<span />} trail={<span>12s</span>} {...extra} />))
+  const row = container.querySelector<HTMLElement>('[data-slot="inspector-row"]')!
+  expect(row.dataset['hdTable']).toBe('compact')
+  expect(row.className).toContain('items-center')
+  expect(row.className).not.toContain('items-start')
+  expect(row.className).toContain('px-(--hd-table-edge)')
+  const mark = row.querySelector<HTMLElement>('[data-slot="inspector-row-mark"]')!
+  expect(mark.className).toContain('size-(--hd-table-face)')
+  expect(mark.className).not.toContain('mt-px')
+  expect(row.querySelector('[data-role="row"]')?.textContent).toBe('Review')
+})

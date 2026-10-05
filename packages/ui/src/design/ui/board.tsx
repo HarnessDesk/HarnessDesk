@@ -6,7 +6,8 @@ import { MoreIcon, PaperclipIcon, PlusIcon, ReviewIcon } from '@/components/Icon
 import { AvatarStack, type StackMember } from './avatar-stack'
 import { buttonEdge } from './button'
 import { EmptyState } from './empty-state'
-import { dotTint, softTone, softTint, type Tint, type Tone } from './tone'
+import { dotTint, type Tint, type Tone } from './tone'
+import { Chip } from '../patterns/Settings'
 
 /**
  * Work in columns: what is waiting, what is being done, and who has it.
@@ -450,36 +451,17 @@ const BoardCard = ({
               <span className="mr-auto text-xs text-(--hd-muted-foreground)">Unassigned</span>
             ))}
           {tag && (
-            /* One line, however long the label. The chip is a fixed height,
-               so a label that wrapped — three owned paths joined with commas —
-               spilled over the note above and the foot below, and the card
-               read as three overlapping paragraphs. The whole label rides on
-               the title, where a hover can read it. */
-            <span
-              className={cn(
-                'inline-flex h-(--hd-chip-h) min-w-0 max-w-full items-center truncate rounded-(--hd-radius-sm) px-1.5 text-xs font-medium',
-                softTint({ tint: tag.tint }),
-              )}
+            <Chip
+              size="sm"
+              tint={tag.tint}
+              className="min-w-0 max-w-full truncate"
               {...(typeof tag.label === 'string' ? { title: tag.label } : {})}
             >
-              <span className="truncate">{tag.label}</span>
-            </span>
+              {tag.label}
+            </Chip>
           )}
           {priority && (
-            /* `shrink-0` and `whitespace-nowrap`, for the reason the tag
-               beside it already carries: the chip is a fixed height, so a
-               label allowed to wrap inside one — "stranded 40m" in a column
-               narrowed by the room's rail — spills through its own pill and
-               over the rule under it. The judgement is the news on the card,
-               so it keeps its width and the tag gives way. */
-            <span
-              className={cn(
-                'inline-flex h-(--hd-chip-h) shrink-0 items-center rounded-full px-2 text-xs font-medium whitespace-nowrap',
-                softTone({ tone: priority.tone }),
-              )}
-            >
-              {priority.label}
-            </span>
+            <Chip tone={priority.tone} className="shrink-0 whitespace-nowrap">{priority.label}</Chip>
           )}
         </div>
       )}

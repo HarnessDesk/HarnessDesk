@@ -46,9 +46,10 @@ it('heads each day of the log with the inspector’s one group line', async () =
 
   const days = [...container.querySelectorAll('[data-slot="inspector-group"]')]
   expect(days).toHaveLength(2)
-  // The day is the group line's own label: the muted role, in the secondary ink.
+  // Compact group labels use the 12px facts role, with medium secondary ink.
   const label = days[0]?.querySelector('[data-slot="text"]')
-  expect(label?.getAttribute('data-role')).toBe('muted')
+  expect(label?.getAttribute('data-role')).toBe('meta')
+  expect(label?.getAttribute('data-weight')).toBe('medium')
   expect(label?.getAttribute('data-ink')).toBe('secondary')
   expect(label?.textContent).toContain('25')
 })

@@ -53,6 +53,8 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
    * different job from the default, which is the list a reader came to read.
    */
   size?: 'sm' | 'default'
+  /** Record density; compact keeps the same name, facts and trailing reading. */
+  density?: 'comfortable' | 'compact'
   /**
    * One of a set, and the one being shown. Only meaningful in a list that
    * drives something else on screen; a list of readings has no selection, and
@@ -102,6 +104,7 @@ const ListRow = ({
   meta,
   interactive,
   size = 'default',
+  density,
   selected,
   nav,
   as = 'div',
@@ -113,6 +116,7 @@ const ListRow = ({
   return (
   <Element
     data-slot="list-row"
+    data-hd-table={density}
     {...(as === 'button' ? { type: 'button' as const } : {})}
     /* `aria-current` rather than a class alone: a screen reader moving down a
        roster is told which conversation is open, which is the whole reason the
@@ -121,7 +125,7 @@ const ListRow = ({
     className={cn(
       'flex items-center',
       as === 'button' && 'w-full text-left',
-      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-(--hd-table-lead-gap) px-(--hd-table-edge) py-(--hd-space-2-5)',
+      size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : cn('gap-(--hd-table-lead-gap) px-(--hd-table-edge)', density === 'compact' ? 'py-px' : 'py-(--hd-space-2-5)'),
       size === 'default' && (lead != null || subtitle != null || meta != null ? 'min-h-(--hd-table-row-min)' : 'min-h-(--hd-table-row-min-bare)'),
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
@@ -181,7 +185,7 @@ const ListRow = ({
            rather than against "any name pair". A small row is a roster down the
            side of a screen and draws the navigation pair, a default row the
            subject pair. Selection is shown by the row's fill, never by weight. */
-        data-role={size === 'sm' ? 'navigation' : 'subject'}
+        data-role={size === 'sm' ? 'navigation' : density === 'compact' ? 'row' : 'subject'}
         className={cn(
           wrapTitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
           size === 'sm'
@@ -200,6 +204,7 @@ const ListRow = ({
             size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
             size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
             wrapSubtitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
+            density === 'compact' && 'leading-(--hd-line-xs)',
           )}
         >
           {subtitle}
