@@ -1,0 +1,32 @@
+version: 2
+name: Scripted repair
+roles:
+  write: { kind: agent, uses: [implementer], grant: edit, isolate: true, independentOf: [] }
+  check:
+    kind: check
+    run: >-
+      node -e 'require("node:fs").accessSync("rig-retry.txt")'
+    exits: { 0: pass }
+    otherwise: fail
+  review: { kind: agent, uses: [code-reviewer], grant: read, independentOf: [] }
+  land: { kind: person, outcomes: [landed] }
+seed: { role: write, title: Build the retry change, detail: RIG_FLOW_WRITE, files: [rig-retry.txt] }
+rules:
+  - id: check-work
+    on: write
+    when: { every: [committed], evidence: [{ diff: true }] }
+    then: { role: check, title: Check the committed change }
+  - id: review-work
+    on: check
+    when: { every: [pass], evidence: [{ check: check }] }
+    then: { role: review, title: Review the retry change, detail: RIG_FLOW_REVIEW }
+  - id: repair-work
+    on: review
+    when: { any: [request-changes] }
+    then: { role: write, title: Repair the retry change, detail: RIG_FLOW_WRITE, files: [rig-retry.txt] }
+  - id: handoff
+    on: review
+    when: { every: [approve], evidence: [{ review: approve }] }
+    then: { role: land, title: Land the reviewed change }
+budget: { rounds: 8, without-progress: 3 }
+messaging: board-only

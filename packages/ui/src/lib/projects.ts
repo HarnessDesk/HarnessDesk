@@ -237,6 +237,17 @@ export const groupByProject = (
     if (root !== undefined) rootByFolder.set(summary.cwd, root)
   }
 
+  // Search may return uncached rows outside full-history identity. Let their
+  // explicit origin teach matching visible rows which clone they belong to,
+  // while keeping their dates and folder counts out of home selection.
+  for (const summary of history) {
+    const origin = originOf(summary)
+    if (origin === null) continue
+    const root = summary.repo?.root
+    if (!originByFolder.has(summary.cwd)) originByFolder.set(summary.cwd, origin)
+    if (root !== undefined && !originByRoot.has(root)) originByRoot.set(root, origin)
+  }
+
   // Only checkouts something else in the list has vouched for. A guess read
   // off a path may name a project, never invent one.
   const vouched = new Set([...rootByFolder.values(), ...paths])

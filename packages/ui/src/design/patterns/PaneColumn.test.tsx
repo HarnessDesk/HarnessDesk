@@ -56,6 +56,11 @@ it('takes the reading column flat, without the scrollbar compensation, and its o
   expect(column.style.padding).toBe('var(--hd-space-2) var(--hd-space-6)')
 })
 
+it('gives a prose page the reading inset above and below its content', () => {
+  act(() => root.render(<PaneColumn inset="reading" page>receipt</PaneColumn>))
+  expect((container.firstElementChild as HTMLElement).style.padding).toBe('var(--hd-space-6) var(--hd-space-6)')
+})
+
 it('clears the floating composer only when asked, on top of a notice inset', () => {
   act(() => root.render(<PaneColumn inset="reading" clearComposer>turns</PaneColumn>))
   const column = container.firstElementChild as HTMLElement

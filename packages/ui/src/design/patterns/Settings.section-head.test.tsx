@@ -74,3 +74,7 @@ it('earns its card inset only when a Rows card is the very next thing it names',
   const bare = /\.sectionHead\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
   expect(bare).not.toMatch(/padding-inline/)
 })
+
+it('insets the label over the system’s summary card to its content edge', () => {
+  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='summary-list'\]\)\s*\{[^}]*padding-inline:/s)
+})

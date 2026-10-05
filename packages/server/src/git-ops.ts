@@ -476,7 +476,8 @@ const repositoryPath = async (root: string, field: string, signal?: AbortSignal)
       throw cause
     }
     signal?.throwIfAborted()
-    const out = stdout.trim()
+    // Only Git's output terminator goes; trailing whitespace can name a directory.
+    const out = stdout.replace(/\n$/, '')
     if (!isAbsolute(out)) throw new Error('Git did not return an absolute repository path.')
     return out
   } catch (cause) {

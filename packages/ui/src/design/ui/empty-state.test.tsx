@@ -103,3 +103,12 @@ it('holds an element in an inline line without nesting it in a paragraph', () =>
   expect(line.closest('p')).toBeNull()
   expect(line.querySelector('button')?.textContent).toBe('Start one')
 })
+
+it('keeps a pane inline empty line on the existing content edge',()=>{
+ const line=draw(<EmptyState variant="inline" align="start" title="Nothing said yet" />)
+ expect(line.className).toContain('text-left')
+ expect(line.className).not.toContain('text-center')
+ expect(line.className).not.toContain('px-')
+ expect(line.className).not.toContain('py-6')
+ expect(line.querySelector('h3,svg,button')).toBeNull()
+})

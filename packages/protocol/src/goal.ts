@@ -19,6 +19,8 @@ export interface GoalReceiptMember {
   readonly seat: SeatId
   readonly agent: string | null
   readonly seatLabel: string
+  /** Role when wrapped; absent on older receipts. */
+  readonly role?: string | null
   /** Retained conversation; absent on receipts written before this field existed. */
   readonly session?: SeatRecord['session']
 }
@@ -87,6 +89,9 @@ export interface GoalReceipt {
   readonly summary: string
   readonly cards: readonly {
     id: number
+    /** Host board context frozen at wrap; absent on older receipts. */
+    title?: string
+    seat?: SeatId
     resolution: 'finished' | 'dropped'
     reason: string | null
   }[]
@@ -198,7 +203,7 @@ export interface GoalSeatRequest {
 
 export interface WrapChoices {
   summary: string
-  cards: GoalReceipt['cards']
+  cards: readonly Pick<GoalReceipt['cards'][number], 'id' | 'resolution' | 'reason'>[]
   /**
    * The person's disposition of findings posting could not confirm on the
    * pull request: `record` wraps with each one written into the receipt as

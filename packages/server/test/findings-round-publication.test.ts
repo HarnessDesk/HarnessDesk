@@ -72,9 +72,12 @@ test('each round uses the aggregate fold rules and prefers an unposted operation
     [[entry(1, 'prepared')], 'pending', 'Decision reason.'],
     [[entry(1, 'started', 'Send in progress.')], 'pending', 'Send in progress.'],
     [[entry(1, 'prepared', 'Held.')], 'partial', 'Held.'],
+    [[{ ...entry(1, 'prepared', 'Dispatch held.'), dispatchHeld: true }], 'pending', 'Dispatch held.'],
+    [[entry(1, 'posted'), { ...entry(1, 'prepared', 'Dispatch held.'), dispatchHeld: true }], 'pending', 'Dispatch held.'],
     [[entry(1, 'skipped', 'Skipped.')], 'partial', 'Skipped.'],
     [[entry(1, 'posted', 'Old posted reason.')], 'posted', 'Decision reason.'],
     [[entry(1, 'started'), entry(1, 'uncertain', 'Uncertain.')], 'uncertain', 'Uncertain.'],
+    [[{ ...entry(1, 'prepared', 'Dispatch held.'), dispatchHeld: true }, entry(1, 'uncertain', 'Uncertain.')], 'uncertain', 'Dispatch held.'],
   ] as const) {
     const pub = rig([decision(1, { reason: 'Decision reason.' })], entries, [review(11)])
     assert.deepEqual(await pub.rounds('run-1'), [{ round: 1, state, reason, pr: 7, cards: [11, 12] }])
