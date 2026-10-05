@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path'
 import type { CapabilityScope, ScopeQuery } from '@harnessdesk/protocol'
 
 /** A comparison key, never shell authority. Capture registration keys once so a moved alias cannot widen them. */
-const canonicalRoot = (root: string): string => {
+export const canonicalRoot = (root: string): string => {
   if (!isAbsolute(root)) return root
   try { return realpathSync.native(root) } catch {
     try { return realpathSync(root) } catch { return root }

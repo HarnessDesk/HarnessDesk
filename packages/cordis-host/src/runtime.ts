@@ -9,6 +9,7 @@ import {
 
 import { PermissionGate } from './permissions.js'
 import type { ContributionStore } from './store.js'
+import { canonicalRoot } from './workspace-scope.js'
 
 /**
  * State every service shares, plus the answer to "which plugin is calling?".
@@ -27,6 +28,12 @@ export const OWNER = Symbol.for('harnessdesk.plugin.owner')
 export interface WorkspaceState {
   readonly root: string | null
   readonly branch: string | null
+  /**
+   * The checkouts the host admits a conversation in this folder to, as real paths: the folder's own checkout, and its
+   * project's main checkout, which is what a conversation with no checkout of its own is admitted to. A call admitted
+   * to one of them runs in this workspace, as it was opened. The folder's own real path counts without being listed.
+   */
+  readonly admitted?: readonly string[]
 }
 
 export interface RegisteredPlugin {
@@ -38,6 +45,8 @@ export interface RegisteredPlugin {
 export class HostRuntime {
   readonly #byInstance = new Map<string, RegisteredPlugin>()
   #workspace: WorkspaceState = { root: null, branch: null }
+  /** The real paths a call may be admitted to and still run in the open workspace, resolved once. */
+  #openCheckouts: readonly string[] = []
   readonly #contextWorkspace = new AsyncLocalStorage<WorkspaceState>()
 
   constructor(readonly store: ContributionStore) {}
@@ -46,13 +55,25 @@ export class HostRuntime {
     return this.#contextWorkspace.getStore() ?? this.#workspace
   }
 
-  setWorkspace(state: WorkspaceState): void {
-    this.#workspace = state
+  /** True while a call runs in a checkout other than the open workspace: a Seat's lane or another clone. */
+  get inOtherCheckout(): boolean {
+    const entered = this.#contextWorkspace.getStore()
+    return entered !== undefined && entered !== this.#workspace
   }
 
-  /** Context resolves in the directory supplied for this conversation or draft. */
+  setWorkspace(state: WorkspaceState): void {
+    this.#workspace = state
+    this.#openCheckouts = state.root === null ? [] : [state.root, ...(state.admitted ?? [])].map(canonicalRoot)
+  }
+
+  /**
+   * Context resolution and tool calls run in the checkout the host admitted for the conversation they serve. A call
+   * admitted to the open workspace's own checkout runs in the open workspace as it was opened — a subfolder, a linked
+   * worktree, a folder reached through a link — with its branch. Any other checkout, a Seat's lane or another clone, is
+   * entered as it is, and its branch is unknown here.
+   */
   withContextWorkspace<T>(root: string | undefined, run: () => T): T {
-    const workspace = root === undefined || root === this.#workspace.root
+    const workspace = root === undefined || this.#openCheckouts.includes(canonicalRoot(root))
       ? this.#workspace
       : { root, branch: null }
     return this.#contextWorkspace.run(workspace, run)
@@ -66,7 +87,7 @@ export class HostRuntime {
     const entry: RegisteredPlugin = {
       instanceId,
       permissions,
-      gate: new PermissionGate(permissions, () => this.workspace.root),
+      gate: new PermissionGate(permissions, () => this.workspace.root, () => this.inOtherCheckout),
     }
     this.#byInstance.set(instanceId, entry)
     return { entry, meta: { [OWNER]: instanceId } }
