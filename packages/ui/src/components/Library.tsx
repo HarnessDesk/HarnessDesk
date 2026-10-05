@@ -37,7 +37,7 @@ import {
 } from './Icons'
 import {
   ActionError,
-  Alert,
+  Banner,
   Chip,
   CodeText,
   Dot,
@@ -679,61 +679,33 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
 
       {kind === 'skill' && (hollowCopies.length > 0 || overloaded.length > 0) && (
-        /* The page's callout: the system's neutral alert, one line per thing
-           that needs a hand, each with its amber mark and its way out. */
-        <Alert data-slot="library-attention" className="mb-4 flex-col gap-1">
-          {hollowCopies.length > 0 && (
-            <p className="m-0 flex w-full items-center gap-2">
-              <Text role="subject" tone="warning" className="flex-none self-start">
-                <AlertIcon size={13} />
-              </Text>
-              <span className="min-w-0 flex-1">
-              <Text as="span" role="subject" className="block">Empty skill directories</Text>
-              <Text as="span" role="muted" ink="muted" className="block">
-                {hollowCopies.length} {hollowCopies.length === 1 ? 'directory holds' : 'directories hold'} a
-                skill’s name and no definition — an agent that scans them lists the name and loads
-                nothing.
-              </Text>
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-none"
-                onClick={() =>
-                  setFlow({
-                    type: 'plan',
-                    title: 'Clean up empty skill directories',
-                    intents: hollowCopies.map((copy) => ({
-                      kind: 'removeCopy' as const,
-                      name: copy.name,
-                      path: copy.path,
-                    })),
-                  })
-                }
-              >
-                Clean up…
-              </Button>
-            </p>
-          )}
-          {overloaded.map(({ column, total, neverFired }) => (
-            <p key={column.id} className="m-0 flex w-full items-center gap-2">
-              <Text tone="warning" className="flex-none">
-                <AlertIcon size={13} />
-              </Text>
-              <Text role="muted" className="min-w-0 flex-1">
-                ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
-                {neverFired !== null && neverFired > 0
-                  ? ` — ${neverFired} of its skills never fired in a conversation this desk stores.`
-                  : '.'}
-              </Text>
-              {neverFired !== null && neverFired > 0 && (
-                <Button variant="outline" size="sm" className="flex-none" onClick={() => setFilter('unused')}>
-                  Show never fired
-                </Button>
-              )}
-            </p>
-          ))}
-        </Alert>
+        <div data-slot="library-attention" className="mb-4 flex flex-col gap-2">
+          {hollowCopies.length > 0 && <Banner
+            tone="warning"
+            title="Empty skill directories"
+            actions={<Button variant="outline" size="sm" onClick={() => setFlow({
+              type: 'plan',
+              title: 'Clean up empty skill directories',
+              intents: hollowCopies.map(copy => ({ kind: 'removeCopy' as const, name: copy.name, path: copy.path })),
+            })}>Clean up…</Button>}
+          >
+            {hollowCopies.length} {hollowCopies.length === 1 ? 'directory holds' : 'directories hold'} a
+            skill’s name and no definition — an agent that scans them lists the name and loads nothing.
+          </Banner>}
+          {overloaded.map(({ column, total, neverFired }) => <Banner
+            key={column.id}
+            tone="neutral"
+            title={`${column.label} skill catalogue`}
+            actions={neverFired !== null && neverFired > 0
+              ? <Button variant="outline" size="sm" onClick={() => setFilter('unused')}>Show never fired</Button>
+              : undefined}
+          >
+            ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
+            {neverFired !== null && neverFired > 0
+              ? ` — ${neverFired} of its skills never fired in a conversation this desk stores.`
+              : '.'}
+          </Banner>)}
+        </div>
       )}
 
       {/*

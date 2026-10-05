@@ -2287,6 +2287,20 @@ const AdoptedBoard = () => {
                 </TableRow>
               </TableBody>
             </Table>
+            <Table variant="panel" density="compact" data-catalog-variant="panel">
+              <TableHeader>
+                <TableRow variant="panel">
+                  <TableHead variant="panel">Name</TableHead>
+                  <TableHead variant="panel" align="end">Runs</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow variant="panel">
+                  <TableCell variant="panel">Review</TableCell>
+                  <TableCell variant="panel" align="end">12</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
             <PluginPanelTableExample />
           </SectionBody>
           <DataTablePagination

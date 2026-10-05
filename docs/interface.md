@@ -775,7 +775,7 @@ missing source Goal or Git revision says so honestly beside the text that was
 retained.
 The page also lists the project's checks, its flows and its Triggers. A
 project's Triggers section names each declared source as a sentence, with its
-exact target, concurrency and last firing below. The switch shows whether it
+trigger id, concurrency and last firing below. The switch shows whether it
 is on; Changed, Refused and Paused keep their own toned chips. Turning one
 on opens the exact arming review before anything
 runs, which also names the forge repository it binds and, for an issue

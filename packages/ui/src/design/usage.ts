@@ -61,13 +61,6 @@ export type UsageRule = {
 export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
-    variant: 'stretched',
-    when: 'A positioned row opens something through a named Button with size="content-min" and bordered={false}; use hoverFill={false} when the row paints its hover.',
-    never: 'Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.',
-    because: 'The button keeps its own target and keyboard action; titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.',
-  },
-  {
-    family: 'button',
     variant: 'default',
     when: 'The one action a surface exists to perform — the thing you came to do. At most one per screen, and often none.',
     never: 'A second one on the same surface. Two ink buttons is two primaries, which is none.',
@@ -121,6 +114,13 @@ export const BUTTONS: readonly UsageRule[] = [
     never: 'Beside another filled button, or on a page. Anywhere but the answer to "are you sure?" it is `destructive`.',
     because:
       'In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.',
+  },
+  {
+    family: 'button',
+    variant: 'stretched',
+    when: 'The positioned row handles clicks on its readings and ignores independent buttons; its named Button uses size="content-min" and bordered={false} for the keyboard target and row focus mark.',
+    never: 'Relying on the pseudo-element as a pointer target. The row handles clicks on its other readings and ignores clicks inside independent buttons.',
+    because: 'The button keeps its own target, with a minimum width of 24px, and keyboard action; its hover fill defaults off, titles remain reachable, pressing never moves the row mark, and one inset focus ring frames the row without clipping or appearing in pointer mode.',
   },
 ]
 

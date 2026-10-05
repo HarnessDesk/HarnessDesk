@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { overviewModel } from '../preview/team-overview-fixture'
 import { TeamOverview } from './TeamOverview'
 import { runTimeline } from '../lib/run-timeline'
@@ -8,14 +8,15 @@ import { runFixture } from '../preview/run-view-fixture'
 import type { SeatRow } from '../lib/team-overview'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const box=document.createElement('div');document.body.append(box);const root=createRoot(box)
-afterEach(()=>{ act(()=>root.render(null)); vi.useRealTimers() })
+beforeEach(()=>{vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({width:1000} as DOMRect)})
+afterEach(()=>{ act(()=>root.render(null));vi.restoreAllMocks(); vi.useRealTimers() })
 const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role:'writer',card:null,round:null,state:'idle',done:false,reason:null,doing:null,since:null,durationMs:null,cost:null,...patch})
 const render=(seats:SeatRow[])=>act(()=>root.render(<TeamOverview runRules={[{id:'after-review'},{id:'to-referee'}]} model={{run:null,needsYou:[],seats}} metered={new Map(seats.map(one => [one.seat, false]))} />))
 it.each([600,1000])('keeps an unlinked Seat’s reason visible without a conversation action at %spx',width=>{
  const previous=globalThis.ResizeObserver
  globalThis.ResizeObserver=class {
   constructor(private callback:ResizeObserverCallback){}
-  observe(){this.callback([{contentRect:{width}} as ResizeObserverEntry],this as unknown as ResizeObserver)}
+  observe(target:Element){this.callback([{target,contentRect:{width}} as ResizeObserverEntry],this as unknown as ResizeObserver)}
   unobserve(){}
   disconnect(){}
  } as unknown as typeof ResizeObserver

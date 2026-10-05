@@ -172,7 +172,7 @@ for(const theme of ['light','dark'] as const) {
    }
    await expect(row).not.toHaveAttribute('tabindex')
    await expect(row.locator('[data-slot="list-row-trail"] > span:empty')).toHaveCount(0)
-   await open.focus();await expect(open).toBeFocused()
+   await expect(row.locator('[aria-label="Unread changes"]')).toBeVisible()
    const point=await row.evaluate(e=>{
     const detail=e.querySelector('[data-slot="team-detail"]')!
     const range=document.createRange();range.selectNodeContents(detail)
@@ -181,6 +181,8 @@ for(const theme of ['light','dark'] as const) {
     return {x,y,reading:Boolean(document.elementFromPoint(x,y)?.closest('[data-slot="team-detail"]'))}
    })
    expect(point.reading).toBe(true)
+   await page.mouse.click(point.x,point.y)
+   await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
    const box=await open.boundingBox()
    expect(box!.height).toBeGreaterThanOrEqual(24)
    expect(box!.width).toBeGreaterThanOrEqual(24)
@@ -197,16 +199,31 @@ for(const theme of ['light','dark'] as const) {
    expect(await open.evaluate(el=>({translate:getComputedStyle(el).translate,events:getComputedStyle(el,'::after').pointerEvents}))).toEqual({translate:'none',events:'none'})
    await page.mouse.up()
    await open.focus()
-   await expect(open).toHaveCSS('outline-style','none')
    await page.keyboard.press('Tab')
    await page.keyboard.press('Shift+Tab')
    await expect(open).toBeFocused()
+   await expect(open).toHaveCSS('outline-style','none')
    expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).not.toBe('none')
    expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toContain('inset')
-   await page.mouse.click(point.x,point.y)
+   await page.evaluate(()=>document.documentElement.dataset.focusInput='pointer')
+   await expect(open).toBeFocused()
    expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toBe('none')
    await page.mouse.click(point.x,point.y)
    await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+  }
+ })
+}
+
+
+for (const theme of ['light', 'dark'] as const) {
+ test(`short Team openers keep a 24px target in both layouts in ${theme}`, async ({ page }) => {
+  await openTeams(page, theme)
+  for (const scene of ['active', 'narrow']) {
+   const opener = page.locator(`#teams-page-${scene} [data-team-row="team-0"]`).getByRole('button', { name: /^Open / })
+   await opener.locator('[data-role="subject"]').evaluate(node => { node.textContent = 'A' })
+   const box = (await opener.boundingBox())!
+   expect(box.width).toBeGreaterThanOrEqual(24)
+   expect(box.height).toBeGreaterThanOrEqual(24)
   }
  })
 }

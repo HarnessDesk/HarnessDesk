@@ -57,6 +57,13 @@ const rig = async (
 const button = (text: string): HTMLButtonElement | undefined =>
   [...document.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent?.trim() === text)
 
+it('uses the list wording with the target in the title and trigger id in its facts', async () => {
+  await rig(triggerArmPreview({ definition: prDefinition({ id: 'fork-review' }) }))
+  expect(document.body.textContent).toContain('When a pull request opens or is pushed, review it (review-pr)')
+  expect(document.body.textContent).toContain('fork-review · at most 4 at once')
+  expect(document.body.textContent).not.toContain(', open review-pr,')
+})
+
 it('arm requires the shown preview and reads back the result — cancel never calls it', async () => {
   const { store, onClose, onArmed } = await rig(triggerArmPreview({ token: 'good-token' }))
   expect(document.body.textContent).toContain('Arm this trigger')
