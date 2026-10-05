@@ -663,7 +663,7 @@ having written the judgement down.
 
 **Use** — A control: a button, an input, a select, a segmented cell.
 
-**Not** — On a chip or a tag. Those are marks and take `--hd-radius-sm`, one rung down.
+**Not** — On a chip or a tag. Those are marks: default chips use `--hd-chip-radius`; small chips across the app use `--hd-chip-radius-sm` (5 px at the default foundation), and outline tags use `--hd-radius-full`.
 
 **Why** — A button and the chip beside it were the same shape, so a row of controls read as a row of labels. One rung apart is what separates them.
 

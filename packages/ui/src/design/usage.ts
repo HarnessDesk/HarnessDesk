@@ -161,7 +161,7 @@ export const ELEMENTS: readonly UsageRule[] = [
     family: 'shape',
     variant: '--hd-radius-md',
     when: 'A control: a button, an input, a select, a segmented cell.',
-    never: 'On a chip or a tag. Those are marks and take `--hd-radius-sm`, one rung down.',
+    never: 'On a chip or a tag. Those are marks: default chips use `--hd-chip-radius`; small chips across the app use `--hd-chip-radius-sm` (5 px at the default foundation), and outline tags use `--hd-radius-full`.',
     because:
       'A button and the chip beside it were the same shape, so a row of controls read as a row of labels. One rung apart is what separates them.',
   },

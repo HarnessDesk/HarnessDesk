@@ -948,7 +948,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             </Button>
           )}
 
-          <div className={styles.historyGrid} role="grid" aria-label="Commits" aria-rowcount={total + 1} tabIndex={0} onKeyDown={onKeyDown} aria-activedescendant={activeDescendant}>
+          <div className={styles.historyGrid} role="grid" aria-label="Commits" aria-rowcount={hasMore ? -1 : total + 1} tabIndex={0} onKeyDown={onKeyDown} aria-activedescendant={activeDescendant}>
             <TableHeader as="div" variant="log" role="row" aria-rowindex={1} className={styles.tableHead} onPointerMove={onDragMove} onPointerUp={onRelease}>
               {!searching && (
                 <HeadCell
@@ -997,6 +997,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               ref={listRef}
               onScroll={onScroll}
               role="rowgroup"
+              tabIndex={-1}
             >
               {total === 0 && !loading ? (
                 <EmptyState
@@ -1775,7 +1776,7 @@ const CommitRow = ({
     <Button
       type="button"
       variant="row"
-      size="table-row"
+      size="log-row"
       cursor="default"
       className={styles.row}
       style={{ top }}
@@ -1817,7 +1818,7 @@ const CommitRow = ({
           style={{ width: widths.author }}
           title={`${commit.author} <${commit.authorEmail}>`}
         >
-          <Text role="meta" numeric>{commit.author}</Text>
+          <Text role="meta">{commit.author}</Text>
         </span>
       )}
     </Button>

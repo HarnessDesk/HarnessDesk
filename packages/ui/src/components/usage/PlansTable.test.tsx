@@ -585,6 +585,7 @@ describe('PlansTable', () => {
     expect(row.getAttribute('aria-controls')).toBeTruthy()
     // The table owns the full-width row rule; its embedded disclosure has no edge.
     expect(row.classList.contains('border-b')).toBe(false)
+    expect(row.classList.contains('rounded-none')).toBe(false)
   })
 
   // Escape inside the expanded body — its own Refresh button, say — collapses

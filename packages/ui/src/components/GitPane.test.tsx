@@ -263,7 +263,7 @@ it('keeps the windowed commit row divided and marks the graph column edge', asyn
   expect(rows.every((row) => row.className.includes('border-b-(--hd-card-divider,var(--hd-border))'))).toBe(true)
   expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
   expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
-  // The inset is the `table-row` button size's own now (#835), not an inline style.
+  // The inset is the `log-row` button size's own now (#835), not an inline style.
   expect(rows.every((row) => row.className.includes('pr-(--hd-space-3)'))).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
@@ -1343,6 +1343,7 @@ it('owns its column headings and windowed rows in one grid', async () => {
   expect(grid.querySelectorAll('[role="row"][aria-selected]')).toHaveLength(2)
   expect(grid.querySelector('[aria-selected]')?.getAttribute('aria-rowindex')).toBe('2')
   expect(grid.getAttribute('aria-rowcount')).toBe('3')
+  expect(grid.querySelector('[role="rowgroup"]')?.getAttribute('tabindex')).toBe('-1')
   expect(grid.querySelector('[aria-selected]')?.querySelectorAll('[role="gridcell"]')).toHaveLength(5)
   expect(container.querySelector('[role="listbox"]')).toBeNull()
 })
@@ -1365,4 +1366,17 @@ it('resizes a column with Home without navigating the history grid', async () =>
   act(() => grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
   expect(setListPrefs).toHaveBeenCalledWith({ gitColumns: { sha: 44 } })
   expect(grid.getAttribute('aria-activedescendant')).toBe(before)
+})
+
+
+it('reports an unknown row count while more history is available', async () => {
+  await mount({ on: { 'git/log': { commits: [commit('aaaa111', 'First')], hasMore: true } } })
+  expect(container.querySelector('[role="grid"]')?.getAttribute('aria-rowcount')).toBe('-1')
+})
+
+it('uses tabular figures for commit dates and normal text for author names', async () => {
+  await mount({ log: [commit('aaaa111', 'First')] })
+  const cells = container.querySelector('[aria-selected]')!.querySelectorAll('[role="gridcell"]')
+  expect(cells[3]?.querySelector('.tabular-nums')).not.toBeNull()
+  expect(cells[4]?.querySelector('.tabular-nums')).toBeNull()
 })

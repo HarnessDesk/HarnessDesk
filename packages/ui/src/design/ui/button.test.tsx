@@ -258,8 +258,16 @@ it('pulls an icon button\'s box past the inset so its glyph lands on it', () => 
 
 
 it('gives the windowed table row the shared selected fill and divider without moving its pitch', () => {
-  const classes = buttonVariants({ variant: 'row', size: 'table-row' })
+  const classes = buttonVariants({ variant: 'row', size: 'log-row' })
   expect(classes).toContain('h-(--hd-table-row-h)')
   expect(classes).toContain('data-[selected]:bg-(--hd-selected)')
   expect(classes).toContain('border-b-(--hd-card-divider,var(--hd-border))')
+})
+
+it('keeps the shared table-row size about pitch, with rounded control corners', () => {
+  const classes = buttonVariants({ variant: 'row', size: 'table-row' })
+  expect(classes).toContain('h-(--hd-table-row-h)')
+  expect(classes).not.toContain('rounded-none')
+  expect(classes).not.toContain('border-b')
+  expect(classes).not.toContain('data-[selected]:bg-(--hd-selected)')
 })

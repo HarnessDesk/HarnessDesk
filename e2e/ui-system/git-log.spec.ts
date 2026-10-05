@@ -26,6 +26,16 @@ for (const theme of ['light', 'dark'] as const) {
     for (let index = 0; index < 4; index++) await page.keyboard.press('PageDown')
     await expect.poll(() => list.evaluate(el => el.scrollTop)).toBe(156)
     await expect(grid).toBeFocused()
+    // Exercise Chromium's implicit scroll-container Tab stop on the real overflow.
+    const frame = page.locator('[data-frame-id="tools-git"]')
+    let leftPane = false
+    for (let index = 0; index < 30; index++) {
+      await page.keyboard.press('Tab')
+      expect(await list.evaluate(el => document.activeElement === el)).toBe(false)
+      leftPane = await frame.evaluate(el => !el.contains(document.activeElement))
+      if (leftPane) break
+    }
+    expect(leftPane).toBe(true)
   })
 
   test(`the Git and Library logs keep their table geometry (${theme})`, async ({ page }) => {
@@ -61,7 +71,7 @@ for (const theme of ['light', 'dark'] as const) {
     for (const chip of await chips.all()) {
       expect(await chip.evaluate(el => [el.getBoundingClientRect().height, getComputedStyle(el).borderRadius])).toEqual([18, '5px'])
     }
-    await expect(frame.getByText('Remotes · 1', { exact: true })).toBeVisible()
+    await expect(frame.getByText('Remotes · 2', { exact: true })).toBeVisible()
     await grid.focus()
     await page.keyboard.press('End')
     await expect(grid).toHaveAttribute('aria-activedescendant', /git-commit-/)
@@ -81,4 +91,23 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(dialog.getByText(label, { exact: true })).toBeVisible()
     }
   })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [480, 600, 760]) {
+    test(`long local and remote refs leave room for the subject at ${width}px (${theme})`, async ({ page }) => {
+      await page.goto(`/preview.html?theme=${theme}`)
+      await page.locator('select').filter({ has: page.locator('option[value="git tools"]') }).selectOption('git tools')
+      const frame = page.locator('[data-frame-id="tools-git"]')
+      await frame.evaluate((el, width) => { el.style.width = `${width}px` }, width)
+      const row = frame.getByRole('grid', { name: 'Commits' }).locator('[role="row"][aria-selected]').first()
+      await expect(row.locator('[data-slot="chip"]')).toHaveCount(2)
+      await expect.poll(() => row.evaluate(el => {
+        const subject = el.querySelector('[role="gridcell"]:has([data-role="row"])')!.getBoundingClientRect()
+        const text = el.querySelector('[data-role="row"]')!.getBoundingClientRect()
+        const chips = [...el.querySelectorAll('[data-slot="chip"]')].map(chip => chip.getBoundingClientRect())
+        return text.width > 0 && chips.every(chip => chip.left >= subject.left && chip.right <= subject.right)
+      })).toBe(true)
+    })
+  }
 }

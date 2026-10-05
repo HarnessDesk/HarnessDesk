@@ -202,6 +202,9 @@ const boxedVariants = cva(
            a table row keeps clear of its own scrollbar. Distinct from `row`
            earlier in this list, which is a navigation destination sized off `--hd-nav-h`. */
         'table-row': 'h-(--hd-table-row-h) p-0 pr-(--hd-space-3) whitespace-normal',
+        /* A selectable log row owns square dividers and the table selection
+           fill; an embedded disclosure using only the pitch keeps its corners. */
+        'log-row': 'h-(--hd-table-row-h) p-0 pr-(--hd-space-3) whitespace-normal',
         /* The box belongs to a design-system pattern's own stylesheet — a
            settings `RowButton`, `RowChoice` — and the button brings only its
            behaviour and its variant's states. Not a reset: `content`'s `p-0`
@@ -241,7 +244,7 @@ const boxedVariants = cva(
        size for the same reason — it is the box's inset, not a state. */
     compoundVariants: [
       { variant: 'row', class: 'text-(--hd-foreground)' },
-      { variant: 'row', size: 'table-row', class: 'rounded-none border-0 border-b border-b-(--hd-card-divider,var(--hd-border)) data-[selected]:bg-(--hd-selected) data-[selected]:hover:bg-(--hd-selected)' },
+      { variant: 'row', size: 'log-row', class: 'rounded-none border-0 border-b border-b-(--hd-card-divider,var(--hd-border)) data-[selected]:bg-(--hd-selected) data-[selected]:hover:bg-(--hd-selected)' },
     ],
     defaultVariants: { variant: 'default', size: 'default' },
   },

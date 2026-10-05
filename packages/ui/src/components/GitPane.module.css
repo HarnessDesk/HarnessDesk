@@ -222,6 +222,7 @@
 
 .chip {
   flex: 0 1 auto;
+  min-width: 56px;
 }
 
 /* The ellipsis has to live on the text itself: an inline-flex box clips its
