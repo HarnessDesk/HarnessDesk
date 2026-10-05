@@ -393,6 +393,7 @@ body {
      (#835). `GitPane.tsx`'s `ROW` mirrors this value, and a test pins the
      two together. */
   --hd-table-row-h: 26px;
+  --hd-table-log-head-h: 28px;
   /* Tables and rows. One anatomy, centred on the whole row. The compact
      scope below overrides only these decisions; the windowed log pitch above
      remains 26px. */
@@ -466,6 +467,9 @@ body {
    */
   --hd-control-h-lg: var(--hd-control-h);
   --hd-chip-h: 22px;
+  /* Small chips across the app use 5 px corners at the default foundation:
+     their 18 px box takes five sixths of the small radius, following themes. */
+  --hd-chip-radius-sm: calc(var(--hd-radius-sm) * 5 / 6);
   /* A row, which is what `--hd-nav-h` already is.
      These were 30 and 29 — a menu item and the sidebar row it opens from,
      one pixel apart for no reason either of them could state, and one of the

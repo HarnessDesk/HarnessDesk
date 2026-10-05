@@ -2075,24 +2075,17 @@ const SCREEN_APPEARANCE_EXEMPTIONS = new Set([
 const screenAppearanceName = (file) => file.replaceAll('\\', '/').split('/packages/ui/src/').at(-1)
 
 /**
- * The three declarations the owner exempted by name when `screenAppearance`
+ * The remaining two declarations the owner exempted by name when `screenAppearance`
  * became a hard zero (#838): each is the Git pane's own and has no second
  * screen to share a part with, so a part made for it would be a one-screen
  * part — the thing `singleAreaPrimitive` exists to refuse. The exemption is
  * the exact declaration — sheet, selector, property and value — never the
  * sheet: a new appearance declaration anywhere in `GitPane.module.css`, or one
- * of these three changing its value, is a finding again. An entry that no
+ * of these two changing its value, is a finding again. An entry that no
  * longer matches a declaration is itself a finding (`staleScreenAppearanceExemptions`),
  * so the list cannot outlive what it names.
  */
 export const SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS = [
-  {
-    sheet: 'components/GitPane.module.css',
-    selector: '.tableHead',
-    property: 'height',
-    value: 'var(--hd-control-h-sm)',
-    reason: 'The head of the commit table, the only table in the app with a head bar above its scrolling rows; a header bar and a data row answer different questions (#835), so it is the small control rung, not the table row height.',
-  },
   {
     sheet: 'components/GitPane.module.css',
     selector: '.tableHead',

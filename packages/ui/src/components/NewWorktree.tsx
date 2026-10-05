@@ -233,7 +233,7 @@ export const NewWorktree = ({
             >
               <Text role="meta" className={styles.branchIcon}><BranchIcon size={13} /></Text>
               <span className={styles.branchName}>{entry.name}</span>
-              {entry.current && <Chip tone="neutral">current</Chip>}
+              {entry.current && <Chip tone="neutral">Current</Chip>}
               {entry.name === base && <Text tone="brand"><CheckIcon size={13} /></Text>}
             </Button>
           ))}

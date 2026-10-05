@@ -66,18 +66,18 @@ test('terminal: Escape then Tab moves focus from xterm to the panel controls', a
   await expect(page.getByRole('button', { name: 'Hide this panel' })).toBeFocused()
 })
 
-test('git commit history is one Tab stop and uses arrow keys within the list', async ({ page }) => {
+test('git commit history is one Tab stop and uses arrow keys within the grid', async ({ page }) => {
   await page.goto('/narrow-overlay.html?view=git')
-  const commits = page.getByRole('listbox', { name: 'Commits' })
+  const commits = page.getByRole('grid', { name: 'Commits' })
   await expect(commits).toHaveAttribute('tabindex', '0')
-  const activeOptions = await commits.locator('[role="option"]').evaluateAll((nodes) =>
+  const activeRows = await commits.locator('[role="row"][aria-selected]').evaluateAll((nodes) =>
     nodes.filter((node) => Number((node as HTMLElement).tabIndex) >= 0).length,
   )
-  expect(activeOptions).toBe(0)
+  expect(activeRows).toBe(0)
   await commits.focus()
   await page.keyboard.press('ArrowDown')
   await expect(commits).toBeFocused()
   const active = await commits.getAttribute('aria-activedescendant')
   expect(active).toBeTruthy()
-  await expect(commits.locator(`[id="${active}"]`)).toHaveAttribute('role', 'option')
+  await expect(commits.locator(`[id="${active}"]`)).toHaveAttribute('role', 'row')
 })

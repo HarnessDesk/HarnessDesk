@@ -56,6 +56,7 @@
 --hd-chip-fill-hover = color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
+--hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(0, 0, 0, 0.035)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(255, 255, 255))
 --hd-code-comment = rgb(110, 119, 129)
@@ -290,6 +291,7 @@
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
 --hd-table-line-gap = 2px
+--hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
@@ -587,6 +589,7 @@
 --hd-chip-fill-hover = color-mix(in srgb, rgb(49, 49, 49) 86%, rgb(231, 231, 231))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
+--hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(255, 255, 255, 0.045)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(24, 24, 24))
 --hd-code-comment = rgb(139, 148, 158)
@@ -821,6 +824,7 @@
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
 --hd-table-line-gap = 2px
+--hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
@@ -1122,6 +1126,7 @@
 --hd-chip-fill-hover = color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
+--hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(0, 0, 0, 0.035)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(255, 255, 255))
 --hd-code-comment = rgb(110, 119, 129)
@@ -1364,6 +1369,7 @@
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
 --hd-table-line-gap = 2px
+--hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
@@ -1665,6 +1671,7 @@
 --hd-chip-fill-hover = color-mix(in srgb, rgb(49, 49, 49) 86%, rgb(231, 231, 231))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
+--hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(255, 255, 255, 0.045)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(24, 24, 24))
 --hd-code-comment = rgb(139, 148, 158)
@@ -1907,6 +1914,7 @@
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
 --hd-table-line-gap = 2px
+--hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px

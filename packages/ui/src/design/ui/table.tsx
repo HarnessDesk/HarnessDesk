@@ -40,8 +40,17 @@ const Table = ({
   </div>
 )
 
-const TableHeader = ({ className, ...props }: React.ComponentProps<'thead'>) => (
-  <thead data-slot="table-header" className={cn('[&_tr]:border-b [&_tr]:border-(--hd-border-strong)', className)} {...props} />
+/** A log keeps its header outside the windowed body, in the same grid. */
+const TableHeader = ({ className, as: Tag = 'thead', variant = 'default', ...props }: React.ComponentProps<'thead'> & {
+  as?: 'thead' | 'div'
+  variant?: 'default' | 'log'
+}) => (
+  <Tag data-slot="table-header" data-variant={variant} className={cn(
+    variant === 'log'
+      ? 'h-(--hd-table-log-head-h) border-b border-(--hd-border-strong)'
+      : '[&_tr]:border-b [&_tr]:border-(--hd-border-strong)',
+    className,
+  )} {...props} />
 )
 
 const TableBody = ({ className, ...props }: React.ComponentProps<'tbody'>) => (

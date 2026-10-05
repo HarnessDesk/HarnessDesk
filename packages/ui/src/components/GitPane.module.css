@@ -113,20 +113,19 @@
 
 /* --- the table ----------------------------------------------------------- */
 
-/* The table's head. It sits above the list rather than inside it, so it does
-   not scroll away — the columns line up because both read the same widths,
-   and because it keeps the rows' own right inset (`CommitRow`'s). A table
-   only this pane draws, so its head is this pane's, not a shared part.
-   Its height is deliberately `--hd-control-h-sm`, not `--hd-table-row-h`:
-   a header bar and a data row answer different questions (#835), and a
-   part invented for the one pane that draws a head like this would be a
-   one-screen part. */
+/* The grid owns a fixed system header and a separately scrolling rowgroup. */
+.historyGrid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .tableHead {
   flex: none;
   display: flex;
   align-items: center;
   gap: var(--hd-space-2-5);
-  height: var(--hd-control-h-sm); /* desk: GitHistoryTableHeader's h-(--hd-control-h-sm) → here, the head of a table only this pane has */
   padding-right: var(--hd-space-3); /* desk: GitHistoryTableHeader's pr-3 → here, the rows' own right inset */
 }
 
@@ -196,7 +195,8 @@
 
 .gutter {
   flex: none;
-  height: 100%;
+  /* The SVG owns the whole pitch, including the row's divider. */
+  align-self: flex-start;
   overflow: hidden;
 }
 

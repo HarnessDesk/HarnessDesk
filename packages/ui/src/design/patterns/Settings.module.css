@@ -113,7 +113,7 @@
 .chip[data-size='sm'] {
   height: 18px;
   padding: 0 var(--hd-space-1-5);
-  border-radius: var(--hd-radius-sm);
+  border-radius: var(--hd-chip-radius-sm); /* desk: 6px → 5px, small chips share the table chip radius */
 }
 
 .chip[data-variant='outline'] {

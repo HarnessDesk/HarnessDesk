@@ -47,7 +47,7 @@ export const CommitProvenance = ({ root, sha, value: supplied }: { readonly root
       : <><Chip tone="neutral" label={provenanceWords(value)} /><Note>{value.explanation}</Note>
         <Rows>{value.seats.map((item: ProvenanceSeat) => {
           const runtime = snapshot.runtimes.find((entry) => entry.id === item.runtime)
-          return <Row key={item.id} title={item.agentName ?? 'Seat'} desc={item.seatLabel} mark={runtime ? <RuntimeMark runtime={runtime} size={14} /> : <RuntimeMark runtime={{ id: item.runtime, presentation: { name: item.runtime } }} size={14} />} control={<Button variant="secondary" onClick={() => setSeat(item.id)}>Seat record</Button>} />
+          return <Row key={item.id} title={item.agentName ?? 'Seat'} desc={item.seatLabel} mark={runtime ? <RuntimeMark runtime={runtime} size={14} /> : <RuntimeMark runtime={{ id: item.runtime, presentation: { name: item.runtime } }} size={14} />} control={<Button variant="outline" size="sm" onClick={() => setSeat(item.id)}>Seat record</Button>} />
         })}</Rows>
         {value.cards.map((card) => {
           const evidence = snapshot.boardEvidence.get(card.board)?.cards.find((entry) => entry.card === card.id)

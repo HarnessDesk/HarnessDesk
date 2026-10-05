@@ -1320,11 +1320,10 @@ only `empty`; the declaration says what the screen actually owns. Markdown's
 prose ratio ladder and the diff viewer remain named specialized-renderer
 exemptions, in both the stylesheet and the `.tsx` that renders each.
 
-Three single declarations are exempt by name, in
+Two single declarations are exempt by name, in
 `SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`. Each is `GitPane.module.css`'s own:
 
-- the commit table's head height (`--hd-control-h-sm`);
-- the same head's end inset, which is the rows' own, so the columns line up;
+- the commit table header's end inset, which is the rows' own, so the columns line up;
 - the opened commit's floor (`--hd-history-detail-min-h`).
 
 Each has no second screen to share a part with, so a part made for it would
@@ -1811,7 +1810,8 @@ Comfortable is the page default (40px header, 56px row or 44px bare).
 `data-hd-table="compact"` uses 32px headers, 40px rows or 32px bare rows;
 panel tables choose compact. Inspectors and project panels use the same compact
 record anatomy: 13px medium names, 12px quiet facts, and centred readings.
-Git's log keeps its fixed 26px pitch.
+Git's log keeps its fixed 26px pitch, with a 28px header from `TableHeader`'s
+log variant, card dividers and the shared selected fill.
 
 A data table compares three or more facts and has a header. Three or more
 unlabelled numbers also need a header. Omit a column empty in every row; show

@@ -251,19 +251,19 @@ it('asks for the log, the refs and the status together, and shows the walk', asy
   expect(document.body.textContent).toContain('2 commits')
 })
 
-it('keeps the windowed commit row borderless and marks the graph column edge', async () => {
+it('keeps the windowed commit row divided and marks the graph column edge', async () => {
   await mount({
     log: [
       commit('aaaa1111111', 'tip', { parents: ['bbbb2222222'] }),
       commit('bbbb2222222', 'root'),
     ],
   })
-  const rows = [...container.querySelectorAll<HTMLElement>('[role="option"]')]
+  const rows = [...container.querySelectorAll<HTMLElement>('[role="row"][aria-selected]')]
   expect(rows).toHaveLength(2)
-  expect(rows.every((row) => row.className.includes('border-0'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('border-b-(--hd-card-divider,var(--hd-border))'))).toBe(true)
   expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
   expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
-  // The inset is the `table-row` button size's own now (#835), not an inline style.
+  // The inset is the `log-row` button size's own now (#835), not an inline style.
   expect(rows.every((row) => row.className.includes('pr-(--hd-space-3)'))).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
@@ -275,7 +275,7 @@ it('keeps a loaded history Seat actionable in selected detail when the refresh i
     log: [commit(sha, 'tip')],
     provenance: [{ sha, state: 'attributed', coverage: 'complete', seats: [{ id: 'seat-1', agentName: 'Contributor 1', runtime: 'fixture', seatLabel: 'Alpha', session: { runtime: 'fixture', sessionId: 'one' } }], via: 'observed', reason: null, explanation: 'Observed.', evidenceIds: [], cards: [], observedAt: 1 }],
   })
-  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  await act(async () => container.querySelector<HTMLElement>('[role="row"][aria-selected]')?.click())
   expect(container.textContent).toContain('Contributor 1')
   expect([...container.querySelectorAll('button')].some((item) => item.textContent === 'Seat record')).toBe(true)
 })
@@ -285,7 +285,7 @@ it('refreshes selected provenance detail from a successful newer batch', async (
   const original = { sha, state: 'attributed' as const, coverage: 'complete' as const, seats: [], via: 'observed' as const, reason: null, explanation: 'Original evidence.', evidenceIds: [], cards: [], observedAt: 1 }
   const refreshed = { ...original, explanation: 'Refreshed evidence.' }
   const { updateSnapshot } = await mount({ log: [commit(sha, 'tip')], provenanceReads: [[original], [original], [refreshed], [refreshed]] })
-  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  await act(async () => container.querySelector<HTMLElement>('[role="row"][aria-selected]')?.click())
   expect(container.textContent).toContain('Original evidence.')
   await act(async () => {
     updateSnapshot({ provenanceRevision: new Map([['/repo/app', 1]]) })
@@ -298,7 +298,7 @@ it('refreshes selected provenance detail from a successful newer batch', async (
 it('offers a provenance retry when the selected batch and detail read both fail', async () => {
   const sha = 'aaaa1111111'
   await mount({ log: [commit(sha, 'tip')], provenanceReads: [new Error('offline'), new Error('offline')] })
-  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  await act(async () => container.querySelector<HTMLElement>('[role="row"][aria-selected]')?.click())
   const detail = container.querySelector<HTMLElement>('section[aria-label="Commit provenance"]')!
   expect(detail.textContent).toContain('Provenance could not be read.')
   expect([...detail.querySelectorAll('button')].some((item) => item.textContent === 'Retry provenance')).toBe(true)
@@ -410,7 +410,7 @@ it('pins the dirty working tree as one row that opens Changes', async () => {
 
 it('opens a commit on click, and a patch only when a file is chosen', async () => {
   const { request } = await mount({ log: [commit('aaaa1111111', 'tip: the latest work')] })
-  const row = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
+  const row = [...document.body.querySelectorAll('[role="row"][aria-selected]')].find((node) =>
     node.textContent?.includes('tip: the latest work'),
   ) as HTMLElement
   await act(async () => row.click())
@@ -561,7 +561,7 @@ it('the commit menu offers the git verbs, and cherry-pick refuses a merge', asyn
     ],
     on: { 'git/revert': { summary: 'Reverted aaaa111.', conflicts: [] } },
   })
-  const row = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
+  const row = [...document.body.querySelectorAll('[role="row"][aria-selected]')].find((node) =>
     node.textContent?.includes('tip: the latest work'),
   )!
   await rightClick(row)
@@ -576,7 +576,7 @@ it('the commit menu offers the git verbs, and cherry-pick refuses a merge', asyn
   expect(notice).toHaveBeenCalledWith('info', 'Reverted aaaa111.')
 
   // The merge commit's menu greys cherry-pick with the reason.
-  const mergeRow = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
+  const mergeRow = [...document.body.querySelectorAll('[role="row"][aria-selected]')].find((node) =>
     node.textContent?.includes('merge: two parents'),
   )!
   await rightClick(mergeRow)
@@ -650,9 +650,9 @@ it('the manager names what each checkout holds, and never offers to remove the m
 
   const dialog = document.querySelector('[role="dialog"]')!
   expect(dialog.textContent).toContain('main')
-  expect(dialog.textContent).toContain('here')
+  expect(dialog.textContent).toContain('Here')
   expect(dialog.textContent).toContain('3 uncommitted')
-  expect(dialog.textContent).toContain('folder is gone')
+  expect(dialog.textContent).toContain('Folder is gone')
 
   // The main row's verbs: no Remove, no Lock — git refuses both, so does this.
   const rows = [...dialog.querySelectorAll('[title="/repo/app"]')]
@@ -1032,7 +1032,7 @@ it('a graph column too narrow for the history says how many lanes it is not show
   await mount({ log: TWO_LANES, prefs: { gitColumns: { graph: 22 } } })
   // Room for one lane of two; the other is counted off rather than clipped.
   expect(head().textContent).toContain('+1')
-  const drawn = document.body.querySelector('[role="option"] span > svg')
+  const drawn = document.body.querySelector('[role="row"][aria-selected] span > svg')
   expect(drawn).toBeTruthy()
   // One column of lanes drawn, at full spacing — not two squeezed in.
   expect(drawn!.getAttribute('width')).toBe('12')
@@ -1043,7 +1043,7 @@ it('a graph column dragged shut draws nothing and counts nothing', async () => {
   // No room for a lane is not "one lane hidden", it is no graph: a count
   // that cannot fit beside the label would land on the next column.
   expect(head().textContent).not.toContain('+')
-  expect(document.body.querySelector('[role="option"] span > svg')).toBeNull()
+  expect(document.body.querySelector('[role="row"][aria-selected] span > svg')).toBeNull()
   // The handle stays, so the column can be brought back.
   expect(head().querySelector('[aria-label="Resize the Graph column"]')).toBeTruthy()
 })
@@ -1210,19 +1210,19 @@ it('the row pitch and its named token cannot drift apart (#835)', () => {
   expect(Number(rowConst![1])).toBe(Number(declared![1]))
 })
 
-it('keeps commit options out of the Tab order so the listbox is one stop', async () => {
+it('keeps commit rows out of the Tab order so the grid is one stop', async () => {
   await mount({ log: [commit('aaaa111', 'First'), commit('bbbb222', 'Second')] })
-  const list = container.querySelector<HTMLElement>('[role="listbox"][aria-label="Commits"]')
+  const list = container.querySelector<HTMLElement>('[role="grid"][aria-label="Commits"]')
   expect(list?.tabIndex).toBe(0)
-  const options = [...container.querySelectorAll<HTMLElement>('[role="option"]')]
+  const options = [...container.querySelectorAll<HTMLElement>('[role="row"][aria-selected]')]
   expect(options).toHaveLength(2)
   expect(options.map((option) => option.tabIndex)).toEqual([-1, -1])
   expect(options.every((option) => option.getAttribute('aria-selected') === 'false')).toBe(true)
 })
 
-it('navigates and activates commits from the one-stop listbox', async () => {
+it('navigates and activates commits from the one-stop grid', async () => {
   await mount({ log: [commit('aaaa111', 'First'), commit('bbbb222', 'Second'), commit('cccc333', 'Third')] })
-  const list = container.querySelector<HTMLElement>('[role="listbox"][aria-label="Commits"]')!
+  const list = container.querySelector<HTMLElement>('[role="grid"][aria-label="Commits"]')!
   const press = (key: string): void => {
     act(() => {
       list.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
@@ -1249,12 +1249,50 @@ it('navigates and activates commits from the one-stop listbox', async () => {
   expect(document.activeElement).toBe(list)
 })
 
+it('pages the overflowing history from the grid without changing its active or selected commit', async () => {
+  await mount({ log: Array.from({ length: 100 }, (_, index) => commit(`sha${index}`, `Commit ${index}`)) })
+  const grid = container.querySelector<HTMLElement>('[role="grid"][aria-label="Commits"]')!
+  const list = grid.querySelector<HTMLElement>('[role="rowgroup"]')!
+  Object.defineProperties(list, {
+    clientHeight: { value: 130 },
+    scrollHeight: { value: 2600 },
+  })
+  const press = (key: string): KeyboardEvent => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    act(() => grid.dispatchEvent(event))
+    return event
+  }
+  grid.focus()
+  press('ArrowDown')
+  await act(async () => { press('Enter') })
+  const active = grid.getAttribute('aria-activedescendant')
+  const selected = grid.querySelector('[aria-selected="true"]')
+
+  expect(press('PageDown').defaultPrevented).toBe(true)
+  expect(list.scrollTop).toBe(130)
+  expect(grid.getAttribute('aria-activedescendant')).toBe(active)
+  expect(selected?.getAttribute('aria-selected')).toBe('true')
+  expect(press('PageUp').defaultPrevented).toBe(true)
+  expect(list.scrollTop).toBe(0)
+  press('PageUp')
+  expect(list.scrollTop).toBe(0)
+  list.scrollTop = 2500
+  press('PageDown')
+  expect(list.scrollTop).toBe(2470)
+  expect(document.activeElement).toBe(grid)
+
+  // Paging on a column resize control stays outside history navigation.
+  const grip = grid.querySelector<HTMLElement>('[aria-label="Resize the Commit column"]')!
+  act(() => grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true, cancelable: true })))
+  expect(list.scrollTop).toBe(2470)
+})
+
 it('reconciles and activates the nearest commit after a search removes the active row', async () => {
   await mount({ logResponses: [
     [commit('aaaa111', 'First'), commit('bbbb222', 'Second'), commit('cccc333', 'Third')],
     [commit('aaaa111', 'First'), commit('cccc333', 'Third')],
   ] })
-  const list = container.querySelector<HTMLElement>('[role="listbox"][aria-label="Commits"]')!
+  const list = container.querySelector<HTMLElement>('[role="grid"][aria-label="Commits"]')!
   list.focus()
   const press = (key: string) => act(() => list.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
   press('ArrowDown')
@@ -1278,7 +1316,7 @@ it('reconciles and activates the first commit after a history refresh removes th
     [commit('aaaa111', 'First'), commit('bbbb222', 'Second')],
     [commit('cccc333', 'New first')],
   ] })
-  const list = container.querySelector<HTMLElement>('[role="listbox"][aria-label="Commits"]')!
+  const list = container.querySelector<HTMLElement>('[role="grid"][aria-label="Commits"]')!
   list.focus()
   const press = (key: string) => act(() => list.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
   press('ArrowDown')
@@ -1293,4 +1331,52 @@ it('reconciles and activates the first commit after a history refresh removes th
   expect(list.getAttribute('aria-activedescendant')).toBe('git-commit-cccc333')
   press(' ')
   expect(container.querySelector('#git-commit-cccc333')?.getAttribute('aria-selected')).toBe('true')
+})
+
+
+it('owns its column headings and windowed rows in one grid', async () => {
+  await mount({ log: [commit('aaaa111', 'First'), commit('bbbb222', 'Second')] })
+  const grid = container.querySelector('[role="grid"][aria-label="Commits"]')!
+  expect(grid).not.toBeNull()
+  expect(grid.querySelector('[role="row"] [role="columnheader"]')?.textContent).toContain('Graph')
+  expect([...grid.querySelectorAll('[role="columnheader"]')].map(cell => cell.textContent)).toEqual(['Graph', 'Description', 'Commit', 'Date', 'Author'])
+  expect(grid.querySelectorAll('[role="row"][aria-selected]')).toHaveLength(2)
+  expect(grid.querySelector('[aria-selected]')?.getAttribute('aria-rowindex')).toBe('2')
+  expect(grid.getAttribute('aria-rowcount')).toBe('3')
+  expect(grid.querySelector('[role="rowgroup"]')?.getAttribute('tabindex')).toBe('-1')
+  expect(grid.querySelector('[aria-selected]')?.querySelectorAll('[role="gridcell"]')).toHaveLength(5)
+  expect(container.querySelector('[role="listbox"]')).toBeNull()
+})
+
+it('counts remote refs and uses small chips in the log and rail', async () => {
+  await mount({ log: [commit('aaaa111', 'First', { refs: ['HEAD -> main', 'tag: v1'] })] })
+  expect(container.textContent).toContain('Remotes · 1')
+  const chips = container.querySelectorAll('[data-slot="chip"]')
+  expect(chips.length).toBeGreaterThan(0)
+  expect([...chips].every(chip => chip.getAttribute('data-size') === 'sm')).toBe(true)
+})
+
+it('resizes a column with Home without navigating the history grid', async () => {
+  const { store } = await mount({ log: [commit('aaaa111', 'First'), commit('bbbb222', 'Second')] })
+  const setListPrefs = vi.fn()
+  store.setListPrefs = setListPrefs
+  const grid = container.querySelector<HTMLElement>('[role="grid"]')!
+  const grip = grid.querySelector<HTMLElement>('[aria-label="Resize the Commit column"]')!
+  const before = grid.getAttribute('aria-activedescendant')
+  act(() => grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
+  expect(setListPrefs).toHaveBeenCalledWith({ gitColumns: { sha: 44 } })
+  expect(grid.getAttribute('aria-activedescendant')).toBe(before)
+})
+
+
+it('reports an unknown row count while more history is available', async () => {
+  await mount({ on: { 'git/log': { commits: [commit('aaaa111', 'First')], hasMore: true } } })
+  expect(container.querySelector('[role="grid"]')?.getAttribute('aria-rowcount')).toBe('-1')
+})
+
+it('uses tabular figures for commit dates and normal text for author names', async () => {
+  await mount({ log: [commit('aaaa111', 'First')] })
+  const cells = container.querySelector('[aria-selected]')!.querySelectorAll('[role="gridcell"]')
+  expect(cells[3]?.querySelector('.tabular-nums')).not.toBeNull()
+  expect(cells[4]?.querySelector('.tabular-nums')).toBeNull()
 })

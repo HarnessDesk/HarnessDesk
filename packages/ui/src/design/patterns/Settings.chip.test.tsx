@@ -11,6 +11,8 @@ import {
   Text,
 } from './Settings'
 import css from './Settings.module.css?raw'
+import tokens from '../foundation/tokens.css?raw'
+import { ELEMENTS } from '../usage'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -189,7 +191,7 @@ it('defaults an unknown fact to Unknown and the neutral tone', () => {
 it('offers the compact tag size without inheriting the full chip height', () => {
   const chip = draw(<Chip tone="neutral" size="sm">Local</Chip>)
   expect(chip.dataset['size']).toBe('sm')
-  expect(css).toMatch(/\.chip\[data-size='sm'\]\s*\{[^}]*height:\s*18px[^}]*padding:\s*0 var\(--hd-space-1-5\)[^}]*border-radius:\s*var\(--hd-radius-sm\)/s)
+  expect(css).toMatch(/\.chip\[data-size='sm'\]\s*\{[^}]*height:\s*18px[^}]*padding:\s*0 var\(--hd-space-1-5\)[^}]*border-radius:\s*var\(--hd-chip-radius-sm\)/s)
 })
 
 it('offers the established outline tag without changing the chip default', () => {
@@ -245,3 +247,9 @@ it('draws row marks and compact facts as named roles', () => {
   expect(list?.textContent).toBe('3 copiesLast Tuesday')
 })
 
+
+it('documents compact chip corners as an app-wide shape contract', () => {
+  const shape = ELEMENTS.find(rule => rule.family === 'shape' && rule.variant === '--hd-radius-md')!
+  expect(shape.never).toContain('--hd-chip-radius-sm')
+  expect(tokens).toMatch(/Small chips across the app[^]*?5 px[^]*?--hd-chip-radius-sm:/)
+})

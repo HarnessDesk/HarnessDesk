@@ -1600,10 +1600,12 @@ test('the Git pane\'s named exemptions cover exactly their own declarations, nev
   const named = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
     .map(({ selector, property, value }) => `${selector} { ${property}: ${value}; }`)
     .join('\n')
-  assert.equal(SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.length, 3)
+  assert.equal(SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.length, 2)
   for (const entry of SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS) assert.ok(entry.reason.length > 40, `${entry.selector} ${entry.property} carries its reason`)
 
-  // The three, exactly as named: nothing to find.
+  // The log header now composes TableHeader; its former screen height is no longer exempt.
+  assert.equal(screenAppearanceOf(file, '.tableHead { height: var(--hd-control-h-sm); }').length, 1)
+  // The two, exactly as named: nothing to find.
   assert.deepEqual(screenAppearanceOf(file, named), [])
   // A new appearance declaration in the same sheet is a finding.
   assert.deepEqual(screenAppearanceOf(file, `${named}\n.tableHead { color: var(--hd-muted-foreground); }`), [
@@ -1619,7 +1621,7 @@ test('the Git pane\'s named exemptions cover exactly their own declarations, nev
   assert.equal(screenAppearanceOf(file, `${named}\n.row { .tableHead { padding-right: var(--hd-space-3); } }`).length, 1)
   // And the same declaration in another screen's sheet is not exempt.
   const other = path.join(root, 'packages/ui/src/components/Other.module.css')
-  assert.equal(screenAppearanceOf(other, named).length, 3)
+  assert.equal(screenAppearanceOf(other, named).length, 2)
 })
 
 test('a named exemption that matches nothing is reported, so the list cannot outlive what it names (#838)', () => {
@@ -1632,7 +1634,7 @@ test('a named exemption that matches nothing is reported, so the list cannot out
   assert.deepEqual(staleScreenAppearanceExemptions(() => without), [first])
   // Moved under an at-rule, it no longer names that rule: stale.
   assert.deepEqual(staleScreenAppearanceExemptions(() => `${without}\n@media print { ${first.selector} { ${first.property}: ${first.value}; } }`), [first])
-  assert.equal(staleScreenAppearanceExemptions(() => null).length, 3)
+  assert.equal(staleScreenAppearanceExemptions(() => null).length, 2)
 })
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {

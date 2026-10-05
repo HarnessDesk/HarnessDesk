@@ -15,6 +15,7 @@ import type {
 import { StoreProvider } from '../state/context'
 import type { AppStore } from '../state/store'
 import {
+  LibraryHistory,
   AuthorDialog,
   ImportDialog,
   PlanDialog,
@@ -516,4 +517,14 @@ it('the import direction can be reversed on a machine with exactly two agents', 
   expect(
     intents.map((one) => ('targetRuntime' in one ? one.targetRuntime : null)),
   ).toEqual([runtimeId('one')])
+})
+
+
+it('renders the change log with centred rows, tabular dates and outline restore controls', async () => {
+  const store = storeWith(async () => [1, 2].map(at => ({ kind: 'library/write', at, op: 'skill/update', name: 'Review', path: `${HOME}/skills/review/SKILL.md`, status: 'done', backupPath: `${HOME}/backups/review`, runtime: 'one' })))
+  await render(store, <LibraryHistory refreshedAt={0} home={HOME} onFlow={() => {}} />)
+  expect(container.querySelectorAll('[role="listitem"]')).toHaveLength(2)
+  expect(container.querySelector('[data-slot="separator"]')).toBeNull()
+  expect(container.querySelector('[data-role="meta"]')?.className).toContain('tabular-nums')
+  expect(container.querySelector('button')?.className).toContain('border-(--hd-btn-border)')
 })
