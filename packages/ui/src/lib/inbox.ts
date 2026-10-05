@@ -15,6 +15,11 @@ export type InboxTone = 'neutral' | 'info' | 'warning' | 'danger'
 
 export interface InboxEntry {
   readonly id: string
+  readonly count?: number
+  readonly lastEvent?: string
+  readonly contentKey?: string
+  readonly file?: string
+  readonly settings?: readonly string[]
   /** The notice kind it came from, when it came from one. */
   readonly kind?: string
   readonly tone: InboxTone
@@ -52,6 +57,11 @@ export const readInbox = (raw: unknown): readonly InboxEntry[] => {
     if (typeof entry.id !== 'string' || typeof entry.title !== 'string' || typeof entry.at !== 'number') continue
     entries.push({
       id: entry.id,
+      ...(typeof entry.lastEvent === 'string' ? { lastEvent: entry.lastEvent } : {}),
+      ...(typeof entry.count === 'number' && Number.isFinite(entry.count) && entry.count > 0 ? { count: Math.floor(entry.count) } : {}),
+      ...(typeof entry.contentKey === 'string' ? { contentKey: entry.contentKey } : {}),
+      ...(typeof entry.file === 'string' ? { file: entry.file } : {}),
+      ...(Array.isArray(entry.settings) ? { settings: entry.settings.filter((value): value is string => typeof value === 'string') } : {}),
       ...(typeof entry.kind === 'string' ? { kind: entry.kind } : {}),
       tone: TONES.includes(entry.tone as InboxTone) ? (entry.tone as InboxTone) : 'neutral',
       title: entry.title,
@@ -77,3 +87,9 @@ export const markedRead = (inbox: readonly InboxEntry[], id: string | null): rea
   inbox.map((entry) => (id === null || entry.id === id ? (entry.read ? entry : { ...entry, read: true }) : entry))
 
 export const unreadCount = (inbox: readonly InboxEntry[]): number => inbox.filter((entry) => !entry.read).length
+
+/** Repeated content updates the count and time without undoing a read. */
+export const repeated = (inbox: readonly InboxEntry[], entry: Omit<InboxEntry, 'read'>): readonly InboxEntry[] => {
+  const old = inbox.find(existing => existing.id === entry.id)
+  return [{ ...entry, count: Math.max(entry.count ?? 0, (old?.count ?? (old ? 1 : 0)) + 1), read: old?.read ?? false }, ...inbox.filter(existing => existing.id !== entry.id)].slice(0, INBOX_LIMIT)
+}

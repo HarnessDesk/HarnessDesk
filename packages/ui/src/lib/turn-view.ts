@@ -79,11 +79,15 @@ export const splitTurn = (turn: Turn): TurnView => {
   let boundary = turn.items.length
   for (let index = turn.items.length - 1; index >= 0; index -= 1) {
     const item = turn.items[index] as AgentItem
-    if (item.type === 'error' || isSilentReasoning(item)) continue
+    if (item.type === 'error' || (item.type === 'notice' && item.kind) || isSilentReasoning(item)) continue
     if (!isAnswer(item)) break
     boundary = index
   }
   turn.items.forEach((item, index) => {
+    if (item.type === 'notice' && item.kind) {
+      trailing.push(item)
+      return
+    }
     if (opensTurn(item) && work.length === 0 && answer.length === 0) {
       prompt.push(item)
       return

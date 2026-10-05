@@ -177,7 +177,8 @@ it('puts the unread Inbox before search in the title bar and keeps the footer fo
   const bell = titleBar.querySelector('[data-slot="inbox-button"]')!
   expect(bell).not.toBeNull()
   expect(bell.hasAttribute('data-unread')).toBe(true)
-  expect(bell.textContent).toBe('1')
+  expect(bell.textContent).toBe('Inbox, 1 unread')
+  expect(bell.querySelector('[data-slot="inbox-dot"]')).not.toBeNull()
   expect(bell.closest('button')?.title).toBe('Inbox, 1 unread')
   expect(bell.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(titleBar.classList.contains('hd-drag')).toBe(true)
