@@ -91,14 +91,3 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }
 )
 
 export { IconTile, tileVariants }
-
-
-/** Compact identities for a Team: overlapping twenty-pixel faces, followed by the remainder. */
-const FaceStack = ({ faces, limit = 4 }: { faces: readonly { id: string; name?: string; tint: Tint; mark: React.ReactNode }[]; limit?: number }) => (
-  <span data-slot="face-stack" aria-label={`${faces.length} seats`} className="inline-flex shrink-0 items-center">
-    <span className="inline-flex -space-x-2">{faces.slice(0, limit).map(face =>
-      <IconTile key={face.id} shape="face" size="stack" tint={face.tint} title={face.name} className="ring-2 ring-(--hd-background)">{face.mark}</IconTile>)}</span>
-    {faces.length > limit && <span className="ms-2 text-xs text-(--hd-muted-foreground) tabular-nums">+{faces.length - limit}</span>}
-  </span>
-)
-export { FaceStack }

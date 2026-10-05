@@ -44,7 +44,7 @@ for (const theme of ['light', 'dark'] as const) {
         const record = root.querySelector('[data-slot="row"][data-kind="record"]')!
         const action = root.querySelector('[data-slot="row-folding"]')!
         const rule = action.querySelector('button')!
-        const stack=root.querySelector('[data-slot="table-cell-lead"] [data-slot="face-stack"]')!
+        const stack=root.querySelector('[data-slot="table-cell-lead"] [data-slot="avatar-stack"]')!
         const stackLead=stack.parentElement!.getBoundingClientRect()
         return {
           head: root.querySelector('[data-slot="table-head"]')!.getBoundingClientRect().height,

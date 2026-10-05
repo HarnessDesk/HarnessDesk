@@ -271,3 +271,10 @@ it('keeps the shared table-row size about pitch, with rounded control corners', 
   expect(classes).not.toContain('border-b')
   expect(classes).not.toContain('data-[selected]:bg-(--hd-selected)')
 })
+
+it('can stretch its hit area to the positioned row without losing button semantics',()=>{
+ const markup=renderToStaticMarkup(<Button stretched variant="row" size="pattern">Open the Team</Button>)
+ expect(markup).toContain('after:absolute after:inset-0')
+ expect(markup).toContain('<button')
+ expect(markup).not.toContain('stretched=')
+})

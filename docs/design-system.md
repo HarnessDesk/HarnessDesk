@@ -847,7 +847,7 @@ having written the judgement down.
 
 ### `face`
 
-**Use** — A face tells rows apart, centred beside the whole text block in either density. A table lead keeps a FaceStack at its full width, including the remainder count.
+**Use** — A face tells rows apart, centred beside the whole text block in either density. A table lead keeps a AvatarStack at its full width, including the remainder count.
 
 **Not** — The same decorative glyph repeated on every row. Leave the face out when it identifies nothing.
 

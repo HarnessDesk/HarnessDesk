@@ -64,3 +64,13 @@ it('leads a generated duplicate address with its distinguishing model and effort
  expect(seatDisplayName(record, 'Jane Doe', 'Runtime A')).toBe('Jane Doe')
  expect(seatDisplayName(record, 'Implementer', 'Runtime A')).toBe('Implementer')
 })
+
+it('keeps full nicknames when shortened names collide across Agents or custom names', async () => {
+ const { seatDisplayName } = await import('./team-seats')
+ const a={record:{agent:{name:'Writer'},seatLabel:'Runtime A Model A · High'},nickname:'Writer · Runtime A Model A · High',runtimeName:'Runtime A'}
+ const b={record:{agent:{name:'Reviewer'},seatLabel:'Runtime A Model A · High'},nickname:'Reviewer · Runtime A Model A · High',runtimeName:'Runtime A'}
+ expect(seatDisplayName(a.record,a.nickname,a.runtimeName,[a,b])).toBe(a.nickname)
+ expect(seatDisplayName(b.record,b.nickname,b.runtimeName,[a,b])).toBe(b.nickname)
+ expect(seatDisplayName(a.record,a.nickname,a.runtimeName,[a,{nickname:'Model A · High'}])).toBe(a.nickname)
+ expect(seatDisplayName(a.record,a.nickname,a.runtimeName,[a])).toBe('Model A · High')
+})

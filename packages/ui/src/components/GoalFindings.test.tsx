@@ -121,9 +121,10 @@ it('a carried finding names the issue first, then its id and blocking reading', 
   const { store } = rig(state)
   await render(store)
   expect(container.textContent).toContain('finding-carried')
+  expect(container.querySelector('.select-all')?.textContent).toBe('finding-carried')
   const renderedRow = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('finding-carried'))!
   expect(renderedRow.querySelector('[data-slot="row-title"]')?.textContent).toBe('Title of finding-carried')
-  expect([...renderedRow.querySelectorAll('[data-slot="meta-list"] > *')].map(one => one.textContent)).toEqual(['#finding-carried', 'Blocking'])
+  expect([...renderedRow.querySelectorAll('[data-slot="meta-list"] > *')].map(one => one.textContent)).toEqual(['#finding-carried', 'Blocking', 'Raised in round 5 · earlier run'])
 })
 
 it('a carried finding not yet admitted on its target agrees with the header: Advisory, never Blocking, when the header counts it out', async () => {

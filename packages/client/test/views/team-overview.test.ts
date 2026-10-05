@@ -498,14 +498,14 @@ describe('teamOverviewOf', () => {
 
 
 describe('completed Seat readings', () => {
-  it('freezes working time from its first claim to its last completed turn', () => {
+  it('sums recorded working turns without the earlier claim span', () => {
     const completed = session('Alpha', [], false)
     const model = teamOverview(input({ seats: [seat('Alpha', { session: completed })],
       cards: [card(1, { state: 'done' })],
       signals: [blockedSignal('Alpha', { signal: 'claimed', at: 220 }), blockedSignal('Alpha', { signal: 'completed', at: 310 })],
     }))
     assert.equal(model.seats[0]?.done, true)
-    assert.partialDeepStrictEqual(model.seats[0], { durationMs: 80 })
+    assert.partialDeepStrictEqual(model.seats[0], { durationMs: 50 })
   })
   it('keeps completed timing unknown without a recorded end', () => {
     const model = teamOverview(input({ seats: [seat('Alpha')], cards: [card(1, { state: 'done' })],
@@ -521,4 +521,28 @@ describe('completed Seat readings', () => {
       assert.equal(model.seats[0]?.state, 'idle')
     })
   }
+})
+
+it('completed working time excludes gaps and survives trimmed claim signals', () => {
+ const completed = {...session('Alpha', [], false), turns: [
+  {id:turnId('before-seat'),status:'completed' as const,startedAt:10,completedAt:90,items:[]},
+  {id:turnId('first'),status:'completed' as const,startedAt:250,completedAt:300,items:[]},
+  {id:turnId('last'),status:'completed' as const,startedAt:800,completedAt:900,items:[]},
+ ]}
+ for(const signals of [
+  [blockedSignal('Alpha',{signal:'claimed',at:220}),blockedSignal('Alpha',{signal:'claimed',at:800}),blockedSignal('Alpha',{signal:'completed',at:900})],
+  [blockedSignal('Alpha',{signal:'claimed',at:800}),blockedSignal('Alpha',{signal:'completed',at:900})],
+ ]) {
+  const model=teamOverview(input({seats:[seat('Alpha',{session:completed})],cards:[card(1,{state:'done'})],signals}))
+  assert.equal(model.seats[0]?.durationMs,150)
+ }
+})
+
+it('keeps a completed Seat’s duration unknown when a recorded turn lacks either timestamp',()=>{
+ for(const missing of ['startedAt','completedAt'] as const) {
+  const known=session('Alpha',[],false)
+  const unknown={...known.turns[0]!,id:turnId('unknown'),[missing]:undefined}
+  const model=teamOverview(input({seats:[seat('Alpha',{session:{...known,turns:[...known.turns,unknown]}})],cards:[card(1,{state:'done'})],signals:[blockedSignal('Alpha',{signal:'completed'})]}))
+  assert.equal(model.seats[0]?.durationMs,null)
+ }
 })

@@ -10,12 +10,12 @@ for(const theme of ['light','dark'] as const) {
  test(`Teams page: the whole stack and remainder fit inside the table lead in ${theme}`,async({page})=>{
   await openTeams(page,theme)
   const row=page.locator('#teams-page-active [data-team-row="team-2"]')
-  await expect(row.locator('[data-slot="face-stack"]')).toHaveAccessibleName('6 seats')
-  await expect(row.locator('[data-slot="face-stack"] [data-shape="face"]')).toHaveCount(4)
-  await expect(row.locator('[data-slot="face-stack"]')).toContainText('+2')
+  await expect(row.locator('[data-slot="avatar-stack"]')).toHaveAccessibleName('6 seats')
+  await expect(row.locator('[data-slot="avatar-stack"] [data-shape="face"]')).toHaveCount(4)
+  await expect(row.locator('[data-slot="avatar-stack"]')).toContainText('+2')
   expect(await row.evaluate(row=>{
    const lead=row.querySelector('[data-slot="table-cell-lead"]')!.getBoundingClientRect()
-   const stack=row.querySelector('[data-slot="face-stack"]')!
+   const stack=row.querySelector('[data-slot="avatar-stack"]')!
    return [...stack.querySelectorAll('[data-shape="face"]'),stack.lastElementChild!].every(el=>{
     const box=el.getBoundingClientRect();return box.left>=lead.left-1&&box.right<=lead.right+1&&box.top>=lead.top-1&&box.bottom<=lead.bottom+1
    })
@@ -52,7 +52,6 @@ for(const theme of ['light','dark'] as const) {
    const box=el.getBoundingClientRect()
    return el.contains(document.elementFromPoint(box.x+box.width/2,box.y+box.height/2))
   })).toBe(true)
-  await frame.locator(':scope > div').screenshot({path:`output/playwright/teams-page/hide-menu-${theme}.png`})
   await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(4)
   await frame.getByRole('button',{name:'Settled',exact:true}).click()
@@ -153,5 +152,27 @@ for(const theme of ['light','dark'] as const) {
   await expect(second.locator('[aria-label="Unread changes"]')).toBeVisible()
   expect(Math.abs(await nameLeft(first)-before)).toBeLessThan(1)
   expect(Math.abs(await nameLeft(first)-await nameLeft(second))).toBeLessThan(1)
+ })
+}
+
+for(const theme of ['light','dark'] as const) {
+ test(`Teams row buttons cover the readings and keep menu targets independent in ${theme}`,async({page})=>{
+  await openTeams(page,theme)
+  for(const scene of ['active','narrow']) {
+   const row=page.locator(`#teams-page-${scene} [data-team-row="team-0"]`)
+   const open=row.getByRole('button',{name:'Open Review the checkout retry',exact:true})
+   await expect(open).toBeVisible()
+   await expect(row).not.toHaveAttribute('tabindex')
+   await expect(row.locator('[data-slot="list-row-trail"] > span:empty')).toHaveCount(0)
+   await open.focus();await expect(open).toBeFocused()
+   const point=await row.evaluate(e=>{
+    const reading=e.querySelector('[data-slot="team-detail"]')!.getBoundingClientRect()
+    const x=reading.x+reading.width/2,y=reading.y+reading.height/2
+    return {x,y,button:document.elementFromPoint(x,y)?.closest('button')?.getAttribute('aria-label')}
+   })
+   expect(point.button).toBe('Open Review the checkout retry')
+   await page.mouse.click(point.x,point.y)
+   await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+  }
  })
 }

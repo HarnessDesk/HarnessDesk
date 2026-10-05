@@ -64,6 +64,25 @@ for (const theme of ['light', 'dark']) {
       await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
     })
 
+    test('stack rings follow their Card surface in both palettes', async ({page}) => {
+      await page.evaluate(theme => (window as unknown as {__hdPreview:{store:{setTheme:(theme:string)=>void}}}).__hdPreview.store.setTheme(theme),theme)
+      await expect.poll(()=>page.evaluate(()=>getComputedStyle(document.documentElement).colorScheme)).toBe(theme)
+      for(const palette of ['harnessdesk','editorial']) {
+        await page.evaluate(palette => (window as unknown as {__hdPreview:{store:{setPalette:(palette:string)=>void}}}).__hdPreview.store.setPalette(palette),palette)
+        await expect.poll(()=>page.evaluate(()=>document.body.getAttribute('data-hd-palette') ?? 'harnessdesk')).toBe(palette)
+        const faces=state(page,'review').locator('[data-slot="avatar-stack"] [data-slot="avatar"]')
+        await expect(faces).toHaveCount(2)
+        for(const face of await faces.all()) {
+          expect(await face.evaluate(el=>{
+            const card=el.closest('[data-slot="card"]')!
+            const probe=document.createElement('span');probe.style.backgroundColor='var(--stack-surface,var(--hd-background))';el.append(probe)
+            const ring=getComputedStyle(probe).backgroundColor;probe.remove()
+            return {matched:ring===getComputedStyle(card).backgroundColor,painted:getComputedStyle(el).boxShadow.includes(ring)}
+          })).toEqual({matched:true,painted:true})
+        }
+      }
+    })
+
     test('a stopped claim shares Stopping and its frozen time with the Timeline, then becomes Stopped', async ({ page }) => {
       await advance(page, 'stopping')
       await expect(state(page, 'fix')).toHaveAttribute('data-state', 'stopping')

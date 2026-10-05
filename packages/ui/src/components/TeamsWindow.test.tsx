@@ -171,7 +171,7 @@ it.each([352,1000])('a portalled Team menu panel does not open its row at %spx',
  expect(panel).toBeDefined()
  await act(async()=>panel.dispatchEvent(new MouseEvent('click',{bubbles:true})))
  expect(open).not.toHaveBeenCalled();expect(seen).not.toHaveBeenCalled();expect(close).not.toHaveBeenCalled()
- expect(row.getAttribute('aria-label')).toBe('Open Retry the checkout call')
+ expect(row.querySelector('button[aria-label^="Open "]')?.getAttribute('aria-label')).toBe('Open Retry the checkout call')
  await act(async()=>document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
 })
 
@@ -194,4 +194,13 @@ it('explains unavailable time and both known and unavailable money',async()=>{
  expect(money('team-0').textContent).toBe('—')
  expect(money('team-0').getAttribute('title')).toBe('Recorded usage is unavailable')
  expect(money('team-1').getAttribute('title')).toBe('Recorded Team usage; money only from metered accounts with a known rate')
+})
+
+it('gives the wide Team a real named button, with menu clicks independent',async()=>{
+ const {open}=await mount()
+ const row=container.querySelector('[data-team-row]')!
+ const action=row.querySelector<HTMLButtonElement>('button[aria-label^="Open "]')
+ expect(action).not.toBeNull()
+ await act(async()=>action!.click())
+ expect(open).toHaveBeenCalledOnce()
 })

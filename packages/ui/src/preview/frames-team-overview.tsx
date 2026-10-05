@@ -30,7 +30,7 @@ export const NeedsYouExample = ({ scene }: { scene: NeedsYouScene }) => {
 export const OverviewExample = ({scene}:{scene:OverviewScene}) => {
  const model=overviewModel(scene)
  const runtimeName=previewStore().getSnapshot().runtimes[0]!.presentation.name
- return <TeamOverview model={model} runtimeNames={new Map(model.seats.map(seat=>[seat.seat,runtimeName]))} runName={scene==='comparison'?'Compare the changes':'Build and review'} runReason={scene==='comparison'?'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.':scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'||scene==='comparison'} onOpen={() => {}} onFindings={() => {}} />
+ return <TeamOverview model={model} runtimeNames={new Map(model.seats.map(seat=>[seat.seat,runtimeName]))} runRules={[{id:'to-referee'}]} runName={scene==='comparison'?'Compare the changes':'Build and review'} runReason={scene==='comparison'?'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.':scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'||scene==='comparison'} onOpen={() => {}} onFindings={() => {}} />
 }
 
 export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVERVIEW_STATES.map(scene=><section key={scene} data-catalog-state={scene} className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></section>)}

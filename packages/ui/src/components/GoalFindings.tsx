@@ -203,8 +203,9 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                 title={row.title || 'Untitled finding'}
                 desc={
                   <MetaList ink="muted">
-                    <CodeText size="inherit" className="select-all">#{row.id}</CodeText>
+                    <CodeText size="inherit">#<span className="select-all">{row.id}</span></CodeText>
                     <span>{blockingWords(row)}</span>
+                    {(row.origin.goal !== goal || (run && row.origin.run !== run.id)) && <span>Raised in round {row.origin.round} · earlier run</span>}
                     {row.restored && <span>from a backup</span>}
                   </MetaList>
                 }

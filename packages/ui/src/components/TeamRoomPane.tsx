@@ -772,6 +772,11 @@ export const TeamRoomPane = ({
       }
     })
   }, [peers, seats, snapshot.runtimes, snapshot.sessions, team])
+  const displayMembers = useMemo(() => members.map(peer => ({
+    nickname: peer.nickname,
+    record: goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === sessionKey(peer.runtime, peer.sessionId)),
+    runtimeName: snapshot.runtimes.find(one => one.id === peer.runtime)?.presentation.name,
+  })), [members, goal?.members, snapshot.runtimes])
   const [report, setReport] = useState<InsightReport | null>(null)
   const closedCards = intents.filter(one => one.state === 'done').map(one => one.id).join(',')
   useEffect(() => {
@@ -790,7 +795,7 @@ export const TeamRoomPane = ({
   const overview = useMemo(() => teamOverviewOf(heldClient, room, {
     runtimes: snapshot.runtimes.map(one => ({ id: one.id, name: one.presentation.name, metered: one.capabilities.metered })),
     seats: seats.map(seat => ({
-      record: seat.record, name: seatDisplayName(goal?.members.find(one => one.id === seat.record.id), members.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)?.nickname ?? seat.name, snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name),
+      record: seat.record, name: seatDisplayName(goal?.members.find(one => one.id === seat.record.id), members.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)?.nickname ?? seat.name, snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name, displayMembers),
       runtime: snapshot.runtimes.find(one => one.id === seat.record.session.runtime) ?? null,
       session: snapshot.sessions.get(seat.key) ?? null,
       unreadSince: snapshot.inbox.find(one => !one.read && one.from?.runtime === seat.record.session.runtime && one.from?.sessionId === seat.record.session.sessionId)?.at ?? null,
@@ -800,7 +805,7 @@ export const TeamRoomPane = ({
     findingRun: flowExecution ? snapshot.findingRuns.get(flowExecution.id) : null,
     publicationOn: goal?.goal.findingPublication !== false,
     report: report?.goal === room ? report : null,
-  }), [heldClient, room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
+  }), [heldClient, room, intents, entries, seats, members, displayMembers, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
   const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions }) : null,
   [heldClient, flowExecution, snapshot.sessions])
   const stoppingSessions = new Set(overviewTimeline?.rows.filter(row => row.status === 'Stopping').flatMap(row => {
@@ -848,7 +853,7 @@ export const TeamRoomPane = ({
           ) ?? null
         return {
           peer,
-          displayName: seatDisplayName(goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === key), peer.nickname, runtime?.presentation.name),
+          displayName: seatDisplayName(goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === key), peer.nickname, runtime?.presentation.name, displayMembers),
           key,
           runtime,
           here: peer.here,
@@ -901,6 +906,7 @@ export const TeamRoomPane = ({
       }),
     [
       members,
+      displayMembers,
       goal,
       seats,
       overview,
@@ -1509,6 +1515,7 @@ export const TeamRoomPane = ({
               runNeedsYou={needsYou || Boolean(pendingApproval)}
               onFindings={goal ? () => show('findings') : undefined}
               runReason={flowExecution?.reason}
+              runRules={flowExecution?.document.flow.rules}
               faceTints={new Map(seats.map(seat => [seat.record.id, runtimeTint(seat.record.session.runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs)]))}
               runtimeNames={new Map(seats.flatMap(seat => { const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime); return runtime ? [[seat.record.id, runtime.presentation.name]] : [] }))}
               timeline={overviewTimeline}
@@ -2087,7 +2094,7 @@ const RoomLiveLine = ({
   readonly stoppingSessions?: ReadonlySet<SessionKey>
 }) => {
   const store = useStore()
-  const runReason = includeRunReason && flowExecution?.reason ? sentence(runReasonWords(flowExecution.reason)) : null
+  const runReason = includeRunReason && flowExecution?.reason ? sentence(runReasonWords(flowExecution.reason, flowExecution.document.flow.rules)) : null
   let reasonOnLiveLine = false
   /*
    * The primary line, exactly as before, wrapped so a pending release's own
@@ -2117,7 +2124,7 @@ const RoomLiveLine = ({
     const stopText = triggerStatus?.budget?.stop
       ? triggerStatus.budget.stop.detail || intakeStopWords(triggerStatus.budget.stop.reason)
       : flowExecution?.state === 'stopped' && flowExecution.reason
-        ? sentence(runReasonWords(flowExecution.reason))
+        ? sentence(runReasonWords(flowExecution.reason, flowExecution.document.flow.rules))
         : null
     /* The header's own chip (`runState`, above) answers "Needs you" before
        "Stopped" — a person wait, the Goal's own activity or a stalled run all
@@ -2188,7 +2195,7 @@ const RoomLiveLine = ({
         <TurnWorkLive settled data-slot="room-live-line" data-kind="stall" {...(trail ? { trail } : {})}>
           <Dot state="limit" pulse />
           <span className="whitespace-pre-line">
-            {sentence(runReasonWords(flowExecution.reason))}
+            {sentence(runReasonWords(flowExecution.reason, flowExecution.document.flow.rules))}
             {kept?.refusal ? ` ${sentence(kept.refusal)}` : ''}
           </span>
         </TurnWorkLive>

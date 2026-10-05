@@ -44,7 +44,7 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
+export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, runRules, statusLine, defaultExpanded = false, onStop, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
   model: ReturnType<typeof teamOverview>
   onFindings?: (() => void) | undefined
   faceTints?: ReadonlyMap<string, Tint>
@@ -61,6 +61,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   onStop?: (() => void) | undefined
   runName?: string
   runReason?: string | null
+  runRules?: readonly { readonly id: string }[] | undefined
   /** The Team's shared live line. Omit only the Run reason when an attention row owns it. */
   statusLine?: (now: number, includeRunReason: boolean) => ReactNode
   defaultExpanded?: boolean
@@ -96,7 +97,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
     const line = words(next.line ?? row.reason ?? '')
     return line ? <div data-slot="seat-doing" title={line} className="truncate"><Text role="meta">{line}</Text></div> : null
   }
-  const name = (row: SeatRow) => <Text role="subject" truncate title={words(row.name)}>{words(row.name)}</Text>
+  const name = (row: SeatRow) => <Text as="span" className="block" role="subject" truncate title={words(row.name)}>{words(row.name)}</Text>
+  const openName = (row: SeatRow) => opens(row) ? <Button stretched variant="row" size="pattern" aria-label={`Open ${words(row.name)}`} onClick={() => onOpen?.(row.seat)} className="block max-w-full">{name(row)}</Button> : name(row)
   const unavailableReason = (row: SeatRow) => unavailable?.has(row.seat) && row.reason ? words(row.reason) : null
   const role = (row: SeatRow) => unavailableReason(row) ?? [row.role ? stepName(words(row.role)) : null, runtimeNames?.get(row.seat)].filter(Boolean).join(' · ')
   const opens = (row: SeatRow) => Boolean(onOpen && !unavailable?.has(row.seat))
@@ -110,7 +112,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const run = model.run
   const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
   const evidenceWait = run?.waitingEvidence === true
-  const reason = runReason ? words(runReasonWords(runReason)) : evidenceWait ? 'The next step is waiting for its evidence.' : null
+  const reason = runReason ? words(runReasonWords(runReason, runRules)) : evidenceWait ? 'The next step is waiting for its evidence.' : null
   const findingsWait = run?.waitingFindings === true
   const publicationReason = run?.findingRun?.reason ? words(run.findingRun.reason) : null
   const publicationWait = Boolean(publication?.needsYou && onFindings)
@@ -134,7 +136,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                 {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}
                 {run.startedAt !== null && <Text role="meta">Started {new Date(run.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>}
                 {run.reviewRounds && <Text role="meta">Reviews {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
-                <Text role="meta" numeric>
+                <Text role="meta" numeric title={run.total.money === null && run.total.turns === null ? 'Recorded usage is unavailable' : undefined}>
                   {[run.total.money !== null ? `$${run.total.money.toFixed(2)}` : null,
                     run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || '—'}
                 </Text>
@@ -174,8 +176,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
           ) : rows.length === 0 ? null : narrow ? (
             <ListRows>
               {rows.map(row => (
-                <ListRow key={row.seat} data-seat={row.seat} as={opens(row) ? "button" : "div"} interactive={opens(row)} onClick={opens(row) ? () => onOpen?.(row.seat) : undefined} lead={face(row)}
-                  title={name(row)} subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row) ?? role(row))} wrapSubtitle={Boolean(unavailableReason(row))} trail={<>{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}{opens(row) && <ChevronIcon />}</>} />
+                <ListRow key={row.seat} data-seat={row.seat} interactive={opens(row)} className="relative isolate" onClick={opens(row) ? event => { if (event.currentTarget.contains(event.target as Node) && !(event.target as Element).closest('button')) onOpen?.(row.seat) } : undefined} lead={face(row)}
+                  title={openName(row)} subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row) ?? role(row))} wrapSubtitle={Boolean(unavailableReason(row))} trail={<>{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}{opens(row) && <ChevronIcon />}</>} />
               ))}
             </ListRows>
           ) : (
@@ -192,11 +194,9 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               </TableRow></TableHeader>
               <TableBody>
                 {rows.map(row => (
-                  <TableRow key={row.seat} data-seat={row.seat} interactive={opens(row)} tabIndex={opens(row) ? 0 : undefined}
-                    aria-label={opens(row) ? `Open ${words(row.name)}` : undefined}
-                    onClick={opens(row) ? () => onOpen?.(row.seat) : undefined}
-                    onKeyDown={event => { if (opens(row) && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen?.(row.seat) } }}>
-                    <TableCell className="max-w-0" lead={face(row)}><div className="min-w-0 flex-1">{name(row)}{role(row) && <Text role="meta" as="div" truncate={!unavailableReason(row)} className={unavailableReason(row) ? 'whitespace-normal [overflow-wrap:anywhere]' : undefined}>{role(row)}</Text>}</div></TableCell>
+                  <TableRow key={row.seat} data-seat={row.seat} interactive={opens(row)} className="relative isolate"
+                    onClick={opens(row) ? event => { if (event.currentTarget.contains(event.target as Node) && !(event.target as Element).closest('button')) onOpen?.(row.seat) } : undefined}>
+                    <TableCell className="max-w-0" lead={face(row)}><div className="min-w-0 flex-1">{openName(row)}{role(row) && <Text role="meta" as="div" truncate={!unavailableReason(row)} className={unavailableReason(row) ? 'whitespace-normal [overflow-wrap:anywhere]' : undefined}>{role(row)}</Text>}</div></TableCell>
                     <TableCell><div data-slot="seat-card" className="max-w-48 truncate" title={row.card ? words(row.card.title) : undefined}>
                       <Text role="meta">{row.card ? `#${row.card.id} · ${words(row.card.title)}` : '—'}</Text>
                     </div></TableCell>

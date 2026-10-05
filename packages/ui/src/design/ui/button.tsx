@@ -323,6 +323,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   cursor?: 'default' | 'pointer'
   /** A quiet row may brighten its inherited label on hover without changing warning ink. */
   quietHover?: boolean
+  /** Cover the positioned row; independent controls in it must be raised above this target. */
+  stretched?: boolean
   /**
    * A colour that is itself the choice — an accent to pick. The button is
    * filled with it and keeps it under the pointer; the ring that marks the one
@@ -343,6 +345,7 @@ const Button = ({
   bordered = true,
   cursor = 'pointer',
   quietHover = false,
+  stretched = false,
   swatch,
   edge,
   edgeGlyph = 16,
@@ -361,6 +364,7 @@ const Button = ({
     className={cn(
       buttonVariants({ variant, size, className }),
       !bordered && 'border-0',
+      stretched && "static text-left after:absolute after:inset-0 after:content-[''] focus-visible:after:shadow-(--hd-focus-ring)",
       cursor === 'default' && 'cursor-default',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',

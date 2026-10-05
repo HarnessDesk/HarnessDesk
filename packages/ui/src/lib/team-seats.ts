@@ -64,7 +64,7 @@ export const teamSeats = (
 }
 
 /** Display the model first only for the host's generated duplicate address; custom names stay whole. */
-export const seatDisplayName = (
+const shortenedSeatName = (
   record: { readonly agent?: { readonly name: string } | null; readonly seatLabel?: string } | undefined,
   nickname: string,
   runtimeName: string | undefined,
@@ -77,4 +77,14 @@ export const seatDisplayName = (
     if (label.startsWith(runtimePrefix)) return label.slice(runtimePrefix.length)
   }
   return label
+}
+
+/** Shorten only when the visible name remains unique across all Team members. */
+export const seatDisplayName = (
+  record: Parameters<typeof shortenedSeatName>[0], nickname: string, runtimeName: string | undefined,
+  members: readonly { record?: Parameters<typeof shortenedSeatName>[0]; nickname: string; runtimeName?: string }[] = [],
+): string => {
+  const short = shortenedSeatName(record, nickname, runtimeName)
+  return short !== nickname && members.some(one => one.nickname !== nickname && shortenedSeatName(one.record, one.nickname, one.runtimeName) === short)
+    ? nickname : short
 }

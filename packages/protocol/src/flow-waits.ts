@@ -11,7 +11,8 @@ export const FINDINGS_WAITS = [WAITING_FINDINGS, WAITING_EXCEPTION, WAITING_LEDG
 /** The execution reason may carry the routing rule before the recorded wait. */
 export const isFindingsWait = (reason: string | null): boolean => {
   if (reason === null) return false
-  const wait = reason.replace(/^Rule [^:\n]+:\s*/, '')
+  // Waits contain no colons; the routing id is free text and may contain them.
+  const wait = reason.startsWith('Rule ') ? reason.slice(reason.lastIndexOf(':') + 1).trimStart() : reason
   const count = /\d+/.exec(wait)?.[0]
   return FINDINGS_WAITS.some(finding => typeof finding === 'string'
     ? wait === finding

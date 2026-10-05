@@ -259,13 +259,11 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const latest = session ? inFlightItem(session) : undefined
     const held = input.cards.filter(one => ownerOf(one)?.record.id === seat.record.id)
     const done = state === 'idle' && held.length > 0 && held.every(one => one.state === 'done')
-    const claims = (input.signals ?? []).filter(one => one.signal === 'claimed' && one.at >= seat.record.openedAt &&
-      one.by.kind === 'agent' && one.by.runtime === seat.record.session.runtime && one.by.sessionId === seat.record.session.sessionId)
-      .map(one => one.at)
-    const turns = session?.turns.filter(one => typeof one.startedAt === 'number' && one.startedAt >= seat.record.openedAt) ?? []
-    const starts = claims.length ? claims : turns.flatMap(one => typeof one.startedAt === 'number' ? [one.startedAt] : [])
-    const ends = turns.flatMap(one => one.completedAt === null || one.completedAt === undefined ? [] : [one.completedAt])
-    const durationMs = done && starts.length && ends.length ? Math.max(0, Math.max(...ends) - Math.min(...starts)) : null
+    const turns = session?.turns.filter(one => typeof one.startedAt !== 'number' || one.startedAt >= seat.record.openedAt) ?? []
+    // Board claims may be trimmed and include gaps between turns. Only each
+    // recorded turn's own span is working time; missing timing stays unknown.
+    const durationMs = done && turns.length > 0 && turns.every(one => typeof one.startedAt === 'number' && typeof one.completedAt === 'number')
+      ? turns.reduce((sum, one) => sum + Math.max(0, one.completedAt! - one.startedAt!), 0) : null
 
     return {
       done, durationMs,

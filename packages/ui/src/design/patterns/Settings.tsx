@@ -930,6 +930,7 @@ const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: Re
 )
 
 export const Row = ({
+  layout = 'default',
   mark,
   face,
   kind = 'setting',
@@ -941,6 +942,8 @@ export const Row = ({
   className,
   ...props
 }: {
+  /** Record titles stay whole; narrow rows put metadata and state below. */
+  layout?: 'default' | 'record'
   mark?: ReactNode
   /** A face that draws its own ground or ring, without another tile. */
   face?: ReactNode
@@ -955,7 +958,7 @@ export const Row = ({
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
-  <div className={cx(styles.row, className)} data-slot="row" data-kind={kind} {...props}>
+  <div className={cx(styles.row, layout === 'record' && styles.rowRecord, className)} data-slot="row" data-kind={kind} {...props}>
     {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
       <RowTitle kind={kind} title={title} chip={titleChip} />

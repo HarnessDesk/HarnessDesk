@@ -14,11 +14,11 @@ import type { Tint, Tone } from '../ui'
  */
 
 export const AGENTS: StackMember[] = [
-  { name: 'Claude Code' },
-  { name: 'Codex' },
-  { name: 'Cursor' },
-  { name: 'DeepSeek Harness' },
-  { name: 'Gemini' },
+  { id: 'agent-1', name: 'Claude Code' },
+  { id: 'agent-2', name: 'Codex' },
+  { id: 'agent-3', name: 'Cursor' },
+  { id: 'agent-4', name: 'DeepSeek Harness' },
+  { id: 'agent-5', name: 'Gemini' },
 ]
 
 export const SPEND_BY_DAY = [42, 58, 51, 73, 66, 88, 61, 79, 94, 71, 83, 68]
