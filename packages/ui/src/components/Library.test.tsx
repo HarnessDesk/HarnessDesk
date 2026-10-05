@@ -952,7 +952,7 @@ it('Loaded by shows only the agents that load it, with their accessible names', 
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
   const faces = [...container.querySelectorAll('[data-shape="face"]')]
   expect(faces.map(node => node.getAttribute('aria-label'))).toEqual(['First Agent'])
-  expect(faces[0]?.classList.contains('size-5')).toBe(true)
+  expect(faces[0]?.classList.contains('size-(--hd-space-5)')).toBe(true)
   expect(faces[0]?.hasAttribute('data-tint')).toBe(true)
 })
 
