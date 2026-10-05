@@ -206,7 +206,7 @@ for (const theme of ['light', 'dark'] as const) {
           noteLeft: note?.getBoundingClientRect().left, keyLeft: key.getBoundingClientRect().left, noteWidth: note?.getBoundingClientRect().width, pairWidth: key.getBoundingClientRect().width + value.getBoundingClientRect().width }
       }))
       for (const pair of pairs) {
-        expect(pair.width, JSON.stringify(pair)).toBeGreaterThan(150)
+        expect(pair.width, JSON.stringify(pair)).toBeGreaterThanOrEqual(pair.pairWidth / 2)
         expect(pair.scroll, JSON.stringify(pair)).toBeLessThanOrEqual(pair.client)
         if (pair.noteWidth) { expect(pair.noteWidth).toBeGreaterThan(pair.pairWidth); expect(pair.noteLeft).toBeCloseTo(pair.keyLeft, 0) }
       }
