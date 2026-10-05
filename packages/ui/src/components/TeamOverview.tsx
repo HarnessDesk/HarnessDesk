@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
-  Button, Card, Chip, DisclosureChevron, EmptyState, Section,
+  Button, Card, Chip, DisclosureChevron, EmptyState, Section, SectionBody,
   IconTile, ListRow, ListRows, PaneColumn, Table, TableBody, TableCell,
   TableHead, TableHeader, TableRow, Text,
 } from '../design'
@@ -137,7 +137,11 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
           </Section>
         )}
         <Section title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0">
-          {model.seats.length === 0 ? <EmptyState variant="inline" align="start" title="No agents in this Team yet" /> : rows.length === 0 ? null : narrow ? (
+          {model.seats.length === 0 ? (
+            <SectionBody spacing="inline">
+              <EmptyState variant="inline" align="start" title="No agents in this Team yet" />
+            </SectionBody>
+          ) : rows.length === 0 ? null : narrow ? (
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} lead={face(row)}

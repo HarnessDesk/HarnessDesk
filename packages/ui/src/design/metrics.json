@@ -856,19 +856,19 @@
     "radius": 10
   },
   "tables/list-row/size/comfortable": {
-    "h": 62,
+    "h": 66,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "10 16 10 16",
+    "pad": "12 12 12 12",
     "radius": 0
   },
   "tables/list-row/size/compact": {
-    "h": 62,
+    "h": 66,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "10 12 10 12",
+    "pad": "12 12 12 12",
     "radius": 0
   },
   "tables/rows/size/comfortable": {

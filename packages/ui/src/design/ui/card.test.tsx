@@ -63,6 +63,13 @@ it('offers the small system radius for compact code and diff plates', () => {
   expect(card?.className).toContain('rounded-(--hd-radius-sm)')
 })
 
+it('insets an inline section body without adding a second vertical rhythm', () => {
+  act(() => root.render(<SectionBody spacing="inline">No agents in this Team yet</SectionBody>))
+  const body = container.querySelector<HTMLElement>('[data-slot="section-body"]')!
+  expect(body.className).toContain('px-(--hd-inset-row)')
+  expect(body.className).not.toMatch(/(?:^|\s)(?:py-|pt-|pb-)/)
+})
+
 it('owns the compact inset and rhythm of a dense report card', () => {
   act(() => root.render(<Card spacing="compact">Flow report</Card>))
   const card = container.querySelector<HTMLElement>('[data-slot="card"]')

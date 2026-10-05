@@ -83,13 +83,6 @@ const readInsets = (contracts: readonly { selector: string; tier: string }[]) =>
       const css = getComputedStyle(element), box = element.getBoundingClientRect(), content = contents(element)
       return {
         label: element.textContent?.slice(0, 100),
-        // A row's oversized mark is centred on the first title line.
-        // Its upward nudge must be paid back before the surface inset.
-        markClearance: element.matches('[data-slot="row"]') && element.querySelector('[data-slot="row-desc"]')
-          ? Math.max(0, ((element.querySelector('[data-slot="row-mark"]')?.getBoundingClientRect().height ?? 0)
-            - parseFloat(css.getPropertyValue('--hd-line-sm'))) / 2,
-            element.querySelector('[data-slot="row-ctl"] button')
-              ? (parseFloat(css.getPropertyValue('--hd-btn-h-sm')) - parseFloat(css.getPropertyValue('--hd-line-sm'))) / 2 : 0) : 0,
         padding: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft].map(parseFloat),
         insets: content.length ? [
           Math.min(...content.map(rect => rect.top)) - box.top,
@@ -150,8 +143,8 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     for (const { selector, minimum, boxes } of readings) {
       expect(boxes.length, `${selector} must have shipped coverage`).toBeGreaterThan(0)
       for (const box of boxes) {
-        if (box.padding.some((value, side) => Math.abs(value - minimum - (side === 0 ? box.markClearance : 0)) > 1)) faults.push(`${selector}: padding ${box.padding} differs from ${minimum}`)
-        if (Math.abs(box.padding[0]! - box.markClearance - box.padding[2]!) > 1) faults.push(`${selector}: asymmetric vertical inset ${box.padding}`)
+        if (box.padding.some(value => Math.abs(value - minimum) > 1)) faults.push(`${selector}: padding ${box.padding} differs from ${minimum}`)
+        if (Math.abs(box.padding[0]! - box.padding[2]!) > 1) faults.push(`${selector}: asymmetric vertical inset ${box.padding}`)
         // Ranges include font ascenders outside a line's nominal box. Two
         // pixels allow that ink overhang, while zero padding still fails.
         if (box.insets?.some(value => value < minimum - 2)) faults.push(`${selector}: content insets ${box.insets} < ${minimum}: ${box.label}`)
@@ -257,6 +250,23 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         bodies: [needs, seats].map(section => start(section.querySelector('[data-slot="list-row-lead"], [data-slot="list-row-title"], [data-slot="table-head"]')!)) }
     })
     for (const edge of [...layout.labels, ...layout.bodies]) expect(Math.abs(edge - layout.run)).toBeLessThanOrEqual(1)
+    const emptyOverview = page.locator('#team-overview-no-seats [data-slot="team-overview"]')
+    await expect(emptyOverview).toBeVisible()
+    const emptyEdges = await emptyOverview.evaluate(element => {
+      const section = element.querySelector('section[aria-label="Seats"]')!
+      const head = section.querySelector('[data-slot="section-head"]')!
+      const label = head.querySelector('[data-slot="group-label"]')!
+      const empty = section.querySelector('[data-slot="empty-state"]')!
+      const range = document.createRange(); range.selectNodeContents(empty)
+      const text = range.getBoundingClientRect(), bounds = empty.getBoundingClientRect()
+      const style = getComputedStyle(head), headBounds = head.getBoundingClientRect()
+      return { label: label.getBoundingClientRect().left, text: text.left,
+        right: headBounds.right - parseFloat(style.paddingRight), bodyRight: bounds.right,
+        gutter: section.getBoundingClientRect().left - element.getBoundingClientRect().left }
+    })
+    expect(emptyEdges.gutter).toBe(24)
+    expect(Math.abs(emptyEdges.text - emptyEdges.label)).toBeLessThanOrEqual(1)
+    expect(Math.abs(emptyEdges.bodyRight - emptyEdges.right)).toBeLessThanOrEqual(1)
   })
 }
 

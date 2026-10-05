@@ -147,9 +147,8 @@ a hundred and fifty call sites, and a coincidence does not follow a change.
 A filled or bordered content surface earns an inset by its role, not by the
 screen drawing it. Use the tier token on every slot; top and bottom match.
 A border adds its width outside the inset. A larger gap left by short content
-is free space, not a larger padding tier. A settings row's oversized mark and small button
-stay centred on its first title line: their upward nudge is paid back as top
-clearance before the inset, so their visible boxes keep the row tier. A row's
+is free space, not a larger padding tier. A settings row's mark and control
+stay centred on the whole row; its visible boxes keep the row tier. A row's
 bottom hairline is additional to its content inset.
 
 | Container role | Tier | Token | Slots that own it |
@@ -170,7 +169,11 @@ column; title and body keep that same column in both placements.
 A prose inspector chooses `PanelFrame inset="reading"`: its tool bar and body
 share one `PaneColumn` gutter, rather than adding dense body padding before it.
 A page section can name its body tier (`Section inset="row"` or `"card"`);
-its label shares that edge. A responsive framed table uses `Table inset="row"`
+its label shares that edge. An unframed empty body uses `SectionBody spacing="inline"`,
+leaving its vertical rhythm to the inline empty state. The table family's
+`--hd-table-edge` follows the row inset in both densities; its minimum row
+heights, face sizes and centring remain the family's own geometry.
+A responsive framed table uses `Table inset="row"`
 to keep the same inline cell inset as the list replacing it. The table retains
 its existing head and data-cell pitch; this contract only sets the content edge. Borders stay outside
 those content insets. A board column's state dot hangs before its card-text
