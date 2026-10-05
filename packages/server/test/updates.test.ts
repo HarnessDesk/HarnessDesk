@@ -210,7 +210,10 @@ const deskWith = async (
 }
 
 const until = async (check: () => boolean | Promise<boolean>, what: string): Promise<void> => {
-  const deadline = Date.now() + 2_000
+  // This only bounds a missing event. Loaded CI can take more than two seconds
+  // to finish a sequence of host-side measurements; successful waits return
+  // as soon as their observed state appears.
+  const deadline = Date.now() + 10_000
   while (!(await check())) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 5))
@@ -396,23 +399,36 @@ test('a runtime still moving after three measurements is left unmeasured until t
   // runtime has left.
   const { runtime, move } = upgradable('0.149.0')
   let asked = 0
+  let releaseNextMeasurement!: () => void
+  const nextMeasurement = new Promise<void>((resolve) => {
+    releaseNextMeasurement = resolve
+  })
   const fetch = async () => {
     asked += 1
     if (asked <= 3) move(`0.15${asked}.0`)
+    if (asked === 4) await nextMeasurement
     return { ok: true, json: async () => ({ latest: LATEST }) }
   }
   const desk = await deskWith(t, runtime, { fetch, ttlMs: 0 })
-  await until(() => asked === 3, 'the third ask of the registry')
-  await settle()
-  assert.equal(desk.told(), undefined, 'nothing was kept, so nothing was pushed')
+  let read: RuntimeInfo | undefined
+  try {
+    // Keep the next answer held so the fourth ask proves the preceding three
+    // measurements finished and this read started a fresh measurement.
+    await until(async () => {
+      read = await desk.shown()
+      return asked === 4
+    }, 'the next read to start a fresh measurement')
+    assert.equal(read?.version, '0.153.0')
+    assert.equal(read?.update, undefined)
+    assert.equal(desk.told(), undefined, 'nothing was kept, so nothing was pushed')
+  } finally {
+    releaseNextMeasurement()
+  }
 
-  // The next read of the description measures the build it is on.
-  const read = await desk.shown()
-  assert.equal(read.version, '0.153.0')
-  assert.equal(read.update, undefined)
+  // The read that followed the three moving measurements measures 0.153.0.
   await until(
     () => desk.told()?.version === '0.153.0' && desk.told()?.update?.version === LATEST,
-    'the read to have measured 0.153.0',
+    'the next measurement to announce 0.153.0',
   )
   assert.equal(asked, 4)
 })
