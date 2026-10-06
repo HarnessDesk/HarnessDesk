@@ -389,7 +389,7 @@ has a server glyph; runtime rows keep their own brand faces. When two or more
 accounts of the same runtime are signed in, their faces carry unique account
 initials from 24px up (two letters when initials collide). Smaller faces keep
 the account tint and a title naming the account. Top-right is reserved for
-attention counts.
+attention counts. A face that totals several accounts carries no initial.
 
 ### Archive and delete
 
