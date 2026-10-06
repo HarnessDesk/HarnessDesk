@@ -272,3 +272,57 @@ test('a launch set-aside releases the claim the Seat’s conversation took on th
     await rm(work, { recursive: true, force: true })
   }
 })
+
+for (const condition of ['assignment', 'release', 'stuck', 'wrap', 'restored', 'closed'] as const) {
+  test(`the host keeps ${condition} ownership ${['assignment', 'release', 'stuck'].includes(condition) ? 'busy' : 'read-only'} (#1403)`, async (t) => {
+    const { GoalStore } = await import('../src/goals/store.js')
+    const { GoalPlane } = await import('../src/goals/plane.js')
+    const { makeRepo } = await import('./fixtures/evidence-desk.js')
+    const { join } = await import('node:path')
+    const repo = await makeRepo('hd-host-busy-retained-')
+    const harness = await start()
+    const client = await Client.connect(harness.server)
+    t.after(async () => { client.close(); await halt(harness); await rm(harness.stateDir, { recursive: true, force: true }) })
+    await client.call('workspace/open', { path: repo.dir })
+    const first = (await client.call('goal/create', { root: repo.dir, sentence: 'Released work' }) as GoalView).goal.id
+    const card = await client.call('team/add', { room: first, title: 'Original' }) as { id: number }
+    const session = await client.call('session/create', { runtime: 'fake', options: { cwd: repo.dir } }) as Session
+    const seat = await client.call('goal/assign', { goal: first, card: card.id, session: { runtime: 'fake', sessionId: session.id } }) as { id: string }
+    await client.call('goal/release', { goal: first, seat: seat.id })
+    const second = (await client.call('goal/create', { root: repo.dir, sentence: 'Other work' }) as GoalView).goal.id
+    const otherCard = await client.call('team/add', { room: second, title: 'Other' }) as { id: number }
+    const other = await client.call('session/create', { runtime: 'fake', options: { cwd: repo.dir } }) as Session
+    await harness.host.teamPlane.joinRoom(second, other.runtime, other.id)
+    await harness.host.teamPlane.flush()
+    const before = await onDisk(harness.stateDir, first)
+    const read = GoalStore.prototype.read
+    t.mock.method(GoalStore.prototype, 'read', function (this: InstanceType<typeof GoalStore>, goal: string) {
+      const document = read.call(this, goal)
+      if (goal !== first) return document
+      // Only these lifecycle flags are consumed by the host's Team port.
+      return {
+        ...document,
+        ...(condition === 'restored' ? { restored: { at: Date.now() } } : {}),
+        goal: { ...document.goal, ...(condition === 'closed' ? { state: 'wrapped' as const } : {}) },
+        operation: ['assignment', 'release', 'stuck', 'wrap'].includes(condition)
+          ? { kind: condition === 'stuck' ? 'assignment' : condition } as typeof document.operation
+          : null,
+      }
+    })
+    t.mock.method(GoalPlane.prototype, 'isStuck', (goal: string) => goal === first && condition === 'stuck')
+    t.mock.method(GoalPlane.prototype, 'retryStuck', async () => {})
+    assert.match(await harness.host.teamPlane.claim(otherCard.id, { runtime: 'fake', sessionId: other.id }), /^Claimed/)
+    await harness.host.teamPlane.flush()
+    assert.deepEqual(await onDisk(harness.stateDir, first), before, 'no held Goal board write')
+    const busy = ['assignment', 'release', 'stuck'].includes(condition)
+    if (busy) {
+      const journal = await readFile(join(harness.stateDir, 'team', 'discarded-work'), 'utf8').catch(() => null)
+      assert.ok(journal, 'busy ownership leaves a durable discard record')
+      const discarded = JSON.parse(journal)
+      assert.equal(discarded.length, 1, 'busy ownership is durably discarded')
+      assert.equal(JSON.parse(discarded[0][0])[0], first)
+    } else {
+      await assert.rejects(readFile(join(harness.stateDir, 'team', 'discarded-work'), 'utf8'), { code: 'ENOENT' })
+    }
+  })
+}
