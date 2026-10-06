@@ -90,6 +90,7 @@ import { FlowOverlayFrames } from './frames-flow-overlay'
 import { FlowCanvasFrames } from './frames-flow-canvas'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
+import { InapplicableActionsFrames } from './frames-inapplicable-actions'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
@@ -1179,6 +1180,8 @@ createRoot(container).render(
       <AppWindowMode.Provider value="embedded">
         {new URLSearchParams(window.location.search).has('team-frame')
           ? <TeamFrame />
+          : new URLSearchParams(window.location.search).has('inapplicable-actions')
+          ? <InapplicableActionsFrames />
           : new URLSearchParams(window.location.search).has('flow-canvas')
           ? <FlowCanvasFrames />
           : new URLSearchParams(window.location.search).has('site-run')

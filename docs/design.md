@@ -1677,10 +1677,11 @@ shown as text through the shared sanitiser, so an earlier output is read as it w
 recorded. While they are being read the section says so, and when the read failed
 it says that: a check is never said to have run once before the desk has been
 asked, and attempts already in hand stay on screen through a failed refresh.
-*Run again…* is the last control. Where the Run has ended or the check is still
-running it stays, disabled, with the host's own sentence on screen
-(`checkRetryRefusal`); everything else the host refuses (a moved checkout, cleanup
-still pending, a Team that cannot take work) is said in the consent dialog, which
+*Run again…* is the last control. While the check is still running it stays,
+disabled, with the host's own sentence on screen (`checkRetryRefusal`). An ended
+Run or wrapped Team keeps the reason without a retry action; an ended Run points
+to starting a new Run. Everything else the host refuses (a moved checkout,
+cleanup still pending, a Team that cannot take work) is said in the consent dialog, which
 shows the command exactly as it will run and keeps its answer disabled while there
 is no token to redeem.
 
