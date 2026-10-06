@@ -81,3 +81,11 @@ it('keeps the image crop inside a tile with one unclipped identity badge', () =>
   expect(badge.className).toContain('--stack-surface')
   expect(badge.getAttribute('data-corner')).toBe('bottom-right')
 })
+
+it('an empty identity uses the shared neutral ring without a coloured fill', () => {
+  const markup = renderToStaticMarkup(<IconTile shape="round" empty />)
+  expect(markup).toContain('data-empty=""')
+  expect(markup).toContain('border-(--hd-border-strong)')
+  expect(markup).toContain('bg-transparent')
+  expect(markup).not.toContain('bg-(--hd-neutral-dim)')
+})
