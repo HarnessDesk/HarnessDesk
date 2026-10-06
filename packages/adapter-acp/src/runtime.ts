@@ -39,6 +39,7 @@ import {
   type RuntimeInfo,
   type CeilingLevel,
   NO_CAPABILITIES,
+  DESK_TOOL_CEILINGS,
   type InstallationCheck,
   type Session,
   type SessionId,
@@ -67,6 +68,8 @@ import {
   laneEnvironmentOf,
   withoutCompaction,
   wrapContext,
+  recordDeskInput,
+  openingOfContent,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -819,6 +822,8 @@ export class AcpRuntime implements AgentRuntime {
   /** Read ceiling enforcement is claimed only after an ACP peer advertises the bridge contract. */
   #readCeiling = false
   readonly #sessionCeilings = new Map<SessionId, CeilingLevel>()
+  /** Handles opened with the peer's native guard, distinct from a requested ceiling. */
+  readonly #readGuardedSessions = new WeakSet<AcpSession>()
   /**
    * What each live session was actually prepared with, kept for
    * `attachmentReceipt` — which the protocol asks by session id alone — to
@@ -2529,7 +2534,8 @@ export class AcpRuntime implements AgentRuntime {
     this.#retireProbe(session.id)
     this.#sessions.set(session.id, session)
     this.#invalidateSearchListing()
-    if (heldCeiling) this.#sessionCeilings.set(session.id, heldCeiling)
+    if (options.requestedCeiling === 'read') this.#sessionCeilings.set(session.id, 'read')
+    if (heldCeiling) this.#readGuardedSessions.add(session)
     if (options.attachments) this.#attachmentInputs.set(session.id, options.attachments)
     this.#learnCatalog(result)
     // Initial option values ride the same path a user change would — mode
@@ -2599,6 +2605,7 @@ export class AcpRuntime implements AgentRuntime {
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
     const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
+    if (requestedCeiling === 'read') this.#sessionCeilings.set(id, 'read')
     const heldCeiling: CeilingLevel | undefined = this.#readCeiling && requestedCeiling === 'read' ? 'read' : undefined
     if (saved && environment && JSON.stringify(saved) !== JSON.stringify(environment)) {
       throw new Error('A live session cannot change its lane environment.')
@@ -2614,6 +2621,12 @@ export class AcpRuntime implements AgentRuntime {
       return this.#resumeSession(id, options)
     }
     const live = this.#sessions.get(id)
+    // An open handle can acquire host refusal immediately; a native guard
+    // has to be supplied at open. Never return a busy unguarded handle.
+    const unguarded = live !== undefined && heldCeiling === 'read' && !this.#readGuardedSessions.has(live)
+    if (unguarded && live.busy) {
+      throw new Error('This conversation cannot acquire a read ceiling while its turn is running. Try again when the turn finishes.')
+    }
     // Live, but opened with no filter at all — a read loads a conversation
     // (ACP has no other way to read one) and a read has no filter to give.
     // Handed back as it is, the Seat would run on the agent's own defaults.
@@ -2621,10 +2634,12 @@ export class AcpRuntime implements AgentRuntime {
     // filter. A session already on a filter is the Seat's, whatever key a
     // second reopen carries; and a running turn is never cancelled by one.
     const unfiltered = live !== undefined && options.attachments !== undefined && !this.#attachmentInputs.has(id) && !live.busy
-    if (live && !unfiltered) {
+    if (live && !unfiltered && !unguarded) {
       if (environment && !saved) throw new Error('An already-open session cannot acquire a lane environment.')
       return live
     }
+    // Replacing a live handle to acquire its guard preserves its frozen filter.
+    const attachments = unguarded ? this.#attachmentInputs.get(id) ?? options.attachments : options.attachments
     if (live) {
       this.#sessions.delete(id)
       await live.close().catch(() => {})
@@ -2678,12 +2693,12 @@ export class AcpRuntime implements AgentRuntime {
           ...(environment
             ? { _meta: environmentMeta(heldCeiling && this.#readCeiling ? { harnessdesk: { ceiling: heldCeiling } } : {}, environment, this.info.capabilities.sessionEnvironment) }
             : heldCeiling && this.#readCeiling ? { _meta: { harnessdesk: { ceiling: heldCeiling } } } : {}),
-        }, options.attachments)
+        }, attachments)
         // Reapplied, never re-resolved: the caller (the host) is the one that
         // decides whether a resume repeats a Seat's frozen input, exactly as
         // it decided at create. This only remembers what it was handed.
-        if (options.attachments) this.#attachmentInputs.set(id, options.attachments)
-        if (heldCeiling && this.#readCeiling) this.#sessionCeilings.set(id, heldCeiling)
+        if (attachments) this.#attachmentInputs.set(id, attachments)
+        if (heldCeiling) this.#readGuardedSessions.add(session)
         if (environment) {
           acknowledgeEnvironment(loaded._meta, environment)
           this.#environments.set(id, environment)
@@ -2948,6 +2963,30 @@ export class AcpRuntime implements AgentRuntime {
       const request = params as AcpPermissionRequest
       const session = this.#sessions.get(makeSessionId(request.sessionId))
       if (!session) throw new AcpError(`no session ${request.sessionId}`)
+      if (this.#sessionCeilings.get(session.id) === 'read' && !this.#readCeiling) {
+        // A held peer already checked this call with its native pre-tool
+        // guard. Its compact permission requests need not carry a kind.
+        // Asked peers have no such guard, so their requests are checked here.
+        const tool = this.trustsBridgeProvenance ? flowBoardToolOf(request) : null
+        const kind = request.toolCall.kind
+        const read = questionOf(request)
+          ? !WRITE_PERMISSION_KINDS.has(kind ?? '')
+          : tool
+            ? READ_PERMISSION_TOOLS.has(tool.tool)
+            : kind === 'read' || kind === 'search' || kind === 'think'
+        // Execution, mode changes and unknown calls cannot be granted by the
+        // person or an automatic approval policy on behalf of a read Seat.
+        if (!read) {
+          session.applyUpdate({
+            sessionUpdate: 'user_message_chunk',
+            content: { type: 'text', text: `${request.toolCall.title ?? request.toolCall.toolCallId} was refused by the Read only ceiling.` },
+            _meta: { harnessdesk: { notice: true } },
+          })
+          const reject = request.options.find(option => option.kind === 'reject_once')
+            ?? request.options.find(option => option.kind === 'reject_always')
+          return { outcome: reject ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' } }
+        }
+      }
       return session.requestPermission(request)
     }
     // fs/* and terminal/* land here if an agent ignores the declined
@@ -2959,6 +2998,14 @@ export class AcpRuntime implements AgentRuntime {
 }
 
 // -------------------------------------------------------------------- session
+
+const READ_PERMISSION_TOOLS = new Set(
+  Object.values(DESK_TOOL_CEILINGS).flatMap(tools => Object.entries(tools))
+    .filter(([, ceiling]) => ceiling === 'read')
+    .map(([name]) => `mcp__harnessdesk__${name}`),
+)
+
+const WRITE_PERMISSION_KINDS = new Set(['edit', 'delete', 'move', 'execute', 'switch_mode'])
 
 const NO_TOKENS: TokenUsage = {
   totalTokens: 0,
@@ -3812,7 +3859,7 @@ class AcpSession implements AgentSession {
             startedAt: Date.now(),
           }
         : (() => {
-            const { content, context } = peelUserContent(input, ACP_ENVELOPE)
+            const { content, context } = peelUserContent(recordDeskInput(input), ACP_ENVELOPE)
             return {
               id: itemId(`${id}-user`),
               type: 'userMessage',
@@ -3949,10 +3996,7 @@ class AcpSession implements AgentSession {
       .map((item) =>
         item.type === 'userMessage'
           ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
-            openingOf([
-              ...(item.context ?? []).map((block) => wrapContext(block.label, block.text)),
-              item.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
-            ].join('\n')).slice(0, 120)
+            (openingOfContent(item.content) || openingOf((item.context ?? []).map(block => wrapContext(block.label, block.text)).join('\n'))).slice(0, 120)
           : '',
       )
       .find((line) => line !== '')

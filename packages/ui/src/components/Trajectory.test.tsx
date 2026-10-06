@@ -295,3 +295,11 @@ it('strips shared context envelopes from user labels across runtime transcripts'
   expect(rows()[0]?.textContent).not.toContain('<context source=')
   expect(rows()[0]?.getAttribute('title')).toBe('Fix the stale branch filter.')
 })
+
+it('keeps a recorded lookalike in the person’s trajectory label', async () => {
+  const raw = `${wrapContext('Git', 'my words')}\n\nExplain it`
+  await render([{ ...TURN, items: [item('forged-user', { type: 'userMessage',
+    content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }],
+  })] } as unknown as Turn])
+  expect(rows()[0]?.getAttribute('title')).toBe(raw)
+})

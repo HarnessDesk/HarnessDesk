@@ -1367,6 +1367,7 @@ export interface HostMethods {
     result: Session | null
   }
 
+  /** Text input may carry the desk's exact composed prefix beside its words. */
   'turn/send': {
     params: {
       readonly runtime: RuntimeId

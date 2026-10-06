@@ -2,6 +2,23 @@ import { expect, test } from '@playwright/test'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
 for (const theme of ['light', 'dark'] as const) {
+  for (const evidence of ['pending', 'failed']) {
+    test(`compact list groups ${evidence} jobs using the evidence notice in ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width: 560, height: 800 })
+      await page.emulateMedia({ colorScheme: theme })
+      await page.goto(`/preview.html?board-list&evidence=${evidence}`)
+      const pane = page.locator('[data-frame-id="board-list-page"]')
+      await expect(pane.locator('[data-state-group="unknown"]')).toBeVisible()
+      await page.evaluate(() => document.fonts.ready)
+      expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+      if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/${evidence}-${theme}.png` })
+      const title = evidence === 'failed' ? 'Evidence unavailable' : 'Checking current evidence'
+      await expect(pane.locator('[data-state-group="unknown"]')).toHaveText(title)
+      await expect(pane.getByRole(evidence === 'failed' ? 'alert' : 'status')).toContainText(title)
+      await expect(pane.locator('[data-job="1"]')).toBeVisible()
+      await expect(pane.locator('[data-job="4"]')).toBeVisible()
+    })
+  }
   test(`the Board and List share jobs and keep table geometry and controls in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
@@ -180,4 +197,24 @@ for (const theme of ['light', 'dark'] as const) {
       expect(Math.abs(left - filterLeft)).toBeLessThan(1)
     })
   }
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`assignee names truncate on one line at 900px in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 1000 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list&assignee=long')
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    await page.evaluate(() => document.fonts.ready)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.HD_BOARD_WIDTH_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/assignee-900-${theme}.png` })
+    const name = pane.locator('[data-job="4"] td').nth(1).locator('[title="Jane Doe with a very long placeholder name"]')
+    await expect(name).toHaveCSS('white-space', 'nowrap')
+    await expect(name).toHaveCSS('text-overflow', 'ellipsis')
+    expect(await name.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+    const bounds = await name.boundingBox()
+    const cell = await name.locator('..').locator('..').boundingBox()
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(cell!.x + cell!.width)
+  })
 }

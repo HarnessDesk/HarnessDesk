@@ -1,6 +1,7 @@
+import { splitContext } from './context-envelope.js'
 import type { AgentEvent } from './events.js'
 import type { ItemId, TurnId } from './ids.js'
-import type { AgentItem, FileChange, ItemDelta } from './items.js'
+import type { AgentItem, FileChange, ItemDelta, UserMessageItem } from './items.js'
 import type { Session, Turn } from './session.js'
 import { isNoticeTurn } from './notice-turn.js'
 
@@ -68,11 +69,89 @@ export const applyDelta = (item: AgentItem, delta: ItemDelta): AgentItem => {
   }
 }
 
+/** A runtime replay cannot erase the desk's record of the input it sent.
+ * User item ids are stable where available; resegmented replay also matches
+ * the text and folded context, never just the position of a message. */
+export const preserveDeskContext = (items: readonly AgentItem[], stored: readonly AgentItem[]): readonly AgentItem[] => {
+  const recorded = stored.filter((item): item is UserMessageItem => item.type === 'userMessage' &&
+    item.content.some(part => part.type === 'text' && part.deskContext !== undefined))
+  if (recorded.length === 0) return items
+  const storedIds = new Set(stored.map(item => item.id))
+  const replayIds = new Set(items.map(item => item.id))
+  const joinedText = (item: UserMessageItem): string =>
+    item.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
+  const indexed = recorded.map((item, index) => {
+    const text = joinedText(item)
+    const folded = splitContext(text)
+    return { item, index, text, folded, used: false }
+  })
+  type RecordEntry = typeof indexed[number]
+  type RecordQueue = { entries: RecordEntry[]; cursor: number }
+  const byId = new Map<ItemId, { raw: Map<string, RecordQueue>; folded: Map<string, RecordQueue> }>()
+  const byText = new Map<string, RecordQueue>()
+  const byFolded = new Map<string, RecordQueue>()
+  const foldedKey = (text: string, context: UserMessageItem['context']): string =>
+    JSON.stringify([text, context ?? []])
+  const add = (map: Map<string, RecordQueue>, key: string, entry: RecordEntry): void => {
+    const queue = map.get(key)
+    if (queue) queue.entries.push(entry)
+    else map.set(key, { entries: [entry], cursor: 0 })
+  }
+  for (const entry of indexed) {
+    let sameId = byId.get(entry.item.id)
+    if (!sameId) {
+      sameId = { raw: new Map(), folded: new Map() }
+      byId.set(entry.item.id, sameId)
+    }
+    add(sameId.raw, entry.text, entry)
+    if (entry.folded.injections.length > 0) {
+      add(sameId.folded, foldedKey(entry.folded.text, entry.folded.injections), entry)
+    }
+    // Reserve records for stable ids even if their replay comes later.
+    if (replayIds.has(entry.item.id)) continue
+    add(byText, entry.text, entry)
+    if (entry.folded.injections.length > 0) {
+      add(byFolded, foldedKey(entry.folded.text, entry.folded.injections), entry)
+    }
+  }
+  const peek = (queue: RecordQueue | undefined): RecordEntry | undefined => {
+    if (!queue) return undefined
+    while (queue.entries[queue.cursor]?.used) queue.cursor += 1
+    return queue.entries[queue.cursor]
+  }
+  const firstMatch = (rawQueue: RecordQueue | undefined, foldedQueue: RecordQueue | undefined): RecordEntry | undefined => {
+    const raw = peek(rawQueue)
+    const folded = peek(foldedQueue)
+    return !raw ? folded : !folded || raw.index < folded.index ? raw : folded
+  }
+  let changed = false
+  const next = items.map(item => {
+    if (item.type !== 'userMessage') return item
+    const text = joinedText(item)
+    const key = foldedKey(text, item.context)
+    const sameId = byId.get(item.id)
+    let entry = firstMatch(sameId?.raw.get(text), sameId?.folded.get(key))
+    if (!entry && !storedIds.has(item.id)) {
+      // Raw and folded matches share one-use records and stored order.
+      entry = firstMatch(byText.get(text), byFolded.get(key))
+    }
+    if (!entry) return item
+    entry.used = true
+    const held = entry.item
+    if (item.content.some(part => part.type === 'text' && part.deskContext !== undefined)) return item
+    changed = true
+    const { context: _context, ...rest } = item
+    return { ...rest, content: held.content, ...(held.context ? { context: held.context } : {}) }
+  })
+  return changed ? next : items
+}
+
 const replaceItem = (items: readonly AgentItem[], next: AgentItem): AgentItem[] => {
   const index = items.findIndex((item) => item.id === next.id)
   if (index === -1) return [...items, next]
   const copy = items.slice()
   const previous = items[index] as AgentItem
+  next = preserveDeskContext([next], [previous])[0] ?? next
   // A completion carries the item's final shape but not always when it
   // began; the start is known from the earlier event and stays.
   copy[index] =
@@ -185,7 +264,7 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       // streamed items are richer than the summary the runtime sends back.
       return mapTurn(session, event.turn.id, (turn) => {
         const items = withoutRepeatedError(event.turn.items.length > turn.items.length
-          ? preserveNoticeItems(event.turn.items, turn.items, true)
+          ? preserveDeskContext(preserveNoticeItems(event.turn.items, turn.items, true), turn.items)
           : turn.items, event.turn)
         return { ...turn, ...event.turn, items }
       })
@@ -217,6 +296,15 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
 
     case 'usage/updated':
       return event.sessionId === session.id ? { ...session, usage: event.usage } : session
+
+    case 'session/detached':
+      return event.sessionId === session.id
+        ? {
+            ...session,
+            status: { type: 'idle' },
+            turns: session.turns.map((turn) => turn.status === 'inProgress' ? { ...turn, status: 'interrupted' } : turn),
+          }
+        : session
 
     case 'session/closed':
       return event.sessionId === session.id
@@ -321,7 +409,7 @@ export const mergeRead = (
     const plan = turn.plan ?? mine.plan
     const items = withoutRepeatedError(mine.items.length > turn.items.length
       ? mine.items
-      : preserveNoticeItems(turn.items, mine.items, true), turn)
+      : preserveDeskContext(preserveNoticeItems(turn.items, mine.items, true), mine.items), turn)
     if (items === turn.items && diff === turn.diff && plan === turn.plan) return turn
     return {
       ...turn,

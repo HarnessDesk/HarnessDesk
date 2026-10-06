@@ -1,5 +1,6 @@
 import type { ItemId } from './ids.js'
 import type { SessionCost, TokenUsage } from './session.js'
+import type { DeskContextRecord } from './context-envelope.js'
 import type { UserContext } from './user-context.js'
 
 /**
@@ -36,7 +37,7 @@ export interface TextSpan {
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 export type UserContent =
-  | { readonly type: 'text'; readonly text: string; readonly spans?: readonly TextSpan[] }
+  | { readonly type: 'text'; readonly text: string; readonly spans?: readonly TextSpan[]; readonly deskContext?: DeskContextRecord }
   /**
    * An image the user attached, as a `data:` URL or an `https:` link. `name`
    * is what the user called it — the file name, or `Pasted image` — and is

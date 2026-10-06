@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Board, BoardAddCard, BoardCard, BoardColumn } from './board'
 
@@ -325,4 +325,48 @@ it('uses the system small tag and tone priority chips on a board card', () => {
   expect(chips[0]?.getAttribute('data-size')).toBe('sm')
   expect(chips[0]?.getAttribute('data-tint')).toBe('violet')
   expect(chips[1]?.getAttribute('data-tone')).toBe('warning')
+})
+
+ it('opens a folded column in place and keeps its cards mounted but hidden', () => {
+  const change = vi.fn()
+  draw(<Board derived><BoardColumn title="Ready" count={2} collapsed onCollapsedChange={change}><BoardCard title="Ship retry coverage" /></BoardColumn></Board>)
+  const rail = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!
+  expect(rail).not.toBeNull()
+  expect(rail.textContent).toContain('Ready')
+  expect(rail.textContent).toContain('2')
+  expect(container.querySelector('[data-slot="board-column-content"]')?.hasAttribute('hidden')).toBe(true)
+  expect(container.querySelectorAll('[data-slot="board-card"]')).toHaveLength(1)
+  act(() => rail.click())
+  expect(change).toHaveBeenCalledWith(false)
+  draw(<Board derived><BoardColumn title="Ready" count={2} collapsed={false} onCollapsedChange={change}><BoardCard title="Ship retry coverage" /></BoardColumn></Board>)
+  expect(container.querySelector('[data-slot="board-column-content"]')?.hasAttribute('hidden')).toBe(false)
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]')!.click())
+  expect(change).toHaveBeenLastCalledWith(true)
+})
+
+it('a rail announces its visible title and count, including zero', () => {
+  for (const count of [0, 2]) {
+    draw(<Board><BoardColumn title="Ready" count={count} collapsed /></Board>)
+    expect(container.querySelector('button')?.getAttribute('aria-label')).toBe(`Ready ${count} — Open column`)
+  }
+})
+
+it('a folded column owns its rail width without a caller class', () => {
+  draw(<Board><BoardColumn title="Ready" collapsed /></Board>)
+  expect(container.querySelector<HTMLElement>('[data-slot="board-column"]')?.style.width).toBe('44px')
+})
+
+it('a refused fold clears its focus request before a later external collapse', () => {
+  const change = vi.fn()
+  const board = (collapsed: boolean) => <Board><button>New job</button><BoardColumn title="To do" collapsed={collapsed} onCollapsedChange={change} /></Board>
+  draw(board(false))
+  const fold = container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]')!
+  act(() => { fold.focus(); fold.click() })
+  expect(change).toHaveBeenCalledWith(true)
+  // The owner commits without accepting the collapse request.
+  draw(board(false))
+  const add = container.querySelector<HTMLButtonElement>('button')!
+  act(() => add.focus())
+  draw(board(true))
+  expect(document.activeElement).toBe(add)
 })

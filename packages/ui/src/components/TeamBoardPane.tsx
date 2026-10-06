@@ -1,5 +1,5 @@
 import { isRecord, RECORD_REASON } from '../lib/team-record'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   sessionKey,
@@ -13,6 +13,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { ChangeStats, Chip, Dialog, Dot, Field, Input, Note, RowChoice, Rows, Segmented, TableCell, TableRow, Text } from '../design'
+import { teamBoardLayout } from '../lib/team-board-layout'
 import { TeamBoardList, JOB_COLUMN_CLASS, type JobColumn } from './TeamBoardList'
 import { chipOf, ciVerdict, isCurrent, standingWords } from '../lib/evidence'
 import { openExternal } from '../lib/desktop'
@@ -46,6 +47,8 @@ import {
   Board,
   BoardCard,
   BoardColumn,
+  BOARD_COLUMN_MIN_WIDTH,
+  BOARD_RAIL_WIDTH,
   Banner,
   BannerAction,
   Button,
@@ -245,7 +248,42 @@ const CHECKS_FILE_WORDS = '.harnessdesk/checks.yml'
 export const TeamBoardPane = ({ room }: { room: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const [view, setView] = useState<'board' | 'list'>('board')
+  const [preferredView, setView] = useState<'board' | 'list'>('board')
+  const paneRef = useRef<HTMLElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
+  const [paneSize, setPaneSize] = useState<{ width: number; contentWidth: number; gap: number } | null>(null)
+  const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set())
+  const layout = teamBoardLayout(paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, openedColumns, paneSize?.gap ?? 12)
+  const view = layout.compact ? 'list' : preferredView
+  useEffect(() => {
+    const pane = paneRef.current
+    const body = bodyRef.current
+    if (!pane || !body) return
+    const measure = () => {
+      // The body reserves its scrollbar gutter, so changing layout cannot
+      // change the width that chose it. Read resolved CSS lengths so a
+      // foundation may express spacing in rem or calc() as well as px.
+      const width = body.clientWidth
+      if (width <= 0) return
+      const style = getComputedStyle(body)
+      const contentWidth = width - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd)
+      const board = boardRef.current
+      setPaneSize(previous => {
+        const gap = board ? parseFloat(getComputedStyle(board).columnGap) : previous?.gap ?? 12
+        return previous?.width === width && previous.contentWidth === contentWidth && previous.gap === gap
+          ? previous : { width, contentWidth, gap }
+      })
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [view])
   const [trouble, setTrouble] = useState<string | null>(null)
   /**
    * The long form, and the goal it was opened from.
@@ -530,7 +568,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        whatever the room's rail left over. The header's tally is the first
        thing to go — the columns are counted anyway — and the button that adds
        work keeps its label to the last. */
-    <ToolPane variant="integrated" className="@container/board">
+    <ToolPane ref={paneRef} variant="integrated" className="@container/board">
       <ToolPaneHeader
         contentInset={view === 'list' ? 'reading-table' : 'board'}
         icon={view === 'board' ? <PlanIcon /> : undefined}
@@ -592,11 +630,11 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                   losing the action. `@container/board` is on the pane. */}
               <span className="hidden @[26rem]/board:inline">New job</span>
             </Button>
-            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board' }, { value: 'list', label: 'List' }]} onChange={setView} />
+            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board', disabled: layout.compact && 'Board needs at least 600px of content width' }, { value: 'list', label: 'List' }]} onChange={setView} />
           </div>
         }
       />
-      <ToolPaneBody bleed={view === 'list'}>
+      <ToolPaneBody ref={bodyRef} bleed={view === 'list'} className="[scrollbar-gutter:stable]">
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —
@@ -607,7 +645,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             <EmptyState variant="inline" align="start" title="Nothing on the board yet" />
           </PaneColumn>
         ) : view === 'list' ? (
-          <TeamBoardList intents={intents} placed={placed}
+          <TeamBoardList intents={intents} placed={placed} compact={layout.compact} grouped={layout.compact}
+            unplacedTitle={evidenceFailed ? 'Evidence unavailable' : 'Checking current evidence'}
             defaultColumns={new Set<JobColumn>([
               'assignee', 'state', 'updated',
               ...(evidence?.cards.some(one => intents.some(intent => intent.id === one.card) && one.facts.some(fact => fact.record.fact.kind === 'pr')) ? ['pr' as const] : []),
@@ -627,7 +666,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                 outcome, ...intent.files,
                 ...(evidence?.cards.find(one => one.card === intent.id)?.facts.flatMap(one => one.record.fact.kind === 'pr' ? [`#${one.record.fact.number}`] : []) ?? [])]
             }} renderRow={(intent, columns) => (
-            <IntentCard key={intent.id} listColumns={columns} intent={intent} room={room}
+            <IntentCard key={intent.id} listGrouped={layout.compact} listColumns={columns} intent={intent} room={room}
               placement={placed.get(intent.id) ?? null} now={now} attached={attached}
               evidence={evidence?.cards.find(one => one.card === intent.id)} checks={evidence ?? NO_CHECKS}
               onRunCheck={name => runCheck(intent.id, name)}
@@ -636,11 +675,28 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               onAct={(verb, outcome) => verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)} />
           )} />
         ) : (
-          <Board wrap derived>
-            {shown.map((column) => {
+          <Board ref={boardRef} wrap derived className="items-stretch" data-layout={layout.lanes ? 'lanes' : 'columns'}
+            style={{ gridTemplateColumns: layout.lanes
+              ? `repeat(2, minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr))${layout.folded.includes('ready') ? ` ${BOARD_RAIL_WIDTH}px` : ''}`
+              : ['needs', 'working', 'review', 'todo', 'ready'].map(id => layout.folded.includes(id as FactColumn) ? `${BOARD_RAIL_WIDTH}px` : `minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr)`).join(' ') }}>
+            {['needs', 'working', 'review', 'todo', 'ready', 'aside'].flatMap(id => shown.filter(column => column.id === id)).map((column) => {
               const cards = byColumn.get(column.id) ?? []
+              const withoutColumn = new Set(openedColumns)
+              withoutColumn.delete(column.id)
+              const canFold = openedColumns.has(column.id) && teamBoardLayout(
+                paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, withoutColumn, paneSize?.gap ?? 12,
+              ).folded.includes(column.id)
               return (
-                <BoardColumn key={column.id} title={column.title} count={cards.length} tint={column.tint}>
+                <BoardColumn key={column.id} title={column.title} count={cards.length} tint={column.tint}
+                  data-column={column.id} collapsed={layout.folded.includes(column.id)}
+                  style={column.id === 'aside' ? { gridColumn: '1 / -1' }
+                    : layout.lanes && layout.folded.includes(column.id) ? { gridColumn: 3, gridRow: '1 / span 2' } : undefined}
+                  onCollapsedChange={layout.folded.includes(column.id) || canFold ? collapsed => setOpenedColumns(previous => {
+                    const next = new Set(previous)
+                    if (collapsed) next.delete(column.id)
+                    else next.add(column.id)
+                    return next
+                  }) : undefined}>
                   {cards.map((intent) => (
                     <IntentCard
                       key={intent.id}
@@ -814,6 +870,7 @@ import { CeilingChip } from './CeilingChip'
 
 const IntentCard = ({
   listColumns,
+  listGrouped = false,
   intent,
   room,
   placement,
@@ -826,6 +883,7 @@ const IntentCard = ({
   onOpenHolder,
   onAct,
 }: {
+  listGrouped?: boolean
   listColumns?: ReadonlySet<JobColumn>
   intent: Intent
   room: string
@@ -1091,12 +1149,13 @@ const IntentCard = ({
           <span className="flex min-w-0 flex-wrap items-center gap-2"><Text role="meta">#{intent.id}</Text><Text role="row" className="min-w-0 break-words [overflow-wrap:anywhere]" title={intent.title}>{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
           {note && <Text role="meta" className="whitespace-normal line-clamp-2 break-words [overflow-wrap:anywhere]" title={note}>{note}</Text>}
           {intent.files.length > 0 && <Text role="meta" className="block min-w-0 truncate" title={`Owns ${intent.files.join(', ')} while claimed`}>{intent.files.join(', ')}</Text>}
-          {listColumns.has('assignee') && <span className="@[720px]/board:hidden"><Text role="meta">Assignee · {holderName}</Text></span>}
+          {listColumns.has('assignee') && <span className="@[720px]/board:hidden"><Text role="meta" className="block truncate" title={holderName}>Assignee · {holderName}</Text></span>}
+          {listGrouped && (reason || visibleOutcome) && <Text role="meta" className="block whitespace-normal break-words">{reason ?? visibleOutcome}</Text>}
           {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason ? ` · ${reason}` : visibleOutcome ? ` · ${visibleOutcome}` : ''}</Text></span>}
         </TableCell>
-        {listColumns.has('assignee') && <TableCell className={JOB_COLUMN_CLASS.assignee}>
-          {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="gap-2">{face}{holderName}</Button>
-            : <span className="inline-flex items-center gap-2">{holderName !== '—' && face}<Text role="meta">{holderName}</Text></span>}
+        {listColumns.has('assignee') && <TableCell className={`${JOB_COLUMN_CLASS.assignee} w-40 max-w-40`}>
+          {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="max-w-full gap-2">{face}<span className="min-w-0 truncate" title={holderName}>{holderName}</span></Button>
+            : <span className="inline-flex max-w-full items-center gap-2">{holderName !== '—' && face}<Text role="meta" className="min-w-0 truncate" title={holderName}>{holderName}</Text></span>}
         </TableCell>}
         {listColumns.has('state') && <TableCell className={`${JOB_COLUMN_CLASS.state} whitespace-normal`}>
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">

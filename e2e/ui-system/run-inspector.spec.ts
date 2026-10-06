@@ -11,7 +11,10 @@ for (const theme of ['light', 'dark'] as const) {
     const timeline = frame.locator('[data-slot="run-view"]')
     const inspector = frame.locator('[data-slot="run-inspector"]')
     await expect(inspector).toContainText('Brief')
-    await expect(inspector).toContainText('Rounds: 3 of 5')
+    await expect(inspector.getByRole('progressbar', { name: 'Budget', exact: true })).toHaveAttribute('aria-valuemax', '5')
+    await expect(inspector.getByRole('progressbar', { name: 'Without progress', exact: true })).toHaveAttribute('aria-valuenow', '1')
+    await expect(inspector).toContainText('3 of 5 rounds')
+    await expect(inspector).toContainText('1 of 2 rounds')
     await expect(inspector).toContainText('Authorized after round 3: 2 more rounds')
     await expect(inspector).toContainText('Finish the bounded retry repair.')
     const card = page.locator('#run-inspector-card [data-slot="run-inspector"]')
@@ -32,7 +35,8 @@ for (const theme of ['light', 'dark'] as const) {
     // A Run that recorded no budget says so; it never borrows a limit it was not given.
     for (const kind of ['empty', 'pending', 'failed', 'team']) {
       const summary = page.locator(`#run-inspector-${kind} [data-slot="run-inspector"]`)
-      await expect(summary).toContainText('Limit not recorded')
+      await expect(summary.locator('[data-slot="run-recording-gaps"]')).toContainText('This Run did not record:')
+      await expect(summary.locator('[data-slot="run-recording-gaps"]')).toContainText('budget')
       await expect(summary).not.toContainText(/Rounds: \d+ of \d+/)
     }
     const a = await timeline.boundingBox()

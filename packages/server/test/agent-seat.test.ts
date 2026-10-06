@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -10,6 +11,8 @@ import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
   wrapContext,
+  deskContextContent,
+  splitContextContent,
   findOption,
   OptionRefusedError,
   refuseOptionValue,
@@ -2341,7 +2344,7 @@ const CODEX_FAKE = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtu
 /** A desk with the real Codex adapter on it, over the adapter's own fake. */
 const codexDesk = async (t: TestContext, env: Record<string, string>) => {
   const { harness, client, work } = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', ...env } })
   harness.host.register(runtime)
   await runtime.start()
   t.after(() => runtime.dispose())
@@ -2357,7 +2360,7 @@ const directCodexDesk = async (t: TestContext, env: Record<string, string>) => {
     version: '9.9.9',
     pickDirectory: async () => stateDir,
   })
-  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', ...env } })
   host.register(runtime)
   await host.start()
   t.after(() => host.dispose())
@@ -4038,12 +4041,14 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
     'the silent order to finish',
   )
   const request = 'Continue with the person\'s request.'
+  const pastedWrapper = wrapContext('Pasted elsewhere', 'keep this wrapper as typed text')
+  const typed = `${request}\n\n${pastedWrapper}`
   await client.call('turn/send', {
     runtime: session.runtime,
     sessionId: session.id,
     input: [
-      { type: 'text', text: wrapContext('Git', 'Status: ## main') },
-      { type: 'text', text: request },
+      deskContextContent(wrapContext('Git', 'Status: ## main')),
+      { type: 'text', text: typed },
     ],
   })
 
@@ -4055,10 +4060,12 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
     .flatMap((turn) => turn.items)
     .filter((item) => item.type === 'userMessage')
   assert.equal(spoken.length, 1, 'only the person\'s follow-up is speech')
-  const spokenText = spoken.flatMap((item) =>
-    item.type === 'userMessage' ? item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])) : [],
-  )
-  assert.ok(spokenText.includes(request), 'the normal message is recorded in the person\'s voice')
+  const message = spoken.find((item) => item.type === 'userMessage')
+  assert.ok(message && message.type === 'userMessage')
+  assert.deepEqual(splitContextContent(message.content), {
+    injections: [{ label: 'Git', text: 'Status: ## main' }],
+    text: typed,
+  })
   const summary = (await runtime.listSessions()).data.find((row) => row.id === session.id)
   assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
   // `agent/seat` names the conversation before handing over its silent order,

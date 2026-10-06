@@ -12,7 +12,9 @@ import { Chip } from '../Settings'
 import { StepCard } from './StepCard'
 import { FLOW_CANVAS_CARD_WIDTH } from './geometry'
 import { FLOW_GAP } from '../../../lib/flow-layout'
-import type { FlowCanvasStep, FlowCanvasNodeProps, FlowCanvasProps, FlowCanvasNodeChange, FlowCanvasEdgeChange } from './types'
+import type { FlowCanvasStep, FlowCanvasNodeProps, FlowCanvasProps, FlowCanvasEdgeChange } from './types'
+import { forwardNodeChanges } from './changes'
+import { selectionMatches } from './selection'
 import styles from './FlowCanvas.module.css'
 
 // Geometry required by the graph engine, not a second auto layout or palette.
@@ -20,13 +22,18 @@ const GRID = 16
 const CORNER = 16
 const MIN_ZOOM = 0.05
 const LANE_PITCH = GRID * 2
+const MINIMAP_INSET = 15
+const MINIMAP_TOOL_RESERVED_HEIGHT = 56
+const MINIMAP_TOOL_RESERVED_WIDTH = 210
+const MINIMAP_SEARCH_STEP = 24
+const MINIMAP_SIZES = [{ width: 200, height: 150 }, { width: 160, height: 120 }, { width: 120, height: 90 }, { width: 100, height: 75 }, { width: 80, height: 60 }, { width: 64, height: 48 }, { width: 48, height: 36 }] as const
 const RenderContext = createContext<(props: FlowCanvasNodeProps) => React.ReactNode>(props => <StepCard {...props} />)
 type EngineNode = Node<{ presentation: FlowCanvasNodeProps['node']; readOnly: boolean }, 'step'>
-type EngineEdge = Edge<{ kind?: 'rule' | 'attachment'; railY?: number }, 'rule'>
+type EngineEdge = Edge<{ kind?: 'rule' | 'attachment'; railY?: number; labelX?: number }, 'rule'>
 
 const Step = ({ data, selected }: NodeProps<EngineNode>) => {
   const render = useContext(RenderContext)
-  return <div className={styles.node} data-readonly={data.readOnly} onKeyDown={event => { if (event.target !== event.currentTarget) event.stopPropagation() }}>
+  return <div className={`${styles.node} nokey`} data-readonly={data.readOnly}>
     <Handle type="target" position={Position.Left} isConnectable={!data.readOnly} />
     {render({ node: data.presentation, selected: Boolean(selected), readOnly: data.readOnly })}
     <Handle type="source" position={Position.Right} isConnectable={!data.readOnly} />
@@ -52,9 +59,10 @@ const railPath = (sourceX: number, sourceY: number, targetX: number, targetY: nu
 }
 const Rule = (props: EdgeProps<EngineEdge>) => {
   const rail = props.data?.railY
-  const [path, x, y] = rail === undefined
+  const [path, centeredX, y] = rail === undefined
     ? getSmoothStepPath({ ...props, borderRadius: CORNER, offset: GRID })
     : railPath(props.sourceX, props.sourceY, props.targetX, props.targetY, rail)
+  const x = props.data?.labelX ?? centeredX
   return <>
     <g data-flow-source={props.source} data-flow-target={props.target} data-flow-rail-y={rail ?? ''}>
       <BaseEdge path={path} markerEnd={props.markerEnd} className={styles.edge} style={props.style} />
@@ -132,13 +140,45 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
     })
     const boxById = new Map(boxes.map(box => [box.node.id, box]))
     const bottom = Math.max(0, ...boxes.map(box => box.bottom))
-    const railCandidates = new Set<number>([
-      ...boxes.flatMap(box => [box.top - GRID, box.bottom + GRID]),
-      bottom + GRID,
-    ])
-    for (const upper of boxes) for (const lower of boxes) {
-      if (upper.bottom > lower.top) continue
-      for (let y = upper.bottom + GRID; y <= lower.top - GRID; y += GRID) railCandidates.add(y)
+    const maxLaneIndex = Math.max(0, ...Array.from(outgoingCounts.values(), count => count - 1))
+    const railCandidates = new Set<number>()
+    const addGroupBases = (y: number, candidates = railCandidates) => {
+      for (let lane = 0; lane <= maxLaneIndex; lane += 1) candidates.add(y - lane * LANE_PITCH)
+    }
+    for (const box of boxes) {
+      addGroupBases(box.top - GRID)
+      addGroupBases(box.bottom + GRID)
+    }
+    // Prefer grid clearance. Tightly packed lanes can still fit in a band
+    // missed by these margins; try boundary clearance before accepting crossings.
+    addGroupBases(bottom + GRID)
+    const orderedHeights = [...railCandidates].sort((a, b) => a - b)
+    // Walk outward from the preferred height, without sorting the whole set
+    // again for every source. A clear nearby rail ends the search immediately.
+    let tightHeights: number[] | undefined
+    const boundaryHeights = () => {
+      if (!tightHeights) {
+        const candidates = new Set<number>()
+        for (const box of boxes) {
+          addGroupBases(box.top - 1, candidates)
+          addGroupBases(box.bottom + 1, candidates)
+        }
+        tightHeights = [...candidates].sort((a, b) => a - b)
+      }
+      return tightHeights
+    }
+    function* nearestHeights(preferred: number, heights = orderedHeights) {
+      let low = 0, high = heights.length
+      while (low < high) {
+        const middle = (low + high) >>> 1
+        if (heights[middle]! < preferred) low = middle + 1
+        else high = middle
+      }
+      let left = low - 1, right = low
+      while (left >= 0 || right < heights.length) {
+        if (left < 0 || (right < heights.length && heights[right]! - preferred <= preferred - heights[left]!)) yield heights[right++]!
+        else yield heights[left--]!
+      }
     }
     const routeEdges = edges.map((edge, index) => {
       const source = byId.get(edge.source), target = byId.get(edge.target)
@@ -157,24 +197,50 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
         needsRail = Math.abs(sourceBox.centerY - targetBox.centerY) >= GRID || gap <= FLOW_GAP || gap <= 0
           || blocked || (edge.label?.length ?? 0) > 8 || groupSize > 1
       }
-      return { edge, index, source, target, sourceBox, targetBox, groupSize, groupIndex, needsRail, railY: undefined as number | undefined }
+      return { edge, index, source, target, sourceBox, targetBox, groupSize, groupIndex, needsRail, railY: undefined as number | undefined, labelX: undefined as number | undefined }
     })
-    const routeIsClear = (route: typeof routeEdges[number], y: number) => {
+    // Every crossing predicate changes only at a card's top or bottom. Nearby
+    // rail heights in the same interval share a count, including fallback scans.
+    const crossingBoundaries = [...new Set(boxes.flatMap(box => [box.top, box.bottom]))].sort((a, b) => a - b)
+    const crossingInterval = (y: number) => {
+      let low = 0, high = crossingBoundaries.length
+      while (low < high) {
+        const middle = (low + high) >>> 1
+        if (crossingBoundaries[middle]! < y) low = middle + 1
+        else high = middle
+      }
+      // Keep exact boundaries separate: horizontal contact is inclusive while
+      // the vertical exit/entry checks use strict intersection.
+      return low * 2 + Number(crossingBoundaries[low] === y)
+    }
+    const crossingCounts = new Map<typeof routeEdges[number], Map<number, number>>()
+    const routeCrossingCount = (route: typeof routeEdges[number], y: number) => {
+      const interval = crossingInterval(y)
+      const cached = crossingCounts.get(route)?.get(interval)
+      if (cached !== undefined) return cached
       const { sourceBox, targetBox, source, target } = route
-      if (!sourceBox || !targetBox || !source || !target) return false
-      if ((y >= sourceBox.top && y <= sourceBox.bottom) || (y >= targetBox.top && y <= targetBox.bottom)) return false
+      if (!sourceBox || !targetBox || !source || !target) return Number.MAX_SAFE_INTEGER
+      let crossings = 0
+      if (y >= sourceBox.top && y <= sourceBox.bottom) crossings += 1
+      if (y >= targetBox.top && y <= targetBox.bottom) crossings += 1
       const sourceTurn = sourceBox.right + GRID, targetTurn = targetBox.left - GRID
       const left = Math.min(sourceTurn, targetTurn), right = Math.max(sourceTurn, targetTurn)
-      return boxes.every(box => {
-        if (box.node.id === source.id || box.node.id === target.id) return true
+      const sourceTop = Math.min(y, sourceBox.centerY), sourceBottom = Math.max(y, sourceBox.centerY)
+      const targetTop = Math.min(y, targetBox.centerY), targetBottom = Math.max(y, targetBox.centerY)
+      for (const box of boxes) {
+        if (box.node.id === source.id || box.node.id === target.id) continue
         const onRail = y >= box.top && y <= box.bottom && right > left && box.left < right && box.right > left
         const onSourceExit = sourceTurn >= box.left && sourceTurn <= box.right
-          && Math.max(y, sourceBox.centerY) > box.top && Math.min(y, sourceBox.centerY) < box.bottom
+          && sourceBottom > box.top && sourceTop < box.bottom
         const onTargetEntry = targetTurn >= box.left && targetTurn <= box.right
-          && Math.max(y, targetBox.centerY) > box.top && Math.min(y, targetBox.centerY) < box.bottom
-        return !onRail && !onSourceExit && !onTargetEntry
-      })
+          && targetBottom > box.top && targetTop < box.bottom
+        if (onRail || onSourceExit || onTargetEntry) crossings += 1
+      }
+      const counts = crossingCounts.get(route) ?? new Map<number, number>()
+      counts.set(interval, crossings); crossingCounts.set(route, counts)
+      return crossings
     }
+    const routeIsClear = (route: typeof routeEdges[number], y: number) => routeCrossingCount(route, y) === 0
     const preferredY = (route: typeof routeEdges[number]) => {
       const { sourceBox, targetBox } = route
       if (!sourceBox || !targetBox) return bottom + GRID
@@ -199,11 +265,30 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       const group = groups.get(route.edge.source) ?? [route]
       let base = groupBase.get(route.edge.source)
       if (base === undefined) {
-        const candidates = [...railCandidates].sort((a, b) => Math.abs(a - preferredY(route)) - Math.abs(b - preferredY(route)) || b - a)
-        base = candidates.find(candidate => group.every(member => {
+        const candidates: number[] = []
+        const isGroupClear = (candidate: number) => group.every(member => {
           const lane = candidate + member.groupIndex * LANE_PITCH
           return routeIsClear(member, lane) && fitsBesideExisting(member, lane)
-        })) ?? bottom + GRID
+        })
+        const crossingScore = (candidate: number) => group.reduce((score, member) => {
+          const lane = candidate + member.groupIndex * LANE_PITCH
+          return score + routeCrossingCount(member, lane) * 1000 + Number(!fitsBesideExisting(member, lane))
+        }, 0)
+        for (const candidate of nearestHeights(preferredY(route))) {
+          candidates.push(candidate)
+          if (isGroupClear(candidate)) { base = candidate; break }
+        }
+        if (base === undefined) for (const candidate of nearestHeights(preferredY(route), boundaryHeights())) {
+          if (isGroupClear(candidate)) { base = candidate; break }
+        }
+        if (base === undefined) {
+          let bestScore = Infinity
+          for (const candidate of candidates) {
+            const score = crossingScore(candidate)
+            if (score < bestScore) { base = candidate; bestScore = score }
+          }
+          base ??= bottom + GRID
+        }
         groupBase.set(route.edge.source, base)
       }
       route.railY = base + route.groupIndex * LANE_PITCH
@@ -211,10 +296,52 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       const right = Math.max(route.sourceBox.right + GRID, route.targetBox.left - GRID)
       reservations.push({ y: route.railY, left, right })
     }
+    const routeSegments = (route: typeof routeEdges[number]): Array<[number, number, number, number]> => {
+      if (!route.sourceBox || !route.targetBox) return []
+      const sourceX = route.sourceBox.right, sourceY = route.sourceBox.centerY
+      const targetX = route.targetBox.left, targetY = route.targetBox.centerY
+      if (route.railY === undefined) return [[sourceX, sourceY, targetX, targetY]]
+      const exitX = sourceX + GRID, entryX = targetX - GRID, railY = route.railY
+      return [
+        [sourceX, sourceY, exitX, sourceY],
+        [exitX, sourceY, exitX, railY],
+        [exitX, railY, entryX, railY],
+        [entryX, railY, entryX, targetY],
+        [entryX, targetY, targetX, targetY],
+      ]
+    }
+    const segmentsByRoute = new Map(routeEdges.map(route => [route, routeSegments(route)]))
+    const labelHitsSegment = (x: number, y: number, halfWidth: number, segment: [number, number, number, number]) => {
+      const [x1, y1, x2, y2] = segment
+      const left = x - halfWidth, right = x + halfWidth, top = y - 14, bottom = y + 14
+      if (y1 === y2) return y1 >= top && y1 <= bottom && Math.max(x1, x2) >= left && Math.min(x1, x2) <= right
+      if (x1 === x2) return x1 >= left && x1 <= right && Math.max(y1, y2) >= top && Math.min(y1, y2) <= bottom
+      const distance = Math.hypot(x2 - x1, y2 - y1)
+      for (let offset = 0; offset <= distance; offset += 4) {
+        const ratio = distance ? offset / distance : 0
+        const pointX = x1 + (x2 - x1) * ratio, pointY = y1 + (y2 - y1) * ratio
+        if (pointX >= left && pointX <= right && pointY >= top && pointY <= bottom) return true
+      }
+      return false
+    }
+    for (const route of routeEdges) {
+      if (!route.edge.label || !route.sourceBox || !route.targetBox) continue
+      const sourceX = route.sourceBox.right, sourceY = route.sourceBox.centerY
+      const targetX = route.targetBox.left
+      const left = route.railY === undefined ? Math.min(sourceX, targetX) : Math.min(sourceX + GRID, targetX - GRID)
+      const right = route.railY === undefined ? Math.max(sourceX, targetX) : Math.max(sourceX + GRID, targetX - GRID)
+      const y = route.railY ?? sourceY
+      const preferred = (left + right) / 2
+      const candidates = [preferred]
+      for (let offset = GRID / 4; offset <= right - left; offset += GRID / 4) candidates.push(preferred - offset, preferred + offset)
+      const halfWidth = route.edge.label.length * 4 + 12
+      route.labelX = candidates.find(candidate => candidate >= left && candidate <= right && routeEdges.every(other =>
+        other === route || (segmentsByRoute.get(other) ?? []).every(segment => !labelHitsSegment(candidate, y, halfWidth, segment)))) ?? preferred
+    }
     return routeEdges.map(route => {
       const { edge, source, target } = route
       return {
-        ...edge, type: 'rule', data: { kind: edge.kind, ...(route.railY === undefined ? {} : { railY: route.railY }) }, deletable: !readOnly,
+        ...edge, type: 'rule', data: { kind: edge.kind, ...(route.railY === undefined ? {} : { railY: route.railY }), ...(route.labelX === undefined ? {} : { labelX: route.labelX }) }, deletable: !readOnly,
         markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: 'var(--hd-border-strong)' },
         style: edge.kind === 'attachment' ? { strokeDasharray: '6 4' } : undefined,
         ariaLabel: `${source?.data.name ?? edge.source} to ${target?.data.name ?? edge.target}${edge.label ? `: ${edge.label}` : ''}`,
@@ -236,12 +363,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       }
       return changed ? next : previous
     })
-    const exposed: FlowCanvasNodeChange[] = changes.flatMap<FlowCanvasNodeChange>(change => {
-      if (change.type === 'select') return [change]
-      if (!readOnly && change.type === 'position' && change.position) return [{ type: 'position', id: change.id, position: change.position, dragging: Boolean(change.dragging) }]
-      if (!readOnly && change.type === 'remove') return [change]
-      return []
-    })
+    const exposed = forwardNodeChanges(changes, readOnly)
     if (exposed.length) onNodesChange?.(exposed)
   }
   const changeEdges = (changes: EdgeChange<EngineEdge>[]) => {
@@ -252,8 +374,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
     const next = { nodes: selection.nodes.map(node => node.id), edges: selection.edges.map(edge => edge.id) }
     if (!selectionReady.current) {
       const controlled = controlledSelection.current
-      if (next.nodes.length !== controlled.nodes.length || next.edges.length !== controlled.edges.length
-        || !controlled.nodes.every(id => next.nodes.includes(id)) || !controlled.edges.every(id => next.edges.includes(id))) return
+      if (!selectionMatches(next, controlled)) return
       selectionReady.current = true
     }
     selectionCallback.current?.(next)
@@ -261,13 +382,13 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
   const keyboard = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     if (target !== event.currentTarget && !target.matches('.react-flow__node, .react-flow__edge')) return
-    if (event.metaKey || event.altKey || event.ctrlKey) {
-      // Leave the browser shortcut intact without handing it to the engine's move handler.
-      event.stopPropagation()
-      return
-    }
     const directions: Record<string, [number, number]> = { ArrowLeft: [-GRID, 0], ArrowRight: [GRID, 0], ArrowUp: [0, -GRID], ArrowDown: [0, GRID] }
     const direction = directions[event.key]
+    if (event.metaKey || event.altKey || event.ctrlKey) {
+      // Modified arrows belong to neither the window shortcut table nor the move handler.
+      if (direction) event.stopPropagation()
+      return
+    }
     if (!direction && event.key !== 'Delete' && event.key !== 'Backspace') return
     event.preventDefault(); event.stopPropagation()
     if (readOnly || tool === 'hand') return
@@ -276,7 +397,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       if (selected.length) {
         onNodesChange?.(selected.map(node => ({ type: 'position', id: node.id, position: { x: node.position.x + direction[0], y: node.position.y + direction[1] }, dragging: false })))
         const moved = selected[0]!
-        setAnnouncement(`Moved ${moved.data.name} to x ${moved.position.x + direction[0]}, y ${moved.position.y + direction[1]}.`)
+        setAnnouncement(selected.length > 1 ? `Moved ${selected.length} steps.` : `Moved ${moved.data.name} to x ${moved.position.x + direction[0]}, y ${moved.position.y + direction[1]}.`)
       }
     } else {
       const removedIds = new Set(selected.map(node => node.id))
@@ -311,13 +432,47 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       'edge.a11yDescription.default': edgeDescription,
     }
   }, [readOnly, tool])
-  // The map yields its corner whenever it would cover a rendered card.
-  const minimapClear = nodes.every(node => {
-    const left = node.position.x * transform[2] + transform[0], top = node.position.y * transform[2] + transform[1]
-    const right = left + (node.size?.width ?? FLOW_CANVAS_CARD_WIDTH) * transform[2]
-    const bottom = top + (node.size?.height ?? measurements.get(node.id)?.height ?? 0) * transform[2]
-    return right <= width - 215 || left >= width - 15 || bottom <= height - 165 || top >= height - 15
-  })
+  const minimapLayout = useMemo(() => {
+    const zoom = transform[2], panX = transform[0], panY = transform[1]
+    const rendered = nodes.map(node => {
+      const left = node.position.x * zoom + panX, top = node.position.y * zoom + panY
+      return {
+        left, top,
+        right: left + (node.size?.width ?? FLOW_CANVAS_CARD_WIDTH) * zoom,
+        bottom: top + (node.size?.height ?? measurements.get(node.id)?.height ?? 0) * zoom,
+      }
+    })
+    const tools = {
+      left: MINIMAP_INSET, top: height - MINIMAP_INSET - (MINIMAP_TOOL_RESERVED_HEIGHT - MINIMAP_INSET),
+      right: MINIMAP_INSET + MINIMAP_TOOL_RESERVED_WIDTH, bottom: height - MINIMAP_INSET,
+    }
+    for (const cornersOnly of [true, false]) for (const size of MINIMAP_SIZES) {
+      if (width < size.width + MINIMAP_INSET * 2 || height < size.height + MINIMAP_INSET * 2) continue
+      const maxLeft = width - size.width - MINIMAP_INSET, maxTop = height - size.height - MINIMAP_INSET
+      const corners = [
+        { left: maxLeft, top: maxTop },
+        { left: MINIMAP_INSET, top: maxTop - MINIMAP_TOOL_RESERVED_HEIGHT },
+        { left: maxLeft, top: MINIMAP_INSET },
+        { left: MINIMAP_INSET, top: MINIMAP_INSET },
+      ]
+      const sites: Array<{ left: number; top: number }> = cornersOnly ? corners : []
+      if (!cornersOnly) {
+        for (let left = MINIMAP_INSET; left <= maxLeft; left += MINIMAP_SEARCH_STEP) sites.push({ left, top: MINIMAP_INSET }, { left, top: maxTop })
+        for (let top = MINIMAP_INSET; top <= maxTop; top += MINIMAP_SEARCH_STEP) sites.push({ left: MINIMAP_INSET, top }, { left: maxLeft, top })
+      }
+      const checked = new Set<string>()
+      for (const site of sites) {
+        const { left, top } = site, key = `${left},${top}`
+        if (checked.has(key) || left < MINIMAP_INSET || top < MINIMAP_INSET || left > maxLeft || top > maxTop) continue
+        checked.add(key)
+        const right = left + size.width, bottom = top + size.height
+        const overlaps = (box: typeof tools) => box.left < right && box.right > left && box.top < bottom && box.bottom > top
+        if (overlaps(tools) || rendered.some(overlaps)) continue
+        return { ...size, position: 'top-left' as const, left, top }
+      }
+    }
+    return null
+  }, [nodes, measurements, transform, width, height])
   const render = (props: FlowCanvasNodeProps) => NodeComponent
     ? <NodeComponent {...props as FlowCanvasNodeProps<Data>} /> : <StepCard {...props} />
   return <div ref={canvasRef} className={`${styles.canvas} ${className ?? ''}`} data-slot="flow-canvas" data-readonly={readOnly} data-tool={readOnly ? 'hand' : tool} tabIndex={0} role="region" aria-label={label} onKeyDownCapture={keyboard}>
@@ -339,7 +494,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
           <Button variant="ghost" size="icon" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn()}><ZoomInIcon /></Button>
           <Button variant="ghost" size="icon" aria-label="Fit plan" title="Fit to the canvas" onClick={() => void flow.fitView({ minZoom: MIN_ZOOM, maxZoom: Math.min(1, flow.getZoom()), padding: 0.12 })}><CanvasFitIcon /></Button>
         </Panel>
-        {minimapClear && <MiniMap position="bottom-right" nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
+        {minimapLayout && <MiniMap position={minimapLayout.position} style={{ width: minimapLayout.width, height: minimapLayout.height, left: minimapLayout.left - MINIMAP_INSET, top: minimapLayout.top - MINIMAP_INSET, right: 'auto', bottom: 'auto' }} nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
       </ReactFlow>
     </RenderContext.Provider>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
