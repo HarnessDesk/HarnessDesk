@@ -367,3 +367,13 @@ it('selects a Run step through the engine node as well as the accessible list', 
   act(() => (container.querySelector('.react-flow__node[data-id="check"]') as HTMLElement).click())
   expect(select).toHaveBeenCalledWith('check')
 })
+
+it('a docked text alternative keeps screen-reader selection without invisible tab stops', async () => {
+  const select = vi.fn()
+  await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} listPlacement="dock" onSelectStep={select} />))
+  const rows = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="flow-list"] button')]
+  expect(rows).toHaveLength(6)
+  expect(rows.every(row => row.tabIndex === -1)).toBe(true)
+  act(() => rows[1]!.click())
+  expect(select).toHaveBeenCalledWith('check')
+})

@@ -70,7 +70,7 @@ const Rule = (props: EdgeProps<EngineEdge>) => {
 const nodeTypes = { step: Step }
 const edgeTypes = { rule: Rule }
 
-const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, positionOnly = false, title, actions, label = 'Flow plan', className, NodeComponent, onNodesChange, onEdgesChange, onConnect, onSelectionChange }: FlowCanvasProps<Data>) => {
+const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, positionOnly = false, showControls = true, title, actions, label = 'Flow plan', className, NodeComponent, onNodesChange, onEdgesChange, onConnect, onSelectionChange }: FlowCanvasProps<Data>) => {
   const [measurements, setMeasurements] = useState<ReadonlyMap<string, { width: number; height: number }>>(new Map())
   const [tool, setTool] = useState<'select' | 'hand'>('select')
   const [announcement, setAnnouncement] = useState('')
@@ -359,7 +359,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, p
         {edges.some(edge => edge.current) && batonPath && <EdgeLabelRenderer><FlowBaton path={batonPath} /></EdgeLabelRenderer>}
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1.5} color="var(--hd-border-strong)" />
         {title && <Panel position="top-left"><Text role="meta">{title}</Text></Panel>}
-        <Panel position={readOnly ? "top-right" : "bottom-left"} className={styles.tools}>
+        {showControls && <Panel position={readOnly ? "top-right" : "bottom-left"} className={styles.tools}>
           {!readOnly && <>
             <Button variant="ghost" size="icon" aria-label="Select tool" title="Select steps" aria-pressed={tool === 'select'} onClick={() => setTool('select')}><CanvasSelectIcon /></Button>
             <Button variant="ghost" size="icon" aria-label="Hand tool" title="Pan the canvas" aria-pressed={tool === 'hand'} onClick={() => setTool('hand')}><CanvasHandIcon /></Button>
@@ -368,8 +368,8 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, p
           <Button variant="ghost" size="icon" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn()}><ZoomInIcon /></Button>
           <Button variant="ghost" size="icon" aria-label="Fit plan" title="Fit to the canvas" onClick={() => void flow.setViewport(getViewportForBounds(planBounds(), width, height, MIN_ZOOM, Math.min(1, flow.getZoom()), 0.12))}><CanvasFitIcon /></Button>
           {actions}
-        </Panel>
-        {minimapClear && <MiniMap position="bottom-right" nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
+        </Panel>}
+        {showControls && minimapClear && <MiniMap position="bottom-right" nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
       </ReactFlow>
     </RenderContext.Provider></BatonContext.Provider>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>

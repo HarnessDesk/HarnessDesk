@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
-import { Button, Card, Field, Input, Note, Row, RowButton, Rows, SectionHead, FlowCanvas, type FlowCanvasNodeChange } from '../design'
+import { Card, Field, Input, Note, Row, RowButton, Rows, SectionHead, FlowCanvas, FLOW_CANVAS_RUN_CARD_HEIGHT, type FlowCanvasNodeChange } from '../design'
 import { boundedPosition, defaultGraphPosition, readGraphPositions, ROLE_KIND_WORDS, type GraphPoint } from '../lib/shapes'
 
 /** The ordered editor's roles and rules on the shared canvas. Only position edits leave this view. */
@@ -61,7 +61,8 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
   return (
     <div>
       {invalid && <Note tone="warn">Some saved positions could not be read and were ignored; the file itself is unchanged.</Note>}
-      <div className="h-96" onKeyDownCapture={event => {
+      {/* Reserve the default column's pitch so a six-step plan does not open at half size. */}
+      <div className="min-h-96" style={{ height: defaultGraphPosition(policy.roles.length).y + FLOW_CANVAS_RUN_CARD_HEIGHT }} onKeyDownCapture={event => {
         if (event.key === 'Escape' && Object.keys(draft).length) {
           event.preventDefault(); event.stopPropagation()
           cancelled.current = true

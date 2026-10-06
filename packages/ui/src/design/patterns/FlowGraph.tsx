@@ -7,6 +7,7 @@ import {
 } from '../../lib/flow-layout'
 import { stepName, type FlowModel, type FlowStep, type StepKind } from '../../lib/flow-model'
 import { ROLE_KIND_WORDS } from '../../lib/shapes'
+import { useNarrowLayout } from '../../lib/use-narrow-layout'
 import { Card } from '../ui/card'
 import { FlowStepSurface, FlowFaces, FlowDoingLine } from '../ui/flow-step'
 import { type FlowOverlay, type FlowStepRun } from '../../lib/flow-overlay'
@@ -83,10 +84,8 @@ const StepCard = ({ node, step, run, selected, faces, faceTints, activity, now }
       ))}
       <FlowStepSurface state={run?.state} selected={selected} duration={durationOf(run, now)} runs={run?.runs}>
         <FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints} fallback={<IconTile tint={tint}><Mark /></IconTile>} />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <Text role="row" ink={run?.state === 'future' ? 'secondary' : undefined} truncate className={run?.state === 'working' || run?.state === 'blocked' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
-          <Text role="meta" ink={run?.state === 'future' ? 'muted' : undefined} truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
-        </span>
+        <Text role="row" ink={run?.state === 'future' ? 'secondary' : undefined} truncate className={run?.state === 'working' || run?.state === 'blocked' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
+        <Text role="meta" className="col-start-2" ink={run?.state === 'future' ? 'muted' : undefined} truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
       </FlowStepSurface>
       {activity.text &&
         <span data-slot="flow-doing" className="absolute bottom-4 left-3 right-3 whitespace-nowrap text-center pointer-events-none"><FlowDoingLine text={activity.text} /></span>}
@@ -106,12 +105,15 @@ export interface FlowGraphProps {
   readonly now?: number
   readonly title?: ReactNode
   readonly actions?: ReactNode
-  /** The Team dock can mount the same list; until then it stays accessible beside the full-page canvas. */
+  readonly showControls?: boolean
+  /** Wide panes retain the text alternative; narrow panes show the list until the Team dock exists. */
   readonly listPlacement?: 'below' | 'dock'
 }
 
 /** The frozen Flow on the shared read-only canvas, with recorded state and an accessible Steps seam for the Team dock. */
-export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, faceTints, doing, now = Date.now(), title, actions, listPlacement = 'below' }: FlowGraphProps) => {
+export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, faceTints, doing, now = Date.now(), title, actions, showControls, listPlacement = 'below' }: FlowGraphProps) => {
+  const { ref, narrow } = useNarrowLayout<HTMLDivElement>(608)
+  const listDocked = listPlacement === 'dock' && narrow !== true
   const layout = useMemo(() => (model.steps.length === 0 ? null : flowLayout(model)), [model])
   if (layout === null) {
     return <Text role="muted" as="p" data-slot="flow-graph">This Flow has no steps.</Text>
@@ -141,12 +143,12 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
     }
   })
   return (
-    <div data-slot="flow-graph" className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-      <div data-slot="flow-drawing" className="min-h-0 flex-1" style={listPlacement === 'dock' ? undefined : { height: Math.ceil(layout.height * yScale + FLOW_MARGIN), flex: 'none' }}>
-        <FlowCanvas nodes={nodes} edges={edges} readOnly title={title} actions={actions} NodeComponent={RunStep}
+    <div ref={ref} data-slot="flow-graph" className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+      <div data-slot="flow-drawing" className="min-h-0 flex-1" style={listDocked ? undefined : { height: Math.ceil(layout.height * yScale + FLOW_MARGIN), flex: 'none' }}>
+        <FlowCanvas nodes={nodes} edges={edges} readOnly title={title} actions={actions} showControls={showControls} NodeComponent={RunStep}
           onNodesChange={changes => { const selection = changes.find(change => change.type === 'select' && change.selected); if (selection && selection.id !== selectedStep) onSelectStep?.(selection.id) }} />
       </div>
-      <div data-slot="flow-list" data-placement={listPlacement} className={listPlacement === 'dock' ? 'sr-only' : 'flex min-w-0 flex-col gap-4'}>
+      <div data-slot="flow-list" data-placement={listPlacement} className={listDocked ? 'sr-only' : 'flex min-w-0 flex-col gap-4'}>
         <section aria-label="Steps">
           <SectionHead name="Steps" />
           <ListRows>
@@ -157,6 +159,7 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
               const more = [...(step.count > 1 ? [`${step.count} at once`] : []), ...step.agents]
               return <ListRow key={step.id} data-step-row={step.id} data-state={run?.state}
                 as={onSelectStep ? 'button' : 'div'} interactive={Boolean(onSelectStep)} selected={selectedStep === step.id}
+                tabIndex={onSelectStep && listDocked ? -1 : undefined}
                 onClick={onSelectStep ? () => onSelectStep(step.id) : undefined}
                 lead={<FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints}
                   fallback={<IconTile shape={step.kind === 'check' ? 'square' : 'face'} tint={tint}><Mark /></IconTile>} />}

@@ -48,6 +48,11 @@ it('draws default kind cards, the Run state slot and the rule word', async () =>
   expect(host.querySelector('[data-slot="flow-canvas-step"][data-state="done"]')).not.toBeNull()
   expect(host.textContent).toContain('ready')
 })
+it('agent cards use Faces while check cards keep their square mark', async () => {
+  await draw()
+  expect(host.querySelector('[data-kind="agent"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('face')
+  expect(host.querySelector('[data-kind="check"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('square')
+})
 it('reports engine selection and selected-node keyboard movement through controlled callbacks', async () => {
   const onNodesChange = vi.fn(), onSelectionChange = vi.fn()
   await draw({ onNodesChange, onSelectionChange })

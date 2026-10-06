@@ -70,9 +70,15 @@
   font-size: var(--hd-text-xs);
   padding: var(--hd-space-0-5) var(--hd-space-1);
 }
-.canvas :global(.react-flow__attribution a) { color: var(--hd-muted-foreground); }
+.canvas :global(.react-flow__attribution a) {
+  color: var(--hd-muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hd-space-6);
+}
 .canvas :global(.react-flow__node):focus-visible { outline: none; }
 .canvas :global(.react-flow__node):focus-visible .card { box-shadow: var(--hd-focus-ring); }
+.canvas :global(.react-flow__node):focus-visible [data-slot="flow-step"] > [data-slot="card"]:not([data-behind]) { box-shadow: var(--hd-focus-ring); }
 
 .travelled { stroke: var(--hd-accent); stroke-width: var(--hd-space-0-5); }
 .future { opacity: 0.3; stroke-dasharray: 5 5; }

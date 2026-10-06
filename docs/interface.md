@@ -1212,7 +1212,9 @@ it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
 Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
 **The path this Run took** sits at the top left. Nodes cannot be moved or
 edited. The accessible Steps and Rules list retains state and selection; it
-is the seam for the Team’s Steps dock while that dock is being built.
+is the seam for the Team’s Steps dock while that dock is being built. In a narrow
+pane the list stays visible below the canvas; wide panes retain its text
+alternative without adding invisible keyboard stops.
 **Open the file** reads the Flow's file as it is now, in a window you can only
 read; the Run keeps the revision it started with.
 

@@ -48,6 +48,8 @@ export interface FlowCanvasProps<Data extends FlowCanvasStep = FlowCanvasStep> {
   readonly readOnly?: boolean
   /** The ordered shape editor can arrange existing steps, but cannot change the graph. */
   readonly positionOnly?: boolean
+  /** Posters keep the plan and attribution, without navigation tools or a minimap. */
+  readonly showControls?: boolean
   readonly title?: ReactNode
   readonly actions?: ReactNode
   readonly label?: string
