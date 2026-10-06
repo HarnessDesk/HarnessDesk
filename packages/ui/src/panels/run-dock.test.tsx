@@ -17,7 +17,7 @@ it('registers both Run inspectors as movable dock views using the shared chrome'
   }
 })
 
-import { act, useState } from 'react'
+import { act, StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { RunDockProvider, RunDetailsView, RunStepsView } from './run-dock'
@@ -26,7 +26,14 @@ import { runTimeline } from '../lib/run-timeline'
 import { runFixture } from '../preview/run-view-fixture'
 import { previewStore } from '../preview/harness'
 import { runDockStore } from '../preview/frames-run-dock'
+import { dockViews, stacks } from '../state/workbench'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const activeRightKind = (store: ReturnType<typeof runDockStore>) => {
+  const right = store.getSnapshot().workbench.right
+  const active = new Set(stacks(right.root).flatMap(stack => stack.active ? [stack.active] : []))
+  return dockViews(right).find(one => active.has(one.id))?.view.kind
+}
 
 it('publishes beside main, preserves a hidden dock during updates, and clears on leaving the Run', () => {
   const store = runDockStore()
@@ -86,5 +93,61 @@ it('keeps a background Team from replacing the focused Run in the shared dock', 
     expect(container.querySelector('aside')?.textContent).not.toContain('The focused Run')
     act(() => store.focusPane('dock-team'))
     expect(container.querySelector('aside')?.textContent).toContain('The focused Run')
+  } finally { act(() => root.unmount()) }
+})
+
+it('closes a Run-only dock when its Run leaves the main pane', async () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = () => <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+    flow={<span>Flow</span>} inspector={{ input: fixture, seats: [] }} />
+  const show = (mounted: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    {mounted && <Producer />}<aside><RunDetailsView /><RunStepsView /></aside>
+  </RunDockProvider></StoreProvider>))
+  try {
+    show(true)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+    show(false)
+    await act(async () => { await Promise.resolve() })
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps the first Run dock open through StrictMode effect replay', () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = () => <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+    flow={<span>Flow</span>} inspector={{ input: fixture, seats: [] }} />
+  try {
+    act(() => root.render(<StrictMode><StoreProvider store={store}><RunDockProvider>
+      <Producer /><aside><RunDetailsView /><RunStepsView /></aside>
+    </RunDockProvider></StoreProvider></StrictMode>))
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+  } finally { act(() => root.unmount()) }
+})
+
+it('re-adds a Run tab that was closed without making it active on return', () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = () => <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+    flow={<span>Flow</span>} inspector={{ input: fixture, seats: [] }} />
+  const show = (mounted: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    {mounted && <Producer />}<aside><RunDetailsView /><RunStepsView /></aside>
+  </RunDockProvider></StoreProvider>))
+  try {
+    show(true)
+    expect(activeRightKind(store)).toBe('run-details')
+    const steps = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'run-steps')!
+    act(() => store.closeView(steps.id))
+    show(false)
+    show(true)
+    expect(dockViews(store.getSnapshot().workbench.right).some(one => one.view.kind === 'run-steps')).toBe(true)
+    expect(activeRightKind(store)).toBe('run-details')
   } finally { act(() => root.unmount()) }
 })

@@ -1415,6 +1415,12 @@ back where it started.
 
 The frozen Flow's measured drawing and accessible list. A Run overlays recorded state, seated faces, motion and shared Timeline selection; a blueprint stays still.
 
+### `words`
+
+`packages/ui/src/design/patterns/FlowStepRow.tsx`
+
+Read an agent-authored line as safe words, the same way the Flow drawing does.
+
 ### `RunStateChip`
 
 `packages/ui/src/design/patterns/FlowStepRow.tsx`

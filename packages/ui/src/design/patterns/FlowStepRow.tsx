@@ -4,7 +4,7 @@ import { formatDuration } from '../../components/TurnTail'
 import { wordOf } from '../../lib/agents'
 import type { FlowStepRun } from '../../lib/flow-overlay'
 import type { FlowStep, StepKind } from '../../lib/flow-model'
-import { sanitizeText } from '../../lib/sanitize'
+import { sanitizeHtml, sanitizeText } from '../../lib/sanitize'
 import { ROLE_KIND_WORDS } from '../../lib/shapes'
 import { FlowFaces } from '../ui/flow-step'
 import { IconTile } from '../ui/icon-tile'
@@ -16,6 +16,12 @@ export const FLOW_STEP_KINDS: Readonly<Record<StepKind, { readonly tint: Tint; r
   agent: { tint: 'violet', Mark: AgentIcon },
   check: { tint: 'sky', Mark: TerminalIcon },
   person: { tint: 'amber', Mark: UserIcon },
+}
+/** Read an agent-authored line as safe words, the same way the Flow drawing does. */
+export const words = (value: string): string => {
+  const box = document.createElement('template')
+  box.innerHTML = sanitizeHtml(value)
+  return box.content.textContent ?? ''
 }
 const toneOf = (label: string): Tone => {
   switch (label.toLowerCase()) {
@@ -29,7 +35,7 @@ const toneOf = (label: string): Tone => {
 /** A recorded step or Seat state, toned once for the Flow list and Run dock. Unknown outcomes stay neutral. */
 export const RunStateChip = ({ state }: { state: string }) => <Chip tone={toneOf(state)}>{sanitizeText(state)}</Chip>
 
-const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ? wordOf(run.line)
+const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ? wordOf(words(run.line))
   : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 
 /** A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */

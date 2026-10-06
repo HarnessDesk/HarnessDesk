@@ -579,6 +579,14 @@ it('uses cards, toned Seat states and two-column facts for the Run summary', () 
     expect(view.container.querySelector('[data-slot="inspector-footer"]')).not.toBeNull()
   } finally { view.close() }
 })
+it('omits the Seats card when the Run recorded no Seat details', () => {
+  const fixture = runFixture()
+  const view = render({ input: fixture, seats: [] })
+  try {
+    expect([...view.container.querySelectorAll('[data-slot="card-title"]')].some(one => /^Seats\b/.test(one.textContent ?? ''))).toBe(false)
+    expect(view.container.querySelector('[data-slot="run-recording-gaps"]')?.textContent).toContain('Seat details')
+  } finally { view.close() }
+})
 it('gives the observed pull request its state and check counts, and the recorded budgets labelled meters', () => {
   const fixture = runFixture()
   const facts = [
@@ -591,8 +599,8 @@ it('gives the observed pull request its state and check counts, and the recorded
   const view = render({ input, flowFile: <button>Flow file</button> })
   try {
     const cards = [...view.container.querySelectorAll('[data-slot="card"]')]
-    expect(cards.map(one => one.querySelector('[data-slot="card-title"]')?.textContent)).toEqual(['Brief', 'Seats 2', 'Pull request #412Open', 'Run'])
-    const pr = cards[2]!
+    expect(cards.map(one => one.querySelector('[data-slot="card-title"]')?.textContent)).toEqual(['Brief', 'Pull request #412Open', 'Run'])
+    const pr = cards[1]!
     expect(pr.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Open')
     expect(pr.querySelector('[data-slot="card-action"]')?.textContent).toBe('Open')
     expect(pr.querySelector('[data-slot="code-text"]')?.textContent).toBe('fix/checkout')
@@ -604,7 +612,7 @@ it('gives the observed pull request its state and check counts, and the recorded
       expect(meter?.getAttribute('aria-valuemax')).toBe(String(max))
       expect(meter?.textContent).toContain(reading)
     }
-    expect(cards[3]!.querySelector('[data-slot="card-action"]')?.textContent).toBe('Flow file')
+    expect(cards[2]!.querySelector('[data-slot="card-action"]')?.textContent).toBe('Flow file')
   } finally { view.close() }
 })
 it('omits unavailable summary facts and names the missing recordings once', () => {

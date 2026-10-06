@@ -17,12 +17,24 @@ it('keeps repeated rounds, future steps, their states and selection in shared st
     expect(container.textContent).toContain('Not reached')
     expect(container.textContent).toContain('Round 4')
     expect(container.querySelector('[data-selected]')?.textContent).toContain('Round 4')
+    expect(container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('4 steps')
     const buttons = [...container.querySelectorAll('button')]
     act(() => buttons[0]!.click())
     expect(select).toHaveBeenCalledWith('round-1')
     act(() => buttons.at(-1)!.click())
     expect(future).toHaveBeenCalledWith('person')
     expect(container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('lights its node on Flow')
+  } finally { act(() => root.unmount()) }
+})
+it('keeps check attempt counts unknown when the attempts read failed', () => {
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunSteps input={runFixture('attempts')} attemptsRead="failed" selectedRow={null} onSelect={() => {}} />))
+    const check = container.querySelectorAll('[data-step-row]')[1]!
+    expect(check.querySelector('[data-slot="list-row-trail"]')?.textContent).toBe('Pass2m · —')
+    expect(check.querySelector('[title="Run count unavailable"]')?.textContent).toBe('—')
+    expect(check.querySelector('[data-slot="list-row-trail"]')?.textContent).not.toContain('2 runs')
   } finally { act(() => root.unmount()) }
 })
 it('uses kind tiles and chips, toned outcomes, and trailing time and counts while Round stays the second line', () => {

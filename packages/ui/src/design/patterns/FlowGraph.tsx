@@ -10,13 +10,13 @@ import { ROLE_KIND_WORDS } from '../../lib/shapes'
 import { Card } from '../ui/card'
 import { FlowBaton, FlowStepSurface, FlowFaces, FlowRouteLabel, FlowDoingLine } from '../ui/flow-step'
 import { flowOverlayLabels, type FlowOverlay, type FlowStepRun } from '../../lib/flow-overlay'
-import { sanitizeHtml, sanitizeText } from '../../lib/sanitize'
+import { sanitizeText } from '../../lib/sanitize'
 import { formatDuration } from '../../components/TurnTail'
 import { IconTile } from '../ui/icon-tile'
 import type { Tint } from '../ui/tone'
 import { EmptyState } from '../ui/empty-state'
 import { ListRows } from '../ui/list-row'
-import { FLOW_STEP_KINDS, FlowStepRow } from './FlowStepRow'
+import { FLOW_STEP_KINDS, FlowStepRow, words } from './FlowStepRow'
 import { Chip, Row, Rows, SectionHead, Text } from './Settings'
 
 /**
@@ -60,11 +60,6 @@ const LINE_OPACITY = 0.6
 
 const points = (head: FlowEdge['head']): string => head.map((one) => `${Math.round(one.x * 10) / 10},${Math.round(one.y * 10) / 10}`).join(' ')
 
-const words = (value: string): string => {
-  const box = document.createElement('template')
-  box.innerHTML = sanitizeHtml(value)
-  return box.content.textContent ?? ''
-}
 const durationOf = (run: FlowStepRun | undefined, now: number): string | null => {
   if (!run || run.durationMs === null) return null
   const elapsed = run.since !== null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0

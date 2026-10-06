@@ -11,10 +11,11 @@ export interface RunStepsProps {
   selectedStep?: string | null
   faces?: ReadonlyMap<string, ReactNode>
   faceTints?: ReadonlyMap<string, Tint>
+  attemptsRead?: 'reading' | 'failed'
   onSelect: (row: string) => void
   onSelectStep?: (step: string) => void
 }
-export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, onSelect, onSelectStep }: RunStepsProps) => {
+export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, attemptsRead, onSelect, onSelectStep }: RunStepsProps) => {
   const { execution } = input
   const model = flowModel(execution.document.flow)
   const rows = runTimeline(input).rows
@@ -33,7 +34,7 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, o
     {rounds.map(round => {
       const one = model.steps.find(one => one.id === round.role)
       const state = flowOverlay({ execution: { ...execution, rounds: [round] }, model, cards: input.cards, sessions: input.sessions,
-        attempts: input.attempts ? new Map([...input.attempts].map(([id, attempts]) => [id, { attempts, complete: !input.incompleteAttempts?.has(id) }])) : undefined }).steps.get(round.role)
+        attempts: input.attempts ? new Map([...input.attempts].map(([id, attempts]) => [id, { attempts, complete: attemptsRead !== 'failed' && !input.incompleteAttempts?.has(id) }])) : undefined }).steps.get(round.role)
       return <FlowStepRow key={round.n} step={one ?? { id: round.role, kind: 'agent', name: wordOf(round.role), line: '', count: 1, agents: [] }}
         run={state} faces={faces} faceTints={faceTints} now={now} subtitle={`Round ${round.n}`}
         selected={chosen === round.n || (chosen === null && step === round.role && round === rounds.at(-1))}
@@ -42,5 +43,5 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, o
     {future.length > 0 && <><GroupLine left={`Not reached ${future.length}`} />{future.map(one => <FlowStepRow key={one.id}
       step={one} run={{ state: 'future', runs: 0, durationMs: null, since: null, line: null, seats: [] }}
       selected={step === one.id} onSelect={onSelectStep} />)}</>}
-  </PanelBody><PanelFooter left={`${rounds.length + future.length} steps`} right="Selecting one lights its node on Flow" /></PanelFrame></div>
+  </PanelBody><PanelFooter left={`${model.steps.length} steps`} right="Selecting one lights its node on Flow" /></PanelFrame></div>
 }

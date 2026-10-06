@@ -22,6 +22,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(summary.getByRole('progressbar', { name: 'Budget', exact: true })).toHaveAttribute('aria-valuenow', '3')
     await expect(summary.getByRole('progressbar', { name: 'Without progress', exact: true })).toHaveAttribute('aria-valuemax', '3')
     await expect(summary.locator('[data-slot="card-title"] [data-slot="chip"][data-tone="success"]')).toHaveText('Open')
+    const keyValues = await summary.evaluate(element => {
+      const rows = [...element.querySelectorAll('[data-slot="key-value-row"]')]
+      return rows.map(row => {
+        const value = row.querySelector(':scope > dd')!
+        return { left: Math.round(value.getBoundingClientRect().left), align: getComputedStyle(value).textAlign,
+          numeric: row.hasAttribute('data-numeric') }
+      })
+    })
+    expect(new Set(keyValues.map(value => value.left)).size).toBe(1)
+    expect(keyValues.every(value => value.align === 'left' && !value.numeric)).toBe(true)
     const brief = summary.locator('[data-slot="card"]').first()
     const header = brief.locator('[data-slot="card-header"]')
     const prose = brief.locator('[data-slot="card-content"]')
@@ -68,6 +78,29 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(frame.locator('[data-slot="run-steps"]')).toBeVisible()
   })
 
+  test(`an 800px Run stays visible until its details are explicitly opened in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.setViewportSize({ width: 800, height: 900 })
+    await page.goto(`/preview.html?run-dock&theme=${theme}`)
+    const frame = page.locator('#run-dock-frame')
+    const main = frame.locator('[data-slot="workbench-main"]')
+    const dock = frame.locator('[data-slot="dock-panel"][data-edge="left"]')
+    await frame.getByRole('button', { name: 'Run 1', exact: true }).click()
+    const opensOnFirstVisit = await dock.count() > 0
+    expect.soft(opensOnFirstVisit).toBe(false)
+    if (opensOnFirstVisit) await frame.getByRole('button', { name: 'Hide the right panel', exact: true }).click()
+    await expect(main).toBeVisible()
+    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+    const opensOnFlow = await dock.count() > 0
+    expect.soft(opensOnFlow).toBe(false)
+    if (opensOnFlow) await frame.getByRole('button', { name: 'Hide the right panel', exact: true }).click()
+    await expect(main).toBeVisible()
+    await frame.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    await frame.getByRole('button', { name: 'Run details', exact: true }).click()
+    await expect(dock).toBeVisible()
+    if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `dock-800-after-${theme}.png`) })
+  })
+
   test(`an older Run omits unrecorded facts and the narrow window uses the same dock in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize({ width: 680, height: 900 })
@@ -78,6 +111,7 @@ for (const theme of ['light', 'dark'] as const) {
     await frame.getByRole('button', { name: 'Show the right panel — 2 views', exact: true }).click()
     const inspector = frame.locator('[data-slot="run-inspector"]:visible')
     await expect(inspector.locator('[data-slot="run-recording-gaps"]')).toContainText('base, budget, Seat details, Seat costs')
+    await expect(inspector.locator('[data-slot="card-title"]').filter({ hasText: /^Seats/ })).toHaveCount(0)
     await expect(inspector).not.toContainText('Not recorded')
     expect(await inspector.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `older-narrow-after-${theme}.png`) })

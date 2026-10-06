@@ -218,18 +218,17 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
           <CardHeader><CardTitle><Text role="section">Brief</Text></CardTitle></CardHeader>
           <CardContent><Words>{execution.brief}</Words></CardContent>
         </Card>}
-        <Card as="section">
+        {recorded.length > 0 && <Card as="section">
           <CardHeader><CardTitle><Text role="section">{`Seats ${ids.length}`}</Text></CardTitle></CardHeader>
-          <CardContent>
+          <CardContent inset="none">
             {recorded.map(one => {
               const state = [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
               return <PanelRow key={one.id} mark={<IconTile shape="face" tint={faceTints?.get(one.id) ?? 'violet'}>{faces?.get(one.id) ?? <AgentIcon />}</IconTile>}
                 title={sanitizeText(one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
                 trail={state ? <RunStateChip state={state} /> : undefined} onClick={one.onOpen} />
             })}
-            {ids.length === 0 && <SectionBody spacing="inline"><Text role="meta">No Seats opened</Text></SectionBody>}
           </CardContent>
-        </Card>
+        </Card>}
         {request && <Card as="section">
           <CardHeader>
             <CardTitle className="flex min-w-0 flex-wrap items-center gap-2"><PullRequestIcon /><Text role="section">{`Pull request #${request.number}`}</Text>
@@ -237,7 +236,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
             </CardTitle>
             {request.url && <CardAction><Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button></CardAction>}
           </CardHeader>
-          <CardContent><KeyValue variant="panel">
+          <CardContent><KeyValue variant="panel" className="grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             {branch && <KeyValueRow label="Branch" variant="panel"><CodeText wrap>{sanitizeText(branch)}</CodeText></KeyValueRow>}
             {pr && prRecord?.freshness.state !== 'fresh' && <KeyValueRow label="Observation" variant="panel">Earlier observation</KeyValueRow>}
             {ci?.kind === 'ci' && <KeyValueRow label="Checks" variant="panel"><span className="inline-flex flex-wrap items-center gap-1">
@@ -247,18 +246,18 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
               </span>)}
               {ci.checks.length === 0 && <Text role="meta">No checks</Text>}
             </span></KeyValueRow>}
-            {diff?.kind === 'diff' && <KeyValueRow label="Changes" variant="panel" numeric><ChangeStats added={diff.added} removed={diff.removed} /></KeyValueRow>}
+            {diff?.kind === 'diff' && <KeyValueRow label="Changes" variant="panel"><ChangeStats added={diff.added} removed={diff.removed} /></KeyValueRow>}
           </KeyValue></CardContent>
         </Card>}
         <Card as="section">
           <CardHeader><CardTitle><Text role="section">Run</Text></CardTitle>{flowFile && <CardAction>{flowFile}</CardAction>}</CardHeader>
-          <CardContent><KeyValue variant="panel">
+          <CardContent><KeyValue variant="panel" className="grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <KeyValueRow label="Flow" variant="panel">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</KeyValueRow>
             {execution.base && <KeyValueRow label="Base" variant="panel">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</KeyValueRow>}
             {input.origin && <KeyValueRow label="Started by" variant="panel">{sanitizeText(input.origin)}</KeyValueRow>}
-            {budget && <KeyValueRow label="Budget" variant="panel" numeric><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></KeyValueRow>}
-            {budget && <KeyValueRow label="Without progress" variant="panel" numeric><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></KeyValueRow>}
-            {totals.length > 0 && <KeyValueRow label="Cost" variant="panel" numeric>{totals.join(' · ')}{costs.length < ids.length ? ' · Partial' : ''}</KeyValueRow>}
+            {budget && <KeyValueRow label="Budget" variant="panel"><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></KeyValueRow>}
+            {budget && <KeyValueRow label="Without progress" variant="panel"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></KeyValueRow>}
+            {totals.length > 0 && <KeyValueRow label="Cost" variant="panel">{totals.join(' · ')}{costs.length < ids.length ? ' · Partial' : ''}</KeyValueRow>}
           </KeyValue>
           {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
           </CardContent>
