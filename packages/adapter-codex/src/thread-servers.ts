@@ -85,7 +85,7 @@ export class CodexThreadServers extends CodexAppServer {
         // Opening can still be initializing the process or registering its
         // root. Apply updates afterwards, unless it failed or stopped meanwhile.
         await worker.openingDone
-        if (worker.roots.size > 0 && !worker.stopping) await worker.server.request(method, params, options)
+        if (!worker.stopping) await worker.server.request(method, params, options)
       }))
       return result
     }
