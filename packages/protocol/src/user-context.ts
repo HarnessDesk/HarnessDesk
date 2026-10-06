@@ -25,7 +25,7 @@
  * is what keeps this file below the layering rule.
  */
 
-import { peelDeskContextPrefix } from './context-envelope.js'
+import { peelDeskContextPrefix, type DeskContextRecord } from './context-envelope.js'
 
 /** One peeled wrapper: what it is, and what it held. */
 export interface UserContext {
@@ -174,7 +174,7 @@ export const peelContext = (text: string, options: PeelOptions, evidence: NoteEv
 
   // This exact marked prefix is the one `wrapContext` writes. A generic
   // `<context>` lookalike anywhere in the person's message is ordinary text.
-  const desk = peelDeskContextPrefix(rest)
+  const desk = peelDeskContextPrefix(rest, false)
   if (desk) {
     composed = true
     context.push(...desk.injections)
@@ -260,6 +260,8 @@ export const peelUserContent = <T extends { readonly type: string }>(
     if (part.type !== 'text') return part
     const text = (part as { readonly text?: unknown }).text
     if (typeof text !== 'string') return part
+    // Local composed input stays whole; its readers have the explicit record.
+    if ((part as { readonly deskContext?: DeskContextRecord }).deskContext !== undefined) return part
     const result = peelContext(text, options, evidence)
     if (result.context.length > 0) {
       context.push(...result.context)

@@ -44,7 +44,7 @@ import { ComposerNoticeStack } from '../design'
 import { mainNoticeHost } from '../state/workbench'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
-import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
+import { deskContextContent, opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
 import { CARRY_LABEL } from '../lib/handoff'
 import { brandOf } from '../lib/identity'
 import { attachmentName, dragHasFiles, imageFilesOf, vetImageFiles } from '../lib/images'
@@ -662,7 +662,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         )
         return
       }
-      content.push({ type: 'text', text: packet })
+      content.push(deskContextContent(packet))
     }
     // Referenced sessions are resolved to context: the runtime has no notion of
     // one thread pointing at another, so the summary has to travel as text.
@@ -676,7 +676,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         return
       }
       const summary = await store.summariseSession(reference.path, reference.runtime)
-      if (summary) content.push({ type: 'text', text: summary })
+      if (summary) content.push(deskContextContent(summary))
     }
 
     // Context chips resolve through their plugin now, with the workspace the
@@ -719,7 +719,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           store.notice('info', `${chip.name} had nothing to add, so it was left off this message.`)
           continue
         }
-        if (note.trim().length > 0) content.push({ type: 'text', text: wrapContext(resolved.label, note) })
+        if (note.trim().length > 0) content.push(deskContextContent(wrapContext(resolved.label, note)))
         if (resolved.image && acceptsImages) {
           content.push({ type: 'image', url: resolved.image.dataUrl, name: resolved.image.name ?? resolved.label })
         }
@@ -733,7 +733,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     // are already whole. They go in the same envelope a plugin's context
     // travels in, so the transcript folds them the same way.
     for (const note of attachments.filter((entry) => entry.kind === 'note')) {
-      if (note.text && note.text.trim().length > 0) content.push({ type: 'text', text: note.text })
+      if (note.text && note.text.trim().length > 0) content.push(deskContextContent(note.text))
     }
 
     for (const attachment of attachments) {
@@ -752,7 +752,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     // plan comes back carrying the new wording.
     const plan = sessionPlan(session)
     if (plan && key) {
-      if (pendingPlanNote) content.push({ type: 'text', text: wrapContext(PLAN_EDIT_SOURCE, pendingPlanNote) })
+      if (pendingPlanNote) content.push(deskContextContent(wrapContext(PLAN_EDIT_SOURCE, pendingPlanNote)))
       store.retirePlanEdits(plan, key)
     }
     if (text.trim().length > 0) content.push({ type: 'text', text: text.trim() })

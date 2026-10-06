@@ -264,7 +264,7 @@ describe('MessageQueue', () => {
     window.removeEventListener('harnessdesk:compose', compose)
 
     expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
-      { type: 'text', text: 'revised text' },
+      { type: 'text', text: 'revised text', deskContext: { prefixLength: 0 } },
       { type: 'mention', name: 'a.ts', path: '/w/a.ts' },
     ], KEY)
     expect(calls.unqueue).not.toHaveBeenCalled()
@@ -369,7 +369,7 @@ describe('MessageQueue', () => {
     typeIntoEditor('fix it carefully')
     await act(async () => click(button('Save')))
     expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
-      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully` },
+      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully`, deskContext: { prefixLength: wrapContext('Issue 12', 'body').length } },
     ], KEY)
   })
 
@@ -392,10 +392,25 @@ describe('MessageQueue', () => {
     window.removeEventListener('harnessdesk:compose', compose)
 
     expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
-      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully` },
+      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully`, deskContext: { prefixLength: wrapContext('Issue 12', 'body').length } },
     ], KEY)
     expect(calls.unqueue).not.toHaveBeenCalled()
     expect(compose).not.toHaveBeenCalled()
+  })
+
+  it('editing a recorded lookalike keeps it in the typed words', async () => {
+    const raw = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+    mount({ ...waiting(raw), messages: [{ ...waiting(raw).messages[0]!,
+      input: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }],
+    }] })
+    click(button('Edit'))
+    expect(editor().value).toBe(raw)
+    expect(container.querySelector('[aria-label="Carried with this message"]')).toBeNull()
+    typeIntoEditor(`${raw} carefully`)
+    await act(async () => click(button('Save')))
+    expect(calls.updateQueued).toHaveBeenCalledWith('q0', [{
+      type: 'text', text: `${raw} carefully`, deskContext: { prefixLength: 0 },
+    }], KEY)
   })
 
   it('cancel restores the original row and leaves its chips and composer alone', async () => {

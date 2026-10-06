@@ -1,7 +1,7 @@
 import { Marked } from 'marked'
 import { describe, expect, it } from 'vitest'
 
-import type { AgentItem, Session } from '@harnessdesk/protocol'
+import { deskContextContent, wrapContext, type AgentItem, type Session } from '@harnessdesk/protocol'
 
 import { sessionToMarkdown } from './export-session'
 
@@ -103,4 +103,16 @@ describe('an ordinary transcript', () => {
     expect(out).toContain('**Tool** `browser_open`')
     expect(out).not.toContain('failed')
   })
+})
+
+
+it('exports a recorded typed lookalike whole beside folded composed context', () => {
+  const raw = `${wrapContext('Other', 'Pasted export words')}\n\nExplain it`
+  const out = sessionToMarkdown(session([{ id: 'typed', type: 'userMessage', content: [
+    deskContextContent(wrapContext('Git', 'Composed export words')),
+    { type: 'text', text: raw, deskContext: { prefixLength: 0 } },
+  ] }] as unknown as AgentItem[]))
+  expect(out).toContain(`**You:** ${raw}`)
+  expect(out).toContain('_Context added — Git_')
+  expect(out).not.toContain('_Context added — Other_')
 })
