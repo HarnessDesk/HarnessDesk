@@ -14,7 +14,7 @@ const position = (element: Locator) => element.evaluate(el => {
   const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform)
   return { x: matrix.m41, y: matrix.m42 }
 })
-const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root => {
+const checkCanvasGeometry = async (surface: Locator, pathMargin = 1) => surface.evaluate((root, pathMargin) => {
   const cards = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map(el => ({ id: el.dataset.id ?? '', box: el.getBoundingClientRect() }))
   const pathHits: string[] = [], ruleLineHits: string[] = [], wordDistances: Array<{ word: string; distance: number }> = []
   for (const edge of root.querySelectorAll<SVGGElement>('.react-flow__edge')) {
@@ -28,8 +28,8 @@ const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root =>
     for (let distance = 3; distance < length - 3; distance += 3) {
       const point = new DOMPoint(path.getPointAtLength(distance).x, path.getPointAtLength(distance).y).matrixTransform(matrix)
       const hit = cards.find(card => card.id !== source && card.id !== target
-        && point.x >= card.box.left - 1 && point.x <= card.box.right + 1
-        && point.y >= card.box.top - 1 && point.y <= card.box.bottom + 1)
+        && point.x >= card.box.left - pathMargin && point.x <= card.box.right + pathMargin
+        && point.y >= card.box.top - pathMargin && point.y <= card.box.bottom + pathMargin)
       if (hit) { pathHits.push(`${source}->${target} crosses ${hit.id}`); break }
     }
   }
@@ -75,7 +75,7 @@ const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root =>
     if (hit) labelHits.push(`${label.textContent?.trim() ?? 'rule'} overlaps ${hit.id}`)
   }
   return { pathHits, closeRails, labelHits, ruleLineHits, wordDistances }
-})
+}, pathMargin)
 const checkRunCardPitch = async (surface: Locator) => surface.evaluate(root => {
   const cards = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map(el => el.getBoundingClientRect())
   const matrix = new DOMMatrixReadOnly(getComputedStyle(root.querySelector('.react-flow__viewport')!).transform)
@@ -240,20 +240,34 @@ for (const theme of ['light', 'dark'] as const) {
     test('chooses the fewest crossings when a source exit cannot be clear', async ({ page }) => {
       await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
       const surface = canvas(page, 'least-crossing')
-      await expect(surface.locator('.react-flow__node')).toHaveCount(5)
+      await expect(surface.locator('.react-flow__node')).toHaveCount(6)
       await expect.poll(async () => (await checkCanvasGeometry(surface)).pathHits).toEqual([
         'step-0->step-1 crosses step-3', 'step-0->step-2 crosses step-3',
       ])
       const rails = await surface.locator('[data-flow-rail-y]').evaluateAll(elements => elements.map(el => Number((el as SVGGElement).dataset.flowRailY)))
-      // Every height hits Wait at the exit; this gap adds no other card crossings.
-      // The old bottom fallback also crosses Note on both outgoing routes.
-      expect(rails[0]).toBeGreaterThan(108)
-      expect(rails[1]).toBeLessThan(176)
+      // Wait is unavoidable; the nearest rails also cross Blocker.
+      expect(rails).toEqual([-48, -16])
       const folder = process.env.FLOW_CANVAS_FRAMES_DIR
       if (folder) {
         await mkdir(folder, { recursive: true })
         await page.locator('#flow-canvas-least-crossing').screenshot({ path: `${folder}/least-crossing-${theme}.png` })
       }
+    })
+    test('uses a narrow clear band for two outgoing rules', async ({ page }) => {
+      await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
+      const surface = canvas(page, 'narrow-band')
+      await expect(surface.locator('.react-flow__node')).toHaveCount(4)
+      await expect(surface.locator('[data-flow-rail-y]')).toHaveCount(2)
+      const folder = process.env.FLOW_CANVAS_FRAMES_DIR
+      if (folder) {
+        await mkdir(folder, { recursive: true })
+        await page.locator('#flow-canvas-narrow-band').screenshot({ path: `${folder}/narrow-band-${theme}.png` })
+      }
+      const rails = await surface.locator('[data-flow-rail-y]').evaluateAll(elements => elements.map(el => Number((el as SVGGElement).dataset.flowRailY)))
+      expect(rails).toEqual([285, 317])
+      // This scene exercises exactly 1px clearance, so check the actual card
+      // bounds rather than the extra 1px margin used by the other scenes.
+      expect((await checkCanvasGeometry(surface, 0)).pathHits).toEqual([])
     })
     test('two return answers from one step have non-overlapping words', async ({ page }) => {
       await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
@@ -447,6 +461,28 @@ for (const theme of ['light', 'dark'] as const) {
         await mkdir(folder, { recursive: true })
         await page.locator('#flow-canvas-compact').screenshot({ path: `${folder}/compact-${theme}.png` })
       }
+    })
+    test('hides the minimap when a zoomed short panel has no clear site', async ({ page }) => {
+      await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
+      const surface = canvas(page, 'compact'), minimap = surface.locator('.react-flow__minimap')
+      await expect.poll(async () => (await viewport(surface)).zoom).toBe(1)
+      const crowdedVisibility: boolean[] = []
+      for (const zoom of [1.2, 1.44, 1.728, 2]) {
+        await surface.getByRole('button', { name: 'Zoom in' }).click()
+        await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(zoom, 4)
+        if (zoom < 1.728) await expect(minimap).toBeVisible()
+        else {
+          const folder = process.env.FLOW_CANVAS_FRAMES_DIR
+          if (folder && zoom === 2) {
+            await mkdir(folder, { recursive: true })
+            await page.locator('#flow-canvas-compact').screenshot({ path: `${folder}/compact-zoomed-${theme}.png` })
+          }
+          crowdedVisibility.push(await minimap.isVisible())
+        }
+      }
+      expect(crowdedVisibility).toEqual([false, false])
+      await surface.getByRole('button', { name: 'Fit plan' }).click()
+      await expect(minimap).toBeVisible()
     })
     test('read-only allows looking and selection, refuses every edit and shows Run state slots', async ({ page }) => {
       const surface = canvas(page, 'readonly'), write = node(surface, 'write')

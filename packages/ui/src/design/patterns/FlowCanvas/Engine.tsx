@@ -142,30 +142,42 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
     const bottom = Math.max(0, ...boxes.map(box => box.bottom))
     const maxLaneIndex = Math.max(0, ...Array.from(outgoingCounts.values(), count => count - 1))
     const railCandidates = new Set<number>()
-    const addGroupBases = (y: number) => {
-      for (let lane = 0; lane <= maxLaneIndex; lane += 1) railCandidates.add(y - lane * LANE_PITCH)
+    const addGroupBases = (y: number, candidates = railCandidates) => {
+      for (let lane = 0; lane <= maxLaneIndex; lane += 1) candidates.add(y - lane * LANE_PITCH)
     }
     for (const box of boxes) {
       addGroupBases(box.top - GRID)
       addGroupBases(box.bottom + GRID)
     }
-    // Clearance changes at card boundaries. Sampling every grid row in every
-    // pair's gap adds duplicate work without adding another clear interval.
+    // Prefer grid clearance. Tightly packed lanes can still fit in a band
+    // missed by these margins; try boundary clearance before accepting crossings.
     addGroupBases(bottom + GRID)
     const orderedHeights = [...railCandidates].sort((a, b) => a - b)
     // Walk outward from the preferred height, without sorting the whole set
     // again for every source. A clear nearby rail ends the search immediately.
-    function* nearestHeights(preferred: number) {
-      let low = 0, high = orderedHeights.length
+    let tightHeights: number[] | undefined
+    const boundaryHeights = () => {
+      if (!tightHeights) {
+        const candidates = new Set<number>()
+        for (const box of boxes) {
+          addGroupBases(box.top - 1, candidates)
+          addGroupBases(box.bottom + 1, candidates)
+        }
+        tightHeights = [...candidates].sort((a, b) => a - b)
+      }
+      return tightHeights
+    }
+    function* nearestHeights(preferred: number, heights = orderedHeights) {
+      let low = 0, high = heights.length
       while (low < high) {
         const middle = (low + high) >>> 1
-        if (orderedHeights[middle]! < preferred) low = middle + 1
+        if (heights[middle]! < preferred) low = middle + 1
         else high = middle
       }
       let left = low - 1, right = low
-      while (left >= 0 || right < orderedHeights.length) {
-        if (left < 0 || (right < orderedHeights.length && orderedHeights[right]! - preferred <= preferred - orderedHeights[left]!)) yield orderedHeights[right++]!
-        else yield orderedHeights[left--]!
+      while (left >= 0 || right < heights.length) {
+        if (left < 0 || (right < heights.length && heights[right]! - preferred <= preferred - heights[left]!)) yield heights[right++]!
+        else yield heights[left--]!
       }
     }
     const routeEdges = edges.map((edge, index) => {
@@ -264,6 +276,9 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
         }, 0)
         for (const candidate of nearestHeights(preferredY(route))) {
           candidates.push(candidate)
+          if (isGroupClear(candidate)) { base = candidate; break }
+        }
+        if (base === undefined) for (const candidate of nearestHeights(preferredY(route), boundaryHeights())) {
           if (isGroupClear(candidate)) { base = candidate; break }
         }
         if (base === undefined) {
@@ -456,7 +471,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
         return { ...size, position: 'top-left' as const, left, top }
       }
     }
-    return { ...MINIMAP_SIZES.at(-1)!, position: 'top-left' as const, left: MINIMAP_INSET, top: MINIMAP_INSET }
+    return null
   }, [nodes, measurements, transform, width, height])
   const render = (props: FlowCanvasNodeProps) => NodeComponent
     ? <NodeComponent {...props as FlowCanvasNodeProps<Data>} /> : <StepCard {...props} />
@@ -479,7 +494,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
           <Button variant="ghost" size="icon" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn()}><ZoomInIcon /></Button>
           <Button variant="ghost" size="icon" aria-label="Fit plan" title="Fit to the canvas" onClick={() => void flow.fitView({ minZoom: MIN_ZOOM, maxZoom: Math.min(1, flow.getZoom()), padding: 0.12 })}><CanvasFitIcon /></Button>
         </Panel>
-        <MiniMap position={minimapLayout.position} style={{ width: minimapLayout.width, height: minimapLayout.height, left: minimapLayout.left - MINIMAP_INSET, top: minimapLayout.top - MINIMAP_INSET, right: 'auto', bottom: 'auto' }} nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />
+        {minimapLayout && <MiniMap position={minimapLayout.position} style={{ width: minimapLayout.width, height: minimapLayout.height, left: minimapLayout.left - MINIMAP_INSET, top: minimapLayout.top - MINIMAP_INSET, right: 'auto', bottom: 'auto' }} nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
       </ReactFlow>
     </RenderContext.Provider>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>

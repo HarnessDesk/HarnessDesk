@@ -45,6 +45,8 @@ it('uses the least-crossing rail when every height is blocked', async () => {
     { id: 'wait', position: { x: 240, y: 40 }, size: { width: 100, height: 28 }, data: { name: 'Wait', kind: 'person' } },
     // The old bottom fallback also passes through this lower card on both exits.
     { id: 'note', position: { x: 240, y: 260 }, size: { width: 100, height: 108 }, data: { name: 'Note', kind: 'note' } },
+    // The nearest gap rails cross this card; the farther upper rails do not.
+    { id: 'blocker', position: { x: 400, y: 100 }, size: { width: 100, height: 40 }, data: { name: 'Blocker', kind: 'note' } },
   ]
   await draw({ nodes: crowded, edges: [
     { id: 'first', source: 'write', target: 'review' },
@@ -52,25 +54,37 @@ it('uses the least-crossing rail when every height is blocked', async () => {
   ] })
   const rails = [...host.querySelectorAll<SVGGElement>('[data-flow-rail-y]')].map(el => Number(el.dataset.flowRailY))
   expect(rails).toHaveLength(2)
-  // Both rails in this gap cross only Wait; below Note they cross two cards each.
-  expect(rails[0]).toBeGreaterThan(108)
-  expect(rails[1]).toBeLessThan(176)
-  expect(rails[1]! - rails[0]!).toBe(32)
+  // Only Wait is unavoidable. Nearest-first rails [124, 156] also hit Blocker.
+  expect(rails).toEqual([-48, -16])
 })
-it('bounds geometry work for a forty-step plan', async () => {
+it('uses the narrow clear band for a two-rule group', async () => {
+  const plan: FlowCanvasNode[] = [[656, 0], [984, -15], [984, 176], [1020, 323]].map(([x, y], index) => ({
+    id: `step-${index}`, position: { x: x!, y: y! }, size: { width: 232, height: 108 }, data: { name: `Step ${index + 2}`, kind: 'agent' },
+  }))
+  await draw({ nodes: plan, edges: [
+    { id: 'first', source: 'step-1', target: 'step-3' },
+    { id: 'second', source: 'step-1', target: 'step-0' },
+  ] })
+  const rails = [...host.querySelectorAll<SVGGElement>('[data-flow-rail-y]')].map(el => Number(el.dataset.flowRailY))
+  expect(rails).toEqual([285, 317])
+})
+it('bounds routing and label geometry work for a forty-step plan', async () => {
   const plan: FlowCanvasNode[] = Array.from({ length: 40 }, (_, index) => ({
     id: `step-${index}`, position: { x: (index % 5) * 328 + index % 3, y: Math.floor(index / 5) * 176 + index % 7 },
     size: { width: 232, height: 108 }, data: { name: `Step ${index + 1}`, kind: 'agent' },
   }))
   const rules = plan.flatMap((step, index) => [1, 7].map(offset => ({
-    id: `${step.id}-${offset}`, source: step.id, target: plan[(index + offset) % plan.length]!.id,
+    id: `${step.id}-${offset}`, source: step.id, target: plan[(index + offset) % plan.length]!.id, label: offset === 1 ? 'ready' : 'rework',
   })))
   // Count geometric comparisons rather than timing this shared machine or running a stress loop.
   const comparisons = vi.spyOn(Math, 'max')
   await draw({ nodes: plan, edges: rules })
   expect(host.querySelectorAll('[data-flow-rail-y]')).toHaveLength(80)
+  expect(host.querySelectorAll('[data-flow-edge-id]')).toHaveLength(80)
   expect([...host.querySelectorAll<SVGGElement>('[data-flow-rail-y]')].every(el => el.dataset.flowRailY !== '' && Number.isFinite(Number(el.dataset.flowRailY)))).toBe(true)
-  expect(comparisons.mock.calls.length).toBeLessThan(50_000)
+  // Measured labeled-plan baseline with tight bands: 128,365 comparisons.
+  // Allow engine bookkeeping, while rejecting loss of the crossing cache.
+  expect(comparisons.mock.calls.length).toBeLessThan(140_000)
 })
 it('renders the supplied component and passes the node, selection and read-only state', async () => {
   await draw({ readOnly: true, NodeComponent: ({ node, selected, readOnly }) => <span data-custom={node.id}>{node.data.name}/{String(selected)}/{String(readOnly)}</span> })
