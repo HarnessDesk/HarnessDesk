@@ -5599,7 +5599,9 @@ export class Host {
     const reopened = await this.#reopenAttachments(runtime, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await runtime.resumeSession(id, {
+        ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
       })

@@ -58,6 +58,40 @@ test('read ceiling capability is advertised only by the enforcing Claude bridge 
   }
 })
 
+test('held read permissions pass through the real bridge after its native guard', { timeout: 30_000 }, async () => {
+  const runtime = make()
+  const tape = record(runtime)
+  let session: AgentSession
+  let approvals = 0
+  runtime.subscribe(event => {
+    if (event.type === 'approval/requested') {
+      approvals++
+      assert.equal(event.approval.type, 'permission')
+      if (event.approval.type === 'permission') {
+        const option = event.approval.options.find(option => option.intent === 'approve')!
+        void session.respondToApproval(event.approval.id, { type: 'option', optionId: option.id })
+      }
+    }
+  })
+  await runtime.start()
+  try {
+    session = await runtime.createSession({ cwd: WORKDIR, requestedCeiling: 'read' })
+    for (const [tool, input] of [
+      ['Read', { file_path: '/tmp/permission-read.txt' }],
+      ['Bash', { command: 'git status --short' }],
+      ['mcp__harnessdesk__claim_next', {}],
+    ] as const) {
+      assert.equal(await ask(runtime, session, `permission ${JSON.stringify({ tool, input })}`, tape), 'permission allowed.', tool)
+    }
+    assert.equal(approvals, 3, 'compact AIR requests still take the ordinary approval path')
+    assert.equal(await ask(runtime, session, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape), 'native guard denied.')
+    assert.equal(await ask(runtime, session, 'permission {"tool":"mcp__harnessdesk__commit_work","input":{}}', tape), 'native guard denied.')
+    assert.equal(approvals, 3, 'native writes never reach approval')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('the read ceiling is attached before creation and survives a bridge restart and load', async () => {
   const config = scratch('claude-read-config-')
   const state = scratch('claude-read-state-')
