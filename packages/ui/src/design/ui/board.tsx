@@ -157,17 +157,20 @@ const BoardColumn = ({
   const contentId = useId()
   const railRef = useRef<HTMLButtonElement>(null)
   const foldRef = useRef<HTMLButtonElement>(null)
-  const focusPending = useRef(false)
+  const [focusPending, setFocusPending] = useState<boolean | null>(null)
   const toggle = (next: boolean) => {
-    focusPending.current = true
+    setFocusPending(next)
     onCollapsedChange?.(next)
   }
   useEffect(() => {
-    if (!focusPending.current) return
-    focusPending.current = false
+    if (focusPending === null) return
+    setFocusPending(null)
+    // A controlled owner may refuse the request. Retire it at this commit,
+    // so a later resize cannot inherit a click's focus transfer.
+    if (collapsed !== focusPending) return
     const target = collapsed ? railRef : foldRef
     target.current?.focus()
-  }, [collapsed])
+  }, [collapsed, focusPending])
   const derived = useContext(BoardContext)
   const empty = Children.toArray(children).length === 0
 

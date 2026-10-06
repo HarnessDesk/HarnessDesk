@@ -815,7 +815,9 @@ that nothing was checked. The whole of it is in
 
 **As the board narrows.** Open columns keep at least 220px. Ready folds first,
 then To do, into named rails with their counts; each rail opens in place and
-can be folded again by keyboard. When the columns and rails no longer fit,
+offers a keyboard Fold control only when it can return to a rail. The scroll
+body reserves its gutter so a scrollbar appearing cannot move the fold
+thresholds. When the columns and rails no longer fit,
 or below 760px of pane width, Needs you and Working share the first row,
 In review and To do the second; Ready stays a rail. Below 600px the pane uses
 the compact list, grouped by state with Needs you first. The pane measures

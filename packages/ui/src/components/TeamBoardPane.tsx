@@ -251,21 +251,29 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const [preferredView, setView] = useState<'board' | 'list'>('board')
   const paneRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
   const [paneSize, setPaneSize] = useState<{ width: number; contentWidth: number; gap: number } | null>(null)
   const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set())
+  const layout = teamBoardLayout(paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, openedColumns, paneSize?.gap ?? 12)
+  const view = layout.compact ? 'list' : preferredView
   useEffect(() => {
     const pane = paneRef.current
     const body = bodyRef.current
     if (!pane || !body) return
     const measure = () => {
-      // The scrollbar occupies layout space even when the pane's border box
-      // is unchanged. Observe the body's content box and fit its client width.
+      // The body reserves its scrollbar gutter, so changing layout cannot
+      // change the width that chose it. Read resolved CSS lengths so a
+      // foundation may express spacing in rem or calc() as well as px.
       const width = body.clientWidth
       if (width <= 0) return
-      const style = getComputedStyle(pane)
-      const inset = parseFloat(style.getPropertyValue('--hd-inset-dense'))
-      const gap = parseFloat(style.getPropertyValue('--hd-space-3'))
-      setPaneSize({ width, contentWidth: width - 2 * inset, gap })
+      const style = getComputedStyle(body)
+      const contentWidth = width - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd)
+      const board = boardRef.current
+      setPaneSize(previous => {
+        const gap = board ? parseFloat(getComputedStyle(board).columnGap) : previous?.gap ?? 12
+        return previous?.width === width && previous.contentWidth === contentWidth && previous.gap === gap
+          ? previous : { width, contentWidth, gap }
+      })
     }
     measure()
     if (typeof ResizeObserver === 'undefined') {
@@ -275,9 +283,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
     const observer = new ResizeObserver(measure)
     observer.observe(body)
     return () => observer.disconnect()
-  }, [])
-  const layout = teamBoardLayout(paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, openedColumns, paneSize?.gap ?? 12)
-  const view = layout.compact ? 'list' : preferredView
+  }, [view])
   const [trouble, setTrouble] = useState<string | null>(null)
   /**
    * The long form, and the goal it was opened from.
@@ -628,7 +634,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           </div>
         }
       />
-      <ToolPaneBody ref={bodyRef} bleed={view === 'list'}>
+      <ToolPaneBody ref={bodyRef} bleed={view === 'list'} className="[scrollbar-gutter:stable]">
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —
@@ -668,18 +674,23 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               onAct={(verb, outcome) => verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)} />
           )} />
         ) : (
-          <Board wrap derived className="items-stretch" data-layout={layout.lanes ? 'lanes' : 'columns'}
+          <Board ref={boardRef} wrap derived className="items-stretch" data-layout={layout.lanes ? 'lanes' : 'columns'}
             style={{ gridTemplateColumns: layout.lanes
               ? `repeat(2, minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr))${layout.folded.includes('ready') ? ` ${BOARD_RAIL_WIDTH}px` : ''}`
               : ['needs', 'working', 'review', 'todo', 'ready'].map(id => layout.folded.includes(id as FactColumn) ? `${BOARD_RAIL_WIDTH}px` : `minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr)`).join(' ') }}>
             {['needs', 'working', 'review', 'todo', 'ready', 'aside'].flatMap(id => shown.filter(column => column.id === id)).map((column) => {
               const cards = byColumn.get(column.id) ?? []
+              const withoutColumn = new Set(openedColumns)
+              withoutColumn.delete(column.id)
+              const canFold = openedColumns.has(column.id) && teamBoardLayout(
+                paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, withoutColumn, paneSize?.gap ?? 12,
+              ).folded.includes(column.id)
               return (
                 <BoardColumn key={column.id} title={column.title} count={cards.length} tint={column.tint}
                   data-column={column.id} collapsed={layout.folded.includes(column.id)}
                   style={column.id === 'aside' ? { gridColumn: '1 / -1' }
                     : layout.lanes && layout.folded.includes(column.id) ? { gridColumn: 3, gridRow: '1 / span 2' } : undefined}
-                  onCollapsedChange={layout.folded.includes(column.id) || (openedColumns.has(column.id) && (layout.lanes || layout.folded.length > 0)) ? collapsed => setOpenedColumns(previous => {
+                  onCollapsedChange={layout.folded.includes(column.id) || canFold ? collapsed => setOpenedColumns(previous => {
                     const next = new Set(previous)
                     if (collapsed) next.delete(column.id)
                     else next.add(column.id)

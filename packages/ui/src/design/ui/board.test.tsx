@@ -355,3 +355,18 @@ it('a folded column owns its rail width without a caller class', () => {
   draw(<Board><BoardColumn title="Ready" collapsed /></Board>)
   expect(container.querySelector<HTMLElement>('[data-slot="board-column"]')?.style.width).toBe('44px')
 })
+
+it('a refused fold clears its focus request before a later external collapse', () => {
+  const change = vi.fn()
+  const board = (collapsed: boolean) => <Board><button>New job</button><BoardColumn title="To do" collapsed={collapsed} onCollapsedChange={change} /></Board>
+  draw(board(false))
+  const fold = container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]')!
+  act(() => { fold.focus(); fold.click() })
+  expect(change).toHaveBeenCalledWith(true)
+  // The owner commits without accepting the collapse request.
+  draw(board(false))
+  const add = container.querySelector<HTMLButtonElement>('button')!
+  act(() => add.focus())
+  draw(board(true))
+  expect(document.activeElement).toBe(add)
+})

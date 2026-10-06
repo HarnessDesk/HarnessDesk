@@ -21,6 +21,9 @@ export const BoardListFrames = () => {
       { ...source[0]!, title: 'Retry the checkout with a request change', role: 'review', state: 'done' as const, outcome: 'request-changes', files: ['src/retry/**'], note: 'Request changes on the retry proof.', updatedAt: now - 360000 },
       { ...source[3]!, title: 'packages/server/src/methods/conversation.ts::resumeAfterCompaction/checkout/retry/with-a-long-path-like-title', role: 'review', state: 'done' as const, files: ['docs/retry.md'], note: 'Recheck the checkout retry instructions. '.repeat(60), updatedAt: now - 240000 },
     ]
+    if (params.get('tall') === 'todo') {
+      jobs.push(...Array.from({ length: 12 }, (_, index) => ({ ...jobs[1]!, id: 100 + index, title: `Queued placeholder job ${index + 1}` })))
+    }
     const board: TeamState = { ...EVIDENCE_TEAM, intents: jobs, nicknames: { 'codex\u0000c1': name, 'claude\u0000k1': 'Reviewer' }, channel: [
       ...EVIDENCE_TEAM.channel,
       ...[1, 4].map(id => ({ kind: 'signal' as const, id: `completed-${id}`, at: now - id * 60000, intent: id, title: jobs.find(one => one.id === id)!.title, signal: 'completed' as const, by: { kind: 'agent' as const, runtime: runtimeId('codex'), sessionId: 'c1', title: name } })),
