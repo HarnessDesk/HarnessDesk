@@ -76,6 +76,8 @@ export const preserveDeskContext = (items: readonly AgentItem[], stored: readonl
   const recorded = stored.filter((item): item is UserMessageItem => item.type === 'userMessage' &&
     item.content.some(part => part.type === 'text' && part.deskContext !== undefined))
   if (recorded.length === 0) return items
+  const storedIds = new Set(stored.map(item => item.id))
+  const replayIds = new Set(items.map(item => item.id))
   let changed = false
   const next = items.map(item => {
     if (item.type !== 'userMessage') return item
@@ -88,7 +90,11 @@ export const preserveDeskContext = (items: readonly AgentItem[], stored: readonl
         JSON.stringify(fallback.injections) === JSON.stringify(item.context ?? [])
     }
     let at = recorded.findIndex(candidate => candidate.id === item.id && matches(candidate))
-    if (at === -1) at = recorded.findIndex(matches)
+    // Stable ids pair only with themselves. Reserve later exact matches
+    // before allowing resegmented history to borrow an equal-text record.
+    if (at === -1 && !storedIds.has(item.id)) {
+      at = recorded.findIndex(candidate => !replayIds.has(candidate.id) && matches(candidate))
+    }
     if (at === -1) return item
     const held = recorded.splice(at, 1)[0]
     if (!held || item.content.some(part => part.type === 'text' && part.deskContext !== undefined)) return item

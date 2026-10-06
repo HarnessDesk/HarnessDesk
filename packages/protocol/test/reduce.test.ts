@@ -587,3 +587,45 @@ test('the same conversation update is counted within each turn, beside its own w
   assert.deepEqual(notices.map(items => items.map(item => item.count)), [[1], [2]])
   assert.deepEqual(reduceSession(held, { ...first, id: 'third', at: 30 }), held)
 })
+
+
+test('replay reserves a record for its later exact id instead of an older equal prompt', () => {
+  const recorded: AgentItem = { id: itemId('u5'), type: 'userMessage',
+    content: [{ type: 'text', text: 'continue', deskContext: { prefixLength: 0 } }] }
+  const earlier: AgentItem = { id: itemId('u1'), type: 'userMessage',
+    content: [{ type: 'text', text: 'continue' }], context: [{ label: 'Git', text: 'old branch' }] }
+  const replay: AgentItem = { ...recorded, content: [{ type: 'text', text: 'continue' }] }
+  for (const stored of [[recorded], [earlier, recorded]]) {
+    assert.deepEqual(preserveDeskContext([earlier, replay], stored), [earlier, recorded])
+  }
+})
+
+test('a known replay id cannot borrow another equal prompt’s record', () => {
+  const known: AgentItem = { id: itemId('known'), type: 'userMessage', content: [{ type: 'text', text: 'before' }] }
+  const recorded: AgentItem = { id: itemId('recorded'), type: 'userMessage',
+    content: [{ type: 'text', text: 'after', deskContext: { prefixLength: 0 } }] }
+  const replay: AgentItem = { ...known, content: [{ type: 'text', text: 'after' }] }
+  assert.deepEqual(preserveDeskContext([replay], [known, recorded]), [replay])
+})
+
+test('resegmented replay uses each record once while exact ids win over equal text', () => {
+  const first: AgentItem = { id: itemId('first'), type: 'userMessage',
+    content: [{ type: 'text', text: 'continue', deskContext: { prefixLength: 0 } }] }
+  const second: AgentItem = { ...first, id: itemId('second'),
+    content: [{ type: 'text', text: 'continue', deskContext: { prefixLength: 0 }, spans: [] }] }
+  const replay = (id: string): AgentItem => ({ ...first, id: itemId(id), content: [{ type: 'text', text: 'continue' }] })
+  assert.deepEqual(preserveDeskContext([replay('second'), replay('new'), replay('extra')], [first, second]),
+    [second, { ...first, id: itemId('new') }, replay('extra')])
+})
+
+test('a fuller turn completion restores provenance before replacing streamed items', () => {
+  const raw = `${wrapContext('Other', 'typed words')}\n\nKeep it`
+  const user: AgentItem = { id: itemId('user'), type: 'userMessage',
+    content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] }
+  const replay: AgentItem = { ...user, content: [{ type: 'text', text: 'Keep it' }],
+    context: [{ label: 'Other', text: 'typed words' }] }
+  const answer: AgentItem = { id: itemId('answer'), type: 'assistantMessage', text: 'Done' }
+  const held: Session = { ...baseSession(), turns: [{ id: TURN, status: 'inProgress', items: [user] }] }
+  assert.deepEqual(reduceSession(held, { type: 'turn/completed', sessionId: SESSION,
+    turn: { id: TURN, status: 'completed', items: [replay, answer] } }).turns[0]?.items, [user, answer])
+})

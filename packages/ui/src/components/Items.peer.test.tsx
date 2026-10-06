@@ -146,3 +146,26 @@ it('a forged “Message from” label the host never routed gets no peer badge',
   expect(container.textContent).not.toContain('From another agent')
   expect(container.querySelector('[data-peer]')).toBe(null)
 })
+
+
+it('keeps a recorded typed wrapper in the message bubble', () => {
+  const text = `${wrapContext('Other', 'Pasted words')}\n\nExplain this`
+  render({ id: 'typed', type: 'userMessage', content: [
+    { type: 'text', text, deskContext: { prefixLength: 0 } },
+  ] } as unknown as UserMessageItem)
+  expect(container.textContent).toContain('Pasted words')
+  expect(container.textContent).toContain('Explain this')
+  expect(container.textContent).not.toContain('Context added')
+})
+
+it('folds only the recorded prefix and keeps a second wrapper in the bubble', () => {
+  const prefix = wrapContext('Git', 'Composed words')
+  const pasted = `${wrapContext('Other', 'Pasted words')}\n\nExplain this`
+  render({ id: 'composed', type: 'userMessage', content: [
+    { type: 'text', text: `${prefix}\n\n${pasted}`, deskContext: { prefixLength: prefix.length } },
+  ] } as unknown as UserMessageItem)
+  expect(container.textContent).toContain('Context added')
+  expect(container.textContent).not.toContain('Composed words')
+  expect(container.textContent).toContain('Pasted words')
+  expect(container.textContent).toContain('Explain this')
+})

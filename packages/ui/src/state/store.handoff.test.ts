@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   itemId,
+  wrapContext,
   runtimeId,
   sessionId,
   sessionKey,
@@ -162,4 +163,16 @@ describe('the hand-off chip and the draft it belongs to', () => {
     expect(store.getSnapshot().activeRuntime).toBe(TARGET)
     expect(store.getSnapshot().draftHandoff).toBeNull()
   })
+})
+
+
+it('names a hand-off from the recorded typed opening rather than the pasted block’s label', async () => {
+  const raw = `${wrapContext('Git', 'Pasted title words')}\n\nExplain it`
+  const one = conversation()
+  answers['session/read'] = { ...one, turns: [{ ...one.turns[0], items: [
+    { id: itemId('typed'), type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] },
+  ] }] }
+  await store.openSession(ID, { runtime: SOURCE })
+  await store.handOff(TARGET, 'summary')
+  expect(store.getSnapshot().draftHandoff?.title).toContain('<context source="Git"')
 })

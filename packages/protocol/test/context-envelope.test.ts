@@ -298,3 +298,14 @@ test('recorded multipart input peels only composed parts and names the typed ope
   assert.deepEqual(splitContextContent(parts), { injections: [{ label: 'Git', text: 'On branch main' }], text: typed })
   assert.equal(openingOfContent(parts), typed.split('\n')[0])
 })
+
+
+test('unrecorded parts beside a record stay typed and typed parts retain their line boundary', () => {
+  const prefix = wrapContext('Git', 'desk words')
+  const pasted = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+  assert.deepEqual(splitContextContent([
+    deskContextContent(prefix),
+    { type: 'text', text: pasted },
+    { type: 'text', text: 'Next line', deskContext: { prefixLength: 0 } },
+  ]), { injections: [{ label: 'Git', text: 'desk words' }], text: `${pasted}\nNext line` })
+})

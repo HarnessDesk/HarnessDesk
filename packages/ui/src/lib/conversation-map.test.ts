@@ -189,3 +189,12 @@ describe('railFit', () => {
     expect(fit).toBeNull()
   })
 })
+
+
+it('previews a recorded wrapper lookalike as typed words', () => {
+  const raw = `${wrapContext('Other', 'Pasted rail words')}\n\nExplain it`
+  const prompt = { id: 'typed', type: 'userMessage', content: [
+    { type: 'text', text: raw, deskContext: { prefixLength: 0 } },
+  ] } as never
+  expect(buildMarks([turn('typed', [prompt])])[0]?.preview).toContain('Pasted rail words')
+})

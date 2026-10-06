@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { reduceSession, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
+import { wrapContext, reduceSession, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -692,4 +692,13 @@ it('a new turn re-engages follow, undoing an earlier release', () => {
   render(rig(session({ updatedAt: 9_500, turns: [first, second] })).store)
 
   expect(jumpToLatest()).toBeUndefined()
+})
+
+
+it('heads a recorded typed lookalike with its pasted first line', () => {
+  const raw = `${wrapContext('Git', 'Pasted header words')}\n\nExplain it`
+  render(rig(session({ turns: [{ id: turnId('typed'), status: 'completed', items: [
+    { id: itemId('typed'), type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] },
+  ] }] })).store)
+  expect(container.querySelector('header')?.textContent).toContain('<context source="Git"')
 })

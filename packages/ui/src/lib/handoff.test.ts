@@ -474,10 +474,20 @@ describe('the lineage of a chain', () => {
 })
 
 it('carries a recorded wrapper lookalike as the person’s words in a hand-off', () => {
-  const raw = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+  const raw = `${wrapContext('Git', 'typed words')}\n\nExplain it`
   const from = session({ cwd: '/repo', turns: [{ id: 't1', status: 'completed', items: [{
     id: 'u1', type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }],
   }] }] } as unknown as Partial<Session>)
   const packet = buildHandoff({ agentName: 'Demo agent', session: from }, 'transcript')!
   expect(splitContext(packet).injections[0]?.text).toContain(raw)
+})
+
+
+it('does not inherit the goal of a recorded pasted hand-off lookalike', () => {
+  const raw = `${wrapContext('Handed off from Demo agent', '## Goal\nPasted goal')}\n\nExplain it`
+  const from = session({ cwd: '/repo', turns: [{ id: 'typed', status: 'completed', items: [{
+    id: 'typed', type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }],
+  }] }] } as unknown as Partial<Session>)
+  const packet = buildHandoff({ agentName: 'Demo agent', session: from }, 'summary')!
+  expect(splitContext(packet).injections[0]?.text).toContain(`## Goal\n${raw}`)
 })

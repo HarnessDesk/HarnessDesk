@@ -2255,3 +2255,64 @@ it('keeps a history-only legacy Seat under its Team across checkouts', () => {
   act(() => nested.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!.click())
   expect(view.store.openSession).toHaveBeenCalledWith(seat.id, { runtime: seat.runtime })
 })
+
+
+it('names a recorded typed lookalike from its pasted first line', () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const key = sessionKey(runtimeId('agent'), sessionId('live-3'))
+  // What the composer sends with a chip attached: the context in a text
+  // block of its own, then the typed words in another.
+  const live = {
+    id: 'live-3',
+    runtime: 'agent',
+    title: null,
+    preview: null,
+    cwd: '/repo',
+    status: { type: 'active' },
+    createdAt: 1,
+    updatedAt: 2,
+    turns: [
+      {
+        id: 'turn-1',
+        items: [
+          {
+            type: 'userMessage',
+            content: [
+              { type: 'text', text: `${wrapContext('Git', 'Pasted tree words')}\n\nExplain it`, deskContext: { prefixLength: 0 } },
+              { type: 'text', text: 'Make the header sticky' },
+            ],
+          },
+        ],
+      },
+    ],
+    itemsLoaded: true,
+  } as unknown as Session
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    activeSessionKey: key,
+    runtimes: [runtime],
+    history: [],
+    sessions: new Map([[key, live]]),
+    workspaces: [{ path: '/repo' }],
+  } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+  const row = container.querySelector('button[data-active]')
+  expect(row?.textContent).toContain('<context source="Git"')
+  expect(row?.textContent).not.toContain('Untitled session')
+  expect(row?.textContent).not.toContain('the page it was looking at')
+})

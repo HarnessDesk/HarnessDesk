@@ -100,7 +100,6 @@ export interface PeeledText {
  */
 export interface NoteEvidence {
   readonly image?: boolean
-  readonly deskContext?: DeskContextRecord
 }
 
 /**
@@ -175,7 +174,7 @@ export const peelContext = (text: string, options: PeelOptions, evidence: NoteEv
 
   // This exact marked prefix is the one `wrapContext` writes. A generic
   // `<context>` lookalike anywhere in the person's message is ordinary text.
-  const desk = peelDeskContextPrefix(rest, false, evidence.deskContext)
+  const desk = peelDeskContextPrefix(rest, false)
   if (desk) {
     composed = true
     context.push(...desk.injections)

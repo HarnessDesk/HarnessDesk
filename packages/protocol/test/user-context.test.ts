@@ -277,3 +277,13 @@ test('recorded content does not peel a desk lookalike as client scaffolding', ()
   const parts = [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }]
   assert.deepEqual(peelUserContent(parts, { tags: {} }), { content: parts, context: [] })
 })
+
+
+test('text-only client peeling has no desk-record option', () => {
+  const options = { tags: {} }
+  // Records belong to message parts; the text-only vendor fallback cannot claim one.
+  // @ts-expect-error desk provenance is not an option on text-only client evidence
+  if (false as boolean) peelContext('words', options, { deskContext: { prefixLength: 0 } })
+  const raw = `${wrapContext('Git', 'old branch')}\n\nContinue`
+  assert.deepEqual(peelContext(raw, options), { text: 'Continue', context: [{ label: 'Git', text: 'old branch' }] })
+})

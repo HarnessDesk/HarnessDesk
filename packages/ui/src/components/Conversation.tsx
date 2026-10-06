@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { allItems, currentTurn, isBusy, isNoticeTurn, typedUserText, type RuntimeId, type Session } from '@harnessdesk/protocol'
+import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
 import {
   useActiveSession,
@@ -1162,9 +1162,9 @@ const titleOf = (session: Session | null): string => {
     .find((item) => item.type === 'userMessage')
   const spoken =
     firstMessage?.type === 'userMessage'
-      ? typedUserText(firstMessage.content)
+      ? openingOfContent(firstMessage.content)
       : null
-  const label = sessionLabel(session.title, session.preview ?? spoken, 'New session')
+  const label = sessionLabel(session.title, session.preview, '') || spoken || 'New session'
   // A first message is a paragraph; a title is a line.
   return label.length > 72 ? `${label.slice(0, 71).trimEnd()}…` : label
 }
