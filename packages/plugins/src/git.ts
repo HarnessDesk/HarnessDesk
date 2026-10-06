@@ -241,13 +241,14 @@ interface GitConfig {
 
 /** Keep role words identical across descriptions, reviews and comments. */
 const ROLE_CHARACTER_CLASS = 'a-z0-9-'
+const ROLE_LIMIT = 32
 const UNSUPPORTED_ROLE_CHARACTERS = new RegExp(`[^${ROLE_CHARACTER_CLASS}]+`, 'gi')
-const AUTHOR_ROLE = new RegExp(`^[a-z][${ROLE_CHARACTER_CLASS}]{0,31}$`, 'i')
+const AUTHOR_ROLE = new RegExp(`^[a-z][${ROLE_CHARACTER_CLASS}]{0,${ROLE_LIMIT - 1}}$`, 'i')
 const normalizeRole = (value: string): string => {
   let role = value.replace(UNSUPPORTED_ROLE_CHARACTERS, '-').replace(/^-+|-+$/g, '')
   if (!role) role = 'role'
   if (!/^[a-z]/i.test(role)) role = `role-${role}`
-  return role.slice(0, 32).replace(/-+$/g, '') || 'role'
+  return role.slice(0, ROLE_LIMIT).replace(/-+$/g, '') || 'role'
 }
 
 /**
@@ -336,7 +337,7 @@ const DESCRIPTION_PART_LIMIT = 80
 const DESCRIPTION_CHARACTER_CLASS = String.raw`\p{L}\p{N} .,: '()+/·-`
 const DESCRIPTION_TEXT = new RegExp(`^[${DESCRIPTION_CHARACTER_CLASS}]*$`, 'u')
 const UNSUPPORTED_DESCRIPTION_CHARACTERS = new RegExp(`[^${DESCRIPTION_CHARACTER_CLASS}]+`, 'gu')
-const DESCRIPTION_LINK_FORM = /:\/\/|www\./i
+const DESCRIPTION_LINK_FORM = /:\/\/|www\.|gh-\d+/i
 const isDescriptionText = (value: unknown): value is string =>
   typeof value === 'string' && Array.from(value).length <= DESCRIPTION_PART_LIMIT &&
   DESCRIPTION_TEXT.test(value) && !DESCRIPTION_LINK_FORM.test(value)
@@ -344,7 +345,7 @@ const isOptionalDescriptionText = (value: unknown): boolean =>
   value === undefined || value === null || isDescriptionText(value)
 const normalizeAuthorLabel = (value: string): string => {
   const plain = value.replace(UNSUPPORTED_DESCRIPTION_CHARACTERS, ' ')
-    .replace(/:\/\/|www\./gi, ' ').replace(/ +/g, ' ').trim()
+    .replace(/:\/\/|www\.|gh-\d+/gi, ' ').replace(/ +/g, ' ').trim()
   const characters = Array.from(plain)
   return characters.length <= DESCRIPTION_PART_LIMIT
     ? plain
@@ -397,6 +398,9 @@ const authorForTemplate = (author: DescriptionAuthor, template: string): Descrip
   ...(template.includes('{round}') && author.round !== undefined ? { round: author.round } : {}),
 })
 
+const normalizeAuthorPart = (value: string | null): string | null =>
+  value === null ? null : normalizeAuthorLabel(value)
+
 const descriptionAuthor = (seat: ForgeSeat, template: string): DescriptionAuthor | null => {
   if (template.includes('{round}') && seat.round !== null && seat.round !== undefined &&
     (!Number.isSafeInteger(seat.round) || seat.round < 1 || seat.round > 99)) return null
@@ -404,11 +408,11 @@ const descriptionAuthor = (seat: ForgeSeat, template: string): DescriptionAuthor
     role: seat.role === null ? null : normalizeRole(seat.role),
     agent: template.includes('{agent}') ? seat.agent : normalizeAuthorLabel(seat.agent),
     label: normalizeAuthorLabel(seat.label),
-    model: seat.model,
-    effort: seat.effort,
-    version: seat.version,
+    model: normalizeAuthorPart(seat.model),
+    effort: normalizeAuthorPart(seat.effort),
+    version: normalizeAuthorPart(seat.version),
     thinking: seat.thinking,
-    team: seat.team,
+    team: normalizeAuthorPart(seat.team),
     round: seat.round,
   }, template)
   return isDescriptionAuthor(author) ? author : null
@@ -420,7 +424,7 @@ const descriptionSignatureLine = (
 ): string | null => {
   if (!seat || signed.line === null || signed.template.trim() === '') return signed.line
   const author = descriptionAuthor(seat, signed.template)
-  return author ? renderSignature(signed.template, { ...seat, agent: author.agent, label: author.label, role: author.role }) : null
+  return author ? renderSignature(signed.template, forgeSeatFromAuthor(author)) : null
 }
 
 const forgeSeatFromAuthor = (author: DescriptionAuthor): ForgeSeat => ({
@@ -441,12 +445,7 @@ export const signDescription = (body: string, template: string, seat: ForgeSeat 
   if (template.trim() === '') return signBody(body, null, previous)
   const authors = authorsOf(previousBody)
   const current = seat ? descriptionAuthor(seat, template) : null
-  const publicationSeat = seat && current ? {
-    ...seat,
-    agent: current.agent,
-    label: current.label,
-    role: current.role,
-  } : null
+  const publicationSeat = current ? forgeSeatFromAuthor(current) : null
   if (current) {
     const index = authors.findIndex((author) => author.role === current.role && author.agent === current.agent)
     if (index >= 0) authors[index] = current
@@ -752,7 +751,7 @@ export const gitPlugin: HarnessPlugin = {
           type: 'string',
           title: 'Description signature',
           description:
-            'Ends the description and keeps each role and seat that wrote it.',
+            'Ends the description and keeps the latest seat for each role and agent pair.',
           default: DEFAULT_SIGNATURE,
         },
         reviewSignature: {

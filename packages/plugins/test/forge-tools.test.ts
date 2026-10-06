@@ -1651,7 +1651,7 @@ test('description role words render the same way in reviews and descriptions', (
   assert.equal(unmarked(signDescription('Reviewed.', '{role}: {seat}', seat)), `Reviewed.\n\n${expected}`)
 })
 
-test('description author parts accept safe punctuation and reject unsafe model text on write', () => {
+test('description author parts accept safe punctuation and normalize model text on write', () => {
   const writer = {
     ...SEAT,
     agent: 'Jane Doe (1M)',
@@ -1679,8 +1679,8 @@ test('description author parts accept safe punctuation and reject unsafe model t
   ])
 
   const unsafe = signDescription('Unsafe.', template, { ...writer, model: 'Opus\nInjected' })
-  assert.deepEqual(authorsFrom(unsafe), [])
-  assert.equal(unmarked(unsafe), 'Unsafe.')
+  assert.equal(authorsFrom(unsafe)[0]?.model, 'Opus Injected')
+  assert.equal(unmarked(unsafe), 'Unsafe.\n\nWriter: Jane Doe (1M) Opus Injected High effort 1.2 (beta) Team (North)')
 })
 
 test('description markers reject unsafe agent and team parts and do not repeat them on later edits', () => {
@@ -1863,6 +1863,7 @@ test('description markers reject invalid roles, review rounds, and contributor c
   const author = authorsFrom(first)[0]!
   for (const alteredAuthor of [
     { ...author, role: 'writer **' },
+    { ...author, role: ['writer'] },
     { ...author, round: 100 },
   ]) {
     const altered = bodyWithAuthors(first, [alteredAuthor])
@@ -1873,8 +1874,8 @@ test('description markers reject invalid roles, review rounds, and contributor c
 })
 
 test('update reports an unretained rendered part only when the description changes', async (t) => {
-  const forge = await rig(t, { signature: '{role}: {model}' })
-  forge.seat.current = { ...SEAT, model: 'Preview\nModel', role: 'fixer' }
+  const forge = await rig(t, { signature: '{role}: {agent}' })
+  forge.seat.current = { ...SEAT, agent: 'Preview\nAgent', role: 'fixer' }
   assert.match(await forge.run('pr_update', { body: 'Edited.' }), /Description credit not kept/)
   assert.equal(unmarked(readFileSync(join(forge.home, 'body.md'), 'utf8')), 'Edited.')
   assert.equal(forge.published.at(-1)?.signature, null)
@@ -1917,7 +1918,7 @@ test('description templates validate the presentation parts they render', () => 
 })
 
 test('description role normalisation and marker validation use the same alphabet', () => {
-  for (const [role, expected] of [['qa$&x', 'qa-x'], ['qa_lead', 'qa-lead'], ['réviseur', 'r-viseur'], ['审查', 'role']]) {
+  for (const [role, expected] of [['qa$&x', 'qa-x'], ['qa_lead', 'qa-lead'], ['réviseur', 'r-viseur'], ['审查', 'role'], ['a'.repeat(32), 'a'.repeat(32)], ['a'.repeat(33), 'a'.repeat(32)], ['2fast', 'role-2fast'], ['_qa_', 'qa']]) {
     const seat = { ...SEAT, role: role! }
     const first = signDescription('First.', '{role}: {seat}', seat)
     assert.equal(renderSignature('{role}: {seat}', seat), `${expected}: ${SEAT.label}`)
@@ -1926,7 +1927,7 @@ test('description role normalisation and marker validation use the same alphabet
   }
 })
 
-for (const refused of ['@example', '#1', 'https://example.com', 'www.example.com', '~', '&', '\\', '$', '|', '[', ']', '<', '>', '`', '*', '\r', '\n', '\u2028', '\u2029', '\t', '\0', '_', '=', '!', '%', '"', '🤖']) {
+for (const refused of ['@example', '#1', 'GH-1', 'gh-12', 'https://example.com', 'www.example.com', 'WWW.example.com', '~', '&', '\\', '$', '|', '[', ']', '<', '>', '`', '*', '\r', '\n', '\u2028', '\u2029', '\t', '\0', '_', '=', '!', '%', '"', '🤖']) {
   test(`description marker drops refused text ${JSON.stringify(refused)} in every rendered field`, () => {
     for (const [field, placeholder] of [['agent', 'agent'], ['label', 'seat'], ['model', 'model'], ['effort', 'effort'], ['version', 'version'], ['team', 'team']]) {
       const template = `Credit: {${placeholder}}`
@@ -1950,4 +1951,46 @@ test('description markers retain the plain alphabet in every rendered text field
   const edited = signDescription('Edited.', template, null, first)
   assert.deepEqual(authorsFrom(edited), [authorsFrom(first)[0]])
   assert.equal(unmarked(edited), `Edited.\n\n${Array(6).fill(value).join(' ')}`)
+})
+
+test('description labels remove link forms and keep exactly 80 characters without truncation', () => {
+  for (const [label, expected] of [['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['x'.repeat(80), 'x'.repeat(80)]]) {
+    const seat = { ...SEAT, label: label!, role: 'writer' }
+    const first = signDescription('First.', '{role}: {seat}', seat)
+    assert.equal(authorsFrom(first)[0]?.label, expected)
+    assert.equal(unmarked(signDescription('Edited.', '{role}: {seat}', null, first)), `Edited.\n\nWriter: ${expected}`)
+  }
+})
+
+test('description writes remove short references from rendered parts', () => {
+  const seat = { ...SEAT, label: 'Preview GH-1 Model gh-12', model: 'Preview GH-1 Model gh-12', role: 'writer' }
+  for (const template of ['{role}: {seat}', '{role}: {model}']) {
+    const first = signDescription('First.', template, seat)
+    assert.equal(unmarked(first), 'First.\n\nWriter: Preview Model')
+    assert.equal(unmarked(signDescription('Edited.', template, null, first)), 'Edited.\n\nWriter: Preview Model')
+  }
+})
+
+for (const field of ['model', 'effort', 'version', 'team'] as const) {
+  test(`description normalizes rendered ${field} in the body, marker and publication card`, async (t) => {
+    const template = `{role}: {${field}}`
+    const forge = await rig(t, { signature: template })
+    forge.seat.current = { ...SEAT, [field]: 'Preview[1m]', role: 'writer' }
+    assert.doesNotMatch(await forge.run('pr_create', { title: 'Signatures', body: 'First.' }), /Description credit not kept/)
+    let first = readFileSync(join(forge.home, 'body.md'), 'utf8')
+    assert.equal(authorsFrom(first)[0]?.[field], 'Preview 1m')
+    assert.equal(unmarked(first), 'First.\n\nWriter: Preview 1m')
+    assert.equal(forge.published.at(-1)?.signature, previousSignature(first))
+    forge.seat.current = { ...forge.seat.current, role: 'fixer' }
+    assert.doesNotMatch(await forge.run('pr_update', { body: 'Fixed.' }), /Description credit not kept/)
+    first = readFileSync(join(forge.home, 'body.md'), 'utf8')
+    assert.equal(unmarked(first), 'Fixed.\n\nWriter: Preview 1m · Fixer: Preview 1m')
+    assert.equal(forge.published.at(-1)?.signature, previousSignature(first))
+    assert.equal(unmarked(signDescription('Edited.', template, null, first)), 'Edited.\n\nWriter: Preview 1m · Fixer: Preview 1m')
+  })
+}
+
+test('description signature setting explains which contributor seat is retained', () => {
+  const schema = gitPlugin.manifest.configSchema as { properties: { signature: { description: string } } }
+  assert.equal(schema.properties.signature.description, 'Ends the description and keeps the latest seat for each role and agent pair.')
 })

@@ -15,11 +15,11 @@ test('native commit credit docs name the adapter and retain provenance', () => {
   assert.match(decisions, /native commit credit supplied by the running adapter through its\s+presentation/)
   assert.match(decisions, /Credits come from local observations or cited sources; an unknown address is null,/)
   const pins: readonly [string, string][] = [
-    [extending, 'other role ids use letters, digits and hyphens; other characters become `-`'],
+    [extending, 'other role ids use ASCII letters, digits and hyphens; other characters become `-`'],
     [extending, '32 characters at most; nothing usable reads `role`'],
     [extending, 'Description updates retain the latest seat for each role and agent pair.'],
     [extending, "The current template's contributor portion renders each distinct credit once"],
-    [decisions, 'Other role ids use letters, digits and hyphens; other characters become `-`.'],
+    [decisions, 'Other role ids use ASCII letters, digits and hyphens; other characters become `-`.'],
     [decisions, 'description keeps the latest seat for each role and agent pair in its hidden signature marker.'],
     [interfaceDoc, 'A description keeps the latest seat for each role and agent pair'],
   ]

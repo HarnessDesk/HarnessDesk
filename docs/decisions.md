@@ -801,7 +801,7 @@ The Git plugin now signs agent descriptions, reviews and comments as one
 capability, with three editable templates and a blank value disabling each
 kind. Roles come from the stored Seat, Team names from its board and review
 rounds from the run. No Team means no invented role. Writer, Reviewer and
-Fixer are capitalised. Other role ids use letters, digits and hyphens; other
+Fixer are capitalised. Other role ids use ASCII letters, digits and hyphens; other
 characters become `-`. They are bounded to 32 characters, with `role` used when
 nothing usable remains.
 

@@ -658,7 +658,7 @@ issue comments. An empty template turns signing off for that kind.
 | --- | --- |
 | `{seat}` | Agent, model and effort as one label, from the runtime's presentation |
 | `{agent}`, `{model}`, `{effort}`, `{version}`, `{thinking}` | The seat's individual parts; thinking is `Thinking` when on |
-| `{role}` | Writer, Reviewer or Fixer; other role ids use letters, digits and hyphens; other characters become `-`; 32 characters at most; nothing usable reads `role`. A leading digit gets a `role-` prefix |
+| `{role}` | Writer, Reviewer or Fixer; other role ids use ASCII letters, digits and hyphens; other characters become `-`; 32 characters at most; nothing usable reads `role`. A leading digit gets a `role-` prefix |
 | `{round}` | `round N`, where N is 1 plus earlier review rounds in that Run; the first review is round 1 and is omitted |
 | `{team}` | The Team's name, never its id |
 
@@ -674,6 +674,9 @@ so editing its visible text or changing the template keeps earlier authors.
 The current template's contributor portion renders each distinct credit once,
 with its prefix and suffix shared. Old marked signatures and the former default's
 unmarked trailing line are recognised and upgraded without duplication.
+Description labels and rendered model, effort, version and Team parts use the
+marker's plain alphabet: unsupported characters become spaces, link forms and
+short references are removed, and parts longer than 80 characters are truncated.
 Comments mark their opening signature line with the same signature mark.
 
 Card commits retain the desk's co-author and add the native commit credit
