@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { FlowAgentRole, FlowPolicy, FlowPolicyRule } from '@harnessdesk/protocol'
 import { emptyShapePolicy, defaultGraphPosition } from '../shapes'
 import { FLOW_CARD_H, FLOW_CARD_W, FLOW_ROW_GAP } from '../flow-layout'
+import { parseFlowPolicy } from '../../../../server/dist/src/flow-policy.js'
 import { writeShape } from '../../../../server/dist/src/authoring/model.js'
 import {
   addStep, connectSteps, createDocument, deleteRule, deleteStep, documentGraph, graphDocument, documentPolicy,
   moveStep, renameRule, renameStep, setRuleCondition, setRuleWord, setSeat, setAgent, setSeed,
-  createHistory, editHistory, undo, redo, builderFacts, builderProblems,
+  setCount, createHistory, editHistory, undo, redo, builderFacts, builderProblems,
 } from './index'
 
 const agent = (id: string, over: Partial<FlowAgentRole> = {}): FlowAgentRole => ({ id, kind: 'agent', uses: ['implementer'], seats: [], grant: 'edit', isolate: true, independentOf: [], ...over })
@@ -22,6 +23,13 @@ const frozen = <T>(value: T): T => {
 
 // Frozen inputs make accidental writes fail in the operation that introduced them.
 const doc = (over: Partial<FlowPolicy> = {}) => frozen(createDocument(policy(over)))
+const shippedFlows = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
+const shippedDocument = (name: string) => {
+  const source = shippedFlows[`../../../../server/flows/${name}.yml`] as string
+  const parsed = parseFlowPolicy(source)
+  if (parsed.document?.format !== 'agents') throw new Error(`Expected ${name} to use Agent roles`)
+  return createDocument(parsed.document.flow, source)
+}
 
 describe('pure edits', () => {
   it('adds each engine kind, fan-out, and an inert note without inventing a role kind', () => {
@@ -197,6 +205,36 @@ describe('pure edits', () => {
     const both = setSeat(twoAgents, fanId, seats)
     expect(both.policy.roles.at(-1)).toMatchObject({ count: 2, uses: ['a', 'b'], seats })
     expect(() => writeShape(both.policy)).toThrow(/choose a list of agents or a list of seats/i)
+  })
+
+  it('preserves shipped one-Agent fan-out widths and exposes an explicit count edit', () => {
+    const fanOuts = [
+      { flow: 'fan-out', role: 'review', count: 3 },
+      { flow: 'comparison', role: 'competitor', count: 2 },
+      { flow: 'mechanical-contest', role: 'competitor', count: 2 },
+    ]
+    const seat = { runtime: 'demo', model: 'example-model' }
+    for (const { flow, role, count } of fanOuts) {
+      const document = shippedDocument(flow)
+      const id = document.steps.find((step) => step.role === role)!.id
+      expect(document.policy.roles.find((candidate) => candidate.id === role)).toMatchObject({ count })
+      expect(setAgent(document, id, ['replacement']).policy.roles.find((candidate) => candidate.id === role)).toMatchObject({ count })
+      expect(setSeat(document, id, []).policy.roles.find((candidate) => candidate.id === role)).toMatchObject({ count })
+      expect(setSeat(document, id, [seat]).policy.roles.find((candidate) => candidate.id === role)).toMatchObject({ count })
+    }
+
+    const specialists = shippedDocument('review')
+    const threeSpecialists = specialists.policy.roles.find((candidate) => candidate.kind === 'agent' && candidate.uses.length === 3)!
+    const specialistsId = specialists.steps.find((step) => step.role === threeSpecialists.id)!.id
+    expect(setSeat(specialists, specialistsId, [])).toBe(specialists)
+    expect(setAgent(specialists, specialistsId, threeSpecialists.uses)).toBe(specialists)
+
+    const document = doc()
+    const counted = setCount(document, document.steps[0]!.id, 4)
+    expect(counted.policy.roles[0]).toMatchObject({ count: 4 })
+    expect(setCount(counted, document.steps[0]!.id, 4)).toBe(counted)
+    expect(setCount(counted, document.steps[0]!.id, undefined).policy.roles[0]).not.toHaveProperty('count')
+    expect(() => setCount(document, document.steps[0]!.id, 0)).toThrow(/1 to 32/i)
   })
 
   it('refuses invalid wire identifiers with a useful step or rule message', () => {

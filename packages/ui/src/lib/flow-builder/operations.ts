@@ -17,6 +17,7 @@ const sameValue = (a: unknown, b: unknown): boolean => {
 }
 
 const FLOW_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+const FLOW_SLOT_LIMIT = 32
 const requireFlowId = (value: string, subject: string): void => {
   if (!FLOW_ID.test(value)) throw new Error(`${subject} must use 1–64 letters, digits, - or _`)
 }
@@ -253,10 +254,8 @@ const updateAgent = (document: BuilderDocument, id: string, update: (role: Extra
 }
 
 const reconciledCount = (selected: number, other: number, current: number | undefined): number | undefined => {
-  const width = selected || other
-  if (width > 1) return width
-  if (width === 1) return undefined
-  return current
+  const width = Math.max(selected, other)
+  return width > 1 && current !== undefined ? width : current
 }
 
 /** An empty override means the named Agent's own seating preferences, as on the ordered editor. */
@@ -270,6 +269,19 @@ export const setAgent = (document: BuilderDocument, id: string, uses: readonly s
   uses,
   count: reconciledCount(uses.length, role.seats.length, role.count),
 }))
+/** Set the explicit width used when neither the Agent nor seat list defines one. */
+export const setCount = (document: BuilderDocument, id: string, count: number | undefined): BuilderDocument => updateAgent(document, id, (role) => {
+  if (count !== undefined && (!Number.isSafeInteger(count) || count < 1 || count > FLOW_SLOT_LIMIT)) {
+    throw new Error(`Count must be a whole number from 1 to ${FLOW_SLOT_LIMIT}.`)
+  }
+  const listWidth = Math.max(role.uses.length, role.seats.length)
+  if (count !== undefined && listWidth > 1 && count !== listWidth) {
+    throw new Error(`Count must match the ${listWidth}-entry Agent or seat list.`)
+  }
+  if (role.count === count) return role
+  const { count: _before, ...rest } = role
+  return count === undefined ? rest : { ...rest, count }
+})
 
 /** Pick the executable step that starts this draft, preserving its title and other seed fields. */
 export const setSeed = (document: BuilderDocument, id: string): BuilderDocument => {

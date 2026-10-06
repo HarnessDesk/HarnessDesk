@@ -5,7 +5,7 @@ export {
 } from './document'
 export {
   addStep, connectSteps, setRuleCondition, setRuleWord, renameRule, renameStep,
-  moveStep, deleteRule, deleteStep, setSeat, setAgent, setSeed, type BuilderStepKind,
+  moveStep, deleteRule, deleteStep, setSeat, setAgent, setCount, setSeed, type BuilderStepKind,
 } from './operations'
 export { createHistory, editHistory, undo, redo, type BuilderHistory } from './history'
 export { builderFacts, builderProblems, type BuilderFacts, type BuilderProblem } from './problems'
