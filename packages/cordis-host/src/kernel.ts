@@ -405,13 +405,15 @@ export class ExtensionKernel implements CapabilityRegistry {
     this.#shellWorkspaceResolver = resolve
   }
 
-  async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
+  async #shellScope(scope: ScopeQuery): Promise<{ readonly scope: ScopeQuery; readonly enterCheckout: boolean }> {
     const { workspaceRoot: _hint, enterCheckout: _mode, ...identity } = scope
     const admitted = await this.#shellWorkspaceResolver(scope)
     const workspaceRoot = typeof admitted === 'string' ? admitted : admitted?.root
     const enterCheckout = typeof admitted === 'object' && admitted.enterCheckout
-    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
-      ...(enterCheckout ? { enterCheckout: true } : {}) }))
+    return {
+      scope: Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) })),
+      enterCheckout,
+    }
   }
 
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
@@ -432,7 +434,8 @@ export class ExtensionKernel implements CapabilityRegistry {
     scope: ScopeQuery,
     inherited?: BrowserIdentity | null,
   ): Promise<ToolResult> {
-    scope = await this.#shellScope(scope)
+    const admission = await this.#shellScope(scope)
+    scope = admission.scope
     const workspaceRoot = scope.workspaceRoot
     const entry = this.#store.get(id)
     if (!entry?.executor) {
@@ -458,7 +461,7 @@ export class ExtensionKernel implements CapabilityRegistry {
       // open one) and `ctx.shell`. With several Teams open, a relative read resolved against the open folder read
       // another Team's files.
       const execute = () => this.#runtime.withContextWorkspace(workspaceRoot, () =>
-        inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope))), scope.enterCheckout)
+        inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope))), admission.enterCheckout)
       return identity ? await runBrowserInvocation(identity, execute) : await execute()
     } catch (error) {
       if (error instanceof PermissionDenied) {
@@ -501,10 +504,11 @@ export class ExtensionKernel implements CapabilityRegistry {
   }
 
   async resolveContext(query: ScopeQuery): Promise<readonly { label: string; text: string }[]> {
-    query = await this.#shellScope(query)
-    const workspaceRoot = query.workspaceRoot
+    const admission = await this.#shellScope(query)
+    const { scope } = admission
+    const workspaceRoot = scope.workspaceRoot
     const out: { label: string; text: string }[] = []
-    for (const contribution of this.#store.list('context', query)) {
+    for (const contribution of this.#store.list('context', scope)) {
       // A chip is attached on purpose; it does not ride every turn.
       if (contribution.chip) continue
       const resolver = this.#store.get(contribution.id)?.resolver
@@ -512,7 +516,7 @@ export class ExtensionKernel implements CapabilityRegistry {
       try {
         // Scope every workspace capability to the host-admitted checkout, never the caller's hint.
         const text = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...query })))), query.enterCheckout), 5_000)
+          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...scope })))), admission.enterCheckout), 5_000)
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({ label: contribution.label, text })
         }
@@ -532,7 +536,8 @@ export class ExtensionKernel implements CapabilityRegistry {
     ref: string | undefined,
     scope: ScopeQuery,
   ): Promise<{ label: string; text: string; image?: ContextImage } | null> {
-    scope = await this.#shellScope(scope)
+    const admission = await this.#shellScope(scope)
+    scope = admission.scope
     const workspaceRoot = scope.workspaceRoot
     const entry = this.#store.get(id)
     if (!entry || entry.contribution.kind !== 'context' || !entry.resolver) return null
@@ -542,7 +547,7 @@ export class ExtensionKernel implements CapabilityRegistry {
        depend on the caller having asked the right question. */
     if (!scopeApplies(entry.contribution.scope, scope)) return null
     const value = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), scope.enterCheckout), 30_000)
+      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), admission.enterCheckout), 30_000)
     if (typeof value === 'string') return { label: entry.contribution.label, text: value }
     return {
       label: entry.contribution.label,

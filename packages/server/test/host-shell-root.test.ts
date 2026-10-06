@@ -105,6 +105,7 @@ for (const kind of ['relative', 'empty', 'unregistered', 'symlink elsewhere', 'h
     const result = await d.kernel.invokeTool(d.tool.id, {}, scope)
     assert.deepEqual(result, { ok: true, content: [{ type: 'text', text: d.project }] })
     assert.deepEqual(await d.kernel.resolveContext(scope), [{ label: 'Automatic location', text: d.project }])
+    assert.equal(record.shellCheckout?.source, 'fallback')
   })
 }
 
@@ -177,6 +178,7 @@ for (const replacement of ['foreign repository', 'deleted lane'] as const) {
       await git(d.lane.path, 'commit', '-qm', 'Foreign fixture')
     }
     assert.equal((await d.host.call('context/resolve', { id: d.where.id, runtime: d.agent.info.id, sessionId: opened.id })).text, d.project)
+    assert.equal(d.host.registry.get(d.agent.info.id, opened.id)?.shellCheckout?.source, 'fallback')
   })
 }
 

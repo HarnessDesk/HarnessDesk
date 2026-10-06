@@ -120,8 +120,9 @@ linked worktree, a folder reached through a link, and a subfolder of a linked
 worktree keep their opened root, branch and files, including for a Seat started
 in that checkout. When it is another checkout, including a Seat's own main
 checkout while a linked worktree is open, an isolated lane or another clone,
-they follow the call there: `ctx.fs` resolves relative paths against it and refuses a path outside it, `ctx.editor` shows and marks files
-there, `ctx.workspace.root` and `ctx.harness.workspaceRoot` name it, and
+they follow the call there: `ctx.fs` resolves relative paths against it and
+refuses a path outside it, `ctx.editor` shows and marks files there,
+`ctx.workspace.root` and `ctx.harness.workspaceRoot` name it, and
 `ctx.workspace.branch` is `null`, because the branch is a fact the host knows
 only about the folder it opened. Without a checkout in the invocation scope,
 and in hooks and slash commands (which do not enter the caller's checkout yet),
@@ -340,13 +341,11 @@ ctx.context.register({
   it left off. Throwing is for a provider that should have answered and could
   not: that stops the send, because a message silently missing what its chip
   promised misleads the agent.
-- During resolution, workspace capabilities follow the [same rule as tool
-  calls](#permissions-and-isolation): a conversation in the open folder's own
-  checkout uses the workspace as it was opened; another checkout, including a
-  Seat's own, is entered. Shell working directories use the host-admitted checkout. A caller's
-  `workspaceRoot` cannot replace that admission. Concurrent resolutions keep
-  separate roots; without an admitted checkout, resolution uses the open
-  workspace.
+- Context providers and chips follow the [same workspace rules as tool
+  calls](#permissions-and-isolation). Shell working directories use the
+  host-admitted checkout. A caller's `workspaceRoot` cannot replace that
+  admission; concurrent resolutions keep separate roots, and without an
+  admitted checkout, resolution uses the open workspace.
 - Resolution receives `(scope, ref)` and can return a plain `string` or `{
   text?, image? }` (e.g. for a screenshot). It resolves over the wire as
   `context/resolve { id, ref?, runtime?, workspaceRoot? }` → `{ label, text,

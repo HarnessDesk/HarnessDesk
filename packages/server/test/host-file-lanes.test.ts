@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
@@ -47,10 +47,16 @@ async function rig(t: TestContext) {
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), extensions: kernel, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
   const agent = new FakeRuntime()
   host.register(agent)
-  t.after(async () => {
+  let disposed = false
+  const dispose = async () => {
+    if (disposed) return
+    disposed = true
     setEditorEngine(null)
     await host.dispose()
     await kernel.dispose()
+  }
+  t.after(async () => {
+    await dispose()
   })
   await host.start()
   setEditorEngine(host.editorPlane)
@@ -103,7 +109,7 @@ async function rig(t: TestContext) {
     const session = (await host.call('session/create', { runtime: agent.info.id, options: { cwd } } as never)) as Session
     return { runtime: String(agent.info.id), sessionId: String(session.id) }
   }
-  return { host, agent, base, project, linked, alias, stateDir, where, context, seat, conversation }
+  return { host, agent, base, project, linked, alias, stateDir, where, context, seat, conversation, dispose }
 }
 
 test('a conversation in the open folder runs its tool calls in that folder as it was opened', async (t) => {
@@ -159,4 +165,54 @@ test('a Seat on the main checkout stays there while a linked worktree is open', 
   assert.deepEqual(await d.context(scope), { root: d.project, branch: null, read: 'top' })
   // Cached admission must remember that this is the Seat's checkout, not a project fallback.
   assert.deepEqual(await d.context(scope), { root: d.project, branch: null, read: 'top' })
+})
+
+test('a Seat whose lane disappears follows the opened linked worktree for tools and chips', async (t) => {
+  const d = await rig(t)
+  await d.host.call('workspace/open', { path: d.project })
+  const lane = await new Worktrees(d.stateDir).create(d.project, { name: 'vanishing' })
+  const scope = await d.seat(lane.path)
+  await d.host.call('workspace/open', { path: d.linked })
+  await rm(lane.path, { recursive: true, force: true })
+
+  assert.deepEqual(await d.where(scope), { root: d.linked, branch: 'feature', read: 'linked', names: ['file.txt', 'src'], editor: 'opened' })
+  assert.deepEqual(await d.context(scope), { root: d.linked, branch: 'feature', read: 'linked' })
+})
+
+test('a restarted host re-admits a kept Seat on the main checkout while a linked worktree is open', async (t) => {
+  const d = await rig(t)
+  await d.host.call('workspace/open', { path: d.linked })
+  const scope = await d.seat(d.project)
+  const session = d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])!.session
+  await d.dispose()
+
+  const kernel = new SupervisedExtensionHost(new ExtensionKernel(), { env: { HARNESSDESK_PLUGINS: join(d.base, 'plugins') } })
+  const restarted = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')), extensions: kernel, builtinAgents: join(d.base, 'agents'), libraryHome: join(d.base, 'library') })
+  const agent = new FakeRuntime()
+  restarted.register(agent)
+  t.after(async () => {
+    setEditorEngine(null)
+    await restarted.dispose()
+    await kernel.dispose()
+  })
+  await restarted.start()
+  setEditorEngine(restarted.editorPlane)
+  await restarted.call('workspace/open', { path: d.linked })
+  restarted.registry.upsert({ ...session, runtime: agent.info.id }, null)
+  await kernel.loadBuiltin({
+    manifest: { id: 'restart-file-probe', name: 'Restart file probe', permissions: { workspace: { read: true } } },
+    plugin: {
+      name: 'restart-file-probe', inject: ['context', 'fs', 'workspace'],
+      apply(ctx: HarnessContext) {
+        ctx.context.register({
+          label: 'Restart location', chip: { description: 'Fixture location' },
+          resolve: async () => JSON.stringify({ root: ctx.workspace.root, branch: ctx.workspace.branch, read: (await ctx.fs.read('file.txt')).trim() }),
+        })
+      },
+    },
+  } as HarnessPlugin)
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const chip = kernel.list('context').find((entry) => entry.label === 'Restart location')!
+  const resolved = await kernel.resolveOne(chip.id, undefined, { runtime: agent.info.id, sessionId: session.id })
+  assert.deepEqual(JSON.parse(resolved?.text ?? 'null'), { root: d.project, branch: null, read: 'top' })
 })

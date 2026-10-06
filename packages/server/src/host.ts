@@ -3266,8 +3266,11 @@ export class Host {
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
     const project = identity.project
     const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
-    // A retained Seat owns its placement; an ordinary conversation only captured the project fallback.
-    const source = admitted ? record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback') : 'fallback'
+    // A Seat owns its placement only while shellRoot can still return that admitted checkout.
+    const placement = checkout && (kept ? await realpath(checkout.cwd).catch(() => undefined) : checkout.cwd)
+    const source = admitted && checkout && placement && samePath(cwd, placement)
+      ? record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
+      : 'fallback'
     if (record) record.shellCheckout = { project, cwd, source }
     return { root: cwd, enterCheckout: source === 'own' && !samePath(cwd, this.#shellCheckoutRoot ?? '') }
   }
