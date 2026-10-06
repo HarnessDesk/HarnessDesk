@@ -364,7 +364,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
         edgesReconnectable={false} deleteKeyCode={null} panOnDrag={inert ? false : readOnly || tool === 'hand' ? true : [1, 2]} selectionOnDrag={!readOnly && tool === 'select'}
         minZoom={MIN_ZOOM} maxZoom={2} defaultViewport={{ x: 0, y: 0, zoom: 1 }} zoomOnDoubleClick={false}
         zoomOnScroll={!readOnly && !positionOnly} preventScrolling={!readOnly && !positionOnly}
-        zoomOnPinch={!inert && !positionOnly} zoomActivationKeyCode={inert || positionOnly ? null : 'Control'} ariaLabelConfig={ariaLabelConfig}>
+        zoomOnPinch={!inert && !positionOnly} ariaLabelConfig={ariaLabelConfig}>
         {edges.some(edge => edge.current) && batonPath && <EdgeLabelRenderer><FlowBaton path={batonPath} /></EdgeLabelRenderer>}
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1.5} color="var(--hd-border-strong)" />
         {title && <Panel position="top-left"><Text role="meta">{title}</Text></Panel>}

@@ -3,6 +3,43 @@ import path from 'node:path'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`the docked Run Flow fills its pane and contains every step in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?run-dock&theme=${theme}`)
+    const frame = page.locator('#run-dock-frame')
+    await frame.getByRole('button', { name: 'Run 1', exact: true }).click()
+    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+    const canvas = frame.locator('[data-slot="workbench-main"] [data-slot="flow-canvas"]')
+    await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
+    const capture = async () => {
+      if (!process.env.FLOW_DOCK_FRAMES_DIR) return
+      expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+      await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round4-run-dock-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
+    }
+    if (process.env.FLOW_DOCK_FRAME_PHASE === 'before') await capture()
+    for (const width of [1440, 1280]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect.poll(() => canvas.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(200)
+      await expect.poll(() => canvas.evaluate(el => {
+        const clip = el.getBoundingClientRect()
+        return [...el.querySelectorAll('.react-flow__node')].every(node => {
+          const box = node.getBoundingClientRect()
+          return box.top >= clip.top && box.bottom <= clip.bottom + 0.5 && box.left >= clip.left && box.right <= clip.right + 0.5
+        })
+      })).toBe(true)
+      if (width === 1440 && process.env.FLOW_DOCK_FRAME_PHASE !== 'before') await capture()
+    }
+    await page.setViewportSize({ width: 1000, height: 700 })
+    const scroll = frame.locator('[data-slot="workbench-main"] [data-slot="run-scroll"]')
+    const list = scroll.locator('[data-slot="flow-list"][data-placement="below"]')
+    await expect(list).toBeVisible()
+    const box = (await scroll.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 30)
+    await page.mouse.wheel(0, 1600)
+    await expect(list.locator('[data-step-row="person"]')).toBeInViewport()
+    await expect(list.locator('section[aria-label="Rules"]')).toBeInViewport()
+  })
+
   test(`Run details and Steps use the workbench dock in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)

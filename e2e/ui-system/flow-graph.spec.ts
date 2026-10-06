@@ -41,7 +41,7 @@ for (const theme of ['light', 'dark'] as const) {
     test('no label sits on a card or on another label, and no card on another, in any Flow', async ({ page }) => {
       for (const scene of SCENES) {
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
-      const drawn = await measure(page, scene)
+        const drawn = await measure(page, scene)
         expect(drawn.steps.length, scene).toBeGreaterThan(1)
         const clashes: string[] = []
         for (const word of drawn.words) for (const step of drawn.steps) if (hit(word, step)) clashes.push(`${word.id} on ${step.id}`)
@@ -56,7 +56,7 @@ for (const theme of ['light', 'dark'] as const) {
     test('every arrowhead lands on the card its rule goes to', async ({ page }) => {
       for (const scene of SCENES) {
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
-      const drawn = await measure(page, scene)
+        const drawn = await measure(page, scene)
         const card = new Map(drawn.steps.map((step) => [step.id, step]))
         for (const tip of drawn.tips) {
           const to = card.get(tip.to)!
