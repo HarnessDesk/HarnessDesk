@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Board, BoardAddCard, BoardCard, BoardColumn } from './board'
 
@@ -325,4 +325,21 @@ it('uses the system small tag and tone priority chips on a board card', () => {
   expect(chips[0]?.getAttribute('data-size')).toBe('sm')
   expect(chips[0]?.getAttribute('data-tint')).toBe('violet')
   expect(chips[1]?.getAttribute('data-tone')).toBe('warning')
+})
+
+ it('opens a folded column in place and keeps its cards mounted but hidden', () => {
+  const change = vi.fn()
+  draw(<Board derived><BoardColumn title="Ready" count={2} collapsed onCollapsedChange={change}><BoardCard title="Ship retry coverage" /></BoardColumn></Board>)
+  const rail = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!
+  expect(rail).not.toBeNull()
+  expect(rail.textContent).toContain('Ready')
+  expect(rail.textContent).toContain('2')
+  expect(container.querySelector('[data-slot="board-column-content"]')?.hasAttribute('hidden')).toBe(true)
+  expect(container.querySelectorAll('[data-slot="board-card"]')).toHaveLength(1)
+  act(() => rail.click())
+  expect(change).toHaveBeenCalledWith(false)
+  draw(<Board derived><BoardColumn title="Ready" count={2} collapsed={false} onCollapsedChange={change}><BoardCard title="Ship retry coverage" /></BoardColumn></Board>)
+  expect(container.querySelector('[data-slot="board-column-content"]')?.hasAttribute('hidden')).toBe(false)
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]')!.click())
+  expect(change).toHaveBeenLastCalledWith(true)
 })

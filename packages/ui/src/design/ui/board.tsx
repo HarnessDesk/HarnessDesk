@@ -1,10 +1,10 @@
-import { Children, createContext, forwardRef, useContext, useEffect, useRef, useState } from 'react'
+import { Children, createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 import { MoreIcon, PaperclipIcon, PlusIcon, ReviewIcon } from '@/components/Icons'
 import { AvatarStack, type StackMember } from './avatar-stack'
-import { buttonEdge } from './button'
+import { Button, buttonEdge } from './button'
 import { EmptyState } from './empty-state'
 import { dotTint, type Tint, type Tone } from './tone'
 import { Chip } from '../patterns/Settings'
@@ -104,6 +104,9 @@ const Board = ({ className, wrap = false, derived = false, ...props }: BoardProp
 
 type BoardColumnProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   title: React.ReactNode
+  /** A controlled rail: keep the contents mounted while the lane is folded. */
+  collapsed?: boolean
+  onCollapsedChange?: (collapsed: boolean) => void
   /** Shown beside the name. Pass `items.length`; it is not inferred. */
   count?: number
   /** Which column this is. Identity, never a verdict — see above. */
@@ -135,6 +138,8 @@ const BoardColumn = ({
   className,
   title,
   count,
+  collapsed = false,
+  onCollapsedChange,
   tint = 'blue',
   actions,
   onAdd,
@@ -144,11 +149,13 @@ const BoardColumn = ({
   children,
   ...props
 }: BoardColumnProps) => {
+  const contentId = useId()
   const derived = useContext(BoardContext)
   const empty = Children.toArray(children).length === 0
 
   return <section
     data-slot="board-column"
+    data-collapsed={collapsed || undefined}
     className={cn(
       /* The border is the half of "a column is a panel" that was missing, and
          `min-h` is the other: an empty column has nothing to give it height,
@@ -161,13 +168,18 @@ const BoardColumn = ({
          room's right half. */
       '@container/board-column flex w-(--hd-board-column-width) min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
       'border border-(--hd-border-strong) bg-(--hd-muted) p-(--hd-inset-dense)',
+      collapsed && 'self-stretch items-center',
       className,
     )}
     {...props}
   >
+    {collapsed && <Button variant="ghost" size="content-min" className="flex h-full w-full flex-col gap-2 py-2" aria-label={`Open ${title}`} aria-expanded={false} aria-controls={contentId} onClick={() => onCollapsedChange?.(false)}>
+      <span className="[writing-mode:vertical-rl] rotate-180">{title}</span>
+      <span className="text-xs tabular-nums text-(--hd-muted-foreground)">{count}</span>
+    </Button>}
     {/* The state dot hangs before the card's text column. Its size and gap
         spend part of the card inset; the rest is clearance for the heading. */}
-    <header className="flex items-center gap-1.5 pb-0.5 ps-[calc(var(--hd-inset-card)+var(--hd-border-width)-2*var(--hd-space-1-5))]">
+    <header hidden={collapsed} className={cn(collapsed ? 'hidden' : 'flex', "items-center gap-1.5 pb-0.5 ps-[calc(var(--hd-inset-card)+var(--hd-border-width)-2*var(--hd-space-1-5))]")}>
       <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', dotTint({ tint }))} />
       <h3 className="min-w-0 flex-1 truncate text-base font-medium">{title}</h3>
       {count != null && (
@@ -199,16 +211,17 @@ const BoardColumn = ({
           <PlusIcon />
         </button>
       )}
+      {onCollapsedChange && <Button variant="ghost" size="icon-xs" aria-label={`Fold ${title}`} title={`Fold ${title}`} aria-expanded={true} aria-controls={contentId} onClick={() => onCollapsedChange(true)}><MoreIcon /></Button>}
       {actions}
     </header>
-    <div className="flex min-w-0 flex-col gap-2">{children}</div>
-    {derived && empty && (
+    <div id={contentId} data-slot="board-column-content" hidden={collapsed} className={cn(collapsed ? 'hidden' : 'flex', 'min-w-0 flex-col gap-2')}>{children}</div>
+    {!collapsed && derived && empty && (
       <EmptyState variant="inline" data-slot="board-empty" className="my-auto ps-[calc(var(--hd-inset-card)+var(--hd-border-width))] text-left" title="Nothing here" />
     )}
     {/* The second entry point, at the foot where the eye ends after reading the
         column. A composer when the column can take a title on the spot, and a
         plain slot when adding means opening something. */}
-    {!derived && (onAddTitle ? (
+    {!collapsed && !derived && (onAddTitle ? (
       <BoardAddCard onAdd={onAddTitle} label={addLabel} placeholder={addPlaceholder} />
     ) : (
       onAdd && (

@@ -1263,6 +1263,7 @@ const EmptyBoard = () => (
 
 const KanbanBoard = () => {
   const [tinted, setTinted] = useState(true)
+  const [folded, setFolded] = useState(true)
   return (
     <>
       <Toolbar className="mb-3">
@@ -1302,6 +1303,9 @@ const KanbanBoard = () => {
       </Board>
       <Board derived className="mt-3">
         <BoardColumn title="No result" count={0} onAdd={() => undefined} />
+        <BoardColumn title="Ready" count={1} collapsed={folded} onCollapsedChange={setFolded} className={folded ? 'w-11' : undefined}>
+          <BoardCard title="Ship the retry coverage" />
+        </BoardColumn>
       </Board>
       <Rule>
         A card&rsquo;s column is its state, so no card repeats it — every card says who has it, how
