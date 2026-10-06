@@ -812,6 +812,26 @@ that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
 
+**As a list.** Board · List switches the same jobs into a framed table. Filter
+jobs by words or state; All starts pressed, and the default order puts Needs
+you first, then the most recent. Job number and kind stay beside its title,
+with its description or stop reason beneath it; a completion note appears only
+on finished or set-aside jobs. Assignee, state, pull request, checks, changes and
+updated time each have a column; stale or unknown facts keep their qualification.
+Completed jobs still awaiting their first evidence read remain visible as
+Checking evidence, or Evidence unavailable if that read failed. Needs you says
+why, with a stranded claim’s age first. Finished jobs show their completing
+agent only while the channel still records it; otherwise Assignee is a dash.
+Reopen is visible on finished, set-aside and hand-stopped rows; dependency-
+blocked jobs keep it in the menu. A finished outcome sits beside its state when
+there is no Needs-you reason, and owned files appear below the title. Below
+720px the job cell still names the assignee. Columns too wide for the pane keep
+their View switch disabled with the width they need, and search includes the
+state each row shows, including Checking evidence. Other verbs stay in the
+menu, revealed on hover or keyboard focus. Empty evidence columns start hidden,
+and secondary columns yield to the pane’s width so actions stay in view. The
+footer names the displayed count and order.
+
 **A conversation's Seat record.** A conversation seated as an Agent shows its
 Seat record at the head of its Agents inspector, above the sub-agents it
 started: the Agent and where it came from, what it runs on, what was passed
