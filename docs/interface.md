@@ -467,7 +467,7 @@ took, and the name card adds an *Agent* band: what it is for, its ceiling
 *The brief has changed since this started* once its file has moved on.
 
 The same ceiling vocabulary appears on six governed-seat surfaces: the
-conversation header, Agent name card, room rail, board holder, flow dry run and
+conversation header, Agent name card, members popover, board holder, flow dry run and
 Agent roster. The chip is neutral whether the limit is held or asked — most
 runtimes have no control that holds one, so `asked` is the ordinary state, not
 a warning. A held ceiling names the level (*Read only*, *Edit*, *Publish* or
@@ -990,12 +990,10 @@ observation age and qualifications; differing amount qualifications remain
 beside that amount. Older cards show their number and **Card title not recorded**
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
-A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
-rail. The header says **Wrapped** once, beside the project and wrap date,
-and draws no Wrap control or reason line. The wrapped rail hides Side by side
-and adding an Agent; Board omits its unclaimed count, and Agents show name and
-role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where the
-Agents list is one tap behind it. The Team’s Agents list keeps the same
+A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
+and adding an Agent; Board omits its unclaimed count, and members show name and
+role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where members open from the bar. The Team’s Agents list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one keeps **Conversation not kept** in its hover title, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than
@@ -1130,8 +1128,8 @@ the sentence, leaving a waiting reason whole.
 
 ### A Team's Overview
 
-Overview is the Team rail's first destination and opens by default when the
-Team has a Run. Its Run strip keeps the live line: who is working, what
+Overview is the Team's first page tab and opens by default when the
+Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
 waits on you, why it stalled or stopped, and any release still pending. It
 also keeps the Run's reason for waiting on evidence or ending without a rule
 to continue, showing each reason once. The header keeps the revision it
@@ -1152,7 +1150,7 @@ wait. The live line keeps pending release and trigger actions while these rows
 are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
-A Team without a Run opens on Chat and still offers Overview for its Seats.
+A Team without a Run that is not ready to wrap opens on Chat and still offers Overview for its Seats.
 Each member row names its nickname, with a distinct conversation title in the
 wrapping subtitle. Its task or message refusal shares that subtitle, so the
 work stays readable without adding a separate third line.
@@ -1172,7 +1170,7 @@ the row, beside the answer it refused.
 
 ### A Team's Run
 
-Run opens from the Team rail or its Overview strip. It reads oldest first:
+Run opens from its page tab or the Overview strip. It reads oldest first:
 the recorded start and brief, each round and its cards, the latest check
 result, findings, and why the Run ended. A repeated role gets its own round.
 Work in flight keeps its doing line; unknown durations and results stay unknown.

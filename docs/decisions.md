@@ -2057,7 +2057,7 @@ the reload and settings requests;
 this is not a claim about unmeasured cross-process propagation in the real agent.
 MCP login opens one interactive authorization flow on the control process only.
 The agent owns its stored credentials; Reload in Extensions sends the existing
-reload verb to conversation processes. Whether a running real agent process
+reload verb to unfiltered conversation processes. Whether a running real agent process
 re-reads a newly stored credential on reload remains unmeasured.
 
 A conversation process that fails reports `session/detached` for its own roots,

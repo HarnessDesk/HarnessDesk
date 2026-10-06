@@ -448,6 +448,7 @@ export const MenuToggle = ({
     <DropdownMenuCheckboxItem
       render={<button type="button" disabled={Boolean(disabled)} />}
       nativeButton
+      indicator={false}
       className={styles.row}
       role="switch"
       checked={checked}

@@ -7,7 +7,7 @@ test('thread worker docs separate login and reload from unmeasured credential pr
   const section = doc.split('## Finished conversations recycle their own processes')[1]?.split('\n## ')[0]
   assert.ok(section, 'the conversation-process decision is documented')
   assert.match(section, /MCP login opens one interactive authorization flow on the control process only\./)
-  assert.match(section, /Reload in Extensions sends the existing\s+reload verb to conversation processes\./)
+  assert.match(section, /Reload in Extensions sends the existing\s+reload verb to unfiltered conversation processes\./)
   assert.match(section, /Whether a running real agent process\s+re-reads a newly stored credential on reload remains unmeasured\./)
   assert.doesNotMatch(section, /Reload in Extensions applies them to\s+the open conversation processes through the existing reload fan-out\./)
 })

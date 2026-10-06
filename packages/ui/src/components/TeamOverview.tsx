@@ -45,7 +45,7 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, runRules, statusLine, defaultExpanded = false, onStop, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
+export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, runRules, statusLine, defaultExpanded = false, onStop, onWrap, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
   model: ReturnType<typeof teamOverview>
   onFindings?: (() => void) | undefined
   faceTints?: ReadonlyMap<string, Tint>
@@ -60,6 +60,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   answers?: NeedsYouAnswers | undefined
   onRun?: () => void
   onStop?: (() => void) | undefined
+  onWrap?: (() => void) | undefined
   runName?: string
   runReason?: string | null
   runRules?: readonly { readonly id: string }[] | undefined
@@ -84,12 +85,12 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const done = model.seats.filter(row => row.done)
   const rows = model.seats.filter(row => !row.done).concat(expanded ? done : [])
   const face = (row: SeatRow) => <IconTile shape="face" tint={faceTints?.get(row.seat) ?? 'blue'}>{faces?.get(row.seat) ?? <AgentIcon />}</IconTile>
-  const doing = (row: SeatRow) => {
+  const doing = (row: SeatRow, wrap = false) => {
     if (unavailable?.has(row.seat) || cardState(row) || model.needsYou.some(item => item.seat === row.seat)) return null
     const next = doingLine(held.current.get(row.seat) ?? null, row.doing, now)
     held.current.set(row.seat, next)
     const line = words(next.line ?? row.reason ?? '')
-    return line ? <div data-slot="seat-doing" title={line} className="truncate"><Text role="meta">{line}</Text></div> : null
+    return line ? <div data-slot="seat-doing" title={line} className={wrap ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'}><Text role="meta">{line}</Text></div> : null
   }
   const name = (row: SeatRow) => <Text as="span" className="block" role="subject" truncate title={words(row.name)}>{words(row.name)}</Text>
   const openName = (row: SeatRow) => opens(row) ? <Button stretched hoverFill={false} variant="row" size="content-min" bordered={false} aria-label={`Open ${words(row.name)}`} onClick={() => onOpen?.(row.seat)} className="block max-w-full">{name(row)}</Button> : name(row)
@@ -114,6 +115,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
+        {onWrap && <div data-slot="overview-header" className="flex justify-end"><Button variant="outline" onClick={onWrap}>Wrap</Button></div>}
         {run && (
           <Card spacing="compact">
             <section aria-label="Run" className="flex flex-col gap-2">
@@ -171,7 +173,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} interactive={opens(row)} className="relative isolate" onClick={opens(row) ? event => { if (event.currentTarget.contains(event.target as Node) && !(event.target as Element).closest('button')) onOpen?.(row.seat) } : undefined} lead={face(row)}
-                  title={openName(row)} subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row) ?? role(row))} wrapSubtitle={Boolean(unavailableReason(row))} trail={<>{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}{opens(row) && <ChevronIcon />}</>} />
+                  title={<div className="flex min-w-0 items-center justify-between gap-2"><span className="min-w-0 flex-1">{openName(row)}</span><span className="inline-flex shrink-0 items-center gap-2">{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}</span></div>}
+                  subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row, true) ?? role(row))} wrapSubtitle trail={opens(row) ? <ChevronIcon /> : undefined} />
               ))}
             </ListRows>
           ) : (

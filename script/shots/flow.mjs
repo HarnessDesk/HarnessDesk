@@ -29,7 +29,7 @@ try {
   await page.evaluate(() => window.__hdStore.dismissStanding({ key: 'import:offer', kind: 'import:offer', lifetime: 'once' }))
   const run = await startFlowScene(rig)
   await page.evaluate((goal) => window.__hdStore.openGoal(goal), run.goal)
-  await page.getByRole('button', { name: /^Run\b/ }).click()
+  await page.getByRole('tab', { name: /^Run\b/ }).click()
   await page.getByRole('radio', { name: 'Flow', exact: true }).click()
   const milestones = [
     ['01-write', (cards) => cards.some((one) => one.role === 'write' && one.state === 'claimed')],

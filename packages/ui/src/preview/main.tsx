@@ -1,5 +1,6 @@
 import { AgentPage } from '../components/AgentPage'
 import { PREVIEW_AGENTS } from './harness'
+import { TeamFrame } from './frames-team-frame'
 import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
@@ -1195,6 +1196,8 @@ createRoot(container).render(
           ? <RuntimeCostPreview />
           : new URLSearchParams(window.location.search).has('native-servers')
           ? <NativeServersPreview />
+          : new URLSearchParams(window.location.search).has('team-frame')
+          ? <TeamFrame />
           : new URLSearchParams(window.location.search).has('inapplicable-actions')
           ? <InapplicableActionsFrames />
           : new URLSearchParams(window.location.search).has('flow-canvas')
