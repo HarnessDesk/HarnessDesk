@@ -184,6 +184,9 @@ those content insets. A board column's state dot hangs before its card-text
 edge; the heading and empty line derive that edge from the card tier and
 border. `ToolPaneHeader contentInset="board"` derives the same text column
 through the dense body and column, and the card tier, rather than fixing their old numbers.
+`ToolPaneHeader contentInset="reading-table"` aligns its title with the first
+cell’s text inside a framed table in a reading `PaneColumn`: reading gutter
+plus table edge. Notices above that table keep the reading gutter too.
 
 The tier rule judges **content containers**. Buttons, inputs, chips, compact
 navigation targets and menu panels keep their own measured control rhythm;
@@ -729,7 +732,10 @@ Settings › Appearance › Faces (`body[data-hd-faces='round']`). Draw a face w
 `MemberName`. A face drawn as a bare `square` tile would be the one face that
 ignores the setting. The ring and the square do not move with Faces: an
 account was already round, and a thing staying square is how a round face
-still reads as someone.
+still reads as someone. An unassigned job uses `IconTile shape="face" empty`:
+an empty face outline means nobody is assigned, and follows the Faces setting.
+A finished job with no recoverable completer shows only a quiet dash; no empty
+face claims that nobody did the work.
 
 A tinted face is filled with its tint's ink and uses the accent foreground for
 its mark or initials. Other tinted tiles, including square and round ones,
@@ -1822,6 +1828,11 @@ only when it tells rows apart. Only interactive rows hover; selected table,
 matrix and record-list rows use the same selected fill. Navigation keeps its
 own destination semantics. The Tables catalogue board and “Tables: the family”
 preview frame mount the same real components in both densities.
+
+The Board list omits all-empty evidence columns by default; the view menu
+still offers them. Secondary columns yield to the board pane’s container
+width, preserving the job and its action cell. Titles wrap even when a path
+has no spaces; notes wrap for at most two lines, with full text in `title`.
 
 Library switches from its Skill/Server, State and Loaded by table to list rows
 below 600px of list-container width. The title keeps the name and command,

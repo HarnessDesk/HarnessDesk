@@ -33,6 +33,9 @@ import { TabsList, TabsTrigger } from './tabs'
  * `bleed` is for a body that must reach the frame's edge — a viewport, a
  * terminal, a video. Padding inside a pane whose content has its own ground
  * draws a border nobody asked for.
+ * `contentInset="board"` aligns the header with board-card text.
+ * `contentInset="reading-table"` aligns it with the first cell text inside
+ * a framed table in a reading PaneColumn (reading gutter plus table edge).
  */
 
 const ToolPane = ({
@@ -78,8 +81,8 @@ const ToolPaneHeader = ({
   /** Leave room for the native window controls when this pane owns the corner. */
   corner?: boolean
   variant?: 'default' | 'window'
-  /** Align the title with text in the board’s nested column and card. */
-  contentInset?: 'board' | 'reading'
+  /** Align the title with board text, receipt content, or a framed table inside a reading PaneColumn. */
+  contentInset?: 'board' | 'reading' | 'reading-table'
   hint?: string
 }) => (
   <header
@@ -101,6 +104,9 @@ const ToolPaneHeader = ({
       contentInset === 'board' && (icon != null
         ? 'pl-[calc(2*var(--hd-inset-dense)+var(--hd-inset-card)+2*var(--hd-border-width)-var(--hd-space-4)-var(--hd-bar-gap))]'
         : 'pl-[calc(2*var(--hd-inset-dense)+var(--hd-inset-card)+2*var(--hd-border-width))]'),
+      contentInset === 'reading-table' && (icon != null
+        ? 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge)-var(--hd-space-4)-var(--hd-bar-gap))] pr-(--hd-space-6)'
+        : 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge))] pr-(--hd-space-6)'),
       className,
     )}
     {...props}
