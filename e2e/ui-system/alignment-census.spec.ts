@@ -119,7 +119,7 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
   const firstBodyColumn = (element: Element, iconTab: boolean) => {
     const candidates = [element, ...element.querySelectorAll('*')].filter(candidate =>
       !candidate.closest('[data-slot="alert"]') && (
-        candidate.matches('[data-slot="search"] input, [data-slot="list-row-title"], [data-slot="approval-code"]') ||
+        candidate.matches('[data-slot="search"] input, [data-slot="list-row-title"], [data-slot="tabs-trigger"], [data-slot="approval-code"]') ||
         (hasText(candidate) && !candidate.closest('button') && !candidate.querySelector('button, [data-slot="alert"], [data-slot="approval-code"], [data-slot="search"] input'))
       ))
     for (const candidate of candidates) {
@@ -438,6 +438,7 @@ test('placement frames are measured without exemptions', async ({ page }) => {
 for (const [name, body] of [
   ['input', '<span data-slot="search"><input placeholder="Filter sessions" style="margin-left:16px; border:0; padding-left:24px"></span><span style="margin-left:200px">this week</span>'],
   ['navigation', '<button style="margin-left:40px; padding:0; border:0"><span data-slot="list-row-title">Overview</span></button><p style="margin-left:16px">Agents</p>'],
+  ['section tabs', '<div role="tablist"><button data-slot="tabs-trigger" style="margin-left:40px; padding:0; border:0">Overview</button></div><p style="margin-left:16px">Chat content</p>'],
   ['nested box', '<pre data-slot="approval-code" style="margin:0 0 0 40px; padding:12px; border:1px solid; width:200px"><code>pnpm test</code></pre>'],
 ] as const) {
   test(`a header compares with its ${name} body column`, async ({ page }) => {
