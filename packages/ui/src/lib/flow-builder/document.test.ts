@@ -58,10 +58,7 @@ describe('the builder document', () => {
     const role = policy.roles[0]!.id
     const document = createDocument({
       ...policy,
-      layout: {
-        ...(policy.layout ?? {}),
-        positions: { ...(policy.layout?.positions ?? {}), [role]: { x: 10.5, y: 20.5 } },
-      },
+      layout: { positions: { [role]: { x: 10.5, y: 20.5 } } },
     }, source)
     const graph = documentGraph(document)
     expect(graph.nodes.find((node) => node.data.kind === 'step' && node.data.role.id === role)!.position).toEqual({ x: 10.5, y: 20.5 })
@@ -142,7 +139,10 @@ describe('the builder document', () => {
   })
 
   it('refuses stale, missing and semantic graph changes instead of losing them', () => {
-    const document = createDocument(emptyShapePolicy())
+    const document = createDocument({
+      ...emptyShapePolicy(),
+      roles: [{ id: 'review', kind: 'agent', uses: [], seats: [], grant: 'edit', isolate: true, independentOf: [] }],
+    })
     const graph = documentGraph(document)
     expect(() => graphDocument(document, { ...graph, nodes: [] })).toThrow(/operations/i)
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...graph.nodes[0]!, id: 'unknown' }] })).toThrow(/operations/i)
@@ -152,10 +152,11 @@ describe('the builder document', () => {
     const step = graph.nodes[0]!
     if (step.data.kind !== 'step') throw new Error("Expected the empty draft's node to be a step")
     const stepData = step.data
+    if (stepData.role.kind !== 'agent') throw new Error("Expected the empty draft's role to be an Agent")
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, id: 'changed' } } }] })).toThrow(/step/i)
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, name: 'Changed' } } }] })).toThrow(/step/i)
-    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, blind: false } } }] })).toThrow(/step/i)
-    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, extra: true } } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, blind: false } as never } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, extra: true } as never } }] })).toThrow(/step/i)
     expect(() => graphDocument(document, { ...graph, nodes: [...graph.nodes, { ...step, id: 'extra' }] })).toThrow(/operations/i)
     expect(() => graphDocument(document, { ...graph, edges: [...graph.edges, { id: 'extra', source: null, target: null, data: { rule: {}, view: {} } as never }] })).toThrow(/operations/i)
 

@@ -224,7 +224,9 @@ describe('pure edits', () => {
     }
 
     const specialists = shippedDocument('review')
-    const threeSpecialists = specialists.policy.roles.find((candidate) => candidate.kind === 'agent' && candidate.uses.length === 3)!
+    const threeSpecialists = specialists.policy.roles.find((candidate): candidate is FlowAgentRole => (
+      candidate.kind === 'agent' && candidate.uses.length === 3
+    ))!
     const specialistsId = specialists.steps.find((step) => step.role === threeSpecialists.id)!.id
     expect(setSeat(specialists, specialistsId, [])).toBe(specialists)
     expect(setAgent(specialists, specialistsId, threeSpecialists.uses)).toBe(specialists)
