@@ -52,6 +52,23 @@ describe('the builder document', () => {
     expect(sourceRequest(document)).toEqual({ kind: 'source', source })
   })
 
+  it('keeps unchanged fractional saved positions exact during graph sync', () => {
+    const source = shipped['../../../../server/flows/review.yml'] as string
+    const policy = policyOf(source)
+    const role = policy.roles[0]!.id
+    const document = createDocument({
+      ...policy,
+      layout: {
+        ...(policy.layout ?? {}),
+        positions: { ...(policy.layout?.positions ?? {}), [role]: { x: 10.5, y: 20.5 } },
+      },
+    }, source)
+    const graph = documentGraph(document)
+    expect(graph.nodes.find((node) => node.data.kind === 'step' && node.data.role.id === role)!.position).toEqual({ x: 10.5, y: 20.5 })
+    expect(graphDocument(document, graph)).toBe(document)
+    expect(sourceRequest(document)).toEqual({ kind: 'source', source })
+  })
+
   it('reads explicit coordinates exactly, fills missing ones from auto layout, and keeps unknown metadata', () => {
     const policy = { ...emptyShapePolicy(), roles: [...emptyShapePolicy().roles, { id: 'done', kind: 'person' as const, outcomes: ['done'] }], layout: { positions: { review: { x: -100, y: 250 } }, frontDoor: { order: 3 }, other: { key: 'kept' } } }
     const document = createDocument(policy)

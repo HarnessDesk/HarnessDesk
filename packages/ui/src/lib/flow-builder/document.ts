@@ -182,13 +182,17 @@ export const graphDocument = (document: BuilderDocument, graph: BuilderGraph): B
     if (!node || !matchesOwnedFields(node.data, before.data)) throw new Error('Use document operations to edit a step')
     const point = boundedPosition(node.position.x, node.position.y)
     if (!point) throw new Error('A position must be finite')
-    if (point.x === before.position.x && point.y === before.position.y) continue
+    const position = {
+      x: node.position.x === before.position.x ? before.position.x : point.x,
+      y: node.position.y === before.position.y ? before.position.y : point.y,
+    }
+    if (position.x === before.position.x && position.y === before.position.y) continue
     if (before.data.kind === 'step') {
-      positions[before.id] = point
+      positions[before.id] = position
       positionsChanged = true
     } else {
       const index = notes.findIndex((note) => note.id === before.id)
-      notes[index] = { ...notes[index]!, position: point }
+      notes[index] = { ...notes[index]!, position }
       notesChanged = true
     }
   }
