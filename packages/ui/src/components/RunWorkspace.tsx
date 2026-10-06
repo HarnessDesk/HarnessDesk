@@ -92,7 +92,7 @@ const DockedRunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
       selectedStep: view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : null,
       onSelect: view.onSelect, onSelectStep: id => view.onSelect(`step:${id}`) },
   }), [dock, owner, inspector, view.selectedRow, view.faces, view.onSelect])
-  return <div data-slot="run-workspace" className="flex min-h-0 min-w-0 flex-1">
+  return <div data-slot="run-workspace" data-view={tab} className={styles.workspace}>
     <RunView {...view} view={tab} onDetails={() => { view.onSelect('run'); show('run-details', true) }}
       onView={next => { if (view.view === undefined) keep(next); view.onView?.(next); show(next === 'flow' ? 'run-steps' : 'run-details') }}
       onSelect={id => { view.onSelect(id); show('run-details', true) }} />

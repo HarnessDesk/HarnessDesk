@@ -68,7 +68,7 @@ const draw = async (flow: FlowPolicy, ceilings?: ReadonlyMap<string, SeatCeiling
 const stepsOf = () => [...container.querySelectorAll<HTMLElement>('[data-slot="flow-step"]')]
 
 it('draws a card for each step, in the model\'s order, each saying what it is, its name and its one line', async () => {
-  await await draw(blueprint(), new Map([['write', ran('edit', 'asked')]]))
+  await draw(blueprint(), new Map([['write', ran('edit', 'asked')]]))
   const steps = stepsOf()
   expect(steps.map((step) => step.dataset['step'])).toEqual(['write', 'check', 'review', 'land', 'fix', 'you'])
   expect(steps.map((step) => step.dataset['kind'])).toEqual(['agent', 'check', 'agent', 'check', 'agent', 'person'])
@@ -79,7 +79,7 @@ it('draws a card for each step, in the model\'s order, each saying what it is, i
 })
 
 it('tints a step by its kind and draws every mark as the thing it is, not a face', async () => {
-  await await draw(blueprint())
+  await draw(blueprint())
   const tiles = stepsOf().map((step) => step.querySelector('[data-slot="icon-tile"]'))
   expect(tiles.map((tile) => tile?.getAttribute('data-tint'))).toEqual(['violet', 'sky', 'violet', 'sky', 'violet', 'amber'])
   expect(tiles.every((tile) => tile?.getAttribute('data-shape') === 'square')).toBe(true)
@@ -95,7 +95,7 @@ it('scales layout pitch to the rendered card dimensions without a second layout'
 })
 
 it('fans a step that opens several seats into cards behind the front one, which assistive technology skips', async () => {
-  await await draw(blueprint())
+  await draw(blueprint())
   const review = container.querySelector<HTMLElement>('[data-step="review"]')!
   const behind = review.querySelectorAll('[data-behind]')
   expect(behind).toHaveLength(2)
@@ -113,7 +113,7 @@ it('draws the merged rules as engine edges, including loops and arrow markers', 
 })
 
 it('says the outcome word of a rule on its line, and marks a loop\'s word as a retry', async () => {
-  await await draw(blueprint())
+  await draw(blueprint())
   const words = [...container.querySelectorAll<HTMLElement>('[data-slot="flow-word"]')]
   expect(words.map((word) => word.textContent)).toEqual(['passes', 'approve', 'request-changes', 'landed'])
   expect(words.map((word) => word.hasAttribute('data-retry'))).toEqual([false, false, true, false])
@@ -122,7 +122,7 @@ it('says the outcome word of a rule on its line, and marks a loop\'s word as a r
 })
 
 it('draws no word for a rule nothing guards', async () => {
-  await await draw(policy([agent('write'), agent('review')], [rule('r1', 'write', 'review')]))
+  await draw(policy([agent('write'), agent('review')], [rule('r1', 'write', 'review')]))
   expect(container.querySelectorAll('[data-slot="flow-word"]')).toHaveLength(0)
 })
 
@@ -134,7 +134,7 @@ it('exposes both engine selection and an accessible step list at every width', a
 })
 
 it('lists every step and says what each is, so a screen reader reaches what the drawing shows', async () => {
-  await await draw(blueprint(), new Map([['write', ran('edit', 'held')]]))
+  await draw(blueprint(), new Map([['write', ran('edit', 'held')]]))
   const steps = container.querySelector<HTMLElement>('section[aria-label="Steps"]')!
   const rows = [...steps.querySelectorAll('[data-slot="list-row"]')]
   expect(rows).toHaveLength(6)
@@ -148,7 +148,7 @@ it('lists every step and says what each is, so a screen reader reaches what the 
 })
 
 it('lists every rule as a sentence, loops included, in the order the file wrote them', async () => {
-  await await draw(blueprint())
+  await draw(blueprint())
   const rules = container.querySelector<HTMLElement>('section[aria-label="Rules"]')!
   const rows = [...rules.querySelectorAll('[data-slot="row"]')]
   expect(rows.map((row) => row.querySelector('[data-slot="row-title"]')!.textContent)).toEqual([
@@ -160,7 +160,7 @@ it('lists every rule as a sentence, loops included, in the order the file wrote 
 })
 
 it('says so when a Flow has no rule, instead of an empty list', async () => {
-  await await draw(policy([agent('write')], []))
+  await draw(policy([agent('write')], []))
   const rules = container.querySelector<HTMLElement>('section[aria-label="Rules"]')!
   expect(rules.textContent).toContain('No rules')
 })
@@ -256,7 +256,7 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
 
 
 it('marks command steps with terminals in the blueprint drawing and catalogue list', async () => {
-  await await draw(blueprint())
+  await draw(blueprint())
   for (const id of ['check', 'land']) {
     expect(container.querySelector(`[data-step="${id}"] .lucide-square-terminal`)).not.toBeNull()
     expect(container.querySelector(`[data-step-row="${id}"] .lucide-square-terminal`)).not.toBeNull()
