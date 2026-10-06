@@ -195,6 +195,10 @@ it('Hand keeps selection and refuses keyboard moves and removals', async () => {
   expect(onNodesChange).not.toHaveBeenCalled()
   expect(onEdgesChange).not.toHaveBeenCalled()
   expect(host.querySelector('.react-flow__node[data-id="write"]')?.classList.contains('selected')).toBe(true)
+  const descriptions = () => [...host.querySelectorAll('[id*="node-desc"], [id*="edge-desc"]')].map(el => el.textContent ?? '').join(' ')
+  expect(descriptions()).not.toMatch(/move selected|remove/i)
+  act(() => (host.querySelector('[aria-label="Select tool"]') as HTMLElement).click())
+  expect(descriptions()).toContain('Arrow keys move selected steps')
 })
 const lastNode: FlowCanvasNode = { id: 'last', position: { x: 600, y: 0 }, data: { name: 'Last', kind: 'person' } }
 const ControlledRemoval = ({ initialNodes, initialEdges = [] }: { initialNodes: FlowCanvasNode[]; initialEdges?: (typeof edges[number] & { selected?: boolean })[] }) => {

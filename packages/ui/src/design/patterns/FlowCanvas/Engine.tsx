@@ -298,18 +298,19 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
     }
   }
   const ariaLabelConfig = useMemo(() => {
-    const nodeDescription = readOnly
-      ? 'Press Enter to select this step. This plan is read-only.'
+    const modeDescription = readOnly ? 'This plan is read-only.' : 'The Hand tool pans this plan.'
+    const nodeDescription = readOnly || tool === 'hand'
+      ? `Press Enter to select this step. ${modeDescription}`
       : 'Press Enter to select this step. Arrow keys move selected steps. Press Delete or Backspace to remove the selection.'
-    const edgeDescription = readOnly
-      ? 'Press Enter or Space to select this rule. This plan is read-only.'
+    const edgeDescription = readOnly || tool === 'hand'
+      ? `Press Enter or Space to select this rule. ${modeDescription}`
       : 'Press Enter or Space to select this rule. Press Delete or Backspace to remove it.'
     return {
       'node.a11yDescription.default': nodeDescription,
       'node.a11yDescription.keyboardDisabled': nodeDescription,
       'edge.a11yDescription.default': edgeDescription,
     }
-  }, [readOnly])
+  }, [readOnly, tool])
   // The map yields its corner whenever it would cover a rendered card.
   const minimapClear = nodes.every(node => {
     const left = node.position.x * transform[2] + transform[0], top = node.position.y * transform[2] + transform[1]
