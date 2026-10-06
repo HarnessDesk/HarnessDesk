@@ -548,26 +548,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         }
         subtitleFace="text"
         actions={
-          /* One primary, said as a button.
-             ---------------------------------------------------------------
-             This strip used to be a 44px-wide text field wearing a + and a
-             `…`, and it was the wrong shape three times over. A field in a
-             pane header reads as a *filter* — every other header in this app
-             that carries one is searching what is below it — so the one
-             control that adds work looked like the one control that hides
-             it. It was also the only way in: the dialog that asks for the
-             fields the host actually referees (the files a job owns, what it
-             waits on, which goal it belongs to) hid behind an ellipsis
-             inside the field, which is a button inside a text box and reads
-             as a truncation. And a field cannot be the loudest thing on a
-             header, so the board had no primary action at all.
-
-             The quick path is not lost, it has moved to where the card lands:
-             the Ready column's own slot takes a title and Enter, in the one
-             place on the screen that is already about adding work. What is
-             here now is what a header is for — the whole-board actions, with
-             the loud one last, which is the order the reference draws and the
-             order macOS reads. */
+          /* Top-bar actions stay outlined: a filled button belongs with the
+             work itself. The Ready column keeps its contextual title-and-
+             Enter shortcut, while the header holds the board-wide verbs. */
           <div className="flex items-center gap-1.5">
             {/* Offered only when both halves exist — a button that opens a
                 dialog to say "nothing to hand out" is a button that lies about
