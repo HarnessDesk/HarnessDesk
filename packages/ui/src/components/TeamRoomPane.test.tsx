@@ -4065,3 +4065,58 @@ it('a ready Team puts its Wrap button on Overview, while the bar keeps Wrap in M
  const overview=container.querySelector('[data-slot="team-overview"]')!
  expect([...overview.querySelectorAll('button')].some(one=>one.textContent==='Wrap')).toBe(true)
 })
+
+
+it('leaves every page tab unmarked while one member conversation is open', async () => {
+ const {store}=rig(undefined,undefined,{},GOAL)
+ await render(store)
+ act(()=>row('Overview').click()); await act(async()=>{})
+ const member = memberList().querySelector<HTMLElement>('[data-slot="list-row"]')!
+ act(()=>member.click()); await act(async()=>{})
+ expect(container.querySelector('[data-team-page][aria-selected="true"]')).toBeNull()
+})
+
+it('explains why a Team has no Run to open', async () => {
+ const {store}=rig()
+ await render(store)
+ const run=container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+ expect(run.getAttribute('aria-disabled')).toBe('true')
+ expect(run.title).toBe('This Team has no Run yet')
+})
+
+it('draws held board messages in warning ink while keeping the pressed state', async () => {
+ const {store}=rig(undefined,undefined,{messaging:false},GOAL)
+ await render(store)
+ const hold=container.querySelector<HTMLElement>('button[aria-label="Hold messages at the board"]')!
+ expect(hold.getAttribute('aria-pressed')).toBe('true')
+ expect(hold.getAttribute('data-variant')).toBe('warning')
+})
+
+it('counts all retained members in the same denominator as its hover text', async () => {
+ const members=[{id:'missing',session:{runtime:'codex',sessionId:'missing'},agent:{name:'Gamma'},openedAt:1,closed:null}]
+ const {store}=rig(undefined,undefined,{}, {...GOAL,members:members as unknown as GoalView['members']})
+ await render(store)
+ const count=container.querySelector<HTMLElement>('header [data-team-members-count]')!
+ expect(count).not.toBeNull()
+ expect(count.textContent).toBe('3')
+ expect(count.title).toBe('2 of 3 here')
+})
+
+it('keeps members without conversations in the hover denominator after wrapping',async()=>{
+ const {store}=rig([],undefined,{members:[]},receiptGoal(['lost','lost-too'],[
+  {seat:'lost',agent:'Writer',seatLabel:'Alpha'},
+  {seat:'lost-too',agent:null,seatLabel:'Gamma'},
+ ]))
+ await render(store)
+ const count=container.querySelector<HTMLElement>('header [data-team-members-count]')!
+ expect(count.textContent).toBe('2')
+ expect(count.title).toBe('0 of 2 here')
+})
+
+it('keeps the members trigger on the target floor even before any Agent is seated',async()=>{
+ const {store}=rig([],undefined,{members:[]},GOAL)
+ await render(store)
+ const trigger=container.querySelector<HTMLElement>('header button[title="Team members"]')!
+ expect(trigger.className).toContain('min-w-(--hd-target-min)')
+ expect(trigger.querySelector('svg')).not.toBeNull()
+})

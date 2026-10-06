@@ -315,37 +315,38 @@ test.describe('rule: names', () => {
     expect(after.out.some((finding) => finding.text === '4096')).toBe(false)
   })
 
-  test('rule: names — the checker reads a ListRow title against the role it declares', async ({ page }) => {
+  test('rule: names — the checker reads a mounted member title against its navigation role', async ({ page }) => {
     await gotoPreview(page)
-    const before = await namesViolations(page)
-    await page.addStyleTag({ content: '[data-slot="list-row-title"][data-role="navigation"] { font-weight: 600 !important; }' })
-    const after = await namesViolations(page)
-    expect(after.out.length).toBeGreaterThan(before.out.length)
-    expect(after.out.some((f) => f.reason.includes('role navigation wants 13/400') && f.weight === 600)).toBe(true)
+    for (const theme of ['light','dark'] as const) {
+      await setPreviewDials(page,theme,'desk')
+      await page.locator('[data-frame-id="goal-roster"]').getByRole('button',{name:'Team members',exact:true}).click()
+      const rows=page.locator('[data-slot="team-members"] [data-slot="list-row-title"][data-role="navigation"]')
+      await expect(rows.first()).toBeVisible()
+      const before=await namesViolations(page)
+      const mutation=await page.addStyleTag({content:'[data-slot="team-members"] [data-slot="list-row-title"][data-role="navigation"] { font-weight:600 !important; }'})
+      const after=await namesViolations(page)
+      expect(after.out.length).toBeGreaterThan(before.out.length)
+      expect(after.out.some(f=>f.reason.includes('role navigation wants 13/400')&&f.weight===600)).toBe(true)
+      await mutation.evaluate(style=>style.remove())
+      await page.keyboard.press('Escape')
+    }
   })
 
-  test('rule: names — the Team rail draws a member’s name in the navigation pair (13/400)', async ({ page }) => {
+  test('rule: names — Team members draws each name in the navigation pair (13/400)', async ({ page }) => {
     await gotoPreview(page)
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
-        const titles = await page.evaluate(() =>
-          [...document.querySelectorAll('[data-slot="list-row"].group\\/member [data-slot="list-row-title"]')]
-            .filter((el) => (el as HTMLElement).offsetParent !== null)
-            .map((el) => {
-              const cs = getComputedStyle(el)
-              return {
-                text: (el.textContent ?? '').trim(),
-                role: el.getAttribute('data-role'),
-                size: Math.round(parseFloat(cs.fontSize)),
-                weight: Number(cs.fontWeight),
-              }
-            }),
-        )
-        expect(titles.length, `${theme}/${look}: no rail member row was found`).toBeGreaterThan(0)
-        for (const title of titles) {
-          expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({ role: 'navigation', size: 13, weight: 400 })
-        }
+        await page.locator('[data-frame-id="goal-roster"]').getByRole('button',{name:'Team members',exact:true}).click()
+        const members=page.locator('[data-slot="team-members"]')
+        await expect(members).toBeVisible()
+        const titles=await members.locator('[data-slot="list-row-title"]').evaluateAll(nodes=>nodes.map(el=>{
+          const cs=getComputedStyle(el)
+          return {text:(el.textContent??'').trim(),role:el.getAttribute('data-role'),size:Math.round(parseFloat(cs.fontSize)),weight:Number(cs.fontWeight)}
+        }))
+        expect(titles.length, `${theme}/${look}: no member row was found`).toBeGreaterThan(0)
+        for (const title of titles) expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({role:'navigation',size:13,weight:400})
+        await page.keyboard.press('Escape')
       }
     }
   })

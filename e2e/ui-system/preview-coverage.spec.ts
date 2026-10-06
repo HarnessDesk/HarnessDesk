@@ -270,9 +270,10 @@ test.describe('preview coverage', () => {
     // and the pane with no session at all; the board's tool approvals; whole
     // windows whose Workbench draws the notice's fallback host; compact
     // inspectors include the Seat record and its attachments — so each is visited too.
-    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list']) {
+    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls']) {
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') await page.getByRole('radio', { name: 'List', exact: true }).click()
+      if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', {name:'Fill the window',exact:true})).toBeVisible()
       await page.waitForTimeout(1200)
       const result = await collectCoverage(page)
       allComponents = result.allComponents

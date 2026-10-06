@@ -920,8 +920,8 @@ reads it against that pair exactly. The Dashboard's band heads are `section` (16
 drawn through `SectionHead`'s heading level (#1122).
 
 The owner's 1A decision on 2026-10-03 keeps list navigation and the Team
-rail's member rows at 13/400. The heavier rail variant proposed in #1220 is
-not planned; a member named in the rail follows its navigation role.
+members popover's rows at 13/400. The heavier rail variant proposed in #1220 is
+not planned; a member named in the popover follows its navigation role.
 
 ### Group labels
 
@@ -1565,7 +1565,7 @@ has never been tested.
 
 ## The Team overview
 
-Overview is the first destination on a Team's rail. A Team with a Run opens
+Overview is the first page tab in a Team. A Team with a Run opens
 there; one without a Run opens on Chat. The Run's current round and recorded
 usage lead, followed by what needs the person and the Seats in attention order:
 Needs you, Unread, Working, then Idle. Each Seat carries its face, role, card,
@@ -1752,13 +1752,13 @@ no steps, in both faces.
 ### The wrapped Team
 
 Wrap retains the same pane and navigation, opening on Receipt. The receipt
-scrolls in the body, leaving the rail and its Agents available. In a narrow
-pane Receipt is the half that shows, for a Team that never had a Run as much as
-for one a Run wrapped, and the Agents list is one tap behind it. Overview and
+scrolls in the content column, leaving the page tabs and Team members trigger
+available. Receipt opens for a Team that never had a Run as much as for one a
+Run wrapped, and the Agents list opens from the members popover. Overview and
 Run stay readable. The shared Seat list reads the receipt's captured
 conversations, then an older receipt's answers, naming each conversation once
 however many Seats were retained for it; an unlinked Seat remains a face and
-name with **Conversation not kept**, without an opening action, and the rail's
+name with **Conversation not kept**, without an opening action, and the popover's
 **No Agents were kept** line is for a receipt that kept no Seat at all.
 Dispatching controls and both composers are disabled with **This Team is
 wrapped**, the conversation menu's **Compact now** and the branch chip's

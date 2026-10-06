@@ -214,7 +214,7 @@ export const TeamRoomPane = ({
     name: stopSeatNames.get(seat.id) ?? 'Agent',
     interrupt: snapshot.runtimes.find(runtime => runtime.id === seat.session.runtime)?.capabilities.interrupt,
   }))
-  /** Shared by the bar's full Wrap button and its narrow ⋯ fallback. */
+  /** Shared by Overview's Wrap button and the More menu. */
   const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
   /**
    * The run this Goal names for itself — its reservation, else the flow that
@@ -946,6 +946,7 @@ export const TeamRoomPane = ({
      every row shown would say it, so it is said once above them. */
   const idleShared = shown.length > 1 && shown.every((member) => member.idleOnBoard)
 
+  const memberPresence = {total:allSeats.length,here:allSeats.filter(seat => roster.some(member => member.key === seat.key && member.here)).length}
   const headerLayout = useNarrowLayout<HTMLElement>(608)
   // The bar uses PR evidence on every page, including the initial Overview.
   useEffect(() => { void store.loadBoardEvidence(room).catch(() => undefined) }, [store, room])
@@ -988,12 +989,12 @@ export const TeamRoomPane = ({
           <div className={styles.barFacts}>
             {runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
             {originStatus && <OriginChip status={originStatus} name={title} />}
-            <Popover title="Team members" align="right" triggerVariant={{variant:'ghost',size:'content-min'}}
-              label={<><span aria-hidden className="flex items-center gap-(--hd-space-1)"><AvatarStack size="sm" shape="round" members={allSeats.map(seat => {
+            <Popover title="Team members" align="right" triggerVariant={{variant:'ghost',size:'content-min',className:'min-w-(--hd-target-min)'}}
+              label={<><span aria-hidden className="flex items-center gap-(--hd-space-1)">{allSeats.length === 0 ? <AgentIcon size={14} /> : <AvatarStack size="sm" members={allSeats.map(seat => {
                 const entry = roster.find(one => one.key === seat.key)
                 return {id:seat.record.id,name:seat.name,tint:entry?.tint ?? receiptFaces.get(seat.record.id)?.tint,
                   mark:entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
-              })} /><Text role="meta" numeric title={`${roster.filter(one => one.here).length} of ${roster.length} here`}>{allSeats.length}</Text></span><span className="sr-only">Team members</span></>}>
+              })} />}<Text role="meta" numeric data-team-members-count="" title={`${memberPresence.here} of ${memberPresence.total} here`}>{memberPresence.total}</Text></span><span className="sr-only">Team members</span></>}>
               {close => <div data-slot="team-members" className={styles.members}>
           {/* The roster's heading does three jobs: names the section, counts
               it, and carries the one verb a roster is for. Adding a member used
@@ -1125,7 +1126,7 @@ export const TeamRoomPane = ({
           <span className={styles.barWrapFull} hidden={headerLayout.narrow === true}>
             {!record && <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={open === 'side-by-side'}
               disabled={roster.length === 0} title={roster.length === 0 ? 'Seat an Agent to show conversations side by side' : 'Show Seat conversations side by side'} onClick={toggleSideBySide}><SideBySideIcon size={14} /></Button>}
-            <Button variant="ghost" size="icon-sm" aria-label="Hold messages at the board" aria-pressed={!messaging}
+            <Button variant={messaging ? 'ghost' : 'warning'} size="icon-sm" aria-label="Hold messages at the board" aria-pressed={!messaging}
               disabled={record} title={record ? RECORD_REASON : messaging ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.' : 'Messages wait for the board. Press to let members message each other again.'}
               onClick={() => void toggleMessaging()}>{messaging ? <CommentIcon size={14} /> : <MessageOffIcon size={14} />}</Button>
             {pullRequest && <Button variant="ghost" size="icon-sm" aria-label={`Pull request #${pullRequest.number}`} title={`Open pull request #${pullRequest.number}`} onClick={() => void openExternal(pullRequest.url)}><PullRequestIcon size={14} /></Button>}
@@ -1142,12 +1143,11 @@ export const TeamRoomPane = ({
             </Menu>}
           </Popover>
         </div>} />
-      <Tabs value={open === 'side-by-side' || singleMember ? selectedPage.current : open}
-        onValueChange={value => show(value as 'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings')} className={styles.tabs}>
+      <Tabs value={singleMember ? null : open === 'side-by-side' ? selectedPage.current : open} className={styles.tabs}>
         <TabsList variant="section" contentInset={open === 'receipt' && sidebarPlacement(snapshot) === 'column' ? 'reading' : undefined} aria-label="Team pages">
           <TabsTrigger value="overview" onClick={() => show('overview')} data-team-page="overview">Overview{overview.needsYou.length > 0 && <Text role="meta" numeric tone="warning">{overview.needsYou.length}</Text>}</TabsTrigger>
           {goal?.receipt && <TabsTrigger value="receipt" onClick={() => show('receipt')} data-team-page="receipt">Receipt</TabsTrigger>}
-          <TabsTrigger value="run" onClick={() => show('run')} data-team-page="run" disabled={runs.length === 0}>Run{runs.length > 0 && <Text role="meta" numeric>{runs.length}</Text>}</TabsTrigger>
+          <TabsTrigger value="run" onClick={() => show('run')} data-team-page="run" disabled={runs.length === 0} title={runs.length === 0 ? 'This Team has no Run yet' : undefined}>Run{runs.length > 0 && <Text role="meta" numeric>{runs.length}</Text>}</TabsTrigger>
           <TabsTrigger value="board" onClick={() => show('board')} data-team-page="board">Board<Text role="meta" numeric>{intents.length}</Text></TabsTrigger>
           <TabsTrigger value="room" onClick={() => show('room')} data-team-page="room" title="Everyone in this Team">Chat{held > 0 && <Text role="meta" numeric>{held} held</Text>}</TabsTrigger>
           {goal && <TabsTrigger value="findings" onClick={() => show('findings')} data-team-page="findings">Findings{findingCount !== undefined && <Text role="meta" numeric>{findingCount}</Text>}</TabsTrigger>}

@@ -299,7 +299,7 @@
 }
 
 @container hd-header (max-width: 22rem) {
-  .barFacts [data-slot='avatar-stack'] {
+  .barFacts [data-team-members-count] {
     display: none;
   }
 }

@@ -95,7 +95,7 @@
 .groupLabel {
   font-size: var(--hd-text-sm);
   /* Group labels share the foundation's weight in every interface. */
-  font-weight: var(--hd-label-weight);
+  font-weight: var(--hd-label-weight); /* desk: group labels use the shared medium weight in both interfaces */
   color: var(--hd-secondary-foreground);
 }
 

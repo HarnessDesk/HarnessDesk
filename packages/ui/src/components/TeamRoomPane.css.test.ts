@@ -145,3 +145,14 @@ describe('the narrow rail and the narrow header', () => {
   })
 })
 
+
+
+it('the narrow header keeps its faces and hides only the membership count', () => {
+ expect(css).not.toContain(".barFacts [data-slot='avatar-stack']")
+ expect(css).toContain(".barFacts [data-team-members-count]")
+})
+
+it('updates the page once through its click handler', () => {
+ const tabs=source.slice(source.indexOf('<Tabs value='),source.indexOf('</Tabs>'))
+ expect(tabs).not.toContain('onValueChange=')
+})

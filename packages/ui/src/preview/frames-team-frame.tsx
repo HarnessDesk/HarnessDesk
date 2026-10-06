@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { Sidebar } from '../components/Sidebar'
@@ -10,6 +10,13 @@ import { overviewTeamStore } from './team-overview-fixture'
 /** The real Team frame and unchanged sidebar, with placeholder-only membership. */
 export const TeamFrame = () => {
  useTheme()
+ const controls = new URLSearchParams(location.search).get('team-frame') === 'controls'
+ const box = useRef<HTMLDivElement>(null)
+ useEffect(() => {
+  if (!controls) return
+  const frame=requestAnimationFrame(() => box.current?.querySelector<HTMLButtonElement>('header button[title="More"]')?.click())
+  return () => cancelAnimationFrame(frame)
+ }, [controls])
  const store = useMemo(() => {
   const scene = new URLSearchParams(location.search).get('team-frame')
   const own = overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' ? 'running' : 'needs-you')
@@ -20,7 +27,7 @@ export const TeamFrame = () => {
   return own
  }, [])
  return <StoreProvider store={store}><ShellProvider actions={{chooseProject:()=>{},signIn:()=>{},openUsage:()=>{},openRuntimes:()=>{},openAgents:()=>{},reviewImports:()=>{}}}>
-  <div data-frame-id="team-frame" className="h-screen bg-background">
+  <div ref={box} data-frame-id="team-frame" className={`h-screen bg-background${controls ? ' max-w-95' : ''}`}>
    <Workbench sidebar={<Sidebar onOpenSettings={()=>{}} onOpenPlugins={()=>{}} onOpenAgents={()=>{}} onOpenTeams={()=>{}} onOpenUsage={()=>{}} onBrowseFolders={()=>{}} onSignIn={()=>{}} onSearch={()=>{}} />} />
   </div>
  </ShellProvider></StoreProvider>
