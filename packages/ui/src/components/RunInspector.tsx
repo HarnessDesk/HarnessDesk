@@ -51,7 +51,7 @@ import { ReviewPublicationActions, type ReviewActionsTarget } from './ReviewPubl
 import { commitDate } from '../lib/git-refs'
 import { useState, type ReactNode } from 'react'
 import { RunAgain } from './RetryCheck'
-import { RECORD_REASON } from '../lib/team-record'
+import { isRecordState, RECORD_REASON } from '../lib/team-record'
 import { stepDoor } from '../lib/needs-you'
 import { AbandonCard } from './AbandonCard'
 import { StepAnswer } from './StepAnswer'
@@ -136,7 +136,7 @@ export const RunInspector = ({ home, teamState, input, selectedRow, seats, onAba
       </Section> : !results && attemptsRead ? <Section title="Attempts">{attemptsRead === 'failed' ? <Words>Earlier attempts could not be read</Words>
         : <Text role="meta" as="div">Reading attempts…</Text>}</Section> : null}
       {abandon}
-      <RunAgain run={execution.id} card={card.id} refusal={teamState === 'wrapped' ? RECORD_REASON : selected.retryRefusal} terminal={teamState === 'wrapped' || execution.state === 'settled' || execution.state === 'stopped'} />
+      <RunAgain run={execution.id} card={card.id} refusal={isRecordState(teamState) ? RECORD_REASON : selected.retryRefusal} terminal={isRecordState(teamState) || execution.state === 'settled' || execution.state === 'stopped'} />
     </>
   } else if (selected?.kind === 'person' && card) {
     // A card recorded without its role is still its round's: the round is what opened it.

@@ -150,3 +150,14 @@ it('replaces the stale question with the host explanation for a structured missi
   expect(door()).toBeUndefined()
   expect(onAbandon).toHaveBeenCalledTimes(1)
 })
+
+
+it('returns focus to the inline explanation when the missing-card dialog closes', async () => {
+  draw({}, vi.fn().mockRejectedValue(Object.assign(new Error('This card was removed.'), { code: 'cardMissing' })))
+  open()
+  await act(async () => inDialog('Abandon card').click())
+  await act(async () => [...document.body.querySelectorAll('button')].find(one => one.textContent === 'Close')!.click())
+  expect(document.activeElement).not.toBe(document.body)
+  expect(document.activeElement?.textContent).toContain('This card was removed.')
+  expect(document.activeElement?.getAttribute('tabindex')).toBe('-1')
+})

@@ -35,6 +35,10 @@ const AbandonQuestion = ({ execution, cards, card, holder, onAbandon, onStop }: 
   const [busy, setBusy] = useState(false)
   const [missing, setMissing] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const explanation = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (missing && !asking) explanation.current?.focus()
+  }, [missing, asking])
   const active = useRef(false)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
   const confirm = async (): Promise<void> => {
@@ -52,7 +56,7 @@ const AbandonQuestion = ({ execution, cards, card, holder, onAbandon, onStop }: 
     }
   }
   if (missing) return <>
-    {!asking && <ActionError>{problem}</ActionError>}
+    {!asking && <div ref={explanation} tabIndex={-1}><ActionError>{problem}</ActionError></div>}
     {asking && <Dialog title={`Card #${card.id} is no longer available`} onClose={() => setAsking(false)}
       footer={<Button onClick={() => setAsking(false)}>Close</Button>}>
       <ActionError>{problem}</ActionError>

@@ -1231,6 +1231,7 @@ shows the command exactly as it will run; the earlier result and its output are
 kept, and every result the desk recorded is listed under the check, with its
 output in the inspector. A Run that has settled or stopped refuses, says so, and
 points to starting a new Run, without a retry action that could never apply.
+A wrapped Team also keeps its reason without a check retry action.
 
 A card that has not finished offers **Abandon card…** in its inspector. The
 question says first what the rule after the card's role will do: open the next
