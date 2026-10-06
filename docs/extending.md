@@ -658,7 +658,7 @@ issue comments. An empty template turns signing off for that kind.
 | --- | --- |
 | `{seat}` | Agent, model and effort as one label, from the runtime's presentation |
 | `{agent}`, `{model}`, `{effort}`, `{version}`, `{thinking}` | The seat's individual parts; thinking is `Thinking` when on |
-| `{role}` | Writer, Reviewer or Fixer; other role ids are normalised consistently |
+| `{role}` | Writer, Reviewer or Fixer; other role ids use letters, digits and hyphens; other characters become `-`; 32 characters at most; nothing usable reads `role`. A leading digit gets a `role-` prefix |
 | `{round}` | `round N`, where N is 1 plus earlier review rounds in that Run; the first review is round 1 and is omitted |
 | `{team}` | The Team's name, never its id |
 
