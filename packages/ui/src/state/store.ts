@@ -3791,7 +3791,9 @@ export class AppStore {
       ? DOCKS.reduce((current, area) => {
           const entries = dockViews(current[area])
           const runOnly = entries.length > 0 && entries.every(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
-          return runOnly ? collapseDockIn(current, area, true) : current
+          if (runOnly) return collapseDockIn(current, area, true)
+          return entries.filter(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
+            .reduce((next, one) => undockIn(next, one.id), current)
         }, rehomed)
       : null
     const workbench = restored ?? emptyWorkbench()
