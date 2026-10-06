@@ -3,7 +3,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { NO_CAPABILITIES, runtimeId, type RuntimeId, type RuntimeInfo, type UsageBilling, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES, runtimeId, type Account, type RuntimeId, type RuntimeInfo, type UsageBilling, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
+
+import { emptySnapshot } from '../../state/store'
 
 import { entriesFromReports, entriesFromSilent, NotReportingList } from './NotReporting'
 import { PlansTable, ShapeFilters } from './PlansTable'
@@ -793,4 +795,47 @@ it('uses one neutral tone for a Ready chip and its remaining bar', () => {
   expect(chip.textContent).toBe('Ready')
   expect(chip.getAttribute('data-tone')).toBe('neutral')
   expect(row.querySelector('[data-slot="progress"]')?.getAttribute('data-tone')).toBe('neutral')
+})
+
+it('qualifies each Plans account with its own initial while keeping free and metered faces neutral', () => {
+  const agent = info('alpha', 'Alpha')
+  const accounts = [{ kind: 'oauth' as const, label: 'alice@example.com' }, { kind: 'oauth' as const, label: 'amy@example.com' }]
+  const snapshot = { ...emptySnapshot(), runtimes: [agent], accountsByRuntime: { [agent.id]: { accounts, signInMethods: [] } } }
+  const reports = accounts.map((account, index) => report({ runtime: agent.id, account: account.label, billing: billing([index === 0 ? 'free' : 'metered']) }))
+  mount(<PlansTable rows={rowsFor(reports)} snapshot={snapshot} byId={byIdOf(agent)} now={NOW} filter="all" preferenceFor={() => ({})}
+    onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />)
+  const faces = accounts.map(account => rowFor(account.label).closest('tr')!.querySelector('[data-slot="icon-tile"]')!)
+  expect(faces.map(face => face.querySelector('[data-slot="face-badge"]')?.textContent)).toEqual(['AL', 'AM'])
+  expect(faces.map(face => face.getAttribute('data-tone'))).toEqual(['neutral', 'neutral'])
+})
+
+it('leaves a single signed-in Plans account without an initial', () => {
+  const agent = info('alpha', 'Alpha')
+  const account = { kind: 'oauth' as const, label: 'alice@example.com' }
+  const snapshot = { ...emptySnapshot(), runtimes: [agent], accountsByRuntime: { [agent.id]: { accounts: [account], signInMethods: [] } } }
+  mount(<PlansTable rows={rowsFor([report({ runtime: agent.id, account: account.label })])} snapshot={snapshot} byId={byIdOf(agent)} now={NOW} filter="all" preferenceFor={() => ({})}
+    onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />)
+  expect(host.querySelector('[data-slot="face-badge"]')).toBeNull()
+})
+
+it('renders a Plans face when an anonymous sibling collides with a named account initial', () => {
+  const namedRuntime = { ...info('alpha-named', 'Alpha'), slot: { agent: runtimeId('alpha') } } as RuntimeInfo
+  const anonymousRuntime = { ...info('alpha-anonymous', 'Alpha'), slot: { agent: runtimeId('alpha') } } as RuntimeInfo
+  const named = { kind: 'oauth', label: 'alpha@example.com' }
+  const anonymous = { kind: 'oauth', anonymous: true } as Account
+  const snapshot = {
+    ...emptySnapshot(),
+    runtimes: [namedRuntime, anonymousRuntime],
+    accountsByRuntime: {
+      [namedRuntime.id]: { accounts: [named], signInMethods: [] },
+      [anonymousRuntime.id]: { accounts: [anonymous], signInMethods: [] },
+    },
+  }
+  const row = rowsFor([report({ runtime: namedRuntime.id, account: named.label, billing: billing(['free']) })])[0]!
+
+  expect(() => mount(
+    <PlansTable rows={[row]} snapshot={snapshot} byId={byIdOf(namedRuntime, anonymousRuntime)} now={NOW} filter="all" preferenceFor={() => ({})}
+      onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />,
+  )).not.toThrow()
+  expect(rowFor(named.label).closest('tr')?.querySelector('[data-slot="face-badge"]')).not.toBeNull()
 })
