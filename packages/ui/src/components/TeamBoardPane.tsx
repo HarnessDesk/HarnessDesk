@@ -630,7 +630,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                   losing the action. `@container/board` is on the pane. */}
               <span className="hidden @[26rem]/board:inline">New job</span>
             </Button>
-            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board', disabled: layout.compact && 'Board needs a pane at least 600px wide' }, { value: 'list', label: 'List' }]} onChange={setView} />
+            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board', disabled: layout.compact && 'Board needs at least 600px of content width' }, { value: 'list', label: 'List' }]} onChange={setView} />
           </div>
         }
       />
@@ -646,6 +646,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           </PaneColumn>
         ) : view === 'list' ? (
           <TeamBoardList intents={intents} placed={placed} compact={layout.compact} grouped={layout.compact}
+            unplacedTitle={evidenceFailed ? 'Evidence unavailable' : 'Checking current evidence'}
             defaultColumns={new Set<JobColumn>([
               'assignee', 'state', 'updated',
               ...(evidence?.cards.some(one => intents.some(intent => intent.id === one.card) && one.facts.some(fact => fact.record.fact.kind === 'pr')) ? ['pr' as const] : []),
