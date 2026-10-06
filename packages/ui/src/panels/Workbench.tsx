@@ -1,3 +1,4 @@
+import { RunDockProvider } from './run-dock'
 import {
   createContext,
   useCallback,
@@ -247,7 +248,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   useFloatingSidebar(floating, sidebarBox, content)
 
   return (
-    <ComposerMountsProvider>
+    <RunDockProvider><ComposerMountsProvider>
     <DragContext.Provider value={{ dragging, setDragging }}>
     <ShellContext.Provider value={shell}>
     <WorkbenchCanvas
@@ -369,7 +370,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     </WorkbenchCanvas>
     </ShellContext.Provider>
     </DragContext.Provider>
-    </ComposerMountsProvider>
+    </ComposerMountsProvider></RunDockProvider>
   )
 }
 

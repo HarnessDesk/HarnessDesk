@@ -63,6 +63,37 @@ for (const path of ['already open', 'still loading'] as const) {
   })
 }
 
+for (const state of ['idle', 'mid-turn'] as const) {
+  test(`a created native read session keeps its handle when resumed ${state}`, { timeout: 10_000 }, async (t) => {
+    const cwd = await mkdtemp(join(tmpdir(), 'acp-held-live-'))
+    t.after(() => rm(cwd, { recursive: true, force: true }))
+    const opens = join(cwd, 'opens.jsonl')
+    const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE],
+      env: { FAKE_ACP_STORE: join(cwd, 'store.json'), FAKE_ACP_READ_CEILING: '1', FAKE_ACP_OPENS: opens } })
+    t.after(() => runtime.dispose())
+    await runtime.start()
+    const session = await runtime.createSession({ cwd, requestedCeiling: 'read' })
+    let pending: { turn: ReturnType<typeof sendTurn>; approval: Extract<AgentEvent, { type: 'approval/requested' }> } | undefined
+    if (state === 'mid-turn') {
+      const requested = new Promise<Extract<AgentEvent, { type: 'approval/requested' }>>(resolve => {
+        const off = runtime.subscribe(event => { if (event.type === 'approval/requested') { off(); resolve(event) } })
+      })
+      const turn = sendTurn(runtime, session, 'ceiling permission {"toolCallId":"pending-read","kind":"read"}')
+      pending = { turn, approval: await requested }
+    }
+    try {
+      assert.equal(await runtime.resumeSession(session.id, { requestedCeiling: 'read' }), session, 'a created guarded handle stays open')
+      const recorded = (await readFile(opens, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+      assert.deepEqual(recorded.map(open => [open.method, open.ceiling]), [['session/new', 'read']], 'resume never loads a second handle')
+    } finally {
+      if (pending) {
+        await session.respondToApproval(pending.approval.approval.id, { type: 'option', optionId: 'yes' })
+        assert.equal((await pending.turn).status, 'completed')
+      }
+    }
+  })
+}
+
 test('a native guard reloads an idle open conversation with the read ceiling', { timeout: 10_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'acp-held-promote-'))
   t.after(() => rm(cwd, { recursive: true, force: true }))
@@ -241,8 +272,10 @@ test('asked read seats select a reject option and keep question and provenance b
       _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__git_status' } } }, expected: reject },
     { name: 'fetch', toolCall: { toolCallId: 'fetch', kind: 'fetch' }, expected: reject },
     { name: 'question', toolCall: { toolCallId: 'question', rawInput: { questions: [question] } }, expected: { outcome: 'selected', optionId: 'yes' } },
-    { name: 'edit question', toolCall: { toolCallId: 'edit-question', kind: 'edit', rawInput: { questions: [question] } }, expected: reject },
-    { name: 'execute question', toolCall: { toolCallId: 'execute-question', kind: 'execute' },
+    ...['edit', 'delete', 'move', 'execute', 'switch_mode'].map(kind => ({
+      name: `${kind} question`, toolCall: { toolCallId: `${kind}-question`, kind, rawInput: { questions: [question] } }, expected: reject,
+    })),
+    { name: 'execute metadata question', toolCall: { toolCallId: 'execute-meta-question', kind: 'execute' },
       _meta: { harnessdesk: { question } }, expected: reject },
   ]
   for (const { name, expected, ...input } of cases) {

@@ -1167,6 +1167,15 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+Run details and Steps live in the app’s dock, with the same tabs, move,
+expand and hide controls as the conversation’s inspectors. The title-bar’s
+right-panel control puts them away and brings them back. Run details keeps
+the brief, Seats, recorded pull request and two-column Run facts; unavailable
+facts are omitted and named together once. Selecting a timeline row keeps
+its recorded detail and actions in that dock. Choosing Flow brings Steps
+forward: taken rounds and steps not reached, with selection lighting the
+corresponding node, including a step the Run has not reached.
+
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,

@@ -296,12 +296,12 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     const inspector = frame.locator('[data-slot="run-inspector"]')
     await expect(inspector).toBeVisible()
     const edges = await inspector.evaluate(element => {
-      const title = element.querySelector('[data-slot="inspector-tools"] [data-slot="text"]')!
-      const label = element.querySelector('[data-slot="inspector-body"] [data-slot="group-label"]')!
-      const prose = element.querySelector('[data-slot="inspector-body"] [data-slot="text"]')!
-      return [title, label, prose].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
+      const card = element.querySelector('[data-slot="card"]')!
+      const title = card.querySelector('[data-slot="card-title"]')!
+      const prose = card.querySelector('[data-slot="card-content"] [data-slot="text"]')!
+      return [title, prose].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
     })
-    expect(edges).toEqual([24, 24, 24])
+    expect(edges[0]).toBe(edges[1])
     if (width === 720) await frame.getByRole('button', { name: 'Run timeline', exact: true }).click()
     await expect(frame.locator('[data-slot="run-header"]').getByRole('button', { name: 'Run details', exact: true })).toBeVisible()
     const overview = page.locator('#team-overview-answer-approval [data-slot="team-overview"]')

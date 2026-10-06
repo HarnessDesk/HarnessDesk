@@ -102,6 +102,8 @@ export type AgentEvent =
       readonly sessionId: SessionId
       readonly tasks: readonly BackgroundTask[]
     }
+  /** A single conversation lost its process; history and membership remain. */
+  | { readonly type: 'session/detached'; readonly sessionId: SessionId }
   | { readonly type: 'session/closed'; readonly sessionId: SessionId }
   // -- turn lifecycle
   | { readonly type: 'turn/started'; readonly sessionId: SessionId; readonly turn: Turn }

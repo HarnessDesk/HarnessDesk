@@ -190,6 +190,9 @@ export type PaneView =
    * it — the same reasoning that made Changes a panel.
    */
   | { readonly kind: 'tasks' }
+  /** Inspectors of the Run currently open in the Team pane. */
+  | { readonly kind: 'run-details' }
+  | { readonly kind: 'run-steps' }
   /**
    * A panel a plugin contributed.
    *
@@ -250,6 +253,8 @@ export const sameView = (a: PaneView, b: PaneView): boolean => {
     case 'agents':
     case 'activity':
     case 'tasks':
+    case 'run-details':
+    case 'run-steps':
       // Parameterless: there is one Changes, and a second open brings it
       // forward wherever it is docked rather than mounting a duplicate.
       return true
@@ -931,6 +936,8 @@ export const readView = (raw: unknown): PaneView => {
     case 'agents':
     case 'activity':
     case 'tasks':
+    case 'run-details':
+    case 'run-steps':
       return { kind: record['kind'] }
     case 'plugin': {
       const contribution = str('contribution')
