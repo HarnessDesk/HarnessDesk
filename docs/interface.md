@@ -467,7 +467,7 @@ took, and the name card adds an *Agent* band: what it is for, its ceiling
 *The brief has changed since this started* once its file has moved on.
 
 The same ceiling vocabulary appears on six governed-seat surfaces: the
-conversation header, Agent name card, room rail, board holder, flow dry run and
+conversation header, Agent name card, members popover, board holder, flow dry run and
 Agent roster. The chip is neutral whether the limit is held or asked — most
 runtimes have no control that holds one, so `asked` is the ordinary state, not
 a warning. A held ceiling names the level (*Read only*, *Edit*, *Publish* or
@@ -1109,7 +1109,7 @@ the sentence, leaving a waiting reason whole.
 ### A Team's Overview
 
 Overview is the Team's first page tab and opens by default when the
-Team has a Run. Its Run strip keeps the live line: who is working, what
+Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
 waits on you, why it stalled or stopped, and any release still pending. It
 also keeps the Run's reason for waiting on evidence or ending without a rule
 to continue, showing each reason once. The header keeps the revision it
@@ -1130,7 +1130,7 @@ wait. The live line keeps pending release and trigger actions while these rows
 are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
-A Team without a Run opens on Chat and still offers Overview for its Seats.
+A Team without a Run that is not ready to wrap opens on Chat and still offers Overview for its Seats.
 Each member row names its nickname, with a distinct conversation title in the
 wrapping subtitle. Its task or message refusal shares that subtitle, so the
 work stays readable without adding a separate third line.

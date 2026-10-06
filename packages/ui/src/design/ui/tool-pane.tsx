@@ -34,6 +34,8 @@ import { TabsList, TabsTrigger } from './tabs'
  * terminal, a video. Padding inside a pane whose content has its own ground
  * draws a border nobody asked for.
  * `contentInset="board"` aligns the header with board-card text.
+ * `contentInset="page"` aligns it with a reading PaneColumn while keeping
+ * the native window corner clear.
  * `contentInset="reading-table"` aligns it with the first cell text inside
  * a framed table in a reading PaneColumn (reading gutter plus table edge).
  */
@@ -81,8 +83,8 @@ const ToolPaneHeader = ({
   /** Leave room for the native window controls when this pane owns the corner. */
   corner?: boolean
   variant?: 'default' | 'window'
-  /** Align the title with board text, receipt content, or a framed table inside a reading PaneColumn. */
-  contentInset?: 'board' | 'reading' | 'reading-table'
+  /** Align the title with board text, a reading page, receipt content, or a framed table. */
+  contentInset?: 'board' | 'page' | 'reading' | 'reading-table'
   hint?: string
 }) => (
   <header
@@ -100,6 +102,7 @@ const ToolPaneHeader = ({
       variant === 'default' && 'px-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
+      contentInset === 'page' && 'pl-[max(var(--hd-space-6),var(--titlebar-inset,0px))]',
       contentInset === 'reading' && 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge)+var(--hd-border-width))]',
       contentInset === 'board' && (icon != null
         ? 'pl-[calc(2*var(--hd-inset-dense)+var(--hd-inset-card)+2*var(--hd-border-width)-var(--hd-space-4)-var(--hd-bar-gap))]'

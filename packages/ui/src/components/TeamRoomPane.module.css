@@ -3,7 +3,6 @@
  */
 
 .pane {
-  --room-rail-width: 232px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -35,9 +34,9 @@
 }
 
 .members {
-  display: flex; /* desk: membership moves from the receipt’s rail grid into a popover. */
+  display: flex;
   flex-direction: column;
-  width: var(--room-rail-width);
+  width: 232px; /* The portalled list owns its width, outside the pane's cascade. */
   max-width: 100%;
   max-height: 70vh;
   overflow-y: auto;

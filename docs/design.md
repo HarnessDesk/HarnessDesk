@@ -280,11 +280,11 @@ faint ink over a settings card, and 12px tracked capitals in the room's rail,
 the trajectory's roles and the agent card.
 
 Now every page head is the page role, and every group heading is
-`GroupLabel`. The interfaces vary a label's weight and the air above a rail's
+`GroupLabel`. The interfaces share its medium weight and vary the air above a
 group, never its size, its ink or its case. Capitals are counted: the design
 audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
 utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
-fall. The screens still spelling them — the room's rail, the trajectory, the
+fall. The screens still spelling them — the Team's members list, the trajectory, the
 agent card and the transcript's small tags — are the burn-down.
 
 ### Where a label lands
@@ -721,7 +721,7 @@ Three shapes, and each one means something wherever it appears:
 
 | Shape | What it is | Examples |
 | --- | --- | --- |
-| Face | Someone: an agent at work, a runtime or a person | A sender in the chat, a member on a team's rail, a board card's holder, a runtime, session or member card, your seat, a name inside a sentence |
+| Face | Someone: an agent at work, a runtime or a person | A sender in the chat, a member in a Team's popover, a board card's holder, a runtime, session or member card, your seat, a name inside a sentence |
 | Ring | An account | The seat menu's account marks, an account card |
 | Square | A thing or a category | A plugin, a skill, a file, a section |
 
@@ -1565,15 +1565,15 @@ has never been tested.
 
 ## The Team overview
 
-Overview is the first page tab in a Team. A Team with a Run opens
-there; one without a Run opens on Chat. The Run's current round and recorded
+Overview is the first page tab in a Team. A Team with a Run or ready to wrap opens
+there; one with neither opens on Chat. The Run's current round and recorded
 usage lead, followed by what needs the person and the Seats in attention order:
 Needs you, Unread, Working, then Idle. Each Seat carries its face, role, card,
 round, doing line, time in state and cost in the unit its account meters.
 Unavailable usage stays a dash. Idle and Done use quiet text with no chip or
 health colour; done Seats fold beneath the active rows and return when they
 need attention. At a narrow pane width each Seat becomes one ListRow, with its
-state beside its name and cost at the end. The rail, Overview and sidebar use
+state beside its name and cost at the end. The members popover, Overview and sidebar use
 one conversation-keyed membership list, including Seats a Flow opened and
 conversations whose process is no longer held.
 

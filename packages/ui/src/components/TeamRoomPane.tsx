@@ -352,7 +352,7 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
   /* A wrapped Team opens on its Receipt, with or without a Run: the record is
-     what the person came for, and the rail is the way around it. */
+     what the person came for, and the page tabs are the way around it. */
   const opensOnReceipt = record && Boolean(goal?.receipt)
   const [open, setOpen] = useState<'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
     () => (opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'),
@@ -425,7 +425,7 @@ export const TeamRoomPane = ({
   /** The top row's own failure — the board-only switch not landing. */
   const [barTrouble, setBarTrouble] = useState<string | null>(null)
   /**
-   * What the *rail* could not do, said on the rail.
+   * What a member control could not do, said in the members popover.
    *
    * A third line rather than a share of either: the chat's `trouble` is what
    * the composer could not do and the bar's is what the top row could not do,
@@ -978,7 +978,7 @@ export const TeamRoomPane = ({
 
       <ToolPaneHeader ref={headerLayout.ref} variant="window" corner className={`${styles.bar} hd-drag`}
         data-window-controls={sidebarPlacement(snapshot) !== 'column' ? '' : undefined}
-        contentInset={open === 'receipt' && sidebarPlacement(snapshot) === 'column' ? 'reading' : undefined}
+        contentInset={open === 'receipt' && sidebarPlacement(snapshot) === 'column' ? 'reading' : 'page'}
         hint={root ? goal && goal.goal.cwd !== root ? `${root} — working in ${goal.goal.cwd}` : root : undefined}
         title={title} aria-label={title}
         lead={<>
@@ -1172,7 +1172,7 @@ export const TeamRoomPane = ({
 
       {/* No inset reserved here, on purpose: a standing notice for the room
           lives inside `RoomComposer`'s own strip, below, over its composer —
-          not above the rail or the reading side, which is why nothing in this
+          not above the page tabs or the reading side, which is why nothing in this
           split has to make room for one. */}
       <div className={styles.split}>
         <div className={styles.body} data-slot="room-body">

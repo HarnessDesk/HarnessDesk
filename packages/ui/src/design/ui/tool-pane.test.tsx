@@ -175,6 +175,11 @@ it('aligns a receipt header with the shared reading inset', () => {
   expect(header).toContain('pl-[calc(var(--hd-space-6)+var(--hd-table-edge)+var(--hd-border-width))]')
 })
 
+it('aligns a page header with its reading column while preserving the window corner', () => {
+  const header = renderToStaticMarkup(<ToolPaneHeader title="Team" variant="window" corner contentInset="page" />)
+  expect(header).toContain('pl-[max(var(--hd-space-6),var(--titlebar-inset,0px))]')
+})
+
 it('a reading-table header owns the same content inset as its table', () => {
   const header = renderToStaticMarkup(<ToolPaneHeader title="Jobs" contentInset="reading-table" />)
   expect(header).toContain('pl-[calc(var(--hd-space-6)+var(--hd-table-edge))]')

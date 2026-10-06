@@ -181,6 +181,41 @@ test('Team page tab labels share the content column edge', async ({page}) => {
  expect(Math.abs(edges.card-edges.label)).toBeLessThanOrEqual(1)
 })
 
+for (const theme of ['light', 'dark'] as const) {
+ test(`Team frame: header and page tabs share the reading edge in ${theme}`, async ({page}) => {
+  await page.emulateMedia({colorScheme:theme})
+  await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
+  const team=page.locator('[data-slot="team-room"]')
+  for (const name of ['overview', 'run', 'board', 'room', 'findings']) {
+   await team.locator(`[data-team-page="${name}"]`).click()
+   const edges=await team.evaluate(el=>{
+    const title=el.querySelector('header [data-role="subject"]')!
+    const tab=el.querySelector('[data-team-page="overview"]')!
+    const range=document.createRange();range.selectNodeContents(tab.firstChild!)
+    return {title:title.getBoundingClientRect().left,tab:range.getBoundingClientRect().left}
+   })
+   expect(Math.abs(edges.title-edges.tab),name).toBeLessThanOrEqual(1)
+  }
+ })
+
+ test(`Team frame: portalled members retain their own width in ${theme}`, async ({page}) => {
+  await page.emulateMedia({colorScheme:theme})
+  for (const width of [1440,320]) {
+   await page.setViewportSize({width,height:900})
+   await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
+   await page.getByRole('button',{name:'Team members',exact:true}).click()
+   const members=page.locator('[data-slot="team-members"]')
+   await expect(members).toBeVisible()
+   const box=(await members.boundingBox())!
+   expect(box.width).toBe(232)
+   expect(box.x).toBeGreaterThanOrEqual(0)
+   expect(box.x+box.width).toBeLessThanOrEqual(width)
+   expect(await members.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+   await captureFrame(page,`after-members-${width}-${theme}`)
+  }
+ })
+}
+
 for(const theme of ['light','dark']) {
  test(`Team Agent work sentences wrap at 320px in ${theme}`,async({page})=>{
   await page.setViewportSize({width:320,height:760})
