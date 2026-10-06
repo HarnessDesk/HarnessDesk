@@ -2103,3 +2103,25 @@ SkillList/SkillRow, accepting the former crowded identity column.
 
 **The rule:** switch a comparison to its list form before trailing facts
 consume the width its identity and sentences need.
+
+## One canvas interaction engine for Flow drawings
+
+*Owner decision: 2026-10-05.* The builder uses React Flow as its interaction
+engine, behind the lazy `FlowCanvas` pattern. It owns pan, zoom, selection,
+dragging and pointer connections; every visible card, edge, label, control and map reads
+our design system and tokens. The upstream attribution stays visible.
+
+The architecture gate permits the engine and its base stylesheet only in
+`design/patterns/FlowCanvas/Engine.tsx`. The public pattern has its own graph
+and callback types, so importing it does not load the engine. The caller owns
+its document and supplies positions, including the existing `flow-layout`
+coordinates. The Run drawing scales the layout pitch from its rendered card
+box and the layout's exported gaps, rather than treating the 176×68 layout box
+as the rendered card. A Run supplies its state slot, with `flow-overlay`'s vocabulary;
+failed and skipped are also available to a caller with those recorded facts.
+The first drawing is centred at 100% when it fits; a narrow container shrinks
+it to fit. Edits keep the viewport while any earlier step survives. Fit can
+shrink, never enlarge it.
+Read-only plans retain selection and navigation but have no edit affordances.
+Keyboard connection belongs to the builder dock and will arrive in a later
+change; it is not part of this pattern.
