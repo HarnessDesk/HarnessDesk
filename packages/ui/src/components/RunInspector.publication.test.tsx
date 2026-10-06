@@ -21,7 +21,7 @@ const findingRun = (state: FindingRunView['publication'] = 'local'): FindingRunV
   boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null,
 })
 const button = (container: HTMLElement, label: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === label)!
-const mount = async (view: FindingPublicationsView, publish = vi.fn(async (_input: unknown) => publications()), state: FindingRunView['publication'] = 'local', patch: Partial<FindingRunView> = {}) => {
+const mount = async (view: FindingPublicationsView, publish = vi.fn(async (_input: unknown) => publications()), state: FindingRunView['publication'] = 'local', patch: Partial<FindingRunView> = {}, inputPatch: Partial<typeof fixture> = {}) => {
   let snapshot = { ...emptySnapshot(), findingRuns: new Map([[run, { ...findingRun(state), ...patch }]]) }
   const listeners = new Set<() => void>()
   const read = vi.fn(async () => view)
@@ -29,7 +29,7 @@ const mount = async (view: FindingPublicationsView, publish = vi.fn(async (_inpu
     readFindingPublications: read, publishFinding: publish } as unknown as AppStore
   const container = document.createElement('div'); document.body.append(container)
   const root = createRoot(container)
-  await act(async () => root.render(<StoreProvider store={store}><RunInspector input={{ ...fixture, findingRun: snapshot.findingRuns.get(run) }}
+  await act(async () => root.render(<StoreProvider store={store}><RunInspector input={{ ...fixture, ...inputPatch, findingRun: snapshot.findingRuns.get(run) }}
     selectedRow="card-3-3" seats={[]} reviewActions={{ goal, run, stamp: 'review-stamp' }} /></StoreProvider>))
   return { container, read, publish,
     change: async (next: FindingPublicationsView) => { view = next; snapshot = { ...snapshot, findingRuns: new Map([[run, { ...findingRun(state), stamp: 'read-again' }]]) }; await act(async () => { for (const listener of listeners) listener() }) },
@@ -107,4 +107,29 @@ it('shows an identical Run and door reason only once', async () => {
  const view=await mount(publications({backfillRefusal:'The review was not posted.'}))
  try { expect(view.container.textContent?.split('The review was not posted.').length).toBe(2) }
  finally {view.close()}
+})
+
+it('offers no publication actions or empty copy for an unrecorded review', async () => {
+  const view = await mount(publications(), undefined, 'local', {
+    rounds: [{ round: 3, state: 'none', reason: 'No completed review.', pr: 7, cards: [3] }],
+  }, { findings: [], cards: fixture.cards.map(card => ({ ...card, handoff: null, note: null })) })
+  try {
+    expect(view.container.textContent).toContain('No review recorded')
+    expect(view.container.querySelector('[data-slot="review-publication-actions"]')).toBeNull()
+    expect(view.read).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
+for (const state of ['claimed', 'open'] as const) it(`offers no publication actions for a ${state} review even with draft text`, async () => {
+  const view = await mount(publications(), undefined, 'local', {}, {
+    cards: fixture.cards.map(card => card.id === 3 ? { ...card, state, handoff: 'Draft review' } : card),
+  })
+  try { expect(view.container.querySelector('[data-slot="review-publication-actions"]')).toBeNull() }
+  finally { view.close() }
+})
+it('offers no empty copy even when a publication record survives without its review text', async () => {
+  const view = await mount(publications(), undefined, 'local', {}, {
+    findings: [], cards: fixture.cards.map(card => ({ ...card, handoff: '  ', note: null })),
+  })
+  try { expect(view.container.querySelector('[data-slot="review-publication-actions"]')).toBeNull() }
+  finally { view.close() }
 })

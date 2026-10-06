@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FlowExecution, Intent } from '@harnessdesk/protocol'
-import { ActionError, Button, ConfirmDialog } from '../design'
+import { ActionError, Button, ConfirmDialog, Dialog } from '../design'
 import { abandonable, abandonEffect } from '../lib/needs-you'
 import { sanitizeText } from '../lib/sanitize'
 
@@ -33,6 +33,7 @@ export const AbandonCard = (props: AbandonCardProps) => abandonable(props.card)
 const AbandonQuestion = ({ execution, cards, card, holder, onAbandon, onStop }: AbandonCardProps) => {
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [missing, setMissing] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const active = useRef(false)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
@@ -42,11 +43,21 @@ const AbandonQuestion = ({ execution, cards, card, holder, onAbandon, onStop }: 
       await onAbandon(card.id)
       if (active.current) setAsking(false)
     } catch (error) {
-      if (active.current) setProblem(error instanceof Error && error.message ? error.message : `The host did not abandon #${card.id}; the card is as it was.`)
+      if (active.current) {
+        setProblem(error instanceof Error && error.message ? error.message : `The host did not abandon #${card.id}; the card is as it was.`)
+        setMissing(error !== null && typeof error === 'object' && 'code' in error && error.code === 'cardMissing')
+      }
     } finally {
       if (active.current) setBusy(false)
     }
   }
+  if (missing) return <>
+    {!asking && <ActionError>{problem}</ActionError>}
+    {asking && <Dialog title={`Card #${card.id} is no longer available`} onClose={() => setAsking(false)}
+      footer={<Button onClick={() => setAsking(false)}>Close</Button>}>
+      <ActionError>{problem}</ActionError>
+    </Dialog>}
+  </>
   const who = holder ? sanitizeText(holder) : null
   return (
     <>

@@ -402,11 +402,12 @@ it.each([
   { name: 'settled Run', patch: { state: 'settled' as const }, reason: 'This run is settled. Start a new run to run this check again.' },
   { name: 'stopped Run', patch: { state: 'stopped' as const, operation: 'uncertain' as const }, reason: 'This run is stopped. Start a new run to run this check again.' },
   { name: 'check still running', patch: { operation: 'started' as const }, reason: 'This check is not waiting to be run again.' },
-])('keeps Run again… disabled with the host’s reason on screen for a $name', ({ patch, reason }) => {
+])('keeps the host’s reason and only an actionable refused control for a $name', ({ patch, reason }) => {
   const view = render({ input: gate(patch), selectedRow: 'check-2-2' })
   try {
-    const again = button(view.container, 'Run again…')!
-    expect(again.hasAttribute('disabled') || again.getAttribute('aria-disabled') === 'true').toBe(true)
+    const again = button(view.container, 'Run again…')
+    if ('state' in patch) expect(again).toBeUndefined()
+    else expect(again!.hasAttribute('disabled') || again!.getAttribute('aria-disabled') === 'true').toBe(true)
     const shown = [...view.container.querySelectorAll('*')].filter(one => one.children.length === 0 && one.textContent === reason)
     expect(shown.some(one => !one.closest('.sr-only'))).toBe(true)
   } finally { view.close() }
@@ -624,5 +625,13 @@ it('omits unavailable summary facts and names the missing recordings once', () =
     expect(view.container.textContent).not.toContain('Revision not recorded')
     expect(view.container.textContent).not.toContain('Limit not recorded')
     expect(view.container.textContent).not.toContain('Seat not recorded')
+  } finally { view.close() }
+})
+
+it('uses the wrapped Team state to omit the check retry act even if its Run is still running', () => {
+  const view = render({ input: runFixture('running'), selectedRow: 'check-2-2', teamState: 'wrapped' })
+  try {
+    expect(view.container.textContent).toContain('This Team is wrapped')
+    expect([...view.container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(false)
   } finally { view.close() }
 })
