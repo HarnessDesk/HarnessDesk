@@ -629,14 +629,18 @@ export const exportedModules = (source) => {
   ))]
 }
 
+// A named pattern may keep private support files in its same-named folder.
+// Orphan folders still require a registered public facade and reachable board.
+export const patternModulesFromPaths = (paths) => [...new Set(paths
+  .filter((file) => file.startsWith('packages/ui/src/design/patterns/') && /\.tsx?$/.test(file))
+  .filter((file) => !/\.(?:test|spec)\.tsx?$/.test(file))
+  .map((file) => file.slice('packages/ui/src/design/patterns/'.length).split('/')[0].replace(/\.tsx?$/, '')))]
+
 if (isMain) {
   const existingPathList = repositoryFiles(root)
   const uiIndex = fs.readFileSync(path.join(root, 'packages/ui/src/design/ui/index.ts'), 'utf8')
   const uiModules = exportedModules(uiIndex)
-  const patternModules = existingPathList
-    .filter((file) => file.startsWith('packages/ui/src/design/patterns/') && /\.tsx?$/.test(file))
-    .filter((file) => file && !/\.(?:test|spec)\.tsx?$/.test(file))
-    .map((file) => path.basename(file).replace(/\.tsx?$/, ''))
+  const patternModules = patternModulesFromPaths(existingPathList)
   const manifest = fs.readFileSync(path.join(root, 'packages/ui/src/design/catalog/manifest.ts'), 'utf8')
   const coverage = catalogCoverage({
     uiModules,
