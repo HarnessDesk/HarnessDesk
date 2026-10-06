@@ -1,7 +1,7 @@
-import type { FlowPolicyRole, FlowPolicyRule, FlowSeat } from '@harnessdesk/protocol'
+import { SHAPE_LAYOUT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type FlowPolicyRole, type FlowPolicyRule, type FlowSeat } from '@harnessdesk/protocol'
 
 import { boundedPosition, defaultRole, defaultRule, renameRoleReferences, uniqueId, type GraphPoint } from '../shapes'
-import { flowLayout } from '../flow-layout'
+import { FLOW_CARD_H, FLOW_CARD_W, FLOW_ROW_GAP, flowLayout } from '../flow-layout'
 import { flowModel } from '../flow-model'
 import { recordOf, withNotes, withPositions, type BuilderDocument } from './document'
 
@@ -14,6 +14,23 @@ const sameValue = (a: unknown, b: unknown): boolean => {
     return record ? Object.fromEntries(Object.keys(record).sort().map((name) => [name, record[name]])) : raw
   })
   return key(a) === key(b)
+}
+
+const FLOW_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+const requireFlowId = (value: string, subject: string): void => {
+  if (!FLOW_ID.test(value)) throw new Error(`${subject} must use 1–64 letters, digits, - or _`)
+}
+
+const isUnconditional = (rule: FlowPolicyRule): boolean => (
+  !rule.when?.every?.length && !rule.when?.any?.length && !rule.when?.evidence?.length
+)
+
+const withCheckedNotes = (document: BuilderDocument, notes: BuilderDocument['notes']): BuilderDocument => {
+  if (notes.length > SHAPE_LAYOUT_LIMIT) throw new Error(`A Flow can have at most ${SHAPE_LAYOUT_LIMIT} notes`)
+  if (notes.some((note) => note.text.length > 2000)) throw new Error('A note must be 2,000 characters or fewer')
+  const next = withNotes(document, notes)
+  if ((JSON.stringify(next.policy.layout)?.length ?? 0) > SHAPE_LAYOUT_SIZE_LIMIT) throw new Error('Builder notes would make layout exceed 64 KiB')
+  return next
 }
 
 const stepOf = (document: BuilderDocument, id: string) => {
@@ -37,17 +54,36 @@ const allocated = (document: BuilderDocument, prefix: 'step' | 'rule' | 'note'):
 export const addStep = (document: BuilderDocument, kind: BuilderStepKind, name: string, position?: GraphPoint): BuilderDocument => {
   const identity = allocated(document, kind === 'note' ? 'note' : 'step')
   if (kind === 'note') {
+    if (document.notes.length >= SHAPE_LAYOUT_LIMIT) throw new Error(`A Flow can have at most ${SHAPE_LAYOUT_LIMIT} notes`)
+    if (name.length > 2000) throw new Error('A note must be 2,000 characters or fewer')
     const point = position ? boundedPosition(position.x, position.y) : { x: 32, y: 32 }
     if (!point) return document
-    return withNotes({ ...document, nextId: identity.nextId }, [...document.notes, { id: identity.id, text: name, position: point }])
+    return withCheckedNotes({ ...document, nextId: identity.nextId }, [...document.notes, { id: identity.id, text: name, position: point }])
   }
   // Leave room for uniqueId's suffix even when the label is very long.
   const id = uniqueId(name.slice(0, 40), new Set(document.policy.roles.map((role) => role.id)))
   const role = kind === 'agents' ? { ...defaultRole('agent', id), count: 2 } : defaultRole(kind, id)
   const policy = { ...document.policy, roles: [...document.policy.roles, role] }
-  const auto = flowLayout({ ...flowModel(policy), positions: {} }).nodes.find((node) => node.id === id)!.box
-  const point = position ? boundedPosition(position.x, position.y) : { x: auto.x, y: auto.y }
+  const placed = Object.fromEntries(document.steps.map((step) => [step.role, document.positions[step.id]!]))
+  const autoLayout = flowLayout({ ...flowModel(policy), positions: placed })
+  const auto = autoLayout.nodes.find((node) => node.id === id)!.box
+  const firstPlaced = document.steps[0]
+  const firstBox = firstPlaced ? autoLayout.nodes.find((node) => node.id === firstPlaced.role)!.box : null
+  const firstPoint = firstPlaced ? document.positions[firstPlaced.id]! : null
+  const offset = firstBox && firstPoint ? { x: firstBox.x - firstPoint.x, y: firstBox.y - firstPoint.y } : { x: 0, y: 0 }
+  let point = position ? boundedPosition(position.x, position.y) : boundedPosition(auto.x - offset.x, auto.y - offset.y)
   if (!point) return document
+  if (!position) {
+    const overlapsPlacedStep = (candidate: GraphPoint): boolean => Object.values(document.positions).some((other) => (
+      candidate.x < other.x + FLOW_CARD_W && candidate.x + FLOW_CARD_W > other.x
+      && candidate.y < other.y + FLOW_CARD_H && candidate.y + FLOW_CARD_H > other.y
+    ))
+    while (overlapsPlacedStep(point)) {
+      const nextPoint = boundedPosition(point.x, point.y + FLOW_CARD_H + FLOW_ROW_GAP)
+      if (!nextPoint || nextPoint.y === point.y) throw new Error('There is no free position for another step')
+      point = nextPoint
+    }
+  }
   const next = {
     ...document, nextId: identity.nextId, policy,
     steps: [...document.steps, { id: identity.id, role: id }],
@@ -64,16 +100,24 @@ export const connectSteps = (document: BuilderDocument, from: string, to: string
   const identity = allocated(document, 'rule')
   const id = uniqueId(`${on}-to-${target}`.slice(0, 40), new Set(document.policy.rules.map((rule) => rule.id)), 'rule')
   const rule = { ...defaultRule(id, on, target), ...(word ? { when: { every: [word] } } : {}) }
+  const at = word
+    ? document.policy.rules.findIndex((existing) => existing.on === on && isUnconditional(existing))
+    : -1
+  const index = at < 0 ? document.policy.rules.length : at
+  const policyRules = [...document.policy.rules]
+  policyRules.splice(index, 0, rule)
+  const identities = [...document.rules]
+  identities.splice(index, 0, { id: identity.id, rule: id })
   return {
     ...document, nextId: identity.nextId,
-    policy: { ...document.policy, rules: [...document.policy.rules, rule] },
-    rules: [...document.rules, { id: identity.id, rule: id }],
+    policy: { ...document.policy, rules: policyRules },
+    rules: identities,
   }
 }
 
 const updateRule = (document: BuilderDocument, id: string, change: (rule: FlowPolicyRule) => FlowPolicyRule): BuilderDocument => {
-  const name = ruleOf(document, id).rule
-  const index = document.policy.rules.findIndex((rule) => rule.id === name)
+  ruleOf(document, id)
+  const index = document.rules.findIndex((rule) => rule.id === id)
   const before = document.policy.rules[index]!
   const after = change(before)
   if (after === before) return document
@@ -91,7 +135,10 @@ export const setRuleCondition = (document: BuilderDocument, id: string, when: Fl
 
 /** One answer word replaces outcome clauses, keeping every evidence guard. Null removes only the answers. */
 export const setRuleWord = (document: BuilderDocument, id: string, word: string | null, quantifier: 'every' | 'any' = 'every'): BuilderDocument => {
-  const rule = document.policy.rules.find((one) => one.id === ruleOf(document, id).rule)!
+  const identity = ruleOf(document, id)
+  if (word !== null) requireFlowId(word, `Rule "${identity.rule}" answer`)
+  const index = document.rules.findIndex((one) => one.id === id)
+  const rule = document.policy.rules[index]!
   const evidence = rule.when?.evidence
   const when = { ...(word === null ? {} : { [quantifier]: [word] }), ...(evidence?.length ? { evidence } : {}) }
   return setRuleCondition(document, id, Object.keys(when).length ? when : undefined)
@@ -100,6 +147,7 @@ export const setRuleWord = (document: BuilderDocument, id: string, word: string 
 export const renameRule = (document: BuilderDocument, id: string, name: string): BuilderDocument => {
   const before = ruleOf(document, id)
   if (before.rule === name) return document
+  requireFlowId(name, `Rule "${before.rule}" name`)
   if (document.policy.rules.some((rule) => rule.id === name)) throw new Error('A rule with this name already exists')
   return {
     ...updateRule(document, id, (rule) => ({ ...rule, id: name })),
@@ -114,9 +162,10 @@ export const renameRule = (document: BuilderDocument, id: string, name: string):
  */
 export const renameStep = (document: BuilderDocument, id: string, name: string): BuilderDocument => {
   const note = document.notes.find((one) => one.id === id)
-  if (note) return note.text === name ? document : withNotes(document, document.notes.map((one) => one.id === id ? { ...one, text: name } : one))
+  if (note) return note.text === name ? document : withCheckedNotes(document, document.notes.map((one) => one.id === id ? { ...one, text: name } : one))
   const from = stepOf(document, id).role
   if (from === name) return document
+  requireFlowId(name, `Step "${from}" name`)
   if (document.policy.roles.some((role) => role.id === name)) throw new Error('A step with this name already exists')
   const oldRole = document.policy.roles.find((role) => role.id === from)!
   let policy = renameRoleReferences(document.policy, from, name)
@@ -152,8 +201,13 @@ export const moveStep = (document: BuilderDocument, id: string, position: GraphP
 }
 
 export const deleteRule = (document: BuilderDocument, id: string): BuilderDocument => {
-  const name = ruleOf(document, id).rule
-  return { ...document, rules: document.rules.filter((rule) => rule.id !== id), policy: { ...document.policy, rules: document.policy.rules.filter((rule) => rule.id !== name) } }
+  ruleOf(document, id)
+  const index = document.rules.findIndex((rule) => rule.id === id)
+  return {
+    ...document,
+    rules: document.rules.filter((_rule, at) => at !== index),
+    policy: { ...document.policy, rules: document.policy.rules.filter((_rule, at) => at !== index) },
+  }
 }
 
 /**
@@ -168,8 +222,12 @@ export const deleteStep = (document: BuilderDocument, id: string): BuilderDocume
   const removed = document.policy.roles.find((role) => role.id === name)!
   const dependent = (rule: FlowPolicyRule): boolean => rule.on === name || rule.then.role === name || rule.then.split === name
     || (removed.kind === 'check' && (rule.when?.evidence?.some((guard) => 'check' in guard && (guard.check === name || guard.check === removed.check.run)) ?? false))
-  const rules = document.policy.rules.filter((rule) => !dependent(rule))
-  const retained = new Set(rules.map((rule) => rule.id))
+  const removedRuleIndexes = new Set<number>()
+  const rules = document.policy.rules.filter((rule, index) => {
+    if (!dependent(rule)) return true
+    removedRuleIndexes.add(index)
+    return false
+  })
   let policy = {
     ...document.policy, rules,
     roles: document.policy.roles.filter((role) => role.id !== name).map((role) => role.kind === 'agent' && role.independentOf.includes(name)
@@ -180,7 +238,7 @@ export const deleteStep = (document: BuilderDocument, id: string): BuilderDocume
   if (layout && raw && Object.hasOwn(raw, name)) policy = { ...policy, layout: { ...layout, positions: Object.fromEntries(Object.entries(raw).filter(([key]) => key !== name)) } }
   return {
     ...document, policy, steps: document.steps.filter((step) => step.id !== id),
-    rules: document.rules.filter((rule) => retained.has(rule.rule)),
+    rules: document.rules.filter((_rule, index) => !removedRuleIndexes.has(index)),
     positions: Object.fromEntries(Object.entries(document.positions).filter(([key]) => key !== id)),
   }
 }
@@ -194,6 +252,30 @@ const updateAgent = (document: BuilderDocument, id: string, update: (role: Extra
   return { ...document, policy: { ...document.policy, roles: document.policy.roles.map((role) => role === before ? after : role) } }
 }
 
+const reconciledCount = (selected: number, other: number, current: number | undefined): number | undefined => {
+  const width = selected || other
+  if (width > 1) return width
+  if (width === 1) return undefined
+  return current
+}
+
 /** An empty override means the named Agent's own seating preferences, as on the ordered editor. */
-export const setSeat = (document: BuilderDocument, id: string, seats: readonly FlowSeat[]): BuilderDocument => updateAgent(document, id, (role) => ({ ...role, seats }))
-export const setAgent = (document: BuilderDocument, id: string, uses: readonly string[]): BuilderDocument => updateAgent(document, id, (role) => ({ ...role, uses }))
+export const setSeat = (document: BuilderDocument, id: string, seats: readonly FlowSeat[]): BuilderDocument => updateAgent(document, id, (role) => ({
+  ...role,
+  seats,
+  count: reconciledCount(seats.length, role.uses.length, role.count),
+}))
+export const setAgent = (document: BuilderDocument, id: string, uses: readonly string[]): BuilderDocument => updateAgent(document, id, (role) => ({
+  ...role,
+  uses,
+  count: reconciledCount(uses.length, role.seats.length, role.count),
+}))
+
+/** Pick the executable step that starts this draft, preserving its title and other seed fields. */
+export const setSeed = (document: BuilderDocument, id: string): BuilderDocument => {
+  const role = stepOf(document, id).role
+  return document.policy.seed.role === role ? document : {
+    ...document,
+    policy: { ...document.policy, seed: { ...document.policy.seed, role } },
+  }
+}

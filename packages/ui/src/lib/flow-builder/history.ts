@@ -5,10 +5,17 @@ export interface BuilderHistory {
   readonly present: BuilderDocument
   readonly future: readonly BuilderDocument[]
 }
+
+const HISTORY_LIMIT = 200
+
+/**
+ * History stores whole-document snapshots. The screen commits one move on
+ * drag end, not on every pointer move, so a drag creates one undo entry.
+ */
 export const createHistory = (present: BuilderDocument): BuilderHistory => ({ past: [], present, future: [] })
 export const editHistory = (history: BuilderHistory, operation: (document: BuilderDocument) => BuilderDocument): BuilderHistory => {
   const present = operation(history.present)
-  return present === history.present ? history : { past: [...history.past, history.present], present, future: [] }
+  return present === history.present ? history : { past: [...history.past, history.present].slice(-HISTORY_LIMIT), present, future: [] }
 }
 export const undo = (history: BuilderHistory): BuilderHistory => {
   const present = history.past.at(-1)
@@ -16,5 +23,5 @@ export const undo = (history: BuilderHistory): BuilderHistory => {
 }
 export const redo = (history: BuilderHistory): BuilderHistory => {
   const present = history.future[0]
-  return present ? { past: [...history.past, history.present], present, future: history.future.slice(1) } : history
+  return present ? { past: [...history.past, history.present].slice(-HISTORY_LIMIT), present, future: history.future.slice(1) } : history
 }

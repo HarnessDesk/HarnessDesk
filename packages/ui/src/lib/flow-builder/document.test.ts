@@ -9,7 +9,7 @@ import { flowModel } from '../flow-model'
 import { emptyShapePolicy } from '../shapes'
 import {
   createDocument, documentGraph, graphDocument, sourceRequest, documentPolicy,
-  addStep, moveStep, renameStep,
+  addStep, moveStep, renameStep, deleteStep, builderProblems,
 } from './index'
 
 const shipped = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
@@ -28,6 +28,28 @@ describe('the builder document', () => {
     const layout = flowLayout(flowModel(policy))
     expect(documentGraph(document).nodes.map((node) => node.position)).toEqual(layout.nodes.map((node) => ({ x: node.box.x, y: node.box.y })))
     expect(documentPolicy(document)).toBe(policy)
+  })
+
+  it('rounds loop layout positions so a no-op graph sync preserves source provenance', () => {
+    const policy: FlowPolicy = {
+      ...emptyShapePolicy(),
+      roles: [
+        { id: 'a', kind: 'person', outcomes: ['done'] },
+        { id: 'b', kind: 'person', outcomes: ['done'] },
+        { id: 'c', kind: 'person', outcomes: ['done'] },
+      ],
+      seed: { role: 'a', title: 'Start' },
+      rules: [
+        { id: 'forward', on: 'a', then: { role: 'b', title: 'Continue' } },
+        { id: 'back', on: 'b', then: { role: 'a', title: 'Retry' } },
+      ],
+    }
+    const source = '# original source'
+    const document = createDocument(policy, source)
+    const graph = documentGraph(document)
+    expect(graph.nodes.every((node) => Number.isInteger(node.position.x) && Number.isInteger(node.position.y))).toBe(true)
+    expect(graphDocument(document, graph)).toBe(document)
+    expect(sourceRequest(document)).toEqual({ kind: 'source', source })
   })
 
   it('reads explicit coordinates exactly, fills missing ones from auto layout, and keeps unknown metadata', () => {
@@ -86,6 +108,22 @@ describe('the builder document', () => {
     expect(policyOf(writeShape(moved.policy))).toEqual(moved.policy)
   })
 
+  it('keeps unrelated layout and builder metadata through note add, move and delete', () => {
+    const policy = {
+      ...emptyShapePolicy(),
+      layout: { frontDoor: { order: 4 }, builder: { tint: 'kept', notes: [] }, other: { value: 7 } },
+    }
+    const document = createDocument(policy)
+    const added = addStep(document, 'note', 'Remember', { x: 40, y: 80 })
+    const id = added.notes[0]!.id
+    const moved = moveStep(added, id, { x: 90, y: 140 })
+    const deleted = deleteStep(moved, id)
+    for (const current of [added, moved, deleted]) {
+      expect(current.policy.layout).toMatchObject({ frontDoor: { order: 4 }, builder: { tint: 'kept' }, other: { value: 7 } })
+    }
+    expect(deleted.notes).toEqual([])
+  })
+
   it('refuses stale, missing and semantic graph changes instead of losing them', () => {
     const document = createDocument(emptyShapePolicy())
     const graph = documentGraph(document)
@@ -93,6 +131,43 @@ describe('the builder document', () => {
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...graph.nodes[0]!, id: 'unknown' }] })).toThrow(/operations/i)
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...graph.nodes[0]!, position: { x: Infinity, y: 0 } }] })).toThrow(/finite/i)
     expect(graphDocument(document, { ...graph, nodes: [...graph.nodes].reverse() })).toBe(document)
+
+    const step = graph.nodes[0]!
+    if (step.data.kind !== 'step') throw new Error("Expected the empty draft's node to be a step")
+    const stepData = step.data
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, id: 'changed' } } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, name: 'Changed' } } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [...graph.nodes, { ...step, id: 'extra' }] })).toThrow(/operations/i)
+    expect(() => graphDocument(document, { ...graph, edges: [...graph.edges, { id: 'extra', source: null, target: null, data: { rule: {}, view: {} } as never }] })).toThrow(/operations/i)
+
+    const withEdge = createDocument({ ...emptyShapePolicy(), rules: [{ id: 'to-nowhere', on: 'review', then: { role: 'missing', title: 'Missing' } }] })
+    const withEdgeGraph = documentGraph(withEdge)
+    const edge = withEdgeGraph.edges[0]!
+    expect(() => graphDocument(withEdge, { ...withEdgeGraph, edges: [{ ...edge, data: { ...edge.data, rule: { ...edge.data.rule, id: 'changed' } } }] })).toThrow(/rule/i)
+    expect(() => graphDocument(withEdge, { ...withEdgeGraph, edges: [{ ...edge, source: 'elsewhere' }] })).toThrow(/rule/i)
+    expect(() => graphDocument(withEdge, { ...withEdgeGraph, edges: [{ ...edge, target: 'elsewhere' }] })).toThrow(/rule/i)
+  })
+
+  it('ignores graph-owned extras and object key order when syncing model fields', () => {
+    const document = createDocument({ ...emptyShapePolicy(), rules: [{ id: 'to-nowhere', on: 'review', then: { role: 'missing', title: 'Missing' } }] })
+    const graph = documentGraph(document)
+    const nodes = graph.nodes.map((node) => ({ ...node, selected: true, data: { ...node.data, selected: true } }))
+    const edges = graph.edges.map((edge) => ({ ...edge, selected: true, data: { ...edge.data, selected: true } }))
+    expect(graphDocument(document, { nodes, edges } as never)).toBe(document)
+    const reordered = graph.edges.map((edge) => ({ ...edge, data: { view: edge.data.view, rule: edge.data.rule } }))
+    expect(graphDocument(document, { ...graph, edges: reordered } as never)).toBe(document)
+  })
+
+  it('reports an independentOf parent whose predecessor path was removed', () => {
+    const source = shipped['../../../../server/flows/comparison.yml'] as string
+    const document = createDocument(policyOf(source))
+    const verify = document.steps.find((step) => step.role === 'verify')!
+    const judge = document.steps.find((step) => step.role === 'judge')!
+    const deleted = deleteStep(document, verify.id)
+    const problem = builderProblems(deleted).find((one) => one.kind === 'independent-of')
+    expect(problem).toMatchObject({ step: judge.id, text: expect.stringContaining('competitor') })
+    expect(problem?.text).toContain('judge')
+    expect(() => writeShape(documentPolicy(deleted))).toThrow(/no predecessor path/i)
   })
 
   it('round trips graph edits without losing fields the canvas does not draw', () => {

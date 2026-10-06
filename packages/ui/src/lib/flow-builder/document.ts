@@ -31,6 +31,20 @@ export const recordOf = (value: unknown): Record<string, unknown> | null => (
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 )
 
+/** Compare the fields this model owns, allowing the canvas to add its own keys. */
+const matchesOwnedFields = (actual: unknown, expected: unknown): boolean => {
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual) && actual.length === expected.length
+      && expected.every((value, index) => matchesOwnedFields(actual[index], value))
+  }
+  const expectedRecord = recordOf(expected)
+  if (expectedRecord) {
+    const actualRecord = recordOf(actual)
+    return actualRecord !== null && Object.entries(expectedRecord).every(([key, value]) => matchesOwnedFields(actualRecord[key], value))
+  }
+  return Object.is(actual, expected)
+}
+
 const readNotes = (policy: FlowPolicy): { notes: BuilderNote[]; invalid: boolean } => {
   const raw = recordOf(recordOf(policy.layout)?.['builder'])?.['notes']
   if (raw === undefined) return { notes: [], invalid: false }
@@ -46,7 +60,7 @@ const readNotes = (policy: FlowPolicy): { notes: BuilderNote[]; invalid: boolean
     const x = position?.['x']
     const y = position?.['y']
     const point = typeof x === 'number' && typeof y === 'number' ? boundedPosition(x, y) : null
-    if (typeof id !== 'string' || !/^note-\d+$/.test(id) || seen.has(id) || typeof text !== 'string' || !point || point.x !== x || point.y !== y) {
+    if (typeof id !== 'string' || !/^note-\d+$/.test(id) || seen.has(id) || typeof text !== 'string' || text.length > 2000 || !point || point.x !== x || point.y !== y) {
       invalid = true
       continue
     }
@@ -64,7 +78,10 @@ export const createDocument = (policy: FlowPolicy, source?: string): BuilderDocu
   const model = flowModel(policy)
   // Explicit positions are used exactly, including negative coordinates.
   // Compute missing positions from the existing layout, without its display normalization.
-  const auto = new Map(flowLayout({ ...model, positions: {} }).nodes.map((node) => [node.id, { x: node.box.x, y: node.box.y }]))
+  const auto = new Map(flowLayout({ ...model, positions: {} }).nodes.map((node) => [
+    node.id,
+    boundedPosition(node.box.x, node.box.y)!,
+  ]))
   const positions = Object.fromEntries(steps.map((step) => [step.id, (Object.hasOwn(hand.positions, step.role) ? hand.positions[step.role] : undefined) ?? auto.get(step.role)!]))
   const read = readNotes(policy)
   const noteIds = new Set(read.notes.map((note) => note.id))
@@ -162,7 +179,7 @@ export const graphDocument = (document: BuilderDocument, graph: BuilderGraph): B
   let notesChanged = false
   for (const before of expected.nodes) {
     const node = nodes.get(before.id)
-    if (!node || JSON.stringify(node.data) !== JSON.stringify(before.data)) throw new Error('Use document operations to edit a step')
+    if (!node || !matchesOwnedFields(node.data, before.data)) throw new Error('Use document operations to edit a step')
     const point = boundedPosition(node.position.x, node.position.y)
     if (!point) throw new Error('A position must be finite')
     if (point.x === before.position.x && point.y === before.position.y) continue
@@ -177,7 +194,8 @@ export const graphDocument = (document: BuilderDocument, graph: BuilderGraph): B
   }
   for (const before of expected.edges) {
     const edge = edges.get(before.id)
-    if (!edge || JSON.stringify(edge) !== JSON.stringify(before)) throw new Error('Use document operations to edit a rule')
+    if (!edge || edge.source !== before.source || edge.target !== before.target
+      || !matchesOwnedFields(edge.data, before.data)) throw new Error('Use document operations to edit a rule')
   }
   if (positionsChanged) next = withPositions(next, positions)
   if (notesChanged) next = withNotes(next, notes)
