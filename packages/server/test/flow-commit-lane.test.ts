@@ -63,6 +63,10 @@ test('each Seat of an isolated pair commits its own work in its own lane through
     intents = (await host.call('goal/read', { goal }) as GoalView).board.intents
   }
   for (const card of intents) {
+    const forge = await host.forgePlane.seat({runtime: card.claim!.runtime, sessionId: card.claim!.sessionId})
+    assert.equal(forge?.role, 'writer')
+    assert.equal(forge?.team, host.teamPlane.stateFor(goal).name)
+    assert.equal(forge?.round, null)
     assert.deepEqual(host.teamPlane.dirtyPathsOf(goal, card.id), [], `card #${card.id}'s lane claim recorded its snapshot`)
   }
 

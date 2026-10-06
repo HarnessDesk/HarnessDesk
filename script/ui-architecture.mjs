@@ -8,6 +8,7 @@ import ts from '@typescript/typescript6'
 import { repositoryFiles } from './lib/repository-files.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const CANVAS_ENGINE = 'packages/ui/src/design/patterns/FlowCanvas/Engine.tsx'
 const UI_SOURCE = 'packages/ui/src/'
 const PRIMITIVE_SOURCE = 'packages/ui/src/design/ui/'
 const HEADLESS = /^(?:@base-ui\/react(?:\/|$)|radix-ui$|@radix-ui\/)/
@@ -140,6 +141,9 @@ const moduleSpecifiers = (file, source) => {
   const visit = (node) => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
       found.push(node.moduleSpecifier.text)
+    }
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
+      found.push(node.arguments[0].text)
     }
     ts.forEachChild(node, visit)
   }
@@ -384,6 +388,9 @@ export const scanUiArchitecture = (files) => {
       findings.push({ path: file.path, rule: 'raw-style-export', detail: 'export { styles as ... }' })
     }
     for (const specifier of moduleSpecifiers(file.path, file.source)) {
+      if (/^@xyflow\/react(?:\/|$)/.test(specifier) && file.path !== CANVAS_ENGINE) {
+        findings.push({ path: file.path, rule: 'canvas-engine-import', detail: 'React Flow belongs only in the lazy FlowCanvas engine' })
+      }
       if (LEGACY.test(specifier) || (RETIRED_SIBLING.test(specifier) && !file.path.startsWith('packages/ui/src/design/patterns/'))) {
         findings.push({ path: file.path, rule: 'legacy-design-api', detail: specifier })
       }

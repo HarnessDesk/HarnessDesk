@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { allItems, currentTurn, isBusy, typedUserText, type RuntimeId, type Session } from '@harnessdesk/protocol'
+import { allItems, currentTurn, isBusy, isNoticeTurn, typedUserText, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
 import {
   useActiveSession,
@@ -596,6 +596,16 @@ export const Conversation = ({
   const folderGone = session ? (snapshot.foldersGone.get(session.cwd) ?? null) : null
 
   const items = useMemo(() => (session ? allItems(session) : []), [session])
+  const hasRealTurn = session?.turns.some(turn => !isNoticeTurn(turn)) ?? false
+  const emptyState = session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
+    <ConversationEmptyState>
+      <EmptyTitle>Nothing to show</EmptyTitle>
+      <EmptyBody>
+        {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The agent'}{' '}
+        couldn’t restore this conversation’s messages. Sending a message continues the same session.
+      </EmptyBody>
+    </ConversationEmptyState>
+  ) : <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
   const busy = session ? isBusy(session) : false
   const live = session ? currentTurn(session) : undefined
 
@@ -803,6 +813,7 @@ export const Conversation = ({
             onClick={onScrollClick}
             data-live-transcript
           >
+            {!hasRealTurn && emptyState}
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
@@ -862,18 +873,11 @@ export const Conversation = ({
           // the pitch below is the honest answer, and `updatedAt` moving past
           // `createdAt` is what separates the two.
           <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
-            <ConversationEmptyState>
-              <EmptyTitle>Nothing to show</EmptyTitle>
-              <EmptyBody>
-                {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The agent'}{' '}
-                couldn’t restore this conversation’s messages. Sending a message continues the
-                same session.
-              </EmptyBody>
-            </ConversationEmptyState>
+            {emptyState}
           </PaneColumn>
         ) : (
           <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
-            <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
+            {emptyState}
           </PaneColumn>
         )}
 

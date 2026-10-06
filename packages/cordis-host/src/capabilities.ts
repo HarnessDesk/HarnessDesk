@@ -168,7 +168,7 @@ export class ShellService extends Service {
     // is both the default and the boundary; an explicit cwd cannot widen it.
     const root = currentShellWorkspace() ?? this.runtime.workspace.root
     const cwd = options.cwd ? resolve(root ?? '.', options.cwd) : root
-    if (cwd) new PermissionGate(owner.permissions, () => root).assertWorkspaceRead(cwd)
+    if (cwd) new PermissionGate(owner.permissions, () => root, () => this.runtime.inOtherCheckout).assertWorkspaceRead(cwd)
 
     const timeoutMs = options.timeoutMs ?? 30_000
     /* The command as a sentence about it names it: its name, and its first

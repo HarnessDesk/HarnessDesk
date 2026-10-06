@@ -554,12 +554,18 @@ through them, appears as a publication row: a verb, then the thing as a chip —
 GitHub's mark and `owner/name #n` — then its state in a word. Hovering the chip
 opens a card with GitHub's own text on it: the title, the author and size, and
 the opening of the description as GitHub holds it, which is where the signature
-the desk wrote is read. Pressing it opens the page. The signature itself — by
-default “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent
-model · effort)”, in the agent's own labels — is a template in the Git plugin's
-settings, and a blank one signs nothing. Nothing about it rides in the
-conversation: the agent is told, through its own instruction layer, to use the
-tools; the desk does the rest.
+the desk wrote is read. Pressing it opens the page. Settings › Plugins › Git
+has Description, Review and Comment signature templates. Their placeholders
+are listed once above the settings rows; a blank value turns that kind off.
+The default signature names the Team role and the agent's own model and effort
+labels. The first review round in a Run is 1; later reviews count only earlier
+review rounds in that Run, and the signature omits round 1. Outside a Team the
+role and round drop out. A description keeps each role and seat that wrote it,
+so a fixer's update preserves the writer's credit. Comments carry their
+signature on the first visible line, descriptions on the last. Nothing about it
+rides in the conversation: the agent is told, through its own instruction
+layer, to use the tools; the desk does the rest. Text a person writes
+themselves carries no signature.
 
 **Under every finished turn, a summary**: files changed (click → Changes),
 commands run, tests passed or failed, what broke, and "waiting for your
@@ -813,11 +819,15 @@ Completed jobs still awaiting their first evidence read remain visible as
 Checking evidence, or Evidence unavailable if that read failed. Needs you says
 why, with a stranded claim’s age first. Finished jobs show their completing
 agent only while the channel still records it; otherwise Assignee is a dash.
-Reopen is visible on finished and stopped rows; a person step opens its answer
-or review question. Other rows keep their verbs in the menu, revealed on hover
-or keyboard focus. Empty evidence columns start hidden, and secondary columns
-yield to the pane’s width so actions stay in view. The view menu chooses
-columns and sort, and the footer names the displayed count and order.
+Reopen is visible on finished, set-aside and hand-stopped rows; dependency-
+blocked jobs keep it in the menu. A finished outcome sits beside its state when
+there is no Needs-you reason, and owned files appear below the title. Below
+720px the job cell still names the assignee. Columns too wide for the pane keep
+their View switch disabled with the width they need, and search includes the
+state each row shows, including Checking evidence. Other verbs stay in the
+menu, revealed on hover or keyboard focus. Empty evidence columns start hidden,
+and secondary columns yield to the pane’s width so actions stay in view. The
+footer names the displayed count and order.
 
 **A conversation's Seat record.** A conversation seated as an Agent shows its
 Seat record at the head of its Agents inspector, above the sub-agents it

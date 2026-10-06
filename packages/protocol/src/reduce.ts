@@ -3,7 +3,7 @@ import type { AgentEvent } from './events.js'
 import type { ItemId, TurnId } from './ids.js'
 import type { AgentItem, FileChange, ItemDelta, UserMessageItem } from './items.js'
 import type { Session, Turn } from './session.js'
-import { isNoticeTurn } from './notices.js'
+import { isNoticeTurn } from './notice-turn.js'
 
 /**
  * Folding the event stream back into a `Session`.

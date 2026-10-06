@@ -109,6 +109,25 @@ it('removing an unregistered conversation discards its pending notices', () => {
   expect(store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))?.turns).toEqual([])
 })
 
+it('closing an unregistered conversation discards its pending notices', () => {
+  const id = sessionId('review')
+  pushTo(store, { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  pushTo(store, { type: 'session/closed', sessionId: id })
+  pushTo(store, { type: 'session/started', session: { id, runtime: runtimeId('codex'), cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true } })
+
+  expect(store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))?.turns).toEqual([])
+})
+
+it('folds a pending conversation notice into a session arriving by sync', () => {
+  const id = sessionId('review')
+  pushTo(store, { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  const handlers = (store.transport as unknown as { handlers: { onNotification(notification: unknown): void } }).handlers
+  handlers.onNotification({ method: 'sync', params: { sessions: [{ id, runtime: runtimeId('codex'), cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }] } })
+
+  const synced = store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))
+  expect(synced?.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice').map(item => item.text)).toEqual(['No tools declared'])
+})
+
 it('a host read moving an early notice into a real turn leaves one row', () => {
   const id = sessionId('review')
   const opened: Extract<AgentEvent, { type: 'session/started' }> = { type: 'session/started', session: { id, runtime: runtimeId('codex'), cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true } }

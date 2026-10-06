@@ -81,6 +81,7 @@ import {
   type Approval,
   type ContributionId,
   type ScopeQuery,
+  type WorkspaceAdmission,
   type GoalSeatRequest,
   type GoalReceipt,
   type SecretReload,
@@ -226,7 +227,7 @@ export interface ExtensionHost extends CapabilityRegistry {
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
   setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
-  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined>): void
   /** Reads a manifest for the consent dialog; imports nothing. */
   inspectPlugin(specifier: string): Promise<{
     id: string
@@ -1018,6 +1019,20 @@ export class Host {
             return record.session.options ?? []
           }
         },
+        teamOf: (runtime, sessionId) => {
+          const seat = this.#evidence.seats.latestKeptOf(runtime, sessionId)
+          if (!seat?.board || seat.closed) return null
+          const board = this.#team.stateFor(seat.board)
+          const card = board.intents.find((one) => one.claim?.runtime === runtime && one.claim.sessionId === sessionId)
+          const run = card ? this.#flows.executionsFor(seat.board).find((one) => one.rounds.some((round) => round.cards.includes(card.id))) : null
+          const rounds = run ? this.#flows.findingRun(run.id)?.rounds ?? [] : []
+          const round = card ? rounds.find((one) => one.cards.includes(card.id)) : null
+          const index = round ? rounds.indexOf(round) : -1
+          const reviewNumber = round?.reviews && index >= 0
+            ? rounds.slice(0, index).filter((one) => one.reviews).length + 1
+            : null
+          return { role: seat.role, team: board.name || null, round: reviewNumber }
+        },
         record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
@@ -1306,7 +1321,7 @@ export class Host {
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
-      commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
+      commitWork: (cwd, before, message, seat) => commitCardWork(cwd, before, message, this.#runtimes.get(seat.session.runtime)?.info.presentation.coAuthor ?? null),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
       assertCheckCleanup: (goal, card) => this.#evidence.assertFlowCheckCleanup(goal, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
@@ -1498,6 +1513,14 @@ export class Host {
       ledger: (project) => this.#findings.ledgerOf(project),
       seat: (id) => this.#evidence.seats.byId(id),
       template: () => this.#reviewSignature(),
+      teamOf: (board) => { try { return this.#team.stateFor(board).name || null } catch { return null } },
+      reviewRoundOf: (seat, round) => {
+        if (!seat.board || round === null) return null
+        const run = this.#flows.executionsFor(seat.board).find((one) => one.operations.some((op) => op.kind === 'seat' && op.seat === seat.id))
+        const rounds = run ? this.#flows.findingRun(run.id)?.rounds ?? [] : []
+        const index = rounds.findIndex((one) => one.n === round && one.reviews)
+        return index < 0 ? null : rounds.slice(0, index).filter((one) => one.reviews).length + 1
+      },
       appendPost: (input) => this.#findings.appendPost(input),
       forge: options.findingForge ?? new GhFindingForge(),
       // A trigger's run posts each closed round as one review; every other run, comment by comment.
@@ -1738,7 +1761,7 @@ export class Host {
         }
         return (await seatAgent(this.#context, asked, {
           board: goal.id,
-          role: null,
+          role: policy.role,
           ...(input.grant === undefined ? {} : { grant: input.grant }),
           ...(policy.unattended ? { unattended: true } : {}),
           ...(policy.requireHeld ? { requireHeld: true as const } : {}),
@@ -3223,6 +3246,7 @@ export class Host {
 
   /** The last project opened by the host, never a runtime-reported session directory. */
   #shellProject: string | null = null
+  #shellCheckoutRoot: string | null = null
 
   /** Only person-opened projects admit shell authority; session listings never do. */
   async #admitShellProject(project: string | null | undefined, checkout?: string): Promise<ShellProjectIdentity | undefined> {
@@ -3254,7 +3278,7 @@ export class Host {
     return undefined
   }
 
-  async #shellWorkspace(scope: ScopeQuery): Promise<string | undefined> {
+  async #shellWorkspace(scope: ScopeQuery): Promise<WorkspaceAdmission | undefined> {
     const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
     // Durable records are candidates, re-admitted against person-opened projects on every invocation.
     const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
@@ -3268,8 +3292,13 @@ export class Host {
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
     const project = identity.project
     const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
-    if (record) record.shellCheckout = { project, cwd }
-    return cwd
+    // A Seat owns its placement only while shellRoot can still return that admitted checkout.
+    const placement = checkout && (kept ? await realpath(checkout.cwd).catch(() => undefined) : checkout.cwd)
+    const source = admitted && checkout && placement && samePath(cwd, placement)
+      ? record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
+      : 'fallback'
+    if (record) record.shellCheckout = { project, cwd, source }
+    return { root: cwd, enterCheckout: source === 'own' && !samePath(cwd, this.#shellCheckoutRoot ?? '') }
   }
 
   /** The folder a live session works in, straight off the registry; null when that session is not live. */
@@ -4722,8 +4751,9 @@ export class Host {
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
     this.#shellProject = shellIdentity.project
-    // A conversation here is admitted to the folder's checkout, or to its project's main checkout when it has no
-    // checkout of its own: a call admitted to either runs in this folder as it was opened.
+    this.#shellCheckoutRoot = shellIdentity.checkoutRoot
+    // A conversation here uses the folder's checkout or its project's main checkout as a fallback. Both can
+    // run in the folder as opened; #shellWorkspace distinguishes a Seat's own checkout from that fallback.
     this.#extensions?.setWorkspace({
       root: described.path, branch: git?.branch ?? null, admitted: [shellIdentity.checkoutRoot, shellIdentity.project],
     })
@@ -5939,7 +5969,7 @@ export class Host {
     try {
       const session = this.#attach(runtime, live.id, live)
       const checkout = Object.freeze({ project, cwd })
-      this.registry.get(runtime.info.id, live.id)!.shellCheckout = checkout
+      this.registry.get(runtime.info.id, live.id)!.shellCheckout = { ...checkout, source: 'own' }
       await live.setTitle(where.title).catch(() => {})
       await this.#names.set(runtime.info.id, live.id, where.title)
       await this.#applySeatPicks(live, seat)

@@ -1429,3 +1429,9 @@ test('locally sent wrapper lookalikes carry a record through the native event st
   assert.deepEqual(opening.item.content, [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }])
   assert.equal(opening.item.context?.length ?? 0, 0)
 })
+
+test('presentation declares the native commit co-author', async (t) => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  assert.deepEqual(runtime.info.presentation.coAuthor, { name: 'Codex', email: 'noreply@openai.com' })
+})

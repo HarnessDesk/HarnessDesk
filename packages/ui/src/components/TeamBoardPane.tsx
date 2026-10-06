@@ -548,26 +548,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         }
         subtitleFace="text"
         actions={
-          /* One primary, said as a button.
-             ---------------------------------------------------------------
-             This strip used to be a 44px-wide text field wearing a + and a
-             `…`, and it was the wrong shape three times over. A field in a
-             pane header reads as a *filter* — every other header in this app
-             that carries one is searching what is below it — so the one
-             control that adds work looked like the one control that hides
-             it. It was also the only way in: the dialog that asks for the
-             fields the host actually referees (the files a job owns, what it
-             waits on, which goal it belongs to) hid behind an ellipsis
-             inside the field, which is a button inside a text box and reads
-             as a truncation. And a field cannot be the loudest thing on a
-             header, so the board had no primary action at all.
-
-             The quick path is not lost, it has moved to where the card lands:
-             the Ready column's own slot takes a title and Enter, in the one
-             place on the screen that is already about adding work. What is
-             here now is what a header is for — the whole-board actions, with
-             the loud one last, which is the order the reference draws and the
-             order macOS reads. */
+          /* Top-bar actions stay outlined: a filled button belongs with the
+             work itself. The Ready column keeps its contextual title-and-
+             Enter shortcut, while the header holds the board-wide verbs. */
           <div className="flex items-center gap-1.5">
             {/* Offered only when both halves exist — a button that opens a
                 dialog to say "nothing to hand out" is a button that lies about
@@ -634,8 +617,14 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             searchText={intent => {
               const copy = jobCopy(intent, room, snapshot)
               const stranded = strandedFor(intent, now, attached)
-              return [copy.holderName, copy.note, stranded !== null ? `stranded ${describeAge(stranded)}` : placed.get(intent.id)?.why,
-                ...intent.files,
+              const placement = placed.get(intent.id)
+              const reason = stranded !== null ? `stranded ${describeAge(stranded)}`
+                : placement?.column === 'needs' ? placement.why : null
+              const stateWords = placement ? FACT_COLUMNS.find(one => one.id === placement.column)!.title
+                : snapshot.boardEvidenceFailed.has(room) ? 'Evidence unavailable' : 'Checking evidence'
+              const outcome = intent.state === 'done' && !reason ? intent.outcome : null
+              return [copy.holderName, copy.note, reason, stateWords,
+                outcome, ...intent.files,
                 ...(evidence?.cards.find(one => one.card === intent.id)?.facts.flatMap(one => one.record.fact.kind === 'pr' ? [`#${one.record.fact.number}`] : []) ?? [])]
             }} renderRow={(intent, columns) => (
             <IntentCard key={intent.id} listColumns={columns} intent={intent} room={room}
@@ -1030,7 +1019,7 @@ const IntentCard = ({
             : []),
         ]
 
-  const primary = intent.state === 'done' || intent.state === 'abandoned' || intent.state === 'blocked'
+  const primary = intent.state === 'done' || intent.state === 'abandoned' || (intent.state === 'blocked' && intent.blockedBy === 'hand')
     ? verbs.find(one => one.verb === 'reopen')
     : intent.state !== 'claimed' && role?.kind === 'person' && role.outcomes.length > 0
       ? role.review ? verbs.find(one => one.review) : { label: 'Answer…', answer: true as const }
@@ -1088,6 +1077,7 @@ const IntentCard = ({
     : snapshot.boardEvidenceFailed.has(room) ? 'Evidence unavailable' : 'Checking evidence'
   const reason = stranded !== null ? `stranded ${describeAge(stranded)}`
     : placement?.column === 'needs' ? placement.why : null
+  const visibleOutcome = intent.state === 'done' && !reason ? intent.outcome : null
   const brand = runtime ? brandForRuntime(runtime) : null
   const face = assignee ? <IconTile shape="face" tint={holderTint}>
     {brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />}
@@ -1100,13 +1090,21 @@ const IntentCard = ({
         <TableCell className="whitespace-normal min-w-0 max-w-0">
           <span className="flex min-w-0 flex-wrap items-center gap-2"><Text role="meta">#{intent.id}</Text><Text role="row" className="min-w-0 break-words [overflow-wrap:anywhere]" title={intent.title}>{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
           {note && <Text role="meta" className="whitespace-normal line-clamp-2 break-words [overflow-wrap:anywhere]" title={note}>{note}</Text>}
-          {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason && ` · ${reason}`}</Text></span>}
+          {intent.files.length > 0 && <Text role="meta" className="block min-w-0 truncate" title={`Owns ${intent.files.join(', ')} while claimed`}>{intent.files.join(', ')}</Text>}
+          {listColumns.has('assignee') && <span className="@[720px]/board:hidden"><Text role="meta">Assignee · {holderName}</Text></span>}
+          {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason ? ` · ${reason}` : visibleOutcome ? ` · ${visibleOutcome}` : ''}</Text></span>}
         </TableCell>
         {listColumns.has('assignee') && <TableCell className={JOB_COLUMN_CLASS.assignee}>
           {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="gap-2">{face}{holderName}</Button>
             : <span className="inline-flex items-center gap-2">{holderName !== '—' && face}<Text role="meta">{holderName}</Text></span>}
         </TableCell>}
-        {listColumns.has('state') && <TableCell className={`${JOB_COLUMN_CLASS.state} whitespace-normal`}><Chip tone={placement?.column === 'needs' ? 'warning' : placement?.column === 'ready' ? 'success' : 'neutral'}>{stateWords}</Chip>{reason && <Text role="meta" className="block whitespace-normal break-words" title={reason}>{reason}</Text>}</TableCell>}
+        {listColumns.has('state') && <TableCell className={`${JOB_COLUMN_CLASS.state} whitespace-normal`}>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <Chip tone={placement?.column === 'needs' ? 'warning' : placement?.column === 'ready' ? 'success' : 'neutral'}>{stateWords}</Chip>
+            {visibleOutcome && <Chip tone="neutral">{visibleOutcome}</Chip>}
+          </span>
+          {reason && <Text role="meta" className="block whitespace-normal break-words" title={reason}>{reason}</Text>}
+        </TableCell>}
         {listColumns.has('pr') && <TableCell className={JOB_COLUMN_CLASS.pr}>
           {pr?.record.fact.kind === 'pr' ? <Button variant="link" size="inline" disabled={!pr.record.fact.url} title={standingWords(pr.freshness)} onClick={() => pr.record.fact.kind === 'pr' && pr.record.fact.url && openExternal(pr.record.fact.url)}>
             #{pr.record.fact.number}{!isCurrent(pr.freshness) && ' · stale or unknown'}
@@ -1119,10 +1117,12 @@ const IntentCard = ({
           {diff?.record.fact.kind === 'diff' ? <span title={standingWords(diff.freshness)}><ChangeStats added={diff.record.fact.added} removed={diff.record.fact.removed} />{!isCurrent(diff.freshness) && <Text role="meta"> · stale or unknown</Text>}</span> : <Text role="meta">—</Text>}
         </TableCell>}
         {listColumns.has('updated') && <TableCell numeric className={JOB_COLUMN_CLASS.updated}><Text role="meta" numeric title={new Date(intent.updatedAt).toLocaleString()}>{describeAge(now - intent.updatedAt)}</Text></TableCell>}
-        <TableCell align="end" className="w-px"><span className="inline-flex items-center gap-1.5">
+        <TableCell className="w-px">
           {primary && !record && <Button variant="outline" size="sm" onClick={() => 'answer' in primary ? openAnswerDialog() : primary.review ? void openReviewDialog() : onAct(primary.verb, primary.outcome)}>{primary.label}</Button>}
+        </TableCell>
+        <TableCell align="end" className="w-px">
           <span className="opacity-0 group-hover/job:opacity-100 group-focus-within/job:opacity-100 has-[[aria-expanded=true]]:opacity-100">{actions}</span>
-        </span></TableCell>
+        </TableCell>
       </TableRow>
     ) : <BoardCard
       title={

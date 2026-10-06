@@ -70,10 +70,11 @@ export class HostRuntime {
    * Context resolution and tool calls run in the checkout the host admitted for the conversation they serve. A call
    * admitted to the open workspace's own checkout runs in the open workspace as it was opened — a subfolder, a linked
    * worktree, a folder reached through a link — with its branch. Any other checkout, a Seat's lane or another clone, is
-   * entered as it is, and its branch is unknown here.
+   * entered as it is, and its branch is unknown here. Host admission can require entering a Seat's own checkout
+   * even when that root also names the open project's fallback.
    */
-  withContextWorkspace<T>(root: string | undefined, run: () => T): T {
-    const workspace = root === undefined || this.#openCheckouts.includes(canonicalRoot(root))
+  withContextWorkspace<T>(root: string | undefined, run: () => T, enterCheckout = false): T {
+    const workspace = root === undefined || (!enterCheckout && this.#openCheckouts.includes(canonicalRoot(root)))
       ? this.#workspace
       : { root, branch: null }
     return this.#contextWorkspace.run(workspace, run)

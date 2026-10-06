@@ -3273,3 +3273,19 @@ test('a marked Agent brief remains a notice with its kind when the turn complete
   assert.ok(next.turn.items[0]?.type === 'notice')
   assert.equal(next.turn.items[0].kind, undefined)
 })
+
+test('ACP presentation uses only a co-author supplied by the agent row', async (t) => {
+  const supplied = { name: 'Preview Agent', email: 'agent@example.com' }
+  const configured = {
+    id: 'preview-agent', name: 'Preview Agent', command: process.execPath, args: [FAKE], coAuthor: supplied,
+  }
+  const runtime = new AcpRuntime(configured)
+  t.after(() => runtime.dispose())
+  assert.deepEqual(runtime.info.presentation.coAuthor, supplied)
+
+  for (const id of ['cursor', 'constructor', 'claude-code']) {
+    const unconfigured = new AcpRuntime({ id, name: 'Preview Agent', command: process.execPath, args: [FAKE] })
+    t.after(() => unconfigured.dispose())
+    assert.equal(unconfigured.info.presentation.coAuthor, null, `${id} does not identify what command the row runs`)
+  }
+})

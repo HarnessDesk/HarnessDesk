@@ -201,6 +201,8 @@ export interface AcpAgentConfig {
   /** Stable runtime id, e.g. `claude-code`. Shown nowhere; keyed everywhere. */
   readonly id: string
   readonly name: string
+  /** Native Git co-author declared by the known-agent table, when one is cited or observed. */
+  readonly coAuthor?: { readonly name: string; readonly email: string } | null
   /** Whose mark to show — a lobe-icons key, e.g. `claudecode`. See `RuntimePresentation.brand`. */
   readonly brand?: string
   readonly command: string
@@ -940,6 +942,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
+        coAuthor: this.#config.coAuthor ?? null,
         ...(this.#config.perToolMcpApproval
           ? { boardToolApproval: { ...this.#config.perToolMcpApproval, sessionOptionLabel: 'Allow for this session', onceOptionLabel: 'Allow once' } }
           : {}),
