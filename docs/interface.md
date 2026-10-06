@@ -814,10 +814,12 @@ then To do, into named rails with their counts; each rail opens in place and
 offers a keyboard Fold control only when it can return to a rail. The scroll
 body reserves its gutter so a scrollbar appearing cannot move the fold
 thresholds. When the columns and rails no longer fit,
-or below 760px of pane width, Needs you and Working share the first row,
-In review and To do the second; Ready stays a rail. Below 600px the pane uses
-the compact list, grouped by state with Needs you first. The pane measures
-itself, including space lost to a sidebar or dock, and restores the selected
+or below 760px of content width, Needs you and Working share the first row,
+In review and To do the second; Ready stays a rail. Below 600px of content width
+the pane uses the compact list, grouped by state with Needs you first. Content
+width is the scroll body's client width, after its reserved scrollbar gutter;
+column fit also subtracts its insets. The pane measures itself, including space
+lost to a sidebar or dock, and restores the selected
 view when it widens. Set aside keeps its own lane while it contains work.
 
 **As a list.** Board · List switches the same jobs into a framed table. Filter
