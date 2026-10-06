@@ -347,10 +347,15 @@ in *Needs you* too, because somebody has to take it over.
 Nothing is dragged, and no column takes a title: there is no column to put a
 card in, only the one its facts put it in, and work goes on through *New job*.
 An empty column says *Nothing here*. In List, *Put back in play* is visible on
-finished, set-aside and stopped jobs; a person step shows *Answer…* or
-*Pick an attempt…*, opening its question before recording anything. A live
-claim has no visible verb. Every other verb stays in ⋮; a row with no remaining
-menu items has no menu trigger. On Board, every verb is in the card's ⋮ menu —
+finished, set-aside and hand-stopped jobs; dependency-blocked jobs keep it in
+⋮. A person step shows *Answer…* or *Pick an attempt…*, opening its question
+before recording anything. A finished outcome sits beside its state when there
+is no Needs-you reason, and owned files appear below the title. Below 720px the
+job cell still names the assignee. A column too wide for the pane keeps its
+View switch disabled with the width it needs, and the filter includes each
+row's drawn state, including *Checking evidence*. A live claim has no visible
+verb. Every other verb stays in ⋮; a row with no remaining menu items has no
+menu trigger. On Board, every verb is in the card's ⋮ menu —
 *Mark done*, *Take it back off …*, *Put back in play*, *Stop it — say why*,
 *Abandon* — and, when the project names checks, *Run <check>* for each. A
 check that cannot run now stays in the menu, greyed, and says why: the file

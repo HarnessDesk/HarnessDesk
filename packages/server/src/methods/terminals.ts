@@ -1,19 +1,45 @@
 import { sessionId as makeSessionId } from '@harnessdesk/protocol'
 
+import { within } from '../seat-reads.js'
 import { confine } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
+const TERMINAL_ACCOUNT_READ_DEADLINE_MS = 2_000
+
 /** PTYs that outlive a client reload, hosted by whichever runtime runs processes. */
 export const terminalMethods = {
-  'terminal/open': async (ctx, params) => {
+  'terminal/open': async (ctx, params, accountReadDeadlineMs = TERMINAL_ACCOUNT_READ_DEADLINE_MS) => {
     const requested = ctx.runtimes.resolve(params)
     // A terminal is a workbench tool, not a property of the conversation's
     // backend. When the conversation's runtime runs no processes (ACP
-    // agents don't), any ready runtime that does hosts the shell — and the
-    // pane is told whose sandbox that is, so the hint stays truthful.
-    const provider = requested.processes
-      ? requested
-      : ctx.runtimes.all().find((candidate) => candidate.processes && candidate.health().state === 'ready')
+    // agents don't), prefer providers that are ready, then already starting,
+    // then idle. The managed process surface joins or starts the runtime.
+    // Only a ready tier has a choice worth ordering; a starting provider's
+    // account read would wait for its start.
+    let provider = requested.processes ? requested : undefined
+    if (!provider) {
+      const candidates = ctx.runtimes.all().filter((candidate) => candidate.processes)
+      for (const state of ['ready', 'starting', 'idle'] as const) {
+        const tier = candidates.filter((candidate) => candidate.health().state === state)
+        if (tier.length === 0) continue
+        if (state !== 'ready' || tier.length === 1) {
+          provider = tier[0]
+          break
+        }
+
+        for (const candidate of tier) {
+          const result = await within(() => candidate.getAccount(), accountReadDeadlineMs)
+          const signedOut = result.settled !== 'value' ||
+            (result.value.accounts.length === 0 && result.value.signInMethods.length > 0)
+          if (!signedOut) {
+            provider = candidate
+            break
+          }
+        }
+        provider ??= tier[0]
+        break
+      }
+    }
     if (!provider?.processes) {
       throw new Error(
         `${requested.info.presentation.name} does not run commands for the interface, ` +

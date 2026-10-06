@@ -122,9 +122,16 @@ already ship a sandbox — Seatbelt, Landlock, an ACL. Duplicating it would mean
 two policies, one of them weaker. HarnessDesk permanently declines ACP's `fs`
 and `terminal` client capabilities: execution belongs to the agent. Because
 ACP agents expose no command execution for the interface, terminals beside a
-conversation are hosted by any ready runtime with sandboxed process support
-(`runtime.processes` in `adapter-codex`), or refused in the requested agent's
-name when none is available.
+conversation prefer a ready runtime with sandboxed process support
+(`runtime.processes` in `adapter-codex`), then one whose start is already in
+progress, then an idle one whose managed spawn starts it through the host's
+stop/start barrier. Among multiple ready providers, account reads run in order
+and each is bounded to two seconds; a late or failed read counts as signed
+out. The first provider with a signed-in account or no sign-in method hosts.
+If all are signed out, the first ready provider still hosts, so sign-in never
+prevents a terminal.
+Unavailable providers are skipped; when none is available, the terminal is
+refused in the requested agent's name.
 
 Sandboxed process startup waits for an acknowledgement, rather than a grace
 timer. The adapter follows `command/exec` with one `command/exec/write` carrying
