@@ -25,12 +25,12 @@ beforeEach(() => {
 })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 const draw = async (over: Partial<FlowCanvasProps> = {}) => {
-  await act(async () => { root.render(<FlowCanvas nodes={nodes} edges={edges} {...over} />) })
+  await act(async () => { root.render(<FlowCanvas nodes={nodes} edges={edges} {...over} />); await import('./Engine') })
   // The public entry loads the real engine asynchronously.
   await vi.waitFor(async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) }); expect(host.querySelectorAll('.react-flow__node')).toHaveLength(over.nodes?.length ?? nodes.length) })
 }
-const key = (value: string, selector = '.react-flow__node') => {
-  const event = new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })
+const key = (value: string, selector = '.react-flow__node', modifiers: KeyboardEventInit = {}) => {
+  const event = new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true, ...modifiers })
   act(() => { host.querySelector(selector)!.dispatchEvent(event) })
   return event
 }
@@ -170,4 +170,72 @@ it('re-centres the viewport when a different drawing replaces the current steps'
   await draw({ nodes: replacement, edges: [] })
   const after = host.querySelector('.react-flow__viewport')!.getAttribute('style')
   expect(after).not.toBe(before)
+})
+
+it('reports the controlled selection first on mount', async () => {
+  const onSelectionChange = vi.fn()
+  await draw({ onSelectionChange })
+  expect(onSelectionChange.mock.calls[0]?.[0]).toEqual({ nodes: ['write'], edges: [] })
+})
+it('leaves modified arrows and deletion shortcuts to their owner', async () => {
+  const onNodesChange = vi.fn(), onEdgesChange = vi.fn()
+  await draw({ onNodesChange, onEdgesChange })
+  for (const modifiers of [{ altKey: true }, { metaKey: true }, { ctrlKey: true }]) {
+    expect(key('ArrowLeft', '.react-flow__node', modifiers).defaultPrevented).toBe(false)
+    expect(key('Backspace', '.react-flow__node', modifiers).defaultPrevented).toBe(false)
+  }
+  expect(onNodesChange).not.toHaveBeenCalled()
+  expect(onEdgesChange).not.toHaveBeenCalled()
+})
+it('Hand keeps selection and refuses keyboard moves and removals', async () => {
+  const onNodesChange = vi.fn(), onEdgesChange = vi.fn()
+  await draw({ onNodesChange, onEdgesChange })
+  act(() => (host.querySelector('[aria-label="Hand tool"]') as HTMLElement).click())
+  key('ArrowRight'); key('Delete')
+  expect(onNodesChange).not.toHaveBeenCalled()
+  expect(onEdgesChange).not.toHaveBeenCalled()
+  expect(host.querySelector('.react-flow__node[data-id="write"]')?.classList.contains('selected')).toBe(true)
+})
+const lastNode: FlowCanvasNode = { id: 'last', position: { x: 600, y: 0 }, data: { name: 'Last', kind: 'person' } }
+const ControlledRemoval = ({ initialNodes, initialEdges = [] }: { initialNodes: FlowCanvasNode[]; initialEdges?: (typeof edges[number] & { selected?: boolean })[] }) => {
+  const [current, setCurrent] = useState(initialNodes), [rules, setRules] = useState(initialEdges)
+  return <FlowCanvas nodes={current} edges={rules}
+    onNodesChange={changes => setCurrent(previous => previous.filter(node => !changes.some(change => change.type === 'remove' && change.id === node.id)))}
+    onEdgesChange={changes => setRules(previous => previous.filter(edge => !changes.some(change => change.type === 'remove' && change.id === edge.id)))} />
+}
+const drawRemoval = async (initialNodes: FlowCanvasNode[], initialEdges?: (typeof edges[number] & { selected?: boolean })[]) => {
+  await act(async () => { root.render(<ControlledRemoval initialNodes={initialNodes} initialEdges={initialEdges} />); await import('./Engine') })
+  await vi.waitFor(async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) }); expect(host.querySelectorAll('.react-flow__node')).toHaveLength(initialNodes.length) })
+}
+it('does not move focus when Delete removes a different selected step', async () => {
+  await drawRemoval([...nodes, lastNode])
+  const check = host.querySelector('.react-flow__node[data-id="check"]') as HTMLElement
+  act(() => check.focus())
+  key('Delete', '.react-flow__node[data-id="check"]')
+  await vi.waitFor(() => expect(host.querySelectorAll('.react-flow__node')).toHaveLength(2))
+  expect(document.activeElement).toBe(check)
+})
+it('uses the removed focused steps surviving neighbour for a multi-step Delete', async () => {
+  await drawRemoval([nodes[0]!, { ...nodes[1]!, selected: true }, lastNode, { ...lastNode, id: 'tail', position: { x: 900, y: 0 } }])
+  act(() => (host.querySelector('.react-flow__node[data-id="check"]') as HTMLElement).focus())
+  key('Delete', '.react-flow__node[data-id="check"]')
+  await vi.waitFor(() => expect(host.querySelector('.react-flow__node[data-id="last"]')).toBe(document.activeElement))
+})
+it('focuses the canvas after the focused rule is removed', async () => {
+  await drawRemoval(nodes.map(node => ({ ...node, selected: false })), [{ ...edges[0]!, selected: true }])
+  act(() => (host.querySelector('.react-flow__edge') as unknown as HTMLElement).focus())
+  key('Delete', '.react-flow__edge')
+  await vi.waitFor(() => expect(host.querySelector('[data-slot="flow-canvas"]')).toBe(document.activeElement))
+})
+it('clears a refused Delete request before a later outside removal', async () => {
+  const onNodesChange = vi.fn()
+  await draw({ onNodesChange })
+  act(() => (host.querySelector('.react-flow__node[data-id="write"]') as HTMLElement).focus())
+  key('Delete')
+  // The next commit refuses the controlled removal.
+  await draw({ onNodesChange })
+  const outside = document.createElement('input'); document.body.append(outside); outside.focus()
+  await draw({ nodes: [nodes[1]!], edges: [] })
+  expect(document.activeElement).toBe(outside)
+  outside.remove()
 })

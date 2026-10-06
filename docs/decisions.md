@@ -2024,7 +2024,9 @@ coordinates. The Run drawing scales the layout pitch from its rendered card
 box and the layout's exported gaps, rather than treating the 176×68 layout box
 as the rendered card. A Run supplies its state slot, with `flow-overlay`'s vocabulary;
 failed and skipped are also available to a caller with those recorded facts.
-The first drawing is centred at 100%; Fit can shrink, never enlarge it.
+The first drawing is centred at 100% when it fits; a narrow container shrinks
+it to fit. Edits keep the viewport while any earlier step survives. Fit can
+shrink, never enlarge it.
 Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.

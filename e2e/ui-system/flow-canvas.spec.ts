@@ -16,7 +16,7 @@ const position = (element: Locator) => element.evaluate(el => {
 })
 const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root => {
   const cards = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map(el => ({ id: el.dataset.id ?? '', box: el.getBoundingClientRect() }))
-  const pathHits: string[] = []
+  const pathHits: string[] = [], wordDistances: Array<{ word: string; distance: number }> = []
   for (const edge of root.querySelectorAll<SVGGElement>('.react-flow__edge')) {
     const route = edge.querySelector<SVGGElement>('[data-flow-source]')
     const path = edge.querySelector<SVGPathElement>('path.react-flow__edge-path')
@@ -32,6 +32,17 @@ const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root =>
         && point.y >= card.box.top - 1 && point.y <= card.box.bottom + 1)
       if (hit) { pathHits.push(`${source}->${target} crosses ${hit.id}`); break }
     }
+  }
+  for (const label of root.querySelectorAll<HTMLElement>('.react-flow__edgelabel-renderer > div')) {
+    const box = label.getBoundingClientRect(), center = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 }
+    const edge = [...root.querySelectorAll<SVGGElement>('.react-flow__edge')].find(el => el.dataset.id === label.dataset.flowEdgeId)
+    const path = edge?.querySelector<SVGPathElement>('path.react-flow__edge-path'), matrix = path?.getScreenCTM()
+    let nearest = Infinity
+    if (path && matrix) for (let distance = 0; distance <= path.getTotalLength(); distance += 2) {
+      const point = new DOMPoint(path.getPointAtLength(distance).x, path.getPointAtLength(distance).y).matrixTransform(matrix)
+      nearest = Math.min(nearest, Math.hypot(center.x - point.x, center.y - point.y))
+    }
+    wordDistances.push({ word: label.textContent ?? '', distance: nearest })
   }
   const rails = [...root.querySelectorAll<SVGGElement>('.react-flow__edge [data-flow-source]')].map(route => {
     const source = route.dataset.flowSource ?? ''
@@ -51,7 +62,7 @@ const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root =>
     const hit = cards.find(card => labelBox.left < card.box.right && labelBox.right > card.box.left && labelBox.top < card.box.bottom && labelBox.bottom > card.box.top)
     if (hit) labelHits.push(`${label.textContent?.trim() ?? 'rule'} overlaps ${hit.id}`)
   }
-  return { pathHits, closeRails, labelHits }
+  return { pathHits, closeRails, labelHits, wordDistances }
 })
 const checkRunCardPitch = async (surface: Locator) => surface.evaluate(root => {
   const cards = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map(el => el.getBoundingClientRect())
@@ -187,7 +198,50 @@ for (const theme of ['light', 'dark'] as const) {
         expect(geometry.labelHits, `${scene} rule labels`).toEqual([])
         expect(geometry.pathHits, `${scene} rule paths`).toEqual([])
         expect(geometry.closeRails, `${scene} same-side rails`).toEqual([])
+        for (const word of geometry.wordDistances) expect(word.distance, `${scene}: ${word.word}`).toBeLessThanOrEqual(12)
       }
+    })
+    for (const scene of ['skip', 'long-word', 'short-gap', 'cross-row']) test(`sampled routes in ${scene} keep words on paths and avoid steps`, async ({ page }) => {
+      await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
+      const surface = canvas(page, scene)
+      await expect(surface.locator('.react-flow__edgelabel-renderer > div').first()).toBeVisible()
+      const geometry = await checkCanvasGeometry(surface)
+      expect(geometry.pathHits, scene).toEqual([])
+      expect(geometry.labelHits, scene).toEqual([])
+      for (const word of geometry.wordDistances) expect(word.distance, `${scene}: ${word.word}`).toBeLessThanOrEqual(12)
+    })
+    test('two return answers from one step have non-overlapping words', async ({ page }) => {
+      await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
+      const surface = canvas(page, 'return-lanes')
+      await expect(surface).toContainText('rework')
+      const boxes = await surface.locator('.react-flow__edgelabel-renderer > div').evaluateAll(elements => elements.map(el => el.getBoundingClientRect()))
+      const [a, b] = boxes
+      expect(a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBe(false)
+    })
+    test('fitting the Run leaves every card clear of the minimap', async ({ page }) => {
+      const surface = canvas(page, 'run')
+      await surface.getByRole('button', { name: 'Fit plan' }).click()
+      expect(await surface.evaluate(root => {
+        const map = root.querySelector('.react-flow__minimap')?.getBoundingClientRect()
+        if (!map || !map.width || !map.height) return []
+        return [...root.querySelectorAll<HTMLElement>('.react-flow__node')].filter(el => {
+          const box = el.getBoundingClientRect()
+          return box.left < map.right && box.right > map.left && box.top < map.bottom && box.bottom > map.top
+        }).map(el => el.dataset.id)
+      })).toEqual([])
+    })
+    test('deleting one step keeps a zoomed and panned viewport', async ({ page }) => {
+      const surface = canvas(page)
+      await surface.getByRole('button', { name: 'Zoom out' }).click()
+      await surface.getByRole('button', { name: 'Hand tool' }).click()
+      await drag(page, surface, 64, 48, true)
+      await surface.getByRole('button', { name: 'Select tool' }).click()
+      const write = node(surface, 'write')
+      await write.focus(); await page.keyboard.press('Enter')
+      const before = await viewport(surface)
+      await page.keyboard.press('Delete')
+      await expect(write).toHaveCount(0)
+      expect(await viewport(surface)).toEqual(before)
     })
     test('Run card pitch follows the rendered card box', async ({ page }) => {
       const pitch = await checkRunCardPitch(canvas(page, 'run'))
@@ -300,6 +354,13 @@ for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 390, height: 900 })
       const surface = canvas(page)
       await expect(surface.locator('.react-flow__minimap')).toBeHidden()
+      expect(await surface.evaluate(root => {
+        const box = root.getBoundingClientRect()
+        return [...root.querySelectorAll('.react-flow__node')].every(el => {
+          const card = el.getBoundingClientRect()
+          return card.left >= box.left && card.right <= box.right && card.top >= box.top && card.bottom <= box.bottom
+        })
+      })).toBe(true)
       await expect(surface.getByRole('button', { name: 'Fit plan' })).toBeVisible()
       const fitBox = await surface.getByRole('button', { name: 'Fit plan' }).boundingBox()
       const canvasBox = await surface.boundingBox()
@@ -337,6 +398,14 @@ for (const theme of ['light', 'dark'] as const) {
         await page.setViewportSize({ width: 390, height: 900 })
         await expect(canvas(page).locator('.react-flow__minimap')).toBeHidden()
         await page.locator('#flow-canvas-editable').screenshot({ path: `${folder}/390-${theme}.png` })
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
+        await page.evaluate(async () => { await document.fonts.ready })
+        for (const scene of ['skip', 'long-word', 'short-gap', 'cross-row', 'return-lanes']) {
+          await expect(canvas(page, scene).locator('.react-flow__edgelabel-renderer > div').first()).toBeVisible()
+          await canvas(page, scene).getByRole('button', { name: 'Fit plan' }).click()
+          await page.locator(`#flow-canvas-${scene}`).screenshot({ path: `${folder}/${scene}-${theme}.png` })
+        }
       }
       await page.goto('/design.html?view=flow-canvas')
       await expect(page.locator('[data-slot="flow-canvas"]')).toHaveCount(3)

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, BaseEdge, EdgeLabelRenderer,
-  Handle, Position, MarkerType, MiniMap, Panel, getSmoothStepPath,
+  Handle, Position, MarkerType, MiniMap, Panel, getSmoothStepPath, getViewportForBounds,
   useNodesInitialized, useReactFlow, useStore,
   type Node, type NodeProps, type Edge, type EdgeProps, type NodeChange, type EdgeChange,
 } from '@xyflow/react'
@@ -19,6 +19,7 @@ import styles from './FlowCanvas.module.css'
 const GRID = 16
 const CORNER = 16
 const MIN_ZOOM = 0.05
+const LANE_PITCH = GRID * 2
 const RenderContext = createContext<(props: FlowCanvasNodeProps) => React.ReactNode>(props => <StepCard {...props} />)
 type EngineNode = Node<{ presentation: FlowCanvasNodeProps['node']; readOnly: boolean }, 'step'>
 type EngineEdge = Edge<{ kind?: 'rule' | 'attachment'; railY?: number }, 'rule'>
@@ -31,14 +32,34 @@ const Step = ({ data, selected }: NodeProps<EngineNode>) => {
     <Handle type="source" position={Position.Right} isConnectable={!data.readOnly} />
   </div>
 }
+// The clearance model and the drawn route share these orthogonal segments.
+const railPath = (sourceX: number, sourceY: number, targetX: number, targetY: number, railY: number): [string, number, number] => {
+  const exitX = sourceX + GRID, entryX = targetX - GRID
+  const points = [[sourceX, sourceY], [exitX, sourceY], [exitX, railY], [entryX, railY], [entryX, targetY], [targetX, targetY]] as const
+  let path = `M ${sourceX},${sourceY}`
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const [ax, ay] = points[index - 1]!, [bx, by] = points[index]!, [cx, cy] = points[index + 1]!
+    const before = Math.hypot(bx - ax, by - ay), after = Math.hypot(cx - bx, cy - by)
+    if (!before || !after || (ax === bx && bx === cx) || (ay === by && by === cy)) {
+      path += ` L ${bx},${by}`
+      continue
+    }
+    const radius = Math.min(CORNER, before / 2, after / 2)
+    path += ` L ${bx + (ax - bx) * radius / before},${by + (ay - by) * radius / before}`
+    path += ` Q ${bx},${by} ${bx + (cx - bx) * radius / after},${by + (cy - by) * radius / after}`
+  }
+  return [path + ` L ${targetX},${targetY}`, (exitX + entryX) / 2, railY]
+}
 const Rule = (props: EdgeProps<EngineEdge>) => {
   const rail = props.data?.railY
-  const [path, x, y] = getSmoothStepPath({ ...props, ...(rail === undefined ? {} : { centerY: rail }), borderRadius: CORNER, offset: GRID })
+  const [path, x, y] = rail === undefined
+    ? getSmoothStepPath({ ...props, borderRadius: CORNER, offset: GRID })
+    : railPath(props.sourceX, props.sourceY, props.targetX, props.targetY, rail)
   return <>
     <g data-flow-source={props.source} data-flow-target={props.target} data-flow-rail-y={rail ?? ''}>
       <BaseEdge path={path} markerEnd={props.markerEnd} className={styles.edge} style={props.style} />
     </g>
-    {props.label && <EdgeLabelRenderer><div className={`${styles.word} nodrag nopan`} style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}><Chip tone="neutral">{props.label}</Chip></div></EdgeLabelRenderer>}
+    {props.label && <EdgeLabelRenderer><div data-flow-edge-id={props.id} className={`${styles.word} nodrag nopan`} style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}><Chip tone="neutral">{props.label}</Chip></div></EdgeLabelRenderer>}
   </>
 }
 const nodeTypes = { step: Step }
@@ -51,28 +72,43 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
   const flow = useReactFlow<EngineNode, EngineEdge>()
   const initialized = useNodesInitialized()
   const width = useStore(store => store.width), height = useStore(store => store.height)
+  const transform = useStore(store => store.transform)
   const instanceId = useId().replace(/[^A-Za-z0-9_-]/g, '')
   const canvasRef = useRef<HTMLDivElement>(null)
   const selectionCallback = useRef(onSelectionChange)
   selectionCallback.current = onSelectionChange
-  const lastSelection = useRef<{ nodes: string[]; edges: string[] } | null>(null)
-  const pendingFocus = useRef<{ targetId: string | null; removed: ReadonlySet<string> } | null>(null)
+  const controlledSelection = useRef({ nodes: [] as string[], edges: [] as string[] })
+  controlledSelection.current = { nodes: nodes.filter(node => node.selected).map(node => node.id), edges: edges.filter(edge => edge.selected).map(edge => edge.id) }
+  const selectionReady = useRef(false)
+  const pendingFocus = useRef<{ targetId: string | null; removedNodes: ReadonlySet<string>; removedEdges: ReadonlySet<string> } | null>(null)
+  const [, requestFocusCommit] = useState(0)
   const nodeIdSignature = nodes.map(node => node.id).sort().join('\u0000')
-  const centredIds = useRef<string | null>(null)
+  const centredIds = useRef<ReadonlySet<string> | null>(null)
+  const centredWidth = useRef(0)
   useEffect(() => {
-    if (!initialized || !width || !height || centredIds.current === nodeIdSignature) return
+    if (!initialized || !width || !height) return
+    const previous = centredIds.current
+    const replaced = !previous || !nodes.some(node => previous.has(node.id))
+    const resized = centredWidth.current !== width
+    centredIds.current = new Set(nodes.map(node => node.id))
+    centredWidth.current = width
+    if (!replaced && !resized) return
     const bounds = flow.getNodesBounds(flow.getNodes())
-    void flow.setViewport({ x: (width - bounds.width) / 2 - bounds.x, y: (height - bounds.height) / 2 - bounds.y, zoom: 1 })
-    centredIds.current = nodeIdSignature
+    const currentZoom = replaced ? 1 : Math.min(1, flow.getZoom())
+    if (bounds.width * currentZoom > width || bounds.height * currentZoom > height) {
+      void flow.setViewport(getViewportForBounds(bounds, width, height, MIN_ZOOM, currentZoom, 0.12))
+    } else if (replaced) {
+      void flow.setViewport({ x: (width - bounds.width) / 2 - bounds.x, y: (height - bounds.height) / 2 - bounds.y, zoom: 1 })
+    }
   }, [initialized, width, height, flow, nodeIdSignature])
   useLayoutEffect(() => {
     const pending = pendingFocus.current
-    if (!pending || [...pending.removed].some(id => nodes.some(node => node.id === id))) return
     pendingFocus.current = null
+    if (!pending || nodes.some(node => pending.removedNodes.has(node.id)) || edges.some(edge => pending.removedEdges.has(edge.id))) return
     const target = pending.targetId === null ? undefined : [...(canvasRef.current?.querySelectorAll<HTMLElement>('.react-flow__node') ?? [])]
       .find(element => element.dataset.id === pending.targetId)
     ;(target ?? canvasRef.current)?.focus()
-  }, [nodes, nodeIdSignature])
+  })
 
   const engineNodes = useMemo<EngineNode[]>(() => nodes.map(node => ({
     id: node.id, type: 'step', position: node.position, selected: node.selected,
@@ -150,7 +186,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       if (!route.sourceBox || !route.targetBox) return false
       const left = Math.min(route.sourceBox.right + GRID, route.targetBox.left - GRID)
       const right = Math.max(route.sourceBox.right + GRID, route.targetBox.left - GRID)
-      return !reservations.some(used => Math.abs(used.y - y) < GRID - 4 && used.right > left && used.left < right)
+      return !reservations.some(used => Math.abs(used.y - y) < LANE_PITCH && used.right > left && used.left < right)
     }
     const groups = new Map<string, typeof routeEdges>()
     for (const route of routeEdges) if (route.needsRail) {
@@ -165,12 +201,12 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       if (base === undefined) {
         const candidates = [...railCandidates].sort((a, b) => Math.abs(a - preferredY(route)) - Math.abs(b - preferredY(route)) || b - a)
         base = candidates.find(candidate => group.every(member => {
-          const lane = candidate + member.groupIndex * GRID
+          const lane = candidate + member.groupIndex * LANE_PITCH
           return routeIsClear(member, lane) && fitsBesideExisting(member, lane)
         })) ?? bottom + GRID
         groupBase.set(route.edge.source, base)
       }
-      route.railY = base + route.groupIndex * GRID
+      route.railY = base + route.groupIndex * LANE_PITCH
       const left = Math.min(route.sourceBox.right + GRID, route.targetBox.left - GRID)
       const right = Math.max(route.sourceBox.right + GRID, route.targetBox.left - GRID)
       reservations.push({ y: route.railY, left, right })
@@ -214,21 +250,27 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
   }
   const selectionChanged = useCallback((selection: { nodes: EngineNode[]; edges: EngineEdge[] }) => {
     const next = { nodes: selection.nodes.map(node => node.id), edges: selection.edges.map(edge => edge.id) }
-    const previous = lastSelection.current
-    if (previous && previous.nodes.length === next.nodes.length && previous.edges.length === next.edges.length
-      && previous.nodes.every((id, index) => id === next.nodes[index])
-      && previous.edges.every((id, index) => id === next.edges[index])) return
-    lastSelection.current = next
+    if (!selectionReady.current) {
+      const controlled = controlledSelection.current
+      if (next.nodes.length !== controlled.nodes.length || next.edges.length !== controlled.edges.length
+        || !controlled.nodes.every(id => next.nodes.includes(id)) || !controlled.edges.every(id => next.edges.includes(id))) return
+      selectionReady.current = true
+    }
     selectionCallback.current?.(next)
   }, [])
   const keyboard = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     if (target !== event.currentTarget && !target.matches('.react-flow__node, .react-flow__edge')) return
+    if (event.metaKey || event.altKey || event.ctrlKey) {
+      // Leave the browser shortcut intact without handing it to the engine's move handler.
+      event.stopPropagation()
+      return
+    }
     const directions: Record<string, [number, number]> = { ArrowLeft: [-GRID, 0], ArrowRight: [GRID, 0], ArrowUp: [0, -GRID], ArrowDown: [0, GRID] }
     const direction = directions[event.key]
     if (!direction && event.key !== 'Delete' && event.key !== 'Backspace') return
     event.preventDefault(); event.stopPropagation()
-    if (readOnly) return
+    if (readOnly || tool === 'hand') return
     const selected = nodes.filter(node => node.selected)
     if (direction) {
       if (selected.length) {
@@ -237,17 +279,21 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
         setAnnouncement(`Moved ${moved.data.name} to x ${moved.position.x + direction[0]}, y ${moved.position.y + direction[1]}.`)
       }
     } else {
-      if (selected.length && onNodesChange) {
-        const removedIds = new Set(selected.map(node => node.id))
-        const activeId = target.closest('.react-flow__node')?.getAttribute('data-id')
+      const removedIds = new Set(selected.map(node => node.id))
+      const incident = edges.filter(edge => edge.selected || removedIds.has(edge.source) || removedIds.has(edge.target))
+      const activeId = target.closest('.react-flow__node')?.getAttribute('data-id')
+      const activeEdgeId = target.closest('.react-flow__edge')?.getAttribute('data-id')
+      if (activeId && removedIds.has(activeId) && onNodesChange) {
         const activeIndex = nodes.findIndex(node => node.id === activeId)
-        const remaining = nodes.filter(node => !removedIds.has(node.id))
-        const nextIndex = Math.max(0, Math.min(activeIndex < 0 ? 0 : activeIndex, remaining.length - 1))
-        pendingFocus.current = { removed: removedIds, targetId: remaining[nextIndex]?.id ?? null }
-        onNodesChange(selected.map(node => ({ type: 'remove', id: node.id })))
+        const next = nodes.slice(activeIndex + 1).find(node => !removedIds.has(node.id))
+          ?? nodes.slice(0, activeIndex).reverse().find(node => !removedIds.has(node.id))
+        pendingFocus.current = { removedNodes: removedIds, removedEdges: new Set(), targetId: next?.id ?? null }
+        requestFocusCommit(value => value + 1)
+      } else if (activeEdgeId && incident.some(edge => edge.id === activeEdgeId) && onEdgesChange) {
+        pendingFocus.current = { removedNodes: new Set(), removedEdges: new Set(incident.map(edge => edge.id)), targetId: null }
+        requestFocusCommit(value => value + 1)
       }
-      const removed = new Set(selected.map(node => node.id))
-      const incident = edges.filter(edge => edge.selected || removed.has(edge.source) || removed.has(edge.target))
+      if (selected.length) onNodesChange?.(selected.map(node => ({ type: 'remove', id: node.id })))
       if (incident.length) onEdgesChange?.(incident.map(edge => ({ type: 'remove', id: edge.id })))
     }
   }
@@ -264,6 +310,13 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       'edge.a11yDescription.default': edgeDescription,
     }
   }, [readOnly])
+  // The map yields its corner whenever it would cover a rendered card.
+  const minimapClear = nodes.every(node => {
+    const left = node.position.x * transform[2] + transform[0], top = node.position.y * transform[2] + transform[1]
+    const right = left + (node.size?.width ?? FLOW_CANVAS_CARD_WIDTH) * transform[2]
+    const bottom = top + (node.size?.height ?? measurements.get(node.id)?.height ?? 0) * transform[2]
+    return right <= width - 215 || left >= width - 15 || bottom <= height - 165 || top >= height - 15
+  })
   const render = (props: FlowCanvasNodeProps) => NodeComponent
     ? <NodeComponent {...props as FlowCanvasNodeProps<Data>} /> : <StepCard {...props} />
   return <div ref={canvasRef} className={`${styles.canvas} ${className ?? ''}`} data-slot="flow-canvas" data-readonly={readOnly} data-tool={readOnly ? 'hand' : tool} tabIndex={0} role="region" aria-label={label} onKeyDownCapture={keyboard}>
@@ -285,7 +338,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
           <Button variant="ghost" size="icon" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn()}><ZoomInIcon /></Button>
           <Button variant="ghost" size="icon" aria-label="Fit plan" title="Fit to the canvas" onClick={() => void flow.fitView({ minZoom: MIN_ZOOM, maxZoom: Math.min(1, flow.getZoom()), padding: 0.12 })}><CanvasFitIcon /></Button>
         </Panel>
-        <MiniMap position="bottom-right" nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />
+        {minimapClear && <MiniMap position="bottom-right" nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
       </ReactFlow>
     </RenderContext.Provider>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
