@@ -69,3 +69,9 @@ test('session/create, resume and fork refuse a client-supplied `knownCwd`: only 
   assert.throws(() => request('session/resume', { runtime: 'fake', sessionId: 's', options: { knownCwd: '/' } }), ValidationError)
   assert.throws(() => request('session/fork', { runtime: 'fake', sessionId: 's', options: { knownCwd: '/' } }), ValidationError)
 })
+
+test('native server narrowing is host-only on create, resume and fork', () => {
+  for (const method of ['session/create', 'session/resume', 'session/fork'] as const) {
+    assert.throws(() => request(method, { runtime: 'fake', sessionId: 'thread', options: { cwd: '/work', runtimeServers: [] } }), /host only/)
+  }
+})

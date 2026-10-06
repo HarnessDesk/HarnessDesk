@@ -291,7 +291,7 @@ test('a field an Agent does not have is named in a warning — a misspelt ceilin
     {
       level: 'warning',
       at: 'permissions',
-      text: '"permissions" is not read — an Agent\'s fields are name, description, ceiling, permission, answers, produces, skills, mcp and prefer',
+    text: '"permissions" is not read — an Agent\'s fields are name, description, ceiling, permission, answers, produces, skills, mcp, runtime-servers and prefer',
     },
   ])
   // Every field it does have is read, and so warns about nothing.
@@ -430,4 +430,14 @@ test('rejects executable mcp declarations', () => {
   assert.equal(problems.length, 1)
   assert.equal(problems[0]?.at, 'mcp')
   assert.match(problems[0]?.text ?? '', /at most 64/)
+})
+
+test('runtime-servers distinguishes omitted native defaults from an empty allowlist', () => {
+  const read = (field: string) => parseAgentDefinition(`---\nname: Reviewer\nceiling: read\n${field}\n---\nRead the change.`, 'reviewer')
+  assert.equal((read('').agent as unknown as Record<string, unknown>)?.['runtimeServers'], undefined)
+  assert.deepEqual((read('runtime-servers: []').agent as unknown as Record<string, unknown>)?.['runtimeServers'], [])
+  assert.deepEqual((read('runtime-servers: [docs]').agent as unknown as Record<string, unknown>)?.['runtimeServers'], ['docs'])
+  for (const field of ['runtime-servers: [../outside]', 'runtime-servers: [docs, docs]', 'runtime-servers: [{command: execute}]']) {
+    assert.equal(read(field).agent, null)
+  }
 })

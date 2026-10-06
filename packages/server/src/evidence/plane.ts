@@ -213,6 +213,7 @@ export class EvidencePlane {
       agent: seat.agent.id,
       name: seat.agent.name,
       briefDigest: seat.briefDigest,
+      ...(seat.runtimeServers !== undefined ? { runtimeServers: seat.runtimeServers } : {}),
       standing: seat.standing,
       seatLabel: seat.seatLabel,
       passedOver: seat.passedOver,

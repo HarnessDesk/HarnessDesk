@@ -288,6 +288,7 @@ test('a standalone terminal keeps an otherwise unused runtime running', async (t
   const d = await rig(t)
   const terminal = await d.runtime.processes.spawn({ cwd: d.dir,
     command: [process.execPath, '-e', 'process.stdin.resume()'], tty: false })
+  assert.equal(d.runtime.canStopForIdle(), false, 'the resource observation must also refuse a live terminal')
   assert.equal(await d.stop(), false, 'idle stop must preserve a terminal outside a conversation')
   const exited = new Promise<void>((resolve) => terminal.onExit(() => resolve()))
   await terminal.kill()
@@ -310,6 +311,7 @@ test('idle usage reads retain the observed rate limits and account activity with
 test('an active file watch prevents idle shutdown until unsubscribed', async (t) => {
   const d = await rig(t)
   const unwatch = await d.runtime.files.watch(d.dir, () => {})
+  assert.equal(d.runtime.canStopForIdle(), false, 'the resource observation must also refuse a live watch')
   assert.equal(await d.stop(), false, 'a live file subscription still needs this process')
   unwatch()
   assert.equal(await d.stop(), true)
@@ -753,4 +755,51 @@ test('host environment process markers reach distinct conversation processes', a
     .map((line) => JSON.parse(line) as { processGroup: string; generation: string })
   assert.deepEqual(rows.map((row) => row.generation), ['0', '1', '2'])
   assert.ok(rows.every((row) => row.processGroup === process.env.HARNESSDESK_CODEX_PROCESS_GROUP))
+})
+
+test('native server selection suppresses unused helpers on create, resume and fork while another seat works', async (t) => {
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_VERSION: '0.160.0', FAKE_CODEX_NATIVE_SERVERS: '["docs","simulator.v2"]' })
+  const selected = { runtimeServers: ['docs'] }
+  const working = await d.runtime.createSession({ cwd: d.dir })
+  const reviewer = await d.runtime.createSession({ cwd: d.dir, ...selected })
+  const selectedChildren = async (id: string) => (await d.children()).filter(one => one.threadId === id) as (Awaited<ReturnType<typeof d.children>>[number] & { name: string })[]
+  assert.deepEqual((await selectedChildren(reviewer.id)).map(one => one.name), ['docs'])
+  assert.equal((await selectedChildren(working.id)).length, 2)
+  const fork = await d.runtime.forkSession(reviewer.id)
+  assert.deepEqual((await selectedChildren(fork.id)).map(one => one.name), ['docs'])
+  await reviewer.close()
+  const resumed = await d.runtime.resumeSession(reviewer.id, { cwd: d.dir, ...selected })
+  assert.deepEqual((await selectedChildren(resumed.id)).filter(one => running(one.pid)).map(one => one.name), ['docs'])
+  const none = await d.runtime.createSession({ cwd: d.dir, runtimeServers: [] } as Parameters<typeof d.runtime.createSession>[0])
+  assert.equal((await selectedChildren(none.id)).length, 0)
+  assert.ok((await selectedChildren(working.id)).every(one => running(one.pid)))
+})
+
+test('tool reload does not widen a native server selection on an open worker', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-native-reload-'))
+  const calls = join(dir, 'calls.ndjson')
+  await writeFile(calls, '')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["docs","simulator"]', FAKE_CODEX_PROCESS_CALLS: calls })
+  await d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  await d.runtime.extensions.reloadMcp()
+  const reloads = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { method: string; generation: string }).filter(one => one.method === 'config/mcpServer/reload')
+  assert.deepEqual(reloads.map(one => one.generation), ['0'])
+})
+
+test('resource observations track only live control and conversation roots without restarting', async (t) => {
+  const d = await rig(t)
+  const opened = await d.runtime.createSession({ cwd: d.dir })
+  assert.deepEqual(new Set(d.runtime.resourceProcessIds()), new Set(await d.servers()))
+  await opened.close()
+  assert.equal(d.runtime.resourceProcessIds().length, 1)
+  await d.stop()
+  assert.deepEqual(d.runtime.resourceProcessIds(), [])
+  assert.equal(d.runtime.health().state, 'idle')
 })

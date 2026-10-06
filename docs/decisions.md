@@ -2072,8 +2072,8 @@ The regression starts and closes three conversations while another turn stays
 active throughout, checks the closed helpers exit, and then interrupts the
 working turn deliberately. The production-host fake rig also checks the Seat
 rest boundary with another Seat still working, plus reopen and idle reads.
-Role-based tool selection and displaying process and memory cost remain for
-later parts of #1418.
+The remaining parts of #1418 are implemented by native server narrowing and
+passive process observations below.
 
 ## One family of tables
 
@@ -2286,3 +2286,51 @@ shrink, never enlarge it.
 Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
+
+## Native server narrowing is separate from approved attachments
+
+Measured on 2026-10-06 with 0.160.0 by
+[`script/probe/mcp-selection.mjs`](../script/probe/mcp-selection.mjs): two
+synthetic configured servers, an isolated agent home and no model turn.
+Thread `config` overrides of the existing native server table, setting an
+unselected server's `enabled` to false, started only the selected child on
+create, resume and fork, including a server name containing dots. The readback's
+null defaults are omitted because the override is converted to TOML; quoted
+dotted override keys are rejected by this build. An unrestricted
+concurrent thread still started both. Empty threads have no durable rollout;
+the probe supplies a synthetic metadata/message rollout for resume and fork.
+The production adapter also opens selected, default and empty selections
+together, releases only the closed conversation's helpers, and reports zero
+owned roots after an idle stop.
+No real conversation or account is recorded.
+
+An Agent's `runtime-servers` narrows only the agent's existing native
+configuration. It cannot enable a disabled server or install a new one.
+Omission keeps defaults; an explicit empty list suppresses them. This is not
+phase 12's `mcp` attachment contract: approval, staging and exact attachment
+readback retain their existing rules. Unsupported builds and adapters refuse
+native selection. The measured capability starts at 0.160.0, rather than
+claiming it on older supported builds by inference.
+
+The list is frozen in the durable Seat record, not reread from an edited
+Agent file on resume. Native configuration is reread on opening so new
+unselected servers are disabled too. A filtered worker skips tool-server
+reload fan-out, preserving its opening selection; close and resume applies
+configuration updates. Side reviews inherit the selection. A person's fork
+of a filtered Seat is refused like a fork of a Seat with approved attachments.
+Scripted helper-child tests cover concurrent defaults, release, resume, fork,
+an empty selection, reload and passive process-root observation.
+
+## Runtime cost is a passive snapshot
+
+Adapters may report the process roots they own. The host reads PID, parent PID
+and RSS only, once for the whole desk, with a two-second bound; it deduplicates
+roots and descendants. This is resident memory, not unique physical memory;
+shared pages may count more than once. Missing measurement is unknown, not
+zero. An idle runtime reports zero owned processes without restarting.
+
+The Runtimes page and its detail page poll while mounted. Recycling is an
+explicit idle stop, using the same host barrier as the reaper, so new work
+waits for exit before starting and no active conversation is interrupted.
+An open handle, operation, read, terminal or watch prevents recycling; cached
+catalogue and history remain available through the existing idle lifecycle.

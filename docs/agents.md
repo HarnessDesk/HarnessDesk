@@ -301,3 +301,20 @@ may open an unheld seat with a warning or must pass it over.
 **Settings › Workspaces** opens a page per project — so does *Project
 settings* in the sidebar's project menu — listing the project's own Agents and
 the folder they are read from.
+
+### Native server selection
+
+`runtime-servers: [docs]` narrows a Seat to named servers already configured
+in its runtime, without declaring a new command or changing the runtime's files.
+Omitting the field keeps native defaults; `runtime-servers: []` suppresses all
+native configured servers. A disabled server stays disabled, and an unknown
+name or unsupported runtime refuses the Seat before it opens.
+
+This is independent of `mcp:`, which selects reviewed Library attachments;
+its approval and readback contract still applies. Native selection is frozen
+in the Seat record and reapplied on resume. A Seat's fork is refused; start a
+new Seat to choose its servers. Internal side reviews inherit the selection.
+Tool-server reloads apply to unfiltered conversations; a filtered conversation
+keeps its opening selection until reopened. Currently the native override is
+measured on runtime builds starting at 0.160.0; other adapters do not declare
+this capability.

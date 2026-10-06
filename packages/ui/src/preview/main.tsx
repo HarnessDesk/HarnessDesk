@@ -1,3 +1,5 @@
+import { AgentPage } from '../components/AgentPage'
+import { PREVIEW_AGENTS } from './harness'
 import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
@@ -455,6 +457,18 @@ const RuntimesPreview = () => {
       </div>
     </StoreProvider>
   )
+}
+
+const NativeServersPreview = () => {
+  useTheme()
+  const entry = { ...PREVIEW_AGENTS[0]!, definition: { ...PREVIEW_AGENTS[0]!.definition!, runtimeServers: [] } }
+  const own = useMemo(() => previewStore({ agents: [entry] }), [])
+  return <StoreProvider store={own}><div className="min-h-screen bg-background px-8 py-10 text-foreground"><div className="mx-auto max-w-[760px]"><AgentPage entry={entry} onBack={() => {}} onLeave={() => {}} /></div></div></StoreProvider>
+}
+
+const RuntimeCostPreview = () => {
+  useTheme()
+  return <div className="min-h-screen bg-background text-foreground"><RuntimesPreview /></div>
 }
 
 export const Dial = <T extends string>({
@@ -1177,7 +1191,11 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('inapplicable-actions')
+        {new URLSearchParams(window.location.search).has('runtime-cost')
+          ? <RuntimeCostPreview />
+          : new URLSearchParams(window.location.search).has('native-servers')
+          ? <NativeServersPreview />
+          : new URLSearchParams(window.location.search).has('inapplicable-actions')
           ? <InapplicableActionsFrames />
           : new URLSearchParams(window.location.search).has('flow-canvas')
           ? <FlowCanvasFrames />

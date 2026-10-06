@@ -55,7 +55,7 @@ const asWords = (value: unknown): string[] =>
  * answers to (`parseNames`, phase 12). A violation is one error naming the
  * field, never a partial list quietly missing the entry that broke it.
  */
-const namesField = (raw: unknown[], at: 'skills' | 'mcp', problems: AgentProblem[]): string[] => {
+const namesField = (raw: unknown[], at: 'skills' | 'mcp' | 'runtime-servers', problems: AgentProblem[]): string[] => {
   try {
     return [...parseNames(raw)]
   } catch (error) {
@@ -70,7 +70,7 @@ const namesField = (raw: unknown[], at: 'skills' | 'mcp', problems: AgentProblem
  * because read as nothing it fails silently — `permissions: merge` is a ceiling
  * of read, and an author who believes otherwise.
  */
-const FIELDS = ['name', 'description', 'ceiling', 'permission', 'answers', 'produces', 'skills', 'mcp', 'prefer'] as const
+const FIELDS = ['name', 'description', 'ceiling', 'permission', 'answers', 'produces', 'skills', 'mcp', 'runtime-servers', 'prefer'] as const
 type Field = (typeof FIELDS)[number]
 
 /** Front matter opens on a line of exactly `---`, so `--- draft` opens nothing. */
@@ -197,6 +197,7 @@ export const parseAgentDefinition = (
      command or a credential a repository must never get to hand a runtime. */
   const skills = namesField(asWords(field('skills')), 'skills', problems)
   const mcp = namesField(oneOrMore(field('mcp')), 'mcp', problems)
+  const runtimeServers = Object.hasOwn(head, 'runtime-servers') ? namesField(oneOrMore(field('runtime-servers')), 'runtime-servers', problems) : undefined
 
   for (const key of Object.keys(head)) {
     if (!(FIELDS as readonly string[]).includes(key)) {
@@ -220,6 +221,7 @@ export const parseAgentDefinition = (
       produces: asWords(field('produces')),
       skills,
       mcp,
+      ...(runtimeServers !== undefined ? { runtimeServers } : {}),
       prefer,
       brief,
     },

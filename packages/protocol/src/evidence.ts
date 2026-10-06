@@ -104,6 +104,8 @@ export interface SeatRecord {
   readonly agent: { readonly id: AgentId; readonly name: string; readonly origin: AgentOrigin } | null
   /** The content hash of the brief it was handed (`AgentEntry.digest`); null when there was no Agent. */
   readonly briefDigest: string | null
+  /** Frozen native server narrowing; omitted retains runtime defaults. */
+  readonly runtimeServers?: readonly string[]
   /** The seat it resolved to, as written: runtime, model, effort. */
   readonly seat: FlowSeat
   /** What it runs, read back when it was kept, in the desk's words: runtime · model · effort. */

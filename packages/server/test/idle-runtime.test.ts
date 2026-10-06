@@ -1041,3 +1041,38 @@ for (const surface of ['hooks', 'files', 'extensions', 'processes'] as const) {
     assert.equal(runtime.starts, 2, 'the surface shares the normal restart')
   })
 }
+
+test('manual recycling refuses a live conversation and shares the stop barrier with new work', async (t) => {
+  const runtime = new IdleRuntime({ id: 'idle-test' as never, name: 'Idle Test' })
+  const { host, stateDir } = await makeHost(runtime, 0, 0)
+  t.after(async () => { runtime.continueStop(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  await host.start()
+  const params = { runtime: runtime.info.id }
+  const first = await host.call('session/create', { ...params, options: { cwd: '/w' } }) as { id: string }
+  assert.deepEqual(await host.call('runtime/recycle', params), { recycled: false })
+  assert.equal(runtime.stops, 0)
+  await host.call('session/close', { ...params, sessionId: first.id as never })
+  runtime.holdNextStop()
+  const stopping = host.call('runtime/recycle', params)
+  await until(() => runtime.stops === 1)
+  const starting = host.call('session/create', { ...params, options: { cwd: '/w' } })
+  assert.deepEqual(await host.call('runtime/recycle', params), { recycled: false })
+  assert.equal(runtime.starts, 1)
+  runtime.continueStop()
+  assert.deepEqual(await stopping, { recycled: true })
+  await starting
+  assert.equal(runtime.starts, 2)
+})
+
+test('resource polling reports unsupported measurement and never wakes an idle runtime', async (t) => {
+  const runtime = new IdleRuntime({ id: 'idle-test' as never, name: 'Idle Test' })
+  const { host, stateDir } = await makeHost(runtime, 0, 0)
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  await host.start()
+  assert.deepEqual(await host.call('runtime/recycle', { runtime: runtime.info.id }), { recycled: true })
+  const costs = await host.call('runtime/resources', {}) as readonly { processes: number | null; residentBytes: number | null; canRecycle: boolean }[]
+  assert.equal(costs[0]?.processes, null)
+  assert.equal(costs[0]?.residentBytes, null)
+  assert.equal(costs[0]?.canRecycle, false)
+  assert.equal(runtime.starts, 1)
+})

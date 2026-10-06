@@ -4,6 +4,7 @@ import {
   CodexError,
   CodexRpcError,
   discoverCodex,
+  compareVersions,
   type CodexAppServerOptions,
   type CodexInstallation,
   type CodexLogger,
@@ -257,6 +258,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
   readonly #closingSessions = new Map<string, Promise<void>>()
+  readonly #runtimeServers = new Map<string, readonly string[]>()
   readonly #environments = new Map<string, Readonly<Record<string, string>>>()
   /** Child thread id to the thread that spawned it. */
   readonly #parents = new Map<string, string>()
@@ -384,8 +386,8 @@ export class CodexRuntime implements AgentRuntime {
       capabilities: !this.#everStarted
         ? NO_CAPABILITIES
         : this.#sharesHistory
-          ? { ...CAPABILITIES, listHistory: false, searchHistory: false }
-          : CAPABILITIES,
+          ? { ...CAPABILITIES, nativeServerSelection: this.#nativeServerSelection(), listHistory: false, searchHistory: false }
+          : { ...CAPABILITIES, nativeServerSelection: this.#nativeServerSelection() },
       ...(this.#everStarted ? { ceilings: CODEX_CEILINGS } : {}),
       // Observations, not defaults, the same rule `capabilities` above
       // follows: nothing is claimed before the app-server has answered.
@@ -507,8 +509,12 @@ export class CodexRuntime implements AgentRuntime {
    * The host's existing reaper owns when to recycle; no open handle may be
    * discarded here. Its stop barrier also keeps new opens behind these reads.
    */
+  canStopForIdle(): boolean {
+    return !(this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#server.busy || this.processes.busy || this.files.busy)
+  }
+
   async stopForIdle(): Promise<boolean> {
-    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#server.busy || this.processes.busy || this.files.busy) return false
+    if (!this.canStopForIdle()) return false
     // Keep the observations readable even if nobody opened their menus yet.
     // A failed snapshot leaves the process running, rather than inventing a
     // signed-out account or an empty catalogue when it rests.
@@ -517,11 +523,13 @@ export class CodexRuntime implements AgentRuntime {
       this.listSessions(), this.listSessions({ archived: 'only' }),
       this.defaultSessionOptions(), ...[...this.#knownCwds].map((cwd) => this.defaultSessionOptions(cwd)),
     ])
-    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#server.busy || this.processes.busy || this.files.busy) return false
+    if (!this.canStopForIdle()) return false
     this.#idleStopped = true
     await this.#server.stop()
     return true
   }
+
+  resourceProcessIds(): readonly number[] { return this.#server.processIds() }
 
   health(): RuntimeHealth {
     const state = this.#server.state
@@ -1050,11 +1058,12 @@ export class CodexRuntime implements AgentRuntime {
       ...(options.ephemeral ? { ephemeral: true } : {}),
       ...this.#developerInstructions(),
       ...start,
-    })
+    }, options.runtimeServers !== undefined ? { nativeServerSelection: true } : undefined)
     const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
       created: true,
       route: options.route ?? null,
       environment: options.environment,
+      runtimeServers: options.runtimeServers,
     })
     return this.#applyAfterStart(session, after)
   }
@@ -1080,23 +1089,26 @@ export class CodexRuntime implements AgentRuntime {
     const projection = new ToolProjection()
     const dynamicTools = this.#projectTools(projection, { workspaceRoot: start.cwd })
     const routed = route ? routeParams(route) : null
+    const native = this.#runtimeServers.get(like.id)
+    const selection = await this.#startParamsFor({ cwd: start.cwd, ...(native !== undefined ? { runtimeServers: native } : {}) })
     const response = await this.#server.request('thread/start', {
       ...start,
       ...(routed ? { modelProvider: routed.modelProvider } : {}),
-      ...(start.config || routed || environment
+      ...(start.config || routed || environment || selection.start.config
         ? {
             config: environment
-              ? codexEnvironmentConfig({ ...start.config, ...routed?.config }, environment)
-              : { ...start.config, ...routed?.config },
+              ? codexEnvironmentConfig({ ...start.config, ...routed?.config, ...selection.start.config }, environment)
+              : { ...start.config, ...routed?.config, ...selection.start.config },
           }
         : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
       ...this.#developerInstructions(),
-    })
+    }, native !== undefined ? { nativeServerSelection: true } : undefined)
     const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
       created: true,
       route,
       environment,
+      runtimeServers: native,
     })
     try {
       if (sandbox) await session.setSandbox(sandbox)
@@ -1113,6 +1125,12 @@ export class CodexRuntime implements AgentRuntime {
 
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
     await this.#closingSessions.get(id)
+    const frozenServers = this.#runtimeServers.get(id)
+    if (frozenServers !== undefined) {
+      if (options.runtimeServers !== undefined && JSON.stringify(options.runtimeServers) !== JSON.stringify(frozenServers)) throw new Error('A conversation cannot change its native server selection.')
+      options = { ...options, runtimeServers: frozenServers }
+    }
+    if (options.runtimeServers !== undefined && this.#sessions.has(id) && frozenServers === undefined) throw new Error('An already-open conversation cannot acquire a native server selection.')
     const held = this.#environments.get(id)
     if (
       held &&
@@ -1138,7 +1156,7 @@ export class CodexRuntime implements AgentRuntime {
         // The caller reads the transcript itself (`readSession`), and asked
         // for here a paginated thread's turns draw a deprecationNotice.
         excludeTurns: true,
-      })
+      }, options.runtimeServers !== undefined ? { nativeServerSelection: true } : undefined)
     } catch (error) {
       throw (await this.#busyOr(error, id)) ?? error
     }
@@ -1148,6 +1166,7 @@ export class CodexRuntime implements AgentRuntime {
     const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection(), {
       route: options.route ?? null,
       environment: options.environment,
+      runtimeServers: options.runtimeServers,
     })
     return this.#applyAfterStart(session, after)
   }
@@ -1189,6 +1208,8 @@ export class CodexRuntime implements AgentRuntime {
    * are answered with a deprecationNotice.
    */
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    const runtimeServers = options.runtimeServers ?? this.#runtimeServers.get(id)
+    if (runtimeServers !== undefined) options = { ...options, runtimeServers }
     const environment = options.environment ?? this.#environments.get(id)
     if (environment) options = { ...options, environment }
     const { start, after } = await this.#startParamsFor(options)
@@ -1198,13 +1219,13 @@ export class CodexRuntime implements AgentRuntime {
       ...this.#developerInstructions(),
       ...start,
       excludeTurns: true,
-    })
+    }, options.runtimeServers !== undefined ? { nativeServerSelection: true } : undefined)
     const history = await this.#forkedHistory(response.thread)
     const session = await this.#register(
       { ...response.thread, turns: history ?? [] },
       stateFromStartResponse(response),
       new ToolProjection(),
-      { route: options.route ?? null, environment: options.environment },
+      { route: options.route ?? null, environment: options.environment, runtimeServers: options.runtimeServers },
     )
     if (history === null) this.#emit({
       type: 'notice', class: 'conversation', kind: 'conversation:fork', sessionId: session.id,
@@ -1243,10 +1264,33 @@ export class CodexRuntime implements AgentRuntime {
       }
       profile = entry.profile
     }
-    return startParamsFor(
+    const params = startParamsFor(
       { ...options, ...(options.options ? { options: withoutProfile(options.options) } : {}) },
       profile,
     )
+    if (options.runtimeServers !== undefined) {
+      if (!this.#nativeServerSelection()) throw new Error('This build cannot select native servers independently for a conversation.')
+      const selected = options.runtimeServers
+      if (selected.length > 64 || new Set(selected).size !== selected.length || selected.some(name => !/^[a-z0-9][a-z0-9._:-]{0,127}$/.test(name))) throw new Error('Choose at most 64 distinct native server names.')
+      const { config } = await this.#server.request('config/read', options.cwd ? { cwd: options.cwd } : {})
+      const servers = config['mcp_servers']
+      if (servers !== undefined && servers !== null && (typeof servers !== 'object' || Array.isArray(servers))) throw new Error('The runtime did not report its native server configuration.')
+      const names = Object.keys(servers ?? {})
+      for (const name of selected) if (!names.includes(name)) throw new Error(`No native server named ${name} is configured here.`)
+      const narrowed = Object.fromEntries(Object.entries(servers ?? {}).map(([name, spec]) => {
+        if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) throw new Error('The runtime did not report a native server definition.')
+        return [name, withoutConfigNulls({ ...spec, ...(!selected.includes(name) ? { enabled: false } : {}) })]
+      }))
+      // A whole table preserves literal names, including dots. Dotted override
+      // keys split names, and quotes become literal characters in this API.
+      params.start.config = { ...params.start.config, mcp_servers: narrowed }
+    }
+    return params
+  }
+
+  #nativeServerSelection(): boolean {
+    const installation = this.#server.installation
+    return installation !== null && compareVersions(installation.semver, [0, 160, 0]) >= 0
   }
 
   /**
@@ -1287,6 +1331,7 @@ export class CodexRuntime implements AgentRuntime {
       /** The model route it was opened on, which a thread set up like it needs again. */
       readonly route?: ResolvedModelRoute | null
       readonly environment?: Readonly<Record<string, string>> | undefined
+      readonly runtimeServers?: readonly string[] | undefined
     } = {},
   ): Promise<CodexSession> {
     const created = opened.created ?? false
@@ -1333,6 +1378,7 @@ export class CodexRuntime implements AgentRuntime {
       },
       emit: (event) => this.#emit(event),
     })
+    if (opened.runtimeServers !== undefined) this.#runtimeServers.set(thread.id, [...opened.runtimeServers])
     if (opened.environment) this.#environments.set(thread.id, laneEnvironmentOf(opened.environment))
     this.#sessions.set(thread.id, session)
     this.#knownCwds.add(state.cwd)
@@ -1767,6 +1813,15 @@ const turnIdOf = (value: string) => value as unknown as import('@harnessdesk/pro
  */
 /** The provider name injected routes appear under. Exists in no config file. */
 const ROUTE_PROVIDER = 'harnessdesk_route'
+
+type ConfigValue = Exclude<NonNullable<CodexProtocol.v2.ThreadStartParams['config']>[string], undefined>
+
+/** Readback expands absent options to null; TOML overrides cannot encode null. */
+const withoutConfigNulls = (value: ConfigValue): ConfigValue => {
+  if (Array.isArray(value)) return value.filter(one => one !== null).map(withoutConfigNulls)
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, ConfigValue] => entry[1] != null).map(([key, one]) => [key, withoutConfigNulls(one)]))
+}
 
 const startParamsFor = (
   options: Partial<SessionOptions>,

@@ -146,6 +146,10 @@ export const seatOpeningOf = (value: unknown): SeatOpening | null => {
     (agent === null ||
       (isRecord(agent) && isId(agent['id']) && isText(agent['name']) && ORIGINS.has(agent['origin'] as string))) &&
     orNull(value['briefDigest'], isId) &&
+    (value['runtimeServers'] === undefined || (
+      isListOf(value['runtimeServers'], 64, (name) => typeof name === 'string' && /^[a-z0-9][a-z0-9._:-]{0,127}$/.test(name)) &&
+      new Set(value['runtimeServers'] as string[]).size === (value['runtimeServers'] as string[]).length
+    )) &&
     isSeat(value['seat']) &&
     isText(value['seatLabel']) &&
     isListOf(value['passedOver'], PASSED_OVER_LIMIT, isCandidate) &&

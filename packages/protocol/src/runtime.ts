@@ -200,6 +200,8 @@ export interface RuntimeCapabilities {
   readonly searchHistory: boolean
   readonly imageInput: boolean
   readonly mcp: boolean
+  /** Can suppress native configured servers independently for each conversation. */
+  readonly nativeServerSelection?: boolean
   readonly skills: boolean
   readonly plans: boolean
   readonly reasoning: boolean
@@ -565,6 +567,15 @@ export interface RuntimeInfo {
       readonly endpoint: string
     }
   }
+}
+
+export interface RuntimeResources {
+  readonly runtime: RuntimeId
+  readonly observedAt: number
+  readonly processes: number | null
+  readonly residentBytes: number | null
+  readonly canRecycle: boolean
+  readonly reason: string | null
 }
 
 /**
@@ -1001,6 +1012,10 @@ export interface AgentRuntime {
   start(): Promise<void>
   /** Stop an idle helper process while preserving the runtime's learned state. */
   stopForIdle?(): Promise<boolean>
+  /** Passive adapter guard for held terminals, watches or startup. */
+  canStopForIdle?(): boolean
+  /** Live owned process roots, for passive host resource observations. */
+  resourceProcessIds?(): readonly number[]
   /**
    * Whether a cached read has an observed answer while idle. False asks the
    * host to restart through its existing start barrier before making the read.

@@ -754,7 +754,14 @@ For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
 regardless of the stored switch. The switch shows and changes the stored
 preference; disabling it does not remove that environment override.
 
-**Runtimes** is every registered runtime with its accounts beneath it, and a
+**Runtimes** shows a Process cost section with each runtime's process count and
+resident memory, including descendants, refreshed every five seconds while the
+page is open. A failed or unsupported measurement says so. Shared pages may
+count more than once. **Recycle** stops only an unused running
+runtime; open conversations, work and in-flight reads prevent it. The same
+section appears on a runtime's detail page, and observing it never starts one.
+
+It is every registered runtime with its accounts beneath it, and a
 page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* is where a registry entry or a custom one is added. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
