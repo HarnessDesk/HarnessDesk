@@ -12,7 +12,7 @@ import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { runtimeId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
@@ -137,6 +137,23 @@ const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : sto
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 const settingsListsStore = capabilityListsStore(new URLSearchParams(location.search).get('capability-lists') === 'stress')
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
+/* A session with a folder but no turns: both inline actions belong to this
+   empty state, and a draft without a folder cannot exercise the Team link. */
+const emptyConversationStore = SHOW_EMPTY ? previewStore({
+  workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 },
+  runtimes: [runtime('codex', 'Alpha')],
+  activeSessionKey: PREVIEW_EMPTY_SESSION_KEY,
+  sessions: new Map([[PREVIEW_EMPTY_SESSION_KEY, {
+    id: sessionId('preview-empty'),
+    runtime: runtimeId('codex'),
+    cwd: '/work/storefront',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+  }]]),
+}) : store
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
 const sidebarProjectsSearchBeforeStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot(), true))
@@ -813,26 +830,28 @@ const Preview = () => {
         </div>
       </Frame>
 
-      {/* A pane scoped to no session at all: the transcript's own pitch,
-          "What should we build?", the pane a fresh conversation opens on.
+      {/* A conversation with its folder and no turns: the transcript's own
+          pitch and both inline actions before the first message.
           Only on `preview.html?empty` — see `SHOW_EMPTY` above. */}
       {SHOW_EMPTY && (
         <Frame id="conversation-empty" title="Conversation — the empty pane">
           <div className="h-[560px]">
-            <PaneProvider
-              scope={{
-                paneId: 'preview-empty' as never,
-                view: { kind: 'conversation', session: PREVIEW_EMPTY_SESSION_KEY } as never,
-                sessionKey: PREVIEW_EMPTY_SESSION_KEY,
-              }}
-            >
-              <Conversation
-                onChooseProject={() => {}}
-                onSignIn={() => {}}
-                onOpenUsage={() => {}}
-                onOpenRuntimes={() => {}}
-              />
-            </PaneProvider>
+            <StoreProvider store={emptyConversationStore}>
+              <PaneProvider
+                scope={{
+                  paneId: 'preview-empty' as never,
+                  view: { kind: 'conversation', session: PREVIEW_EMPTY_SESSION_KEY } as never,
+                  sessionKey: PREVIEW_EMPTY_SESSION_KEY,
+                }}
+              >
+                <Conversation
+                  onChooseProject={() => {}}
+                  onSignIn={() => {}}
+                  onOpenUsage={() => {}}
+                  onOpenRuntimes={() => {}}
+                />
+              </PaneProvider>
+            </StoreProvider>
           </div>
         </Frame>
       )}
