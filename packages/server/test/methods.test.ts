@@ -9,6 +9,7 @@ import { tempDir } from './scratch.js'
 import { knownMethods, runtimeId, sessionId, type AgentRuntime, type RuntimeHealth } from '@harnessdesk/protocol'
 
 import { dispatch, hostMethods, methodDomains, type HostContext } from '../src/methods/index.js'
+import { terminalMethods } from '../src/methods/terminals.js'
 
 /**
  * The method table is what turns "every wire method is answered" from a
@@ -196,6 +197,59 @@ test('a terminal prefers a signed-in or sign-in-free ready provider over a signe
   }), { terminalId: 'term-1', runtime: local.info.id })
 })
 
+test('the first of two signed-out ready providers hosts a terminal', async () => {
+  const root = tempDir('hd-terminal-provider-')
+  const requested = fakeRuntime('conversation')
+  const first = fakeRuntime('first-signed-out', { processes: true, signedOut: true })
+  const second = fakeRuntime('second-signed-out', { processes: true, signedOut: true })
+  const ctx = contextWith({
+    runtimes: { resolve: () => requested, all: () => [requested, first, second] },
+    workspaces: { openRoots: () => [root] },
+    terminals: { open: async () => 'term-1' },
+  })
+  assert.deepEqual(await dispatch(ctx, 'terminal/open', {
+    runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+  }), { terminalId: 'term-1', runtime: first.info.id })
+})
+
+test('a provider with no account and no sign-in method ranks ahead of signed-out', async () => {
+  const root = tempDir('hd-terminal-provider-')
+  const requested = fakeRuntime('conversation')
+  const signedOut = fakeRuntime('signed-out', { processes: true, signedOut: true })
+  const signInFree = fakeRuntime('sign-in-free', { processes: true, signedOut: true, noSignIn: true })
+  const ctx = contextWith({
+    runtimes: { resolve: () => requested, all: () => [requested, signedOut, signInFree] },
+    workspaces: { openRoots: () => [root] },
+    terminals: { open: async () => 'term-1' },
+  })
+  assert.deepEqual(await dispatch(ctx, 'terminal/open', {
+    runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+  }), { terminalId: 'term-1', runtime: signInFree.info.id })
+})
+
+test('starting and idle provider tiers choose their first candidate without account reads', async () => {
+  const root = tempDir('hd-terminal-provider-')
+  const requested = fakeRuntime('conversation')
+  for (const state of ['starting', 'idle'] as const) {
+    const first = fakeRuntime(`first-${state}`, { processes: true, health: { state } })
+    const second = fakeRuntime(`second-${state}`, { processes: true, health: { state } })
+    let accountReads = 0
+    first.getAccount = second.getAccount = async () => {
+      accountReads += 1
+      throw new Error(`must not read a ${state} provider account`)
+    }
+    const ctx = contextWith({
+      runtimes: { resolve: () => requested, all: () => [requested, first, second] },
+      workspaces: { openRoots: () => [root] },
+      terminals: { open: async () => `term-${state}` },
+    })
+    assert.deepEqual(await dispatch(ctx, 'terminal/open', {
+      runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+    }), { terminalId: `term-${state}`, runtime: first.info.id })
+    assert.equal(accountReads, 0, `no ${state} provider account is read`)
+  }
+})
+
 test('a terminal accepts a lone signed-out ready provider without reading its account', async () => {
   const root = tempDir('hd-terminal-provider-')
   const requested = fakeRuntime('conversation')
@@ -227,6 +281,57 @@ test('a failed account read ranks that ready provider as signed out and uses the
   assert.deepEqual(await dispatch(ctx, 'terminal/open', {
     runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
   }), { terminalId: 'term-1', runtime: next.info.id })
+})
+
+test('a signed-in first provider opens without waiting for a later silent provider', async () => {
+  const root = tempDir('hd-terminal-provider-')
+  const requested = fakeRuntime('conversation')
+  const first = fakeRuntime('first-ready', { processes: true })
+  const silent = fakeRuntime('silent-ready', { processes: true })
+  let silentReads = 0
+  first.getAccount = async () => ({ accounts: [{ kind: 'apiKey', label: 'Demo account' }], signInMethods: [] })
+  silent.getAccount = () => {
+    silentReads += 1
+    return new Promise(() => {})
+  }
+  const ctx = contextWith({
+    runtimes: { resolve: () => requested, all: () => [requested, first, silent] },
+    workspaces: { openRoots: () => [root] },
+    terminals: { open: async () => 'term-1' },
+  })
+  const opening = dispatch(ctx, 'terminal/open', {
+    runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+  })
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(silentReads, 0)
+  assert.deepEqual(await opening, { terminalId: 'term-1', runtime: first.info.id })
+})
+
+test('a silent ready provider times out before the next signed-in provider opens', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const root = tempDir('hd-terminal-provider-')
+  const requested = fakeRuntime('conversation')
+  const silent = fakeRuntime('silent-ready', { processes: true })
+  const signedIn = fakeRuntime('signed-in-ready', { processes: true })
+  let signedInReads = 0
+  silent.getAccount = () => new Promise(() => {})
+  signedIn.getAccount = async () => {
+    signedInReads += 1
+    return { accounts: [{ kind: 'apiKey', label: 'Demo account' }], signInMethods: [] }
+  }
+  const ctx = contextWith({
+    runtimes: { resolve: () => requested, all: () => [requested, silent, signedIn] },
+    workspaces: { openRoots: () => [root] },
+    terminals: { open: async () => 'term-1' },
+  })
+  const opening = terminalMethods['terminal/open'](ctx, {
+    runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+  }, 5)
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  t.mock.timers.tick(5)
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(signedInReads, 1)
+  assert.deepEqual(await opening, { terminalId: 'term-1', runtime: signedIn.info.id })
 })
 
 test('a terminal refuses when every process provider is unavailable', async () => {

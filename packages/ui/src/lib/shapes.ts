@@ -23,10 +23,12 @@ export const ROLE_KINDS: readonly FlowPolicyRole['kind'][] = ['agent', 'check', 
 
 /** A role or rule id from a label a person typed, made unique against what already exists. */
 export const uniqueId = (base: string, taken: ReadonlySet<string>, fallback = 'step'): string => {
-  const slug = base.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || fallback
+  const normalized = base.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || fallback
+  const slug = /^\d+$/.test(normalized) ? `step-${normalized}`.slice(0, 48) : normalized
   if (!taken.has(slug)) return slug
   for (let n = 2; ; n += 1) {
-    const next = `${slug}-${n}`.slice(0, 48)
+    const suffix = `-${n}`
+    const next = `${slug.slice(0, 48 - suffix.length)}${suffix}`
     if (!taken.has(next)) return next
   }
 }
@@ -127,7 +129,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null => (
 
 /**
  * `layout.positions`, read defensively for display: an unrecognized shape,
- * an unknown role, a prototype key or a coordinate outside
+ * an unknown role, `__proto__` or a coordinate outside
  * `SHAPE_POSITION_LIMIT` is dropped rather than shown or crashing the
  * canvas — the decision "ignore invalid untrusted layout only for safe read
  * display... never erase it on read" (this never writes anything; the file's
@@ -147,7 +149,7 @@ export const readGraphPositions = (
   const keys = Object.keys(raw).slice(0, SHAPE_LAYOUT_LIMIT)
   if (Object.keys(raw).length > SHAPE_LAYOUT_LIMIT) invalid = true
   for (const key of keys) {
-    if (PROTOTYPE_KEYS.has(key) || !roles.has(key)) { invalid = true; continue }
+    if (key === '__proto__' || !roles.has(key)) { invalid = true; continue }
     const point = asRecord(raw[key])
     const x = point?.['x']
     const y = point?.['y']
