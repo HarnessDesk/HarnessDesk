@@ -536,6 +536,7 @@ export const NoteList = ({ className, ...props }: ComponentProps<'ul'>) => (
  *
  * The canonical toggle group supplies radio semantics and roving focus while
  * this pattern supplies the settings-specific segmented appearance.
+ * An unavailable answer takes a disabled reason, kept in its hover title.
  */
 export const Segmented = <T extends string>({
   options,
@@ -543,7 +544,7 @@ export const Segmented = <T extends string>({
   onChange,
   label,
 }: {
-  options: readonly { readonly value: T; readonly label: ReactNode }[]
+  options: readonly { readonly value: T; readonly label: ReactNode; readonly disabled?: boolean | string }[]
   value: T
   onChange: (next: T) => void
   label: string
@@ -580,6 +581,8 @@ export const Segmented = <T extends string>({
       <ToggleGroupItem
         key={option.value}
         value={option.value}
+        disabled={!!option.disabled}
+        title={typeof option.disabled === 'string' ? option.disabled : undefined}
         /*
          * The lifted chosen state lives here, not in the vendored primitive:
          * `design/ui/toggle-group.tsx` stays on the registry's own
