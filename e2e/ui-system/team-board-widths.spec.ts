@@ -96,9 +96,11 @@ for (const theme of ['light', 'dark'] as const) {
     const board = page.getByRole('radio', { name: 'Board', exact: true })
     const list = page.getByRole('radio', { name: 'List', exact: true })
     await list.click()
-    await page.setViewportSize({ width: 560, height: 1000 })
+    await page.setViewportSize({ width: 604, height: 1000 })
     await expect(board).toBeDisabled()
-    await expect(board).toHaveAttribute('title', 'Board needs a pane at least 600px wide')
+    expect(await page.locator('[data-slot="tool-pane-body"]').evaluate(el => el.clientWidth)).toBe(596)
+    if (process.env.HD_BOARD_REPAIR_FRAMES) await page.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/compact-${theme}.png` })
+    await expect(board).toHaveAttribute('title', 'Board needs at least 600px of content width')
     await page.setViewportSize({ width: 1000, height: 1000 })
     await expect(board).toBeEnabled()
     await expect(list).toBeChecked()
@@ -141,6 +143,52 @@ test('the interface names board columns in their rendered order', async ({ page 
   const names = await page.locator('[data-slot="board-column"] h3').allTextContents()
   const paragraph = readFileSync('docs/interface.md', 'utf8').split('**On a card.**')[1]!.split('A completed card')[0]!
   expect(paragraph).toContain(names.join(', '))
+})
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`tall board keeps rail names and empty lines in the first viewport in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 800 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list&tall=todo')
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    await expect(pane.locator('[data-column="todo"] [data-slot="board-card"]')).toHaveCount(13)
+    await page.evaluate(() => document.fonts.ready)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/tall-${theme}.png` })
+    const rail = pane.locator('[data-column="ready"] button > span').first()
+    const empty = pane.locator('[data-slot="board-empty"]')
+    await expect(empty).toHaveCount(2)
+    for (const label of [rail, ...await empty.all()]) {
+      const bounds = await label.boundingBox()
+      expect(bounds!.y).toBeGreaterThanOrEqual(0)
+      expect.soft(bounds!.y + bounds!.height).toBeLessThanOrEqual(800)
+    }
+  })
+
+  test(`opening a rail preserves neighboring header and card alignment in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 800 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list')
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    const ready = pane.locator('[data-column="ready"]')
+    await ready.getByRole('button', { name: 'Ready 1 — Open column', exact: true }).press('Enter')
+    await expect(ready.getByRole('button', { name: 'Fold Ready', exact: true })).toBeFocused()
+    await page.evaluate(() => document.fonts.ready)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/opened-${theme}.png` })
+    const needs = pane.locator('[data-column="needs"]')
+    for (const selector of ['header', 'h3', '[data-slot="board-card"]']) {
+      const neighbor = (await needs.locator(selector).first().boundingBox())!
+      const opened = (await ready.locator(selector).first().boundingBox())!
+      expect(opened.y).toBe(neighbor.y)
+      if (selector === 'header') expect(opened.height).toBe(neighbor.height)
+    }
+  })
+}
+
+test('the compact threshold is documented in content width', () => {
+  const paragraph = readFileSync('docs/interface.md', 'utf8').split('**As the board narrows.**')[1]!.split('**As a list.**')[0]!
+  expect(paragraph).toContain('Below 600px of content width')
 })
 
 test.describe('board fit with the app scrollbar skin', () => {

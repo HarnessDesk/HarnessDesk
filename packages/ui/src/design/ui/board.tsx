@@ -195,7 +195,7 @@ const BoardColumn = ({
     {...props}
     style={collapsed ? { ...style, width: BOARD_RAIL_WIDTH } : style}
   >
-    {collapsed && <Button ref={railRef} variant="ghost" size="content-min" className="flex h-full w-full flex-col gap-2 py-2" aria-label={`${title}${count != null ? ` ${count}` : ''} — Open column`} aria-expanded={false} aria-controls={contentId} onClick={() => toggle(false)}>
+    {collapsed && <Button ref={railRef} variant="ghost" size="content-min" className="flex h-full w-full flex-col justify-start gap-2 py-2" aria-label={`${title}${count != null ? ` ${count}` : ''} — Open column`} aria-expanded={false} aria-controls={contentId} onClick={() => toggle(false)}>
       <span className="[writing-mode:vertical-rl] rotate-180">{title}</span>
       <span className="text-xs tabular-nums text-(--hd-muted-foreground)">{count}</span>
     </Button>}
@@ -233,12 +233,12 @@ const BoardColumn = ({
           <PlusIcon />
         </button>
       )}
-      {onCollapsedChange && <Button ref={foldRef} variant="ghost" size="icon-xs" aria-label={`Fold ${title}`} title={`Fold ${title}`} aria-expanded={true} aria-controls={contentId} onClick={() => toggle(true)}><ArrowLeftIcon /></Button>}
+      {onCollapsedChange && <Button ref={foldRef} variant="ghost" size="icon-xs" className="-my-0.5" aria-label={`Fold ${title}`} title={`Fold ${title}`} aria-expanded={true} aria-controls={contentId} onClick={() => toggle(true)}><ArrowLeftIcon /></Button>}
       {actions}
     </header>
     <div id={contentId} data-slot="board-column-content" hidden={collapsed} className={cn(collapsed ? 'hidden' : 'flex', 'min-w-0 flex-col gap-2')}>{children}</div>
     {!collapsed && derived && empty && (
-      <EmptyState variant="inline" data-slot="board-empty" className="my-auto ps-[calc(var(--hd-inset-card)+var(--hd-border-width))] text-left" title="Nothing here" />
+      <EmptyState variant="inline" data-slot="board-empty" className="ps-[calc(var(--hd-inset-card)+var(--hd-border-width))] text-left" title="Nothing here" />
     )}
     {/* The second entry point, at the foot where the eye ends after reading the
         column. A composer when the column can take a title on the spot, and a

@@ -2,6 +2,23 @@ import { expect, test } from '@playwright/test'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
 for (const theme of ['light', 'dark'] as const) {
+  for (const evidence of ['pending', 'failed']) {
+    test(`compact list groups ${evidence} jobs using the evidence notice in ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width: 560, height: 800 })
+      await page.emulateMedia({ colorScheme: theme })
+      await page.goto(`/preview.html?board-list&evidence=${evidence}`)
+      const pane = page.locator('[data-frame-id="board-list-page"]')
+      await expect(pane.locator('[data-state-group="unknown"]')).toBeVisible()
+      await page.evaluate(() => document.fonts.ready)
+      expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+      if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/${evidence}-${theme}.png` })
+      const title = evidence === 'failed' ? 'Evidence unavailable' : 'Checking current evidence'
+      await expect(pane.locator('[data-state-group="unknown"]')).toHaveText(title)
+      await expect(pane.getByRole(evidence === 'failed' ? 'alert' : 'status')).toContainText(title)
+      await expect(pane.locator('[data-job="1"]')).toBeVisible()
+      await expect(pane.locator('[data-job="4"]')).toBeVisible()
+    })
+  }
   test(`the Board and List share jobs and keep table geometry and controls in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
