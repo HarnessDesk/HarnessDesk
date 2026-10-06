@@ -36,6 +36,42 @@ const key = (value: string, selector = '.react-flow__node', modifiers: KeyboardE
   act(() => { host.querySelector(selector)!.dispatchEvent(event) })
   return event
 }
+it('uses the least-crossing rail when every height is blocked', async () => {
+  const crowded: FlowCanvasNode[] = [
+    { id: 'write', position: { x: 0, y: 0 }, size: { width: 232, height: 108 }, data: { name: 'Write', kind: 'agent' } },
+    { id: 'review', position: { x: 656, y: 0 }, size: { width: 232, height: 108 }, data: { name: 'Review', kind: 'agent' } },
+    { id: 'check', position: { x: 656, y: 176 }, size: { width: 232, height: 108 }, data: { name: 'Check', kind: 'check' } },
+    // This card covers the source's exit column at its centre: every rail hits it.
+    { id: 'wait', position: { x: 240, y: 40 }, size: { width: 100, height: 28 }, data: { name: 'Wait', kind: 'person' } },
+    // The old bottom fallback also passes through this lower card on both exits.
+    { id: 'note', position: { x: 240, y: 260 }, size: { width: 100, height: 108 }, data: { name: 'Note', kind: 'note' } },
+  ]
+  await draw({ nodes: crowded, edges: [
+    { id: 'first', source: 'write', target: 'review' },
+    { id: 'second', source: 'write', target: 'check' },
+  ] })
+  const rails = [...host.querySelectorAll<SVGGElement>('[data-flow-rail-y]')].map(el => Number(el.dataset.flowRailY))
+  expect(rails).toHaveLength(2)
+  // Both rails in this gap cross only Wait; below Note they cross two cards each.
+  expect(rails[0]).toBeGreaterThan(108)
+  expect(rails[1]).toBeLessThan(176)
+  expect(rails[1]! - rails[0]!).toBe(32)
+})
+it('bounds geometry work for a forty-step plan', async () => {
+  const plan: FlowCanvasNode[] = Array.from({ length: 40 }, (_, index) => ({
+    id: `step-${index}`, position: { x: (index % 5) * 328 + index % 3, y: Math.floor(index / 5) * 176 + index % 7 },
+    size: { width: 232, height: 108 }, data: { name: `Step ${index + 1}`, kind: 'agent' },
+  }))
+  const rules = plan.flatMap((step, index) => [1, 7].map(offset => ({
+    id: `${step.id}-${offset}`, source: step.id, target: plan[(index + offset) % plan.length]!.id,
+  })))
+  // Count geometric comparisons rather than timing this shared machine or running a stress loop.
+  const comparisons = vi.spyOn(Math, 'max')
+  await draw({ nodes: plan, edges: rules })
+  expect(host.querySelectorAll('[data-flow-rail-y]')).toHaveLength(80)
+  expect([...host.querySelectorAll<SVGGElement>('[data-flow-rail-y]')].every(el => el.dataset.flowRailY !== '' && Number.isFinite(Number(el.dataset.flowRailY)))).toBe(true)
+  expect(comparisons.mock.calls.length).toBeLessThan(50_000)
+})
 it('renders the supplied component and passes the node, selection and read-only state', async () => {
   await draw({ readOnly: true, NodeComponent: ({ node, selected, readOnly }) => <span data-custom={node.id}>{node.data.name}/{String(selected)}/{String(readOnly)}</span> })
   expect(host.querySelector('[data-custom="write"]')?.textContent).toBe('Write/true/true')

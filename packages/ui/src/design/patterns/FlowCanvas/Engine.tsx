@@ -149,11 +149,25 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       addGroupBases(box.top - GRID)
       addGroupBases(box.bottom + GRID)
     }
-    for (const upper of boxes) for (const lower of boxes) {
-      if (upper.bottom > lower.top) continue
-      for (let y = upper.bottom + GRID; y <= lower.top - GRID; y += GRID) addGroupBases(y)
-    }
+    // Clearance changes at card boundaries. Sampling every grid row in every
+    // pair's gap adds duplicate work without adding another clear interval.
     addGroupBases(bottom + GRID)
+    const orderedHeights = [...railCandidates].sort((a, b) => a - b)
+    // Walk outward from the preferred height, without sorting the whole set
+    // again for every source. A clear nearby rail ends the search immediately.
+    function* nearestHeights(preferred: number) {
+      let low = 0, high = orderedHeights.length
+      while (low < high) {
+        const middle = (low + high) >>> 1
+        if (orderedHeights[middle]! < preferred) low = middle + 1
+        else high = middle
+      }
+      let left = low - 1, right = low
+      while (left >= 0 || right < orderedHeights.length) {
+        if (left < 0 || (right < orderedHeights.length && orderedHeights[right]! - preferred <= preferred - orderedHeights[left]!)) yield orderedHeights[right++]!
+        else yield orderedHeights[left--]!
+      }
+    }
     const routeEdges = edges.map((edge, index) => {
       const source = byId.get(edge.source), target = byId.get(edge.target)
       const sourceBox = boxById.get(edge.source), targetBox = boxById.get(edge.target)
@@ -173,7 +187,25 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       }
       return { edge, index, source, target, sourceBox, targetBox, groupSize, groupIndex, needsRail, railY: undefined as number | undefined, labelX: undefined as number | undefined }
     })
+    // Every crossing predicate changes only at a card's top or bottom. Nearby
+    // rail heights in the same interval share a count, including fallback scans.
+    const crossingBoundaries = [...new Set(boxes.flatMap(box => [box.top, box.bottom]))].sort((a, b) => a - b)
+    const crossingInterval = (y: number) => {
+      let low = 0, high = crossingBoundaries.length
+      while (low < high) {
+        const middle = (low + high) >>> 1
+        if (crossingBoundaries[middle]! < y) low = middle + 1
+        else high = middle
+      }
+      // Keep exact boundaries separate: horizontal contact is inclusive while
+      // the vertical exit/entry checks use strict intersection.
+      return low * 2 + Number(crossingBoundaries[low] === y)
+    }
+    const crossingCounts = new Map<typeof routeEdges[number], Map<number, number>>()
     const routeCrossingCount = (route: typeof routeEdges[number], y: number) => {
+      const interval = crossingInterval(y)
+      const cached = crossingCounts.get(route)?.get(interval)
+      if (cached !== undefined) return cached
       const { sourceBox, targetBox, source, target } = route
       if (!sourceBox || !targetBox || !source || !target) return Number.MAX_SAFE_INTEGER
       let crossings = 0
@@ -181,15 +213,19 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       if (y >= targetBox.top && y <= targetBox.bottom) crossings += 1
       const sourceTurn = sourceBox.right + GRID, targetTurn = targetBox.left - GRID
       const left = Math.min(sourceTurn, targetTurn), right = Math.max(sourceTurn, targetTurn)
+      const sourceTop = Math.min(y, sourceBox.centerY), sourceBottom = Math.max(y, sourceBox.centerY)
+      const targetTop = Math.min(y, targetBox.centerY), targetBottom = Math.max(y, targetBox.centerY)
       for (const box of boxes) {
         if (box.node.id === source.id || box.node.id === target.id) continue
         const onRail = y >= box.top && y <= box.bottom && right > left && box.left < right && box.right > left
         const onSourceExit = sourceTurn >= box.left && sourceTurn <= box.right
-          && Math.max(y, sourceBox.centerY) > box.top && Math.min(y, sourceBox.centerY) < box.bottom
+          && sourceBottom > box.top && sourceTop < box.bottom
         const onTargetEntry = targetTurn >= box.left && targetTurn <= box.right
-          && Math.max(y, targetBox.centerY) > box.top && Math.min(y, targetBox.centerY) < box.bottom
+          && targetBottom > box.top && targetTop < box.bottom
         if (onRail || onSourceExit || onTargetEntry) crossings += 1
       }
+      const counts = crossingCounts.get(route) ?? new Map<number, number>()
+      counts.set(interval, crossings); crossingCounts.set(route, counts)
       return crossings
     }
     const routeIsClear = (route: typeof routeEdges[number], y: number) => routeCrossingCount(route, y) === 0
@@ -217,7 +253,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
       const group = groups.get(route.edge.source) ?? [route]
       let base = groupBase.get(route.edge.source)
       if (base === undefined) {
-        const candidates = [...railCandidates].sort((a, b) => Math.abs(a - preferredY(route)) - Math.abs(b - preferredY(route)) || b - a)
+        const candidates: number[] = []
         const isGroupClear = (candidate: number) => group.every(member => {
           const lane = candidate + member.groupIndex * LANE_PITCH
           return routeIsClear(member, lane) && fitsBesideExisting(member, lane)
@@ -226,8 +262,18 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, l
           const lane = candidate + member.groupIndex * LANE_PITCH
           return score + routeCrossingCount(member, lane) * 1000 + Number(!fitsBesideExisting(member, lane))
         }, 0)
-        base = candidates.find(isGroupClear) ?? candidates.reduce((best, candidate) =>
-          crossingScore(candidate) < crossingScore(best) ? candidate : best, candidates[0] ?? bottom + GRID)
+        for (const candidate of nearestHeights(preferredY(route))) {
+          candidates.push(candidate)
+          if (isGroupClear(candidate)) { base = candidate; break }
+        }
+        if (base === undefined) {
+          let bestScore = Infinity
+          for (const candidate of candidates) {
+            const score = crossingScore(candidate)
+            if (score < bestScore) { base = candidate; bestScore = score }
+          }
+          base ??= bottom + GRID
+        }
         groupBase.set(route.edge.source, base)
       }
       route.railY = base + route.groupIndex * LANE_PITCH

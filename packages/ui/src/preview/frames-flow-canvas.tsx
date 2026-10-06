@@ -72,6 +72,8 @@ export const FlowCanvasFrames = () => {
 }
 
 const routingScenes = [
+  { id: 'compact', name: 'A short plan panel', positions: [[0, 0]], rules: [] },
+  { id: 'least-crossing', name: 'A crowded exit', positions: [[0, 0], [656, 0], [656, 176], [240, 0], [240, 352]], rules: [[0, 1, 'ready'], [0, 2, 'next']] },
   { id: 'skip', name: 'Skip a step', positions: [[0, 0], [328, 0], [656, 0]], rules: [[0, 1, 'ready'], [0, 2, 'skip']] },
   { id: 'long-word', name: 'A longer answer', positions: [[0, 0], [328, 0]], rules: [[0, 1, 'request-changes']] },
   { id: 'short-gap', name: 'The layout gap', positions: [[0, 0], [296, 0]], rules: [[0, 1, 'ok']] },
@@ -81,9 +83,10 @@ const routingScenes = [
 ] as const
 const FlowCanvasRoutingScenes = () => <div className="flex flex-col gap-8">{routingScenes.map(scene => {
   const nodes: FlowCanvasNode[] = scene.positions.map(([x, y], index) => ({ id: `step-${index}`, position: { x, y },
-    data: { name: ['Write', 'Review', 'Check', 'Wait'][index]!, kind: 'agent', roleLine: 'One seat' } }))
+    ...(scene.id === 'least-crossing' ? { size: { width: FLOW_CANVAS_CARD_WIDTH, height: 108 } } : {}),
+    data: { name: ['Write', 'Review', 'Check', 'Wait', 'Note'][index]!, kind: 'agent', roleLine: 'One seat' } }))
   const edges: FlowCanvasEdge[] = scene.rules.map(([source, target, label], index) => ({ id: `rule-${index}`, source: `step-${source}`, target: `step-${target}`, label }))
   return <section id={`flow-canvas-${scene.id}`} key={scene.id} className="flex flex-col gap-2">
-    <Text role="section">{scene.name}</Text><div className="h-128"><FlowCanvas nodes={nodes} edges={edges} readOnly /></div>
+    <Text role="section">{scene.name}</Text><div className={scene.id === 'compact' ? 'h-44 w-125' : 'h-128'}><FlowCanvas nodes={nodes} edges={edges} readOnly /></div>
   </section>
 })}</div>

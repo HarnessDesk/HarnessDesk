@@ -237,6 +237,24 @@ for (const theme of ['light', 'dark'] as const) {
       expect(geometry.ruleLineHits, scene).toEqual([])
       for (const word of geometry.wordDistances) expect(word.distance, `${scene}: ${word.word}`).toBeLessThanOrEqual(12)
     })
+    test('chooses the fewest crossings when a source exit cannot be clear', async ({ page }) => {
+      await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
+      const surface = canvas(page, 'least-crossing')
+      await expect(surface.locator('.react-flow__node')).toHaveCount(5)
+      await expect.poll(async () => (await checkCanvasGeometry(surface)).pathHits).toEqual([
+        'step-0->step-1 crosses step-3', 'step-0->step-2 crosses step-3',
+      ])
+      const rails = await surface.locator('[data-flow-rail-y]').evaluateAll(elements => elements.map(el => Number((el as SVGGElement).dataset.flowRailY)))
+      // Every height hits Wait at the exit; this gap adds no other card crossings.
+      // The old bottom fallback also crosses Note on both outgoing routes.
+      expect(rails[0]).toBeGreaterThan(108)
+      expect(rails[1]).toBeLessThan(176)
+      const folder = process.env.FLOW_CANVAS_FRAMES_DIR
+      if (folder) {
+        await mkdir(folder, { recursive: true })
+        await page.locator('#flow-canvas-least-crossing').screenshot({ path: `${folder}/least-crossing-${theme}.png` })
+      }
+    })
     test('two return answers from one step have non-overlapping words', async ({ page }) => {
       await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
       const surface = canvas(page, 'return-lanes')
@@ -393,25 +411,42 @@ for (const theme of ['light', 'dark'] as const) {
       const canvasBox = await surface.boundingBox()
       expect(fitBox && canvasBox && fitBox.x >= canvasBox.x && fitBox.x + fitBox.width <= canvasBox.x + canvasBox.width).toBe(true)
     })
-    test('keeps the minimap clear of cards at 120% and 200%', async ({ page }) => {
+    for (const width of [1440, 900]) test(`keeps the minimap clear of cards and tools while zooming at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 700 })
       const surface = canvas(page), minimap = surface.locator('.react-flow__minimap')
-      const overlapsCards = () => surface.evaluate(root => {
+      const overlapsCardsAndTools = () => surface.evaluate(root => {
         const map = root.querySelector('.react-flow__minimap')?.getBoundingClientRect()
         if (!map || !map.width || !map.height) return ['missing minimap']
-        return [...root.querySelectorAll<HTMLElement>('.react-flow__node')].flatMap(el => {
+        return [...root.querySelectorAll<HTMLElement>('.react-flow__node, .react-flow__panel:not(.react-flow__minimap):has(button)')].flatMap(el => {
           const box = el.getBoundingClientRect()
           return box.left < map.right && box.right > map.left && box.top < map.bottom && box.bottom > map.top
-            ? [`${el.dataset.id ?? ''} map=${[map.left, map.top, map.right, map.bottom].map(Math.round)} card=${[box.left, box.top, box.right, box.bottom].map(Math.round)}`] : []
+            ? [`${el.dataset.id ?? 'tools'} map=${[map.left, map.top, map.right, map.bottom].map(Math.round)} box=${[box.left, box.top, box.right, box.bottom].map(Math.round)}`] : []
         })
       })
-      await surface.getByRole('button', { name: 'Zoom in' }).click()
-      await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(1.2, 5)
-      await expect(minimap).toBeVisible()
-      await expect.poll(overlapsCards).toEqual([])
-      for (let zoom = 0; zoom < 3; zoom += 1) await surface.getByRole('button', { name: 'Zoom in' }).click()
+      // Resizing can fit below 100%; include the intermediate 148% and 178% states.
+      if (width === 900) await expect.poll(async () => (await viewport(surface)).zoom).toBeLessThan(1)
+      else await expect.poll(async () => (await viewport(surface)).zoom).toBe(1)
+      for (let step = 0; step < 5; step += 1) {
+        const previous = (await viewport(surface)).zoom
+        await surface.getByRole('button', { name: 'Zoom in' }).click()
+        // CSS matrices round the fitted viewport scale to six significant digits.
+        await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(Math.min(2, previous * 1.2), 4)
+        await expect(minimap).toBeVisible()
+        await expect.poll(overlapsCardsAndTools).toEqual([])
+      }
       await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(2, 5)
-      await expect(minimap).toBeVisible()
-      await expect.poll(overlapsCards).toEqual([])
+    })
+    test('shrinks the minimap to fit a short panel', async ({ page }) => {
+      await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
+      const surface = canvas(page, 'compact'), minimap = surface.locator('.react-flow__minimap')
+      await expect(surface.locator('.react-flow__node')).toHaveCount(1)
+      await expect.poll(async () => (await minimap.boundingBox())?.width).toBe(100)
+      await expect.poll(async () => (await minimap.boundingBox())?.height).toBe(75)
+      const folder = process.env.FLOW_CANVAS_FRAMES_DIR
+      if (folder) {
+        await mkdir(folder, { recursive: true })
+        await page.locator('#flow-canvas-compact').screenshot({ path: `${folder}/compact-${theme}.png` })
+      }
     })
     test('read-only allows looking and selection, refuses every edit and shows Run state slots', async ({ page }) => {
       const surface = canvas(page, 'readonly'), write = node(surface, 'write')
