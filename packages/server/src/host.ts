@@ -29,6 +29,7 @@ import {
   type SeatCeiling,
   flowStepOf,
   isBusy,
+  isNoticeTurn,
   isSessionBusy,
   isSessionGone,
   reopenRefusedByAgent,
@@ -79,6 +80,7 @@ import {
   type Approval,
   type ContributionId,
   type ScopeQuery,
+  type WorkspaceAdmission,
   type GoalSeatRequest,
   type GoalReceipt,
   type SecretReload,
@@ -224,7 +226,7 @@ export interface ExtensionHost extends CapabilityRegistry {
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
   setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
-  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined>): void
   /** Reads a manifest for the consent dialog; imports nothing. */
   inspectPlugin(specifier: string): Promise<{
     id: string
@@ -3219,6 +3221,7 @@ export class Host {
 
   /** The last project opened by the host, never a runtime-reported session directory. */
   #shellProject: string | null = null
+  #shellCheckoutRoot: string | null = null
 
   /** Only person-opened projects admit shell authority; session listings never do. */
   async #admitShellProject(project: string | null | undefined, checkout?: string): Promise<ShellProjectIdentity | undefined> {
@@ -3250,7 +3253,7 @@ export class Host {
     return undefined
   }
 
-  async #shellWorkspace(scope: ScopeQuery): Promise<string | undefined> {
+  async #shellWorkspace(scope: ScopeQuery): Promise<WorkspaceAdmission | undefined> {
     const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
     // Durable records are candidates, re-admitted against person-opened projects on every invocation.
     const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
@@ -3264,8 +3267,13 @@ export class Host {
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
     const project = identity.project
     const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
-    if (record) record.shellCheckout = { project, cwd }
-    return cwd
+    // A Seat owns its placement only while shellRoot can still return that admitted checkout.
+    const placement = checkout && (kept ? await realpath(checkout.cwd).catch(() => undefined) : checkout.cwd)
+    const source = admitted && checkout && placement && samePath(cwd, placement)
+      ? record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
+      : 'fallback'
+    if (record) record.shellCheckout = { project, cwd, source }
+    return { root: cwd, enterCheckout: source === 'own' && !samePath(cwd, this.#shellCheckoutRoot ?? '') }
   }
 
   /** The folder a live session works in, straight off the registry; null when that session is not live. */
@@ -4718,8 +4726,9 @@ export class Host {
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
     this.#shellProject = shellIdentity.project
-    // A conversation here is admitted to the folder's checkout, or to its project's main checkout when it has no
-    // checkout of its own: a call admitted to either runs in this folder as it was opened.
+    this.#shellCheckoutRoot = shellIdentity.checkoutRoot
+    // A conversation here uses the folder's checkout or its project's main checkout as a fallback. Both can
+    // run in the folder as opened; #shellWorkspace distinguishes a Seat's own checkout from that fallback.
     this.#extensions?.setWorkspace({
       root: described.path, branch: git?.branch ?? null, admitted: [shellIdentity.checkoutRoot, shellIdentity.project],
     })
@@ -5565,7 +5574,9 @@ export class Host {
     const reopened = await this.#reopenAttachments(runtime, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await runtime.resumeSession(id, {
+        ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
       })
@@ -5935,7 +5946,7 @@ export class Host {
     try {
       const session = this.#attach(runtime, live.id, live)
       const checkout = Object.freeze({ project, cwd })
-      this.registry.get(runtime.info.id, live.id)!.shellCheckout = checkout
+      this.registry.get(runtime.info.id, live.id)!.shellCheckout = { ...checkout, source: 'own' }
       await live.setTitle(where.title).catch(() => {})
       await this.#names.set(runtime.info.id, live.id, where.title)
       await this.#applySeatPicks(live, seat)
@@ -6104,13 +6115,15 @@ export class Host {
   #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
     const key = sessionKey(runtime, id)
     const record = this.registry.get(runtime, id)
+    // A warning given while opening the conversation is not use; only real turns count.
+    const hasRealTurn = record?.session.turns.some((turn) => !isNoticeTurn(turn)) ?? false
     const touched =
       inHand.reached ||
       this.#sendingNow.has(key) ||
       this.#draining.has(key) ||
       this.#reattaching.has(key) ||
       (record !== undefined &&
-        (record.session.turns.length > 0 ||
+        (hasRealTurn ||
           record.watched.size > 0 ||
           record.queue.messages.length > 0 ||
           (record.live !== null && record.live !== inHand.live)))
@@ -6496,7 +6509,9 @@ export class Host {
       if (settings !== event.settings) outgoing = { ...event, settings }
     }
     if (event.type === 'session/started') {
-      const session = seatedSession(event.session, record?.seatedAs ?? null)
+      // Registration carries the host fold, including notices heard before a
+      // window connected. The adapter's summary has never seen those rows.
+      const session = record?.session ?? seatedSession(event.session, null)
       if (session !== event.session) outgoing = { ...event, session }
     }
     if (record && event.type === 'turn/completed' && published.length > 0) {

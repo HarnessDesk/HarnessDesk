@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { runtimeId, sessionId, sessionKey, type AgentEvent, type HostMethodName } from '@harnessdesk/protocol'
+import { reduceSession, runtimeId, sessionId, sessionKey, turnId, type AgentEvent, type HostMethodName } from '@harnessdesk/protocol'
 import { AppStore } from './store'
 import { keepRuntimeInboxEntry, mergeNoticePreferences } from '../../../server/src/runtime-notices'
 
@@ -60,6 +60,65 @@ it('conversation information and errors never toast or enter the Inbox', () => {
   expect(store.getSnapshot().notices).toHaveLength(0)
   expect(store.getSnapshot().inbox).toHaveLength(0)
   expect(store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))?.status.type).toBe('error')
+})
+
+for (const noticeFirst of [true, false]) it(`an empty store keeps conversation notices with registration ${noticeFirst ? 'last' : 'first'}`, () => {
+  const id = sessionId('review')
+  const notice: AgentEvent = { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' }
+  const repeated: AgentEvent = { ...notice, id: 'tools-2' }
+  const opened: AgentEvent = { type: 'session/started', session: { id, runtime: runtimeId('codex'), cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true } }
+  for (const event of noticeFirst ? [notice, repeated, repeated, opened] : [opened, notice, repeated, repeated]) pushTo(store, event)
+  const registered = store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))!
+  expect(registered.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice').map(item => [item.text, item.count])).toEqual([['No tools declared', 2]])
+  pushTo(store, { ...opened, session: registered })
+  pushTo(store, { type: 'turn/started', sessionId: id, turn: { id: turnId('review-turn'), status: 'inProgress', items: [] } })
+  pushTo(store, repeated)
+  const held = store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))!
+  expect(held.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice').map(item => [item.text, item.count])).toEqual([['No tools declared', 2]])
+  expect(held.turns.some(turn => String(turn.id).startsWith('notice:'))).toBe(false)
+  expect(store.getSnapshot().inbox).toEqual([])
+  expect(store.getSnapshot().notices).toEqual([])
+})
+
+for (const sync of [false, true]) it(`host ${sync ? 'hydration' : 'registration'} does not recount buffered conversation notices`, () => {
+  const id = sessionId('review')
+  const opened: Extract<AgentEvent, { type: 'session/started' }> = { type: 'session/started', session: { id, runtime: runtimeId('codex'), cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true } }
+  let held = opened.session
+  for (const eventId of ['tools-1', 'tools-2', 'tools-3']) {
+    const notice: AgentEvent = { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: eventId }
+    pushTo(store, notice)
+    held = reduceSession(held, notice)
+  }
+  if (sync) {
+    const handlers = (store.transport as unknown as { handlers: { onNotification(notification: unknown): void } }).handlers
+    handlers.onNotification({ method: 'sync', params: { sessions: [held] } })
+  } else pushTo(store, { ...opened, session: held })
+  expect(store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))).toEqual(held)
+  const cold = new AppStore('ws://localhost:0/')
+  const handlers = (cold.transport as unknown as { handlers: { onNotification(notification: unknown): void } }).handlers
+  handlers.onNotification({ method: 'sync', params: { sessions: [held] } })
+  expect(cold.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))).toEqual(held)
+})
+
+it('removing an unregistered conversation discards its pending notices', () => {
+  const id = sessionId('review')
+  pushTo(store, { type: 'notice', sessionId: id, level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  const handlers = (store.transport as unknown as { handlers: { onNotification(notification: unknown): void } }).handlers
+  handlers.onNotification({ method: 'session/removed', params: { runtime: runtimeId('codex'), sessionId: id, deleted: true } })
+  pushTo(store, { type: 'session/started', session: { id, runtime: runtimeId('codex'), cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true } })
+  expect(store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))?.turns).toEqual([])
+})
+
+it('a host read moving an early notice into a real turn leaves one row', () => {
+  const id = sessionId('review')
+  const opened: Extract<AgentEvent, { type: 'session/started' }> = { type: 'session/started', session: { id, runtime: runtimeId('codex'), cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true } }
+  const notice: AgentEvent = { type: 'notice', sessionId: id, level: 'warning', message: 'No tools declared', id: 'tools-1' }
+  pushTo(store, opened)
+  pushTo(store, notice)
+  const held = reduceSession(opened.session, notice)
+  const read = reduceSession(held, { type: 'turn/started', sessionId: id, turn: { id: turnId('review-turn'), status: 'inProgress', items: [] } })
+  pushTo(store, { ...opened, session: read })
+  expect(store.getSnapshot().sessions.get(sessionKey(runtimeId('codex'), id))).toEqual(read)
 })
 it('remembers cleared content through a restart, while changed content is new', async () => {
   pushTo(store, warning())

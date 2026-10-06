@@ -16,8 +16,8 @@
  *  - "slow"           → answers only after 10s (interrupt target)
  *  - anything else    → two message chunks and end_turn
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 const REFUSES_AT_START = process.env.FAKE_ACP_REFUSE_TOOLS_WHILE ? existsSync(process.env.FAKE_ACP_REFUSE_TOOLS_WHILE) : false
 
@@ -57,7 +57,8 @@ const recordOpen = (method, sessionId, cwd, meta) => {
     // With the attachment extension on, each line also says whether the open
     // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
     const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
-    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered })}\n`)
+    const ceiling = process.env.FAKE_ACP_READ_CEILING === '1' ? { ceiling: meta?.harnessdesk?.ceiling ?? null } : {}
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling })}\n`)
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
@@ -383,13 +384,13 @@ const runPrompt = async (id, params) => {
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id, toolCall,
       ...(input._meta ? { _meta: input._meta } : {}),
-      options: [
+      options: input.options ?? [
         { optionId: 'yes', name: 'Allow once', kind: 'allow_once' },
         { optionId: 'no', name: 'Reject', kind: 'reject_once' },
       ],
     })
     const allowed = outcome.outcome === 'selected' && outcome.optionId === 'yes'
-    say(allowed ? 'allowed.' : 'denied.')
+    say(input.reportOutcome ? JSON.stringify(outcome) : allowed ? 'allowed.' : 'denied.')
     return reply(id, { stopReason: 'end_turn' })
   }
 
@@ -993,10 +994,12 @@ const handlers = {
         : [
             { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
           ],
-      ...(TASKS || DELETES || ATTACHMENTS
+      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_READ_CEILING === '1'
         ? {
             _meta: {
               harnessdesk: {
+                // Handshake only; the bundled bridge tests native enforcement.
+                ...(process.env.FAKE_ACP_READ_CEILING === '1' ? { readCeiling: true } : {}),
                 ...(TASKS ? { backgroundTasks: true } : {}),
                 // FAKE_ACP_DELETE=1 plays a bridge that knows where its agent
                 // writes. Most ACP agents do not, and declare nothing.
@@ -1272,6 +1275,14 @@ const handlers = {
   'session/load': async (id, params) => {
     if (RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found', data: { method: 'session/load' } } })
     recordOpen('session/load', params.sessionId, params.cwd, params?._meta)
+    // A file gate lets a test promote an in-flight read without racing a timer.
+    const gate = process.env.FAKE_ACP_LOAD_GATE
+    if (gate && !existsSync(gate)) await new Promise(resolve => {
+      const watcher = watch(dirname(gate), () => {
+        if (existsSync(gate)) { watcher.close(); resolve() }
+      })
+      if (existsSync(gate)) { watcher.close(); resolve() }
+    })
     // Hold replay so tests can overlap a read or resume with a load already in flight.
     if (process.env.FAKE_ACP_LOAD_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_LOAD_DELAY_MS)))
     const store = readStore()

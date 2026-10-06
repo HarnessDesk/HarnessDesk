@@ -90,6 +90,8 @@ export interface ShapeLayout {
 
 /** The most bindings or positions a layout may name, and how far a position may sit from the origin. */
 export const SHAPE_LAYOUT_LIMIT = 128
+/** Maximum JSON string length of `layout` metadata accepted over the wire. */
+export const SHAPE_LAYOUT_SIZE_LIMIT = 64 * 1024
 export const SHAPE_POSITION_LIMIT = 10000
 
 // ------------------------------------------------------------------- saving

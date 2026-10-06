@@ -1095,12 +1095,23 @@ blocks file mutation tools and unknown MCP tools, and admits shell commands
 only from its narrow read-only allowlist. Its permission mode cannot bypass
 that guard; plan mode alone is not a held ceiling.
 
-The host also remembers a requested read ceiling, including across handle
-closure and reload. Write, execution, mode-change and unknown permission
-requests are cancelled before they reach a person or an automatic approval
-policy. Read and search requests retain their ordinary approval path. Trusted
-desk-tool provenance uses the shared tool ceiling table rather than the
-generic ACP tool kind; questions remain questions.
+The host restores a Seat's recorded ceiling on resume, including after a
+restart, when its conversation is already open and while a read is still
+loading it. An idle handle opened without a native read guard is reloaded
+with the ceiling; a running turn refuses that resume until it finishes.
+A peer holding read natively has already checked each call with its
+pre-tool guard; its permission requests retain their ordinary approval path.
+For asked ACP read seats, the host refuses write-kind, execution, mode-change
+and unknown-kind permission requests before they reach a person or an
+automatic approval policy. Read, search and think requests retain their
+ordinary approval path; fetch requests are refused because read does not
+grant network access. Trusted provenance from shipped bridges uses the shared
+desk-tool ceiling table rather than the generic ACP tool kind. A
+question-shaped request follows the same kind rule: edit, delete, move,
+execute and switch-mode kinds are refused even when they carry a question.
+Each host refusal adds a transcript notice naming the tool and the Read only
+ceiling, and selects an offered reject option, preferring reject-once.
+Only a request with no reject option is answered as cancelled.
 
 Host refusal alone does not constrain an agent's native tools, and does not
 earn a ceiling for a peer without the native guard. This is tool enforcement,
@@ -1236,6 +1247,55 @@ require a held ceiling.
 **The rule:** a ceiling above `edit` is only ever the person's explicit
 choice, never past the Agent's own, and an asked level is labelled as asked
 and offered only where this Mac already seats one.
+
+---
+
+## The builder edits one Flow policy; canvas identities belong to its document
+
+The pure model in `packages/ui/src/lib/flow-builder/` holds the existing
+`FlowPolicy`, a position for every role, and canvas identities separate from
+the names a person edits. One role is one step node and one rule is one edge,
+including parallel rules and a rule whose endpoint is missing. Renaming a
+role keeps its canvas identity and updates seed, rule endpoints, isolation
+predecessors, split providers and check guards that name it. Renaming a rule
+keeps its edge identity too. Identities survive edits and undo within the
+draft; opening a file creates a new editing session.
+
+Positions stay in the shape's existing `layout.positions`, keyed by role
+name, because the host already round-trips that metadata and the engine
+ignores it. Reading a file does not write an automatic layout: missing
+positions take `flow-layout`'s placement, and saved coordinates win exactly.
+A move or an explicitly placed new step writes the draft's positions while
+keeping other layout keys, including the front door's shortcuts. Unreadable
+layout is reported and retained on read; a deliberate layout edit replaces
+only the part it edits.
+
+A fan-out is an ordinary Agent role with several seats, never a fourth engine
+kind. A note is an annotation under `layout.builder.notes`, with text and a
+position; it opens no round and accepts no rule. Notes are excluded from the
+step, rule and seat facts. An Agent with no explicit seats still takes its
+Agent's own preference, so the local unseated advisory means no Agent is
+named, not no seat override is written.
+
+The page can create a document from the host-read policy and its original
+source, draw `documentGraph`, and fold canvas positions back with
+`graphDocument`. Semantic edits use operations so rule order and references
+stay together. Undo and redo retain document snapshots, including source
+provenance. Deleting a step deletes rules that reference it as an endpoint,
+split provider or check guard; it never weakens a guard by removing only one
+clause. Other steps remain to be reconnected. Deleting the starting step
+leaves a missing-start problem rather than picking a different entry point.
+
+`sourceRequest` returns the original bytes until the document is edited,
+preserving formatting and comments exactly. After an edit it requests the
+host's existing shape render; that deliberately normalized output replaces
+formatting and comments, as in the ordered editor. There is no YAML parser
+or writer in the model. The local problem list is a structural advisory for
+the header and cards, never a validity verdict; Save and Dry run still need
+the host's render and compiler. No builder screen is mounted by this model.
+
+**The rule:** one policy determines what runs; layout only determines what
+is drawn; the host determines whether the draft can be written or started.
 
 ---
 
@@ -1946,6 +2006,14 @@ Host-created transcript notices survive richer reads of their own turn and
 unmatched synthetic notice turns survive cold reads. They never get copied
 into unrelated fork turns or preserve work turns removed by rollback. Repeated
 conversation updates are counted within the turn they accompany.
+Scoped notices heard before registration wait under the runtime and conversation
+id until real metadata arrives. The pending lists keep the newest 20 notices per
+conversation and the newest 100 conversations, dropping the oldest at each
+limit. The host folds them into registration and cold snapshots, so a window
+that missed their arrival still receives them. The window uses the same
+pending-notice fold; content already counted in a host snapshot is not counted
+again. Reads keep a synthetic notice turn only while its items are absent from
+the real turns, so its old row cannot return after it moves.
 Retrying errors preserve live state; an error already carried by a failed turn
 uses that turn's existing explanation.
 
