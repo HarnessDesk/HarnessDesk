@@ -3420,7 +3420,6 @@ export class Team {
   onSessionDetached(runtime: RuntimeId, sessionId: string, reason: string): void {
     const key = keyOf(runtime, sessionId)
     this.#settle(key, reason)
-    this.#owed.delete(key)
     this.#used.delete(key)
     this.#deletedMembers.delete(key)
     for (const board of this.#boards.values()) {

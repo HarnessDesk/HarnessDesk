@@ -2042,14 +2042,23 @@ accounts and catalogue reads belong to the control process, which keeps
 Every process uses the same agent-owned history and configuration; nothing
 rewrites that configuration or shadows real history.
 
-MCP reload and login, plugin install and removal, and skill configuration writes
+MCP reload, plugin install and removal, and skill configuration writes
 are sent to the control process and every open conversation process. Shared
 configuration files do not establish that an already running process reloads
 its tools; the adapter explicitly asks each process to apply these verbs and
-returns the control process's response after all have answered. A process
-already closing is skipped. The fixture regression opens two conversations
-and checks that all three processes receive the reload and settings requests;
+returns the control process's response after all have answered. Recipients are
+chosen after the control request finishes, including conversations still opening
+at that point. Each recipient waits for its opening requests to settle before
+being updated; a failed opening or a process closing in that interval is skipped.
+The fixture regressions hold new, resumed and forked conversations open across
+the control response and check that tool updates follow their root registration.
+Another opens two conversations and checks that all three processes receive
+the reload and settings requests;
 this is not a claim about unmeasured cross-process propagation in the real agent.
+MCP login opens one interactive authorization flow on the control process only.
+The agent owns its stored credentials; Reload in Extensions sends the existing
+reload verb to conversation processes. Whether a running real agent process
+re-reads a newly stored credential on reload remains unmeasured.
 
 A conversation process that fails reports `session/detached` for its own roots,
 clears their live handles and holds their queued messages. It leaves the other
