@@ -119,6 +119,19 @@ it('offers no publication actions or empty copy for an unrecorded review', async
     expect(view.read).not.toHaveBeenCalled()
   } finally { view.close() }
 })
+it.each(['missing round', 'none state'] as const)('offers no publication actions for a finished handoff with %s', async scenario => {
+  const view = await mount(publications(), undefined, 'local', {
+    rounds: scenario === 'missing round' ? [] : [{ round: 3, state: 'none', reason: null, pr: 7, cards: [3] }],
+  }, {
+    findings: [], cards: fixture.cards.map(card => card.id === 3 ? { ...card, state: 'done', handoff: 'Work is ready for review.', note: null } : card),
+  })
+  try {
+    expect(view.container.textContent).toContain('Work is ready for review.')
+    expect(view.container.textContent).toContain('No review recorded')
+    expect(view.container.querySelector('[data-slot="review-publication-actions"]')).toBeNull()
+    expect(view.read).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
 for (const state of ['claimed', 'open'] as const) it(`offers no publication actions for a ${state} review even with draft text`, async () => {
   const view = await mount(publications(), undefined, 'local', {}, {
     cards: fixture.cards.map(card => card.id === 3 ? { ...card, state, handoff: 'Draft review' } : card),

@@ -975,8 +975,8 @@ the Recorded usage total keeps its source and observation age. Refresh reads
 the sources again. Cost lists one numeric row per part, with Recorded usage
 as its footer beneath a strong rule. The Sources dialog keeps each row's source,
 observation age and qualifications; differing amount qualifications remain
-beside that amount. Older cards show their
-number when no title was kept. Partial answers, gaps, unknown spend and dirty
+beside that amount. Older cards show their number and **Card title not recorded**
+when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
 rail. The header says **Wrapped** once, beside the project and wrap date,
