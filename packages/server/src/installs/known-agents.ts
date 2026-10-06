@@ -30,6 +30,8 @@ export interface KnownAgent {
   /** Our key: the public registry's id where one exists, the template key otherwise. */
   readonly id: string
   readonly name: string
+  /** Native Git co-author attribution for this CLI, when cited or observed. */
+  readonly coAuthor?: { readonly name: string; readonly email: string }
   /**
    * Names this agent's rows were written under that the desk no longer uses
    * — the registry's own, or an older table's. A row still carrying one is
@@ -579,6 +581,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
   {
     id: 'claude-code',
     name: 'Claude',
+    coAuthor: { name: 'Claude', email: 'noreply@anthropic.com' },
     brand: 'claudecode',
     tagline: "Anthropic's coding agent, through HarnessDesk's claude-acp bridge.",
     cli: {
@@ -612,6 +615,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
   {
     id: 'cursor',
     name: 'Cursor',
+    coAuthor: { name: 'Cursor Agent', email: 'cursoragent@cursor.com' }, // hd-secrets-ok: Cursor's public bot address.
     brand: 'cursor',
     tagline: "Cursor's CLI agent, through HarnessDesk's cursor-acp bridge.",
     cli: { commands: ['cursor-agent'], paths: ['~/.local/bin/cursor-agent'] },

@@ -791,6 +791,41 @@ changes nothing above it.
 **The rule:** the party that publishes writes the signature; the desk
 publishes.
 
+## Agent publications name the writer and the role
+
+A signed review beside an unsigned fixer's reply made the reply read as the
+person's own words. Descriptions had the opposite problem: re-signing an edit
+with only the last seat erased the writer. Both lost who did which work.
+
+The Git plugin now signs agent descriptions, reviews and comments as one
+capability, with three editable templates and a blank value disabling each
+kind. Roles come from the stored Seat, Team names from its board and review
+rounds from the run. No Team means no invented role. Writer, Reviewer and
+Fixer are capitalised; a Flow's other role words remain its own.
+
+A description keeps every role and seat pair in its hidden signature marker.
+Its visible line is rendered under the current template, so a person's edits
+to that line or a new template cannot erase the earlier credits. Legacy
+signatures are upgraded when edited. A review or comment keeps the role and
+seat that made that publication.
+
+Card commits keep the desk co-author, which gives GitHub its desk icon, and
+add the native commit credit supplied by the running adapter through its
+presentation. Credits come from local observations or cited sources; an unknown address is null,
+never guessed by the host. On this Mac, Claude Code 2.1.285 contained
+`Co-Authored-By: ${Jqn(e)} <noreply@anthropic.com>`, and codex-cli 0.160.0
+contained `Co-authored-by: Codex <noreply@openai.com>`. Cursor Agent
+2026.10.01-e373342 is cited, not observed: its installed bundle and executable
+did not contain a matching credit string. The Codex attribution is also cited
+in the [upstream commit implementation](https://github.com/openai/codex/pull/11617);
+the agent addresses are listed in [AgentPack's measurements of native commit identities](https://arxiv.org/html/2509.21891v1#S3).
+The person's own configured identity remains the author. A person's own text
+carries no signature: its absence means a person, rather than an agent whose
+role the reader must guess.
+
+**The rule:** the desk signs agent text at publication, and preserves each
+contributor's role and seat across description edits.
+
 ## Where a conversation runs is chosen on the draft, and made on send
 
 A new conversation's place — the open folder, a worktree the project already

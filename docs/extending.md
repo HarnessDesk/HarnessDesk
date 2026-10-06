@@ -641,8 +641,46 @@ Three things worth knowing:
   behind it, or a host with no forge plane — gets no seat, and a signature
   built from a guess would be a false one. Say so in the result instead.
 - **Requires `forge: true`**, which is described to the person as “Sign pull
-  requests and reviews for the conversation, and put what it published in the
+  requests, reviews and comments for the conversation, and put what it published in the
   transcript”. The reach itself is `shell`'s.
+
+`ForgeSeat` (and `ForgeSeatInfo` across the child boundary) carries `agent`,
+`version`, `model`, `effort`, `thinking` and `label`, plus nullable `role`,
+`round` and `team`. The host reads the role from the conversation's stored
+Seat, the Team's name from its board, and the round from its claimed card's
+flow execution, for review rounds only. All three are null outside a Team.
+
+The Git plugin has three editable templates: `signature` for descriptions,
+`reviewSignature` for reviews, and `commentSignature` for pull request and
+issue comments. An empty template turns signing off for that kind.
+
+| Placeholder | Value |
+| --- | --- |
+| `{seat}` | Agent, model and effort as one label, from the runtime's presentation |
+| `{agent}`, `{model}`, `{effort}`, `{version}`, `{thinking}` | The seat's individual parts; thinking is `Thinking` when on |
+| `{role}` | Writer, Reviewer or Fixer; another role keeps the Flow's spelling |
+| `{round}` | `round N`, where N is 1 plus earlier review rounds in that Run; the first review is round 1 and is omitted |
+| `{team}` | The Team's name, never its id |
+
+Empty parts take their ` · ` separator with them. The default review opens
+`**Reviewer · round 2** · Preview Agent Preview Model · via HarnessDesk`;
+an ordinary conversation's opening is `**Preview Agent Preview Model** · via HarnessDesk`.
+Comments open with `**Fixer · Preview Agent Preview Model** · via HarnessDesk`.
+Descriptions end with `🤖 Writer: Preview Agent Preview Model · via [HarnessDesk](https://harnessdesk.app)`.
+
+Description updates retain each distinct role and seat pair. The marked last
+line keeps URI-encoded contributor data beside `<!-- harnessdesk:signature -->`,
+so editing its visible text or changing the template keeps earlier authors.
+The current template's contributor portion repeats for each pair, with its
+prefix and suffix shared. Old marked signatures and the former default's
+unmarked trailing line are recognised and upgraded without duplication.
+Comments mark their opening signature line with the same signature mark.
+
+Card commits retain the desk's co-author and add the native commit credit
+supplied by the running adapter in `RuntimeInfo.presentation.coAuthor`
+(`{name, email}`), when present. An absent or null credit adds no runtime
+trailer; the host never infers one from a runtime id. Git's `addIfDifferent`
+trailer rule handles placement and duplicates.
 
 **No built-in gives an agent a write tool**, and that is a decision rather than
 an omission — [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)
