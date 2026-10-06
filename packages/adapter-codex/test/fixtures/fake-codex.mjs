@@ -102,15 +102,17 @@ const send = (value) => {
   })
 }
 const notify = (method, params) => send({ method, params })
-const replyAfterHold = (hold, id, result, message) => {
-  if (!hold || !existsSync(hold)) { send({ id, result }); return }
+const afterHold = (hold, action, message) => {
+  if (!hold || !existsSync(hold)) { action(); return }
   notify('warning', { message })
   const timer = setInterval(() => {
     if (existsSync(hold)) return
     clearInterval(timer)
-    send({ id, result })
+    action()
   }, 10)
 }
+const replyAfterHold = (hold, id, result, message) =>
+  afterHold(hold, () => send({ id, result }), message)
 // Only screenshot scenes opt in; adapter tests retain their existing turns.
 const flowWorker = scriptedFlow(process.env['FAKE_CODEX_FLOW'], { send, notify })
 const flowTools = new Map()
@@ -1417,8 +1419,15 @@ rl.on('line', (line) => {
       cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
       loadMcpChild(THREAD)
-      send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
-      notify('thread/started', { thread: thread() })
+      const result = { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) }
+      const announced = thread()
+      afterHold(process.env.FAKE_CODEX_HOLD_THREAD_OPEN, () => {
+        if (process.env.FAKE_CODEX_PROCESS_CALLS) {
+          appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method: 'thread/opened', generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
+        }
+        send({ id, result })
+        notify('thread/started', { thread: announced })
+      }, 'THREAD_OPEN_HELD')
       if (!flowWorker) notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
@@ -1468,8 +1477,15 @@ rl.on('line', (line) => {
       }
       cwdByThread.set(THREAD, settingsState.cwd)
       loadMcpChild(THREAD)
-      send({ id, result: startResponse() })
-      notify('thread/started', { thread: thread() })
+      const result = startResponse()
+      const announced = thread()
+      afterHold(process.env.FAKE_CODEX_HOLD_THREAD_OPEN, () => {
+        if (process.env.FAKE_CODEX_PROCESS_CALLS) {
+          appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method: 'thread/opened', generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
+        }
+        send({ id, result })
+        notify('thread/started', { thread: announced })
+      }, 'THREAD_OPEN_HELD')
       return
     }
 

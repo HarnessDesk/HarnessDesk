@@ -598,6 +598,121 @@ test('tool updates include conversations opened while the control request is hel
   await second.close()
 })
 
+for (const [method, update] of [
+  ['config/mcpServer/reload', (runtime: CodexRuntime) => runtime.extensions.reloadMcp()],
+  ['skills/config/write', (runtime: CodexRuntime) => runtime.setSkillEnabled({ name: 'release-notes' }, true)],
+  ['plugin/install', (runtime: CodexRuntime) => runtime.extensions.install('official', 'helper')],
+  ['plugin/uninstall', (runtime: CodexRuntime) => runtime.extensions.uninstall('helper')],
+] as const) {
+  test(`${method} waits for an opening conversation to register before updating it`, async (t) => {
+    const hold = join(tmpdir(), `hd-opening-update-${randomUUID()}.hold`)
+    const controlHold = `${hold}.reload`
+    const calls = `${hold}.log`
+    await writeFile(calls, '')
+    t.after(async () => { await rm(hold, { force: true }); await rm(controlHold, { force: true }); await rm(calls, { force: true }) })
+    const d = await rig(t, 'hold', { FAKE_CODEX_PROCESS_CALLS: calls,
+      FAKE_CODEX_HOLD_THREAD_OPEN: hold, FAKE_CODEX_HOLD_MCP_RELOAD: controlHold })
+    const first = await d.runtime.createSession({ cwd: d.dir })
+    const runUpdate = () => update(d.runtime).then(() => null, (error: unknown) => error)
+    if (method === 'config/mcpServer/reload') await writeFile(controlHold, '')
+    const heldUpdate = method === 'config/mcpServer/reload' ? runUpdate() : undefined
+    if (heldUpdate) await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'MCP_RELOAD_HELD'))
+    await writeFile(hold, '')
+    const opening = d.runtime.createSession({ cwd: d.dir })
+    const opened = opening.then((live) => ({ live }), (error: unknown) => ({ error }))
+    await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'THREAD_OPEN_HELD'))
+    const updated = heldUpdate ?? runUpdate()
+    if (heldUpdate) await rm(controlHold)
+    const readCalls = async () => (await readFile(calls, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { method: string; generation: string })
+    await until(async () => (await readCalls()).some((call) => call.method === method && call.generation === '1'))
+    await rm(hold)
+    const second = await opened
+    assert.ok('live' in second, 'error' in second ? String(second.error) : '')
+    assert.equal(await updated, null)
+    const asked = await readCalls()
+    assert.deepEqual(asked.filter((call) => call.method === method)
+      .map((call) => Number(call.generation)).sort(), [0, 1, 2])
+    assert.deepEqual(asked.filter((call) => call.generation === '2').map((call) => call.method)
+      .filter((call) => call === 'thread/start' || call === 'thread/opened' || call === method),
+    ['thread/start', 'thread/opened', method], 'the update follows root registration')
+    await first.close()
+    await second.live.close()
+  })
+}
+
+for (const method of ['thread/resume', 'thread/fork'] as const) {
+  test(`tool updates wait for a pending ${method} in a fresh process`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-opening-tools-'))
+    const calls = join(dir, 'calls.ndjson')
+    const hold = join(dir, 'opening.hold')
+    await writeFile(calls, '')
+    const server = new CodexThreadServers({ binaryPath: FAKE,
+      clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
+      env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0',
+        FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_THREAD_OPEN: hold },
+    }, () => {})
+    t.after(async () => { await rm(hold, { force: true }); await server.stop(); await rm(dir, { recursive: true, force: true }) })
+    let held = false
+    server.onNotification((event) => { if (event.method === 'warning' && event.params.message === 'THREAD_OPEN_HELD') held = true })
+    await server.start()
+    const source = await server.request('thread/start', { cwd: dir })
+    if (method === 'thread/resume') await server.thread(source.thread.id).release()
+    await writeFile(hold, '')
+    const opening = server.request(method, { threadId: source.thread.id })
+    const opened = opening.then((result) => ({ result }), (error: unknown) => ({ error }))
+    await until(() => held)
+    const updating = server.request('config/mcpServer/reload', undefined)
+    const updated = updating.then(() => null, (error: unknown) => error)
+    const readCalls = async () => (await readFile(calls, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { method: string; generation: string })
+    await until(async () => (await readCalls()).some((call) => call.method === 'config/mcpServer/reload' && call.generation === '0'))
+    await rm(hold)
+    const result = await opened
+    assert.ok('result' in result, 'error' in result ? String(result.error) : '')
+    assert.equal(await updated, null)
+    const asked = await readCalls()
+    assert.deepEqual(asked.filter((call) => call.generation === '2').map((call) => call.method)
+      .filter((call) => call === method || call === 'thread/opened' || call === 'config/mcpServer/reload'),
+    [method, 'thread/opened', 'config/mcpServer/reload'])
+  })
+}
+
+for (const ending of ['abort', 'stop'] as const) {
+  test(`a tool update skips an opening ended by ${ending}`, { timeout: 10_000 }, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-ended-opening-'))
+    const calls = join(dir, 'calls.ndjson')
+    const hold = join(dir, 'opening.hold')
+    await writeFile(calls, '')
+    await writeFile(hold, '')
+    const server = new CodexThreadServers({ binaryPath: FAKE,
+      clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
+      env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0',
+        FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_THREAD_OPEN: hold },
+    }, () => {})
+    t.after(async () => { await rm(hold, { force: true }); await server.stop(); await rm(dir, { recursive: true, force: true }) })
+    let held = false
+    server.onNotification((event) => { if (event.method === 'warning' && event.params.message === 'THREAD_OPEN_HELD') held = true })
+    await server.start()
+    const controller = new AbortController()
+    const opening = server.request('thread/start', { cwd: dir }, { signal: controller.signal })
+    const opened = opening.then(() => null, (error: unknown) => error)
+    await until(() => held)
+    const updating = server.request('config/mcpServer/reload', undefined)
+    const updated = updating.then(() => null, (error: unknown) => error)
+    // A later control round trip puts cancellation after the update's response.
+    await server.request('config/read', { includeLayers: false })
+    if (ending === 'abort') controller.abort()
+    else await server.stop()
+    assert.ok(await opened instanceof Error)
+    assert.equal(await updated, null, 'the successful control update settles without a failed recipient')
+    const asked = (await readFile(calls, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { method: string; generation: string })
+    assert.deepEqual(asked.filter((call) => call.method === 'config/mcpServer/reload')
+      .map((call) => Number(call.generation)), [0])
+  })
+}
+
 test('MCP login starts one authorization flow on the control process', async (t) => {
   const calls = join(tmpdir(), `hd-login-${randomUUID()}.log`)
   await writeFile(calls, '')
