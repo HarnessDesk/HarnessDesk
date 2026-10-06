@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -195,6 +196,8 @@ export const SHOT_ENV = {
   CODEX_HOME: join(HOME, 'codex-home'),
   HARNESSDESK_CODEX_BINARY: join(APP, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
   FAKE_CODEX_VERSION_FILE: join(HOME, 'codex-version'),
+  HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(),
+  HARNESSDESK_CODEX_GENERATION: '0',
 }
 
 /**
