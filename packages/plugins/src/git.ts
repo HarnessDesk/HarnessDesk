@@ -935,13 +935,14 @@ export const gitPlugin: HarnessPlugin = {
           if (title === '') throw new Error('A pull request needs a title.')
           const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
           if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
-          const upstream = await ctx.shell.run('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+          // Publication is from this branch on the repository's remote, even
+          // when it inherited an upstream such as origin/main at checkout.
+          const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
+          const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
+          const upstream = await ctx.shell.run('git', ['rev-parse', '--symbolic-full-name', '@{u}'])
           // A check that never finished says nothing about the branch (#161, review of #239, round 1).
           if (upstream.exitCode === -1) throw new Error(`Couldn't tell whether ${branch} has been pushed: ${upstream.stderr.trim()}`)
-          if (upstream.exitCode !== 0) {
-            // The remote to name: the repository's own, which is not always `origin`.
-            const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
-            const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
+          if (upstream.exitCode !== 0 || upstream.stdout.trim() !== `refs/remotes/${remote}/${branch}`) {
             const remoteRef = `refs/heads/${branch}`
             const remoteHead = await ctx.shell.run('git', ['ls-remote', '--heads', remote, remoteRef])
             if (remoteHead.exitCode === -1) {

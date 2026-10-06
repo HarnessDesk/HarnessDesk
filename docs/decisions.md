@@ -2033,9 +2033,10 @@ has about 293px of identity text beside those trailing facts; the identity
 cell also keeps a 192px floor. This reads the container, like Teams, so both
 the standalone Library and the Settings page respond to their own space.
 
-The Library header's markup, relevant PageHead styles and Settings reading
-measure are unchanged from main. Its narrow blurb is pre-existing and remains
-outside this repair.
+In that earlier Library repair, the header's markup, relevant PageHead styles
+and Settings reading measure were unchanged from main; its narrow blurb was
+pre-existing and outside the repair. #1424 later changed the header's wrapping
+and text basis.
 
 Roll back: remove the container observer and narrow ListRow composition from
 SkillList/SkillRow, accepting the former crowded identity column.

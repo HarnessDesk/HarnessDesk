@@ -980,7 +980,7 @@ export class SupervisedExtensionHost {
   readonly #child: PluginHostProcess
   readonly #listeners = new Set<(event: ExtensionEvent) => void>()
   readonly #logger: KernelLogger
-  #workspace: { root: string | null; branch: string | null } = { root: null, branch: null }
+  #workspace: { root: string | null; branch: string | null; admitted?: readonly string[] } = { root: null, branch: null }
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
 
   constructor(kernel: ExtensionKernel, options: SupervisedExtensionHostOptions = {}) {
@@ -1228,7 +1228,7 @@ export class SupervisedExtensionHost {
     this.#child.setForgeEngine(engine)
   }
 
-  setWorkspace(state: { root: string | null; branch: string | null }): void {
+  setWorkspace(state: { root: string | null; branch: string | null; admitted?: readonly string[] }): void {
     this.#workspace = state
     this.#kernel.setWorkspace(state)
     if (this.#child.alive) void this.#child.call('workspace/set', state).catch(() => {})

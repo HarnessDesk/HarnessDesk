@@ -81,6 +81,16 @@ describe('the canonical button', () => {
     }
   })
 
+  it('gives a content-sized link the inline hit area without changing other content buttons', () => {
+    const link = renderToStaticMarkup(<Button variant="link" size="content">Start with a team…</Button>)
+    expect(link).toContain('min-h-(--hd-target-min)')
+    expect(link).toContain('py-(--hd-space-2)')
+    expect(link).toContain('-my-(--hd-space-2)')
+    const quiet = buttonVariants({ variant: 'quiet', size: 'content' })
+    expect(quiet).not.toContain('-my-')
+    expect(quiet).not.toContain('min-h-')
+  })
+
   it('keeps every row and a wrapped consequence left aligned', () => {
     for (const variant of ['row', 'navigation', 'choice'] as const) {
       expect(buttonVariants({ variant })).toContain('text-left')

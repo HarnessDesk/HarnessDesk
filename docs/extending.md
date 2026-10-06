@@ -67,7 +67,7 @@ never runs half-wired.
 | `ctx.context` | Instructions and reference material folded into each turn |
 | `ctx.commands` | Slash commands |
 | `ctx.ui` | Panels, rows, and settings sections |
-| `ctx.fs` | Filesystem access, confined to the open workspace |
+| `ctx.fs` | Filesystem access, confined to the checkout the call runs in |
 | `ctx.http` | Network access, limited to declared hosts |
 | `ctx.shell` | Running a program, arguments never shell-interpreted |
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
@@ -76,7 +76,7 @@ never runs half-wired.
 | `ctx.forge` | The seat a publication is signed as, and the record of it in the conversation |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
-| `ctx.workspace` | The open project root and its git branch |
+| `ctx.workspace` | The root the call runs in, and its git branch when that is the open project |
 | `ctx.harness` | This plugin's identity and logging |
 
 ### Permissions and isolation
@@ -104,13 +104,25 @@ Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
 
-During a tool call or context resolution, `ctx.shell.run` defaults to the
-calling conversation's checkout, including an isolated lane outside the open
-project. The host supplies that root through the invocation scope; tool
-arguments cannot replace it. An explicit `cwd` is resolved against that root
-and must remain inside it, with the same manifest grants and symlink checks.
-Without a checkout in the invocation scope, the open workspace remains the
-default and boundary.
+During a tool call or context resolution, the host admits the calling
+conversation to a checkout and supplies it through the invocation scope; tool
+arguments cannot replace it. `ctx.shell.run` runs there by default, and an
+explicit `cwd` is resolved against that root and must remain inside it, with
+the same manifest grants and symlink checks.
+
+When that checkout is the open folder's — as it is for a conversation with no
+checkout of its own, and for one started in the folder the person opened,
+whether that is a repository, a subfolder of one, a linked worktree or a folder
+reached through a link — `ctx.fs`, `ctx.editor`, `ctx.workspace` and
+`ctx.harness.workspaceRoot` work in the open workspace as it was opened, with
+its branch. When it is another checkout, such as a Seat's isolated lane or
+another clone, they follow the call there: `ctx.fs` resolves relative paths
+against it and refuses a path outside it, `ctx.editor` shows and marks files
+there, `ctx.workspace.root` and `ctx.harness.workspaceRoot` name it, and
+`ctx.workspace.branch` is `null`, because the branch is a fact the host knows
+only about the folder it opened. Without a checkout in the invocation scope,
+and in hooks and slash commands (which do not enter the caller's checkout yet),
+the open workspace remains the default and boundary.
 
 The host admits managed lanes and the particular linked checkout the person
 opened, using the project identity captured at open. A new Seat whose requested
@@ -582,8 +594,9 @@ Five things worth knowing:
 - **Showing needs read; editing needs write.** Showing a file displays its
   content, so `open` and `decorate` require `workspace: { read: true }` alongside
   `editor: true`. `applyEdits` needs `workspace: { write: true }` on top — the
-  editor is not a second road to the disk. Paths are confined to the open
-  workspace either way.
+  editor is not a second road to the disk. Paths resolve and are confined as
+  `ctx.fs` paths are: to the checkout the call runs in, and otherwise to the open
+  workspace.
 - **There is no way to read a file's text here.** Use `ctx.fs`, under the same
   gate as your every other read. Opening a file in the editor is not a way to
   see files your manifest did not ask for.
@@ -758,6 +771,13 @@ privileged path:
 | iOS simulator | `ctx.ios` (simctl) | devices, boot, install, launch, screenshot, tap, open URL |
 | Android | `ctx.android` (adb) | devices, install, launch, screenshot, tap, key, text, logcat |
 | tests | `ctx.shell` | `run_tests` with the framework detected, structured pass/fail; the `/test` command |
+
+`pr_create` uses the upstream to check for unpublished commits only when it
+names the current branch on `origin` (or the first remote when there is no
+`origin`). With no upstream, or one naming another branch such as
+`origin/main`, it reads the current branch's published copy on that remote
+instead. A missing copy or commits ahead of or behind it refuse creation;
+the tool never pushes or changes the upstream.
 
 `pr_merge` is deliberately head-bound. It requires the pull request `number`
 and the reviewed full `head` commit (40 or 64 lowercase hexadecimal characters),
