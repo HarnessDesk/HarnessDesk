@@ -496,6 +496,44 @@ test('a chip scoped to one conversation is not resolved for another', async (t) 
   )
 })
 
+test('host checkout mode stays out of the frozen scopes plugins receive', async (t) => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'hd-checkout-mode-')))
+  const desk = join(base, 'desk')
+  const checkout = join(base, 'checkout')
+  await Promise.all([mkdir(desk), mkdir(checkout)])
+  const kernel = new ExtensionKernel()
+  t.after(async () => { await kernel.dispose(); await rm(base, { recursive: true, force: true }) })
+  kernel.setWorkspace({ root: desk, branch: 'desk-branch' })
+  kernel.setShellWorkspaceResolver(async () => ({ root: checkout, enterCheckout: true }))
+  const received: ScopeQuery[] = []
+  await kernel.load({
+    manifest: { id: 'checkout-scope-probe', name: 'Checkout scope probe', permissions: { workspace: { read: true, write: false } } },
+    plugin: {
+      name: 'checkout-scope-probe', inject: ['tools', 'context', 'workspace'],
+      apply(ctx: HarnessContext) {
+        const describe = (scope: ScopeQuery) => {
+          received.push(scope)
+          return JSON.stringify({ root: ctx.workspace.root, branch: ctx.workspace.branch })
+        }
+        ctx.tools.register({ name: 'where', description: '', inputSchema: {}, execute: (_args, scope) => describe(scope) })
+        ctx.context.register({ label: 'Chip', chip: { description: 'Fixture' }, resolve: (scope) => describe(scope) })
+        ctx.context.register({ label: 'Automatic', resolve: (scope) => describe(scope) })
+      },
+    },
+  })
+  await settle()
+
+  const tool = kernel.list('tool')[0]!
+  const chip = kernel.list('context').find((entry) => entry.label === 'Chip')!
+  const scope = { runtime: runtimeId('fixture'), sessionId: sessionId('checkout-seat') }
+  assert.equal((await kernel.invokeTool(tool.id, {}, scope)).ok, true)
+  assert.equal((await kernel.resolveOne(chip.id, undefined, scope))?.text, JSON.stringify({ root: checkout, branch: null }))
+  assert.deepEqual(await kernel.resolveContext(scope), [{ label: 'Automatic', text: JSON.stringify({ root: checkout, branch: null }) }])
+  assert.equal(received.length, 3)
+  assert.ok(received.every((query) => !Object.hasOwn(query, 'enterCheckout')))
+  assert.ok(received.every(Object.isFrozen))
+})
+
 test('a tool scoped to one conversation is refused when invoked out of scope (#303)', async (t) => {
   const scopedTool: HarnessPlugin = {
     manifest: { id: 'scoped-tool', name: 'Scoped Tool' },
