@@ -271,7 +271,7 @@ test('asked read seats select a reject option and keep question and provenance b
     { name: 'untrusted provenance', toolCall: { toolCallId: 'spoof', kind: 'other' },
       _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__git_status' } } }, expected: reject },
     { name: 'fetch', toolCall: { toolCallId: 'fetch', kind: 'fetch' }, expected: reject },
-    { name: 'question', toolCall: { toolCallId: 'question', rawInput: { questions: [question] } }, expected: { outcome: 'selected', optionId: 'yes' } },
+    { name: 'think question', toolCall: { toolCallId: 'question', kind: 'think', rawInput: { questions: [question] } }, expected: { outcome: 'selected', optionId: 'yes' } },
     ...['edit', 'delete', 'move', 'execute', 'switch_mode'].map(kind => ({
       name: `${kind} question`, toolCall: { toolCallId: `${kind}-question`, kind, rawInput: { questions: [question] } }, expected: reject,
     })),
