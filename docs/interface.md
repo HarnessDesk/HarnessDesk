@@ -1178,6 +1178,11 @@ facts are omitted and named together once. Selecting a timeline row keeps
 its recorded detail and actions in that dock. Choosing Flow brings Steps
 forward: taken rounds and steps not reached, with selection lighting the
 corresponding node, including a step the Run has not reached.
+Leaving Run puts away a dock containing only Run views, or returns a mixed
+dock to its earlier tab and visibility. A saved mixed dock restores without
+Run tabs until a Run opens. Returning to Run keeps it visible when the dock
+would cover it; selecting a timeline row or Details explicitly opens it.
+Tabs closed during a visit stay closed when focus returns to that pane.
 
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:

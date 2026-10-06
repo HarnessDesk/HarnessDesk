@@ -43,5 +43,5 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
     {future.length > 0 && <><GroupLine left={`Not reached ${future.length}`} />{future.map(one => <FlowStepRow key={one.id}
       step={one} run={{ state: 'future', runs: 0, durationMs: null, since: null, line: null, seats: [] }}
       selected={step === one.id} onSelect={onSelectStep} />)}</>}
-  </PanelBody><PanelFooter left={`${model.steps.length} steps`} right="Selecting one lights its node on Flow" /></PanelFrame></div>
+  </PanelBody><PanelFooter left={`${model.steps.length} ${model.steps.length === 1 ? 'step' : 'steps'}`} right="Selecting one lights its node on Flow" /></PanelFrame></div>
 }
