@@ -252,6 +252,11 @@ for (const shape of shapes) {
       // Codex's approval-gated turn; wait on host events, never elapsed time.
       await client.until(() => queueOf(client, String(session.id))?.messages.length === 0, 15_000, 'queue drain after runtime turn completion')
       const record = harness.host.registry.get(shape.id, sessionId(String(session.id)))!
+      // Removing the queue entry begins delivery. Its echoed user message
+      // arrives later, so wait for the fact this test claims was delivered.
+      await client.until(() => record.session.turns.flatMap((turn) => turn.items).some((item) =>
+        item.type === 'userMessage' && item.content.some((part) => part.type === 'text' && part.text.includes('original delivered before Save')),
+      ), 5_000, 'the delivered words reached the runtime')
       await assert.rejects(client.call('turn/queue/update', {
         runtime: shape.id,
         sessionId: session.id,
