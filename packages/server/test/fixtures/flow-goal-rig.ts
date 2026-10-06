@@ -90,6 +90,8 @@ export interface GoalRig {
   readonly headOfFails: Set<string>
   /** Every `commit_work` the engine asked the host to make, in order; each answers a fixed commit. */
   readonly commits: { readonly cwd: string; readonly before: readonly string[]; readonly message: string }[]
+  /** Paths answered by the fake commit, including a large commit's summary. */
+  commitPaths: string[]
   /** Every message the engine's own `port.log` was called with, in order. */
   readonly logs: string[]
   /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
@@ -219,6 +221,7 @@ export const goalRig = async (
     heads: new Map<string, { at: string | null; dirty: boolean; dirtyFiles?: number | null; dirtyPaths?: readonly string[] | null }>(),
     headOfFails: new Set<string>(),
     commits: [] as { cwd: string; before: readonly string[]; message: string }[],
+    commitPaths: ['notes.md'],
     logs: [] as string[],
     checkouts: [] as string[],
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
@@ -400,7 +403,7 @@ export const goalRig = async (
     },
     commitWork: async (cwd, before, message) => {
       rig.commits.push({ cwd, before, message })
-      return { commit: 'c'.repeat(40), paths: ['notes.md'] }
+      return { commit: 'c'.repeat(40), paths: rig.commitPaths }
     },
     // A `run_check` checkout: a folder named for the commit, whose head is that commit, gone once removed.
     checkoutAt: options.checkoutAt ?? (async (cwd, at) => {

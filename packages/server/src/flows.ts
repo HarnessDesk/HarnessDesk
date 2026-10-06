@@ -1126,8 +1126,9 @@ export class Flows implements TeamFlows {
    * was seated for.
    *
    * Budgeted, because a seat that cannot start is one that would otherwise be
-   * re-armed forever, and each re-arm is a turn somebody pays for. The budget
-   * is per seat and per hour; past it the run is left stalled and visible
+   * re-armed forever, and each re-arm is a turn somebody pays for. Unfinished
+   * turns and self-block hand-backs have separate allowances per seat and per
+   * hour; past it the run is left stalled and visible
    * rather than quietly draining an account.
    */
   async reArm(runtime: string, sessionId: string): Promise<void> {
