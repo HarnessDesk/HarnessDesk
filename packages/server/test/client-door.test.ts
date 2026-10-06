@@ -1026,3 +1026,18 @@ for (const successor of [false, true]) {
     }
   })
 }
+
+
+test('a missing card keeps its structured refusal through the client door', async t => {
+  const { h, home, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Missing card proof', token: preview.token! })
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  const reply = await peer.call('team/intent', { room: run.goal, id: 999, action: 'abandon' })
+  assert.equal(reply.ok, false)
+  assert.equal(reply.error.code, 'cardMissing')
+  assert.equal(reply.error.message, 'There is no card #999 on this board.')
+})

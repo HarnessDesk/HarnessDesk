@@ -563,8 +563,8 @@ are listed once above the settings rows; a blank value turns that kind off.
 The default signature names the Team role and the agent's own model and effort
 labels. The first review round in a Run is 1; later reviews count only earlier
 review rounds in that Run, and the signature omits round 1. Outside a Team the
-role and round drop out. A description keeps each role and seat that wrote it,
-so a fixer's update preserves the writer's credit. Comments carry their
+role and round drop out. A description keeps the latest seat for each role and
+agent pair, so a fixer's update preserves the writer's credit. Comments carry their
 signature on the first visible line, descriptions on the last. Nothing about it
 rides in the conversation: the agent is told, through its own instruction
 layer, to use the tools; the desk does the rest. Text a person writes
@@ -980,8 +980,8 @@ the Recorded usage total keeps its source and observation age. Refresh reads
 the sources again. Cost lists one numeric row per part, with Recorded usage
 as its footer beneath a strong rule. The Sources dialog keeps each row's source,
 observation age and qualifications; differing amount qualifications remain
-beside that amount. Older cards show their
-number when no title was kept. Partial answers, gaps, unknown spend and dirty
+beside that amount. Older cards show their number and **Card title not recorded**
+when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
 rail. The header says **Wrapped** once, beside the project and wrap date,
@@ -1199,7 +1199,8 @@ publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
 **Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
 An absent round or one with no decision has no chip. The inspector keeps the
-host's reason whole and offers **Copy review** and **Post to pull request**.
+host's reason whole and offers **Copy review** and **Post to pull request**
+only for a completed, recorded review with text to copy.
 Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
@@ -1247,15 +1248,17 @@ row or its inspector while the Run is running or stalled. It asks first and
 shows the command exactly as it will run; the earlier result and its output are
 kept, and every result the desk recorded is listed under the check, with its
 output in the inspector. A Run that has settled or stopped refuses, says so, and
-points to starting a new Run.
+points to starting a new Run, without a retry action that could never apply.
+A wrapped Team also keeps its reason without a check retry action.
 
 A card that has not finished offers **Abandon card…** in its inspector. The
 question says first what the rule after the card's role will do: open the next
 round, end the Run without a next step, wait for the round's other cards, or
 nothing when the Run is not running; a claimed card names who holds it. A
-person's step is answered there with the same controls as the Overview. The
-question belongs to that Run and card, closes when the card finishes, and
-offers **Stop the run instead** while the Run is running.
+person's step is answered there with the same controls as the Overview. If the
+host reports that the card is missing, its explanation replaces the question
+and its abandonment action. The question belongs to that Run and card, closes
+when the card finishes, and offers **Stop the run instead** while the Run is running.
 
 **Stop run…** appears in the running Run's header and its Overview strip.
 The question says first that the Run stops now and no further step starts,
