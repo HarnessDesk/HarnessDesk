@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Shared inputs are written once and included in both job lists below.
@@ -78,9 +78,13 @@ export function serverSpecs(root, inputs) {
       if (pkg && !inputs.has(pkg)) return true
       if (specifier.startsWith('.') && !pkg) {
         const base = resolve(dirname(file), specifier)
-        const helper = [base, `${base}.ts`, `${base}.tsx`, `${base}.mjs`, `${base}.js`,
-          base.replace(/\.js$/, '.ts'), join(base, 'index.ts')]
-          .find(candidate => existsSync(candidate) && /\.(?:[cm]?js|tsx?)$/.test(candidate))
+        const extensions = ['.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs', '.js', '.jsx']
+        const extension = extname(base)
+        if (extension && !extensions.includes(extension)) continue
+        const helper = [base, ...extensions.map(ext => `${base}${ext}`),
+          base.replace(/\.js$/, '.ts'), base.replace(/\.mjs$/, '.mts'), base.replace(/\.cjs$/, '.cts'),
+          ...extensions.map(ext => join(base, `index${ext}`))]
+          .find(candidate => existsSync(candidate) && extensions.includes(extname(candidate)))
         if (!helper) throw new Error(`Cannot resolve suite import: ${specifier}`)
         if (readsOutside(helper, seen)) return true
       }

@@ -9,7 +9,7 @@ import { tempDir } from './scratch.js'
 import { knownMethods, runtimeId, sessionId, type AgentRuntime, type RuntimeHealth } from '@harnessdesk/protocol'
 
 import { dispatch, hostMethods, methodDomains, type HostContext } from '../src/methods/index.js'
-import { terminalMethods } from '../src/methods/terminals.js'
+import * as terminalModule from '../src/methods/terminals.js'
 
 /**
  * The method table is what turns "every wire method is answered" from a
@@ -96,7 +96,7 @@ const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean
     ...(options.processes ? { processes: { tag: id } } : {}),
   }) as unknown as AgentRuntime
 
-const contextWith = (overrides: object): HostContext => overrides as unknown as HostContext
+const contextWith = (overrides: object): HostContext => ({ logger: { warn: () => {} }, ...overrides }) as unknown as HostContext
 
 test('client methods belong only to the client door', async () => {
   for (const method of ['client/hello', 'client/subscribe']) {
@@ -308,32 +308,93 @@ test('a signed-in first provider opens without waiting for a later silent provid
   assert.deepEqual(await opening, { terminalId: 'term-1', runtime: first.info.id })
 })
 
-test('a silent ready provider times out before the next signed-in provider opens', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+test('terminal account reads expose the two-second production deadline', () => {
+  assert.equal(Reflect.get(terminalModule, 'TERMINAL_ACCOUNT_READ_DEADLINE_MS'), 2_000)
+})
+
+for (const answer of [undefined, null, { signInMethods: [] }, { accounts: [] }]) {
+  test(`a malformed provider answer ${JSON.stringify(answer)} does not stop a terminal`, async () => {
+    const root = tempDir('hd-terminal-provider-')
+    const requested = fakeRuntime('conversation')
+    const malformed = fakeRuntime('malformed', { processes: true })
+    const next = fakeRuntime('next-ready', { processes: true })
+    malformed.getAccount = async () => answer as never
+    const warnings: unknown[] = []
+    const ctx = contextWith({
+      runtimes: { resolve: () => requested, all: () => [requested, malformed, next] },
+      workspaces: { openRoots: () => [root] },
+      terminals: { open: async () => 'term-1' },
+      logger: { warn: (...args: unknown[]) => warnings.push(args) },
+    })
+    assert.deepEqual(await dispatch(ctx, 'terminal/open', {
+      runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+    }), { terminalId: 'term-1', runtime: next.info.id })
+    assert.equal(warnings.length, 1)
+    assert.match(JSON.stringify(warnings), /malformed/)
+  })
+}
+
+test('an answered signed-out provider ranks ahead of a failed account read', async () => {
   const root = tempDir('hd-terminal-provider-')
   const requested = fakeRuntime('conversation')
-  const silent = fakeRuntime('silent-ready', { processes: true })
-  const signedIn = fakeRuntime('signed-in-ready', { processes: true })
-  let signedInReads = 0
-  silent.getAccount = () => new Promise(() => {})
-  signedIn.getAccount = async () => {
-    signedInReads += 1
-    return { accounts: [{ kind: 'apiKey', label: 'Demo account' }], signInMethods: [] }
-  }
+  const failed = fakeRuntime('failed-account', { processes: true })
+  const signedOut = fakeRuntime('signed-out', { processes: true, signedOut: true })
+  failed.getAccount = async () => { throw new Error('fixture account failure') }
+  const warnings: unknown[] = []
   const ctx = contextWith({
-    runtimes: { resolve: () => requested, all: () => [requested, silent, signedIn] },
+    runtimes: { resolve: () => requested, all: () => [requested, failed, signedOut] },
     workspaces: { openRoots: () => [root] },
     terminals: { open: async () => 'term-1' },
+    logger: { warn: (...args: unknown[]) => warnings.push(args) },
   })
-  const opening = terminalMethods['terminal/open'](ctx, {
+  assert.deepEqual(await dispatch(ctx, 'terminal/open', {
     runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
-  }, 5)
-  await new Promise<void>((resolve) => setImmediate(resolve))
-  t.mock.timers.tick(5)
-  await new Promise<void>((resolve) => setImmediate(resolve))
-  assert.equal(signedInReads, 1)
-  assert.deepEqual(await opening, { terminalId: 'term-1', runtime: signedIn.info.id })
+  }), { terminalId: 'term-1', runtime: signedOut.info.id })
+  assert.equal(warnings.length, 1)
+  assert.match(JSON.stringify(warnings), /failed-account/)
+  assert.match(JSON.stringify(warnings), /fixture account failure/)
 })
+
+for (const signedOut of [false, true]) {
+  test(`a late ready provider loses to an answered ${signedOut ? 'signed-out' : 'signed-in'} provider`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const root = tempDir('hd-terminal-provider-')
+    const requested = fakeRuntime('conversation')
+    const silent = fakeRuntime('silent-ready', { processes: true })
+    const answered = fakeRuntime('answered-ready', { processes: true, signedOut })
+    let answeredReads = 0
+    let answerLate!: (answer: Awaited<ReturnType<AgentRuntime['getAccount']>>) => void
+    silent.getAccount = () => new Promise(resolve => { answerLate = resolve })
+    const account = answered.getAccount.bind(answered)
+    answered.getAccount = async () => {
+      answeredReads += 1
+      return account()
+    }
+    const warnings: unknown[] = []
+    const ctx = contextWith({
+      runtimes: { resolve: () => requested, all: () => [requested, silent, answered] },
+      workspaces: { openRoots: () => [root] },
+      terminals: { open: async () => 'term-1' },
+      logger: { warn: (...args: unknown[]) => warnings.push(args) },
+    })
+    const opening = dispatch(ctx, 'terminal/open', {
+      runtime: requested.info.id, cwd: root, size: { cols: 80, rows: 24 },
+    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    t.mock.timers.tick(1_999)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(answeredReads, 0, 'the production deadline has not expired')
+    t.mock.timers.tick(1)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(answeredReads, 1)
+    assert.deepEqual(await opening, { terminalId: 'term-1', runtime: answered.info.id })
+    answerLate({ accounts: [{ kind: 'apiKey', label: 'Demo account' }], signInMethods: [] })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(warnings.length, 1)
+    assert.match(JSON.stringify(warnings), /silent-ready/)
+    assert.match(JSON.stringify(warnings), /2000/)
+  })
+}
 
 test('a terminal refuses when every process provider is unavailable', async () => {
   const requested = fakeRuntime('conversation')

@@ -4,11 +4,11 @@ import { within } from '../seat-reads.js'
 import { confine } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
-const TERMINAL_ACCOUNT_READ_DEADLINE_MS = 2_000
+export const TERMINAL_ACCOUNT_READ_DEADLINE_MS = 2_000
 
 /** PTYs that outlive a client reload, hosted by whichever runtime runs processes. */
 export const terminalMethods = {
-  'terminal/open': async (ctx, params, accountReadDeadlineMs = TERMINAL_ACCOUNT_READ_DEADLINE_MS) => {
+  'terminal/open': async (ctx, params) => {
     const requested = ctx.runtimes.resolve(params)
     // A terminal is a workbench tool, not a property of the conversation's
     // backend. When the conversation's runtime runs no processes (ACP
@@ -27,16 +27,27 @@ export const terminalMethods = {
           break
         }
 
+        let answered: typeof requested | undefined
         for (const candidate of tier) {
-          const result = await within(() => candidate.getAccount(), accountReadDeadlineMs)
-          const signedOut = result.settled !== 'value' ||
-            (result.value.accounts.length === 0 && result.value.signInMethods.length > 0)
-          if (!signedOut) {
+          const result = await within(async () => {
+            const account = await candidate.getAccount()
+            return account.accounts.length === 0 && account.signInMethods.length > 0
+          }, TERMINAL_ACCOUNT_READ_DEADLINE_MS)
+          if (result.settled !== 'value') {
+            ctx.logger.warn('a terminal provider account read did not answer, so other providers are preferred', {
+              runtime: candidate.info.id,
+              afterMs: TERMINAL_ACCOUNT_READ_DEADLINE_MS,
+              ...(result.settled === 'error' ? { error: String(result.error) } : {}),
+            })
+            continue
+          }
+          answered ??= candidate
+          if (!result.value) {
             provider = candidate
             break
           }
         }
-        provider ??= tier[0]
+        provider ??= answered ?? tier[0]
         break
       }
     }
