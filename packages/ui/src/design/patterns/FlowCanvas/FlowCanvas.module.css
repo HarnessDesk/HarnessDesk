@@ -82,3 +82,6 @@
 
 .travelled { stroke: var(--hd-accent); stroke-width: var(--hd-space-0-5); }
 .future { opacity: 0.3; stroke-dasharray: 5 5; }
+
+.canvas[data-inert] :global(.react-flow__pane),
+.canvas[data-position-only] :global(.react-flow__pane) { touch-action: pan-y; }

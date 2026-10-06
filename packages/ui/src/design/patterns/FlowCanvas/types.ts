@@ -46,6 +46,8 @@ export interface FlowCanvasProps<Data extends FlowCanvasStep = FlowCanvasStep> {
   readonly nodes: readonly FlowCanvasNode<Data>[]
   readonly edges: readonly FlowCanvasEdge[]
   readonly readOnly?: boolean
+  /** A still poster: no selection, panning or zooming; page gestures pass through. */
+  readonly inert?: boolean
   /** The ordered shape editor can arrange existing steps, but cannot change the graph. */
   readonly positionOnly?: boolean
   /** Posters keep the plan and attribution, without navigation tools or a minimap. */

@@ -26,7 +26,7 @@ const Poster = ({ run }: { run: StagedRun }) => {
       <span className="flex flex-wrap items-center gap-3"><Text role="subject">Write, review, fix</Text><Chip tone={run.stage === 'you' ? 'warning' : 'neutral'}>{run.stage === 'you' ? 'Needs you' : execution.state === 'settled' ? 'Settled' : 'Running'}</Chip></span>
       <Text role="meta">Run 1 · Round {execution.rounds.length} · revision {execution.revision}</Text>
     </div>
-    <div className="site-poster-graph"><FlowGraph model={model} overlay={overlay} now={now} faces={FACES} showControls={false}
+    <div className="site-poster-graph"><FlowGraph model={model} overlay={overlay} now={now} faces={FACES} inert showControls={false}
       doing={new Map([['alpha', 'Editing src/checkout/retry.ts']])} /></div>
     <div data-slot="run-time-bar" role="img" aria-label={`Run time: ${segments.map(one => `${stepName(one.role)} ${formatDuration(one.ms)}`).join(', ')}`} className="flex min-w-0 gap-1">
       {segments.map(one => <div key={one.round} data-round={one.round} data-ms={one.ms} className="min-w-0" style={{ flex: `${one.ms} 1 0%` }}>

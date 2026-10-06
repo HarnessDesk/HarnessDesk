@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto'
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -56,6 +57,8 @@ const environment = {
   HARNESSDESK_NO_UPDATE_CHECK: '1',
   HARNESSDESK_CODEX_BINARY: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
   HARNESSDESK_TEST_ABOUT: '1',
+  HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(),
+  HARNESSDESK_CODEX_GENERATION: '0',
   HD_SHOTS_NATIVE_CODEX: '1',
   CODEX_HOME: join(rig, 'codex-home'),
 }

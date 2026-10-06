@@ -89,8 +89,10 @@ const CardAction = ({ className, ...props }: React.ComponentProps<'div'>) => (
   />
 )
 
-const CardContent = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="card-content" className={cn('px-(--hd-inset-card)', className)} {...props} />
+type CardContentProps = React.ComponentProps<'div'> & { inset?: 'card' | 'none' }
+
+const CardContent = ({ className, inset = 'card', ...props }: CardContentProps) => (
+  <div data-slot="card-content" data-inset={inset} className={cn(inset === 'card' && 'px-(--hd-inset-card)', className)} {...props} />
 )
 
 const CardFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (

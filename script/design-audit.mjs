@@ -4257,7 +4257,7 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
   {
     module: 'design/ui/flow-step.tsx',
     kind: 'data-geometry',
-    exports: ['FlowStepSurface', 'FlowFaces', 'FlowDoingLine'],
+    exports: ['FlowStepSurface', 'FlowDoingLine'],
     area: 'room',
     reason: 'Run-state marks on measured Flow node boxes: the ring, duration badge, seated faces and doing line read execution data rather than introduce a screen control.',
   },

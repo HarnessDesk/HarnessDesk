@@ -41,3 +41,7 @@
   min-width: 0;
   min-height: 0;
 }
+
+.workspace[data-view="flow"] [data-slot="run-scroll"]:has([data-slot="flow-list"][data-placement="below"]) {
+  overflow-y: auto;
+}

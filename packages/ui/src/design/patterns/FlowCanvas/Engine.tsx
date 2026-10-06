@@ -70,7 +70,8 @@ const Rule = (props: EdgeProps<EngineEdge>) => {
 const nodeTypes = { step: Step }
 const edgeTypes = { rule: Rule }
 
-const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, positionOnly = false, showControls = true, title, actions, label = 'Flow plan', className, NodeComponent, onNodesChange, onEdgesChange, onConnect, onSelectionChange }: FlowCanvasProps<Data>) => {
+const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configuredReadOnly = false, inert = false, positionOnly = false, showControls = true, title, actions, label = 'Flow plan', className, NodeComponent, onNodesChange, onEdgesChange, onConnect, onSelectionChange }: FlowCanvasProps<Data>) => {
+  const readOnly = configuredReadOnly || inert
   const [measurements, setMeasurements] = useState<ReadonlyMap<string, { width: number; height: number }>>(new Map())
   const [tool, setTool] = useState<'select' | 'hand'>('select')
   const [announcement, setAnnouncement] = useState('')
@@ -90,7 +91,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, p
   const [, requestFocusCommit] = useState(0)
   const nodeIdSignature = nodes.map(node => node.id).sort().join('\u0000')
   const centredIds = useRef<ReadonlySet<string> | null>(null)
-  const centredWidth = useRef(0)
+  const centredSize = useRef({ width: 0, height: 0 })
   useLayoutEffect(() => {
     const pending = pendingFocus.current
     pendingFocus.current = null
@@ -232,23 +233,29 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, p
     }
     return { x: left, y: top, width: right - left, height: bottom - top }
   }, [flow, engineEdges])
+  const navigationInset = readOnly && !inert && showControls && width < 608 ? GRID * 4 : 0
+  const fittedViewport = useCallback((zoom: number) => {
+    const viewport = getViewportForBounds(planBounds(), width, Math.max(1, height - navigationInset), MIN_ZOOM, zoom, 0.12)
+    return { ...viewport, y: viewport.y + navigationInset }
+  }, [planBounds, width, height, navigationInset])
   useEffect(() => {
     if (!initialized || !width || !height) return
     const previous = centredIds.current
     const replaced = !previous || !nodes.some(node => previous.has(node.id))
-    const resized = centredWidth.current !== width
+    const resized = centredSize.current.width !== width || centredSize.current.height !== height
     centredIds.current = new Set(nodes.map(node => node.id))
-    centredWidth.current = width
+    centredSize.current = { width, height }
     if (!replaced && !resized) return
     const bounds = planBounds()
     const currentZoom = replaced ? 1 : Math.min(1, flow.getZoom())
-    if (bounds.width * currentZoom > width || bounds.height * currentZoom > height) {
-      void flow.setViewport(getViewportForBounds(bounds, width, height, MIN_ZOOM, currentZoom, 0.12))
-    } else if (replaced) {
+    if (bounds.width * currentZoom > width || bounds.height * currentZoom > height - navigationInset) {
+      void flow.setViewport(fittedViewport(currentZoom))
+    } else if (replaced || resized) {
       const bounds = flow.getNodesBounds(flow.getNodes())
-      void flow.setViewport({ x: (width - bounds.width) / 2 - bounds.x, y: (height - bounds.height) / 2 - bounds.y, zoom: 1 })
+      void flow.setViewport({ x: (width - bounds.width * currentZoom) / 2 - bounds.x * currentZoom,
+        y: navigationInset + (height - navigationInset - bounds.height * currentZoom) / 2 - bounds.y * currentZoom, zoom: currentZoom })
     }
-  }, [initialized, width, height, flow, nodeIdSignature, planBounds])
+  }, [initialized, width, height, flow, nodeIdSignature, planBounds, fittedViewport, navigationInset])
   const changeNodes = (changes: NodeChange<EngineNode>[]) => {
     // Measurements belong to the interaction engine, not the saved document.
     const dimensions = changes.filter(change => change.type === 'dimensions' && change.dimensions)
@@ -269,11 +276,11 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, p
       if (!readOnly && !positionOnly && change.type === 'remove') return [change]
       return []
     })
-    if (exposed.length) onNodesChange?.(exposed)
+    if (!inert && exposed.length) onNodesChange?.(exposed)
   }
   const changeEdges = (changes: EdgeChange<EngineEdge>[]) => {
     const exposed = changes.filter((change): change is FlowCanvasEdgeChange => change.type === 'select' || !readOnly && !positionOnly && change.type === 'remove')
-    if (exposed.length) onEdgesChange?.(exposed)
+    if (!inert && exposed.length) onEdgesChange?.(exposed)
   }
   const selectionChanged = useCallback((selection: { nodes: EngineNode[]; edges: EngineEdge[] }) => {
     const next = { nodes: selection.nodes.map(node => node.id), edges: selection.edges.map(edge => edge.id) }
@@ -286,6 +293,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, p
     selectionCallback.current?.(next)
   }, [])
   const keyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (inert) return
     const target = event.target as HTMLElement
     if (target !== event.currentTarget && !target.matches('.react-flow__node, .react-flow__edge')) return
     if (event.metaKey || event.altKey || event.ctrlKey) {
@@ -347,29 +355,30 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly = false, p
   })
   const render = (props: FlowCanvasNodeProps) => NodeComponent
     ? <NodeComponent {...props as FlowCanvasNodeProps<Data>} /> : <StepCard {...props} />
-  return <div ref={canvasRef} className={`${styles.canvas} ${className ?? ''}`} data-slot="flow-canvas" data-readonly={readOnly} data-tool={readOnly ? 'hand' : tool} tabIndex={0} role="region" aria-label={label} onKeyDownCapture={keyboard}>
+  return <div ref={canvasRef} className={`${styles.canvas} ${className ?? ''}`} data-slot="flow-canvas" data-readonly={readOnly} data-inert={inert || undefined} data-position-only={positionOnly || undefined} data-tool={readOnly ? 'hand' : tool} tabIndex={inert ? -1 : 0} role="region" aria-label={label} onKeyDownCapture={keyboard}>
     <BatonContext.Provider value={setBatonPath}><RenderContext.Provider value={render}>
       <ReactFlow<EngineNode, EngineEdge> id={instanceId} nodes={engineNodes} edges={engineEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         onNodesChange={changeNodes} onEdgesChange={changeEdges} onConnect={connection => { if (!readOnly && !positionOnly) onConnect?.({ source: connection.source, target: connection.target }) }}
-        onSelectionChange={selectionChanged}
-        nodesDraggable={!readOnly && tool === 'select'} nodesConnectable={!readOnly && !positionOnly && tool === 'select'} nodesFocusable edgesFocusable
-        edgesReconnectable={false} deleteKeyCode={null} panOnDrag={readOnly || tool === 'hand' ? true : [1, 2]} selectionOnDrag={!readOnly && tool === 'select'}
+        onSelectionChange={inert ? undefined : selectionChanged}
+        nodesDraggable={!readOnly && tool === 'select'} nodesConnectable={!readOnly && !positionOnly && tool === 'select'} nodesFocusable={!inert} edgesFocusable={!inert} elementsSelectable={!inert}
+        edgesReconnectable={false} deleteKeyCode={null} panOnDrag={inert ? false : readOnly || tool === 'hand' ? true : [1, 2]} selectionOnDrag={!readOnly && tool === 'select'}
         minZoom={MIN_ZOOM} maxZoom={2} defaultViewport={{ x: 0, y: 0, zoom: 1 }} zoomOnDoubleClick={false}
-        zoomOnScroll={!readOnly} preventScrolling={!readOnly} ariaLabelConfig={ariaLabelConfig}>
+        zoomOnScroll={!readOnly && !positionOnly} preventScrolling={!readOnly && !positionOnly}
+        zoomOnPinch={!inert && !positionOnly} zoomActivationKeyCode={inert || positionOnly ? null : 'Control'} ariaLabelConfig={ariaLabelConfig}>
         {edges.some(edge => edge.current) && batonPath && <EdgeLabelRenderer><FlowBaton path={batonPath} /></EdgeLabelRenderer>}
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1.5} color="var(--hd-border-strong)" />
         {title && <Panel position="top-left"><Text role="meta">{title}</Text></Panel>}
-        {showControls && <Panel position={readOnly ? "top-right" : "bottom-left"} className={styles.tools}>
+        {showControls && !inert && <Panel position={readOnly ? "top-right" : "bottom-left"} className={styles.tools}>
           {!readOnly && <>
             <Button variant="ghost" size="icon" aria-label="Select tool" title="Select steps" aria-pressed={tool === 'select'} onClick={() => setTool('select')}><CanvasSelectIcon /></Button>
             <Button variant="ghost" size="icon" aria-label="Hand tool" title="Pan the canvas" aria-pressed={tool === 'hand'} onClick={() => setTool('hand')}><CanvasHandIcon /></Button>
           </>}
           <Button variant="ghost" size="icon" aria-label="Zoom out" title="Zoom out" onClick={() => void flow.zoomOut()}><ZoomOutIcon /></Button>
           <Button variant="ghost" size="icon" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn()}><ZoomInIcon /></Button>
-          <Button variant="ghost" size="icon" aria-label="Fit plan" title="Fit to the canvas" onClick={() => void flow.setViewport(getViewportForBounds(planBounds(), width, height, MIN_ZOOM, Math.min(1, flow.getZoom()), 0.12))}><CanvasFitIcon /></Button>
+          <Button variant="ghost" size="icon" aria-label="Fit plan" title="Fit to the canvas" onClick={() => void flow.setViewport(fittedViewport(Math.min(1, flow.getZoom())))}><CanvasFitIcon /></Button>
           {actions}
         </Panel>}
-        {showControls && minimapClear && <MiniMap position="bottom-right" nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
+        {showControls && !inert && minimapClear && <MiniMap position="bottom-right" nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}
       </ReactFlow>
     </RenderContext.Provider></BatonContext.Provider>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>

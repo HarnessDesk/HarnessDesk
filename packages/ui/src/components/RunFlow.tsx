@@ -48,11 +48,11 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   faceTints?: ReadonlyMap<string, Tint>
   doing?: ReadonlyMap<string, string | null>
 }) => {
-  const store = useStore()
   const { home } = useSnapshot()
   const flow = execution.document.flow
   const model = useMemo(() => flowModel(flow, { home, ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats, home])
   const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions }), [execution, model, cards, attempts, sessions])
+  const [problem, setProblem] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
   useEffect(() => {
@@ -64,31 +64,6 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
     held.current.set(id, line)
     return [id, line.line]
   }))
-  const [reading, setReading] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [opened, setOpened] = useState<{ readonly entry: FlowEntry; readonly text: string } | null>(null)
-
-  const open = async (): Promise<void> => {
-    if (!root || reading) return
-    setReading(true)
-    setProblem(null)
-    try {
-      const [entry, ...others] = entriesNamed(await store.flowCatalog(root), flow.name)
-      if (!entry) {
-        setProblem(`No flow called “${flow.name}” is in the catalogue any more.`)
-        return
-      }
-      if (others.length > 0) {
-        setProblem(`More than one flow in the catalogue is called “${flow.name}”, so which file this Run started from cannot be told here.`)
-        return
-      }
-      setOpened({ entry, text: await store.flowSource(root, entry.id, entry.origin) })
-    } catch (error) {
-      setProblem(`The file could not be read: ${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setReading(false)
-    }
-  }
 
   return (
     <div data-slot="run-flow" className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
@@ -99,11 +74,47 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
         </span>
       </div>
       {problem && <ActionError>{problem}</ActionError>}
-      <FlowGraph title="The path this Run took" listPlacement="dock" actions={
-        <RefusedAction reason={root ? undefined : 'This Run’s project is not known here, so its file cannot be found.'}>
-          <Button size="icon" variant="ghost" aria-label="Open the file" title="Open the flow file" disabled={reading} onClick={() => void open()}><FileIcon /></Button>
-        </RefusedAction>
-      } model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+      <FlowGraph title="The path this Run took" listPlacement="dock" actions={<RunFlowFile root={root} name={flow.name} icon onProblem={setProblem} />} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+    </div>
+  )
+}
+
+/** The same catalogue read from the graph and the Run's inspector. Never guesses between copies. */
+export const RunFlowFile = ({ root, name, compact = false, icon = false, onProblem }: { root: string | null; name: string; compact?: boolean; icon?: boolean; onProblem?: (problem: string | null) => void }) => {
+  const store = useStore()
+  const [reading, setReading] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [opened, setOpened] = useState<{ readonly entry: FlowEntry; readonly text: string } | null>(null)
+
+  const reportProblem = (next: string | null) => { setProblem(next); onProblem?.(next) }
+  const open = async (): Promise<void> => {
+    if (!root || reading) return
+    setReading(true)
+    reportProblem(null)
+    try {
+      const [entry, ...others] = entriesNamed(await store.flowCatalog(root), name)
+      if (!entry) {
+        reportProblem(`No flow called “${name}” is in the catalogue any more.`)
+        return
+      }
+      if (others.length > 0) {
+        reportProblem(`More than one flow in the catalogue is called “${name}”, so which file this Run started from cannot be told here.`)
+        return
+      }
+      setOpened({ entry, text: await store.flowSource(root, entry.id, entry.origin) })
+    } catch (error) {
+      reportProblem(`The file could not be read: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setReading(false)
+    }
+  }
+
+  return <>
+    <RefusedAction reason={root ? undefined : 'This Run’s project is not known here, so its file cannot be found.'}>
+      {icon ? <Button size="icon" variant="ghost" aria-label="Open the file" title="Open the flow file" disabled={reading} onClick={() => void open()}><FileIcon /></Button>
+        : <Button size={compact ? 'inline-link' : 'sm'} variant={compact ? 'link' : 'outline'} disabled={reading} onClick={() => void open()}>{compact ? 'Flow file' : 'Open the file'}</Button>}
+    </RefusedAction>
+    {!onProblem && problem && <ActionError>{problem}</ActionError>}
       {opened && (
         <Dialog title={opened.entry.name} size="xl" tall onClose={() => setOpened(null)}>
           <Text role="meta" className="break-words">{PLACE[opened.entry.origin]} · {opened.entry.path}</Text>
@@ -111,6 +122,5 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
           <CodeBlock output={opened.text} />
         </Dialog>
       )}
-    </div>
-  )
+  </>
 }

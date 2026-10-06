@@ -1070,7 +1070,8 @@ edited. Its **Graph** tab uses the same pan-and-zoom canvas as a Run.
 Selecting a node selects its ordered step; selecting a rule opens its ordered
 edit. Dragging a node, or the Horizontal/Vertical fields beside a selected
 one, only changes its saved position. Escape cancels a drag. The graph cannot
-add connections or delete steps; those edits stay in the ordered editor.
+add connections or delete steps; those edits stay in the ordered editor. Wheel
+and touch swipes scroll the page; the canvas tools handle zooming.
 
 **Every time…**, on a chosen shape or an Agent's own page, hands off to
 Intake: the source, its fields, the Goal grouping and budget, saved to the
@@ -1169,6 +1170,15 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+Run details and Steps live in the app’s dock, with the same tabs, move,
+expand and hide controls as the conversation’s inspectors. The title-bar’s
+right-panel control puts them away and brings them back. Run details keeps
+the brief, Seats, recorded pull request and two-column Run facts; unavailable
+facts are omitted and named together once. Selecting a timeline row keeps
+its recorded detail and actions in that dock. Choosing Flow brings Steps
+forward: taken rounds and steps not reached, with selection lighting the
+corresponding node, including a step the Run has not reached.
+
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
@@ -1211,10 +1221,10 @@ side. It opens centred at 100% when the drawing fits; a smaller pane shrinks
 it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
 Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
 **The path this Run took** sits at the top left. Nodes cannot be moved or
-edited. The accessible Steps and Rules list retains state and selection; it
-is the seam for the Team’s Steps dock while that dock is being built. In a narrow
-pane the list stays visible below the canvas; wide panes retain its text
-alternative without adding invisible keyboard stops.
+edited. The accessible Steps and Rules list retains state and selection.
+Outside the Team’s Steps dock, narrow panes scroll the fitted drawing and the
+list together; wide panes retain the text alternative without adding invisible
+keyboard stops.
 **Open the file** reads the Flow's file as it is now, in a window you can only
 read; the Run keeps the revision it started with.
 

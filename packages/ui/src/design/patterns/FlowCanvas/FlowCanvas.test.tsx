@@ -268,3 +268,15 @@ it('groups read-only navigation and caller actions at the top right with a title
   expect(tools.textContent).toContain('Open the file')
   expect(tools.querySelector('[aria-label="Fit plan"]')).not.toBeNull()
 })
+
+it('an inert poster leaves selection, edits and keyboard navigation to its page', async () => {
+  const onNodesChange = vi.fn(), onEdgesChange = vi.fn()
+  await draw({ inert: true, onNodesChange, onEdgesChange } as Partial<FlowCanvasProps>)
+  expect(host.querySelector('.react-flow__pane.draggable')).toBeNull()
+  expect(host.querySelector('.react-flow__node.draggable')).toBeNull()
+  expect(host.querySelector('.react-flow__node')?.getAttribute('tabindex')).toBeNull()
+  expect(host.querySelector('[aria-label="Fit plan"]')).toBeNull()
+  expect(key('ArrowRight', '[data-slot="flow-canvas"]').defaultPrevented).toBe(false)
+  expect(onNodesChange).not.toHaveBeenCalled()
+  expect(onEdgesChange).not.toHaveBeenCalled()
+})

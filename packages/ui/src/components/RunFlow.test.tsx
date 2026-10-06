@@ -202,6 +202,7 @@ it('says what went wrong when the file cannot be read', async () => {
   await settle()
   expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   expect(container.querySelector('[role="alert"]')!.textContent).toContain('The file could not be read: the host is not answering')
+  expect(container.querySelector('[role="alert"]')!.closest('.react-flow__panel')).toBeNull()
 })
 
 it('cannot open a file for a Run whose project is not known, and says why', async () => {
