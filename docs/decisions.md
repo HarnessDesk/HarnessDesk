@@ -806,7 +806,8 @@ characters become `-`. They are bounded to 32 characters, with `role` used when
 nothing usable remains.
 
 A description keeps the latest seat for each role and agent pair, up to eight
-pairs, in its hidden signature marker.
+pairs, in its hidden signature marker. Adding a ninth drops the earliest-added pair,
+even if it was updated later.
 Its visible line is rendered under the current template, so a person's edits
 to that line or a new template cannot erase the earlier credits. Legacy
 signatures are upgraded when edited. A review or comment keeps the role and

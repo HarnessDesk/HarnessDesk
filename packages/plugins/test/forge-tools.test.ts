@@ -1954,7 +1954,7 @@ test('description markers retain the plain alphabet in every rendered text field
 })
 
 test('description labels remove link forms and keep exactly 80 characters without truncation', () => {
-  for (const [label, expected] of [['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['x'.repeat(80), 'x'.repeat(80)]]) {
+  for (const [label, expected] of [['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['Preview gh-12gh-12 Model', 'Preview Model'], ['x'.repeat(80), 'x'.repeat(80)]]) {
     const seat = { ...SEAT, label: label!, role: 'writer' }
     const first = signDescription('First.', '{role}: {seat}', seat)
     assert.equal(authorsFrom(first)[0]?.label, expected)
@@ -1992,7 +1992,7 @@ for (const field of ['model', 'effort', 'version', 'team'] as const) {
 
 test('description signature setting explains which contributor seat is retained', () => {
   const schema = gitPlugin.manifest.configSchema as { properties: { signature: { description: string } } }
-  assert.equal(schema.properties.signature.description, 'Ends the description and keeps the latest seat for each role and agent pair, up to eight pairs.')
+  assert.equal(schema.properties.signature.description, 'Ends the description and keeps the latest seat for each role and agent pair, up to eight pairs. Adding a ninth drops the earliest-added pair, even if it was updated later.')
 })
 
 test('description short-reference cleanup preserves ordinary hyphenated words', () => {
@@ -2010,7 +2010,7 @@ test('description short-reference cleanup preserves ordinary hyphenated words', 
 })
 
 test('role cleanup removes standalone short references before storing a description', () => {
-  for (const [role, expected] of [['gh-12', 'role'], ['GH-12-qa', 'qa'], ['qa-gh-12', 'qa'], ['qa_gh-12', 'qa']]) {
+  for (const [role, expected] of [['gh-12', 'role'], ['GH-12-qa', 'qa'], ['qa-gh-12', 'qa'], ['qa_gh-12', 'qa'], ['gh-1gh-12', 'role'], ['gh-12gh-12', 'role'], ['gh-1gh-1gh-1', 'role'], ['high-5', 'high-5'], ['xgh-12', 'xgh-12']]) {
     const seat = { ...SEAT, role: role! }
     const first = signDescription('First.', '{role}: {seat}', seat)
     assert.equal(renderSignature('{role}', seat), expected)
@@ -2036,6 +2036,7 @@ test('description update tool states the bounded role and agent retention rule',
   const forge = await rig(t)
   const tool = forge.kernel.list('tool').find((tool) => tool.name === 'pr_update')!
   assert.match(tool.description, /keeps the latest seat for each role and agent pair, up to eight pairs/)
+  assert.match(tool.description, /Adding a ninth drops the earliest-added pair, even if it was updated later\./)
   assert.doesNotMatch(tool.description, /retains earlier role and seat credits/)
 })
 
@@ -2043,6 +2044,11 @@ test('description edits retain up to eight role and agent pairs', () => {
   let body = ''
   for (let index = 1; index <= 9; index += 1) {
     body = signDescription('Edited.', '{role}: {seat}', { ...SEAT, role: `qa-${index}`, label: `Preview ${index}` }, body)
+    if (index === 8) {
+      body = signDescription('Updated at the limit.', '{role}: {seat}', { ...SEAT, role: 'qa-1', label: 'Preview 1 Mini' }, body)
+      assert.equal(authorsFrom(body)[0]?.role, 'qa-1', 'updating a pair keeps its original slot')
+      assert.equal(authorsFrom(body)[0]?.label, 'Preview 1 Mini')
+    }
   }
   const roles = Array.from({ length: 8 }, (_, index) => `qa-${index + 2}`)
   assert.deepEqual(authorsFrom(body).map(({ role }) => role), roles)

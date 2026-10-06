@@ -668,7 +668,8 @@ an ordinary conversation's opening is `**Preview Agent Preview Model** · via Ha
 Comments open with `**Fixer · Preview Agent Preview Model** · via HarnessDesk`.
 Descriptions end with `🤖 Writer: Preview Agent Preview Model · via [HarnessDesk](https://harnessdesk.app)`.
 
-Description updates retain the latest seat for each role and agent pair, up to eight pairs. The
+Description updates retain the latest seat for each role and agent pair, up to eight pairs.
+Adding a ninth drops the earliest-added pair, even if it was updated later. The
 marked last line keeps URI-encoded contributor data beside `<!-- harnessdesk:signature -->`,
 so editing its visible text or changing the template keeps earlier authors.
 The current template's contributor portion renders each distinct credit once,

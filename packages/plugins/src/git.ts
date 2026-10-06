@@ -244,10 +244,18 @@ const ROLE_CHARACTER_CLASS = 'a-z0-9-'
 const ROLE_LIMIT = 32
 const DESCRIPTION_LINK_FORM = /:\/\/|www\.|\bgh-\d+/i
 const DESCRIPTION_LINK_FORMS = new RegExp(DESCRIPTION_LINK_FORM, 'gi')
+const removeDescriptionLinkForms = (value: string, replacement: string): string => {
+  let previous: string
+  do {
+    previous = value
+    value = value.replace(DESCRIPTION_LINK_FORMS, replacement)
+  } while (value !== previous)
+  return value
+}
 const UNSUPPORTED_ROLE_CHARACTERS = new RegExp(`[^${ROLE_CHARACTER_CLASS}]+`, 'gi')
 const AUTHOR_ROLE = new RegExp(`^[a-z][${ROLE_CHARACTER_CLASS}]{0,${ROLE_LIMIT - 1}}$`, 'i')
 const normalizeRole = (value: string): string => {
-  let role = value.replace(UNSUPPORTED_ROLE_CHARACTERS, '-').replace(DESCRIPTION_LINK_FORMS, '-').replace(/^-+|-+$/g, '')
+  let role = removeDescriptionLinkForms(value.replace(UNSUPPORTED_ROLE_CHARACTERS, '-'), '-').replace(/^-+|-+$/g, '')
   if (!role) role = 'role'
   if (!/^[a-z]/i.test(role)) role = `role-${role}`
   return role.slice(0, ROLE_LIMIT).replace(/-+$/g, '') || 'role'
@@ -345,8 +353,8 @@ const isDescriptionText = (value: unknown): value is string =>
 const isOptionalDescriptionText = (value: unknown): boolean =>
   value === undefined || value === null || isDescriptionText(value)
 const normalizeAuthorLabel = (value: string): string => {
-  const plain = value.replace(UNSUPPORTED_DESCRIPTION_CHARACTERS, ' ')
-    .replace(DESCRIPTION_LINK_FORMS, ' ').replace(/ +/g, ' ').trim()
+  const plain = removeDescriptionLinkForms(value.replace(UNSUPPORTED_DESCRIPTION_CHARACTERS, ' '), ' ')
+    .replace(/ +/g, ' ').trim()
   const characters = Array.from(plain)
   return characters.length <= DESCRIPTION_PART_LIMIT
     ? plain
@@ -752,7 +760,7 @@ export const gitPlugin: HarnessPlugin = {
           type: 'string',
           title: 'Description signature',
           description:
-            'Ends the description and keeps the latest seat for each role and agent pair, up to eight pairs.',
+            'Ends the description and keeps the latest seat for each role and agent pair, up to eight pairs. Adding a ninth drops the earliest-added pair, even if it was updated later.',
           default: DEFAULT_SIGNATURE,
         },
         reviewSignature: {
@@ -1119,7 +1127,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'pr_update',
         description:
-          'Change a pull request’s title, description or base branch, through HarnessDesk. A new description keeps the latest seat for each role and agent pair, up to eight pairs; do not write a signature yourself. Names the pull request by number, or takes the one open for the current branch.',
+          'Change a pull request’s title, description or base branch, through HarnessDesk. A new description keeps the latest seat for each role and agent pair, up to eight pairs. Adding a ninth drops the earliest-added pair, even if it was updated later. Do not write a signature yourself. Names the pull request by number, or takes the one open for the current branch.',
         inputSchema: {
           type: 'object',
           properties: {

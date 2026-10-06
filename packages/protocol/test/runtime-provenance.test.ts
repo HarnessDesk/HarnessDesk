@@ -30,6 +30,9 @@ test('native commit credit docs name the adapter and retain provenance', () => {
     assert.match(document, pattern)
     assert.match(document.replace(/\s+/g, '\n'), pattern, 'layout does not change the contract')
   }
+  for (const document of [extending, decisions, interfaceDoc]) {
+    assert.match(document, /Adding a ninth drops the earliest-added pair,\s+even if it was updated later\./)
+  }
   assert.doesNotMatch(decisions, /other role words remain its own/)
   assert.doesNotMatch(decisions, /preserves each\s+contributor's role and seat/)
   assert.doesNotMatch(interfaceDoc, /keeps each role and seat that wrote it/)
