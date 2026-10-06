@@ -47,7 +47,6 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   faceTints?: ReadonlyMap<string, Tint>
   doing?: ReadonlyMap<string, string | null>
 }) => {
-  const store = useStore()
   const { home } = useSnapshot()
   const flow = execution.document.flow
   const model = useMemo(() => flowModel(flow, { home, ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats, home])
@@ -63,6 +62,25 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
     held.current.set(id, line)
     return [id, line.line]
   }))
+
+  return (
+    <div data-slot="run-flow" className="flex min-w-0 flex-col gap-4">
+      <div data-slot="run-flow-head" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
+          <Text role="subject" className="min-w-0 break-words">{flow.name}</Text>
+          <Text role="meta">{execution.revision ? `revision ${execution.revision} · ` : ''}frozen when this Run started</Text>
+        </span>
+        <RunFlowFile root={root} name={flow.name} />
+      </div>
+      <FlowGraph model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+
+    </div>
+  )
+}
+
+/** The same catalogue read from the graph and the Run's inspector. Never guesses between copies. */
+export const RunFlowFile = ({ root, name, compact = false }: { root: string | null; name: string; compact?: boolean }) => {
+  const store = useStore()
   const [reading, setReading] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [opened, setOpened] = useState<{ readonly entry: FlowEntry; readonly text: string } | null>(null)
@@ -72,13 +90,13 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
     setReading(true)
     setProblem(null)
     try {
-      const [entry, ...others] = entriesNamed(await store.flowCatalog(root), flow.name)
+      const [entry, ...others] = entriesNamed(await store.flowCatalog(root), name)
       if (!entry) {
-        setProblem(`No flow called “${flow.name}” is in the catalogue any more.`)
+        setProblem(`No flow called “${name}” is in the catalogue any more.`)
         return
       }
       if (others.length > 0) {
-        setProblem(`More than one flow in the catalogue is called “${flow.name}”, so which file this Run started from cannot be told here.`)
+        setProblem(`More than one flow in the catalogue is called “${name}”, so which file this Run started from cannot be told here.`)
         return
       }
       setOpened({ entry, text: await store.flowSource(root, entry.id, entry.origin) })
@@ -89,19 +107,11 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
     }
   }
 
-  return (
-    <div data-slot="run-flow" className="flex min-w-0 flex-col gap-4">
-      <div data-slot="run-flow-head" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
-          <Text role="subject" className="min-w-0 break-words">{flow.name}</Text>
-          <Text role="meta">{execution.revision ? `revision ${execution.revision} · ` : ''}frozen when this Run started</Text>
-        </span>
-        <RefusedAction reason={root ? undefined : 'This Run’s project is not known here, so its file cannot be found.'}>
-          <Button size="sm" variant="outline" disabled={reading} onClick={() => void open()}>Open the file</Button>
-        </RefusedAction>
-      </div>
-      {problem && <ActionError>{problem}</ActionError>}
-      <FlowGraph model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+  return <>
+    <RefusedAction reason={root ? undefined : 'This Run’s project is not known here, so its file cannot be found.'}>
+      <Button size={compact ? 'inline-link' : 'sm'} variant={compact ? 'link' : 'outline'} disabled={reading} onClick={() => void open()}>{compact ? 'Flow file' : 'Open the file'}</Button>
+    </RefusedAction>
+    {problem && <ActionError>{problem}</ActionError>}
       {opened && (
         <Dialog title={opened.entry.name} size="xl" tall onClose={() => setOpened(null)}>
           <Text role="meta" className="break-words">{PLACE[opened.entry.origin]} · {opened.entry.path}</Text>
@@ -109,6 +119,5 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
           <CodeBlock output={opened.text} />
         </Dialog>
       )}
-    </div>
-  )
+  </>
 }
