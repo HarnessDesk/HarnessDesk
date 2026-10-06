@@ -6,6 +6,7 @@ import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { CodexRuntime } from '../src/index.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 
 /**
  * Nothing is spawned after the host has finished with the runtime.
@@ -75,7 +76,7 @@ test('a build check parked when the app quits starts no app-server behind the qu
   if (process.platform === 'win32') return
 
   const desks = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   assert.equal((await desks.generations()).length, 1, 'one app-server to begin with')
@@ -124,7 +125,7 @@ test('a start parked in the version probe when the app quits spawns no app-serve
   if (process.platform === 'win32') return
 
   const desks = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
   t.after(() => runtime.dispose())
 
   // Held before the first start, so the quit lands inside `requireCodex` —
@@ -162,7 +163,7 @@ test('a Codex runtime the host has finished with will not start again', async (t
   if (process.platform === 'win32') return
 
   const desks = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   const born = await desks.generations()
@@ -178,7 +179,7 @@ test('a Codex runtime the host has finished with will not start again', async (t
 test('a conversation opening when the runtime quits cannot leave a new process behind', async (t) => {
   if (process.platform === 'win32') return
   const desks = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   await desks.hold()

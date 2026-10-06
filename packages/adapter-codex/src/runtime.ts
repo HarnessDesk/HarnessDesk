@@ -126,6 +126,8 @@ export interface CodexRuntimeOptions {
   readonly clientVersion?: string
   readonly binaryPath?: string | null
   readonly codexHome?: string | null
+  /** Maximum app-server restarts before reporting a failed runtime. */
+  readonly maxRestarts?: number
   readonly configOverrides?: readonly string[]
   readonly logger?: CodexLogger
   /** Extra environment for the Codex process. */
@@ -314,6 +316,7 @@ export class CodexRuntime implements AgentRuntime {
       },
       binaryPath: options.binaryPath ?? null,
       codexHome: options.codexHome ?? null,
+      ...(options.maxRestarts !== undefined ? { maxRestarts: options.maxRestarts } : {}),
       configOverrides: options.configOverrides ?? [],
       experimentalApi: true,
       optOutNotifications: OPT_OUT_NOTIFICATIONS,
@@ -353,6 +356,10 @@ export class CodexRuntime implements AgentRuntime {
       this.#server.onServerRequest((request, responder) =>
         this.#onServerRequest(request, responder),
       ),
+      this.#server.onBusyChange(() => {
+        const health = this.health()
+        for (const listener of this.#healthListeners) listener(health)
+      }),
       this.#server.onStateChange((state) => this.#onStateChange(state)),
       // The one stderr line worth keeping: why the model list is the fallback.
       this.#server.onLog((line) => {

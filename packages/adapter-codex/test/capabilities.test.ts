@@ -9,6 +9,7 @@ import { ExtensionKernel, type PluginManifest } from '@harnessdesk/cordis-host'
 import type { AgentEvent } from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 
 /**
  * The extension plane meeting the agent plane.
@@ -60,7 +61,7 @@ const start = async (
   const runtime = new CodexRuntime({
     binaryPath: FAKE,
     capabilities: kernel,
-    env: { FAKE_CODEX_MODE: mode },
+    env: testProcessEnv({ FAKE_CODEX_MODE: mode }),
   })
   await runtime.start()
   const events: AgentEvent[] = []
@@ -202,7 +203,7 @@ test('a tool from an unloaded plugin fails with a readable explanation', async (
 })
 
 test('a session with no extension kernel behaves exactly as before', async (t) => {
-  const runtime = new CodexRuntime({ binaryPath: FAKE, env: { FAKE_CODEX_MODE: 'dynamic-tools' } })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, env: testProcessEnv({ FAKE_CODEX_MODE: 'dynamic-tools' }) })
   t.after(() => runtime.dispose())
   await runtime.start()
   const events: AgentEvent[] = []
@@ -359,8 +360,8 @@ for (const retirement of ['close', 'crash'] as const) {
       })
     })
     const runtime = new CodexRuntime({ binaryPath: FAKE, capabilities: kernel,
-      env: { FAKE_CODEX_MODE: 'delegated-tools-restart-epoch', FAKE_CODEX_VERSION_FILE: version,
-        FAKE_CODEX_CLAIMS: claims } })
+      env: testProcessEnv({ FAKE_CODEX_MODE: 'delegated-tools-restart-epoch', FAKE_CODEX_VERSION_FILE: version,
+        FAKE_CODEX_CLAIMS: claims }) })
     t.after(async () => { await runtime.dispose(); await kernel.dispose(); await rm(dir, { recursive: true, force: true }) })
     const events: AgentEvent[] = []
     runtime.subscribe((event) => events.push(event))

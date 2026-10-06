@@ -10,6 +10,7 @@ import { sessionId, type AgentEvent, type Session } from '@harnessdesk/protocol'
 
 import { undoTurns } from '../src/history.js'
 import { CodexRuntime } from '../src/index.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 
 /**
  * A conversation's history, read, forked and undone the way Codex keeps it
@@ -28,7 +29,7 @@ const start = async (t: Context, version = '0.155.0', env: Readonly<Record<strin
   const runtime = new CodexRuntime({
     binaryPath: FAKE,
     clientName: 'harnessdesk-test',
-    env: { FAKE_CODEX_VERSION: version, ...env },
+    env: testProcessEnv({ FAKE_CODEX_VERSION: version, ...env }),
   })
   t.after(() => runtime.dispose())
   await runtime.start()
@@ -288,7 +289,7 @@ test('Undo uses the upgraded version after an in-place CLI upgrade and conversat
   const runtime = new CodexRuntime({
     binaryPath: binary,
     clientName: 'harnessdesk-test',
-    env: { FAKE_CODEX_CLAIMS: generations },
+    env: testProcessEnv({ FAKE_CODEX_CLAIMS: generations }),
   })
   t.after(() => runtime.dispose())
   await runtime.start()

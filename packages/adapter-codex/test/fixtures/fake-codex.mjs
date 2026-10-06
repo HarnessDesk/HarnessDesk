@@ -67,6 +67,12 @@ if (process.argv.includes('--version')) {
 if (process.env['FAKE_CODEX_CLAIMS']) {
   appendFileSync(process.env['FAKE_CODEX_CLAIMS'], `${process.pid}\n`)
 }
+if (process.env['FAKE_CODEX_PROCESS_ENV']) {
+  appendFileSync(process.env['FAKE_CODEX_PROCESS_ENV'], `${JSON.stringify({
+    processGroup: process.env.HARNESSDESK_CODEX_PROCESS_GROUP,
+    generation: process.env.HARNESSDESK_CODEX_GENERATION,
+  })}\n`)
+}
 
 // Opt-in resource evidence. Measured on 0.160.0: unsubscribe acknowledges
 // release but retains the thread's MCP child until the app-server exits.

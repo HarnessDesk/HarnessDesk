@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,26 +8,29 @@ import { fileURLToPath } from 'node:url'
 
 import type { AgentEvent, AgentRuntime } from '@harnessdesk/protocol'
 import { CodexRuntime } from '../src/index.js'
+import { CodexThreadServers } from '../src/thread-servers.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
 const running = (pid: number): boolean => {
   try { process.kill(pid, 0); return true } catch { return false }
 }
-const until = async (condition: () => boolean | Promise<boolean>): Promise<void> => {
+const until = async (condition: () => boolean | Promise<boolean>, message = 'the expected resource lifecycle settled'): Promise<void> => {
   const deadline = Date.now() + 5_000
   while (!await condition()) {
-    assert.ok(Date.now() < deadline, 'the expected resource lifecycle settled')
+    assert.ok(Date.now() < deadline, message)
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
-const rig = async (t: TestContext, mode = 'hold', env: Readonly<Record<string, string>> = {}) => {
+const rig = async (t: TestContext, mode = 'hold', env: Readonly<Record<string, string>> = {}, maxRestarts = 5) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-idle-'))
   const ledger = join(dir, 'children.ndjson')
   const claims = join(dir, 'servers.ndjson')
   await writeFile(claims, '')
   await writeFile(ledger, '')
   const runtime = new CodexRuntime({ binaryPath: FAKE, codexHome: dir,
-    env: { FAKE_CODEX_MCP_CHILDREN: ledger, FAKE_CODEX_CLAIMS: claims, FAKE_CODEX_MODE: mode, ...env } })
+    maxRestarts,
+    env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0',
+      FAKE_CODEX_MCP_CHILDREN: ledger, FAKE_CODEX_CLAIMS: claims, FAKE_CODEX_MODE: mode, ...env } })
   t.after(async () => { await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))
@@ -162,6 +166,81 @@ test('a conversation process crash detaches only its own handle and can reopen',
   await second.interrupt()
   await second.close()
   await reopened.close()
+})
+
+test('a failed control process becomes unhealthy when the last conversation is released', async (t) => {
+  const d = await rig(t, 'hold', {}, 0)
+  const session = await d.runtime.createSession({ cwd: d.dir })
+  const changes: string[] = []
+  d.runtime.onHealthChange((health) => changes.push(health.state))
+  const control = (await d.servers())[0]!
+  process.kill(control, 'SIGKILL')
+  await until(() => changes.includes('ready'), 'the failed control process is hidden while a conversation remains open')
+  assert.equal(d.runtime.health().state, 'ready')
+
+  await session.close()
+
+  assert.equal(d.runtime.health().state, 'unavailable')
+  assert.ok(changes.includes('unavailable'), 'releasing the last worker notifies health listeners')
+})
+
+test('ordinary Codex spawns do not receive HarnessDesk process markers', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-env-'))
+  const captured = join(dir, 'process-env.ndjson')
+  await writeFile(captured, '')
+  const runtime = new CodexRuntime({ binaryPath: FAKE, codexHome: dir,
+    env: { FAKE_CODEX_PROCESS_ENV: captured } })
+  try {
+    await runtime.start()
+    const session = await runtime.createSession({ cwd: dir })
+    await session.close()
+    const rows = (await readFile(captured, 'utf8')).trim().split('\n').filter(Boolean)
+      .map((line) => JSON.parse(line) as { processGroup?: string; generation?: string })
+    assert.ok(rows.length >= 2, 'the control and conversation processes were spawned')
+    assert.ok(rows.every((row) => row.processGroup === undefined && row.generation === undefined),
+      'neither process receives test-only HarnessDesk environment markers')
+  } finally {
+    await runtime.dispose()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a never-answering unsubscribe times out so close and reopen can finish', async (t) => {
+  const hold = join(tmpdir(), `hd-unsubscribe-never-${process.pid}.hold`)
+  await writeFile(hold, '')
+  t.after(() => rm(hold, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_UNSUBSCRIBE: hold })
+  const session = await d.runtime.createSession({ cwd: d.dir })
+  const started = Date.now()
+  const closing = session.close()
+  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'UNSUBSCRIBING'))
+  const reopen = d.runtime.resumeSession(session.id, { cwd: d.dir })
+  const settled = await Promise.race([
+    Promise.all([closing, reopen]).then(([_, live]) => live),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('close and reopen did not settle promptly')), 6_000)),
+  ])
+  assert.equal(settled.id, session.id)
+  assert.ok(Date.now() - started < 6_000)
+  await rm(hold, { force: true })
+  await settled.close()
+})
+
+test('a request to a stopping conversation process does not claim it was opening', async (t) => {
+  const server = new CodexThreadServers({
+    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
+    binaryPath: FAKE,
+    maxRestarts: 0,
+  }, () => {})
+  t.after(() => server.stop())
+  await server.start()
+  const started = await server.request('thread/start', { cwd: '/w' })
+  const owner = server.thread(started.thread.id)
+  const reading = server.request('thread/read', { threadId: started.thread.id, includeTurns: false })
+    .then(() => null, (error: unknown) => error)
+  await owner.release()
+  const error = await reading
+  assert.ok(error instanceof Error)
+  assert.match(error.message, /process stopped while handling the request/)
 })
 
 test('approvals from separate conversation processes remain independently answerable', async (t) => {

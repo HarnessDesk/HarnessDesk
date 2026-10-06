@@ -749,7 +749,7 @@ export class CodexSession implements AgentSession {
 
   async #close(): Promise<void> {
     try {
-      await this.deps.server.request('thread/unsubscribe', { threadId: this.id })
+      await this.deps.server.request('thread/unsubscribe', { threadId: this.id }, { timeoutMs: 2_000 })
     } catch {
       // Unsubscribing is best-effort — the thread is already detached on our
       // side, and a dead app-server has nothing to unsubscribe from.
