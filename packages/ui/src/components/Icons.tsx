@@ -199,8 +199,9 @@ export const ArrowRightIcon = icon(ChevronRight, 'ArrowRightIcon')
 export const CanvasSelectIcon = icon(MousePointer2, 'CanvasSelectIcon')
 export const CanvasHandIcon = icon(Hand, 'CanvasHandIcon')
 export const CanvasFitIcon = icon(Scan, 'CanvasFitIcon')
-/** Page zoom, in the browser pane — the page's scale, never a search. */
+/** Zoom the current page or canvas view in. */
 export const ZoomInIcon = icon(ZoomIn, 'ZoomInIcon')
+/** Zoom the current page or canvas view out. */
 export const ZoomOutIcon = icon(ZoomOut, 'ZoomOutIcon')
 export const SidebarIcon = icon(PanelLeft, 'SidebarIcon')
 /** Watch the Team's conversations side by side. */
