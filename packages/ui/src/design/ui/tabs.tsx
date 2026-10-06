@@ -75,10 +75,10 @@ const tabsListVariants = cva(
              the strip unmoved. */
           'rounded-(--hd-radius-sm) bg-(--hd-muted) p-px group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
         line: 'gap-1 rounded-none bg-transparent group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
-        /* The underline: no track, an indicator under the active tab. Belongs
+        /* Page sections: no track, an indicator under the active tab. Belongs
            where the tabs sit *above* what they switch — a pane, a page — and
            the rule under them is shared with the content's own top edge. */
-        section: 'min-w-full justify-start gap-1 rounded-none bg-transparent border-b border-(--hd-border) px-(--hd-space-2) group-data-[orientation=horizontal]/tabs:h-(--hd-bar-h)',
+        section: 'min-w-full justify-start gap-1 rounded-none bg-transparent border-b border-(--hd-border) px-[calc(var(--hd-space-6)-var(--hd-space-2)-var(--hd-border-width))] group-data-[orientation=horizontal]/tabs:h-(--hd-bar-h)',
       },
     },
     defaultVariants: { variant: 'default' },
@@ -95,7 +95,7 @@ const TabsList = ({
     data-slot="tabs-list"
     data-variant={variant}
     className={cn(tabsListVariants({ variant }),
-      contentInset === 'reading' && 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge)+var(--hd-border-width)-var(--hd-space-2))]', className)}
+      contentInset === 'reading' && 'pl-[calc(var(--hd-space-6)+var(--hd-table-edge)-var(--hd-space-2))]', className)}
     {...props}
   />
 )
@@ -106,6 +106,8 @@ const TabsTrigger = ({ className, ...props }: TabsPrimitive.Tab.Props) => (
     className={cn(
       'relative inline-flex items-center justify-center gap-1.5 rounded-(--hd-radius-sm) border border-transparent px-2 text-sm font-medium whitespace-nowrap outline-none transition-colors',
       'text-(--hd-muted-foreground) hover:text-(--hd-foreground)',
+      // Section strips scroll: keep the keyboard outline inside the tab.
+      'group-data-[variant=section]/tabs-list:focus-visible:outline-offset-[calc(-1*var(--hd-ring-width))]',
       'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
       '[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
       'group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start',
@@ -115,7 +117,7 @@ const TabsTrigger = ({ className, ...props }: TabsPrimitive.Tab.Props) => (
       /* Line: no fill at all, so the indicator is the only signal. */
       'group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:bg-transparent group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:text-(--hd-foreground)',
       /* The indicator, drawn as an ::after so it costs no layout and cannot
-         shift the row when it appears. Only the line variant reveals it. */
+         shift the row when it appears. The line and section variants reveal it. */
       'after:absolute after:bg-(--hd-foreground) after:opacity-0 after:transition-opacity',
       'group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:-bottom-px group-data-[orientation=horizontal]/tabs:after:h-0.5',
       'group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-px group-data-[orientation=vertical]/tabs:after:w-0.5',

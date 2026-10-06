@@ -32,7 +32,7 @@ export type GroupLabelProps = Omit<ComponentProps<'span'>, 'children'> & {
 }
 
 export const groupLabelClass =
-  'm-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-[number:var(--hd-label-weight,var(--hd-weight-normal))] text-(--hd-secondary-foreground)'
+  'm-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-(weight:--hd-label-weight) text-(--hd-secondary-foreground)'
 
 export const GroupLabel = ({ as = 'span', className, ink = 'secondary', children, ...props }: GroupLabelProps) =>
   createElement(as, { 'data-slot': 'group-label', className: cn(groupLabelClass, ink === 'muted' && 'text-(--hd-muted-foreground)', className), ...props }, children)
