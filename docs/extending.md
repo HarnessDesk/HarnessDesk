@@ -668,15 +668,20 @@ an ordinary conversation's opening is `**Preview Agent Preview Model** · via Ha
 Comments open with `**Fixer · Preview Agent Preview Model** · via HarnessDesk`.
 Descriptions end with `🤖 Writer: Preview Agent Preview Model · via [HarnessDesk](https://harnessdesk.app)`.
 
-Description updates retain the latest seat for each role and agent pair. The
+Description updates retain the latest seat for each role and agent pair, up to eight pairs. The
 marked last line keeps URI-encoded contributor data beside `<!-- harnessdesk:signature -->`,
 so editing its visible text or changing the template keeps earlier authors.
 The current template's contributor portion renders each distinct credit once,
 with its prefix and suffix shared. Old marked signatures and the former default's
 unmarked trailing line are recognised and upgraded without duplication.
-Description labels and rendered model, effort, version and Team parts use the
-marker's plain alphabet: unsupported characters become spaces, link forms and
+Description labels and rendered model, effort, version and Team parts use
+Unicode letters, combining marks and numbers; spaces; periods, commas, colons,
+straight and typographic apostrophes, parentheses, plus signs, slashes, middle
+dots and hyphens. Unsupported characters become spaces, link forms and
 short references are removed, and parts longer than 80 characters are truncated.
+Short references begin at a word boundary (`gh-` followed by digits), so words
+such as `High-5` keep their letters. Role ids use the same short-reference
+cleanup after their ASCII character rule is applied.
 Comments mark their opening signature line with the same signature mark.
 
 Card commits retain the desk's co-author and add the native commit credit

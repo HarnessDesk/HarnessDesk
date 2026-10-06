@@ -805,8 +805,8 @@ Fixer are capitalised. Other role ids use ASCII letters, digits and hyphens; oth
 characters become `-`. They are bounded to 32 characters, with `role` used when
 nothing usable remains.
 
-A description keeps the latest seat for each role and agent pair in its hidden
-signature marker.
+A description keeps the latest seat for each role and agent pair, up to eight
+pairs, in its hidden signature marker.
 Its visible line is rendered under the current template, so a person's edits
 to that line or a new template cannot erase the earlier credits. Legacy
 signatures are upgraded when edited. A review or comment keeps the role and
@@ -826,8 +826,8 @@ The person's own configured identity remains the author. A person's own text
 carries no signature: its absence means a person, rather than an agent whose
 role the reader must guess.
 
-**The rule:** the desk signs agent text at publication, and preserves each
-contributor's role and seat across description edits.
+**The rule:** the desk signs agent text at publication, and preserves the latest
+seat for each role and agent pair, up to eight pairs, across description edits.
 
 ## Where a conversation runs is chosen on the draft, and made on send
 
