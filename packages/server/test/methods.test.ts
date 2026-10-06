@@ -353,6 +353,10 @@ test('an answered signed-out provider ranks ahead of a failed account read', asy
   assert.equal(warnings.length, 1)
   assert.match(JSON.stringify(warnings), /failed-account/)
   assert.match(JSON.stringify(warnings), /fixture account failure/)
+  assert.deepEqual((warnings[0] as [string, object])[1], {
+    runtime: failed.info.id,
+    error: 'Error: fixture account failure',
+  })
 })
 
 for (const signedOut of [false, true]) {

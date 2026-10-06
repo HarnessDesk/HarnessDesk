@@ -108,6 +108,9 @@ for (const [imported, helper] of [
   ['./helper.mjs', 'helper.mts'], ['./helper.cjs', 'helper.cts'],
   ['./helper', 'helper.mts'], ['./helper', 'helper.cts'],
   ['./helper', 'helper/index.mts'], ['./helper', 'helper/index.cts'],
+  ['./helper.config', 'helper.config.ts'],
+  ['./fixtures.shared', 'fixtures.shared.ts'],
+  ['./frames.v2', 'frames.v2.ts'],
 ]) {
   test(`import scan follows ${imported} to ${helper}`, async () => {
     const { serverSpecs, uiPackages } = await import('./ci-changes.mjs')

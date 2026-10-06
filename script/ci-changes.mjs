@@ -80,12 +80,14 @@ export function serverSpecs(root, inputs) {
         const base = resolve(dirname(file), specifier)
         const extensions = ['.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs', '.js', '.jsx']
         const extension = extname(base)
-        if (extension && !extensions.includes(extension)) continue
         const helper = [base, ...extensions.map(ext => `${base}${ext}`),
           base.replace(/\.js$/, '.ts'), base.replace(/\.mjs$/, '.mts'), base.replace(/\.cjs$/, '.cts'),
           ...extensions.map(ext => join(base, `index${ext}`))]
           .find(candidate => existsSync(candidate) && extensions.includes(extname(candidate)))
-        if (!helper) throw new Error(`Cannot resolve suite import: ${specifier}`)
+        if (!helper) {
+          if (extension && !extensions.includes(extension)) continue
+          throw new Error(`Cannot resolve suite import: ${specifier}`)
+        }
         if (readsOutside(helper, seen)) return true
       }
     }

@@ -36,8 +36,9 @@ export const terminalMethods = {
           if (result.settled !== 'value') {
             ctx.logger.warn('a terminal provider account read did not answer, so other providers are preferred', {
               runtime: candidate.info.id,
-              afterMs: TERMINAL_ACCOUNT_READ_DEADLINE_MS,
-              ...(result.settled === 'error' ? { error: String(result.error) } : {}),
+              ...(result.settled === 'late'
+                ? { afterMs: TERMINAL_ACCOUNT_READ_DEADLINE_MS }
+                : { error: String(result.error) }),
             })
             continue
           }
