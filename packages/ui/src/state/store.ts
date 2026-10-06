@@ -6,6 +6,7 @@ import {
   questionWaitOf,
   type QuestionWait,
   mergeRead,
+  PendingConversationNotices,
   readRuntimeNotices,
   runtimeNoticeKey,
   orderTasks,
@@ -570,7 +571,7 @@ export class AppStore {
             : []
           for (const session of rawSessions) {
             if (session && typeof session === 'object' && session.runtime && session.id) {
-              sessions.set(sessionKey(session.runtime, session.id), session)
+              sessions.set(sessionKey(session.runtime, session.id), this.#pendingConversationNotices.apply(session))
             }
           }
           // Replaced, not merged: the host sends every queue that has anything
@@ -2951,6 +2952,8 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
+    const { runtime, id } = splitSessionKey(key)
+    this.#pendingConversationNotices.delete(runtime, id)
     const { sessions, queues, tasks, history, historyIdentity, approvals } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
     const docked = mountedViewsIn(this.#snapshot.workbench).filter(
@@ -7286,7 +7289,11 @@ export class AppStore {
     const target = 'sessionId' in event ? event.sessionId : undefined
     if (!target) return
     const existing = this.#snapshot.sessions.get(sessionKey(runtime, target))
-    if (!existing) return
+    if (!existing) {
+      if (event.type === 'session/closed') this.#pendingConversationNotices.delete(runtime, target)
+      else this.#pendingConversationNotices.keep(runtime, event)
+      return
+    }
     const next = reduceSession(existing, event)
     if (next !== existing) this.#setSession(next)
     // The sidebar reads the backend's list, which learns about a conversation
@@ -7332,7 +7339,10 @@ export class AppStore {
     }, 600)
   }
 
+  readonly #pendingConversationNotices = new PendingConversationNotices()
+
   #setSession(session: Session): void {
+    session = this.#pendingConversationNotices.apply(session)
     const sessions = new Map(this.#snapshot.sessions)
     const key = sessionKey(session.runtime, session.id)
     const existing = sessions.get(key)
