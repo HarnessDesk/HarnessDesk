@@ -261,7 +261,7 @@ export interface FlowExecutionPort {
    */
   canReadProvider?(runtime: string): boolean
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
-  openSeat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord>
+  openSeat(input: GoalSeatRequest & { readonly role: string; readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
   canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
   /** `at`, host-only: the commit every Seat of the new Goal works at, each in a checkout of its own cut from it. */
@@ -338,7 +338,7 @@ export interface FlowExecutionPort {
    * check is named apart from temporary checks and survives startup cleanup.
    */
   checkoutAt?(cwd: string, at: string, options?: { readonly retained?: true; readonly signal?: AbortSignal }): Promise<{ readonly cwd: string; remove(): Promise<void> }>
-  commitWork?(cwd: string, before: readonly string[], message: string): Promise<
+  commitWork?(cwd: string, before: readonly string[], message: string, seat: SeatRecord): Promise<
     { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
   >
   /**
@@ -1820,7 +1820,7 @@ export class FlowExecutions {
       return "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role."
     }
     if (!this.#port.commitWork) return 'Refused: this desk cannot commit for a Seat.'
-    const made = await this.#port.commitWork(seat.checkout.cwd, before, message)
+    const made = await this.#port.commitWork(seat.checkout.cwd, before, message, seat)
     if ('refused' in made) return made.refused
     return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.`
   }
@@ -3328,7 +3328,7 @@ export class FlowExecutions {
       let record: SeatRecord
       try {
         record = await this.#port.openSeat({
-          goal: run.goal, agent: binding.agent.id,
+          goal: run.goal, agent: binding.agent.id, role: round.role,
           ...(candidates.length ? { seats: candidates } : {}),
           grant: { kind: 'ceiling', level: binding.grant }, card, isolate: isolate || base !== null,
           /* A lane the file did not ask for, for a Seat that only reads, is

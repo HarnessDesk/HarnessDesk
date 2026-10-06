@@ -53,6 +53,7 @@ test('the seat is read off the host: the agent’s name and version, the model b
     effort: null,
     thinking: false,
     label: 'Fake Runtime Fake One',
+    role: null, round: null, team: null,
   })
 
   // The seat follows the conversation's controls, not a value read at open.

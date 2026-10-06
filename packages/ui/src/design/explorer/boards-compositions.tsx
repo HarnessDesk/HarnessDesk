@@ -8,6 +8,7 @@ import { StopRunBoard } from '../../preview/frames-stop-run'
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
 import { FlowOverlayBoard } from '../../preview/frames-flow-overlay'
 import { ReviewPublicationBoard } from '../../preview/frames-review-publication'
+import { FlowCanvasBoard } from '../../preview/frames-flow-canvas'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
@@ -3023,6 +3024,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Run timeline',
     about: 'The recorded rounds, cards, checks, findings and ending doors, with a selectable row and the frozen Flow in the header.',
     render: RunViewBoard,
+  },
+  {
+    id: 'flow-canvas',
+    title: 'FlowCanvas',
+    about: 'Five steps, six rules and one attachment: editable and read-only, followed by a Run with auto-layout positions and state slots.',
+    render: FlowCanvasBoard,
   },
   {
     id: 'flow-graph',

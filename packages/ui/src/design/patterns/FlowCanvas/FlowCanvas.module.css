@@ -1,0 +1,75 @@
+.canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  container: flow-canvas / inline-size;
+  overflow: hidden;
+  background: var(--hd-background);
+  color: var(--hd-foreground);
+  border-radius: var(--hd-radius-lg);
+  box-shadow: var(--hd-hairline);
+  --xy-edge-stroke: var(--hd-border-strong);
+  --xy-edge-stroke-selected: var(--hd-accent);
+  --xy-connectionline-stroke: var(--hd-accent);
+  --xy-connectionline-stroke-width: var(--hd-border-width);
+  --xy-selection-background-color: var(--hd-accent-dim);
+  --xy-selection-border: var(--hd-border-width) dotted var(--hd-accent);
+  --xy-background-color: var(--hd-background);
+  --xy-minimap-background-color: var(--hd-background);
+  --xy-minimap-mask-background-color: var(--hd-muted);
+  --xy-attribution-background-color: var(--hd-background);
+}
+.node { width: 100%; }
+.card {
+  background: var(--hd-card);
+  border-radius: var(--hd-radius);
+  box-shadow: var(--hd-hairline), var(--hd-shadow-sm);
+  overflow: hidden;
+}
+.card[data-selected] { box-shadow: var(--hd-focus-ring); }
+.seats { padding: 0 var(--hd-space-3) var(--hd-space-2); }
+.state {
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border-top: var(--hd-border-width) solid var(--hd-border);
+}
+.edge { stroke-width: var(--hd-border-width); }
+.word { position: absolute; pointer-events: none; }
+.tools {
+  display: flex;
+  gap: var(--hd-space-0-5);
+  padding: var(--hd-space-1);
+  background: var(--hd-card);
+  border-radius: var(--hd-radius);
+  box-shadow: var(--hd-hairline), var(--hd-shadow-sm);
+}
+.canvas :global(.react-flow__handle) {
+  z-index: var(--hd-z-sticky);
+  width: var(--hd-space-1-5);
+  height: var(--hd-space-1-5);
+  min-width: 0;
+  min-height: 0;
+  border: var(--hd-border-width) solid var(--hd-muted-foreground);
+  background: var(--hd-card);
+  opacity: 0;
+}
+.node:hover :global(.react-flow__handle),
+.canvas :global(.react-flow__node):focus-within :global(.react-flow__handle) { opacity: 1; }
+.node[data-readonly="true"] :global(.react-flow__handle) { visibility: hidden; }
+.canvas[data-tool="hand"] :global(.react-flow__handle) { visibility: hidden; }
+.canvas :global(.react-flow__minimap) {
+  border-radius: var(--hd-radius);
+  box-shadow: var(--hd-hairline), var(--hd-shadow-sm);
+  overflow: hidden;
+}
+@container flow-canvas (max-width: 399px) {
+  .canvas :global(.react-flow__minimap) { display: none; }
+}
+.canvas :global(.react-flow__attribution) {
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-xs);
+  padding: var(--hd-space-0-5) var(--hd-space-1);
+}
+.canvas :global(.react-flow__attribution a) { color: var(--hd-muted-foreground); }
+.canvas :global(.react-flow__node):focus-visible { outline: none; }
+.canvas :global(.react-flow__node):focus-visible .card { box-shadow: var(--hd-focus-ring); }

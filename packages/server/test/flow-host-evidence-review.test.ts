@@ -107,7 +107,13 @@ test('the review-pr flow reaches its end', E2E, async (t) => {
   const [fixer] = await claimed(d, run.goal, 'fixer', 1)
   d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
   await write(d, fixer!, 'fixed')
-  for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'approve')
+  for (const card of await claimed(d, run.goal, 'reviewer', 2)) {
+    const forge = await d.host.forgePlane.seat(scopeOf(card))
+    assert.equal(forge?.role, 'reviewer')
+    assert.equal(forge?.team, d.host.teamPlane.stateFor(run.goal).name)
+    assert.equal(forge?.round, 1, 'this is the first review round in the run')
+    await review(d, card, 'approve')
+  }
   // The mechanical check runs by itself, the way mechanical-contest's `decide` does; no card to drive.
   await person(d, run.goal, 'referee', 'merged')
   await settled(d, run.id)
@@ -127,14 +133,22 @@ test('the review-pr flow reaches its person referee through two repairs', E2E, a
   const [fixer] = await claimed(d, run.goal, 'fixer', 1)
   d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
   await write(d, fixer!, 'fixed')
-  for (const attempt of ['repaired once', 'repaired twice']) {
-    for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'request-changes')
+  for (const [index, attempt] of ['repaired once', 'repaired twice'].entries()) {
+    for (const card of await claimed(d, run.goal, 'reviewer', 2)) {
+      const forge = await d.host.forgePlane.seat(scopeOf(card))
+      assert.equal(forge?.round, index + 1, `review ${index + 1} counts earlier review rounds, not work rounds`)
+      await review(d, card, 'request-changes')
+    }
     const [repair] = await claimed(d, run.goal, 'fixer', 1)
     // Each repair is its own Seat's checkout: the pull request the forge reports is the one on its branch.
     d.forge.open.add(await git(cwdOf(d, repair!), 'symbolic-ref', '--short', 'HEAD'))
     await write(d, repair!, attempt)
   }
-  for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'approve')
+  for (const card of await claimed(d, run.goal, 'reviewer', 2)) {
+    const forge = await d.host.forgePlane.seat(scopeOf(card))
+    assert.equal(forge?.round, 3, 'the final review follows two earlier review rounds')
+    await review(d, card, 'approve')
+  }
   const referee = await person(d, run.goal, 'referee', 'merged')
   assert.equal(referee.role, 'referee', 'the person referee was reached, not a stop for the budget')
   const done = await settled(d, run.id)

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
+import { defaultGraphPosition } from '../lib/shapes'
 import { ShapeGraph } from './ShapeGraph'
 
 /**
@@ -113,6 +114,21 @@ it('no positions saved yet renders every role in stable order, and mounting writ
   expect(node('review')).toBeTruthy()
   expect(node('ship')).toBeTruthy()
   expect(onPositions).not.toHaveBeenCalled()
+})
+
+it('uses a default position when a role id matches an inherited object key', () => {
+  const constructorOnly: FlowPolicy = {
+    ...POLICY,
+    roles: [{ id: 'constructor', kind: 'person', outcomes: ['done'] }],
+    rules: [],
+    seed: { role: 'constructor', title: 'Go' },
+    layout: {},
+  }
+  render(constructorOnly)
+
+  const expected = defaultGraphPosition(0)
+  expect(node('constructor').style.left).toBe(`${expected.x}px`)
+  expect(node('constructor').style.top).toBe(`${expected.y}px`)
 })
 
 it('the rule list carries every rule, including the back edge, in accessible text', () => {

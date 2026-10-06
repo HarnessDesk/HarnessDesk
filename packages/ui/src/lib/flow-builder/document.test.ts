@@ -8,8 +8,8 @@ import { flowLayout } from '../flow-layout'
 import { flowModel } from '../flow-model'
 import { emptyShapePolicy } from '../shapes'
 import {
-  createDocument, documentGraph, graphDocument, sourceRequest, documentPolicy,
-  addStep, moveStep, renameStep, deleteStep, builderProblems,
+  createDocument, documentGraph, graphDocument, sourceRequest, documentPolicy, builderProblems,
+  addStep, moveStep, renameStep, deleteStep,
 } from './index'
 
 const shipped = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
@@ -50,6 +50,30 @@ describe('the builder document', () => {
     expect(graph.nodes.every((node) => Number.isInteger(node.position.x) && Number.isInteger(node.position.y))).toBe(true)
     expect(graphDocument(document, graph)).toBe(document)
     expect(sourceRequest(document)).toEqual({ kind: 'source', source })
+  })
+
+  it('round-trips saved positions for roles named prototype or constructor', () => {
+    const policy: FlowPolicy = {
+      ...emptyShapePolicy(),
+      roles: [
+        { id: 'constructor', kind: 'person', outcomes: ['done'] },
+        { id: 'prototype', kind: 'person', outcomes: ['done'] },
+      ],
+      rules: [{ id: 'continue', on: 'constructor', then: { role: 'prototype', title: 'Continue' } }],
+      seed: { role: 'constructor', title: 'Start' },
+      layout: { positions: { constructor: { x: 400, y: 500 }, prototype: { x: 700, y: 410 } } },
+    }
+    const source = writeShape(policy)
+    const parsed = parseFlowPolicy(source)
+    expect(parsed.problems.filter((one) => one.level === 'error')).toEqual([])
+    if (parsed.document?.format !== 'agents') throw new Error('Expected an Agent-routed Flow')
+
+    const reopened = createDocument(parsed.document.flow, source)
+    const ids = new Map(reopened.steps.map((step) => [step.role, step.id]))
+    expect(reopened.positions[ids.get('constructor')!]).toEqual({ x: 400, y: 500 })
+    expect(reopened.positions[ids.get('prototype')!]).toEqual({ x: 700, y: 410 })
+    expect(reopened.invalidPositions).toBe(false)
+    expect(builderProblems(reopened).some((problem) => problem.kind === 'layout')).toBe(false)
   })
 
   it('keeps unchanged fractional saved positions exact during graph sync', () => {
@@ -141,7 +165,7 @@ describe('the builder document', () => {
   it('refuses stale, missing and semantic graph changes instead of losing them', () => {
     const document = createDocument({
       ...emptyShapePolicy(),
-      roles: [{ id: 'review', kind: 'agent', uses: [], seats: [], grant: 'edit', isolate: true, independentOf: [] }],
+      roles: [{ id: 'review', kind: 'agent', uses: ['implementer'], seats: [{ runtime: 'demo', model: 'example-model' }], grant: 'edit', isolate: true, independentOf: [] }],
     })
     const graph = documentGraph(document)
     expect(() => graphDocument(document, { ...graph, nodes: [] })).toThrow(/operations/i)
@@ -153,7 +177,10 @@ describe('the builder document', () => {
     if (step.data.kind !== 'step') throw new Error("Expected the empty draft's node to be a step")
     const stepData = step.data
     if (stepData.role.kind !== 'agent') throw new Error("Expected the empty draft's role to be an Agent")
+    const role = stepData.role
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, id: 'changed' } } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...role, uses: [...role.uses, 'reviewer'] } } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...role, seats: [{ ...role.seats[0]!, nested: { extra: true } }] as never } } }] })).toThrow(/step/i)
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, name: 'Changed' } } }] })).toThrow(/step/i)
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, blind: false } as never } }] })).toThrow(/step/i)
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, extra: true } as never } }] })).toThrow(/step/i)
