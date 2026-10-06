@@ -1038,7 +1038,7 @@ const IntentCard = ({
   const menuVerbs = verbs.filter(one => !listColumns || record || one !== primary)
   const actions = (
         menuVerbs.length > 0 || checkItems.length > 0 || onAssign ? (
-          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right" triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
             {(close) => (
               <Menu close={close}>
                 {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}
@@ -1121,7 +1121,9 @@ const IntentCard = ({
         {listColumns.has('updated') && <TableCell numeric className={JOB_COLUMN_CLASS.updated}><Text role="meta" numeric title={new Date(intent.updatedAt).toLocaleString()}>{describeAge(now - intent.updatedAt)}</Text></TableCell>}
         <TableCell align="end" className="w-px"><span className="inline-flex items-center gap-1.5">
           {primary && !record && <Button variant="outline" size="sm" onClick={() => 'answer' in primary ? openAnswerDialog() : primary.review ? void openReviewDialog() : onAct(primary.verb, primary.outcome)}>{primary.label}</Button>}
-          <span className="opacity-0 group-hover/job:opacity-100 group-focus-within/job:opacity-100 has-[[aria-expanded=true]]:opacity-100">{actions}</span>
+          <span className="opacity-0 group-hover/job:opacity-100 group-focus-within/job:opacity-100 has-[[aria-expanded=true]]:opacity-100">
+            <span className="flex size-(--hd-btn-h-sm) shrink-0 items-center justify-center">{actions}</span>
+          </span>
         </span></TableCell>
       </TableRow>
     ) : <BoardCard

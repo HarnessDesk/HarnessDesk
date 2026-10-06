@@ -8,8 +8,8 @@ for (const theme of ['light', 'dark'] as const) {
     const pane = page.locator('[data-frame-id="board-list-page"]')
     await pane.getByRole('radio', { name: 'List', exact: true }).click()
     const table = pane.getByRole('table', { name: 'Jobs' })
-    await expect(table.locator('tbody tr')).toHaveCount(5)
-    await expect(pane.getByRole('button', { name: 'All 5', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(table.locator('tbody tr')).toHaveCount(4)
+    await expect(pane.getByRole('button', { name: 'All 4', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(table.locator('tbody tr').first()).toContainText('Choose the target')
     await page.evaluate(() => document.fonts.ready)
     const geometry = await pane.evaluate(root => {
@@ -58,7 +58,7 @@ for (const theme of ['light', 'dark'] as const) {
     }
     await pane.getByRole('button', { name: 'Needs you 1', exact: true }).click()
     await expect(table.locator('tbody tr')).toHaveCount(1)
-    await pane.getByRole('button', { name: 'All 5', exact: true }).click()
+    await pane.getByRole('button', { name: 'All 4', exact: true }).click()
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('Retry the checkout')
     await expect(table.locator('tbody tr')).toHaveCount(1)
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('no matching job')
@@ -66,13 +66,13 @@ for (const theme of ['light', 'dark'] as const) {
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('')
     await pane.getByRole('button', { name: 'View: columns and sort', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Most recent', exact: true }).click()
-    await expect(table.locator('tbody tr').first()).toContainText('Land the reviewed commit')
+    await expect(table.locator('tbody tr').first()).toContainText('Wait for retry coverage')
     await pane.getByRole('button', { name: 'View: columns and sort', exact: true }).click()
     await page.getByRole('switch', { name: 'Changes', exact: true }).click()
     await expect(table.getByRole('columnheader', { name: 'Changes', exact: true })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await pane.getByRole('radio', { name: 'Board', exact: true }).click()
-    await expect(pane.locator('[data-slot="board-card"]')).toHaveCount(5)
+    await expect(pane.locator('[data-slot="board-card"]')).toHaveCount(4)
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/board-${theme}.png` })
       await page.goto('/preview.html')
@@ -81,6 +81,21 @@ for (const theme of ['light', 'dark'] as const) {
       expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
       await observed.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/after-${theme}.png` })
     }
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`list repair: row actions align when one row has a menu in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list&evidence=none')
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    const stopped = pane.locator('[data-job="2"]').getByRole('button', { name: 'Put back in play', exact: true })
+    const finished = pane.locator('[data-job="1"]').getByRole('button', { name: 'Put back in play', exact: true })
+    const stoppedLeft = (await stopped.boundingBox())!.x
+    const finishedLeft = (await finished.boundingBox())!.x
+    expect(Math.abs(stoppedLeft - finishedLeft)).toBeLessThan(1)
   })
 }
 
