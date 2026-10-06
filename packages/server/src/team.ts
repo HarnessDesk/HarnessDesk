@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs'
+import { mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -41,7 +41,7 @@ import {
   type PersonNoticeInput,
 } from '@harnessdesk/protocol'
 
-import { blockedByCaller, carryCardWork } from './card-claims.js'
+import { blockedByCaller, carryCardWork, RETAINED_WORK_MS } from './card-claims.js'
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
@@ -342,7 +342,7 @@ export interface TeamPort {
   /** Rechecked after a live handle is prepared and immediately before delivery. */
   canDispatch?(goal: string): { ok: true } | { ok: false; reason: string }
   /** Refuses every board mutation once a durable Goal starts wrapping. */
-  canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
+  canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string; readOnly?: boolean }
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
   /**
@@ -904,6 +904,8 @@ export class Team {
   readonly #memberWaits = new Map<string, MemberWaits>()
   readonly #waitingInvocations = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
+  /** Busy Goals cannot be edited; persist their discarded baselines before another claim lands. */
+  #discardedWork = new Map<string, number>()
   /*
    * A Goal board's save that has not begun yet, by board. A Goal board has one
    * writer — this engine's copy — and its save is built when it runs, from
@@ -1024,6 +1026,14 @@ export class Team {
        migration pass below. Collected rather than resolved inline: the read
        loop stays pure file I/O, and the git the resolver runs happens once,
        concurrently and on a clock, rather than once per board in series. */
+    try {
+      const discarded: unknown = JSON.parse(await readFile(join(this.#dir, 'discarded-work'), 'utf8'))
+      if (!Array.isArray(discarded) || discarded.some((one) => !Array.isArray(one) || one.length !== 2 ||
+        typeof one[0] !== 'string' || typeof one[1] !== 'number')) throw new Error('Invalid discarded ownership records')
+      this.#discardedWork = new Map(discarded as [string, number][])
+    } catch (error) {
+      if (!NOTHING_YET.has(errnoOf(error))) throw error
+    }
     const recordedRoots = new Map<string, string>()
     for (const name of names) {
       if (!name.endsWith('.json') || name === 'inbound.json') continue
@@ -2062,7 +2072,7 @@ export class Team {
         [...board.intents]
           .filter(
             (intent) =>
-              (intent.state === 'open' || blockedByCaller(intent, caller)) &&
+              intent.state === 'open' &&
               !intent.claim &&
               this.#misaddressed(board, intent, caller) === null &&
               (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
@@ -2195,7 +2205,7 @@ export class Team {
     }
     return board.intents.some(
       (intent) =>
-        (intent.state === 'open' || blockedByCaller(intent, peer)) &&
+        intent.state === 'open' &&
         !intent.claim &&
         this.#misaddressed(board, intent, peer) === null &&
         (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
@@ -2362,7 +2372,7 @@ export class Team {
       return 'Refused: your review round is still open and blind, so you cannot take other work until it closes. Finish your review card.'
     }
     const ready = (intent: Intent): boolean =>
-      (intent.state === 'open' || blockedByCaller(intent, caller)) &&
+      intent.state === 'open' &&
       !intent.claim &&
       /* A card addressed to a role is not "the next card" for anybody else.
          Skipped rather than refused: `claim_next` is a member asking what it
@@ -4478,11 +4488,15 @@ export class Team {
 
   /** Another card claiming this checkout ends any released card's exclusive ownership. */
   #carryWork(board: Board, changed: readonly Intent[]): Intent[] {
-    const next = [...carryCardWork(board.intents, changed)]
+    const before = board.intents.map((card) => this.#discardedWork.has(this.#workKey(board.id, card))
+      ? { ...card, previousClaim: null } : card)
+    const next = [...carryCardWork(before, changed.map((card) => this.#discardedWork.has(this.#workKey(board.id, card))
+      ? { ...card, previousClaim: null } : card))]
     const claimed = next.filter((card) => {
       const old = board.intents.find((one) => one.id === card.id)?.claim
       return card.claim && (!old || card.claim.at !== old.at || card.claim.runtime !== old.runtime || card.claim.sessionId !== old.sessionId)
     })
+    if (claimed.length === 0 && !next.some((card) => card.previousClaim)) return next
     const overlaps = (card: Intent): boolean => Boolean(card.previousClaim?.cwd && claimed.some((one) =>
       one.claim?.cwd && sameCanonicalPath(one.claim.cwd, card.previousClaim!.cwd!),
     ))
@@ -4493,15 +4507,21 @@ export class Team {
     for (const other of this.#boards.values()) {
       if (other.id === board.id) continue
       // Wrapped and restored boards cannot reclaim work and must stay read-only.
-      if (this.#port.canMutateBoard?.(other.id)?.ok === false) continue
+      const allowed = this.#port.canMutateBoard?.(other.id)
+      if (allowed?.ok === false && allowed.readOnly) continue
+      if (allowed?.ok === false) {
+        // The busy board stays untouched. Its next resume checks this durable discard.
+        const discarded = other.intents.filter(overlaps)
+        if (discarded.length > 0) this.#discardWork(other.id, discarded)
+      }
       let invalidated = false
       other.intents = other.intents.map((card) => {
-        if (!overlaps(card)) return card
+        if (allowed?.ok === false || !overlaps(card)) return card
         invalidated = true
         return { ...card, previousClaim: null }
       })
       // Conservatively keep ownership discarded even if this claim's own save fails.
-      if (invalidated) this.#commit(other)
+      if (invalidated) this.#commit(other, false)
       for (const [index, card] of next.entries()) {
         if (card.previousClaim?.cwd && other.intents.some((one) => one.claim?.cwd && sameCanonicalPath(one.claim.cwd, card.previousClaim!.cwd!))) {
           next[index] = { ...card, previousClaim: null }
@@ -4509,6 +4529,24 @@ export class Team {
       }
     }
     return next
+  }
+
+  #workKey(board: string, card: Intent): string {
+    const previous = card.previousClaim
+    return JSON.stringify([board, card.id, previous?.runtime, previous?.sessionId, previous?.at, previous?.cwd])
+  }
+
+  #discardWork(board: string, cards: readonly Intent[]): void {
+    const now = Date.now()
+    const next = new Map([...this.#discardedWork].filter(([, at]) => now - at < RETAINED_WORK_MS))
+    for (const card of cards) next.set(this.#workKey(board, card), now)
+    // Rare, small writes at a cross-board claim boundary. A failed journal write
+    // refuses the claim rather than letting a restart recover somebody else's work.
+    mkdirSync(this.#dir, { recursive: true })
+    const file = join(this.#dir, 'discarded-work')
+    writeFileSync(`${file}.tmp`, JSON.stringify([...next]), { mode: 0o600 })
+    renameSync(`${file}.tmp`, file)
+    this.#discardedWork = next
   }
 
   #patchIntent(board: Board, id: number, patch: Partial<Intent>): void {

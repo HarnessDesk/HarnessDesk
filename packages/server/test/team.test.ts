@@ -4418,7 +4418,7 @@ test('a resumed card keeps its original dirty snapshot across release and restar
   }
 })
 
-test('the Seat that blocked its card can claim_next and complete it after restart (#1403)', async (t) => {
+test('the Seat that blocked its card can reclaim by id and complete it after restart (#1403)', async (t) => {
   const { team, port, dir, teamPort, room } = await rig(t)
   await twoAgents(port, team, room)
   await team.addIntent({ title: 'Publish it' }, codex)
@@ -4429,8 +4429,8 @@ test('the Seat that blocked its card can claim_next and complete it after restar
   try {
     await reborn.load()
     assert.match(await reborn.claim(1, claude), /deliberately blocked/)
-    assert.equal(reborn.hasWorkFor(room, codex.runtime, codex.sessionId), true)
-    assert.match(await reborn.claimNext(codex), /^Claimed #1/)
+    assert.equal(reborn.hasWorkFor(room, codex.runtime, codex.sessionId), false)
+    assert.match(await reborn.claim(1, codex), /^Claimed #1/)
     assert.match(await reborn.complete(1, { outcome: 'published' }, codex), /^Completed #1/)
   } finally {
     await reborn.flush()
@@ -4502,4 +4502,260 @@ test('retained ownership on a held board is not mutated by a claim on another bo
   assert.equal(team.stateFor(otherRoom).intents[0]!.state, 'open')
   release()
   assert.match(await team.claim(1, codex), /predates this claim/)
+})
+
+
+/** Each ownership boundary gets its own mutation-sensitive case. */
+const releasedWork = async (t: Parameters<typeof rig>[0]) => {
+  const proof = await rig(t)
+  await twoAgents(proof.port, proof.team, proof.room)
+  let snapshot: { head: string; upstream: string | null; dirtyPaths?: string[] | null } = {
+    head: 'original-head', upstream: 'original-upstream', dirtyPaths: ['local.md'],
+  }
+  proof.teamPort.startOf = async () => snapshot
+  await proof.team.addIntent({ title: 'Original work' }, codex)
+  await proof.team.claim(1, codex)
+  const release = async () => {
+    await proof.team.release(1, {}, codex)
+    snapshot = { head: 'new-head', upstream: 'new-upstream', dirtyPaths: ['local.md', 'work.md'] }
+  }
+  return { ...proof, release, snapshot: (next: typeof snapshot) => { snapshot = next } }
+}
+
+for (const identity of ['session', 'runtime', 'checkout'] as const) {
+  test(`retained ownership refuses a different ${identity} (#1403)`, async (t) => {
+    const proof = await releasedWork(t)
+    await proof.release()
+    const other = peer({ sessionId: identity === 'session' ? 'c2' : 'c1',
+      runtime: (identity === 'runtime' ? 'claude' : 'codex') as RuntimeId,
+      cwd: identity === 'checkout' ? '/repo/other' : '/repo' })
+    proof.port.peers = [other]
+    await proof.team.joinRoom(proof.room, other.runtime, other.sessionId)
+    assert.doesNotMatch(await proof.team.claim(1, other), /predates this claim/)
+    assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+  })
+}
+
+for (const missing of [undefined, null]) {
+  test(`retained ownership never resumes a ${missing === null ? 'null' : 'missing'} snapshot (#1403)`, async (t) => {
+    const proof = await rig(t)
+    await twoAgents(proof.port, proof.team, proof.room)
+    proof.teamPort.startOf = async () => ({ head: null, upstream: null, dirtyPaths: missing })
+    await proof.team.addIntent({ title: 'Unknown ownership' }, codex)
+    await proof.team.claim(1, codex)
+    await proof.team.release(1, {}, codex)
+    proof.teamPort.startOf = async () => ({ head: 'fresh', upstream: null, dirtyPaths: ['work.md'] })
+    assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
+    assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['work.md'])
+  })
+}
+
+for (const field of ['head', 'upstream'] as const) {
+  test(`resume retains the original ${field} (#1403)`, async (t) => {
+    const proof = await releasedWork(t)
+    await proof.release()
+    await proof.team.claim(1, codex)
+    assert.equal(proof.team.stateFor(proof.room).intents[0]!.claim![field], `original-${field}`)
+  })
+}
+
+for (const ending of ['done', 'abandon'] as const) {
+  test(`${ending} ends retained ownership even after reopening (#1403)`, async (t) => {
+    const proof = await releasedWork(t)
+    await proof.team.intentAction(proof.room, 1, ending)
+    await proof.team.intentAction(proof.room, 1, 'reopen')
+    proof.snapshot({ head: 'fresh', upstream: null, dirtyPaths: ['local.md', 'work.md'] })
+    assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
+    assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+  })
+}
+
+test('release while another card holds this checkout drops retained ownership (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  await proof.team.addIntent({ title: 'Shared writer' }, claude)
+  await proof.team.claim(2, claude)
+  await proof.release()
+  await proof.team.complete(2, {}, claude)
+  assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
+  assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+})
+
+for (const field of ['previousClaim', 'cwd'] as const) {
+  test(`${field} stays off the Team wire before reclaim (#1403)`, async (t) => {
+    const proof = await releasedWork(t)
+    if (field === 'previousClaim') await proof.release()
+    const card = proof.team.stateFor(proof.room).intents[0]!
+    assert.equal(field === 'previousClaim' ? field in card : field in card.claim!, false)
+    if (field === 'previousClaim') {
+      await proof.team.flush()
+      const stored = JSON.parse(await readFile(join(proof.dir, `${encodeURIComponent(proof.room)}.json`), 'utf8'))
+      assert.ok(stored.intents[0].previousClaim, 'control: ownership is retained on disk')
+    }
+  })
+}
+
+const secondBoard = async (proof: Awaited<ReturnType<typeof releasedWork>>) => {
+  const otherRoom = (await proof.team.createRoom('/repo', 'Other board')).id
+  const other = peer({ sessionId: 'c2' })
+  proof.port.peers.push(other)
+  await proof.team.joinRoom(otherRoom, other.runtime, other.sessionId)
+  await proof.team.addIntent({ title: 'Other work' }, other)
+  return { otherRoom, other }
+}
+
+test('read-only boards keep their retained ownership untouched (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  await proof.release()
+  const { other } = await secondBoard(proof)
+  proof.teamPort.canMutateBoard = (id) => id === proof.room ? { ok: false, reason: 'wrapped', readOnly: true } : { ok: true }
+  await proof.team.claim(1, other)
+  await proof.team.complete(1, {}, other)
+  proof.teamPort.canMutateBoard = () => ({ ok: true })
+  assert.match(await proof.team.claim(1, codex), /predates this claim/)
+})
+
+test('release while another board holds this checkout drops retained ownership (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  const { other } = await secondBoard(proof)
+  await proof.team.claim(1, other)
+  await proof.release()
+  await proof.team.complete(1, {}, other)
+  assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
+  assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+})
+
+test('cross-board invalidation is saved without changing the other board activity (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  await proof.release()
+  const { other } = await secondBoard(proof)
+  proof.teamPort.canMutateBoard = () => ({ ok: true })
+  const before = proof.team.stateFor(proof.room).updatedAt
+  t.mock.method(Date, 'now', () => before + 1000)
+  await proof.team.claim(1, other)
+  assert.equal(proof.team.stateFor(proof.room).updatedAt, before)
+  await proof.team.complete(1, {}, other)
+  await proof.team.flush()
+  const reborn = new Team(proof.dir, proof.teamPort)
+  try {
+    await reborn.load()
+    assert.doesNotMatch(await reborn.claim(1, codex), /predates this claim/)
+    assert.deepEqual(reborn.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+  } finally { await reborn.flush() }
+})
+
+test('busy-board invalidation survives restart and takes a fresh snapshot (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  await proof.release()
+  const { other } = await secondBoard(proof)
+  proof.teamPort.canMutateBoard = (id) => id === proof.room ? { ok: false, reason: 'assignment staged' } : { ok: true }
+  await proof.team.claim(1, other)
+  await proof.team.release(1, {}, other)
+  await proof.team.flush()
+  proof.teamPort.canMutateBoard = () => ({ ok: true })
+  const reborn = new Team(proof.dir, proof.teamPort)
+  try {
+    await reborn.load()
+    assert.doesNotMatch(await reborn.claim(1, codex), /predates this claim/)
+    assert.deepEqual(reborn.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+  } finally { await reborn.flush() }
+})
+
+test('notes and new cards do not read other boards when there is no retained work (#1403)', async (t) => {
+  const proof = await rig(t)
+  await twoAgents(proof.port, proof.team, proof.room)
+  await proof.team.createRoom('/repo', 'Other board')
+  const calls: string[] = []
+  proof.teamPort.canMutateBoard = (id) => { calls.push(id); return { ok: true } }
+  await proof.team.addIntent({ title: 'New work' }, codex)
+  await proof.team.intentAction(proof.room, 1, 'reopen', 'a note')
+  assert.equal(calls.filter((id) => id !== proof.room).length, 0)
+})
+
+test('claim_next skips the caller’s blocked card for the next open card (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  await proof.team.release(1, { blocked: true, reason: 'wait' }, codex)
+  await proof.team.addIntent({ title: 'Next work' }, codex)
+  assert.match(await proof.team.claimNext(codex), /^Claimed #2/)
+})
+
+test('await_work waits when only the caller’s blocked card remains (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  await proof.team.release(1, { blocked: true, reason: 'wait' }, codex)
+  assert.equal(proof.team.hasWorkFor(proof.room, codex.runtime, codex.sessionId), false)
+  const waiting = proof.team.awaitWork(codex, { blockMs: 1000 })
+  let answered = false
+  void waiting.then(() => { answered = true })
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(answered, false, 'no immediately claimable work')
+  assert.match(await waiting, /^nothing yet/)
+})
+
+for (const identity of ['runtime', 'session'] as const) {
+  test(`a self-block requires the same ${identity} (#1403)`, async (t) => {
+    const proof = await releasedWork(t)
+    await proof.team.release(1, { blocked: true, reason: 'wait' }, codex)
+    const other = peer({ sessionId: identity === 'session' ? 'c2' : 'c1',
+      runtime: (identity === 'runtime' ? 'claude' : 'codex') as RuntimeId })
+    proof.port.peers.push(other)
+    await proof.team.joinRoom(proof.room, other.runtime, other.sessionId)
+    assert.match(await proof.team.claim(1, other), /deliberately blocked/)
+  })
+}
+
+test('retained ownership expires 24 hours after the original claim (#1403)', async (t) => {
+  const proof = await releasedWork(t)
+  const at = proof.team.stateFor(proof.room).intents[0]!.claim!.at
+  await proof.release()
+  t.mock.method(Date, 'now', () => at + 24 * 60 * 60 * 1000)
+  assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
+  assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+})
+
+test('the host fallback retains released ownership when no Team write carries it (#1403)', async (t) => {
+  const { start, halt, Client } = await import('./fixtures/harness.js')
+  const { makeRepo } = await import('./fixtures/evidence-desk.js')
+  const { GoalStore } = await import('../src/goals/store.js')
+  const repo = await makeRepo('hd-host-retained-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => { client.close(); await halt(harness); await rm(harness.stateDir, { recursive: true, force: true }) })
+  await writeFile(join(repo.dir, 'local.md'), 'Pre-card work\n')
+  await client.call('workspace/open', { path: repo.dir })
+  const created = await client.call('goal/create', { root: repo.dir, sentence: 'Resume it' }) as { goal: { id: string } }
+  const card = await client.call('team/add', { room: created.goal.id, title: 'Original' }) as { id: number }
+  const session = await client.call('session/create', { runtime: 'fake', options: { cwd: repo.dir } }) as { id: string }
+  const assigned = await client.call('goal/assign', { goal: created.goal.id, card: card.id,
+    session: { runtime: 'fake', sessionId: session.id } }) as { id: string }
+  await writeFile(join(repo.dir, 'work.md'), 'Preserved work\n')
+  // Exercise the unprojected fallback rather than Team's own carry implementation.
+  t.mock.method(harness.host.teamPlane, 'goalPlaneWrite', async () => false)
+  await client.call('goal/release', { goal: created.goal.id, seat: assigned.id })
+  const store = new GoalStore(harness.stateDir)
+  await store.load()
+  const released = store.read(created.goal.id).board.intents[0]!
+  assert.equal(released.claim, null)
+  assert.deepEqual(released.previousClaim?.dirtyPaths, ['local.md'])
+})
+
+test('the Flow hand-back names preserved work before the new claim (#1403)', async (t) => {
+  const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
+  const proof = await goalRig(t)
+  await proof.start(`
+version: 2
+name: Preserved hand-back
+roles:
+  writer: { kind: agent, uses: writer, grant: edit }
+seed: { role: writer, title: Resume it }
+rules: []
+`, [agent('writer', ['published'])])
+  await proof.flows.flush()
+  const scope = proof.sessionOf('seat-1')
+  const board = proof.board([...proof.goals.keys()][0]!)
+  proof.team.installProjection({ ...board, intents: board.intents.map((card) => ({ ...card,
+    claim: { ...card.claim!, cwd: '/repo', dirtyPaths: [] },
+  })) })
+  await proof.team.release(1, {}, scope)
+  await proof.flows.reArm(scope.runtime, scope.sessionId)
+  await proof.flows.flush()
+  assert.match(proof.orderTexts.get('seat-1')!.at(-1)!, /Your preserved work predates this claim/)
 })

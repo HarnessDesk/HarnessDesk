@@ -7,6 +7,9 @@ export const blockedByCaller = (card: Intent, caller: { readonly runtime: string
   card.state === 'blocked' && card.blockedBy === 'hand' &&
   card.blockedByAgent?.runtime === caller.runtime && card.blockedByAgent.sessionId === caller.sessionId
 
+// One day gives a restarted writer time to recover without retaining an idle checkout forever.
+export const RETAINED_WORK_MS = 24 * 60 * 60 * 1000
+
 /** Preserve the ownership baseline, never the current dirt, when the same card comes back. */
 export const carryCardWork = (before: readonly Intent[], next: readonly Intent[]): readonly Intent[] => {
   const prior = new Map(before.map((card) => [card.id, card]))
@@ -26,7 +29,7 @@ export const carryCardWork = (before: readonly Intent[], next: readonly Intent[]
       const previous = old.previousClaim
       const resumes = previous?.cwd && card.claim.cwd && sameCanonicalPath(previous.cwd, card.claim.cwd) &&
         previous.runtime === card.claim.runtime && previous.sessionId === card.claim.sessionId &&
-        Array.isArray(previous.dirtyPaths)
+        Array.isArray(previous.dirtyPaths) && Date.now() - previous.at < RETAINED_WORK_MS
       return {
         ...card, previousClaim: null,
         claim: resumes ? { ...card.claim, head: previous.head, upstream: previous.upstream, dirtyPaths: previous.dirtyPaths, resumed: true } : card.claim,

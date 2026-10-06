@@ -1824,7 +1824,7 @@ export class FlowExecutions {
     const made = await this.#port.commitWork(seat.checkout.cwd, before, message)
     if ('refused' in made) return made.refused
     const resumed = this.#team.stateFor(goal).intents.find((one) => one.id === card)?.claim?.resumed
-    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.${resumed ? ' This card’s preserved work predates this claim.' : ''}`
+    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.${resumed ? ` This card’s preserved work predates this claim. Committed paths: ${made.paths.join(', ')}.` : ''}`
   }
 
   /**
@@ -3981,8 +3981,8 @@ export class FlowExecutions {
   /**
    * `why` is what ended the Seat's last turn: the Seat itself (`turn-ended`,
    * budgeted), a pause or the cap a trigger's release lifted (`released`),
-   * or the desk quitting under it (`relaunched`). Neither of the last two is
-   * a Seat that stopped early, so neither counts against the budget.
+   * or the desk quitting under it (`relaunched`). The last two do not spend
+   * the unfinished-turn budget; a self-block still spends its own allowance.
    */
   async #reArm(id: string, operation: FlowOperation, why: 'turn-ended' | 'released' | 'relaunched' = 'turn-ended'): Promise<void> {
     const run = this.#get(id)
@@ -4059,6 +4059,20 @@ export class FlowExecutions {
       if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed to its Seat${again}: ${refused}`)
       return
     }
+    if (blockedByCaller(card, seat.session)) {
+      const spent = run.operations.filter((one) => one.kind === 'turn' && one.seat === seat.id &&
+        one.key.includes(':self-block:') && this.#now() - (run.operationTimes[one.key]?.preparedAt ?? 0) < 60 * 60 * 1000)
+      if (spent.length >= 3) {
+        await this.#stall(id, `The Seat for card #${card.id} blocked it ${spent.length} times inside the hour: ${card.blockedReason ?? 'no reason given'}. It is not being handed its card again.`)
+        return
+      }
+      if (!await this.#sameSeat(id, seat, card.id, round.role, why)) return
+      const prefix = `turn:${round.n}:${index}:self-block:`
+      const key = `${prefix}${run.operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
+      const refused = await this.#handOver(id, key, seat, card.id, binding)
+      if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed back after its Seat blocked it: ${refused}`)
+      return
+    }
     if (why !== 'turn-ended') {
       /* A turn a pause, the cap or a quit ended is not a Seat that stopped
          early: its card goes back once, outside the re-arm budget. */
@@ -4075,16 +4089,6 @@ export class FlowExecutions {
       }
       return
     }
-    if (blockedByCaller(card, seat.session)) {
-      if (!await this.#sameSeat(id, seat, card.id, round.role, why)) return
-      const prefix = `turn:${round.n}:${index}:self-block:`
-      const key = `${prefix}${run.operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
-      const refused = await this.#handOver(id, key, seat, card.id, binding)
-      if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed back after its Seat blocked it: ${refused}`)
-      return
-    }
-    // A person's block, or another conversation's, is never a reason to restart a Seat.
-    if (card.state === 'blocked' && card.blockedBy === 'hand') return
     const budget = policyOf(run).rearm ?? 3
     const spent = this.#spentOf(String(seat.id))
     if (spent.length >= budget) {

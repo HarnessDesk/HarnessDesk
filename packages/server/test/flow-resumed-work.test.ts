@@ -61,16 +61,18 @@ test('a scripted writer resumes, commits preserved work, publishes and completes
   let blocks = 0
   runtime.onSend = (session, text) => {
     if (!text.startsWith(`Card #${card.id} on this Goal`)) return
+    assert.match(text, /Your preserved work predates this claim/, 'the hand-back explains retained ownership')
     script = (async () => {
       assert.match(await host.teamPlane.claim(card.id, scope), /already hold|Claimed/)
       if (!published) {
         const committed = await host.teamPlane.commitWork(card.id, 'writer: preserve the resumed change', scope)
         assert.match(committed, /^Committed 1 file/)
         assert.match(committed, /predates this claim/)
+        assert.match(committed, /notes\.md/, 'the resumed commit names the preserved paths')
         assert.equal(await repo.git('show', '--name-only', '--format=', 'HEAD'), 'notes.md')
         published = true // The scripted forge now answers with this branch's pull request.
       }
-      if (blocks < 4) {
+      if (blocks < 3) {
         blocks++
         assert.match(await host.teamPlane.release(card.id, { blocked: true, reason: 'publication is ready' }, scope), /^Released/)
       } else {
@@ -92,7 +94,7 @@ test('a scripted writer resumes, commits preserved work, publishes and completes
   }, 'published card to settle its run')
   assert.equal(finished.state, 'settled')
   assert.equal(published, true)
-  assert.equal(blocks, 4, 'self-block hand-backs did not spend the three-turn stall budget')
+  assert.equal(blocks, 3, 'self-block hand-backs did not spend the three-turn stall budget')
   const done = (await host.call('goal/read', { goal: run.goal }) as GoalView).board.intents[0]!
   assert.equal(done.outcome, 'published')
   assert.equal(done.state, 'done')

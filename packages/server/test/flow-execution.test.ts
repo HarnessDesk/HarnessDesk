@@ -1721,7 +1721,7 @@ rules: []
 `, [agent('writer', ['published'])])
   await rig.flows.flush()
   const scope = rig.sessionOf('seat-1')
-  for (let turn = 0; turn < 5; turn++) {
+  for (let turn = 0; turn < 3; turn++) {
     if (rig.board(run.goal).intents[0]!.state === 'claimed') {
       assert.match(await rig.team.release(1, { blocked: true, reason: 'waiting for a commit' }, scope), /^Released/)
     }
@@ -1730,7 +1730,7 @@ rules: []
   }
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
   assert.equal(rig.board(run.goal).intents[0]!.state, 'claimed', 'handed back with a live claim')
-  assert.equal(orders(rig.events).length, 6)
+  assert.equal(orders(rig.events).length, 4)
   assert.match(await rig.team.complete(1, { outcome: 'published' }, scope), /^Completed/)
   await rig.flows.flush()
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'settled')
@@ -1755,4 +1755,86 @@ rules: []
   assert.equal(orders(rig.events).length, before)
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
   assert.equal(rig.board(run.goal).intents[0]!.state, 'blocked')
+})
+
+
+test('self-block hand-backs stall after three inside the rolling hour with the reason intact (#1403)', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(`
+version: 2
+name: Bounded self-block recovery
+roles:
+  author: { kind: agent, uses: writer, grant: edit }
+seed: { role: author, title: Publish it }
+rules: []
+`, [agent('writer', ['published'])])
+  await rig.flows.flush()
+  const scope = rig.sessionOf('seat-1')
+  for (let turn = 0; turn < 4; turn++) {
+    assert.match(await rig.team.release(1, { blocked: true, reason: 'waiting for permission' }, scope), /^Released/)
+    await rig.flows.reArm(scope.runtime, scope.sessionId)
+    await rig.flows.flush()
+  }
+  const stalled = rig.flows.executionOf(run.id)!
+  assert.equal(stalled.state, 'stalled')
+  assert.match(stalled.reason!, /card #1.*waiting for permission/)
+  assert.equal(rig.board(run.goal).intents[0]!.state, 'blocked')
+  assert.equal(rig.board(run.goal).intents[0]!.blockedReason, 'waiting for permission')
+  assert.equal(orders(rig.events).length, 4)
+})
+
+test('self-block allowance renews after an hour and remains separate from unfinished turns (#1403)', async (t) => {
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  const rig = await goalRig(t)
+  const run = await rig.start(`
+version: 2
+name: Rolling recovery
+roles:
+  author: { kind: agent, uses: writer, grant: edit }
+seed: { role: author, title: Publish it }
+rules: []
+`, [agent('writer', ['published'])])
+  await rig.flows.flush()
+  const scope = rig.sessionOf('seat-1')
+  for (let turn = 0; turn < 3; turn++) {
+    await rig.team.release(1, { blocked: true, reason: 'wait' }, scope)
+    await rig.flows.reArm(scope.runtime, scope.sessionId)
+    await rig.flows.flush()
+  }
+  await rig.flows.reArm(scope.runtime, scope.sessionId)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionOf(run.id)!.state, 'running', 'ordinary budget is unspent')
+  now += 60 * 60 * 1000
+  await rig.team.release(1, { blocked: true, reason: 'wait' }, scope)
+  await rig.flows.reArm(scope.runtime, scope.sessionId)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionOf(run.id)!.state, 'running')
+  assert.equal(rig.board(run.goal).intents[0]!.state, 'claimed')
+})
+
+test('the self-block allowance survives restart and applies to relaunch hand-backs (#1403)', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(`
+version: 2
+name: Durable recovery limit
+roles:
+  author: { kind: agent, uses: writer, grant: edit }
+seed: { role: author, title: Publish it }
+rules: []
+`, [agent('writer', ['published'])])
+  await rig.flows.flush()
+  const scope = rig.sessionOf('seat-1')
+  for (let turn = 0; turn < 3; turn++) {
+    await rig.team.release(1, { blocked: true, reason: 'waiting for permission' }, scope)
+    await rig.flows.reArm(scope.runtime, scope.sessionId)
+    await rig.flows.flush()
+  }
+  await rig.team.release(1, { blocked: true, reason: 'waiting for permission' }, scope)
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionOf(run.id)!.state, 'stalled')
+  assert.equal(rig.board(run.goal).intents[0]!.blockedReason, 'waiting for permission')
+  assert.equal(orders(rig.events).length, 4)
 })
