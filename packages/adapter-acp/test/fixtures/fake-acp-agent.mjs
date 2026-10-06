@@ -16,8 +16,8 @@
  *  - "slow"           → answers only after 10s (interrupt target)
  *  - anything else    → two message chunks and end_turn
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 const REFUSES_AT_START = process.env.FAKE_ACP_REFUSE_TOOLS_WHILE ? existsSync(process.env.FAKE_ACP_REFUSE_TOOLS_WHILE) : false
 
@@ -973,9 +973,6 @@ const handlers = {
     }
     reply(id, {
       protocolVersion: 1,
-      // Handshake-only fixture for checking the metadata sent on opens.
-      // Native enforcement is exercised against the bundled bridge instead.
-      ...(process.env.FAKE_ACP_READ_CEILING === '1' ? { _meta: { harnessdesk: { readCeiling: true } } } : {}),
       // The process id as the version, so a test can tell a restart from a
       // reconnect; FAKE_ACP_AGENT_VERSION overrides it, and
       // FAKE_ACP_NO_AGENT_VERSION=1 plays an agent that reports none at all.
@@ -997,10 +994,12 @@ const handlers = {
         : [
             { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
           ],
-      ...(TASKS || DELETES || ATTACHMENTS
+      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_READ_CEILING === '1'
         ? {
             _meta: {
               harnessdesk: {
+                // Handshake only; the bundled bridge tests native enforcement.
+                ...(process.env.FAKE_ACP_READ_CEILING === '1' ? { readCeiling: true } : {}),
                 ...(TASKS ? { backgroundTasks: true } : {}),
                 // FAKE_ACP_DELETE=1 plays a bridge that knows where its agent
                 // writes. Most ACP agents do not, and declare nothing.
@@ -1276,6 +1275,14 @@ const handlers = {
   'session/load': async (id, params) => {
     if (RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found', data: { method: 'session/load' } } })
     recordOpen('session/load', params.sessionId, params.cwd, params?._meta)
+    // A file gate lets a test promote an in-flight read without racing a timer.
+    const gate = process.env.FAKE_ACP_LOAD_GATE
+    if (gate && !existsSync(gate)) await new Promise(resolve => {
+      const watcher = watch(dirname(gate), () => {
+        if (existsSync(gate)) { watcher.close(); resolve() }
+      })
+      if (existsSync(gate)) { watcher.close(); resolve() }
+    })
     // Hold replay so tests can overlap a read or resume with a load already in flight.
     if (process.env.FAKE_ACP_LOAD_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_LOAD_DELAY_MS)))
     const store = readStore()

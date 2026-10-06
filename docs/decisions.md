@@ -1096,7 +1096,10 @@ only from its narrow read-only allowlist. Its permission mode cannot bypass
 that guard; plan mode alone is not a held ceiling.
 
 The host restores a Seat's recorded ceiling on resume, including after a
-restart. A peer holding read natively has already checked each call with its
+restart, when its conversation is already open and while a read is still
+loading it. An idle handle opened without a native read guard is reloaded
+with the ceiling; a running turn refuses that resume until it finishes.
+A peer holding read natively has already checked each call with its
 pre-tool guard; its permission requests retain their ordinary approval path.
 For asked ACP read seats, the host refuses write-kind, execution, mode-change
 and unknown-kind permission requests before they reach a person or an

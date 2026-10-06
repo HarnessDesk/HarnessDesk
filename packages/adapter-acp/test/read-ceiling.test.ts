@@ -1,13 +1,106 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { watch } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent, AgentSession } from '@harnessdesk/protocol'
 import { AcpRuntime } from '../src/index.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
+
+const sendTurn = async (runtime: AcpRuntime, session: AgentSession, text: string) => {
+  const done = new Promise<Extract<AgentEvent, { type: 'turn/completed' }>>(resolve => {
+    const off = runtime.subscribe(event => {
+      if (event.type === 'turn/completed' && event.sessionId === session.id) { off(); resolve(event) }
+    })
+  })
+  await session.send([{ type: 'text', text }])
+  return (await done).turn
+}
+
+for (const path of ['already open', 'still loading'] as const) {
+  test(`a resume records the read ceiling when the conversation is ${path}`, { timeout: 10_000 }, async (t) => {
+    const cwd = await mkdtemp(join(tmpdir(), 'acp-read-promote-'))
+    t.after(() => rm(cwd, { recursive: true, force: true }))
+    const opens = join(cwd, 'opens.jsonl')
+    const gate = join(cwd, 'release-load')
+    const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE],
+      env: { FAKE_ACP_STORE: join(cwd, 'store.json'), FAKE_ACP_OPENS: opens,
+        ...(path === 'still loading' ? { FAKE_ACP_LOAD_GATE: gate } : {}) } })
+    t.after(() => runtime.dispose())
+    await runtime.start()
+    const original = await runtime.createSession({ cwd })
+    await sendTurn(runtime, original, 'persist')
+    let reading: ReturnType<AcpRuntime['readSession']> | undefined
+    if (path === 'still loading') {
+      await original.close()
+      const loading = new Promise<void>(resolve => {
+        const watcher = watch(opens, async () => {
+          if ((await readFile(opens, 'utf8')).includes('session/load')) { watcher.close(); resolve() }
+        })
+        t.after(() => watcher.close())
+      })
+      reading = runtime.readSession(original.id)
+      await loading
+    }
+    const resuming = runtime.resumeSession(original.id, { knownCwd: cwd, requestedCeiling: 'read' })
+    if (reading) await writeFile(gate, 'release')
+    const resumed = await resuming
+    if (reading) await reading
+    else assert.equal(resumed, original, 'an asked ceiling does not need to reload an open handle')
+    let approvals = 0
+    runtime.subscribe(event => {
+      if (event.type === 'approval/requested') {
+        approvals++
+        void resumed.respondToApproval(event.approval.id, { type: 'option', optionId: 'yes' })
+      }
+    })
+    const turn = await sendTurn(runtime, resumed, 'ceiling permission {"toolCallId":"write-after-resume","kind":"edit"}')
+    assert.ok(turn.items.some(item => item.type === 'assistantMessage' && item.text === 'denied.'))
+    assert.equal(approvals, 0, 'a resumed read request never reaches approval')
+  })
+}
+
+test('a native guard reloads an idle open conversation with the read ceiling', { timeout: 10_000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'acp-held-promote-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const opens = join(cwd, 'opens.jsonl')
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE],
+    env: { FAKE_ACP_STORE: join(cwd, 'store.json'), FAKE_ACP_READ_CEILING: '1', FAKE_ACP_OPENS: opens, FAKE_ACP_ATTACHMENTS: '1' } })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const original = await runtime.createSession({ cwd, attachments: { key: 'kept-filter', skills: [], mcp: null } })
+  await sendTurn(runtime, original, 'persist')
+  const resumed = await runtime.resumeSession(original.id, { knownCwd: cwd, requestedCeiling: 'read' })
+  assert.notEqual(resumed, original, 'the unguarded handle must be replaced')
+  assert.equal(await runtime.resumeSession(original.id, { requestedCeiling: 'read' }), resumed, 'a guarded handle stays open')
+  assert.equal((await runtime.attachmentReceipt(resumed.id)).key, 'kept-filter', 'guard acquisition retains the live handle’s frozen attachments')
+  const recorded = (await readFile(opens, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  assert.deepEqual(recorded.map(open => [open.method, open.ceiling]), [['session/new', null], ['session/load', 'read']])
+  assert.deepEqual(recorded.map(open => open.filtered), [true, true], 'the native reload carries the same frozen filter')
+})
+
+test('a native guard refuses a read resume while the unguarded conversation is busy', { timeout: 10_000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'acp-held-busy-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE],
+    env: { FAKE_ACP_STORE: join(cwd, 'store.json'), FAKE_ACP_READ_CEILING: '1' } })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const session = await runtime.createSession({ cwd })
+  await sendTurn(runtime, session, 'persist')
+  const requested = new Promise<Extract<AgentEvent, { type: 'approval/requested' }>>(resolve => {
+    const off = runtime.subscribe(event => { if (event.type === 'approval/requested') { off(); resolve(event) } })
+  })
+  const turn = sendTurn(runtime, session, 'ceiling permission {"toolCallId":"pending-read","kind":"read"}')
+  const approval = await requested
+  await assert.rejects(runtime.resumeSession(session.id, { knownCwd: cwd, requestedCeiling: 'read' }), /read ceiling.*turn.*running/i)
+  await session.respondToApproval(approval.approval.id, { type: 'option', optionId: 'yes' })
+  await turn
+  assert.notEqual(await runtime.resumeSession(session.id, { knownCwd: cwd }), session, 'the next idle resume still applies the requested ceiling')
+})
 
 test('a read seat refuses write, execution and unknown permission requests before approval', { timeout: 10_000 }, async () => {
   const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE] })

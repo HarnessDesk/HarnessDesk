@@ -30,6 +30,7 @@ export const ReadCeilingFrames = () => {
     const session = snapshot.sessions.get(key)!
     const items: Session['turns'][number]['items'] = [
       { id: 'read-ceiling-user' as never, type: 'userMessage', content: [{ type: 'text', text: 'Review the client and report what you find.' }] },
+      { id: 'read-ceiling-tool' as never, type: 'toolCall', tool: 'Edit', source: { kind: 'builtin' }, status: 'failed', args: { file_path: '/workspace/demo/client.ts' }, error: 'Tool was denied.' },
       ...(query.get('read-ceiling') === 'before' ? [] : [
         { id: 'read-ceiling-notice' as never, type: 'notice' as const, text: 'Edit was refused by the Read only ceiling.' },
       ]),
@@ -37,8 +38,8 @@ export const ReadCeilingFrames = () => {
     ]
     const sessions = new Map(snapshot.sessions)
     sessions.set(key, {
-      ...session, title: 'Review the client', status: { type: 'idle' },
-      settings: { ...session.settings, cwd: session.cwd, model: session.settings?.model ?? 'model-a', ceiling: { level: 'read', hold: 'asked' } },
+      ...session, cwd: '/workspace/demo', title: 'Review the client', status: { type: 'idle' },
+      settings: { ...session.settings, cwd: '/workspace/demo', model: session.settings?.model ?? 'model-a', ceiling: { level: 'read', hold: 'asked' } },
       turns: [{ id: 'read-ceiling-turn' as never, status: 'completed', items }],
     })
     return previewStore({ ...snapshot, sessions, theme: query.get('theme') === 'dark' ? 'dark' : 'light' })
