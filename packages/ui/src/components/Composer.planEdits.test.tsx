@@ -140,6 +140,9 @@ describe('a reworded task', () => {
     const all = texts()
     const note = all.find((part) => part.includes('Task list edited by the user'))
     expect(note).toBeDefined()
+    expect(sent().find(part => part.type === 'text' && part.text === note)).toEqual({
+      type: 'text', text: note, deskContext: { prefixLength: note!.length },
+    })
     expect(note).toContain('<context source="Task list edited by the user" data-hd-envelope="harnessdesk-v1">')
     expect(note).toContain('“Buffer the request body” → “Buffer the body, re-arm per attempt”')
     // The text box stays the person's: the note is beside their sentence,

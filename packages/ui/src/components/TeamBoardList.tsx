@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Intent } from '@harnessdesk/protocol'
-import { EmptyState, Menu, MenuItem, MenuLabel, MenuSeparator, MenuToggle, PanelFilter, PanelFooter, PanelPill, PaneColumn, Popover, Table, TableBody, TableHead, TableHeader, TableRow, Text } from '../design'
+import { EmptyState, Menu, MenuItem, MenuLabel, MenuSeparator, MenuToggle, PanelFilter, PanelFooter, PanelPill, PaneColumn, Popover, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, GroupLabel, Text } from '../design'
 import { MoreIcon } from './Icons'
 import { FACT_COLUMNS, type FactColumn, type Placement } from '../lib/board-facts'
 
@@ -33,8 +33,10 @@ const JOB_COLUMN_MIN_WIDTH: Readonly<Record<JobColumn, number>> = {
   updated: 1280,
 }
 
-/** One list of the board's existing placements, never group rows or selection. */
-export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL_COLUMNS, searchText }: {
+/** The same observed jobs, grouped by state only in the compact layout. */
+export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL_COLUMNS, searchText, compact = false, grouped = false }: {
+  compact?: boolean
+  grouped?: boolean
   intents: readonly Intent[]
   placed: ReadonlyMap<number, Placement>
   defaultColumns?: ReadonlySet<JobColumn>
@@ -64,6 +66,7 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
     return () => observer.disconnect()
   }, [])
   const columns = new Set(JOB_COLUMNS.filter(one => choices.get(one.id) ?? defaultColumns.has(one.id)).map(one => one.id))
+  if (grouped) columns.delete('state')
   const filters = ['needs', 'working', 'review', 'todo', 'ready', 'aside'] as const
   const words = query.trim().toLocaleLowerCase()
   const jobs = intents.filter(intent =>
@@ -80,7 +83,7 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
     return b.updatedAt - a.updatedAt || a.id - b.id
   })
   const count = (column: FactColumn) => intents.filter(one => placed.get(one.id)?.column === column).length
-  return <PaneColumn ref={root} inset="reading" className="flex flex-col gap-3" data-slot="board-list">
+  return <PaneColumn ref={root} inset="reading" className="flex flex-col gap-3" data-slot="board-list" data-grouped={grouped || undefined}>
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter jobs" onChange={setQuery} /></div>
       <PanelPill pressed={state === 'all'} onClick={() => setState('all')}>All <Text role="meta" numeric>{intents.length}</Text></PanelPill>
@@ -99,7 +102,7 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
           <MenuSeparator />
           <MenuLabel>Columns</MenuLabel>
           {JOB_COLUMNS.map(one => <MenuToggle key={one.id} label={one.label} checked={columns.has(one.id)}
-            disabled={paneWidth !== null && paneWidth < JOB_COLUMN_MIN_WIDTH[one.id]
+            disabled={grouped && one.id === 'state' ? 'State is shown by the group heading' : paneWidth !== null && paneWidth < JOB_COLUMN_MIN_WIDTH[one.id]
               ? `Widen the pane to at least ${JOB_COLUMN_MIN_WIDTH[one.id]}px to show this column`
               : false}
             onChange={() => setChoices(previous => {
@@ -111,17 +114,25 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
       </Popover>
     </div>
     <div className="overflow-hidden">
-      <Table variant="framed" aria-label="Jobs">
+      <Table variant="framed" density={compact ? 'compact' : 'comfortable'} aria-label="Jobs">
         <TableHeader><TableRow>
           <TableHead className="w-full">Job</TableHead>
           {JOB_COLUMNS.filter(one => columns.has(one.id)).map(one => <TableHead key={one.id} className={JOB_COLUMN_CLASS[one.id]} numeric={'numeric' in one && one.numeric}>{one.label}</TableHead>)}
           <TableHead><span className="sr-only">Primary action</span></TableHead>
           <TableHead><span className="sr-only">More actions</span></TableHead>
         </TableRow></TableHeader>
-        <TableBody>{jobs.map(intent => renderRow(intent, columns))}</TableBody>
+        <TableBody>{grouped ? [...filters, 'unknown' as const].map(state => {
+          const group = jobs.filter(job => (placed.get(job.id)?.column ?? 'unknown') === state)
+          if (!group.length) return null
+          const title = FACT_COLUMNS.find(one => one.id === state)?.title ?? 'Unplaced'
+          return <Fragment key={state}>
+            <TableRow data-state-group={state}><TableCell colSpan={columns.size + 3}><GroupLabel as="h3">{title}</GroupLabel></TableCell></TableRow>
+            {group.map(intent => renderRow(intent, columns))}
+          </Fragment>
+        }) : jobs.map(intent => renderRow(intent, columns))}</TableBody>
       </Table>
       {jobs.length === 0 && <EmptyState variant="inline" title="No jobs match" />}
-      <PanelFooter left={`${jobs.length} ${jobs.length === 1 ? 'job' : 'jobs'}${jobs.length !== intents.length ? ` of ${intents.length}` : ''}`} right={sort === 'state' ? 'Needs you first, then the most recent' : sort === 'recent' ? 'Most recent first' : 'Job title'} />
+      <PanelFooter left={`${jobs.length} ${jobs.length === 1 ? 'job' : 'jobs'}${jobs.length !== intents.length ? ` of ${intents.length}` : ''}`} right={grouped ? (sort === 'title' ? 'Grouped by state, then job title' : 'Needs you first, then the most recent') : sort === 'state' ? 'Needs you first, then the most recent' : sort === 'recent' ? 'Most recent first' : 'Job title'} />
     </div>
   </PaneColumn>
 }
