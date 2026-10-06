@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
-test('the production host releases finished-seat MCP processes, protects work, and resumes through one start', { timeout: 30_000 }, async () => {
+test('the production host releases finished-seat MCP processes, protects work, and resumes through fresh conversation processes', { timeout: 30_000 }, async () => {
   const root = tempDir('hd-idle-bootstrap-')
   const repo = await makeRepo('hd-idle-bootstrap-repo-')
   const env: NodeJS.ProcessEnv = { ...process.env,
