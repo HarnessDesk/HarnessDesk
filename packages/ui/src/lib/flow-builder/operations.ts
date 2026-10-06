@@ -21,6 +21,16 @@ const FLOW_SLOT_LIMIT = 32
 const requireFlowId = (value: string, subject: string): void => {
   if (!FLOW_ID.test(value)) throw new Error(`${subject} must use 1–64 letters, digits, - or _`)
 }
+const requireFlowAnswer = (value: string): void => {
+  if (value.trim() === '' || value.length > 200) throw new Error('A rule answer must be non-empty and at most 200 characters')
+}
+const requireFlowAnswers = (when: FlowPolicyRule['when']): void => {
+  for (const words of [when?.every, when?.any]) {
+    if (!words) continue
+    if (words.length > 64) throw new Error('A rule answer list can have at most 64 entries')
+    words.forEach(requireFlowAnswer)
+  }
+}
 
 const isUnconditional = (rule: FlowPolicyRule): boolean => (
   !rule.when?.every?.length && !rule.when?.any?.length && !rule.when?.evidence?.length
@@ -96,12 +106,13 @@ export const addStep = (document: BuilderDocument, kind: BuilderStepKind, name: 
 
 /** Drawing an answer opens one round; evidence and richer guards can be set separately. */
 export const connectSteps = (document: BuilderDocument, from: string, to: string, word?: string): BuilderDocument => {
+  if (word !== undefined) requireFlowAnswer(word)
   const on = stepOf(document, from).role
   const target = stepOf(document, to).role
   const identity = allocated(document, 'rule')
   const id = uniqueId(`${on}-to-${target}`.slice(0, 40), new Set(document.policy.rules.map((rule) => rule.id)), 'rule')
-  const rule = { ...defaultRule(id, on, target), ...(word ? { when: { every: [word] } } : {}) }
-  const at = word
+  const rule = { ...defaultRule(id, on, target), ...(word === undefined ? {} : { when: { every: [word] } }) }
+  const at = word !== undefined
     ? document.policy.rules.findIndex((existing) => existing.on === on && isUnconditional(existing))
     : -1
   const index = at < 0 ? document.policy.rules.length : at
@@ -126,18 +137,19 @@ const updateRule = (document: BuilderDocument, id: string, change: (rule: FlowPo
 }
 
 /** Replace the condition in the engine's own vocabulary, never parse an expression. */
-export const setRuleCondition = (document: BuilderDocument, id: string, when: FlowPolicyRule['when']): BuilderDocument => (
-  updateRule(document, id, (rule) => {
+export const setRuleCondition = (document: BuilderDocument, id: string, when: FlowPolicyRule['when']): BuilderDocument => {
+  requireFlowAnswers(when)
+  return updateRule(document, id, (rule) => {
     if (sameValue(rule.when, when)) return rule
     const { when: _before, ...rest } = rule
     return when === undefined ? rest : { ...rest, when }
   })
-)
+}
 
 /** One answer word replaces outcome clauses, keeping every evidence guard. Null removes only the answers. */
 export const setRuleWord = (document: BuilderDocument, id: string, word: string | null, quantifier: 'every' | 'any' = 'every'): BuilderDocument => {
-  const identity = ruleOf(document, id)
-  if (word !== null) requireFlowId(word, `Rule "${identity.rule}" answer`)
+  ruleOf(document, id)
+  if (word !== null) requireFlowAnswer(word)
   const index = document.rules.findIndex((one) => one.id === id)
   const rule = document.policy.rules[index]!
   const evidence = rule.when?.evidence

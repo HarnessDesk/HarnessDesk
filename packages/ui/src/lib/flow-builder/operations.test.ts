@@ -241,11 +241,30 @@ describe('pure edits', () => {
     const document = doc()
     expect(() => renameStep(document, document.steps[0]!.id, 'bad name')).toThrow(/build.*letters, digits, - or _/i)
     expect(() => renameRule(document, document.rules[0]!.id, 'bad/name')).toThrow(/to-done.*letters, digits, - or _/i)
-    expect(() => setRuleWord(document, document.rules[0]!.id, 'bad answer')).toThrow(/to-done.*letters, digits, - or _/i)
     expect(renameStep(document, document.steps[0]!.id, 'Valid_id-2').policy.roles[0]!.id).toBe('Valid_id-2')
     expect(() => renameRule(document, document.rules[0]!.id, 'x'.repeat(65))).toThrow(/64/)
     const duplicates = doc({ rules: [rule('first', 'build', 'done'), rule('second', 'build', 'done')] })
     expect(() => renameRule(duplicates, duplicates.rules[1]!.id, 'first')).toThrow(/already exists/i)
+  })
+
+  it('accepts wire-valid free-text answers and refuses empty or overlong answers', () => {
+    const answers = ['looks good', 'x'.repeat(65), 'révisé', 'a:b']
+    for (const answer of answers) {
+      const document = doc()
+      const [from, to] = document.steps
+      const connected = connectSteps(document, from!.id, to!.id, answer)
+      expect(connected.policy.rules.find((candidate) => candidate.when?.every?.includes(answer))?.when).toEqual({ every: [answer] })
+      expect(setRuleWord(document, document.rules[0]!.id, answer).policy.rules[0]!.when).toEqual({ every: [answer] })
+      expect(setRuleCondition(document, document.rules[0]!.id, { any: [answer] }).policy.rules[0]!.when).toEqual({ any: [answer] })
+    }
+
+    for (const answer of ['', '   ', 'x'.repeat(201)]) {
+      const document = doc()
+      const [from, to] = document.steps
+      expect(() => connectSteps(document, from!.id, to!.id, answer)).toThrow(/answer/i)
+      expect(() => setRuleWord(document, document.rules[0]!.id, answer)).toThrow(/answer/i)
+      expect(() => setRuleCondition(document, document.rules[0]!.id, { every: [answer] })).toThrow(/answer/i)
+    }
   })
 
   it('edits and deletes a note without creating a rule or an executable role', () => {
