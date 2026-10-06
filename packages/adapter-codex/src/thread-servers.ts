@@ -76,9 +76,9 @@ export class CodexThreadServers extends CodexAppServer {
     // These verbs update process-local tool/config state. Shared files alone
     // do not reload the servers or skill settings of already open threads.
     if (method === 'config/mcpServer/reload' || method === 'skills/config/write' ||
-      method === 'plugin/install' || method === 'plugin/uninstall' || method === 'mcpServer/oauth/login') {
-      const workers = [...this.#workers].filter((worker) => worker.roots.size > 0 && !worker.stopping)
+      method === 'plugin/install' || method === 'plugin/uninstall') {
       const result = await super.request(method, params, options)
+      const workers = [...this.#workers].filter((worker) => worker.roots.size > 0 && !worker.stopping)
       await Promise.all(workers.map(async (worker) => {
         if (!worker.stopping) await worker.server.request(method, params, options)
       }))

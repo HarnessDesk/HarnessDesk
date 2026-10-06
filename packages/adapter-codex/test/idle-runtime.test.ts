@@ -427,6 +427,132 @@ test('a conversation that crashes during catalogue loading is never registered a
   assert.equal(d.runtime.session(child.threadId as never), undefined)
 })
 
+test('a failed catalogue load releases its conversation process and helpers', async (t) => {
+  const hold = join(tmpdir(), `hd-failed-catalogue-${randomUUID()}.hold`)
+  t.after(() => rm(hold, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_CATALOGUE: hold }, 0)
+  await writeFile(hold, '')
+  const opening = d.runtime.createSession({ cwd: d.dir })
+  const outcome = opening.then(() => null, (error: unknown) => error)
+  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'CATALOGUE_HELD'))
+  const child = (await d.children())[0]!
+  process.kill((await d.servers())[0]!, 'SIGKILL')
+  assert.ok(await outcome instanceof Error, 'the control failure rejects the catalogue load')
+  await until(() => !running(child.parent) && !running(child.pid), 'failed registration must release its process and helper')
+  assert.equal(d.runtime.session(child.threadId as never), undefined)
+  assert.equal(d.runtime.health().state, 'unavailable', 'no leaked worker masks the failed control process')
+})
+
+for (const mode of ['turn', 'delegated-approval']) {
+  for (const ending of ['close', 'crash']) {
+    test(`${ending} abandons the pending ${mode === 'turn' ? 'root' : 'delegated'} approval once`, async (t) => {
+      const d = await rig(t, mode)
+      const session = await d.runtime.createSession({ cwd: d.dir })
+      const other = await d.runtime.createSession({ cwd: d.dir })
+      await session.send([{ type: 'text', text: 'Inspect' }])
+      await other.send([{ type: 'text', text: 'Keep inspecting' }])
+      await until(() => d.events.filter((event) => event.type === 'approval/requested').length === 2)
+      const approvals = d.events.filter((event) => event.type === 'approval/requested').map((event) => event.approval)
+      const target = mode === 'turn' ? String(session.id) : `${session.id}-child`
+      const approval = approvals.find((entry) => String(entry.sessionId) === target)!
+      assert.ok(approval)
+      if (ending === 'close') await session.close()
+      else {
+        process.kill((await d.children()).find((child) => child.threadId === session.id)!.parent, 'SIGKILL')
+        await until(() => d.events.some((event) => event.type === 'session/detached' && event.sessionId === session.id))
+      }
+      const resolved = d.events.filter((event) => event.type === 'approval/resolved')
+      assert.equal(resolved.length, 1, 'the other conversation keeps its pending approval')
+      assert.equal(resolved[0]!.approvalId, approval.id)
+      assert.equal(resolved[0]!.sessionId, approval.sessionId)
+      assert.deepEqual(resolved[0]!.resolution, { outcome: 'abandoned', reason:
+        ending === 'close' && mode === 'turn' ? 'The conversation was closed.' : 'The conversation process stopped.' })
+      assert.equal(d.runtime.session(other.id), other)
+      await other.close()
+    })
+  }
+}
+
+test('idle rest refuses a conversation still loading its catalogue', async (t) => {
+  const hold = join(tmpdir(), `hd-opening-catalogue-${randomUUID()}.hold`)
+  const calls = `${hold}.log`
+  await writeFile(calls, '')
+  t.after(async () => { await rm(hold, { force: true }); await rm(calls, { force: true }) })
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_CATALOGUE: hold, FAKE_CODEX_PROCESS_CALLS: calls })
+  await d.runtime.defaultSessionOptions()
+  await writeFile(hold, '')
+  const opening = d.runtime.createSession({ cwd: d.dir })
+  const outcome = opening.then((live) => ({ live }), (error: unknown) => ({ error }))
+  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'CATALOGUE_HELD'))
+  await writeFile(calls, '')
+  assert.equal(await d.stop(), false, 'an opening worker prevents idle rest before snapshot reads')
+  assert.equal(await readFile(calls, 'utf8'), '', 'no idle snapshots are requested while registration is pending')
+  await rm(hold)
+  const result = await outcome
+  assert.ok('live' in result, 'error' in result ? String(result.error) : '')
+  await result.live.close()
+})
+
+test('idle rest rechecks opening conversations after its snapshot reads', async (t) => {
+  const hold = join(tmpdir(), `hd-snapshot-${randomUUID()}.hold`)
+  const catalogue = `${hold}.catalogue`
+  t.after(async () => { await rm(hold, { force: true }); await rm(catalogue, { force: true }) })
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_ACCOUNT: hold, FAKE_CODEX_HOLD_CATALOGUE: catalogue })
+  await d.runtime.defaultSessionOptions()
+  await writeFile(hold, '')
+  const resting = d.stop()
+  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'ACCOUNT_HELD'))
+  await writeFile(catalogue, '')
+  const opening = d.runtime.createSession({ cwd: d.dir })
+  const outcome = opening.then((live) => ({ live }), (error: unknown) => ({ error }))
+  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'CATALOGUE_HELD'))
+  await rm(hold)
+  assert.equal(await resting, false, 'an opening worker prevents idle rest after snapshot reads')
+  await rm(catalogue)
+  const result = await outcome
+  assert.ok('live' in result, 'error' in result ? String(result.error) : '')
+  await result.live.close()
+})
+
+for (const during of [false, true]) {
+  test(`tool updates skip a process stopping ${during ? 'during' : 'before'} the control request`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-stopping-tools-'))
+    const calls = join(dir, 'calls.ndjson')
+    const hold = join(dir, 'reload.hold')
+    await writeFile(calls, '')
+    const server = new CodexThreadServers({ binaryPath: FAKE,
+      clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
+      env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0',
+        FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_MCP_RELOAD: hold },
+    }, () => {})
+    let releaseStop!: () => void
+    const stopping = new Promise<void>((resolve) => { releaseStop = resolve })
+    t.after(async () => { releaseStop(); await rm(hold, { force: true }); await server.stop(); await rm(dir, { recursive: true, force: true }) })
+    let held = false
+    server.onNotification((event) => { if (event.method === 'warning' && event.params.message === 'MCP_RELOAD_HELD') held = true })
+    await server.start()
+    const started = await server.request('thread/start', { cwd: dir })
+    const owner = server.thread(started.thread.id).server
+    const stopOwner = owner.stop.bind(owner)
+    // Hold the public process-stop boundary: roots still exist while its stop is pending.
+    owner.stop = async () => { await stopping; await stopOwner() }
+    if (during) await writeFile(hold, '')
+    const stopped = during ? undefined : server.stop()
+    const updating = server.request('config/mcpServer/reload', undefined)
+    const result = updating.then(() => null, (error: unknown) => error)
+    if (during) await until(() => held)
+    const stoppedDuring = during ? server.stop() : undefined
+    await rm(hold, { force: true })
+    assert.equal(await result, null, 'stopping workers cannot fail a successful control update')
+    const asked = (await readFile(calls, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { method: string; generation: string })
+    assert.deepEqual(asked.filter((call) => call.method === 'config/mcpServer/reload')
+      .map((call) => Number(call.generation)), [0])
+    releaseStop()
+    await (stopped ?? stoppedDuring)
+  })
+}
+
 test('tool settings reach the control process and every open conversation', async (t) => {
   const calls = join(tmpdir(), `hd-settings-${randomUUID()}.log`)
   await writeFile(calls, '')
@@ -439,7 +565,6 @@ test('tool settings reach the control process and every open conversation', asyn
     ['skills/config/write', () => d.runtime.setSkillEnabled({ name: 'release-notes' }, true)],
     ['plugin/install', () => d.runtime.extensions.install('official', 'helper')],
     ['plugin/uninstall', () => d.runtime.extensions.uninstall('helper')],
-    ['mcpServer/oauth/login', () => d.runtime.extensions.mcpLogin('github')],
   ] as const) {
     await writeFile(calls, '')
     await run()
@@ -448,6 +573,43 @@ test('tool settings reach the control process and every open conversation', asyn
     assert.deepEqual(asked.filter((call) => call.method === method).map((call) => Number(call.generation)).sort(),
       [0, 1, 2], method)
   }
+  await first.close()
+  await second.close()
+})
+
+test('tool updates include conversations opened while the control request is held', async (t) => {
+  const hold = join(tmpdir(), `hd-reload-${randomUUID()}.hold`)
+  const calls = `${hold}.log`
+  await writeFile(calls, '')
+  t.after(async () => { await rm(hold, { force: true }); await rm(calls, { force: true }) })
+  const d = await rig(t, 'hold', { FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_MCP_RELOAD: hold })
+  const first = await d.runtime.createSession({ cwd: d.dir })
+  await writeFile(hold, '')
+  const reloading = d.runtime.extensions.reloadMcp()
+  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'MCP_RELOAD_HELD'))
+  const second = await d.runtime.createSession({ cwd: d.dir })
+  await rm(hold)
+  await reloading
+  const asked = (await readFile(calls, 'utf8')).trim().split('\n')
+    .map((line) => JSON.parse(line) as { method: string; generation: string })
+  assert.deepEqual(asked.filter((call) => call.method === 'config/mcpServer/reload')
+    .map((call) => Number(call.generation)).sort(), [0, 1, 2])
+  await first.close()
+  await second.close()
+})
+
+test('MCP login starts one authorization flow on the control process', async (t) => {
+  const calls = join(tmpdir(), `hd-login-${randomUUID()}.log`)
+  await writeFile(calls, '')
+  t.after(() => rm(calls, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_PROCESS_CALLS: calls })
+  const first = await d.runtime.createSession({ cwd: d.dir })
+  const second = await d.runtime.createSession({ cwd: d.dir })
+  assert.equal(await d.runtime.extensions.mcpLogin('github'), 'https://auth.example/mcp/github')
+  const asked = (await readFile(calls, 'utf8')).trim().split('\n')
+    .map((line) => JSON.parse(line) as { method: string; generation: string })
+  assert.deepEqual(asked.filter((call) => call.method === 'mcpServer/oauth/login')
+    .map((call) => Number(call.generation)), [0], 'only the control process opens a login flow')
   await first.close()
   await second.close()
 })

@@ -102,6 +102,15 @@ const send = (value) => {
   })
 }
 const notify = (method, params) => send({ method, params })
+const replyAfterHold = (hold, id, result, message) => {
+  if (!hold || !existsSync(hold)) { send({ id, result }); return }
+  notify('warning', { message })
+  const timer = setInterval(() => {
+    if (existsSync(hold)) return
+    clearInterval(timer)
+    send({ id, result })
+  }, 10)
+}
 // Only screenshot scenes opt in; adapter tests retain their existing turns.
 const flowWorker = scriptedFlow(process.env['FAKE_CODEX_FLOW'], { send, notify })
 const flowTools = new Map()
@@ -1924,7 +1933,8 @@ rl.on('line', (line) => {
       return
 
     case 'config/mcpServer/reload':
-      send({ id, result: {} })
+      replyAfterHold(process.env.HARNESSDESK_CODEX_GENERATION === '0'
+        ? process.env.FAKE_CODEX_HOLD_MCP_RELOAD : undefined, id, {}, 'MCP_RELOAD_HELD')
       return
 
     case 'permissionProfile/list': {
@@ -2177,13 +2187,10 @@ rl.on('line', (line) => {
       return
 
     case 'account/read':
-      send({
-        id,
-        result: {
-          account: signedIn ? { type: 'chatgpt', email: 'dev@example.com', planType: 'team' } : null,
-          requiresOpenaiAuth: true,
-        },
-      })
+      replyAfterHold(process.env.FAKE_CODEX_HOLD_ACCOUNT, id, {
+        account: signedIn ? { type: 'chatgpt', email: 'dev@example.com', planType: 'team' } : null,
+        requiresOpenaiAuth: true,
+      }, 'ACCOUNT_HELD')
       return
 
     case 'config/read':
@@ -2322,6 +2329,13 @@ rl.on('line', (line) => {
         return
       }
       if (mode === 'turn') setImmediate(playTurn)
+      if (mode === 'delegated-approval') setImmediate(() => {
+        const parent = THREAD
+        THREAD = `${parent}-child`
+        TURN = `turn-${THREAD}`
+        notify('thread/started', { thread: thread({ id: THREAD, parentThreadId: parent, preview: 'A sub-agent.' }) })
+        playTurn()
+      })
       if (mode === 'dynamic-tools') setImmediate(callDeclaredTool)
       if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
       if (mode === 'delegated-tools-deep') setImmediate(() => callDeclaredToolAsDeepChild(9))
