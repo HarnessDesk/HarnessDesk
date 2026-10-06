@@ -20,6 +20,7 @@ import {
   type AgentEvent,
   type AgentItem,
   type Session,
+  type UserMessageItem,
 } from '../src/index.js'
 
 const SESSION = sessionId('s1')
@@ -615,6 +616,37 @@ test('a known replay id cannot borrow another equal prompt’s record', () => {
     content: [{ type: 'text', text: 'after', deskContext: { prefixLength: 0 } }] }
   const replay: AgentItem = { ...known, content: [{ type: 'text', text: 'after' }] }
   assert.deepEqual(preserveDeskContext([replay], [known, recorded]), [replay])
+})
+
+test('unmatched replay reads each message’s text a bounded number of times', () => {
+  let reads = 0
+  const message = (id: string, recorded: boolean): AgentItem => ({
+    id: itemId(id), type: 'userMessage', content: [{
+      type: 'text', get text() { reads += 1; return id },
+      ...(recorded ? { deskContext: { prefixLength: 0 } } : {}),
+    }],
+  })
+  const stored = Array.from({ length: 32 }, (_, i) => message(`stored-${i}`, true))
+  const replay = Array.from({ length: 32 }, (_, i) => message(`replay-${i}`, false))
+  assert.equal(preserveDeskContext(replay, stored), replay)
+  assert.ok(reads <= 4 * (stored.length + replay.length), `read text ${reads} times for 64 messages`)
+})
+
+test('raw and folded replay share records in stored order, including repeated ids', () => {
+  const raw = wrapContext('Git', 'On branch main.') + '\n\ncontinue'
+  const first: UserMessageItem = { id: itemId('same'), type: 'userMessage',
+    content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] }
+  const second: UserMessageItem = { ...first, content: [{ type: 'text', text: 'continue', deskContext: { prefixLength: 0 } }] }
+  const folded = (id: string): UserMessageItem => ({ id: itemId(id), type: 'userMessage',
+    content: [{ type: 'text', text: 'continue' }], context: [{ label: 'Git', text: 'On branch main.' }] })
+  const plain = (id: string): UserMessageItem => ({ id: itemId(id), type: 'userMessage', content: [{ type: 'text', text: raw }] })
+  for (const ids of [['same', 'same'], ['new', 'next']]) {
+    const [a, b] = ids as [string, string]
+    const extra = plain('extra')
+    assert.deepEqual(preserveDeskContext([folded(a), folded(b), extra], [first, second]), [
+      { ...first, id: itemId(a) }, { ...second, id: itemId(b) }, extra,
+    ])
+  }
 })
 
 test('resegmented replay uses each record once while exact ids win over equal text', () => {

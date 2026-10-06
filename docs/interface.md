@@ -543,10 +543,13 @@ with a shell line hanging off it teaches a CLI that does not exist.
 **A bubble holds what a person typed, and nothing the desk composed.** The
 wrapper's shape cannot prove who wrote it: a person can paste the same text.
 Newly sent messages record the exact boundary of the desk-composed prefix, so
-only blocks inside that boundary fold beside the message as "Context added" or
-"Sent with your message". The block stays available exactly as sent because it
+only blocks inside that boundary fold beside the message as "Context added".
+Wrappers the agent's own app adds are peeled by its adapter and fold as
+"Sent with your message"; they have no desk-composed record.
+The block stays available exactly as sent because it
 is context the agent received; an identical wrapper beyond the recorded
-boundary stays in the person's words.
+boundary stays in the person's words. Its first typed line also names the
+conversation, even when that line is a pasted wrapper.
 
 **What the conversation put on the forge is a row of its own.** A pull request
 opened or updated through the desk's own tools, a review or a comment posted

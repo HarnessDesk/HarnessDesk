@@ -78,26 +78,67 @@ export const preserveDeskContext = (items: readonly AgentItem[], stored: readonl
   if (recorded.length === 0) return items
   const storedIds = new Set(stored.map(item => item.id))
   const replayIds = new Set(items.map(item => item.id))
+  const joinedText = (item: UserMessageItem): string =>
+    item.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
+  const indexed = recorded.map((item, index) => {
+    const text = joinedText(item)
+    const folded = splitContext(text)
+    return { item, index, text, folded, used: false }
+  })
+  type RecordEntry = typeof indexed[number]
+  type RecordQueue = { entries: RecordEntry[]; cursor: number }
+  const byId = new Map<ItemId, { raw: Map<string, RecordQueue>; folded: Map<string, RecordQueue> }>()
+  const byText = new Map<string, RecordQueue>()
+  const byFolded = new Map<string, RecordQueue>()
+  const foldedKey = (text: string, context: UserMessageItem['context']): string =>
+    JSON.stringify([text, context ?? []])
+  const add = (map: Map<string, RecordQueue>, key: string, entry: RecordEntry): void => {
+    const queue = map.get(key)
+    if (queue) queue.entries.push(entry)
+    else map.set(key, { entries: [entry], cursor: 0 })
+  }
+  for (const entry of indexed) {
+    let sameId = byId.get(entry.item.id)
+    if (!sameId) {
+      sameId = { raw: new Map(), folded: new Map() }
+      byId.set(entry.item.id, sameId)
+    }
+    add(sameId.raw, entry.text, entry)
+    if (entry.folded.injections.length > 0) {
+      add(sameId.folded, foldedKey(entry.folded.text, entry.folded.injections), entry)
+    }
+    // Reserve records for stable ids even if their replay comes later.
+    if (replayIds.has(entry.item.id)) continue
+    add(byText, entry.text, entry)
+    if (entry.folded.injections.length > 0) {
+      add(byFolded, foldedKey(entry.folded.text, entry.folded.injections), entry)
+    }
+  }
+  const peek = (queue: RecordQueue | undefined): RecordEntry | undefined => {
+    if (!queue) return undefined
+    while (queue.entries[queue.cursor]?.used) queue.cursor += 1
+    return queue.entries[queue.cursor]
+  }
+  const firstMatch = (rawQueue: RecordQueue | undefined, foldedQueue: RecordQueue | undefined): RecordEntry | undefined => {
+    const raw = peek(rawQueue)
+    const folded = peek(foldedQueue)
+    return !raw ? folded : !folded || raw.index < folded.index ? raw : folded
+  }
   let changed = false
   const next = items.map(item => {
     if (item.type !== 'userMessage') return item
-    const matches = (candidate: UserMessageItem): boolean => {
-      const original = candidate.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
-      const replay = item.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
-      if (original === replay) return true
-      const fallback = splitContext(original)
-      return fallback.text === replay && fallback.injections.length > 0 &&
-        JSON.stringify(fallback.injections) === JSON.stringify(item.context ?? [])
+    const text = joinedText(item)
+    const key = foldedKey(text, item.context)
+    const sameId = byId.get(item.id)
+    let entry = firstMatch(sameId?.raw.get(text), sameId?.folded.get(key))
+    if (!entry && !storedIds.has(item.id)) {
+      // Raw and folded matches share one-use records and stored order.
+      entry = firstMatch(byText.get(text), byFolded.get(key))
     }
-    let at = recorded.findIndex(candidate => candidate.id === item.id && matches(candidate))
-    // Stable ids pair only with themselves. Reserve later exact matches
-    // before allowing resegmented history to borrow an equal-text record.
-    if (at === -1 && !storedIds.has(item.id)) {
-      at = recorded.findIndex(candidate => !replayIds.has(candidate.id) && matches(candidate))
-    }
-    if (at === -1) return item
-    const held = recorded.splice(at, 1)[0]
-    if (!held || item.content.some(part => part.type === 'text' && part.deskContext !== undefined)) return item
+    if (!entry) return item
+    entry.used = true
+    const held = entry.item
+    if (item.content.some(part => part.type === 'text' && part.deskContext !== undefined)) return item
     changed = true
     const { context: _context, ...rest } = item
     return { ...rest, content: held.content, ...(held.context ? { context: held.context } : {}) }
