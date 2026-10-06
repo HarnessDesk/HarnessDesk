@@ -43,7 +43,7 @@ export const NoticesFrame = () => {
     const session = conversationScene && afterScene
       ? reduceSession(emptyConversation, { type: 'notice', sessionId: original.id, class: 'conversation', level: 'warning', message: 'A tool was unavailable when this conversation opened.', id: 'notice-preview-1' })
       : emptyConversation
-    Object.assign(own.getSnapshot(), { ...base, home: conversationScene ? '/workspace' : base.home, inbox: [], agentNotices: [], notices: [], health: { state: 'ready' }, workbench, layout: workbench.main, sessions: new Map([[PREVIEW_SESSION_KEY, session]]), activeSessionKey: PREVIEW_SESSION_KEY, preferencesLoaded: false } satisfies Partial<AppSnapshot>)
+    Object.assign(own.getSnapshot(), { ...base, home: conversationScene ? '/workspace' : '/Users/user', inbox: [], agentNotices: [], notices: [], health: { state: 'ready' }, workbench, layout: workbench.main, sessions: new Map([[PREVIEW_SESSION_KEY, session]]), activeSessionKey: PREVIEW_SESSION_KEY, preferencesLoaded: false } satisfies Partial<AppSnapshot>)
     const surface = window as unknown as { noticeReveals: unknown[] }
     surface.noticeReveals = []
     own.transport.request = (async (method: string, params: unknown) => {
