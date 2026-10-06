@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Card, CardViewport } from './card'
+import { Card, CardContent, CardViewport } from './card'
 import { KeyValue, KeyValueRow } from './key-value'
 import { Section, SectionBody } from './section'
 import { Table, TableCaption, TableCell, TableFooter, TableHead, TableRow } from './table'
@@ -38,6 +38,13 @@ it('draws a flush card for content that owns its internal rhythm', () => {
   expect(card?.className).toContain('gap-0')
   expect(card?.className).toContain('py-0')
   expect(card?.className).toContain('overflow-hidden')
+})
+
+it('lets a card body defer its inline inset to rows that own one', () => {
+  act(() => root.render(<Card><CardContent inset="none"><div className="px-(--hd-inset-row)">Seat row</div></CardContent></Card>))
+  const body = container.querySelector<HTMLElement>('[data-slot="card-content"]')
+  expect(body?.dataset['inset']).toBe('none')
+  expect(body?.className).not.toContain('px-(--hd-inset-card)')
 })
 
 it('preserves the larger card radius and compact section inset as named variants', () => {

@@ -1066,9 +1066,12 @@ the chosen shape (or a blank one, a single person step) instead of starting
 it: add a step or a rule, see the exact file update as you go, and the
 identical dry run below it. **Save…** writes it to the project or to you,
 previewed first; **Start** needs no save at all, running the shape exactly as
-edited. Its **Graph** tab draws the same steps and rules spatially — dragging
-a node, or the Horizontal/Vertical fields beside a selected one, only ever
-moves it on screen.
+edited. Its **Graph** tab uses the same pan-and-zoom canvas as a Run.
+Selecting a node selects its ordered step; selecting a rule opens its ordered
+edit. Dragging a node, or the Horizontal/Vertical fields beside a selected
+one, only changes its saved position. Escape cancels a drag. The graph cannot
+add connections or delete steps; those edits stay in the ordered editor. Wheel
+and touch swipes scroll the page; the canvas tools handle zooming.
 
 **Every time…**, on a chosen shape or an Agent's own page, hands off to
 Intake: the source, its fields, the Goal grouping and budget, saved to the
@@ -1167,6 +1170,20 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+Run details and Steps live in the app’s dock, with the same tabs, move,
+expand and hide controls as the conversation’s inspectors. The title-bar’s
+right-panel control puts them away and brings them back. Run details keeps
+the brief, Seats, recorded pull request and two-column Run facts; unavailable
+facts are omitted and named together once. Selecting a timeline row keeps
+its recorded detail and actions in that dock. Choosing Flow brings Steps
+forward: taken rounds and steps not reached, with selection lighting the
+corresponding node, including a step the Run has not reached.
+Leaving Run puts away a dock containing only Run views, or returns a mixed
+dock to its earlier tab and visibility. A saved mixed dock restores without
+Run tabs until a Run opens. Returning to Run keeps it visible when the dock
+would cover it; selecting a timeline row or Details explicitly opens it.
+Tabs closed during a visit stay closed when focus returns to that pane.
+
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
@@ -1203,17 +1220,18 @@ successor from that earlier Run, even when its successor has ended. Continue
 from the newer Run instead.
 
 The header's switch shows the Run as a **Timeline** or as its **Flow**. The
-Flow tab draws the Flow the Run started with, named with the revision it was
-frozen at: a card for each step, joined by arrows that carry the outcome
-taking each rule, with a loop falling under the line and a step that opens
-several seats fanned. A card says what the step is, its name, and one line —
-what an Agent may do, the command a check runs, the words a person may
-answer. Under the drawing the steps and rules are listed in words, and in a
-narrow pane that list is the view. The drawing has the whole pane: the
-inspector, which explains a row of the timeline, steps aside while the Flow
-shows. **Open the file** reads the Flow's file as it is now, in a window you
-can only read; the Run keeps the revision it started with, and nothing in this
-tab can be changed.
+Flow tab draws the frozen Flow on the same canvas as the shape editor’s graph.
+The canvas fills the page below the Run header, with a 24 px margin on every
+side. It opens centred at 100% when the drawing fits; a smaller pane shrinks
+it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
+Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
+**The path this Run took** sits at the top left. Nodes cannot be moved or
+edited. The accessible Steps and Rules list retains state and selection.
+Outside the Team’s Steps dock, narrow panes scroll the fitted drawing and the
+list together; wide panes retain the text alternative without adding invisible
+keyboard stops.
+**Open the file** reads the Flow's file as it is now, in a window you can only
+read; the Run keeps the revision it started with.
 
 A check that finished, or that the desk interrupted, can be run again from its
 row or its inspector while the Run is running or stalled. It asks first and
@@ -1265,7 +1283,7 @@ motion stops the baton and ring. The blueprint has no motion.
 
 Selecting a step selects its rounds and rows in the Timeline. Selecting a
 Timeline row selects its step on the Flow. The same live state and selection
-are available through the accessible step list in a narrow pane, including the
+are available through the accessible step list at every width, including the
 live doing sentence. An answered person step clears Needs you; a wait for
 evidence reads Waiting. Stopping closes rounds without finishing their cards:
 those steps read Stopping while their retained turn is live, then Stopped,

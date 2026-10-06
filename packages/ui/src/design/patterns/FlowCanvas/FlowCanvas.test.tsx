@@ -48,6 +48,11 @@ it('draws default kind cards, the Run state slot and the rule word', async () =>
   expect(host.querySelector('[data-slot="flow-canvas-step"][data-state="done"]')).not.toBeNull()
   expect(host.textContent).toContain('ready')
 })
+it('agent cards use Faces while check cards keep their square mark', async () => {
+  await draw()
+  expect(host.querySelector('[data-kind="agent"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('face')
+  expect(host.querySelector('[data-kind="check"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('square')
+})
 it('reports engine selection and selected-node keyboard movement through controlled callbacks', async () => {
   const onNodesChange = vi.fn(), onSelectionChange = vi.fn()
   await draw({ onNodesChange, onSelectionChange })
@@ -242,4 +247,36 @@ it('clears a refused Delete request before a later outside removal', async () =>
   await draw({ nodes: [nodes[1]!], edges: [] })
   expect(document.activeElement).toBe(outside)
   outside.remove()
+})
+
+it('position-only graphs move steps but refuse connections and deletion', async () => {
+  const onNodesChange = vi.fn(), onEdgesChange = vi.fn(), onConnect = vi.fn()
+  await draw({ positionOnly: true, onNodesChange, onEdgesChange, onConnect })
+  key('ArrowRight')
+  expect(onNodesChange).toHaveBeenCalledWith([{ type: 'position', id: 'write', position: { x: 16, y: 0 }, dragging: false }])
+  onNodesChange.mockClear()
+  key('Delete')
+  expect(onNodesChange).not.toHaveBeenCalled()
+  expect(onEdgesChange).not.toHaveBeenCalled()
+  expect(host.querySelector('.react-flow__handle.connectable')).toBeNull()
+  expect(host.textContent).not.toContain('remove the selection')
+})
+it('groups read-only navigation and caller actions at the top right with a title at the top left', async () => {
+  await draw({ readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
+  expect(host.querySelector('.react-flow__panel.top.left')?.textContent).toBe('The path this Run took')
+  const tools = host.querySelector('.react-flow__panel.top.right')!
+  expect(tools.textContent).toContain('Open the file')
+  expect(tools.querySelector('[aria-label="Fit plan"]')).not.toBeNull()
+})
+
+it('an inert poster leaves selection, edits and keyboard navigation to its page', async () => {
+  const onNodesChange = vi.fn(), onEdgesChange = vi.fn()
+  await draw({ inert: true, onNodesChange, onEdgesChange } as Partial<FlowCanvasProps>)
+  expect(host.querySelector('.react-flow__pane.draggable')).toBeNull()
+  expect(host.querySelector('.react-flow__node.draggable')).toBeNull()
+  expect(host.querySelector('.react-flow__node')?.getAttribute('tabindex')).toBeNull()
+  expect(host.querySelector('[aria-label="Fit plan"]')).toBeNull()
+  expect(key('ArrowRight', '[data-slot="flow-canvas"]').defaultPrevented).toBe(false)
+  expect(onNodesChange).not.toHaveBeenCalled()
+  expect(onEdgesChange).not.toHaveBeenCalled()
 })

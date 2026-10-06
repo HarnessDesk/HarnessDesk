@@ -1,3 +1,4 @@
+import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
 import { CompactPanelFrames, compactAgentsStore, compactChangesStore } from './compact-panels-fixture'
@@ -87,6 +88,7 @@ import { LibraryOptionFrames } from './frames-library-options'
 import { FlowOverlayFrames } from './frames-flow-overlay'
 import { FlowCanvasFrames } from './frames-flow-canvas'
 import { FlowGraphFrames } from './frames-flow-graph'
+import { ShapeGraphFrames } from './frames-shape-graph'
 import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
@@ -1138,6 +1140,7 @@ const Preview = () => {
 const RunPreview = () => {
   useTheme()
   const params = new URLSearchParams(window.location.search)
+  if (params.has('run-dock')) return <RunDockFrame older={params.has('older')} />
   if (params.has('run-again')) return <RunAgainExample opened scene={RUN_AGAIN_STATES.find(one => one === params.get('run-again')) ?? 'default'} />
   if (params.has('run-ending-rig')) return <RunEndingRigFrames />
   return <><RunViewFrames />{params.has('run-inspector') && <RunInspectorFrames />}</>
@@ -1174,7 +1177,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('flow-canvas')
+        {new URLSearchParams(window.location.search).has('shape-graph')
+          ? <ShapeGraphFrames />
+          : new URLSearchParams(window.location.search).has('flow-canvas')
           ? <FlowCanvasFrames />
           : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
@@ -1199,7 +1204,7 @@ createRoot(container).render(
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
-          : ['run-view', 'run-again', 'run-ending-rig'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
+          : ['run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

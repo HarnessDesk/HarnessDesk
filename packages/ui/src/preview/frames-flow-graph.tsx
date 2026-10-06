@@ -24,7 +24,7 @@ export const FlowGraphBoard = () => (
       </section>
     ))}
     <section data-flow-scene="narrow" className="flex max-w-sm flex-col gap-2">
-      <Text role="section">In a window too narrow for the drawing, the list is the view</Text>
+      <Text role="section">Pan and zoom in a narrow pane; the step list stays accessible</Text>
       <FlowGraph model={flowGraphModel('blueprint')} />
     </section>
   </div>
@@ -40,7 +40,7 @@ export const FlowGraphFrames = () => (
       </section>
     ))}
     <section id="flow-graph-narrow" className="flex w-80 flex-col gap-2">
-      <Text role="section">In a window too narrow for the drawing, the list is the view</Text>
+      <Text role="section">Pan and zoom in a narrow pane; the step list stays accessible</Text>
       <FlowGraph model={flowGraphModel('blueprint')} />
     </section>
     <section id="flow-graph-run" className="flex h-176 flex-col"><RunWorkspaceExample scene="running" view="flow" /></section>

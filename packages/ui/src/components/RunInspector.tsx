@@ -1,3 +1,5 @@
+import { AgentIcon, PullRequestIcon } from './Icons'
+import { openExternal } from '../lib/desktop'
 import type { FindingRoundPublication, FlowCheckAttempt } from '@harnessdesk/protocol'
 import { attemptWords, runTimeline, type RunTimelineInput } from '../lib/run-timeline'
 import type { SeatRow } from '../lib/team-overview'
@@ -13,6 +15,10 @@ export interface RunInspectorProps {
   input: RunTimelineInput
   selectedRow: string | null
   seats: readonly InspectorSeat[]
+  faces?: ReadonlyMap<string, ReactNode>
+  faceTints?: ReadonlyMap<string, Tint>
+  pullRequest?: { number: number; url: string | null } | null
+  flowFile?: ReactNode
   /** Abandons a card; rejects with the host's refusal. Without it a card offers no abandoning. */
   onAbandon?: (card: number) => Promise<void>
   onStop?: (() => void) | undefined
@@ -34,7 +40,7 @@ export interface RunInspectorProps {
   attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, Chip, CodeText, GroupLabel, PanelBody, PanelFrame, PanelTools, Text } from '../design'
+import { Button, Card, CardHeader, CardTitle, CardAction, CardContent, Chip, CodeText, GroupLabel, IconTile, KeyValue, KeyValueRow, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, PanelTools, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
 import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
@@ -86,7 +92,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead }: RunInspectorProps) => {
+export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -166,29 +172,99 @@ export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onSto
       {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
     </>
   } else {
-    // Only what the Run recorded: one saved before budgets has none, and a Flow's own or the default
-    // budget is what a new Run would freeze, so reading it back would invent a limit (docs/flows.md).
-    const budget = execution.findings?.budget ?? null
-    const extra = execution.findings?.extraRound
-    const roundLimit = budget ? Math.max(budget.rounds, extra ? extra.after + (extra.count ?? 1) : 0) : null
-    const ids = new Set(execution.rounds.flatMap(one => one.seats))
-    body = <>
-      <Section title="Brief"><Words>{execution.brief ?? 'No brief recorded'}</Words></Section>
-      <Section title="Flow"><Words>{`${execution.document.flow.name}${execution.revision ? ` · ${execution.revision}` : ' · Revision not recorded'}`}</Words></Section>
-      <Section title="Seats">{ids.size ? [...ids].map(id => { const one = seats.find(item => item.id === id); return <div key={id}><Words>{one?.name ?? 'Seat not recorded'}</Words>{one?.override && <Text role="meta">{sanitizeText(one.override)}</Text>}</div> }) : <Words>No Seats opened</Words>}</Section>
-      <Section title="Base"><Words>{execution.base ? `${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}` : 'Not recorded'}</Words></Section>
-      <Section title="Started by"><Words>{input.origin ?? 'Not recorded'}</Words></Section>
-      <Section title="Budgets"><Words>{`Rounds: ${execution.findings?.closedRounds.length ?? execution.rounds.filter(one => one.state === 'closed').length}${roundLimit !== null ? ` of ${roundLimit}` : ' · Limit not recorded'}\nRounds without progress: ${execution.findings?.idleRounds ?? 'Not recorded'}${budget ? ` · Limit ${budget.withoutProgress}` : ''}`}</Words>
-        {extra && <Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words>}
-      </Section>
-      <Section title="Cost">{[...ids].map(id => { const one = seats.find(item => item.id === id); return <Words key={id}>{`${one?.name ?? 'Seat'} · ${costWords(one?.cost)}`}</Words> })}<Text role="meta">Recorded for these Seats</Text></Section>
-    </>
+    return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} faceTints={faceTints} pullRequest={pullRequest} flowFile={flowFile} />
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <PanelFrame inset="reading"><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
       {card && selected?.status && <Text role="meta">{sanitizeText(selected.status)}</Text>}
     </PanelTools>
       <PanelBody><div className="flex min-w-0 flex-col gap-4">{body}</div></PanelBody>
+    </PanelFrame>
+  </div>
+}
+
+/** The Run's summary keeps only recorded facts, with one explanation for gaps. */
+const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
+  const { execution } = input
+  const rows = runTimeline(input).rows
+  const budget = execution.findings?.budget
+  const extra = execution.findings?.extraRound
+  const limit = budget ? Math.max(budget.rounds, extra ? extra.after + (extra.count ?? 1) : 0) : null
+  const ids = [...new Set(execution.rounds.flatMap(one => one.seats))]
+  const recorded = ids.flatMap(id => { const seat = seats.find(one => one.id === id); return seat ? [seat] : [] })
+  const costs = recorded.flatMap(one => one.cost ? [one.cost] : [])
+  const totals = (['money', 'turns'] as const).flatMap(unit => {
+    const values = costs.filter(one => one.unit === unit)
+    return values.length ? [costWords({ unit, value: values.reduce((n, one) => n + one.value, 0), estimated: values.some(one => one.estimated) })] : []
+  })
+  // Evidence is scoped to the cards this Run actually opened; another Run's PR is not this one's.
+  const cardIds = new Set(execution.rounds.flatMap(one => one.cards))
+  const facts = (input.evidence?.cards ?? []).filter(one => cardIds.has(one.card)).flatMap(one => one.facts)
+    .filter(one => !one.record.restored).sort((a, b) => b.record.observedAt - a.record.observedAt)
+  const prRecord = facts.find(one => one.record.fact.kind === 'pr')
+  const pr = prRecord?.record.fact.kind === 'pr' ? prRecord.record.fact : null
+  const request = pr ?? pullRequest
+  const branch = prRecord?.record.checkout?.branch
+  const ci = facts.find(one => one.record.fact.kind === 'ci' && one.record.fact.at === pr?.head && one.freshness.state === 'fresh')?.record.fact
+  const diff = facts.find(one => one.record.fact.kind === 'diff' && one.record.fact.to === pr?.head && !one.record.fact.dirty && one.freshness.state === 'fresh')?.record.fact
+  const gaps = [!execution.brief && 'brief', !execution.revision && 'Flow revision', !execution.base && 'base', !budget && 'budget',
+    recorded.length !== ids.length && 'Seat details', costs.length !== ids.length && 'Seat costs'].filter(Boolean)
+  const closed = execution.findings?.closedRounds.length ?? execution.rounds.filter(one => one.state === 'closed').length
+  const idle = execution.findings?.idleRounds ?? 0
+  return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
+    <PanelFrame>
+      <PanelBody><div className="flex min-w-0 flex-col gap-(--hd-inset-dense)">
+        {execution.brief && <Card as="section">
+          <CardHeader><CardTitle><Text role="section">Brief</Text></CardTitle></CardHeader>
+          <CardContent><Words>{execution.brief}</Words></CardContent>
+        </Card>}
+        {recorded.length > 0 && <Card as="section">
+          <CardHeader><CardTitle><Text role="section">{`Seats ${ids.length}`}</Text></CardTitle></CardHeader>
+          <CardContent inset="none">
+            {recorded.map(one => {
+              const state = [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
+              return <PanelRow key={one.id} mark={<IconTile shape="face" tint={faceTints?.get(one.id) ?? 'violet'}>{faces?.get(one.id) ?? <AgentIcon />}</IconTile>}
+                title={sanitizeText(one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
+                trail={state ? <RunStateChip state={state} /> : undefined} onClick={one.onOpen} />
+            })}
+          </CardContent>
+        </Card>}
+        {request && <Card as="section">
+          <CardHeader>
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2"><PullRequestIcon /><Text role="section">{`Pull request #${request.number}`}</Text>
+              {pr && <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip>}
+            </CardTitle>
+            {request.url && <CardAction><Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button></CardAction>}
+          </CardHeader>
+          <CardContent><KeyValue variant="panel" className="grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            {branch && <KeyValueRow label="Branch" variant="panel"><CodeText wrap>{sanitizeText(branch)}</CodeText></KeyValueRow>}
+            {pr && prRecord?.freshness.state !== 'fresh' && <KeyValueRow label="Observation" variant="panel">Earlier observation</KeyValueRow>}
+            {ci?.kind === 'ci' && <KeyValueRow label="Checks" variant="panel"><span className="inline-flex flex-wrap items-center gap-1">
+              {[...new Set(ci.checks.map(one => one.state))].map((state, index) => <span key={state} className="inline-flex items-center gap-1">
+                {index > 0 && <Text role="meta">·</Text>}
+                <Text role="meta" numeric tone={state === 'pending' ? 'info' : state === 'cancelled' ? 'neutral' : stateTone(state).tone}>{`${ci.checks.filter(one => one.state === state).length} ${state}`}</Text>
+              </span>)}
+              {ci.checks.length === 0 && <Text role="meta">No checks</Text>}
+            </span></KeyValueRow>}
+            {diff?.kind === 'diff' && <KeyValueRow label="Changes" variant="panel"><ChangeStats added={diff.added} removed={diff.removed} /></KeyValueRow>}
+          </KeyValue></CardContent>
+        </Card>}
+        <Card as="section">
+          <CardHeader><CardTitle><Text role="section">Run</Text></CardTitle>{flowFile && <CardAction>{flowFile}</CardAction>}</CardHeader>
+          <CardContent><KeyValue variant="panel" className="grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <KeyValueRow label="Flow" variant="panel">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</KeyValueRow>
+            {execution.base && <KeyValueRow label="Base" variant="panel">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</KeyValueRow>}
+            {input.origin && <KeyValueRow label="Started by" variant="panel">{sanitizeText(input.origin)}</KeyValueRow>}
+            {budget && <KeyValueRow label="Budget" variant="panel"><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></KeyValueRow>}
+            {budget && <KeyValueRow label="Without progress" variant="panel"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></KeyValueRow>}
+            {totals.length > 0 && <KeyValueRow label="Cost" variant="panel">{totals.join(' · ')}{costs.length < ids.length ? ' · Partial' : ''}</KeyValueRow>}
+          </KeyValue>
+          {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
+          </CardContent>
+        </Card>
+        {gaps.length > 0 && <div data-slot="run-recording-gaps"><SectionBody spacing="inline"><Text as="p" role="meta">{`This Run did not record: ${gaps.join(', ')}.`}</Text></SectionBody></div>}
+      </div></PanelBody>
+      <PanelFooter left="Recorded for this Run" right={`${execution.rounds.length} ${execution.rounds.length === 1 ? 'round' : 'rounds'}`} />
     </PanelFrame>
   </div>
 }

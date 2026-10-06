@@ -232,6 +232,61 @@ test('a reopen that merely failed keeps the member until it fails twice in a row
   }
 })
 
+test('a failed reopen while the agent is down does not count against its member', async () => {
+  const { client, runtime, room, member, peers, restart, close } = await boot()
+  try {
+    const kept = await member()
+    restart()
+    runtime.resumeFailure = Object.assign(new Error('Codex is not running.'), { code: 'notRunning' })
+
+    await client.call('team/post', { room: room.id, text: 'First attempt.' })
+    runtime.resumeFailure = Object.assign(new Error('Codex is not installed.'), { code: 'notInstalled' })
+    await client.call('team/post', { room: room.id, text: 'Second attempt.' })
+
+    assert.deepEqual((await peers()).map((peer) => peer.sessionId), [kept],
+      'two typed process-down refusals are not evidence that the conversation is gone')
+  } finally {
+    await close()
+  }
+})
+
+test('a detached conversation refuses queued mail and cannot answer into the room later', async () => {
+  const { host, client, runtime, room, member, peers, close } = await boot()
+  try {
+    const caller = await member()
+    const id = await member()
+    const live = runtime.sessions.get(id)!
+    const nickname = (await peers()).find((one) => one.sessionId === id)!.nickname
+    await host.teamPlane.addIntent({ title: 'Before detach' }, { runtime: 'fake', sessionId: id })
+    assert.equal((await peers()).find((one) => one.sessionId === id)?.usedBoard, true)
+
+    await client.call('team/post', { room: room.id, text: 'First room message.' })
+    await client.call('team/post', { room: room.id, text: 'Queued room message.' })
+    const waiting = host.teamPlane.awaitMember({ runtime: 'fake', sessionId: caller, invocation: 'detach-wait' },
+      { member: nickname, cycle: 4, blockMs: 1_000 })
+    runtime.emit({ type: 'session/detached', sessionId: live.id })
+    assert.equal(await waiting, 'stopped: The conversation process stopped before the message was read.; cycle: 5')
+
+    let state = await client.call('team/state', { room: room.id }) as TeamState
+    let posts = state.channel.filter((entry): entry is TeamMessage => entry.kind === 'message')
+    assert.equal(posts.at(-1)?.state, 'refused')
+    assert.match(posts.at(-1)?.reason ?? '', /conversation process stopped before the message was read/)
+
+    await client.call('session/resume', { runtime: 'fake', sessionId: id })
+    assert.equal((await peers()).find((one) => one.sessionId === id)?.usedBoard, false,
+      'a reopened member has no board proof from the lost process')
+    const reopened = runtime.sessions.get(id)!
+    await reopened.send([{ type: 'text', text: 'Direct follow-up.' }])
+    reopened.finish('Direct answer after detach.')
+    state = await client.call('team/state', { room: room.id }) as TeamState
+    posts = state.channel.filter((entry): entry is TeamMessage => entry.kind === 'message')
+    assert.equal(posts.some((entry) => entry.text === 'Direct answer after detach.'), false,
+      'the detached conversation no longer owes the room an answer')
+  } finally {
+    await close()
+  }
+})
+
 test('a member whose agent is merely down is kept, and answers when it is back', async () => {
   const { client, runtime, room, member, peers, close } = await boot()
   try {

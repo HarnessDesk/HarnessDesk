@@ -26,6 +26,9 @@ export interface FlowCanvasEdge {
   readonly label?: string
   readonly kind?: 'rule' | 'attachment'
   readonly selected?: boolean
+  readonly state?: 'travelled' | 'future'
+  readonly current?: boolean
+  readonly loop?: boolean
 }
 export type FlowCanvasNodeChange =
   | { readonly type: 'select'; readonly id: string; readonly selected: boolean }
@@ -43,6 +46,14 @@ export interface FlowCanvasProps<Data extends FlowCanvasStep = FlowCanvasStep> {
   readonly nodes: readonly FlowCanvasNode<Data>[]
   readonly edges: readonly FlowCanvasEdge[]
   readonly readOnly?: boolean
+  /** A still poster: no selection, panning or zooming; page gestures pass through. */
+  readonly inert?: boolean
+  /** The ordered shape editor can arrange existing steps, but cannot change the graph. */
+  readonly positionOnly?: boolean
+  /** Posters keep the plan and attribution, without navigation tools or a minimap. */
+  readonly showControls?: boolean
+  readonly title?: ReactNode
+  readonly actions?: ReactNode
   readonly label?: string
   readonly className?: string
   readonly NodeComponent?: ComponentType<FlowCanvasNodeProps<Data>>

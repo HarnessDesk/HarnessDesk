@@ -1639,14 +1639,14 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
-    ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowBaton', 'FlowFaces', 'FlowRouteLabel', 'FlowDoingLine']],
+    ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowDoingLine']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
     ['design/ui/delta.tsx', ['Delta']],
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 25)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 22)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -1681,8 +1681,12 @@ test('a single-area export is exempt only when its module, its name and its area
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'terminalpane'), true)
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'usage'), false)
   const flow = path.join(repoRoot, 'packages/ui/src/design/ui/flow-step.tsx')
-  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowBaton', 'room'), true)
-  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowBaton', 'settings'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'settings'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowFaces', 'room'), false)
+  // These are shared through FlowCanvas now, so keeping an exemption would be stale.
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowBaton', 'room'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowRouteLabel', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowToggle', 'room'), false)
 })
 

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runFixture } from '../preview/run-view-fixture'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
-import type { FindingRunState, FlowCheckAttempt } from '@harnessdesk/protocol'
+import type { Evidence, FindingRunState, FlowCheckAttempt, Freshness } from '@harnessdesk/protocol'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const render = (props: Partial<RunInspectorProps> = {}) => {
@@ -33,8 +33,8 @@ it('reads the Run, its frozen base, budget and Seats without inventing absent fa
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
-    for (const text of ['Brief', fixture.execution.brief!, 'Build and review', '3f9a1c', 'Alpha', 'Balanced · Medium', 'origin · main · abc123', 'Started by you', 'Rounds', 'Rounds without progress', '3 turns']) expect(view.container.textContent).toContain(text)
-    expect(view.container.textContent).toContain('Not recorded')
+    for (const text of ['Brief', fixture.execution.brief!, 'Build and review', '3f9a1c', 'Alpha', 'Balanced · Medium', 'origin · main · abc123', 'Started by you', 'rounds', '3 turns']) expect(view.container.textContent).toContain(text)
+    expect(view.container.textContent).toContain('This Run did not record: budget, Seat details, Seat costs.')
   } finally { view.close() }
 })
 it('shows card input and predecessor handoffs, findings and review before its conversation link', () => {
@@ -156,8 +156,8 @@ it.each([
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, findings: findingsState(extra) } } })
   try {
-    expect(view.container.textContent).toContain(`Rounds: 4 of ${limit}`)
-    expect(view.container.textContent).toContain('Rounds without progress: 1 · Limit 2')
+    expect(view.container.textContent).toContain(`Budget4 of ${limit} rounds`)
+    expect(view.container.textContent).toContain('Without progress1 of 2 rounds')
     if (extra) {
       expect(view.container.textContent).toContain(extra.reason)
       expect(view.container.textContent).toContain('Authorized after round')
@@ -178,9 +178,9 @@ it.each([
   expect(execution.findings).toBeUndefined()
   const view = render({ input: { ...fixture, execution } })
   try {
-    const budgets = sectionText(view.container, 'Budgets')
-    expect(budgets).toContain('Rounds: 3 · Limit not recorded')
-    expect(budgets).toContain('Rounds without progress: Not recorded')
+    const budgets = sectionText(view.container, 'Run')
+    expect(view.container.querySelector('[data-slot=run-recording-gaps]')?.textContent).toContain('budget')
+    expect(budgets).not.toContain('Budget')
     expect(budgets).not.toContain(' of ')
     expect(budgets).not.toContain('Limit 2')
     expect(budgets).not.toMatch(/Limit \d/)
@@ -190,9 +190,9 @@ it('still reads the limits a Run recorded', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, findings: findingsState(null) } } })
   try {
-    const budgets = sectionText(view.container, 'Budgets')
-    expect(budgets).toContain('Rounds: 4 of 3')
-    expect(budgets).toContain('Rounds without progress: 1 · Limit 2')
+    const budgets = sectionText(view.container, 'Run')
+    expect(budgets).toContain('Budget4 of 3 rounds')
+    expect(budgets).toContain('Without progress1 of 2 rounds')
     expect(budgets).not.toContain('not recorded')
   } finally { view.close() }
 })
@@ -566,3 +566,105 @@ it('shortens the selected check command and keeps the full command on hover', ()
     expect(view.container.querySelector('[title="PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
   } finally { view.close() }
 })
+
+it('uses cards, toned Seat states and two-column facts for the Run summary', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
+    seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
+  try {
+    expect([...view.container.querySelectorAll('[data-slot="card-title"]')].map(one => one.textContent)).toEqual(['Brief', 'Seats 2', 'Run'])
+    expect(view.container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tint')).toBe('violet')
+    expect(view.container.querySelector('[data-slot="chip"][data-tone="info"]')?.textContent).toBe('Working')
+    expect(view.container.querySelector('[data-slot="key-value"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="inspector-footer"]')).not.toBeNull()
+  } finally { view.close() }
+})
+it('omits the Seats card when the Run recorded no Seat details', () => {
+  const fixture = runFixture()
+  const view = render({ input: fixture, seats: [] })
+  try {
+    expect([...view.container.querySelectorAll('[data-slot="card-title"]')].some(one => /^Seats\b/.test(one.textContent ?? ''))).toBe(false)
+    expect(view.container.querySelector('[data-slot="run-recording-gaps"]')?.textContent).toContain('Seat details')
+  } finally { view.close() }
+})
+it('gives the observed pull request its state and check counts, and the recorded budgets labelled meters', () => {
+  const fixture = runFixture()
+  const facts = [
+    { kind: 'pr' as const, number: 412, head: 'abc123', state: 'open' as const, url: 'https://example.com/pull/412' },
+    { kind: 'ci' as const, at: 'abc123', checks: [{ name: 'Verify', state: 'failed' as const, url: null }, { name: 'Build', state: 'passed' as const, url: null }] },
+    { kind: 'diff' as const, files: 3, added: 177, removed: 82, from: 'base123', to: 'abc123' },
+  ]
+  const input = { ...fixture, execution: { ...fixture.execution, findings: { version: 1 as const, budget: { rounds: 24, withoutProgress: 3 }, closedRounds: [1, 2, 3], idleRounds: 1, progress: [], series: [], stopped: null, extraRound: null, overrides: [], lastDecision: null } },
+    evidence: { ...fixture.evidence, cards: [{ card: 1, running: [], facts: facts.map((fact, n) => ({ by: null, freshness: { state: 'fresh' as const }, record: { id: `summary-${n}`, observedAt: n, round: 1, fact, checkout: { root: '/work/demo', cwd: '/work/demo', commonDir: '/work/demo/.git', head: 'abc123', branch: 'fix/checkout' } } })) }] } }
+  const view = render({ input, flowFile: <button>Flow file</button> })
+  try {
+    const cards = [...view.container.querySelectorAll('[data-slot="card"]')]
+    expect(cards.map(one => one.querySelector('[data-slot="card-title"]')?.textContent)).toEqual(['Brief', 'Pull request #412Open', 'Run'])
+    const pr = cards[1]!
+    expect(pr.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Open')
+    expect(pr.querySelector('[data-slot="card-action"]')?.textContent).toBe('Open')
+    expect(pr.querySelector('[data-slot="code-text"]')?.textContent).toBe('fix/checkout')
+    expect(pr.querySelector('[data-slot="text"][data-tone="danger"]')?.textContent).toBe('1 failed')
+    expect(pr.querySelector('[data-slot="change-stats"]')).not.toBeNull()
+    for (const [label, value, max, reading] of [['Budget', 3, 24, '3 of 24 rounds'], ['Without progress', 1, 3, '1 of 3 rounds']] as const) {
+      const meter = view.container.querySelector(`[role="progressbar"][aria-label="${label}"]`)
+      expect(meter?.getAttribute('aria-valuenow')).toBe(String(value))
+      expect(meter?.getAttribute('aria-valuemax')).toBe(String(max))
+      expect(meter?.textContent).toContain(reading)
+    }
+    expect(cards[2]!.querySelector('[data-slot="card-action"]')?.textContent).toBe('Flow file')
+  } finally { view.close() }
+})
+it('omits unavailable summary facts and names the missing recordings once', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, brief: null, revision: null, base: undefined, findings: undefined } } })
+  try {
+    expect(view.container.querySelectorAll('[data-slot="run-recording-gaps"]')).toHaveLength(1)
+    expect(view.container.textContent).not.toContain('No brief recorded')
+    expect(view.container.textContent).not.toContain('Revision not recorded')
+    expect(view.container.textContent).not.toContain('Limit not recorded')
+    expect(view.container.textContent).not.toContain('Seat not recorded')
+  } finally { view.close() }
+})
+
+it('uses a singular footer for a Run with one round', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, rounds: fixture.execution.rounds.slice(0, 1) } } })
+  try {
+    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('1 round')
+    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).not.toContain('1 rounds')
+  } finally { view.close() }
+})
+
+it.each(['other Run', 'restored', 'stale CI', 'other-head CI', 'dirty diff', 'other-head diff', 'stale diff'] as const)(
+  'keeps newer %s evidence out of the Run summary', scenario => {
+    const fixture = runFixture()
+    const current: Evidence[] = [
+      { kind: 'pr', number: 412, head: 'abc123', state: 'open', url: 'https://example.com/pull/412' },
+      { kind: 'ci', at: 'abc123', checks: [{ name: 'Verify', state: 'passed', url: null }] },
+      { kind: 'diff', files: 3, added: 177, removed: 82, from: 'base123', to: 'abc123' },
+    ]
+    const observe = (fact: Evidence, n: number, freshness: Freshness = { state: 'fresh' }) => ({ by: null, freshness,
+      record: { id: `scope-${n}`, observedAt: n, round: 1, fact,
+        checkout: { root: '/work/demo', cwd: '/work/demo', commonDir: '/work/demo/.git', head: 'abc123', branch: 'fix/current' } } })
+    const foreign: Evidence = scenario === 'other Run' || scenario === 'restored'
+      ? { kind: 'pr', number: 999, head: 'other123', state: 'closed', url: 'https://example.com/pull/999' }
+      : scenario.endsWith('CI')
+        ? { kind: 'ci', at: scenario === 'other-head CI' ? 'other123' : 'abc123', checks: [{ name: 'Foreign', state: 'failed', url: null }] }
+        : { kind: 'diff', files: 90, added: 999, removed: 888, from: 'base123', to: scenario === 'other-head diff' ? 'other123' : 'abc123', dirty: scenario === 'dirty diff' }
+    const newer = observe(foreign, 100, scenario.startsWith('stale') ? { state: 'behind', commits: 1 } : { state: 'fresh' })
+    const input = { ...fixture, evidence: { ...fixture.evidence, cards: [
+      { card: 1, running: [], facts: current.map((fact, n) => observe(fact, n)) },
+      { card: scenario === 'other Run' ? 999 : 1, running: [], facts: [{ ...newer,
+        record: { ...newer.record, ...(scenario === 'restored' ? { restored: { at: 101 } } : {}) } }] },
+    ] } }
+    const view = render({ input })
+    try {
+      const pr = [...view.container.querySelectorAll('[data-slot="card"]')].find(card => card.querySelector('[data-slot="card-title"]')?.textContent?.startsWith('Pull request'))!
+      expect(pr.querySelector('[data-slot="card-title"]')?.textContent).toBe('Pull request #412Open')
+      expect(pr.textContent).toContain('1 passed')
+      expect(pr.textContent).not.toContain('failed')
+      expect(pr.querySelector('[data-slot="change-stats"]')?.textContent).toBe('+177−82')
+    } finally { view.close() }
+  },
+)

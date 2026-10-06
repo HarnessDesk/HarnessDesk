@@ -1457,6 +1457,39 @@ handed its card again instead, as any relaunch hands it.
 an answer that comes late is delivered, never dropped and never read as a
 refusal.
 
+## A resumed card retains its own work, and its Seat can undo its own block
+
+A restart or a released claim does not make a writer's unfinished work somebody
+else's pre-existing dirt. Replacing its dirty-path snapshot at the next claim
+hid that work from both the commit tool and the finish check (#1403). A card
+now keeps the earlier claim's snapshot when it is released, and reuses it only
+for the same conversation in the same checkout, within 24 hours of its
+release. That gives a restarted writer a day to recover without keeping
+an idle checkout’s ownership indefinitely. Another card claiming that
+checkout discards the retained ownership, even on another board; a simultaneous
+claim there also prevents retaining it. Busy boards cannot be changed, so
+the host persists a discard record before the new claim and checks it on
+resume, including after a restart. Read-only history stays untouched, and
+an invalidation never changes another board’s activity. Unknown snapshots
+remain unknown. Done and abandoned cards end retained ownership even when
+they were already released; a writable board read retires expired snapshots.
+The snapshot and checkout identity stay inside the host, and a hand-back and
+commit say plainly that the preserved work predates the new claim; the commit
+answer names up to 20 committed paths and counts the rest.
+
+A deliberate agent block records its conversation. That conversation can
+claim the card again, subject to the same dependency, role and file checks.
+This is the existing board's recovery route, so no new person-answer surface
+is needed. A person's block stays held, and a Run stalls with that reason
+once its Seat ends its turn. A Flow hands a Seat its own blocked
+card back with a claim before sending its order, and that hand-back does not
+spend the stall budget for unfinished turns. Self-block hand-backs have
+their own allowance of three per Seat per rolling hour, retained in the run’s
+operation journal across restarts. Past it the run stalls, naming the card
+and its reason, while the card stays blocked. Ordinary unfinished turns keep
+their existing limit. A board that refuses a hand-back's claim stalls the Run
+with its refusal instead of rejecting the host's turn-end callback.
+
 ## Seats that may commit in one round are isolated by the file, never by the desk
 
 Every Seat of a round is seated and handed its card at once. Without
@@ -1971,9 +2004,64 @@ not retained; an unobserved page is read afresh through the host barrier.
 Both existing intervals stay ten minutes: a finished Seat first releases
 its handle after its quiet interval, then a wholly unused runtime stops after
 its idle interval. A Seat that never held work, or one still holding unfinished
-work, keeps its handle. A continuously working shared runtime retains finished
-threads' children until a quiet opportunity arrives. This chooses the measured
-release boundary without interrupting work or changing any configured server.
+work, keeps its handle. That first change still left a continuously working
+shared runtime retaining finished threads' children until a quiet opportunity
+arrived. It chose the measured release boundary without interrupting work or
+changing any configured server.
+
+## Finished conversations recycle their own processes
+
+Part 1 of #1418 builds on #1404's measurement above. The generated protocol
+has `thread/unsubscribe`, but no immediate per-thread unload. Its response
+reports subscription status, not helper shutdown. The existing scripted fake
+retains a thread's MCP child after unsubscribe, matching that measurement.
+[`script/probe/mcp-release.mjs`](../script/probe/mcp-release.mjs) remains the
+manual probe for a person; this change does not run another real-process probe.
+
+Recycling a shared process only after all its working Seats drain cannot free
+a finished Seat's helpers while one Seat works continuously. Each top-level
+conversation now starts or resumes in a fresh app-server process. This bounds
+conversation processes by live conversations, plus one control process, rather
+than every Seat started since launch. It costs an app-server per live root;
+this is a lifecycle choice, not a measurement of memory saved. Forks also
+receive a fresh process, reading their source from the same agent-owned history.
+Delegated threads follow their root and drain with it.
+
+The adapter's `CodexThreadServers` routes thread verbs to their owner and
+forwards notifications and tool calls through the existing adapter. Request
+ids are namespaced by process before the shared approval router sees them.
+Releasing the last root waits for unsubscribe, then exits its owner even when
+unsubscribe refuses. A resume arriving during close waits for that owner's
+release, then loads in a fresh process. Another conversation's turn and handles
+never participate in that stop. Filesystem watches, standalone terminals,
+accounts and catalogue reads belong to the control process, which keeps
+#1404's idle-stop behavior.
+Every process uses the same agent-owned history and configuration; nothing
+rewrites that configuration or shadows real history.
+
+MCP reload and login, plugin install and removal, and skill configuration writes
+are sent to the control process and every open conversation process. Shared
+configuration files do not establish that an already running process reloads
+its tools; the adapter explicitly asks each process to apply these verbs and
+returns the control process's response after all have answered. A process
+already closing is skipped. The fixture regression opens two conversations
+and checks that all three processes receive the reload and settings requests;
+this is not a claim about unmeasured cross-process propagation in the real agent.
+
+A conversation process that fails reports `session/detached` for its own roots,
+clears their live handles and holds their queued messages. It leaves the other
+roots and runtime health alone. Delegated registrations and approvals are
+forgotten with their root, so a replacement process must announce each child
+afresh. The host's existing resume barrier reopens the same stored conversation and reapplies frozen attachments; membership and the
+host transcript survive. Full runtime shutdown also stops in-flight starts,
+so an opening that loses that race cannot leave a new owner behind.
+
+The regression starts and closes three conversations while another turn stays
+active throughout, checks the closed helpers exit, and then interrupts the
+working turn deliberately. The production-host fake rig also checks the Seat
+rest boundary with another Seat still working, plus reopen and idle reads.
+Role-based tool selection and displaying process and memory cost remain for
+later parts of #1418.
 
 ## One family of tables
 

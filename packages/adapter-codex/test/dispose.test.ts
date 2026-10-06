@@ -6,6 +6,7 @@ import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { CodexRuntime } from '../src/index.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 
 /**
  * Nothing is spawned after the host has finished with the runtime.
@@ -75,7 +76,7 @@ test('a build check parked when the app quits starts no app-server behind the qu
   if (process.platform === 'win32') return
 
   const desks = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   assert.equal((await desks.generations()).length, 1, 'one app-server to begin with')
@@ -124,7 +125,7 @@ test('a start parked in the version probe when the app quits spawns no app-serve
   if (process.platform === 'win32') return
 
   const desks = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
   t.after(() => runtime.dispose())
 
   // Held before the first start, so the quit lands inside `requireCodex` —
@@ -162,7 +163,7 @@ test('a Codex runtime the host has finished with will not start again', async (t
   if (process.platform === 'win32') return
 
   const desks = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   const born = await desks.generations()
@@ -173,4 +174,23 @@ test('a Codex runtime the host has finished with will not start again', async (t
 
   assert.deepEqual(await desks.generations(), born, 'no app-server was started to find that out')
   assert.equal(running(born[0]!), false)
+})
+
+test('a conversation opening when the runtime quits cannot leave a new process behind', async (t) => {
+  if (process.platform === 'win32') return
+  const desks = await desk(t)
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await desks.hold()
+  const opening = runtime.createSession({ cwd: '/w' })
+  const outcome = opening.then(() => 'opened', (error: unknown) => String(error))
+  // Let the opening enter its held version probe; no elapsed-time race or load.
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  await runtime.dispose()
+  await desks.release()
+  assert.match(await outcome, /stopped|not running|shut down/)
+  const born = await desks.generations()
+  assert.equal(born.length, 1, 'only the original control process started')
+  assert.ok(born.every((pid) => !running(pid)), 'all started processes exited')
 })

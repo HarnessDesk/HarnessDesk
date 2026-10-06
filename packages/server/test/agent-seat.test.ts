@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -2341,7 +2342,7 @@ const CODEX_FAKE = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtu
 /** A desk with the real Codex adapter on it, over the adapter's own fake. */
 const codexDesk = async (t: TestContext, env: Record<string, string>) => {
   const { harness, client, work } = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', ...env } })
   harness.host.register(runtime)
   await runtime.start()
   t.after(() => runtime.dispose())
@@ -2357,7 +2358,7 @@ const directCodexDesk = async (t: TestContext, env: Record<string, string>) => {
     version: '9.9.9',
     pickDirectory: async () => stateDir,
   })
-  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', ...env } })
   host.register(runtime)
   await host.start()
   t.after(() => host.dispose())

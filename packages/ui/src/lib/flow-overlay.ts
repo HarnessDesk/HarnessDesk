@@ -1,7 +1,6 @@
 import type { FlowExecution, Intent, Session, SessionKey } from '@harnessdesk/protocol'
 import type { FlowModel } from './flow-model'
 import { currentRunEnd, runCardTiming, type RunTimelineRow } from './run-timeline'
-import { FLOW_LABEL_H, FLOW_MARGIN, type FlowBox, type FlowLayout, type FlowLabel } from './flow-layout'
 
 export type FlowStepState = 'future' | 'done' | 'working' | 'waiting' | 'blocked' | 'stopping' | 'stopped'
 export interface FlowStepRun {
@@ -124,31 +123,4 @@ export const stepForRow = (execution: Pick<FlowExecution, 'rounds'>, rows: reado
 export const rowsForStep = (execution: Pick<FlowExecution, 'rounds'>, rows: readonly RunTimelineRow[], step: string | null): readonly string[] => {
   const rounds = new Set(execution.rounds.filter(round => round.role === step).map(round => round.n))
   return rows.filter(row => row.round !== null && rounds.has(row.round)).map(row => row.id)
-}
-
-/** Reserve the doing band for the whole working round, so a brief gap between tools never moves its labels. */
-export const flowOverlayLabels = (layout: FlowLayout, overlay: FlowOverlay): ReadonlyMap<string, FlowLabel> => {
-  const bands = layout.nodes.flatMap(node => {
-    const run = overlay.steps.get(node.id)
-    if (run?.state !== 'working' || !run.seats.length) return []
-    const centre = node.box.x + node.box.w / 2
-    const width = Math.min(320, 2 * centre, 2 * (layout.width - centre))
-    return [{ x: centre - width / 2, y: node.box.y + node.box.h + FLOW_LABEL_H, w: width, h: FLOW_LABEL_H }]
-  })
-  const labels = new Map<string, FlowLabel>()
-  if (!bands.length) return new Map(layout.edges.flatMap(edge => edge.label ? [[edge.id, edge.label] as const] : []))
-  const occupied: FlowBox[] = [...layout.nodes.map(node => node.box), ...bands]
-  const gap = FLOW_MARGIN / 8
-  for (const edge of layout.edges) {
-    if (!edge.label) continue
-    let label = { ...edge.label }
-    const count = edge.rules.reduce((sum, id) => sum + (overlay.rules.get(id)?.count ?? 0), 0)
-    if (label.retry && count) label.w += label.h / 2 * (String(count).length + 2)
-    const box = (): FlowBox => ({ x: label.x - label.w / 2, y: label.y - label.h / 2, w: label.w, h: label.h })
-    const overlaps = (a: FlowBox, b: FlowBox) => a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap
-    while (occupied.some(one => overlaps(box(), one))) label = { ...label, y: label.y + FLOW_LABEL_H + gap }
-    occupied.push(box())
-    labels.set(edge.id, label)
-  }
-  return labels
 }
