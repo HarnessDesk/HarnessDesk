@@ -146,7 +146,7 @@ test('GoalPlane.view keeps a claim whole, dirtyPaths included — installProject
       nextIntent: 2, messaging: true, channel: [],
       intents: [intent(1, {
         state: 'claimed',
-        claim: { runtime: 'fake' as RuntimeId, sessionId: 's1', at: 1, dirtyPaths: ['.env', 'notes.md'] },
+        claim: { runtime: 'fake' as RuntimeId, sessionId: 's1', at: 1, cwd: '/work/repo', dirtyPaths: ['.env', 'notes.md'] },
       })],
     },
     goal: { ...document.goal, revision: document.goal.revision + 1 },
@@ -159,7 +159,18 @@ test('GoalPlane.view keeps a claim whole, dirtyPaths included — installProject
   const wired = goalViewForWire(view)
   const wiredClaim = wired.board.intents.find((one) => one.id === 1)?.claim
   assert.ok(wiredClaim, 'still claimed')
+  assert.equal('cwd' in wiredClaim!, false)
   assert.equal('dirtyPaths' in wiredClaim!, false, "goalViewForWire is what a goal/* method actually returns to a client")
+  const released = proof.store.read('g1')
+  await proof.store.save({ ...released,
+    board: { ...released.board, intents: [intent(1, { state: 'open', claim: null, previousClaim: claim })] },
+    goal: { ...released.goal, revision: released.goal.revision + 1 },
+  }, released.goal.revision)
+  const releasedView = await proof.plane.view('g1')
+  assert.ok(releasedView.board.intents[0]!.previousClaim, 'control: host keeps the released snapshot')
+  const releasedWire = goalViewForWire(releasedView).board.intents[0]!
+  assert.equal('previousClaim' in releasedWire, false, 'while released, before any reclaim')
+
 })
 
 test('creation persists an empty Goal without seating; dependency waits still allow a sentence edit', async () => {
