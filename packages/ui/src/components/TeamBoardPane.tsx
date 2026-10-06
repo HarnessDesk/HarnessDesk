@@ -637,8 +637,10 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               const placement = placed.get(intent.id)
               const reason = stranded !== null ? `stranded ${describeAge(stranded)}`
                 : placement?.column === 'needs' ? placement.why : null
+              const stateWords = placement ? FACT_COLUMNS.find(one => one.id === placement.column)!.title
+                : snapshot.boardEvidenceFailed.has(room) ? 'Evidence unavailable' : 'Checking evidence'
               const outcome = intent.state === 'done' && !reason ? intent.outcome : null
-              return [copy.holderName, copy.note, reason,
+              return [copy.holderName, copy.note, reason, stateWords,
                 outcome, ...intent.files,
                 ...(evidence?.cards.find(one => one.card === intent.id)?.facts.flatMap(one => one.record.fact.kind === 'pr' ? [`#${one.record.fact.number}`] : []) ?? [])]
             }} renderRow={(intent, columns) => (
@@ -1106,6 +1108,7 @@ const IntentCard = ({
           <span className="flex min-w-0 flex-wrap items-center gap-2"><Text role="meta">#{intent.id}</Text><Text role="row" className="min-w-0 break-words [overflow-wrap:anywhere]" title={intent.title}>{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
           {note && <Text role="meta" className="whitespace-normal line-clamp-2 break-words [overflow-wrap:anywhere]" title={note}>{note}</Text>}
           {intent.files.length > 0 && <Text role="meta" className="block min-w-0 truncate" title={`Owns ${intent.files.join(', ')} while claimed`}>{intent.files.join(', ')}</Text>}
+          {listColumns.has('assignee') && <span className="@[720px]/board:hidden"><Text role="meta">Assignee · {holderName}</Text></span>}
           {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason ? ` · ${reason}` : visibleOutcome ? ` · ${visibleOutcome}` : ''}</Text></span>}
         </TableCell>
         {listColumns.has('assignee') && <TableCell className={JOB_COLUMN_CLASS.assignee}>

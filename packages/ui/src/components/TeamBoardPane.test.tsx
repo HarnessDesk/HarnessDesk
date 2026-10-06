@@ -1634,7 +1634,9 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
-    '#2Blocked jobChoose the targetsrc/api/**Needs you · stopped', '#1Recent jobsrc/api/**To do', '#3Finished jobsrc/api/**Checking evidence',
+    '#2Blocked jobChoose the targetsrc/api/**Assignee · UnassignedNeeds you · stopped',
+    '#1Recent jobsrc/api/**Assignee · UnassignedTo do',
+    '#3Finished jobsrc/api/**Assignee · —Checking evidence',
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
@@ -1821,6 +1823,18 @@ it('list repair: finished rows show and search their outcome and owned files', a
     })
     expect([...container.querySelectorAll('tbody tr')].map(one => one.getAttribute('data-job')), word).toEqual(['42'])
   }
+})
+
+it('list repair: searching a drawn Checking evidence state finds the finished job', async () => {
+  const { store } = rig([intent({ state: 'done' })])
+  await showList(store)
+  expect(listRow().textContent).toContain('Checking evidence')
+  const filter = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, 'checking')
+    filter.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(container.querySelectorAll('tbody tr')).toHaveLength(1)
 })
 
 it('list repair: all-empty evidence columns are optional, but still offered by View', async () => {

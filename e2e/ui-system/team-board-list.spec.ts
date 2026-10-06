@@ -100,6 +100,46 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`list repair: narrow columns explain their width and keep the assignee in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list&evidence=none')
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    await page.evaluate(() => document.fonts.ready)
+    if (process.env.HD_BOARD_LIST_FRAMES) {
+      await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-900-${theme}.png` })
+    }
+    await pane.getByRole('button', { name: 'View: columns and sort', exact: true }).click()
+    const menu = page.getByRole('menu')
+    await expect(menu.getByRole('switch', { name: 'Assignee' })).toBeEnabled()
+    await expect(menu.getByRole('switch', { name: 'State' })).toBeEnabled()
+    await expect(menu.getByRole('switch', { name: 'Pull request' })).toBeDisabled()
+    await expect(menu.getByRole('switch', { name: 'Checks' })).toBeDisabled()
+    await expect(menu.getByRole('switch', { name: 'Changes' })).toBeDisabled()
+    await expect(menu.getByRole('switch', { name: 'Updated' })).toBeDisabled()
+    await expect(menu).toContainText('Widen the pane to at least 1100px to show this column')
+    await expect(menu).toContainText('Widen the pane to at least 1024px to show this column')
+    await expect(menu).toContainText('Widen the pane to at least 1200px to show this column')
+    await expect(menu).toContainText('Widen the pane to at least 1280px to show this column')
+    if (process.env.HD_BOARD_LIST_FRAMES) {
+      await page.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/view-900-${theme}.png` })
+    }
+    await page.keyboard.press('Escape')
+    await page.setViewportSize({ width: 560, height: 900 })
+    await expect(pane.locator('[data-job="4"] td').first()).toContainText('Assignee · Jane Doe')
+    await pane.getByRole('button', { name: 'View: columns and sort', exact: true }).click()
+    const narrowMenu = page.getByRole('menu')
+    await expect(narrowMenu.getByRole('switch', { name: 'Assignee' })).toBeDisabled()
+    await expect(narrowMenu).toContainText('Widen the pane to at least 720px to show this column')
+    await page.keyboard.press('Escape')
+    if (process.env.HD_BOARD_LIST_FRAMES) {
+      await page.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-560-${theme}.png` })
+    }
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
   for (const width of [900, 1440, 560]) {
     test(`list repair: actions and long copy fit a ${width}px pane in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })

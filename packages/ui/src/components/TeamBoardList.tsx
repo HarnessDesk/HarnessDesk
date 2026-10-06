@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Intent } from '@harnessdesk/protocol'
 import { EmptyState, Menu, MenuItem, MenuLabel, MenuSeparator, MenuToggle, PanelFilter, PanelFooter, PanelPill, PaneColumn, Popover, Table, TableBody, TableHead, TableHeader, TableRow, Text } from '../design'
 import { MoreIcon } from './Icons'
@@ -24,6 +24,14 @@ export const JOB_COLUMN_CLASS: Record<JobColumn, string> = {
   updated: 'hidden @[1280px]/board:table-cell',
 }
 const ALL_COLUMNS = new Set(JOB_COLUMNS.map(one => one.id))
+const JOB_COLUMN_MIN_WIDTH: Readonly<Record<JobColumn, number>> = {
+  assignee: 720,
+  state: 520,
+  checks: 1024,
+  pr: 1100,
+  changes: 1200,
+  updated: 1280,
+}
 
 /** One list of the board's existing placements, never group rows or selection. */
 export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL_COLUMNS, searchText }: {
@@ -33,10 +41,28 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
   searchText?: (intent: Intent) => readonly (string | null | undefined)[]
   renderRow: (intent: Intent, columns: ReadonlySet<JobColumn>) => ReactNode
 }) => {
+  const root = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [state, setState] = useState<FactColumn | 'all'>('all')
   const [sort, setSort] = useState<'state' | 'recent' | 'title'>('state')
   const [choices, setChoices] = useState<ReadonlyMap<JobColumn, boolean>>(() => new Map())
+  const [paneWidth, setPaneWidth] = useState<number | null>(null)
+  useEffect(() => {
+    const pane = root.current?.closest<HTMLElement>('[data-slot="tool-pane"]')
+    if (!pane) return
+    const measure = (): void => {
+      const width = pane.getBoundingClientRect().width
+      if (width > 0) setPaneWidth(width)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(pane)
+    return () => observer.disconnect()
+  }, [])
   const columns = new Set(JOB_COLUMNS.filter(one => choices.get(one.id) ?? defaultColumns.has(one.id)).map(one => one.id))
   const filters = ['needs', 'working', 'review', 'todo', 'ready', 'aside'] as const
   const words = query.trim().toLocaleLowerCase()
@@ -54,7 +80,7 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
     return b.updatedAt - a.updatedAt || a.id - b.id
   })
   const count = (column: FactColumn) => intents.filter(one => placed.get(one.id)?.column === column).length
-  return <PaneColumn inset="reading" className="flex flex-col gap-3" data-slot="board-list">
+  return <PaneColumn ref={root} inset="reading" className="flex flex-col gap-3" data-slot="board-list">
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter jobs" onChange={setQuery} /></div>
       <PanelPill pressed={state === 'all'} onClick={() => setState('all')}>All <Text role="meta" numeric>{intents.length}</Text></PanelPill>
@@ -72,11 +98,15 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
           <MenuItem label="Job title" current={sort === 'title'} onSelect={() => setSort('title')} />
           <MenuSeparator />
           <MenuLabel>Columns</MenuLabel>
-          {JOB_COLUMNS.map(one => <MenuToggle key={one.id} label={one.label} checked={columns.has(one.id)} onChange={() => setChoices(previous => {
-            const next = new Map(previous)
-            next.set(one.id, !columns.has(one.id))
-            return next
-          })} />)}
+          {JOB_COLUMNS.map(one => <MenuToggle key={one.id} label={one.label} checked={columns.has(one.id)}
+            disabled={paneWidth !== null && paneWidth < JOB_COLUMN_MIN_WIDTH[one.id]
+              ? `Widen the pane to at least ${JOB_COLUMN_MIN_WIDTH[one.id]}px to show this column`
+              : false}
+            onChange={() => setChoices(previous => {
+              const next = new Map(previous)
+              next.set(one.id, !columns.has(one.id))
+              return next
+            })} />)}
         </Menu>}
       </Popover>
     </div>
