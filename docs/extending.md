@@ -642,7 +642,7 @@ issue comments. An empty template turns signing off for that kind.
 | `{seat}` | Agent, model and effort as one label, from the runtime's presentation |
 | `{agent}`, `{model}`, `{effort}`, `{version}`, `{thinking}` | The seat's individual parts; thinking is `Thinking` when on |
 | `{role}` | Writer, Reviewer or Fixer; another role keeps the Flow's spelling |
-| `{round}` | `round N` for a review round above 1 |
+| `{round}` | `round N`, where N is 1 plus earlier review rounds in that Run; the first review is round 1 and is omitted |
 | `{team}` | The Team's name, never its id |
 
 Empty parts take their ` · ` separator with them. The default review opens

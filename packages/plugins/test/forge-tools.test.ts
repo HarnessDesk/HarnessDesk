@@ -434,14 +434,15 @@ test('a pull request already open for the branch is named, not duplicated', asyn
 
 test('pr_update retains earlier contributors in a new description and records the update', async (t) => {
   const forge = await rig(t)
+  forge.seat.current = { ...SEAT, role: 'writer' }
   await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
-  forge.seat.current = { ...SEAT, model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
-  const said = await forge.run('pr_update', { body: 'Rewritten.\n\n🤖 Codex GPT-5.4 · High · via [HarnessDesk](https://harnessdesk.app)' })
+  forge.seat.current = { ...SEAT, role: 'writer', model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
+  const said = await forge.run('pr_update', { body: 'Rewritten.\n\n🤖 Writer: Codex GPT-5.4 · High · via [HarnessDesk](https://harnessdesk.app)' })
   assert.match(said, /Updated pull request #7/)
   assert.equal(
     unmarked(bodySentTo(forge.calls(), 'edit')),
-    `Rewritten.\n\n🤖 Codex GPT-5.4 · High · Codex GPT-5.4 Mini · High · via [HarnessDesk](https://harnessdesk.app)`,
-    'one rendered signature keeps both seats, with the earlier visible line removed',
+    `Rewritten.\n\n🤖 Writer: Codex GPT-5.4 Mini · High · via [HarnessDesk](https://harnessdesk.app)`,
+    'one role and agent keep the latest seat label, with the earlier visible line removed',
   )
   assert.equal(forge.published.at(-1)?.action, 'updated')
 
@@ -1127,20 +1128,21 @@ test('signing a body marks the desk’s line, replaces a marked or a legacy one,
   assert.equal(unmarked(`Text ${SIGNATURE_MARK}\nmore`), 'Text\nmore')
 })
 
-test('a custom description template keeps all contributors and upgrades a legacy line', async (t) => {
-  const own = await rig(t, { signature: 'Written by {agent} · {model}' })
+test('a custom description template keeps the latest label and upgrades a legacy line', async (t) => {
+  const own = await rig(t, { signature: 'Written by {seat}' })
+  own.seat.current = { ...SEAT, role: 'writer' }
   await own.run('pr_create', { title: 'Add widgets', body: 'first' })
-  assert.equal(unmarked(bodySentTo(own.calls(), 'create')), `first\n\nWritten by Codex · GPT-5.4`)
-  own.seat.current = { ...SEAT, model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
+  assert.equal(unmarked(bodySentTo(own.calls(), 'create')), `first\n\nWritten by Codex GPT-5.4 · High`)
+  own.seat.current = { ...SEAT, role: 'writer', model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
   // The agent passes the description back as GitHub holds it, mark and all.
-  await own.run('pr_update', { body: `Rewritten.\n\nWritten by Codex · GPT-5.4 ${SIGNATURE_MARK}` })
-  assert.equal(unmarked(bodySentTo(own.calls(), 'edit')), `Rewritten.\n\nWritten by Codex · GPT-5.4 · Codex · GPT-5.4 Mini`, 'one line retains both contributors under the custom template')
+  await own.run('pr_update', { body: `Rewritten.\n\nWritten by Codex GPT-5.4 · High ${SIGNATURE_MARK}` })
+  assert.equal(unmarked(bodySentTo(own.calls(), 'edit')), `Rewritten.\n\nWritten by Codex GPT-5.4 Mini · High`, 'one role and agent keep the latest seat label under the custom template')
   // A description signed before the mark existed still loses its default-shaped line.
   await own.run('pr_update', { body: 'Older.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)' })
-  assert.equal(unmarked(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Older.\n\nWritten by Codex · GPT-5.4 · Codex · GPT-5.4 Mini`)
-  own.seat.current = { agent: 'Gemini CLI', version: null, model: null, effort: null, thinking: false, label: 'Gemini CLI', role: null, round: null, team: null }
+  assert.equal(unmarked(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Older.\n\nWritten by Codex GPT-5.4 Mini · High`)
+  own.seat.current = { agent: 'Gemini CLI', version: null, model: null, effort: null, thinking: false, label: 'Gemini CLI', role: 'fixer', round: null, team: null }
   await own.run('pr_update', { body: 'Bare.' })
-  assert.equal(unmarked(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Bare.\n\nWritten by Codex · GPT-5.4 · Codex · GPT-5.4 Mini · Gemini CLI`)
+  assert.equal(unmarked(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Bare.\n\nWritten by Codex GPT-5.4 Mini · High · Gemini CLI`)
 })
 
 test('an author’s last line that resembles a signature is the author’s, and stays', async (t) => {
@@ -1245,16 +1247,17 @@ test('a mark quoted in a code fence or a code span is the author’s, and only t
 })
 
 test('a body copied out of a read and passed back without the mark still loses exactly the earlier line', async (t) => {
-  const forge = await rig(t, { signature: 'Written by {agent} · {model}' })
+  const forge = await rig(t, { signature: 'Written by {seat}' })
+  forge.seat.current = { ...SEAT, role: 'writer' }
   await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
   // The agent reads the description — the mark is not text and is not shown — edits it, and passes it back.
   const read = await forge.run('pr_view', {})
-  assert.ok(read.endsWith('first\n\nWritten by Codex · GPT-5.4'), read)
-  forge.seat.current = { ...SEAT, model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
-  await forge.run('pr_update', { body: 'first, edited.\n\nWritten by Codex · GPT-5.4' })
+  assert.ok(read.endsWith('first\n\nWritten by Codex GPT-5.4 · High'), read)
+  forge.seat.current = { ...SEAT, role: 'writer', model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
+  await forge.run('pr_update', { body: 'first, edited.\n\nWritten by Codex GPT-5.4 · High' })
   assert.equal(
     unmarked(bodySentTo(forge.calls(), 'edit')),
-    `first, edited.\n\nWritten by Codex · GPT-5.4 · Codex · GPT-5.4 Mini`,
+    `first, edited.\n\nWritten by Codex GPT-5.4 Mini · High`,
     'the line the desk signed with last time, read off GitHub’s copy, is the one replaced',
   )
 })
@@ -1528,4 +1531,77 @@ test('changed templates render stored contributors and legacy signatures upgrade
   const legacy = 'Old.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Earlier)'
   assert.equal(unmarked(signDescription(legacy, DEFAULT_SIGNATURE, writer, legacy)), 'Old.\n\n🤖 Writer: Codex GPT-5.4 · High · via [HarnessDesk](https://harnessdesk.app)')
   assert.equal(renderSignature('**{role} · {round}** · {team}', {...SEAT,role:'Arbiter',round:1,team:'Widgets'}), '**Arbiter** · Widgets')
+})
+
+const authorsFrom = (body: string): Record<string, unknown>[] => {
+  const encoded = /<!-- harnessdesk:authors:([^ ]+) -->/.exec(body)?.[1]
+  return encoded ? JSON.parse(decodeURIComponent(encoded)) as Record<string, unknown>[] : []
+}
+
+const bodyWithAuthors = (body: string, authors: readonly Record<string, unknown>[]): string =>
+  body.replace(/<!-- harnessdesk:authors:[^ ]+ -->/, () =>
+    `<!-- harnessdesk:authors:${encodeURIComponent(JSON.stringify(authors))} -->`)
+
+test('description author spans keep emphasis balanced for bold-role and default-review templates', () => {
+  const writer = { ...SEAT, role: 'writer' }
+  const fixer = { ...SEAT, role: 'fixer' }
+  for (const template of ['**{role}** · {seat} · via HarnessDesk', DEFAULT_REVIEW_SIGNATURE]) {
+    const first = signDescription('First.', template, writer)
+    const updated = signDescription('Fixed.', template, fixer, first)
+    assert.equal(unmarked(updated),
+      `Fixed.\n\n**Writer** · ${SEAT.label} · **Fixer** · ${SEAT.label} · via HarnessDesk`, template)
+  }
+})
+
+test('role replacement preserves dollar sequences literally', () => {
+  assert.equal(renderSignature('{role}: {seat}', { ...SEAT, role: 'qa$&x' }), `qa$&x: ${SEAT.label}`)
+})
+
+test('repeated edits by the same role and agent retain only the latest label', () => {
+  let previous: string | null = null
+  for (const effort of ['Low', 'Medium', 'High', 'Max']) {
+    const seat = { ...SEAT, role: 'writer', effort, label: `Codex GPT-5.4 · ${effort}` }
+    previous = signDescription('Edited.', DEFAULT_SIGNATURE, seat, previous)
+  }
+  assert.deepEqual(authorsFrom(previous!), [
+    { role: 'writer', agent: SEAT.agent, label: 'Codex GPT-5.4 · Max' },
+  ])
+})
+
+test('description markers omit unused Team data and remove it from older authors on edit', () => {
+  const writer = { ...SEAT, role: 'writer', team: 'Example Team', round: 2 }
+  const defaultBody = signDescription('First.', DEFAULT_SIGNATURE, writer)
+  assert.deepEqual(authorsFrom(defaultBody), [
+    { role: 'writer', agent: SEAT.agent, label: SEAT.label },
+  ])
+  assert.doesNotMatch(JSON.stringify(authorsFrom(defaultBody)), /Example Team/)
+
+  const detailed = signDescription('Detailed.', '{role} · {team} · {round} · {seat}', writer)
+  const simplified = signDescription('Simplified.', DEFAULT_SIGNATURE, null, detailed)
+  assert.deepEqual(authorsFrom(simplified), [
+    { role: 'writer', agent: SEAT.agent, label: SEAT.label },
+  ])
+  assert.doesNotMatch(unmarked(simplified), /Example Team|round 2/)
+})
+
+test('description markers reject labels that can render attacker-controlled Markdown', () => {
+  const first = signDescription('First.', DEFAULT_SIGNATURE, { ...SEAT, role: 'writer' })
+  const altered = bodyWithAuthors(first, [{ ...authorsFrom(first)[0]!, label: '[read this](https://example.com)' }])
+  const edited = signDescription('Edited.', DEFAULT_SIGNATURE, null, altered)
+  assert.deepEqual(authorsFrom(edited), [])
+  assert.equal(unmarked(edited), 'Edited.')
+})
+
+test('description markers reject invalid roles, review rounds, and contributor counts', () => {
+  const first = signDescription('First.', '{role} · {round} · {seat}', { ...SEAT, role: 'writer', round: 1 })
+  const author = authorsFrom(first)[0]!
+  for (const alteredAuthor of [
+    { ...author, role: 'writer **' },
+    { ...author, round: 100 },
+  ]) {
+    const altered = bodyWithAuthors(first, [alteredAuthor])
+    assert.deepEqual(authorsFrom(signDescription('Edited.', DEFAULT_SIGNATURE, null, altered)), [])
+  }
+  const tooMany = Array.from({ length: 9 }, (_, index) => ({ ...author, role: `writer-${index}` }))
+  assert.equal(authorsFrom(signDescription('Edited.', DEFAULT_SIGNATURE, null, bodyWithAuthors(first, tooMany))).length, 8)
 })

@@ -261,7 +261,7 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
   // Remove the colon earned by a role, and keep optional bold groups balanced.
   // An ordinary conversation's review uses its seat as the bold opening.
   const chosen = !role && template === DEFAULT_REVIEW_SIGNATURE ? DEFAULT_COMMENT_SIGNATURE : template
-  const filled = chosen.replace(/\{role\}:\s*/g, parts.role ? `${parts.role}: ` : '')
+  const filled = chosen.replace(/\{role\}:\s*/g, () => parts.role ? `${parts.role}: ` : '')
     .replace(/\{(seat|agent|model|effort|version|thinking|role|round|team)\}/g, (_match, key: string) => parts[key] ?? '')
   const tidy = (value: string): string => value.split(' · ')
     .map((part) => part.replace(/\s{2,}/g, ' ').trim()).filter(Boolean).join(' · ')
@@ -306,7 +306,29 @@ export const signBody = (body: string, signature: string | null, previous: strin
 
 /** Structured contributors survive edits to the visible credit and changes of template. */
 const AUTHORS_MARK = /<!-- harnessdesk:authors:([^\n]*?) -->/
-const authorsOf = (body: string | null | undefined): ForgeSeat[] => {
+interface DescriptionAuthor {
+  readonly role: string
+  readonly agent: string
+  readonly label: string
+  readonly team?: string | null
+  readonly round?: number | null
+}
+
+const AUTHOR_ROLE = /^[a-z][a-z0-9-]{0,31}$/i
+const safeAuthorLabel = (value: string): boolean =>
+  Array.from(value).length <= 80 && !/[\[\]()<>*_`\r\n]/.test(value)
+
+const isDescriptionAuthor = (entry: unknown): entry is DescriptionAuthor => {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false
+  const author = entry as Record<string, unknown>
+  const round = author.round
+  return typeof author.role === 'string' && AUTHOR_ROLE.test(author.role) &&
+    typeof author.agent === 'string' && typeof author.label === 'string' && safeAuthorLabel(author.label) &&
+    (author.team === undefined || author.team === null || typeof author.team === 'string') &&
+    (round === undefined || round === null || (typeof round === 'number' && Number.isSafeInteger(round) && round >= 1 && round <= 99))
+}
+
+const authorsOf = (body: string | null | undefined): DescriptionAuthor[] => {
   const lines = (body ?? '').split('\n')
   const at = markedLineIn(lines)
   const encoded = at === null ? null : AUTHORS_MARK.exec(lines[at] ?? '')?.[1]
@@ -314,29 +336,86 @@ const authorsOf = (body: string | null | undefined): ForgeSeat[] => {
   try {
     const value: unknown = JSON.parse(decodeURIComponent(encoded))
     if (!Array.isArray(value)) return []
-    return value.filter((entry): entry is ForgeSeat => entry && typeof entry === 'object' &&
-      typeof entry.label === 'string' && typeof entry.agent === 'string' && typeof entry.thinking === 'boolean' &&
-      ['role', 'team', 'model', 'effort', 'version'].every((key) => entry[key] === null || typeof entry[key] === 'string') &&
-      (entry.round === null || Number.isSafeInteger(entry.round)))
+    return value.filter(isDescriptionAuthor).slice(-8).map((author) => ({
+      role: author.role,
+      agent: author.agent,
+      label: author.label,
+      ...(author.team === undefined ? {} : { team: author.team }),
+      ...(author.round === undefined ? {} : { round: author.round }),
+    }))
   } catch { return [] }
 }
+
+const authorForTemplate = (author: DescriptionAuthor, template: string): DescriptionAuthor => ({
+  role: author.role,
+  agent: author.agent,
+  label: author.label,
+  ...(template.includes('{team}') && author.team !== undefined ? { team: author.team } : {}),
+  ...(template.includes('{round}') && author.round !== undefined ? { round: author.round } : {}),
+})
+
+const descriptionAuthor = (seat: ForgeSeat, template: string): DescriptionAuthor | null => {
+  if (!seat.role || !AUTHOR_ROLE.test(seat.role) || !safeAuthorLabel(seat.label) || typeof seat.agent !== 'string') return null
+  if (template.includes('{round}') && seat.round !== null && seat.round !== undefined &&
+    (!Number.isSafeInteger(seat.round) || seat.round < 1 || seat.round > 99)) return null
+  return authorForTemplate({
+    role: seat.role,
+    agent: seat.agent,
+    label: seat.label,
+    team: seat.team,
+    round: seat.round,
+  }, template)
+}
+
+const forgeSeatFromAuthor = (author: DescriptionAuthor): ForgeSeat => ({
+  agent: author.agent,
+  version: null,
+  model: null,
+  effort: null,
+  thinking: false,
+  label: author.label,
+  role: author.role,
+  round: author.round ?? null,
+  team: author.team ?? null,
+})
 
 /** Render every earlier role/seat pair under today's template, sharing its prefix and suffix. */
 export const signDescription = (body: string, template: string, seat: ForgeSeat | null, previousBody?: string | null): string => {
   const previous = previousSignature(previousBody)
   if (template.trim() === '') return signBody(body, null, previous)
   const authors = authorsOf(previousBody)
-  if (seat && !authors.some((author) => author.role === seat.role && author.label === seat.label)) authors.push(seat)
-  if (!authors.length) return signBody(body, null, previous)
+  const current = seat ? descriptionAuthor(seat, template) : null
+  if (current) {
+    const index = authors.findIndex((author) => author.role === current.role && author.agent === current.agent)
+    if (index >= 0) authors[index] = current
+    else authors.push(current)
+  }
+  const retained = authors.slice(-8).map((author) => authorForTemplate(author, template))
+  if (!retained.length) {
+    const signature = seat ? renderSignature(template, seat).trim() : ''
+    return signBody(body, signature || null, previous)
+  }
+  const renderSeats = retained.map((author) =>
+    current && seat && author.role === current.role && author.agent === current.agent
+      ? seat
+      : forgeSeatFromAuthor(author))
   const matches = [...template.matchAll(/\{(?:role|seat|agent|model|effort|version|thinking|team|round)\}/g)]
   const first = matches[0]?.index
   const last = matches.at(-1)
-  const line = first !== undefined && last
-    ? template.slice(0, first) + authors.map((author) => renderSignature(template.slice(first, last.index! + last[0].length), author)).filter(Boolean).join(' · ') + template.slice(last.index! + last[0].length)
-    : renderSignature(template, authors[0]!)
+  let line: string
+  if (first !== undefined && last) {
+    let start = first
+    let end = last.index! + last[0].length
+    while (start > 0 && /[*_`]/.test(template[start - 1]!)) start -= 1
+    while (end < template.length && /[*_`]/.test(template[end]!)) end += 1
+    const span = template.slice(start, end)
+    line = template.slice(0, start) + renderSeats.map((author) => renderSignature(span, author)).filter(Boolean).join(' · ') + template.slice(end)
+  } else {
+    line = renderSignature(template, renderSeats[0]!)
+  }
   const clean = signBody(body, line.trim(), previous)
   if (!line.trim()) return clean
-  return clean.slice(0, -SIGNATURE_MARK.length) + `<!-- harnessdesk:authors:${encodeURIComponent(JSON.stringify(authors))} --> ${SIGNATURE_MARK}`
+  return clean.slice(0, -SIGNATURE_MARK.length) + `<!-- harnessdesk:authors:${encodeURIComponent(JSON.stringify(retained))} --> ${SIGNATURE_MARK}`
 }
 
 /** A marked opening line for comments, including edits passed back by an agent. */

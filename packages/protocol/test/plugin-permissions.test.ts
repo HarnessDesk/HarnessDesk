@@ -61,7 +61,7 @@ test('several hosts are one line, because the surface renders one row per line',
 
 test('forge consent includes every signed kind of publication', () => {
   assert.deepEqual(describePermissions(grant({ forge: true })), [
-    'Sign pull requests, reviews and comments for the conversation, and put what it published in the transcript',
+    'Sign pull requests, reviews and comments for the conversation, with its Team name, and put what it published in the transcript',
   ])
 })
 

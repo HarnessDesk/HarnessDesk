@@ -719,9 +719,7 @@ test('commit_work refuses an empty or oversized message, and a checkout with no 
 
 test('card commits carry the adapter credit once alongside the desk credit', async (t) => {
   for (const credit of [
-    { name: 'Codex', email: 'noreply@openai.com' },
-    { name: 'Cursor Agent', email: 'cursoragent@cursor.com' },
-    { name: 'Claude', email: 'noreply@anthropic.com' },
+    { name: 'Example Agent', email: 'agent@example.com' },
     null,
   ]) {
     const root = await repo(t)

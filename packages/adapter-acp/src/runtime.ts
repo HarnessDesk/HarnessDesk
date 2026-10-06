@@ -199,6 +199,8 @@ export interface AcpAgentConfig {
   /** Stable runtime id, e.g. `claude-code`. Shown nowhere; keyed everywhere. */
   readonly id: string
   readonly name: string
+  /** Native Git co-author declared by the known-agent table, when one is cited or observed. */
+  readonly coAuthor?: { readonly name: string; readonly email: string } | null
   /** Whose mark to show — a lobe-icons key, e.g. `claudecode`. See `RuntimePresentation.brand`. */
   readonly brand?: string
   readonly command: string
@@ -752,12 +754,6 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
   return category?.startsWith('_') ? (category as `_${string}`) : 'other'
 }
 
-/** Native credits observed in AgentPack §3 (https://arxiv.org/html/2509.21891v1#S3); unknown addresses stay null. */
-const NATIVE_COAUTHORS: Readonly<Record<string, { readonly name: string; readonly email: string }>> = {
-  claude: { name: 'Claude', email: 'noreply@anthropic.com' },
-  cursor: { name: 'Cursor Agent', email: 'cursoragent@cursor.com' },
-}
-
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
   #searchListing: { readonly rows: readonly AcpSessionRow[]; readonly expiresAt: number } | null = null
@@ -944,7 +940,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
-        coAuthor: NATIVE_COAUTHORS[this.#config.id] ?? null,
+        coAuthor: this.#config.coAuthor ?? null,
         ...(this.#config.perToolMcpApproval
           ? { boardToolApproval: { ...this.#config.perToolMcpApproval, sessionOptionLabel: 'Allow for this session', onceOptionLabel: 'Allow once' } }
           : {}),

@@ -1021,8 +1021,13 @@ export class Host {
           const board = this.#team.stateFor(seat.board)
           const card = board.intents.find((one) => one.claim?.runtime === runtime && one.claim.sessionId === sessionId)
           const run = card ? this.#flows.executionsFor(seat.board).find((one) => one.rounds.some((round) => round.cards.includes(card.id))) : null
-          const round = run && card ? this.#flows.findingRun(run.id)?.rounds.find((one) => one.cards.includes(card.id)) : null
-          return { role: seat.role, team: board.name || null, round: round?.reviews ? round.n : null }
+          const rounds = run ? this.#flows.findingRun(run.id)?.rounds ?? [] : []
+          const round = card ? rounds.find((one) => one.cards.includes(card.id)) : null
+          const index = round ? rounds.indexOf(round) : -1
+          const reviewNumber = round?.reviews && index >= 0
+            ? rounds.slice(0, index).filter((one) => one.reviews).length + 1
+            : null
+          return { role: seat.role, team: board.name || null, round: reviewNumber }
         },
         record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
         toolsOffered: () =>
@@ -1506,7 +1511,9 @@ export class Host {
       reviewRoundOf: (seat, round) => {
         if (!seat.board || round === null) return null
         const run = this.#flows.executionsFor(seat.board).find((one) => one.operations.some((op) => op.kind === 'seat' && op.seat === seat.id))
-        return run && this.#flows.findingRun(run.id)?.rounds.some((one) => one.n === round && one.reviews) ? round : null
+        const rounds = run ? this.#flows.findingRun(run.id)?.rounds ?? [] : []
+        const index = rounds.findIndex((one) => one.n === round && one.reviews)
+        return index < 0 ? null : rounds.slice(0, index).filter((one) => one.reviews).length + 1
       },
       appendPost: (input) => this.#findings.appendPost(input),
       forge: options.findingForge ?? new GhFindingForge(),
