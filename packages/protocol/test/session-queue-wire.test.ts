@@ -24,3 +24,17 @@ test('queue and update reject empty text but still accept a message made of an a
   ]))
   assert.equal(attachmentOnly.method, 'turn/queue')
 })
+
+
+test('queue records accept safe lengths and reject negative, fractional and string lengths', () => {
+  for (const method of ['turn/queue', 'turn/queue/update']) {
+    for (const prefixLength of [0, 3, 100]) {
+      const parsed = parseClientMessage(request(method, [{ type: 'text', text: 'say', deskContext: { prefixLength } }]))
+      assert.ok(parsed.method === 'turn/queue' || parsed.method === 'turn/queue/update')
+      assert.deepEqual(JSON.parse(JSON.stringify(parsed.params)), request(method, [{ type: 'text', text: 'say', deskContext: { prefixLength } }]).params)
+    }
+    for (const prefixLength of [-1, 1.5, '3']) {
+      assert.throws(() => parseClientMessage(request(method, [{ type: 'text', text: 'say', deskContext: { prefixLength } }])), ValidationError)
+    }
+  }
+})
