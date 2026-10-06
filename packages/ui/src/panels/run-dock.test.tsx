@@ -27,6 +27,7 @@ import { runFixture } from '../preview/run-view-fixture'
 import { previewStore } from '../preview/harness'
 import { runDockStore } from '../preview/frames-run-dock'
 import { dockViews, stacks } from '../state/workbench'
+import { TeamRunView } from '../components/TeamRunView'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const activeRightKind = (store: ReturnType<typeof runDockStore>) => {
@@ -115,7 +116,7 @@ it('closes a Run-only dock when its Run leaves the main pane', async () => {
   } finally { act(() => root.unmount()) }
 })
 
-it('keeps the first Run dock open through StrictMode effect replay', () => {
+it('keeps the first Run dock open through StrictMode effect replay', async () => {
   const store = runDockStore()
   const container = document.createElement('div')
   const root = createRoot(container)
@@ -126,6 +127,7 @@ it('keeps the first Run dock open through StrictMode effect replay', () => {
     act(() => root.render(<StrictMode><StoreProvider store={store}><RunDockProvider>
       <Producer /><aside><RunDetailsView /><RunStepsView /></aside>
     </RunDockProvider></StoreProvider></StrictMode>))
+    await act(async () => { await Promise.resolve() })
     expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
   } finally { act(() => root.unmount()) }
 })
@@ -149,5 +151,121 @@ it('re-adds a Run tab that was closed without making it active on return', () =>
     show(true)
     expect(dockViews(store.getSnapshot().workbench.right).some(one => one.view.kind === 'run-steps')).toBe(true)
     expect(activeRightKind(store)).toBe('run-details')
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps a Run-only dock open when the Team switches to another Run', async () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = ({ runId }: { runId: string }) => {
+    const execution = { ...fixture.execution, id: runId }
+    const input = { ...fixture, execution }
+    return <PaneProvider scope={{ paneId: 'dock-team', view: { kind: 'room', room: 'dock-team' }, sessionKey: null }}>
+      <TeamRunView key={runId} execution={execution} origin={null} onOpenSeat={() => {}}
+        model={runTimeline(input)} number={1} selectedRow={null} onSelect={() => {}} />
+    </PaneProvider>
+  }
+  const show = (runId: string) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    <Producer runId={runId} /><aside><RunDetailsView /><RunStepsView /></aside>
+  </RunDockProvider></StoreProvider>))
+  try {
+    show('run-a')
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+    show('run-b')
+    await act(async () => { await Promise.resolve() })
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+  } finally { act(() => root.unmount()) }
+})
+
+it('reopens a Run-only dock after leaving, unless the person hid it', async () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = () => <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+    flow={<span>Flow</span>} inspector={{ input: fixture, seats: [] }} />
+  const show = (mounted: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    {mounted && <Producer />}<aside><RunDetailsView /><RunStepsView /></aside>
+  </RunDockProvider></StoreProvider>))
+  const tick = () => act(async () => { await Promise.resolve() })
+  try {
+    show(true)
+    show(false)
+    await tick()
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    show(true)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+
+    act(() => store.togglePanel('right'))
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    show(false)
+    await tick()
+    show(true)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+  } finally { act(() => root.unmount()) }
+})
+
+it('restores the tab that was in front before the Run used the dock', async () => {
+  const store = runDockStore()
+  store.showViewIn('right', { kind: 'changes' })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = () => <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+    flow={<span>Flow</span>} inspector={{ input: fixture, seats: [] }} />
+  const show = (mounted: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    {mounted && <Producer />}<aside><RunDetailsView /><RunStepsView /></aside>
+  </RunDockProvider></StoreProvider>))
+  try {
+    expect(activeRightKind(store)).toBe('changes')
+    show(true)
+    expect(activeRightKind(store)).toBe('run-details')
+    show(false)
+    await act(async () => { await Promise.resolve() })
+    const right = store.getSnapshot().workbench.right
+    expect(dockViews(right).map(one => one.view.kind)).toEqual(['changes'])
+    expect(activeRightKind(store)).toBe('changes')
+  } finally { act(() => root.unmount()) }
+})
+
+it('does not change the dock when an unfocused Team mounts a Run', () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = () => <PaneProvider scope={{ paneId: 'background-team', view: { kind: 'room', room: 'background-team' }, sessionKey: null }}>
+    <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+      inspector={{ input: fixture, seats: [] }} />
+  </PaneProvider>
+  try {
+    act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+      <Producer /><aside><RunDetailsView /></aside>
+    </RunDockProvider></StoreProvider>))
+    expect(dockViews(store.getSnapshot().workbench.right)).toHaveLength(0)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps the focused Run dock open when a background Team leaves', async () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = ({ id }: { id: string }) => <PaneProvider scope={{ paneId: id, view: { kind: 'room', room: id }, sessionKey: null }}>
+    <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+      inspector={{ input: fixture, seats: [] }} />
+  </PaneProvider>
+  const show = (background: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    <Producer id="dock-team" />{background && <Producer id="background-team" />}
+    <aside><RunDetailsView /><RunStepsView /></aside>
+  </RunDockProvider></StoreProvider>))
+  try {
+    show(true)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+    show(false)
+    await act(async () => { await Promise.resolve() })
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
   } finally { act(() => root.unmount()) }
 })

@@ -11,17 +11,34 @@ export interface RunDockContent {
 }
 const registry = () => {
   let content = new Map<string, RunDockContent>()
+  const producers = new Map<string, object>()
   const listeners = new Set<() => void>()
+  const collapsedOnLeave = new Set<string>()
+  const returnTabs = new Map<string, { area: 'right' | 'bottom' | 'sidebar'; id: string }>()
   return {
     getSnapshot: () => content,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
-    publish: (owner: string, next: RunDockContent) => {
+    markCollapsedOnLeave: (owner: string) => { collapsedOnLeave.add(owner) },
+    takeCollapsedOnLeave: (owner: string) => {
+      const collapsed = collapsedOnLeave.delete(owner)
+      return collapsed
+    },
+    rememberReturnTab: (owner: string, tab: { area: 'right' | 'bottom' | 'sidebar'; id: string } | null) => {
+      if (tab) returnTabs.set(owner, tab)
+      else returnTabs.delete(owner)
+    },
+    getReturnTab: (owner: string) => returnTabs.get(owner) ?? null,
+    clearReturnTab: (owner: string) => { returnTabs.delete(owner) },
+    isPublishedBy: (owner: string, producer: object) => producers.get(owner) === producer,
+    publish: (owner: string, next: RunDockContent, producer: object) => {
       content = new Map(content).set(owner, next)
+      producers.set(owner, producer)
       for (const listener of listeners) listener()
       return () => {
         if (content.get(owner) !== next) return
         content = new Map(content)
         content.delete(owner)
+        producers.delete(owner)
         for (const listener of listeners) listener()
       }
     },
