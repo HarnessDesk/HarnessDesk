@@ -197,7 +197,7 @@ const TableCell = ({
   >
     {lead != null ? (
       <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap)">
-        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible [&>*:not([data-slot=avatar-stack])]:size-full [&>*:not([data-slot=avatar-stack])]:rounded-[inherit]">{lead}</span>
+        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible has-[[data-slot=face-badge]]:overflow-visible [&>*:not([data-slot=avatar-stack])]:size-full [&>*:not([data-slot=avatar-stack])]:rounded-[inherit]">{lead}</span>
         {children}
       </div>
     ) : children}

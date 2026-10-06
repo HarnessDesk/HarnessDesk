@@ -228,6 +228,8 @@ export class PermissionGate {
   constructor(
     private readonly permissions: PluginPermissions,
     private readonly workspaceRoot: () => string | null,
+    /** True while the call runs in a checkout other than the open workspace, so a refusal names the right folder. */
+    private readonly inOtherCheckout: () => boolean = () => false,
   ) {}
 
   assertWorkspaceRead(path: string): void {
@@ -339,7 +341,7 @@ export class PermissionGate {
       throw new PermissionDenied('workspace', 'no workspace is open')
     }
     if (!pathWithin(root, path)) {
-      throw new PermissionDenied('workspace', `${path} is outside the open workspace`)
+      throw new PermissionDenied('workspace', `${path} is outside ${this.inOtherCheckout() ? 'the checkout this call runs in' : 'the open workspace'}`)
     }
   }
 }
