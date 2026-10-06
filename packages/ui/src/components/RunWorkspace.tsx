@@ -8,11 +8,11 @@ import styles from './RunWorkspace.module.css'
 export const RunWorkspace = ({ inspector, ...view }: ComponentProps<typeof RunView> & { inspector: Omit<RunInspectorProps, 'selectedRow'> }) => {
   const [detail, setDetail] = useState(false)
   const [kept, keep] = useState<RunViewTab>('timeline')
-  // The Flow is a drawing of the whole Run, so it has the pane to itself: the inspector explains a row of
-  // the timeline, and on the Flow tab there is no row on show. A caller that chooses the tab is followed.
+  // The Flow has the page until the Team Steps dock is available. FlowGraph’s flow-list
+  // is the accessible seam for that dock; the timeline inspector still explains one row.
   const tab: RunViewTab = view.flow ? view.view ?? kept : 'timeline'
   const timeline = tab === 'timeline'
-  return <div data-slot="run-workspace" data-detail={(detail && timeline) || undefined} className={styles.workspace}>
+  return <div data-slot="run-workspace" data-view={tab} data-detail={(detail && timeline) || undefined} className={styles.workspace}>
     <div className={styles.timeline}>
       <RunView {...view} onDetails={() => { view.onSelect('run'); setDetail(true) }} view={tab} onView={next => { if (view.view === undefined) keep(next); view.onView?.(next) }}
         onSelect={id => { view.onSelect(id); setDetail(true) }} />

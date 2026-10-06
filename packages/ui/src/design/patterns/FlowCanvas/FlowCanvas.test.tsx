@@ -243,3 +243,23 @@ it('clears a refused Delete request before a later outside removal', async () =>
   expect(document.activeElement).toBe(outside)
   outside.remove()
 })
+
+it('position-only graphs move steps but refuse connections and deletion', async () => {
+  const onNodesChange = vi.fn(), onEdgesChange = vi.fn(), onConnect = vi.fn()
+  await draw({ positionOnly: true, onNodesChange, onEdgesChange, onConnect })
+  key('ArrowRight')
+  expect(onNodesChange).toHaveBeenCalledWith([{ type: 'position', id: 'write', position: { x: 16, y: 0 }, dragging: false }])
+  onNodesChange.mockClear()
+  key('Delete')
+  expect(onNodesChange).not.toHaveBeenCalled()
+  expect(onEdgesChange).not.toHaveBeenCalled()
+  expect(host.querySelector('.react-flow__handle.connectable')).toBeNull()
+  expect(host.textContent).not.toContain('remove the selection')
+})
+it('groups read-only navigation and caller actions at the top right with a title at the top left', async () => {
+  await draw({ readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
+  expect(host.querySelector('.react-flow__panel.top.left')?.textContent).toBe('The path this Run took')
+  const tools = host.querySelector('.react-flow__panel.top.right')!
+  expect(tools.textContent).toContain('Open the file')
+  expect(tools.querySelector('[aria-label="Fit plan"]')).not.toBeNull()
+})

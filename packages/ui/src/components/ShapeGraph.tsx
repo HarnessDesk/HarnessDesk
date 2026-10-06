@@ -1,20 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
-import { Button, Card, Field, Input, Note, Row, RowButton, Rows, SectionHead } from '../design'
+import { Button, Card, Field, Input, Note, Row, RowButton, Rows, SectionHead, FlowCanvas, type FlowCanvasNodeChange } from '../design'
 import { boundedPosition, defaultGraphPosition, readGraphPositions, ROLE_KIND_WORDS, type GraphPoint } from '../lib/shapes'
-import styles from './ShapeGraph.module.css'
 
-/**
- * The same shape, drawn spatially. Moving a node edits `layout.positions`
- * and nothing else — role order, seed, rules, grants, guards, messaging and
- * budget are exactly what the ordered editor already holds. There is no
- * second routing model here: an edge is a rule's own `on`/`then.role`, drawn
- * for orientation only (`aria-hidden`), and the accessible rule list beside
- * the canvas carries the same information a screen reader can act on,
- * including a loop's back edge.
- */
+/** The ordered editor's roles and rules on the shared canvas. Only position edits leave this view. */
 export interface ShapeGraphProps {
   readonly policy: FlowPolicy
   readonly selected: string | null
@@ -22,9 +13,6 @@ export interface ShapeGraphProps {
   readonly onPositions: (positions: Readonly<Record<string, { readonly x: number; readonly y: number }>>) => void
   readonly onEditRule: (rule: string) => void
 }
-
-const NODE_W = 180
-const NODE_H = 64
 
 const roleWord = (policy: FlowPolicy, id: string): string => {
   const role = policy.roles.find((one) => one.id === id)
@@ -36,111 +24,58 @@ const roleWord = (policy: FlowPolicy, id: string): string => {
 
 export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule }: ShapeGraphProps) => {
   const { positions: saved, invalid } = readGraphPositions(policy)
-  const [dragging, setDragging] = useState<{ readonly id: string; readonly dx: number; readonly dy: number } | null>(null)
-  const start = useRef<{ readonly id: string; readonly x: number; readonly y: number; readonly pointerX: number; readonly pointerY: number } | null>(null)
-
+  const [draft, setDraft] = useState<Readonly<Record<string, GraphPoint>>>({})
+  const cancelled = useRef(false)
   const positionOf = (id: string, index: number): GraphPoint => (
     Object.hasOwn(saved, id) ? saved[id]! : defaultGraphPosition(index)
   )
-  const previewOf = (id: string, index: number): GraphPoint => {
-    const base = positionOf(id, index)
-    return dragging && dragging.id === id ? { x: base.x + dragging.dx, y: base.y + dragging.dy } : base
-  }
-
   const commit = (id: string, point: GraphPoint): void => {
     const bounded = boundedPosition(point.x, point.y)
     if (!bounded) return
     onPositions({ ...saved, [id]: bounded })
   }
 
-  useEffect(() => {
-    if (!dragging) return
-    const move = (event: MouseEvent): void => {
-      if (!start.current) return
-      setDragging({ id: start.current.id, dx: event.clientX - start.current.pointerX, dy: event.clientY - start.current.pointerY })
-    }
-    const up = (): void => {
-      if (start.current && dragging) {
-        commit(start.current.id, { x: start.current.x + dragging.dx, y: start.current.y + dragging.dy })
+  const move = (changes: readonly FlowCanvasNodeChange[]): void => {
+    const positions: Record<string, GraphPoint> = { ...saved }
+    let complete = false
+    const preview: Record<string, GraphPoint> = { ...draft }
+    for (const change of changes) {
+      if (change.type === 'select') {
+        if (change.selected) onSelect(change.id)
+      } else if (change.type === 'position') {
+        if (cancelled.current) {
+          if (!change.dragging) cancelled.current = false
+          continue
+        }
+        const at = boundedPosition(change.position.x, change.position.y)
+        if (!at) continue
+        if (change.dragging) preview[change.id] = at
+        else { positions[change.id] = at; delete preview[change.id]; complete = true }
       }
-      start.current = null
-      setDragging(null)
     }
-    const cancel = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      start.current = null
-      setDragging(null)
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
-    window.addEventListener('keydown', cancel)
-    return () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
-      window.removeEventListener('keydown', cancel)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dragging])
-
-  const beginDrag = (id: string, index: number, event: React.MouseEvent): void => {
-    const at = positionOf(id, index)
-    start.current = { id, x: at.x, y: at.y, pointerX: event.clientX, pointerY: event.clientY }
-    setDragging({ id, dx: 0, dy: 0 })
-  }
-
-  const width = Math.max(...policy.roles.map((role, index) => previewOf(role.id, index).x), 0) + NODE_W + 40
-  const height = Math.max(...policy.roles.map((role, index) => previewOf(role.id, index).y), 0) + NODE_H + 40
-
-  const centerOf = (id: string, index: number): GraphPoint => {
-    const at = previewOf(id, index)
-    return { x: at.x + NODE_W / 2, y: at.y + NODE_H / 2 }
+    setDraft(preview)
+    if (complete) onPositions(positions)
   }
   const indexOf = new Map(policy.roles.map((role, index) => [role.id, index]))
 
   return (
     <div>
       {invalid && <Note tone="warn">Some saved positions could not be read and were ignored; the file itself is unchanged.</Note>}
-      <div className={styles.canvas} style={{ minWidth: width, minHeight: height }}>
-        <svg className={styles.edges} aria-hidden focusable="false" width={width} height={height}>
-          {policy.rules.map((rule) => {
-            const fromIndex = indexOf.get(rule.on)
-            const toIndex = indexOf.get(rule.then.role)
-            if (fromIndex === undefined || toIndex === undefined) return null
-            const from = centerOf(rule.on, fromIndex)
-            const to = centerOf(rule.then.role, toIndex)
-            return (
-              <line
-                key={rule.id}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                className={styles.edgeLine}
-                stroke="currentColor"
-                strokeWidth={1}
-              />
-            )
-          })}
-        </svg>
-        {policy.roles.map((role, index) => {
-          const at = previewOf(role.id, index)
-          return (
-            <Button
-              key={role.id}
-              type="button"
-              variant="outline"
-              className={styles.node}
-              style={{ left: at.x, top: at.y, width: NODE_W, minHeight: NODE_H }}
-              data-selected={selected === role.id || undefined}
-              aria-label={`${role.id} — ${ROLE_KIND_WORDS[role.kind]} step: ${roleWord(policy, role.id)}`}
-              onClick={() => onSelect(role.id)}
-              onMouseDown={(event) => beginDrag(role.id, index, event)}
-            >
-              <span className={styles.nodeTitle}>{role.id}</span>
-              <span className={styles.nodeMeta}>{ROLE_KIND_WORDS[role.kind]}</span>
-            </Button>
-          )
-        })}
+      <div className="h-96" onKeyDownCapture={event => {
+        if (event.key === 'Escape' && Object.keys(draft).length) {
+          event.preventDefault(); event.stopPropagation()
+          cancelled.current = true
+          setDraft({})
+        }
+      }}>
+        <FlowCanvas label="Shape graph" positionOnly
+          nodes={policy.roles.map((role, index) => ({ id: role.id, position: Object.hasOwn(draft, role.id) ? draft[role.id]! : positionOf(role.id, index),
+            selected: selected === role.id, data: { name: role.id, kind: role.kind, roleLine: roleWord(policy, role.id) } }))}
+          edges={policy.rules.filter(rule => indexOf.has(rule.on) && indexOf.has(rule.then.role)).map(rule => ({
+            id: rule.id, source: rule.on, target: rule.then.role,
+            label: rule.when?.every?.join(' / ') ?? rule.when?.any?.join(' / '),
+          }))}
+          onNodesChange={move} onEdgesChange={changes => { const rule = changes.find(change => change.type === 'select' && change.selected); if (rule) onEditRule(rule.id) }} />
       </div>
 
       <section aria-label="Every step, for when a node is off screen">
@@ -176,7 +111,7 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
         <section aria-label={`Position of ${selected}`}>
           <SectionHead name={`Position — ${selected}`} />
           <Card spacing="compact">
-            <span className={styles.moveFields}>
+            <span className="flex gap-3">
               <Field label="Horizontal">
                 {(control) => (
                   <Input

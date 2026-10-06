@@ -6,6 +6,7 @@ import type { FlowPolicy } from '@harnessdesk/protocol'
 
 import { defaultGraphPosition } from '../lib/shapes'
 import { ShapeGraph } from './ShapeGraph'
+import { canvasDOM } from '../test/flow-canvas-dom'
 
 /**
  * The graph: the same roles and rules the ordered editor holds, drawn
@@ -19,14 +20,17 @@ import { ShapeGraph } from './ShapeGraph'
 let container: HTMLDivElement
 let root: Root
 
-beforeEach(() => {
+beforeEach(async () => {
+  canvasDOM()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  await import('../design/patterns/FlowCanvas/Engine')
 })
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
 })
 
 const POLICY: FlowPolicy = {
@@ -45,55 +49,38 @@ const POLICY: FlowPolicy = {
   layout: { positions: { build: { x: 10, y: 20 }, review: { x: 200, y: 20 } }, frontDoor: { order: 1 }, foreign: ['kept'] },
 }
 
-const render = (policy: FlowPolicy, selected: string | null = null) => {
+const render = async (policy: FlowPolicy, selected: string | null = null) => {
   const onSelect = vi.fn()
   const onPositions = vi.fn()
   const onEditRule = vi.fn()
-  act(() => {
+  await act(async () => {
     root.render(<ShapeGraph policy={policy} selected={selected} onSelect={onSelect} onPositions={onPositions} onEditRule={onEditRule} />)
   })
+  await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
   return { onSelect, onPositions, onEditRule }
 }
 
-const node = (id: string): HTMLButtonElement => {
-  const found = [...container.querySelectorAll('button')].find((one) => one.getAttribute('aria-label')?.startsWith(`${id} —`))
-  if (!found) throw new Error(`no node “${id}”`)
-  return found
-}
+const node = (id: string): HTMLElement => container.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)!
 
-it('a pointer drag changes only that role’s position — every other field is untouched, and the layout’s own foreign siblings survive', () => {
-  const { onPositions } = render(POLICY)
-  const build = node('build')
-
-  act(() => { build.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 10, clientY: 20 })) })
-  act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 60, clientY: 90 })) })
-  act(() => { window.dispatchEvent(new MouseEvent('mouseup', { clientX: 60, clientY: 90 })) })
-
+it('keyboard movement changes only that role’s position and retains other saved roles', async () => {
+  const { onPositions } = await render(POLICY, 'build')
+  act(() => node('build').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
   expect(onPositions).toHaveBeenCalledTimes(1)
-  const positions = onPositions.mock.calls[0]![0] as Record<string, { x: number; y: number }>
-  expect(positions['build']).toEqual({ x: 60, y: 90 })
-  // The other role's saved position is carried through unchanged.
-  expect(positions['review']).toEqual({ x: 200, y: 20 })
+  expect(onPositions.mock.calls[0]![0]).toEqual({ build: { x: 26, y: 20 }, review: { x: 200, y: 20 } })
 })
-
-it('escape during a drag restores the original position and commits nothing', () => {
-  const { onPositions } = render(POLICY)
-  const build = node('build')
-
-  act(() => { build.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 10, clientY: 20 })) })
-  act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 500, clientY: 500 })) })
-  // The node visibly followed the pointer before Escape cancelled it.
-  expect(node('build').style.left).not.toBe('10px')
-  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
-  act(() => { window.dispatchEvent(new MouseEvent('mouseup', { clientX: 500, clientY: 500 })) })
-
+it('selects a canvas step but refuses deletion, removal and connection affordances', async () => {
+  const { onSelect, onPositions, onEditRule } = await render(POLICY, 'build')
+  act(() => node('ship').click())
+  expect(onSelect).toHaveBeenCalledWith('ship')
+  act(() => node('build').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true })))
   expect(onPositions).not.toHaveBeenCalled()
-  // And the cancelled drag really did restore the original position on screen.
-  expect(node('build').style.left).toBe('10px')
+  expect(onEditRule).not.toHaveBeenCalled()
+  expect(container.querySelector('.react-flow__handle.connectable')).toBeNull()
+  expect(container.querySelectorAll('.react-flow__node')).toHaveLength(3)
 })
 
-it('the keyboard Move fields commit through the same callback as a drag, with identical bounded coordinates', () => {
-  const { onPositions } = render(POLICY, 'build')
+it('the keyboard Move fields commit through the same callback as a drag, with identical bounded coordinates', async () => {
+  const { onPositions } = await render(POLICY, 'build')
   const horizontal = [...container.querySelectorAll('input[type="number"]')][0] as HTMLInputElement
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
@@ -106,17 +93,17 @@ it('the keyboard Move fields commit through the same callback as a drag, with id
   expect(positions['build']!.x).toBe(10000)
 })
 
-it('no positions saved yet renders every role in stable order, and mounting writes nothing', () => {
+it('no positions saved yet renders every role in stable order, and mounting writes nothing', async () => {
   const { positions: _unused, ...rest } = POLICY.layout as { positions: unknown }
   const noPositions: FlowPolicy = { ...POLICY, layout: rest }
-  const { onPositions } = render(noPositions)
+  const { onPositions } = await render(noPositions)
   expect(node('build')).toBeTruthy()
   expect(node('review')).toBeTruthy()
   expect(node('ship')).toBeTruthy()
   expect(onPositions).not.toHaveBeenCalled()
 })
 
-it('uses a default position when a role id matches an inherited object key', () => {
+it('uses a default position when a role id matches an inherited object key', async () => {
   const constructorOnly: FlowPolicy = {
     ...POLICY,
     roles: [{ id: 'constructor', kind: 'person', outcomes: ['done'] }],
@@ -124,15 +111,14 @@ it('uses a default position when a role id matches an inherited object key', () 
     seed: { role: 'constructor', title: 'Go' },
     layout: {},
   }
-  render(constructorOnly)
+  await render(constructorOnly)
 
   const expected = defaultGraphPosition(0)
-  expect(node('constructor').style.left).toBe(`${expected.x}px`)
-  expect(node('constructor').style.top).toBe(`${expected.y}px`)
+  expect(node('constructor').style.transform).toBe(`translate(${expected.x}px,${expected.y}px)`)
 })
 
-it('the rule list carries every rule, including the back edge, in accessible text', () => {
-  render(POLICY)
+it('the rule list carries every rule, including the back edge, in accessible text', async () => {
+  const { onEditRule } = await render(POLICY)
   const rows = [...container.querySelectorAll('button')].map((one) => one.textContent ?? '')
   expect(rows.some((text) => text.includes('build → review'))).toBe(true)
   expect(rows.some((text) => text.includes('review → build') && text.includes('loops back') === false)).toBe(true)
@@ -140,10 +126,11 @@ it('the rule list carries every rule, including the back edge, in accessible tex
   // Selecting a rule opens it through the callback, never by drawing a new edge.
   const ruleRow = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('review → ship'))!
   act(() => ruleRow.click())
+  expect(onEditRule).toHaveBeenCalledWith('to-ship')
 })
 
-it('the accessible step list under the canvas carries no "Steps" heading of its own — the Graph tab above it already says so', () => {
-  render(POLICY)
+it('the accessible step list under the canvas carries no "Steps" heading of its own — the Graph tab above it already says so', async () => {
+  await render(POLICY)
   const headings = [...container.querySelectorAll('[data-slot="section-name"]')].map((one) => one.textContent?.trim())
   expect(headings).not.toContain('Steps')
   // The list itself is unaffected — every role is still there for a reader whose node is off screen.

@@ -20,7 +20,7 @@
   --xy-minimap-mask-background-color: var(--hd-muted);
   --xy-attribution-background-color: var(--hd-background);
 }
-.node { width: 100%; }
+.node { width: 100%; height: 100%; }
 .card {
   background: var(--hd-card);
   border-radius: var(--hd-radius);
@@ -33,7 +33,7 @@
   padding: var(--hd-space-2) var(--hd-space-3);
   border-top: var(--hd-border-width) solid var(--hd-border);
 }
-.edge { stroke-width: var(--hd-border-width); }
+.edge { stroke: var(--hd-muted-foreground); stroke-width: var(--hd-border-width); }
 .word { position: absolute; pointer-events: none; }
 .tools {
   display: flex;
@@ -55,7 +55,7 @@
 }
 .node:hover :global(.react-flow__handle),
 .canvas :global(.react-flow__node):focus-within :global(.react-flow__handle) { opacity: 1; }
-.node[data-readonly="true"] :global(.react-flow__handle) { visibility: hidden; }
+.node[data-readonly="true"] :global(.react-flow__handle) { visibility: hidden; width: 0; height: 0; border: 0; }
 .canvas[data-tool="hand"] :global(.react-flow__handle) { visibility: hidden; }
 .canvas :global(.react-flow__minimap) {
   border-radius: var(--hd-radius);
@@ -73,3 +73,6 @@
 .canvas :global(.react-flow__attribution a) { color: var(--hd-muted-foreground); }
 .canvas :global(.react-flow__node):focus-visible { outline: none; }
 .canvas :global(.react-flow__node):focus-visible .card { box-shadow: var(--hd-focus-ring); }
+
+.travelled { stroke: var(--hd-accent); stroke-width: var(--hd-space-0-5); }
+.future { opacity: 0.3; stroke-dasharray: 5 5; }

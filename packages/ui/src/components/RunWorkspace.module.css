@@ -28,3 +28,16 @@
   .workspace[data-detail] > .detail { display: flex; }
   .back { display: block; }
 }
+
+.workspace[data-view="flow"] [data-slot="run-scroll"] {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  margin-block: var(--hd-space-4);
+}
+.workspace[data-view="flow"] [data-slot="run-scroll"] > * {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}

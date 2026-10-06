@@ -7,6 +7,7 @@ import { flowOverlay, type OverlayCheckHistory } from '../lib/flow-overlay'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import type { Intent } from '@harnessdesk/protocol'
 import { ceilingsOfRun, flowModel } from '../lib/flow-model'
+import { FileIcon } from './Icons'
 import { useSnapshot, useStore } from '../state/context'
 
 const PLACE: Readonly<Record<FlowOrigin, string>> = {
@@ -90,18 +91,19 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   }
 
   return (
-    <div data-slot="run-flow" className="flex min-w-0 flex-col gap-4">
-      <div data-slot="run-flow-head" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+    <div data-slot="run-flow" className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+      <div data-slot="run-flow-head" className="sr-only">
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
           <Text role="subject" className="min-w-0 break-words">{flow.name}</Text>
           <Text role="meta">{execution.revision ? `revision ${execution.revision} · ` : ''}frozen when this Run started</Text>
         </span>
-        <RefusedAction reason={root ? undefined : 'This Run’s project is not known here, so its file cannot be found.'}>
-          <Button size="sm" variant="outline" disabled={reading} onClick={() => void open()}>Open the file</Button>
-        </RefusedAction>
       </div>
       {problem && <ActionError>{problem}</ActionError>}
-      <FlowGraph model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+      <FlowGraph title="The path this Run took" listPlacement="dock" actions={
+        <RefusedAction reason={root ? undefined : 'This Run’s project is not known here, so its file cannot be found.'}>
+          <Button size="icon" variant="ghost" aria-label="Open the file" title="Open the flow file" disabled={reading} onClick={() => void open()}><FileIcon /></Button>
+        </RefusedAction>
+      } model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
       {opened && (
         <Dialog title={opened.entry.name} size="xl" tall onClose={() => setOpened(null)}>
           <Text role="meta" className="break-words">{PLACE[opened.entry.origin]} · {opened.entry.path}</Text>

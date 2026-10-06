@@ -1422,7 +1422,7 @@ Steps connect by pointer here; the builder dock will add keyboard connection lat
 
 `packages/ui/src/design/patterns/FlowGraph.tsx`
 
-The frozen Flow's measured drawing and accessible list. A Run overlays recorded state, seated faces, motion and shared Timeline selection; a blueprint stays still.
+The frozen Flow on the shared read-only canvas, with recorded state and an accessible Steps seam for the Team dock.
 
 ### `Lightbox`
 
