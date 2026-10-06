@@ -154,6 +154,8 @@ describe('the builder document', () => {
     const stepData = step.data
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, id: 'changed' } } }] })).toThrow(/step/i)
     expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, name: 'Changed' } } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, role: { ...stepData.role, blind: false } } }] })).toThrow(/step/i)
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...step, data: { ...stepData, view: { ...stepData.view, extra: true } } }] })).toThrow(/step/i)
     expect(() => graphDocument(document, { ...graph, nodes: [...graph.nodes, { ...step, id: 'extra' }] })).toThrow(/operations/i)
     expect(() => graphDocument(document, { ...graph, edges: [...graph.edges, { id: 'extra', source: null, target: null, data: { rule: {}, view: {} } as never }] })).toThrow(/operations/i)
 
@@ -161,6 +163,7 @@ describe('the builder document', () => {
     const withEdgeGraph = documentGraph(withEdge)
     const edge = withEdgeGraph.edges[0]!
     expect(() => graphDocument(withEdge, { ...withEdgeGraph, edges: [{ ...edge, data: { ...edge.data, rule: { ...edge.data.rule, id: 'changed' } } }] })).toThrow(/rule/i)
+    expect(() => graphDocument(withEdge, { ...withEdgeGraph, edges: [{ ...edge, data: { ...edge.data, rule: { ...edge.data.rule, when: { every: ['looks good'] } } } }] })).toThrow(/rule/i)
     expect(() => graphDocument(withEdge, { ...withEdgeGraph, edges: [{ ...edge, source: 'elsewhere' }] })).toThrow(/rule/i)
     expect(() => graphDocument(withEdge, { ...withEdgeGraph, edges: [{ ...edge, target: 'elsewhere' }] })).toThrow(/rule/i)
   })

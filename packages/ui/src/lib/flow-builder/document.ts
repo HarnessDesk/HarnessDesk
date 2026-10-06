@@ -31,18 +31,31 @@ export const recordOf = (value: unknown): Record<string, unknown> | null => (
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 )
 
-/** Compare the fields this model owns, allowing the canvas to add its own keys. */
-const matchesOwnedFields = (actual: unknown, expected: unknown): boolean => {
+/** Compare a value, optionally requiring every object level to have the same keys. */
+const matchesOwnedFields = (actual: unknown, expected: unknown, exact = false): boolean => {
   if (Array.isArray(expected)) {
     return Array.isArray(actual) && actual.length === expected.length
-      && expected.every((value, index) => matchesOwnedFields(actual[index], value))
+      && expected.every((value, index) => matchesOwnedFields(actual[index], value, exact))
   }
   const expectedRecord = recordOf(expected)
   if (expectedRecord) {
     const actualRecord = recordOf(actual)
-    return actualRecord !== null && Object.entries(expectedRecord).every(([key, value]) => matchesOwnedFields(actualRecord[key], value))
+    if (!actualRecord) return false
+    const entries = Object.entries(expectedRecord)
+    if (exact && (Object.keys(actualRecord).length !== entries.length || entries.some(([key]) => !Object.hasOwn(actualRecord, key)))) return false
+    return entries.every(([key, value]) => matchesOwnedFields(actualRecord[key], value, exact))
   }
   return Object.is(actual, expected)
+}
+
+/** The graph and data wrappers may carry canvas state; model fields may not. */
+const matchesGraphData = (actual: unknown, expected: unknown): boolean => {
+  const actualRecord = recordOf(actual)
+  const expectedRecord = recordOf(expected)
+  return actualRecord !== null && expectedRecord !== null
+    && Object.entries(expectedRecord).every(([key, value]) => (
+      matchesOwnedFields(actualRecord[key], value, key === 'role' || key === 'rule' || key === 'view')
+    ))
 }
 
 const readNotes = (policy: FlowPolicy): { notes: BuilderNote[]; invalid: boolean } => {
@@ -179,7 +192,7 @@ export const graphDocument = (document: BuilderDocument, graph: BuilderGraph): B
   let notesChanged = false
   for (const before of expected.nodes) {
     const node = nodes.get(before.id)
-    if (!node || !matchesOwnedFields(node.data, before.data)) throw new Error('Use document operations to edit a step')
+    if (!node || !matchesGraphData(node.data, before.data)) throw new Error('Use document operations to edit a step')
     const point = boundedPosition(node.position.x, node.position.y)
     if (!point) throw new Error('A position must be finite')
     const position = {
@@ -199,7 +212,7 @@ export const graphDocument = (document: BuilderDocument, graph: BuilderGraph): B
   for (const before of expected.edges) {
     const edge = edges.get(before.id)
     if (!edge || edge.source !== before.source || edge.target !== before.target
-      || !matchesOwnedFields(edge.data, before.data)) throw new Error('Use document operations to edit a rule')
+      || !matchesGraphData(edge.data, before.data)) throw new Error('Use document operations to edit a rule')
   }
   if (positionsChanged) next = withPositions(next, positions)
   if (notesChanged) next = withNotes(next, notes)
