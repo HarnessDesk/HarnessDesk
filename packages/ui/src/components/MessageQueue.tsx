@@ -3,7 +3,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { UserContent } from '@harnessdesk/protocol'
 
 import { useQueue, useSessionKey, useStore, useSnapshot } from '../state/context'
-import { noteKey, splitContext, wrapContext } from '../lib/context-envelope'
+import { noteKey, wrapContext } from '../lib/context-envelope'
 import { describeQueued, queuedLabel } from '../lib/queue'
 import {
   Alert,
@@ -340,9 +340,10 @@ const QueueMessageEditor = ({
 
 /** Keep resolved context and every non-text part while replacing only what was typed. */
 const withEditedText = (input: readonly UserContent[], text: string): readonly UserContent[] => {
-  const context = input.flatMap((part) => part.type === 'text' ? splitContext(part.text).injections : [])
+  const context = describeQueued(input).context
+  const prefix = context.map((block) => wrapContext(block.label, block.text)).join('\n\n')
   const replacement = [
-    ...context.map((block) => wrapContext(block.label, block.text)),
+    ...(prefix ? [prefix] : []),
     text,
   ].filter((part) => part.length > 0).join('\n\n')
   let inserted = false
@@ -351,7 +352,7 @@ const withEditedText = (input: readonly UserContent[], text: string): readonly U
     if (part.type !== 'text') {
       output.push(part)
     } else if (!inserted) {
-      if (replacement.length > 0) output.push({ type: 'text', text: replacement })
+      if (replacement.length > 0) output.push({ type: 'text', text: replacement, deskContext: { prefixLength: prefix.length } })
       inserted = true
     }
   }

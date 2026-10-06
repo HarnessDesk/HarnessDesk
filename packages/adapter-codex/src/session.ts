@@ -22,6 +22,10 @@ import {
   type TurnId,
   type UserContent,
   openingOf,
+  openingOfContent,
+  recordDeskInput,
+  deskContextContent,
+  type UserMessageItem,
 } from '@harnessdesk/protocol'
 
 import { automaticContext, contextPreamble, type ToolProjection } from './capabilities.js'
@@ -123,6 +127,27 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  readonly #pendingInputs: (readonly UserContent[])[] = []
+  readonly #recordedInputs = new Map<string, readonly UserContent[]>()
+
+  /** Bind sent input to the runtime's own item id before its mapper peels text. */
+  noteUserInput(id: string, text: string): void {
+    if (this.#recordedInputs.has(id)) return
+    const at = this.#pendingInputs.findIndex(input =>
+      input.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n') === text)
+    if (at === -1) return
+    const input = this.#pendingInputs.splice(at, 1)[0]
+    if (input) this.#recordedInputs.set(id, input)
+  }
+
+  recordedUserInput(item: UserMessageItem, completed = false): UserMessageItem {
+    const id = String(item.id)
+    const input = this.#recordedInputs.get(id)
+    if (!input) return item
+    if (completed) this.#recordedInputs.delete(id)
+    const { context: _context, ...rest } = item
+    return { ...rest, content: input }
+  }
   /**
    * Turns opened with `recordAs: 'notice'` — an Agent's standing order, not a
    * person's words. Codex still runs the turn and reports its opening item
@@ -450,7 +475,10 @@ export class CodexSession implements AgentSession {
   }
 
   noteTurnEnded(turnId: string): void {
-    if (this.#currentTurnId === turnId) this.#currentTurnId = null
+    if (this.#currentTurnId === turnId) {
+      this.#currentTurnId = null
+      this.#pendingInputs.length = 0
+    }
     this.#silentTurnIds.delete(turnId)
   }
 
@@ -470,7 +498,8 @@ export class CodexSession implements AgentSession {
   async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
     const overrides = this.#pendingOverrides
     this.#pendingOverrides = {}
-    const enriched = await this.#withContext(input)
+    const enriched = await this.#withContext(recordDeskInput(input))
+    this.#pendingInputs.push(enriched)
     const silent = opts?.recordAs === 'notice'
     if (silent) {
       this.#pendingSilentOrder = true
@@ -484,6 +513,8 @@ export class CodexSession implements AgentSession {
         ...overrides,
       })
     } catch (error) {
+      const at = this.#pendingInputs.indexOf(enriched)
+      if (at !== -1) this.#pendingInputs.splice(at, 1)
       if (silent) {
         this.#pendingSilentOrder = false
         this.#pendingNoticeKind = undefined
@@ -511,7 +542,7 @@ export class CodexSession implements AgentSession {
     // on a resumed thread it is a follow-up, and Codex's stored preview is
     // the opening.
     if (!this.deps.created || this.#opening !== null) return
-    const text = openingOf(input.map((part) => (part.type === 'text' ? part.text : '')).join('\n').trim())
+    const text = openingOfContent(recordDeskInput(input))
     this.#opening = text.slice(0, 120) || null
   }
 
@@ -534,13 +565,8 @@ export class CodexSession implements AgentSession {
   async #nameFromOpeningMessage(input: readonly UserContent[]): Promise<void> {
     if (!this.#nameable) return
     this.#nameable = false
-    const text = input
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n')
-      .trim()
-    // No envelope, no problem to fix.
-    if (stripContext(text) === text) return
-    const name = nameFromMessage(text)
+    if (!input.some(part => part.type === 'text' && part.deskContext && part.deskContext.prefixLength > 0)) return
+    const name = nameFromMessage(openingOfContent(input))
     if (!name) return
     try {
       await this.setTitle(name)
@@ -552,14 +578,22 @@ export class CodexSession implements AgentSession {
 
   async steer(input: readonly UserContent[]): Promise<void> {
     const turnId = this.#requireActiveTurn('steer')
-    await this.deps.server.request('turn/steer', {
-      threadId: this.id,
-      input: input.map(toCodexInput),
-      // Codex treats this as a precondition and rejects the call if the turn
-      // moved on, which is the behaviour we want: steering the wrong turn is
-      // worse than failing.
-      expectedTurnId: turnId,
-    })
+    const recorded = recordDeskInput(input)
+    this.#pendingInputs.push(recorded)
+    try {
+      await this.deps.server.request('turn/steer', {
+        threadId: this.id,
+        input: recorded.map(toCodexInput),
+        // Codex treats this as a precondition and rejects the call if the turn
+        // moved on, which is the behaviour we want: steering the wrong turn is
+        // worse than failing.
+        expectedTurnId: turnId,
+      })
+    } catch (error) {
+      const at = this.#pendingInputs.indexOf(recorded)
+      if (at !== -1) this.#pendingInputs.splice(at, 1)
+      throw error
+    }
   }
 
   /**
@@ -604,7 +638,7 @@ export class CodexSession implements AgentSession {
       })
       const preamble = contextPreamble(entries)
       if (!preamble) return input
-      return [{ type: 'text', text: preamble }, ...input]
+      return [deskContextContent(preamble), ...input]
     } catch {
       // Context is an enhancement; failing to resolve it must not block a turn.
       return input

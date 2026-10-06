@@ -1,6 +1,6 @@
 import type { QueuedMessage, UserContent } from '@harnessdesk/protocol'
 
-import { splitContext, type ContextBlock } from './context-envelope'
+import { splitContextContent, type ContextBlock } from './context-envelope'
 
 /**
  * Reading a queued message back.
@@ -31,15 +31,11 @@ export interface QueuedView {
 }
 
 export const describeQueued = (input: readonly UserContent[]): QueuedView => {
-  const spoken: string[] = []
+  const { text, injections: context } = splitContextContent(input)
   const attachments: QueuedAttachment[] = []
-  const context: ContextBlock[] = []
 
   for (const part of input) {
     if (part.type === 'text') {
-      const split = splitContext(part.text)
-      context.push(...split.injections)
-      if (split.text.length > 0) spoken.push(split.text)
       continue
     }
     if (part.type === 'image') {
@@ -59,7 +55,7 @@ export const describeQueued = (input: readonly UserContent[]): QueuedView => {
     }
   }
 
-  return { text: spoken.join('\n\n'), attachments, context }
+  return { text, attachments, context }
 }
 
 /** One line for a list row: the first line of what was typed, or what it carries. */

@@ -1,10 +1,9 @@
 import { useEffect, useMemo } from 'react'
 
-import type { AgentItem, Turn } from '@harnessdesk/protocol'
+import { typedUserText, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import { ChartKey, ChartKeys, CodeText, ProgressStack, publicationVerb, SeriesDot, Separator, Text, type Tint, type Tone } from '../design'
 import { toolWords } from '../lib/tool-names'
-import { splitContext } from '../lib/context-envelope'
 import { useActiveSession } from '../state/context'
 import type { ReportFoot } from './Details'
 import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
@@ -116,7 +115,7 @@ const labelOf = (item: AgentItem): string => {
       return `${publicationVerb(reference)} #${reference.number}${title}`
     }
     case 'userMessage':
-      return splitContext(item.content.find((part) => part.type === 'text')?.text ?? '').text.trim() || 'Message'
+      return typedUserText(item.content).trim() || 'Message'
     default:
       return KIND_LABEL[item.type] ?? 'Step'
   }

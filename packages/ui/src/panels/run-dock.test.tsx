@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { readView, sameView, type Layout } from '../state/layout'
 import { permits, views } from './views'
 import './builtins'
@@ -28,6 +28,8 @@ import { previewStore } from '../preview/harness'
 import { runDockStore } from '../preview/frames-run-dock'
 import { dockViews, stacks } from '../state/workbench'
 import { TeamRunView } from '../components/TeamRunView'
+import { AppStore } from '../state/store'
+import { PREVIEW_SESSION_KEY } from '../preview/harness'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const activeRightKind = (store: ReturnType<typeof runDockStore>) => {
@@ -210,6 +212,8 @@ it('reopens a Run-only dock after leaving, unless the person hid it', async () =
 it('restores the tab that was in front before the Run used the dock', async () => {
   const store = runDockStore()
   store.showViewIn('right', { kind: 'changes' })
+  store.showViewIn('right', { kind: 'agents' })
+  store.activateView('right', dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'changes')!.id)
   const container = document.createElement('div')
   const root = createRoot(container)
   const fixture = runFixture()
@@ -225,7 +229,7 @@ it('restores the tab that was in front before the Run used the dock', async () =
     show(false)
     await act(async () => { await Promise.resolve() })
     const right = store.getSnapshot().workbench.right
-    expect(dockViews(right).map(one => one.view.kind)).toEqual(['changes'])
+    expect(dockViews(right).map(one => one.view.kind)).toEqual(['changes', 'agents'])
     expect(activeRightKind(store)).toBe('changes')
   } finally { act(() => root.unmount()) }
 })
@@ -267,5 +271,143 @@ it('keeps the focused Run dock open when a background Team leaves', async () => 
     show(false)
     await act(async () => { await Promise.resolve() })
     expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+  } finally { act(() => root.unmount()) }
+})
+
+it.each(['conversation', 'team'] as const)('restores the dock when a %s replaces the Run with a new pane id', async destination => {
+  const store = new AppStore('ws://localhost:0/')
+  const workspace = { path: '/work/project', name: 'project', lastOpenedAt: 1 }
+  const saved = runDockStore().getSnapshot().workbench
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'app/state/get') return { layouts: { [workspace.path]: saved } }
+    if (method === 'workspace/recent') return [workspace]
+    if (method === 'worktree/list') return []
+    return null
+  }) as never)
+  await store.loadPreferences()
+  await store.loadWorkspaces()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const Producer = () => {
+    const owner = store.getSnapshot().workbench.main.focused
+    return <PaneProvider scope={{ paneId: owner, view: { kind: 'room', room: 'dock-team' }, sessionKey: null }}>
+      <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+        inspector={{ input: fixture, seats: [] }} />
+    </PaneProvider>
+  }
+  const show = (mounted: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    {mounted && <Producer />}<aside><RunDetailsView /></aside>
+  </RunDockProvider></StoreProvider>))
+  try {
+    show(true)
+    const first = store.getSnapshot().workbench.main.focused
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+    act(() => {
+      if (destination === 'team') store.openTeamRoom('other-team')
+      else store.showViewIn('main', { kind: 'conversation', session: PREVIEW_SESSION_KEY })
+    })
+    show(false)
+    await act(async () => { await Promise.resolve() })
+    expect(store.getSnapshot().workbench.main.focused).not.toBe(first)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    // The next Run owns a different pane id but the same dock.
+    act(() => store.openTeamRoom('return-team'))
+    show(true)
+    expect(store.getSnapshot().workbench.main.focused).not.toBe(first)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+  } finally { act(() => root.unmount()) }
+})
+
+it('opens Run details when a timeline row is selected from a hidden narrow dock', () => {
+  const base = runDockStore().getSnapshot()
+  const store = previewStore({ ...base })
+  store.setWindowWidth(800)
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const select = vi.fn()
+  try {
+    act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+      <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={select}
+        inspector={{ input: fixture, seats: [] }} />
+    </RunDockProvider></StoreProvider>))
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    const row = container.querySelector<HTMLButtonElement>('[data-row="round-1"]')!
+    expect(row).not.toBeNull()
+    act(() => row.click())
+    expect(select).toHaveBeenCalledWith('round-1')
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+    expect(activeRightKind(store)).toBe('run-details')
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps personally closed Run tabs closed when focus returns to the mounted pane', () => {
+  const base = runDockStore().getSnapshot()
+  const main: Layout = { ...base.workbench.main, root: { kind: 'split', id: 'split', direction: 'row', ratio: 0.5,
+    first: base.workbench.main.root, second: { kind: 'pane', id: 'other', view: { kind: 'room', room: 'other' } } } }
+  const store = previewStore({ ...base, layout: main, workbench: { ...base.workbench, main } })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  try {
+    act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+      <PaneProvider scope={{ paneId: 'dock-team', view: { kind: 'room', room: 'dock-team' }, sessionKey: null }}>
+        <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+          inspector={{ input: fixture, seats: [] }} />
+      </PaneProvider>
+    </RunDockProvider></StoreProvider>))
+    act(() => { for (const entry of dockViews(store.getSnapshot().workbench.right)) store.closeView(entry.id) })
+    expect(dockViews(store.getSnapshot().workbench.right)).toHaveLength(0)
+    const collapsed = store.getSnapshot().workbench.right.collapsed
+    act(() => store.focusPane('other'))
+    act(() => store.focusPane('dock-team'))
+    expect(dockViews(store.getSnapshot().workbench.right)).toHaveLength(0)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(collapsed)
+  } finally { act(() => root.unmount()) }
+})
+
+it('gives a mixed dock back with the visibility it had before visiting the Run', async () => {
+  const store = runDockStore()
+  store.showViewIn('right', { kind: 'changes' })
+  store.togglePanel('right')
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const show = (mounted: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    {mounted && <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+      inspector={{ input: fixture, seats: [] }} />}
+  </RunDockProvider></StoreProvider>))
+  try {
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    show(true)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+    show(false)
+    await act(async () => { await Promise.resolve() })
+    expect(activeRightKind(store)).toBe('changes')
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps a returning Run visible when the dock would cover it', async () => {
+  const base = runDockStore().getSnapshot()
+  const store = previewStore({ ...base })
+  store.setWindowWidth(800)
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture()
+  const show = (mounted: boolean) => act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+    {mounted && <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={() => {}}
+      inspector={{ input: fixture, seats: [] }} />}
+  </RunDockProvider></StoreProvider>))
+  try {
+    show(true)
+    act(() => store.togglePanel('right'))
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(false)
+    show(false)
+    await act(async () => { await Promise.resolve() })
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    show(true)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
   } finally { act(() => root.unmount()) }
 })

@@ -1,4 +1,4 @@
-import { approvalId as makeApprovalId, sessionId as makeSessionId } from '@harnessdesk/protocol'
+import { recordDeskInput, approvalId as makeApprovalId, sessionId as makeSessionId } from '@harnessdesk/protocol'
 
 import type { MethodsUnder } from './context.js'
 
@@ -8,12 +8,12 @@ import type { MethodsUnder } from './context.js'
  */
 export const turnMethods = {
   'turn/send': async (ctx, params) => {
-    const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), params.input, live))
+    const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), recordDeskInput(params.input), live))
     return { turnId: String(turnId) }
   },
 
   'turn/steer': async (ctx, params) => {
-    await ctx.sessions.dispatch(params, live => live.steer(params.input))
+    await ctx.sessions.dispatch(params, live => live.steer(recordDeskInput(params.input)))
     return null
   },
 
@@ -31,10 +31,10 @@ export const turnMethods = {
     // typed in the same breath cannot both go straight out — the second
     // waits behind the first, which is what the person meant by typing it.
     if (!ctx.queue.busy(record) && record.queue.messages.length === 0) {
-      await ctx.queue.sendNow(record, params.input)
+      await ctx.queue.sendNow(record, recordDeskInput(params.input))
       return { queuedId: null, sent: true }
     }
-    const message = ctx.registry.enqueue(record, ctx.queue.nextId(), params.input)
+    const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input))
     ctx.queue.push(record)
     return { queuedId: message.id, sent: false }
   },
@@ -48,7 +48,7 @@ export const turnMethods = {
 
   'turn/queue/update': (ctx, params) => {
     const record = ctx.sessions.record(params)
-    ctx.queue.update(record, params.id, params.input)
+    ctx.queue.update(record, params.id, recordDeskInput(params.input))
     return null
   },
 

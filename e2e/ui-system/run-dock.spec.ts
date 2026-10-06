@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
+import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Run details and Steps use the workbench dock in ${theme}`, async ({ page }) => {
@@ -42,6 +43,7 @@ for (const theme of ['light', 'dark'] as const) {
       return body.x - card.x
     })).toBeGreaterThan(0)
     expect(await summary.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `details-after-${theme}.png`) })
     await summary.getByRole('button', { name: 'Flow file', exact: true }).click()
     await expect(page.getByRole('dialog')).toContainText('This is the file as it is now.')
@@ -66,6 +68,7 @@ for (const theme of ['light', 'dark'] as const) {
     await steps.getByRole('button').filter({ hasText: 'Not reached' }).click()
     await expect(main.locator('[data-step="person"]')).toHaveAttribute('data-selected', 'true')
     expect(await steps.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `steps-after-${theme}.png`) })
     await dock.getByRole('button', { name: 'Give this panel the whole area', exact: true }).click()
     await expect(main).toBeHidden()
@@ -96,9 +99,25 @@ for (const theme of ['light', 'dark'] as const) {
     if (opensOnFlow) await frame.getByRole('button', { name: 'Hide the right panel', exact: true }).click()
     await expect(main).toBeVisible()
     await frame.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    await main.locator('[data-row="round-1"]').click()
+    await expect(dock).toBeVisible()
+    await expect(dock.getByRole('tab', { name: 'Run details', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(main.locator('[data-row="round-1"]')).toHaveAttribute('aria-current', 'true')
+    await dock.getByRole('button', { name: 'Hide this panel', exact: true }).click()
     await frame.getByRole('button', { name: 'Run details', exact: true }).click()
     await expect(dock).toBeVisible()
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `dock-800-after-${theme}.png`) })
+    // Leave while the dock is open, then return at a width where it overlays.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await frame.getByRole('button', { name: 'Overview', exact: true }).click()
+    await expect(dock).toHaveCount(0)
+    await page.setViewportSize({ width: 800, height: 900 })
+    await frame.getByRole('button', { name: 'Run 1', exact: true }).click()
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `return-800-after-${theme}.png`) })
+    await expect(main).toBeVisible()
+    await expect(dock).toHaveCount(0)
   })
 
   test(`an older Run omits unrecorded facts and the narrow window uses the same dock in ${theme}`, async ({ page }) => {
@@ -114,6 +133,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(inspector.locator('[data-slot="card-title"]').filter({ hasText: /^Seats/ })).toHaveCount(0)
     await expect(inspector).not.toContainText('Not recorded')
     expect(await inspector.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `older-narrow-after-${theme}.png`) })
     await frame.getByRole('button', { name: 'Hide this panel', exact: true }).click()
     await expect(frame.locator('[data-slot="workbench-main"]')).toBeVisible()

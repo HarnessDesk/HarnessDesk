@@ -154,6 +154,7 @@ describe('a chip that resolves to an image', () => {
     expect(queue).toHaveBeenCalledTimes(1)
     const content = queue.mock.calls[0]?.[0] as unknown as { type: string; text?: string; url?: string; name?: string }[]
     expect(content.map((part) => part.type)).toEqual(['text', 'image', 'text'])
+    expect(content[0]).toMatchObject({ deskContext: { prefixLength: content[0]!.text!.length } })
     expect(content[0]?.text).toContain('The browser is on Example')
     expect(content[1]?.url).toBe('data:image/png;base64,AAAA')
     expect(content[1]?.name).toBe('Example')
