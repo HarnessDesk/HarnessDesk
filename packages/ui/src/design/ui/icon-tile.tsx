@@ -26,6 +26,9 @@ import { softTint, softTone, solidTint, type Tint, type Tone } from './tone'
  * thing or a category. A tile that holds an agent's mark is a face, never a
  * bare `square`: a thing's tile does not follow the setting, and a face that
  * does not would be the one face in the app with the wrong corner.
+ * `shape="face" empty` is an unassigned identity: an untinted face outline,
+ * following Faces. It is not an account ring; a finished job whose completer
+ * is unknown shows a dash rather than an empty identity.
  *
  * A listing that brings its own mark — a plugin's or a skill's logo — puts the
  * `<img>` inside, and the tile crops it to its corner. One that brings only its
@@ -63,6 +66,8 @@ type IconTileProps = React.ComponentProps<'span'> &
   VariantProps<typeof tileVariants> & {
     /** One identity qualifier at bottom-right. Top-right is reserved for attention. */
     badge?: React.ReactNode
+    /** An identity with nobody assigned: an untinted outline in its chosen shape. */
+    empty?: boolean
   } &
   (
     | { tone?: Tone; tint?: never; color?: never }
@@ -70,16 +75,19 @@ type IconTileProps = React.ComponentProps<'span'> &
     | { color: string; tone?: never; tint?: never }
   )
 
-const IconTile = ({ className, size, shape, tone, tint, color, style, badge, children, ...props }: IconTileProps) => (
+const IconTile = ({ className, size, shape, tone, tint, color, style, badge, empty = false, children, ...props }: IconTileProps) => (
   <span
     data-slot="icon-tile"
+    {...(empty ? { 'data-empty': '' } : {})}
     {...(color ? { 'data-color': '' } : {})}
     {...(tint ? { 'data-tint': tint } : {})}
     {...(!color && !tint ? { 'data-tone': tone ?? 'neutral' } : {})}
     className={cn(
       tileVariants({ size, shape }),
       badge != null && "relative overflow-visible",
-      color
+      empty
+        ? 'border border-(--hd-border-strong) bg-transparent text-(--hd-muted-foreground)'
+        : color
         ? 'bg-(--tile-color) text-(--hd-accent-foreground)'
         : tint
           ? shape === 'face' ? solidTint({ tint }) : softTint({ tint })
