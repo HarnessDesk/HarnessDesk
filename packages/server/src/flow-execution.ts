@@ -1824,7 +1824,8 @@ export class FlowExecutions {
     const made = await this.#port.commitWork(seat.checkout.cwd, before, message)
     if ('refused' in made) return made.refused
     const resumed = this.#team.stateFor(goal).intents.find((one) => one.id === card)?.claim?.resumed
-    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.${resumed ? ` This card’s preserved work predates this claim. Committed paths: ${made.paths.join(', ')}.` : ''}`
+    const paths = made.paths.slice(0, 20).join(', ') + (made.paths.length > 20 ? `, … and ${made.paths.length - 20} more` : '')
+    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.${resumed ? ` This card’s preserved work predates this claim. Committed paths: ${paths}.` : ''}`
   }
 
   /**
@@ -3432,8 +3433,12 @@ export class FlowExecutions {
     }
     const card = cardNow()
     if (card && !card.claim) {
-      const claimed = await this.#team.claim(card.id, seat.session)
-      if (!claimed.startsWith('Claimed') && !claimed.startsWith('You already hold')) return claimed
+      try {
+        const claimed = await this.#team.claim(card.id, seat.session)
+        if (!claimed.startsWith('Claimed') && !claimed.startsWith('You already hold')) return claimed
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
     }
     await turn('started')
     // The same boundary applies to later card handovers and re-arms.
@@ -3994,7 +3999,10 @@ export class FlowExecutions {
     const seat = this.#port.seatOf(operation.seat!)
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
-    if (card.state === 'blocked' && card.blockedBy === 'hand' && (!seat || !blockedByCaller(card, seat.session))) return
+    if (card.state === 'blocked' && card.blockedBy === 'hand' && (!seat || !blockedByCaller(card, seat.session))) {
+      await this.#stall(id, `Card #${card.id} was deliberately blocked outside its Seat: ${card.blockedReason ?? 'no reason given'}. It is not being handed its card again.`)
+      return
+    }
     const again = why === 'relaunched' ? ' after the desk restarted' : ''
     /* Nothing but a relaunch's own resume will ever hand this card out again
        on its own, and a release after a hold hands it out exactly once

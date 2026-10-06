@@ -4647,8 +4647,15 @@ test('busy-board invalidation survives restart and takes a fresh snapshot (#1403
   const proof = await releasedWork(t)
   await proof.release()
   const { other } = await secondBoard(proof)
+  await proof.team.flush()
+  const file = join(proof.dir, `${encodeURIComponent(proof.room)}.json`)
+  const before = await readFile(file, 'utf8')
+  const saves = proof.port.changed.filter((one) => one.id === proof.room).length
   proof.teamPort.canMutateBoard = (id) => id === proof.room ? { ok: false, reason: 'assignment staged' } : { ok: true }
   await proof.team.claim(1, other)
+  await proof.team.flush()
+  assert.equal(await readFile(file, 'utf8'), before, 'the busy board keeps its snapshot and activity on disk')
+  assert.equal(proof.port.changed.filter((one) => one.id === proof.room).length, saves, 'no busy-board save')
   await proof.team.release(1, {}, other)
   await proof.team.flush()
   proof.teamPort.canMutateBoard = () => ({ ok: true })
@@ -4702,16 +4709,17 @@ for (const identity of ['runtime', 'session'] as const) {
   })
 }
 
-test('retained ownership expires 24 hours after the original claim (#1403)', async (t) => {
+test('retained ownership expires 24 hours after release (#1403)', async (t) => {
   const proof = await releasedWork(t)
-  const at = proof.team.stateFor(proof.room).intents[0]!.claim!.at
+  let now = proof.team.stateFor(proof.room).intents[0]!.claim!.at + 60 * 60 * 1000
+  t.mock.method(Date, 'now', () => now)
   await proof.release()
-  t.mock.method(Date, 'now', () => at + 24 * 60 * 60 * 1000)
+  now += 24 * 60 * 60 * 1000
   assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
   assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
 })
 
-test('the host fallback retains released ownership when no Team write carries it (#1403)', async (t) => {
+for (const fallback of [false, true]) test(`the host ${fallback ? 'fallback' : 'Goal-plane write'} retains released ownership (#1403)`, async (t) => {
   const { start, halt, Client } = await import('./fixtures/harness.js')
   const { makeRepo } = await import('./fixtures/evidence-desk.js')
   const { GoalStore } = await import('../src/goals/store.js')
@@ -4728,13 +4736,18 @@ test('the host fallback retains released ownership when no Team write carries it
     session: { runtime: 'fake', sessionId: session.id } }) as { id: string }
   await writeFile(join(repo.dir, 'work.md'), 'Preserved work\n')
   // Exercise the unprojected fallback rather than Team's own carry implementation.
-  t.mock.method(harness.host.teamPlane, 'goalPlaneWrite', async () => false)
+  if (fallback) t.mock.method(harness.host.teamPlane, 'goalPlaneWrite', async () => false)
   await client.call('goal/release', { goal: created.goal.id, seat: assigned.id })
   const store = new GoalStore(harness.stateDir)
   await store.load()
   const released = store.read(created.goal.id).board.intents[0]!
   assert.equal(released.claim, null)
   assert.deepEqual(released.previousClaim?.dirtyPaths, ['local.md'])
+  if (!fallback) {
+    await harness.host.teamPlane.joinRoom(created.goal.id, 'fake' as RuntimeId, session.id)
+    assert.match(await harness.host.teamPlane.claim(card.id, { runtime: 'fake', sessionId: session.id }), /predates this claim/)
+    assert.deepEqual(harness.host.teamPlane.dirtyPathsOf(created.goal.id, card.id), ['local.md'])
+  }
 })
 
 test('the Flow hand-back names preserved work before the new claim (#1403)', async (t) => {
@@ -4759,3 +4772,132 @@ rules: []
   await proof.flows.flush()
   assert.match(proof.orderTexts.get('seat-1')!.at(-1)!, /Your preserved work predates this claim/)
 })
+
+for (const ending of ['done', 'abandon'] as const) {
+  test(`a person's ${ending} clears already-released ownership (#1403)`, async (t) => {
+    const proof = await releasedWork(t)
+    await proof.release()
+    await proof.team.intentAction(proof.room, 1, ending)
+    await proof.team.flush()
+    const stored = JSON.parse(await readFile(join(proof.dir, `${encodeURIComponent(proof.room)}.json`), 'utf8'))
+    assert.equal(stored.intents[0].previousClaim, null)
+    await proof.team.intentAction(proof.room, 1, 'reopen')
+    assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
+    assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+  })
+}
+
+for (const action of ['release', 'reopen', 'abandon', 'done'] as const) {
+  test(`a person's ${action} clears the self-block identity (#1403)`, async (t) => {
+    const proof = await releasedWork(t)
+    await proof.team.release(1, { blocked: true, reason: 'wait' }, codex)
+    await proof.team.intentAction(proof.room, 1, action)
+    const card = proof.team.stateFor(proof.room).intents[0]!
+    assert.equal(card.blockedBy, null)
+    assert.equal(card.blockedByAgent, null)
+  })
+}
+
+test('a claim held over a day retains ownership for a day after release (#1403)', async (t) => {
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  const proof = await releasedWork(t)
+  now += 25 * 60 * 60 * 1000
+  await proof.release()
+  assert.match(await proof.team.claim(1, codex), /predates this claim/)
+  assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md'])
+})
+
+test('each release starts its own bounded recovery window (#1403)', async (t) => {
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  const proof = await releasedWork(t)
+  for (let cycle = 0; cycle < 2; cycle++) {
+    await proof.release()
+    now += 23 * 60 * 60 * 1000
+    assert.match(await proof.team.claim(1, codex), /predates this claim/)
+    assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md'])
+  }
+  // The last claim lasts a day too; the recovery clock starts only when it lets go.
+  now += 25 * 60 * 60 * 1000
+  await proof.release()
+  now += 24 * 60 * 60 * 1000
+  assert.doesNotMatch(await proof.team.claim(1, codex), /predates this claim/)
+  assert.deepEqual(proof.team.dirtyPathsOf(proof.room, 1), ['local.md', 'work.md'])
+})
+
+test('reading an expired snapshot drops it durably without changing activity (#1403)', async (t) => {
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  const proof = await releasedWork(t)
+  await proof.release()
+  await proof.team.flush()
+  const before = proof.team.stateFor(proof.room).updatedAt
+  now += 24 * 60 * 60 * 1000
+  proof.team.stateFor(proof.room)
+  await proof.team.flush()
+  const stored = JSON.parse(await readFile(join(proof.dir, `${encodeURIComponent(proof.room)}.json`), 'utf8'))
+  assert.equal(stored.intents[0].previousClaim, null)
+  assert.equal(stored.updatedAt, before)
+  const { otherRoom } = await secondBoard(proof)
+  const reads: string[] = []
+  proof.teamPort.canMutateBoard = (id) => { reads.push(id); return { ok: true } }
+  await proof.team.intentAction(proof.room, 1, 'reopen')
+  assert.equal(reads.includes(otherRoom), false, 'expired ownership no longer scans other boards')
+})
+
+for (const damage of ['{', '[]bad', '{}']) {
+  test(`an unreadable discarded-work file names its file (${damage}) (#1403)`, async (t) => {
+    const proof = await rig(t)
+    const file = join(proof.dir, 'discarded-work')
+    await writeFile(file, damage)
+    await assert.rejects(new Team(proof.dir, proof.teamPort).load(), (error: Error) => {
+      assert.ok(error.message.includes(file), error.message)
+      return true
+    })
+  })
+}
+
+test('discard records older than a day are pruned at the next invalidation (#1403)', async (t) => {
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  const proof = await releasedWork(t)
+  await proof.release()
+  const { other } = await secondBoard(proof)
+  proof.teamPort.canMutateBoard = (id) => id === proof.room ? { ok: false, reason: 'assignment staged' } : { ok: true }
+  await proof.team.claim(1, other)
+  await proof.team.release(1, {}, other)
+  const file = join(proof.dir, 'discarded-work')
+  const first = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(first.length, 1)
+  now += 24 * 60 * 60 * 1000
+  proof.teamPort.canMutateBoard = () => ({ ok: true })
+  await proof.team.claim(1, codex)
+  await proof.release()
+  proof.teamPort.canMutateBoard = (id) => id === proof.room ? { ok: false, reason: 'assignment staged' } : { ok: true }
+  await proof.team.claim(1, other)
+  const next = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(next.length, 1, 'only the new discard is retained')
+  assert.notEqual(next[0][0], first[0][0])
+  assert.equal(next[0][1], now)
+})
+
+for (const condition of ['held', 'busy', 'read-only'] as const) {
+  test(`reading expired ownership leaves a ${condition} board untouched (#1403)`, async (t) => {
+    let now = Date.now()
+    t.mock.method(Date, 'now', () => now)
+    const proof = await releasedWork(t)
+    await proof.release()
+    await proof.team.flush()
+    const file = join(proof.dir, `${encodeURIComponent(proof.room)}.json`)
+    const before = await readFile(file, 'utf8')
+    const saves = proof.port.changed.length
+    if (condition === 'held') t.after(proof.team.holdBoard(proof.room, 'wrap barrier'))
+    else proof.teamPort.canMutateBoard = () => ({ ok: false, readOnly: condition === 'read-only', reason: condition })
+    now += 24 * 60 * 60 * 1000
+    proof.team.stateFor(proof.room)
+    await proof.team.flush()
+    assert.equal(await readFile(file, 'utf8'), before)
+    assert.equal(proof.port.changed.length, saves)
+  })
+}

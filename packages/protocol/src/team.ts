@@ -169,8 +169,8 @@ export interface Intent {
    */
   readonly outcome?: string | null
   readonly claim?: IntentClaim | null
-  /** Host-only ownership baseline retained when a claim is released, never sent over the wire. */
-  readonly previousClaim?: IntentClaim | null
+  /** Host-only ownership baseline and release time retained on release, never sent over the wire. */
+  readonly previousClaim?: (IntentClaim & { readonly releasedAt?: number }) | null
   /** The conversation that deliberately blocked the card; absent on a person's block. */
   readonly blockedByAgent?: Pick<IntentClaim, 'runtime' | 'sessionId'> | null
   /**

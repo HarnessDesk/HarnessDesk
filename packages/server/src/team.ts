@@ -41,7 +41,7 @@ import {
   type PersonNoticeInput,
 } from '@harnessdesk/protocol'
 
-import { blockedByCaller, carryCardWork, RETAINED_WORK_MS } from './card-claims.js'
+import { blockedByCaller, carryCardWork, retainedWorkExpired, RETAINED_WORK_MS } from './card-claims.js'
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
@@ -1026,13 +1026,16 @@ export class Team {
        migration pass below. Collected rather than resolved inline: the read
        loop stays pure file I/O, and the git the resolver runs happens once,
        concurrently and on a clock, rather than once per board in series. */
+    const discardedFile = join(this.#dir, 'discarded-work')
     try {
-      const discarded: unknown = JSON.parse(await readFile(join(this.#dir, 'discarded-work'), 'utf8'))
+      const discarded: unknown = JSON.parse(await readFile(discardedFile, 'utf8'))
       if (!Array.isArray(discarded) || discarded.some((one) => !Array.isArray(one) || one.length !== 2 ||
         typeof one[0] !== 'string' || typeof one[1] !== 'number')) throw new Error('Invalid discarded ownership records')
       this.#discardedWork = new Map(discarded as [string, number][])
     } catch (error) {
-      if (!NOTHING_YET.has(errnoOf(error))) throw error
+      if (!NOTHING_YET.has(errnoOf(error))) {
+        throw new Error(`The discarded ownership records could not be read (${discardedFile}): ${errorText(error)}. Fix that file before opening the desk again.`, { cause: error })
+      }
     }
     const recordedRoots = new Map<string, string>()
     for (const name of names) {
@@ -1545,7 +1548,7 @@ export class Team {
       })
       this.#signal(board, by, 'blocked', intent, said ?? 'stopped by you')
     } else if (action === 'release') {
-      this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
+      this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null, blockedByAgent: null })
       this.#signal(board, by, 'released', intent, 'released by you')
     } else if (action === 'abandon') {
       /* The block goes with the work, as it does on release and reopen below.
@@ -1554,7 +1557,7 @@ export class Team {
          the Done column showed why the work had once been stopped instead of
          how it finished. */
       const undo = this.#undoFor(board, [id])
-      this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null, ...(reason?.trim() ? { note: reason.trim() } : {}) })
+      this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null, blockedByAgent: null, ...(reason?.trim() ? { note: reason.trim() } : {}) })
       this.#signal(board, by, 'abandoned', intent, reason?.trim() || null)
       undo.mark()
       const saved = this.#commit(board, true, undo)
@@ -1574,6 +1577,7 @@ export class Team {
         claim: null,
         blockedReason: null,
         blockedBy: null,
+        blockedByAgent: null,
       })
       return
     } else if (action === 'done') {
@@ -1586,6 +1590,7 @@ export class Team {
         claim: null,
         blockedReason: null,
         blockedBy: null,
+        blockedByAgent: null,
         outcome: said,
         /* Left alone when the person did not write one, so marking an agent's
            finished card done by hand does not erase the package it left. */
@@ -1614,7 +1619,7 @@ export class Team {
       this.#port.settled?.(board.id, { ...intent, state: 'done', outcome: said })
       return
     } else {
-      this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
+      this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null, blockedByAgent: null })
       this.#signal(board, by, 'reopened', intent, null)
     }
     this.#commit(board)
@@ -3568,6 +3573,7 @@ export class Team {
 
   /** `#stateOf`, wire-safe: every claim's `dirtyPaths` gone (`cardsForWire`). */
   #wireStateOf(board: Board): TeamState {
+    this.#expireWork(board)
     const state = this.#stateOf(board)
     return this.#wireState(state)
   }
@@ -4490,8 +4496,7 @@ export class Team {
   #carryWork(board: Board, changed: readonly Intent[]): Intent[] {
     const before = board.intents.map((card) => this.#discardedWork.has(this.#workKey(board.id, card))
       ? { ...card, previousClaim: null } : card)
-    const next = [...carryCardWork(before, changed.map((card) => this.#discardedWork.has(this.#workKey(board.id, card))
-      ? { ...card, previousClaim: null } : card))]
+    const next = [...carryCardWork(before, changed)]
     const claimed = next.filter((card) => {
       const old = board.intents.find((one) => one.id === card.id)?.claim
       return card.claim && (!old || card.claim.at !== old.at || card.claim.runtime !== old.runtime || card.claim.sessionId !== old.sessionId)
@@ -4534,6 +4539,15 @@ export class Team {
   #workKey(board: string, card: Intent): string {
     const previous = card.previousClaim
     return JSON.stringify([board, card.id, previous?.runtime, previous?.sessionId, previous?.at, previous?.cwd])
+  }
+
+  /** A routine read retires expired ownership, while held and final boards stay untouched. */
+  #expireWork(board: Board): void {
+    if (!board.intents.some((card) => card.previousClaim && retainedWorkExpired(card.previousClaim)) ||
+      this.#holds.has(board.id) || this.#port.canMutateBoard?.(board.id).ok === false) return
+    board.intents = board.intents.map((card) => card.previousClaim && retainedWorkExpired(card.previousClaim)
+      ? { ...card, previousClaim: null } : card)
+    this.#commit(board, false)
   }
 
   #discardWork(board: string, cards: readonly Intent[]): void {
