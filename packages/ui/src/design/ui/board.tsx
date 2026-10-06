@@ -2,7 +2,7 @@ import { Children, createContext, forwardRef, useContext, useEffect, useId, useR
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { MoreIcon, PaperclipIcon, PlusIcon, ReviewIcon } from '@/components/Icons'
+import { ArrowLeftIcon, MoreIcon, PaperclipIcon, PlusIcon, ReviewIcon } from '@/components/Icons'
 import { AvatarStack, type StackMember } from './avatar-stack'
 import { Button, buttonEdge } from './button'
 import { EmptyState } from './empty-state'
@@ -150,6 +150,19 @@ const BoardColumn = ({
   ...props
 }: BoardColumnProps) => {
   const contentId = useId()
+  const railRef = useRef<HTMLButtonElement>(null)
+  const foldRef = useRef<HTMLButtonElement>(null)
+  const focusPending = useRef(false)
+  const toggle = (next: boolean) => {
+    focusPending.current = true
+    onCollapsedChange?.(next)
+  }
+  useEffect(() => {
+    if (!focusPending.current) return
+    focusPending.current = false
+    const target = collapsed ? railRef : foldRef
+    target.current?.focus()
+  }, [collapsed])
   const derived = useContext(BoardContext)
   const empty = Children.toArray(children).length === 0
 
@@ -168,12 +181,12 @@ const BoardColumn = ({
          room's right half. */
       '@container/board-column flex w-(--hd-board-column-width) min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
       'border border-(--hd-border-strong) bg-(--hd-muted) p-(--hd-inset-dense)',
-      collapsed && 'self-stretch items-center',
+      collapsed && 'self-stretch items-center px-1',
       className,
     )}
     {...props}
   >
-    {collapsed && <Button variant="ghost" size="content-min" className="flex h-full w-full flex-col gap-2 py-2" aria-label={`Open ${title}`} aria-expanded={false} aria-controls={contentId} onClick={() => onCollapsedChange?.(false)}>
+    {collapsed && <Button ref={railRef} variant="ghost" size="content-min" className="flex h-full w-full flex-col gap-2 py-2" aria-label={`Open ${title}`} aria-expanded={false} aria-controls={contentId} onClick={() => toggle(false)}>
       <span className="[writing-mode:vertical-rl] rotate-180">{title}</span>
       <span className="text-xs tabular-nums text-(--hd-muted-foreground)">{count}</span>
     </Button>}
@@ -211,7 +224,7 @@ const BoardColumn = ({
           <PlusIcon />
         </button>
       )}
-      {onCollapsedChange && <Button variant="ghost" size="icon-xs" aria-label={`Fold ${title}`} title={`Fold ${title}`} aria-expanded={true} aria-controls={contentId} onClick={() => onCollapsedChange(true)}><MoreIcon /></Button>}
+      {onCollapsedChange && <Button ref={foldRef} variant="ghost" size="icon-xs" aria-label={`Fold ${title}`} title={`Fold ${title}`} aria-expanded={true} aria-controls={contentId} onClick={() => toggle(true)}><ArrowLeftIcon /></Button>}
       {actions}
     </header>
     <div id={contentId} data-slot="board-column-content" hidden={collapsed} className={cn(collapsed ? 'hidden' : 'flex', 'min-w-0 flex-col gap-2')}>{children}</div>

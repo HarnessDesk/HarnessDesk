@@ -807,6 +807,15 @@ that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
 
+**As the board narrows.** Open columns keep at least 220px. Ready folds first,
+then To do, into named rails with their counts; each rail opens in place and
+can be folded again by keyboard. When the columns and rails no longer fit,
+or below 760px of pane width, Needs you and Working share the first row,
+In review and To do the second; Ready stays a rail. Below 600px the pane uses
+the compact list, grouped by state with Needs you first. The pane measures
+itself, including space lost to a sidebar or dock, and restores the selected
+view when it widens. Set aside keeps its own lane while it contains work.
+
 **As a list.** Board · List switches the same jobs into a framed table. Filter
 jobs by words or state; All starts pressed, and the default order puts Needs
 you first, then the most recent. Job number and kind stay beside its title,
@@ -820,7 +829,8 @@ agent only while the channel still records it; otherwise Assignee is a dash.
 Reopen is visible on finished, set-aside and hand-stopped rows; dependency-
 blocked jobs keep it in the menu. A finished outcome sits beside its state when
 there is no Needs-you reason, and owned files appear below the title. Below
-720px the job cell still names the assignee. Columns too wide for the pane keep
+720px the job cell still names the assignee. Names stay on one line, truncate
+with an ellipsis, and show their full name on hover. Columns too wide for the pane keep
 their View switch disabled with the width they need, and search includes the
 state each row shows, including Checking evidence. Other verbs stay in the
 menu, revealed on hover or keyboard focus. Empty evidence columns start hidden,
