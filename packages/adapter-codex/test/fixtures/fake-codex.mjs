@@ -691,7 +691,7 @@ const openingUserItem = () => ({
 const turnOpening = () => {
   turnStartedAt = nowSeconds()
   const userItem = openingUserItem()
-  return [
+  const events = [
     {
       method: 'turn/started',
       params: {
@@ -700,9 +700,14 @@ const turnOpening = () => {
       },
     },
     { method: 'thread/status/changed', params: { threadId: THREAD, status: { type: 'active', activeFlags: [] } } },
-    { method: 'item/started', params: { threadId: THREAD, turnId: TURN, item: userItem, startedAtMs: nowMs() } },
-    { method: 'item/completed', params: { threadId: THREAD, turnId: TURN, item: userItem, completedAtMs: nowMs() } },
   ]
+  if (process.env['FAKE_CODEX_SKIP_USER_ITEM'] !== '1') {
+    events.push(
+      { method: 'item/started', params: { threadId: THREAD, turnId: TURN, item: userItem, startedAtMs: nowMs() } },
+      { method: 'item/completed', params: { threadId: THREAD, turnId: TURN, item: userItem, completedAtMs: nowMs() } },
+    )
+  }
+  return events
 }
 
 const playTurn = (openingAlreadySent = false) => {

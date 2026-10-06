@@ -540,17 +540,13 @@ Opening any step shows the command under a prompt mark, then what it printed;
 the sentence never has the command glued to it, because a sentence in monospace
 with a shell line hanging off it teaches a CLI that does not exist.
 
-**A bubble holds what a person typed, and nothing their app added.** A prompt
-composed in Claude Code's or Codex's desktop app carries that app's additions
-inside the message it stores as the user's turn — notes over screenshots,
-injected reminders, slash-command echoes, open browser tabs, files an `@` named.
-Each vendor app hides its wrapper and no other client can; HarnessDesk strips
-the wrapper from the sentence and keeps it beside it as "Sent with your
-message" — one row per item, opening onto the block exactly as sent. It is never
-dropped: it is context the model was given, and a transcript that deletes it
-cannot explain what the agent knew. "Context added" is the same row for an
-envelope HarnessDesk sends, kept worded apart because our name does not belong on
-someone else's text.
+**A bubble holds what a person typed, and nothing the desk composed.** The
+wrapper's shape cannot prove who wrote it: a person can paste the same text.
+Newly sent messages record the exact boundary of the desk-composed prefix, so
+only blocks inside that boundary fold beside the message as "Context added" or
+"Sent with your message". The block stays available exactly as sent because it
+is context the agent received; an identical wrapper beyond the recorded
+boundary stays in the person's words.
 
 **What the conversation put on the forge is a row of its own.** A pull request
 opened or updated through the desk's own tools, a review or a comment posted
@@ -806,12 +802,23 @@ along with what Settings still does not do — is recorded with the audit.
 ## What the desk observed
 
 **On a card.** A room's board draws each card's evidence as chips in its foot,
-and its columns — To do, Working, Needs you, In review, Ready, and Set aside
+and its columns — Needs you, Working, In review, To do, Ready, and Set aside
 while anything is — come from those facts, so nothing on the board is dragged.
 A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
+
+**As the board narrows.** Open columns keep at least 220px. Ready folds first,
+then To do, into named rails with their counts; each rail opens in place and
+offers a keyboard Fold control only when it can return to a rail. The scroll
+body reserves its gutter so a scrollbar appearing cannot move the fold
+thresholds. When the columns and rails no longer fit,
+or below 760px of pane width, Needs you and Working share the first row,
+In review and To do the second; Ready stays a rail. Below 600px the pane uses
+the compact list, grouped by state with Needs you first. The pane measures
+itself, including space lost to a sidebar or dock, and restores the selected
+view when it widens. Set aside keeps its own lane while it contains work.
 
 **As a list.** Board · List switches the same jobs into a framed table. Filter
 jobs by words or state; All starts pressed, and the default order puts Needs
@@ -826,7 +833,8 @@ agent only while the channel still records it; otherwise Assignee is a dash.
 Reopen is visible on finished, set-aside and hand-stopped rows; dependency-
 blocked jobs keep it in the menu. A finished outcome sits beside its state when
 there is no Needs-you reason, and owned files appear below the title. Below
-720px the job cell still names the assignee. Columns too wide for the pane keep
+720px the job cell still names the assignee. Names stay on one line, truncate
+with an ellipsis, and show their full name on hover. Columns too wide for the pane keep
 their View switch disabled with the width they need, and search includes the
 state each row shows, including Checking evidence. Other verbs stay in the
 menu, revealed on hover or keyboard focus. Empty evidence columns start hidden,
@@ -1175,6 +1183,11 @@ facts are omitted and named together once. Selecting a timeline row keeps
 its recorded detail and actions in that dock. Choosing Flow brings Steps
 forward: taken rounds and steps not reached, with selection lighting the
 corresponding node, including a step the Run has not reached.
+Leaving Run puts away a dock containing only Run views, or returns a mixed
+dock to its earlier tab and visibility. A saved mixed dock restores without
+Run tabs until a Run opens. Returning to Run keeps it visible when the dock
+would cover it; selecting a timeline row or Details explicitly opens it.
+Tabs closed during a visit stay closed when focus returns to that pane.
 
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:

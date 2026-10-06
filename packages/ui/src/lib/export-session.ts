@@ -1,6 +1,6 @@
 import { allItems, type Session } from '@harnessdesk/protocol'
 
-import { splitContext } from './context-envelope'
+import { splitContextContent } from './context-envelope'
 
 /**
  * Exporting a session as Markdown.
@@ -68,11 +68,7 @@ export const sessionToMarkdown = (session: Session): string => {
     for (const item of turn.items) {
       switch (item.type) {
         case 'userMessage': {
-          const raw = item.content
-            .filter((part) => part.type === 'text')
-            .map((part) => (part.type === 'text' ? part.text : ''))
-            .join('\n')
-          const { injections, text } = splitContext(raw)
+          const { injections, text } = splitContextContent(item.content)
           for (const injection of injections) {
             out.push(`> _Context added — ${injection.label}_\n`)
           }

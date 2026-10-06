@@ -68,3 +68,38 @@ it('does not give a stopped step a live clock or a working chip', () => {
     expect(container.textContent).not.toContain('so far')
   } finally { act(() => root.unmount()) }
 })
+
+it('advances a running step on the clock and cancels its timer on unmount', () => {
+  vi.useFakeTimers()
+  const fixture = runFixture('running')
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  vi.setSystemTime(fixture.cards.at(-1)!.claim!.at + 60_000)
+  try {
+    act(() => root.render(<RunSteps input={fixture} selectedRow={null} onSelect={() => {}} />))
+    const trail = () => container.querySelector('[data-step-row][data-state="working"] [data-slot="list-row-trail"]')?.textContent
+    const before = trail()
+    expect(before).toContain('1m')
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(trail()).toContain('2m')
+    expect(trail()).not.toBe(before)
+  } finally {
+    act(() => root.unmount())
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
+  }
+})
+
+it('uses a singular footer for a one-step Flow', () => {
+  const fixture = runFixture()
+  if (fixture.execution.document.format !== 'agents') throw new Error('expected an Agents Flow')
+  const input = { ...fixture, execution: { ...fixture.execution, document: { format: 'agents' as const,
+    flow: { ...fixture.execution.document.flow, roles: [fixture.execution.document.flow.roles[0]!], rules: [] } } } }
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunSteps input={input} selectedRow={null} onSelect={() => {}} />))
+    expect(container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('1 step')
+    expect(container.querySelector('[data-slot="inspector-footer"]')?.textContent).not.toContain('1 steps')
+  } finally { act(() => root.unmount()) }
+})

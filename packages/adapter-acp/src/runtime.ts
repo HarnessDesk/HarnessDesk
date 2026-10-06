@@ -68,6 +68,8 @@ import {
   laneEnvironmentOf,
   withoutCompaction,
   wrapContext,
+  recordDeskInput,
+  openingOfContent,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -3857,7 +3859,7 @@ class AcpSession implements AgentSession {
             startedAt: Date.now(),
           }
         : (() => {
-            const { content, context } = peelUserContent(input, ACP_ENVELOPE)
+            const { content, context } = peelUserContent(recordDeskInput(input), ACP_ENVELOPE)
             return {
               id: itemId(`${id}-user`),
               type: 'userMessage',
@@ -3994,10 +3996,7 @@ class AcpSession implements AgentSession {
       .map((item) =>
         item.type === 'userMessage'
           ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
-            openingOf([
-              ...(item.context ?? []).map((block) => wrapContext(block.label, block.text)),
-              item.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
-            ].join('\n')).slice(0, 120)
+            (openingOfContent(item.content) || openingOf((item.context ?? []).map(block => wrapContext(block.label, block.text)).join('\n'))).slice(0, 120)
           : '',
       )
       .find((line) => line !== '')

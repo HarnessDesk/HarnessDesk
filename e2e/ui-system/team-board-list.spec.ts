@@ -181,3 +181,23 @@ for (const theme of ['light', 'dark'] as const) {
     })
   }
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`assignee names truncate on one line at 900px in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 1000 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list&assignee=long')
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    await page.evaluate(() => document.fonts.ready)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.HD_BOARD_WIDTH_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/assignee-900-${theme}.png` })
+    const name = pane.locator('[data-job="4"] td').nth(1).locator('[title="Jane Doe with a very long placeholder name"]')
+    await expect(name).toHaveCSS('white-space', 'nowrap')
+    await expect(name).toHaveCSS('text-overflow', 'ellipsis')
+    expect(await name.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+    const bounds = await name.boundingBox()
+    const cell = await name.locator('..').locator('..').boundingBox()
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(cell!.x + cell!.width)
+  })
+}
