@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord } from '@harnessdesk/protocol'
+import { membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord, type WireNotification } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -96,6 +96,40 @@ test('stops an unused runtime and starts it again when a session is created', as
 
   assert.equal(runtime.starts, 2)
   assert.equal((created as { runtime: string }).runtime, runtime.info.id)
+})
+
+test('a single conversation process loss preserves its queue and other working handles', async (t) => {
+  const runtime = new IdleRuntime()
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  await host.start()
+  const first = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } }) as { id: string }
+  const second = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } }) as { id: string }
+  const record = host.registry.get(runtime.info.id, first.id as never)!
+  const working = host.registry.get(runtime.info.id, second.id as never)!
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: second.id as never,
+    input: [{ type: 'text', text: 'Keep working' }] })
+  host.registry.enqueue(record, 'waiting', [{ type: 'text', text: 'Follow up' }])
+  const live = working.live
+  const notifications: WireNotification[] = []
+  const unsubscribe = host.addBroadcaster((notification) => notifications.push(notification))
+  t.after(unsubscribe)
+  runtime.emit({ type: 'session/detached', sessionId: first.id as never })
+  assert.equal(record.live, null)
+  assert.equal(record.detached, true)
+  assert.equal(record.queue.status, 'paused')
+  assert.equal(record.queue.messages[0]?.id, 'waiting')
+  const queue = notifications.flatMap((one) => one.method === 'event' ? [one.params.event] : [])
+    .find((event) => event.type === 'session/queue' && event.sessionId === first.id)
+  assert.ok(queue && queue.type === 'session/queue', 'detach pushes the queue to connected windows')
+  assert.equal(queue.queue.status, 'paused')
+  assert.equal(queue.queue.messages[0]?.id, 'waiting')
+  assert.equal(working.live, live)
+  assert.ok(working.running.size > 0)
+  assert.equal(runtime.stops, 0)
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: first.id as never })
+  assert.equal(host.registry.get(runtime.info.id, first.id as never)?.live?.id, first.id)
+  assert.equal(record.detached, false)
 })
 
 test('resumes an idle-stopped conversation and serves its cached history without starting', async (t) => {
