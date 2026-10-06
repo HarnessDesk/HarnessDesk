@@ -363,6 +363,59 @@ test('pr_create accepts a branch pushed to its remote without an upstream', asyn
   )
 })
 
+test('pr_create accepts a published branch whose upstream is the branch it was cut from', async (t) => {
+  const forge = await rig(t)
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: forge.repo }).toString().trim()
+  git('checkout', '-q', '-b', 'feature/from-main', '--track', 'origin/main')
+  writeFileSync(join(forge.repo, 'b.txt'), 'branch change\n')
+  git('add', 'b.txt')
+  git('-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'branch change')
+  git('push', '-q', 'origin', 'feature/from-main')
+
+  const said = await forge.run('pr_create', { title: 'x', body: 'y' })
+  assert.match(said, /Opened pull request #7/)
+  const create = forge.calls().find((args) => args[0] === 'pr' && args[1] === 'create')!
+  assert.equal(create[create.indexOf('--head') + 1], 'feature/from-main')
+  assert.equal(git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'), 'origin/main', 'the upstream is left intact')
+})
+
+for (const state of ['unpublished', 'local ahead', 'remote ahead'] as const) {
+  test(`pr_create refuses a branch tracking origin/main when its own remote branch is ${state}`, async (t) => {
+    const forge = await rig(t)
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: forge.repo }).toString().trim()
+    git('checkout', '-q', '-b', 'feature/from-main', '--track', 'origin/main')
+    if (state !== 'unpublished') git('push', '-q', 'origin', 'feature/from-main')
+    if (state === 'local ahead') {
+      writeFileSync(join(forge.repo, 'b.txt'), 'local change\n')
+      git('add', 'b.txt')
+      git('-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'local change')
+    }
+    if (state === 'remote ahead') {
+      const peer = join(forge.home, 'peer')
+      execFileSync('git', ['clone', '-q', join(forge.repo, '..', 'remote.git'), peer])
+      const peerGit = (...args: string[]) => execFileSync('git', args, { cwd: peer })
+      peerGit('checkout', '-q', '-b', 'feature/from-main', '--track', 'origin/feature/from-main')
+      writeFileSync(join(peer, 'b.txt'), 'remote change\n')
+      peerGit('add', 'b.txt')
+      peerGit('-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'remote change')
+      peerGit('push', '-q', 'origin', 'feature/from-main')
+    }
+
+    const said = await forge.run('pr_create', { title: 'x', body: 'y' })
+    if (state === 'unpublished') {
+      assert.match(said, /has not been pushed/)
+      assert.match(said, /git push -u origin feature\/from-main/)
+    } else {
+      assert.match(said, state === 'local ahead'
+        ? /1 commit ahead of origin\/feature\/from-main and 0 commits behind it/
+        : /0 commits ahead of origin\/feature\/from-main and 1 commit behind it/)
+    }
+    assert.ok(!forge.calls().some((args) => args[0] === 'pr' && args[1] === 'create'))
+    assert.equal(forge.published.length, 0)
+    assert.equal(git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'), 'origin/main')
+  })
+}
+
 test('pr_create reports how far a no-upstream branch differs from its remote', async (t) => {
   const forge = await rig(t)
   execFileSync('git', ['checkout', '-q', '-b', 'feature/diverged'], { cwd: forge.repo })
