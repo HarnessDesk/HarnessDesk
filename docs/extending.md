@@ -658,7 +658,7 @@ issue comments. An empty template turns signing off for that kind.
 | --- | --- |
 | `{seat}` | Agent, model and effort as one label, from the runtime's presentation |
 | `{agent}`, `{model}`, `{effort}`, `{version}`, `{thinking}` | The seat's individual parts; thinking is `Thinking` when on |
-| `{role}` | Writer, Reviewer or Fixer; another role keeps the Flow's spelling |
+| `{role}` | Writer, Reviewer or Fixer; other role ids are normalised consistently |
 | `{round}` | `round N`, where N is 1 plus earlier review rounds in that Run; the first review is round 1 and is omitted |
 | `{team}` | The Team's name, never its id |
 
@@ -668,11 +668,11 @@ an ordinary conversation's opening is `**Preview Agent Preview Model** · via Ha
 Comments open with `**Fixer · Preview Agent Preview Model** · via HarnessDesk`.
 Descriptions end with `🤖 Writer: Preview Agent Preview Model · via [HarnessDesk](https://harnessdesk.app)`.
 
-Description updates retain each distinct role and seat pair. The marked last
-line keeps URI-encoded contributor data beside `<!-- harnessdesk:signature -->`,
+Description updates retain the latest seat for each role and agent pair. The
+marked last line keeps URI-encoded contributor data beside `<!-- harnessdesk:signature -->`,
 so editing its visible text or changing the template keeps earlier authors.
-The current template's contributor portion repeats for each pair, with its
-prefix and suffix shared. Old marked signatures and the former default's
+The current template's contributor portion renders each distinct credit once,
+with its prefix and suffix shared. Old marked signatures and the former default's
 unmarked trailing line are recognised and upgraded without duplication.
 Comments mark their opening signature line with the same signature mark.
 

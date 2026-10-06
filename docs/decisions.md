@@ -803,7 +803,8 @@ kind. Roles come from the stored Seat, Team names from its board and review
 rounds from the run. No Team means no invented role. Writer, Reviewer and
 Fixer are capitalised; a Flow's other role words remain its own.
 
-A description keeps every role and seat pair in its hidden signature marker.
+A description keeps the latest seat for each role and agent pair in its hidden
+signature marker.
 Its visible line is rendered under the current template, so a person's edits
 to that line or a new template cannot erase the earlier credits. Legacy
 signatures are upgraded when edited. A review or comment keeps the role and
