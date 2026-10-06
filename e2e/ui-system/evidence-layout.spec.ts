@@ -1,17 +1,21 @@
 import { expect, test } from '@playwright/test'
 
-test('evidence chips show their whole fact on one line, inside a 191px board card', async ({ page }) => {
-  await page.setViewportSize({ width: 700, height: 900 })
+test('evidence chips show their whole fact on one line, inside a 202px board card', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
+  // Isolate the column floor; scrollbar reservation is covered by team-board-widths.
+  await page.addStyleTag({ content: '*::-webkit-scrollbar { display: none; }' })
 
   const frame = page.getByRole('heading', { name: 'Board — what the desk observed' }).locator('..')
+  await frame.locator('[data-slot="tool-pane"]').evaluate(el => { el.style.width = '1164px' })
   const card = frame.locator('[data-slot="board-card"]').filter({ hasText: 'Cap the backoff and add jitter' })
   const evidence = card.getByRole('button', { name: /What the desk observed on #2:/ })
 
   await card.scrollIntoViewIfNeeded()
   await expect(evidence).toContainText('verify ✓')
-  // The card this was measured on: at 700px the board draws it 191px wide.
-  expect(Math.round((await card.boundingBox())?.width ?? 0)).toBe(191)
+  // At this fit threshold each column is 220px; its border and dense inset leave a 202px card.
+  expect(Math.round((await card.locator('..').locator('..').boundingBox())?.width ?? 0)).toBe(220)
+  expect(Math.round((await card.boundingBox())?.width ?? 0)).toBe(202)
 
   const cardBox = await card.boundingBox()
   const evidenceBox = await evidence.boundingBox()
@@ -28,7 +32,7 @@ test('evidence chips show their whole fact on one line, inside a 191px board car
     expect(chipBox.x).toBeGreaterThanOrEqual(cardBox.x)
     expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
 
-    // The fact is whole: the words before any "—" are never cut on a 191px card.
+    // The fact is whole: the words before any "—" are never cut on a 202px card.
     const words = chip.locator('[data-slot="chip-words"] > span')
     expect(await words.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
     expect((await words.textContent())?.includes('—')).toBe(false)

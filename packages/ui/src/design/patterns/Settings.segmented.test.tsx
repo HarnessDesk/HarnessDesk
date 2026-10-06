@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { Segmented } from './Settings'
 import css from './Settings.module.css?raw'
@@ -99,4 +99,17 @@ it('agrees with the Tailwind utilities on the same three tokens, so load order c
   expect(block).toMatch(/background:\s*var\(--hd-card\)/)
   expect(block).toMatch(/color:\s*var\(--hd-foreground\)/)
   expect(block).toMatch(/box-shadow:\s*var\(--hd-shadow-sm\)/)
+})
+
+it('refuses a disabled choice and explains the reason on hover', () => {
+  const change = vi.fn()
+  act(() => root.render(<Segmented label="Board view" value="list" options={[
+    { value: 'board', label: 'Board', disabled: 'Board needs a pane at least 600px wide' },
+    { value: 'list', label: 'List' },
+  ]} onChange={change} />))
+  const board = container.querySelector<HTMLButtonElement>('[role="radio"]')!
+  expect(board.disabled).toBe(true)
+  expect(board.title).toBe('Board needs a pane at least 600px wide')
+  act(() => board.click())
+  expect(change).not.toHaveBeenCalled()
 })

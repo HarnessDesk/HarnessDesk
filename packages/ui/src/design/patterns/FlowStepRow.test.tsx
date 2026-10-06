@@ -52,3 +52,18 @@ it('advances waiting time and keeps terminal durations fixed', () => {
     expect(container.textContent).not.toContain('Published')
   } finally { act(() => root.unmount()) }
 })
+
+it.each([
+  ['working', 'info'], ['needs you', 'warning'], ['request changes', 'warning'],
+  ['published', 'success'], ['pass', 'success'], ['passed', 'success'], ['done', 'success'],
+  ['approve', 'success'], ['approved', 'success'], ['fail', 'danger'], ['failed', 'danger'],
+  ['unknown outcome', 'neutral'],
+])('gives the recorded %s outcome the %s tone', (line, tone) => {
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow step={model.steps[0]!} run={{ ...run, line }} />))
+    const state = container.querySelector('[data-slot="list-row-trail"] [data-slot="chip"]')!
+    expect(state.getAttribute('data-tone')).toBe(tone)
+  } finally { act(() => root.unmount()) }
+})

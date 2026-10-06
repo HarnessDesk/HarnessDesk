@@ -45,6 +45,8 @@ const BLOCK = wrapContext('Page annotations', '# Page annotations:\n\n## Comment
 
 const queue = vi.fn(async (_content: unknown, _key?: unknown) => true)
 
+const summariseSession = vi.fn(async () => wrapContext('Referenced conversation', 'Earlier request'))
+
 const mount = (): void => {
   const runtime = {
     id: 'alpha',
@@ -80,6 +82,7 @@ const mount = (): void => {
     getSnapshot: () => snapshot,
     transport: { request: vi.fn() },
     queue,
+    summariseSession,
     steer: vi.fn(),
     send: vi.fn(),
     interrupt: vi.fn(),
@@ -246,7 +249,7 @@ describe('a block the desk composed', () => {
     expect(queue).toHaveBeenCalledTimes(1)
     const content = queue.mock.calls[0]?.[0] as unknown as { type: string; text?: string; url?: string }[]
     expect(content.map((part) => part.type)).toEqual(['text', 'image', 'text'])
-    expect(content[0]?.text).toBe(BLOCK)
+    expect(content[0]).toEqual({ type: 'text', text: BLOCK, deskContext: { prefixLength: BLOCK.length } })
     expect(content[1]?.url).toBe('data:image/png;base64,AAAA')
     expect(content[2]?.text).toBe('have a look at this')
   })
@@ -320,4 +323,20 @@ describe('a block the desk composed', () => {
     expect(container.textContent).toContain('Page annotations')
   })
 
+})
+
+
+it('records the composed prefix when a referenced session is sent', async () => {
+  mount()
+  act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: {
+    text: 'Continue here',
+    attachments: [{ name: 'Earlier conversation', path: 's2', kind: 'session', runtime: 'alpha' }],
+  } })))
+  await send()
+  const text = wrapContext('Referenced conversation', 'Earlier request')
+  expect(summariseSession).toHaveBeenCalledWith('s2', 'alpha')
+  expect(queue.mock.calls[0]?.[0]).toEqual([
+    { type: 'text', text, deskContext: { prefixLength: text.length } },
+    { type: 'text', text: 'Continue here' },
+  ])
 })

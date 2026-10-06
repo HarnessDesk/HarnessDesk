@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
+import { deskContextContent, runtimeId, sessionId, splitContextContent, type RuntimeInfo, wrapContext } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -140,16 +140,20 @@ describe('a draft carrying a hand-off', () => {
   })
 
   it('sends the packet first, then the instruction', async () => {
-    calls.handoffPacket.mockImplementationOnce(async () => '<context source="Handed off from OpenAI Codex — “Build pong”">…</context>')
+    const packet = wrapContext('Handed off from OpenAI Codex — “Build pong”', '## Goal\nfinish the scoring')
+    const pasted = wrapContext('Pasted elsewhere', 'keep this wrapper as typed text')
+    const typed = `Carry on with the scoring.\n\n${pasted}`
+    calls.handoffPacket.mockImplementationOnce(async () => packet)
     mount()
-    type('Carry on with the scoring.')
+    type(typed)
     enter()
     await act(async () => {})
     expect(calls.queue).toHaveBeenCalledTimes(1)
-    expect(calls.queue.mock.calls[0]?.[0]).toEqual([
-      { type: 'text', text: '<context source="Handed off from OpenAI Codex — “Build pong”">…</context>' },
-      { type: 'text', text: 'Carry on with the scoring.' },
-    ])
+    expect(calls.queue.mock.calls[0]?.[0]).toEqual([deskContextContent(packet), { type: 'text', text: typed }])
+    expect(splitContextContent(calls.queue.mock.calls[0]?.[0] as never)).toEqual({
+      injections: [{ label: 'Handed off from OpenAI Codex — “Build pong”', text: '## Goal\nfinish the scoring' }],
+      text: typed,
+    })
   })
 
   it('sends nothing at all when the packet could not be built', async () => {

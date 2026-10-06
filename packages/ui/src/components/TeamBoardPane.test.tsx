@@ -183,10 +183,10 @@ it('columns are what is known about the work, so no card has to repeat its own',
   await render(store)
 
   expect([...container.querySelectorAll('[data-slot="board-column"] h3')].map((one) => one.textContent)).toEqual([
-    'To do',
-    'Working',
     'Needs you',
+    'Working',
     'In review',
+    'To do',
     'Ready',
   ])
   expect(column('To do').textContent).toContain('#1')
