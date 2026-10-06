@@ -115,7 +115,8 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
         <TableHeader><TableRow>
           <TableHead className="w-full">Job</TableHead>
           {JOB_COLUMNS.filter(one => columns.has(one.id)).map(one => <TableHead key={one.id} className={JOB_COLUMN_CLASS[one.id]} numeric={'numeric' in one && one.numeric}>{one.label}</TableHead>)}
-          <TableHead><span className="sr-only">Actions</span></TableHead>
+          <TableHead><span className="sr-only">Primary action</span></TableHead>
+          <TableHead><span className="sr-only">More actions</span></TableHead>
         </TableRow></TableHeader>
         <TableBody>{jobs.map(intent => renderRow(intent, columns))}</TableBody>
       </Table>
