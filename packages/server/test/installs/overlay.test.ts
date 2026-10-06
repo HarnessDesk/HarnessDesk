@@ -61,7 +61,7 @@ test('Gemini CLI gets a reader and no record; an agent the desk does not know ke
   assert.equal(typeof gemini.resolveIdentity, 'function')
   assert.equal(gemini.usageRecord, undefined)
   const custom = knowledgeOverlay({ id: 'my-agent', name: 'Google Antigravity', command: 'my-agent' }, undefined, { env: {} })
-  assert.deepEqual(custom, { name: 'Google Antigravity' }, 'a retired name is retired only for the agent it belonged to')
+  assert.deepEqual(custom, { name: 'Google Antigravity', coAuthor: null }, 'a retired name is retired only for the agent it belonged to')
 })
 
 test('OpenCode asks its CLI nothing and reads its own record instead — #749', (t) => {
@@ -127,6 +127,24 @@ test('a row the desk knows gets a reader for which vendor its models come from; 
   assert.equal(await claude.resolveProvider?.(), null, 'read with the environment the row is started with')
   const stranger = knowledgeOverlay({ id: 'someone-else', name: 'Someone', command: 'someone' }, undefined, { env: {} })
   assert.equal(stranger.resolveProvider, undefined)
+})
+
+test('native commit credit follows the executable command, never the row id', () => {
+  const claude = knownAgent('claude-code')!
+  const cursor = knownAgent('cursor')!
+  const claudeCredit = Reflect.get(claude, 'coAuthor')
+  const creditOf = (row: Parameters<typeof knowledgeOverlay>[0], known: Parameters<typeof knowledgeOverlay>[1]) =>
+    Reflect.get(knowledgeOverlay(row, known, { env: {} }), 'coAuthor')
+
+  assert.ok(claudeCredit, 'native credits live in the known-agent table')
+  assert.deepEqual(creditOf({ id: 'claude-code', name: 'Claude', command: 'claude' }, claude), claudeCredit,
+    'the shipped Claude template is credited')
+  assert.deepEqual(creditOf({ id: 'renamed-claude', name: 'My Claude', command: '/vendor/bin/claude' }, undefined), claudeCredit,
+    'a person-named row running the Claude CLI is credited')
+  assert.equal(creditOf({ id: 'cursor', name: 'Unrelated', command: 'unrelated-agent' }, cursor), null,
+    'a matching id cannot lend a credit to another command')
+  assert.equal(creditOf({ id: 'constructor', name: 'Unrelated', command: 'unrelated-agent' }, undefined), null,
+    'prototype property names are not native credits')
 })
 
 test("a Claude row's sign-in declares the prompt its command prints when it wants a pasted code", () => {

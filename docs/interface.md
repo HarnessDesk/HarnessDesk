@@ -558,12 +558,18 @@ through them, appears as a publication row: a verb, then the thing as a chip —
 GitHub's mark and `owner/name #n` — then its state in a word. Hovering the chip
 opens a card with GitHub's own text on it: the title, the author and size, and
 the opening of the description as GitHub holds it, which is where the signature
-the desk wrote is read. Pressing it opens the page. The signature itself — by
-default “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent
-model · effort)”, in the agent's own labels — is a template in the Git plugin's
-settings, and a blank one signs nothing. Nothing about it rides in the
-conversation: the agent is told, through its own instruction layer, to use the
-tools; the desk does the rest.
+the desk wrote is read. Pressing it opens the page. Settings › Plugins › Git
+has Description, Review and Comment signature templates. Their placeholders
+are listed once above the settings rows; a blank value turns that kind off.
+The default signature names the Team role and the agent's own model and effort
+labels. The first review round in a Run is 1; later reviews count only earlier
+review rounds in that Run, and the signature omits round 1. Outside a Team the
+role and round drop out. A description keeps each role and seat that wrote it,
+so a fixer's update preserves the writer's credit. Comments carry their
+signature on the first visible line, descriptions on the last. Nothing about it
+rides in the conversation: the agent is told, through its own instruction
+layer, to use the tools; the desk does the rest. Text a person writes
+themselves carries no signature.
 
 **Under every finished turn, a summary**: files changed (click → Changes),
 commands run, tests passed or failed, what broke, and "waiting for your

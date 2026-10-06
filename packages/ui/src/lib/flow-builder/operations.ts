@@ -269,18 +269,22 @@ const reconciledCount = (selected: number, other: number, current: number | unde
   const width = Math.max(selected, other)
   return width > 1 && current !== undefined ? width : current
 }
+const withReconciledCount = (
+  role: Extract<FlowPolicyRole, { kind: 'agent' }>,
+  changes: Partial<Extract<FlowPolicyRole, { kind: 'agent' }>>,
+  count: number | undefined,
+): Extract<FlowPolicyRole, { kind: 'agent' }> => {
+  const { count: _previous, ...rest } = role
+  return count === undefined ? { ...rest, ...changes } : { ...rest, ...changes, count }
+}
 
 /** An empty override means the named Agent's own seating preferences, as on the ordered editor. */
-export const setSeat = (document: BuilderDocument, id: string, seats: readonly FlowSeat[]): BuilderDocument => updateAgent(document, id, (role) => ({
-  ...role,
-  seats,
-  count: reconciledCount(seats.length, role.uses.length, role.count),
-}))
-export const setAgent = (document: BuilderDocument, id: string, uses: readonly string[]): BuilderDocument => updateAgent(document, id, (role) => ({
-  ...role,
-  uses,
-  count: reconciledCount(uses.length, role.seats.length, role.count),
-}))
+export const setSeat = (document: BuilderDocument, id: string, seats: readonly FlowSeat[]): BuilderDocument => updateAgent(document, id, (role) => (
+  withReconciledCount(role, { seats }, reconciledCount(seats.length, role.uses.length, role.count))
+))
+export const setAgent = (document: BuilderDocument, id: string, uses: readonly string[]): BuilderDocument => updateAgent(document, id, (role) => (
+  withReconciledCount(role, { uses }, reconciledCount(uses.length, role.seats.length, role.count))
+))
 /** Set the explicit width used when neither the Agent nor seat list defines one. */
 export const setCount = (document: BuilderDocument, id: string, count: number | undefined): BuilderDocument => updateAgent(document, id, (role) => {
   if (count !== undefined && (!Number.isSafeInteger(count) || count < 1 || count > FLOW_SLOT_LIMIT)) {

@@ -197,6 +197,7 @@ describe('pure edits', () => {
     const fanId = fan.steps.at(-1)!.id
     const threeAgents = setAgent(fan, fanId, ['a', 'b', 'c'])
     expect(threeAgents.policy.roles.at(-1)).toMatchObject({ count: 3, uses: ['a', 'b', 'c'] })
+    expect(() => setCount(threeAgents, fanId, 2)).toThrow(/match/i)
     expect(() => writeShape({ ...threeAgents.policy, roles: threeAgents.policy.roles.map((role, index) => index === threeAgents.policy.roles.length - 1 && role.kind === 'agent' ? { ...role, count: 2 } : role) })).toThrow(/count must match/i)
     expect(() => writeShape(threeAgents.policy)).not.toThrow()
 
@@ -205,6 +206,17 @@ describe('pure edits', () => {
     const both = setSeat(twoAgents, fanId, seats)
     expect(both.policy.roles.at(-1)).toMatchObject({ count: 2, uses: ['a', 'b'], seats })
     expect(() => writeShape(both.policy)).toThrow(/choose a list of agents or a list of seats/i)
+  })
+
+  it('keeps an undefined count absent after Agent and seat edits so JSON graph copies remain valid', () => {
+    const document = doc()
+    const id = document.steps[0]!.id
+    const seat = { runtime: 'demo', model: 'example-model' }
+
+    for (const edited of [setSeat(document, id, [seat]), setAgent(document, id, ['reviewer'])]) {
+      const copied = JSON.parse(JSON.stringify(documentGraph(edited))) as ReturnType<typeof documentGraph>
+      expect(() => graphDocument(edited, copied)).not.toThrow()
+    }
   })
 
   it('preserves shipped one-Agent fan-out widths and exposes an explicit count edit', () => {
@@ -237,6 +249,8 @@ describe('pure edits', () => {
     expect(setCount(counted, document.steps[0]!.id, 4)).toBe(counted)
     expect(setCount(counted, document.steps[0]!.id, undefined).policy.roles[0]).not.toHaveProperty('count')
     expect(() => setCount(document, document.steps[0]!.id, 0)).toThrow(/1 to 32/i)
+    expect(() => setCount(document, document.steps[0]!.id, 1.5)).toThrow(/whole number/i)
+    expect(() => setCount(document, document.steps[0]!.id, 33)).toThrow(/1 to 32/i)
   })
 
   it('refuses invalid wire identifiers with a useful step or rule message', () => {
@@ -267,6 +281,24 @@ describe('pure edits', () => {
       expect(() => setRuleWord(document, document.rules[0]!.id, answer)).toThrow(/answer/i)
       expect(() => setRuleCondition(document, document.rules[0]!.id, { every: [answer] })).toThrow(/answer/i)
     }
+
+    const document = doc()
+    expect(() => setRuleCondition(document, document.rules[0]!.id, { any: ['looks good', '   '] })).toThrow(/answer/i)
+    expect(() => setRuleCondition(document, document.rules[0]!.id, { any: Array.from({ length: 65 }, (_value, index) => `answer-${index}`) })).toThrow(/64/i)
+  })
+
+  it('mints digit-only labels as ids that the writer reads back unchanged', () => {
+    let document = doc()
+    document = addStep(document, 'person', '2024')
+    document = addStep(document, 'person', '007')
+    expect(document.steps.slice(-2).map((step) => step.role)).toEqual(['step-2024', 'step-007'])
+
+    const source = writeShape(document.policy)
+    const parsed = parseFlowPolicy(source)
+    expect(parsed.problems.filter((one) => one.level === 'error')).toEqual([])
+    if (parsed.document?.format !== 'agents') throw new Error('Expected an Agent-routed Flow')
+    expect(parsed.document.flow.roles.slice(-2).map((role) => role.id)).toEqual(['step-2024', 'step-007'])
+    expect(writeShape(parsed.document.flow)).toBe(source)
   })
 
   it('edits and deletes a note without creating a rule or an executable role', () => {

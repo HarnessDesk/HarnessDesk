@@ -147,6 +147,9 @@ import {
   Wrench,
   X,
   Zap,
+  MousePointer2,
+  Hand,
+  Scan,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -193,8 +196,12 @@ export const ArrowLeftIcon = icon(ChevronLeft, 'ArrowLeftIcon')
  */
 export const CaretIcon = icon(ChevronDown, 'CaretIcon')
 export const ArrowRightIcon = icon(ChevronRight, 'ArrowRightIcon')
-/** Page zoom, in the browser pane — the page's scale, never a search. */
+export const CanvasSelectIcon = icon(MousePointer2, 'CanvasSelectIcon')
+export const CanvasHandIcon = icon(Hand, 'CanvasHandIcon')
+export const CanvasFitIcon = icon(Scan, 'CanvasFitIcon')
+/** Zoom the current page or canvas view in. */
 export const ZoomInIcon = icon(ZoomIn, 'ZoomInIcon')
+/** Zoom the current page or canvas view out. */
 export const ZoomOutIcon = icon(ZoomOut, 'ZoomOutIcon')
 export const SidebarIcon = icon(PanelLeft, 'SidebarIcon')
 /** Watch the Team's conversations side by side. */

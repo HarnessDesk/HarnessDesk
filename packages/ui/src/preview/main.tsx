@@ -85,6 +85,7 @@ import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { FlowOverlayFrames } from './frames-flow-overlay'
+import { FlowCanvasFrames } from './frames-flow-canvas'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
@@ -94,6 +95,7 @@ import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
+import { ReadCeilingFrames } from './frames-read-ceiling'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -1172,7 +1174,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('site-run')
+        {new URLSearchParams(window.location.search).has('flow-canvas')
+          ? <FlowCanvasFrames />
+          : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
           : new URLSearchParams(window.location.search).has('board-list')
           ? <BoardListFrames />
@@ -1186,6 +1190,8 @@ createRoot(container).render(
           ? <FindingsPreview />
           : new URLSearchParams(window.location.search).has('agent-brief')
           ? <AgentBriefFrames />
+          : new URLSearchParams(window.location.search).has('read-ceiling')
+          ? <ReadCeilingFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('review-publication')

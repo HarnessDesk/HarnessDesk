@@ -791,6 +791,41 @@ changes nothing above it.
 **The rule:** the party that publishes writes the signature; the desk
 publishes.
 
+## Agent publications name the writer and the role
+
+A signed review beside an unsigned fixer's reply made the reply read as the
+person's own words. Descriptions had the opposite problem: re-signing an edit
+with only the last seat erased the writer. Both lost who did which work.
+
+The Git plugin now signs agent descriptions, reviews and comments as one
+capability, with three editable templates and a blank value disabling each
+kind. Roles come from the stored Seat, Team names from its board and review
+rounds from the run. No Team means no invented role. Writer, Reviewer and
+Fixer are capitalised; a Flow's other role words remain its own.
+
+A description keeps every role and seat pair in its hidden signature marker.
+Its visible line is rendered under the current template, so a person's edits
+to that line or a new template cannot erase the earlier credits. Legacy
+signatures are upgraded when edited. A review or comment keeps the role and
+seat that made that publication.
+
+Card commits keep the desk co-author, which gives GitHub its desk icon, and
+add the native commit credit supplied by the running adapter through its
+presentation. Credits come from local observations or cited sources; an unknown address is null,
+never guessed by the host. On this Mac, Claude Code 2.1.285 contained
+`Co-Authored-By: ${Jqn(e)} <noreply@anthropic.com>`, and codex-cli 0.160.0
+contained `Co-authored-by: Codex <noreply@openai.com>`. Cursor Agent
+2026.10.01-e373342 is cited, not observed: its installed bundle and executable
+did not contain a matching credit string. The Codex attribution is also cited
+in the [upstream commit implementation](https://github.com/openai/codex/pull/11617);
+the agent addresses are listed in [AgentPack's measurements of native commit identities](https://arxiv.org/html/2509.21891v1#S3).
+The person's own configured identity remains the author. A person's own text
+carries no signature: its absence means a person, rather than an agent whose
+role the reader must guess.
+
+**The rule:** the desk signs agent text at publication, and preserves each
+contributor's role and seat across description edits.
+
 ## Where a conversation runs is chosen on the draft, and made on send
 
 A new conversation's place — the open folder, a worktree the project already
@@ -1084,6 +1119,46 @@ without them having read the file.
 onto the existing seating path, not a second enforcement mechanism, and it
 never quietly becomes an asked run to make a demonstration succeed.
 
+## An ACP read ceiling needs a native guard as well as host permission refusal
+
+ACP delegates file access and execution to the agent. A tool notification
+arrives after the work, so refusing a notification cannot hold read. The
+adapter reports `ceilings.read` only when the bridge's initialization handshake
+declares its native read guard. The bundled bridge installs its pre-tool guard
+before opening a read session, persists the ceiling across loads and resumes,
+blocks file mutation tools and unknown MCP tools, and admits shell commands
+only from its narrow read-only allowlist. Its permission mode cannot bypass
+that guard; plan mode alone is not a held ceiling.
+
+The host restores a Seat's recorded ceiling on resume, including after a
+restart, when its conversation is already open and while a read is still
+loading it. An idle handle opened without a native read guard is reloaded
+with the ceiling; a running turn refuses that resume until it finishes.
+A peer holding read natively has already checked each call with its
+pre-tool guard; its permission requests retain their ordinary approval path.
+For asked ACP read seats, the host refuses write-kind, execution, mode-change
+and unknown-kind permission requests before they reach a person or an
+automatic approval policy. Read, search and think requests retain their
+ordinary approval path; fetch requests are refused because read does not
+grant network access. Trusted provenance from shipped bridges uses the shared
+desk-tool ceiling table rather than the generic ACP tool kind. A
+question-shaped request follows the same kind rule: edit, delete, move,
+execute and switch-mode kinds are refused even when they carry a question.
+Each host refusal adds a transcript notice naming the tool and the Read only
+ceiling, and selects an offered reject option, preferring reject-once.
+Only a request with no reject option is answered as cancelled.
+
+Host refusal alone does not constrain an agent's native tools, and does not
+earn a ceiling for a peer without the native guard. This is tool enforcement,
+not an operating-system sandbox for the peer process. Other ACP peers remain
+ineligible for held read roles until their own enforcement exists. When none
+can be offered, the dry run names the missing ceiling for that role. Provider
+independence is still checked from the providers read for the actual Seats,
+never inferred from a runtime's name.
+
+**The rule:** an ACP capability reports enforcement the bridge holds, not a
+mode label or the host's ability to decline a permission request.
+
 ## A shape's `layout:` is a shortcut a person can trust to be inert
 
 `layout.frontDoor` and `layout.positions` are the same reserved key the
@@ -1236,6 +1311,11 @@ position; it opens no round and accepts no rule. Notes are excluded from the
 step, rule and seat facts. An Agent with no explicit seats still takes its
 Agent's own preference, so the local unseated advisory means no Agent is
 named, not no seat override is written.
+
+For a list of more than one Agent or seat, its length sets the width and an
+existing `count` follows that length. A single Agent keeps its explicit
+`count`. Shrinking a list to one keeps the old width until `setCount` changes
+or clears it.
 
 The page can create a document from the host-read policy and its original
 source, draw `documentGraph`, and fold canvas positions back with
@@ -2065,3 +2145,25 @@ SkillList/SkillRow, accepting the former crowded identity column.
 
 **The rule:** switch a comparison to its list form before trailing facts
 consume the width its identity and sentences need.
+
+## One canvas interaction engine for Flow drawings
+
+*Owner decision: 2026-10-05.* The builder uses React Flow as its interaction
+engine, behind the lazy `FlowCanvas` pattern. It owns pan, zoom, selection,
+dragging and pointer connections; every visible card, edge, label, control and map reads
+our design system and tokens. The upstream attribution stays visible.
+
+The architecture gate permits the engine and its base stylesheet only in
+`design/patterns/FlowCanvas/Engine.tsx`. The public pattern has its own graph
+and callback types, so importing it does not load the engine. The caller owns
+its document and supplies positions, including the existing `flow-layout`
+coordinates. The Run drawing scales the layout pitch from its rendered card
+box and the layout's exported gaps, rather than treating the 176×68 layout box
+as the rendered card. A Run supplies its state slot, with `flow-overlay`'s vocabulary;
+failed and skipped are also available to a caller with those recorded facts.
+The first drawing is centred at 100% when it fits; a narrow container shrinks
+it to fit. Edits keep the viewport while any earlier step survives. Fit can
+shrink, never enlarge it.
+Read-only plans retain selection and navigation but have no edit affordances.
+Keyboard connection belongs to the builder dock and will arrive in a later
+change; it is not part of this pattern.

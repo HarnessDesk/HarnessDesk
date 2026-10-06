@@ -19,6 +19,9 @@ import type { HostRuntime } from './runtime.js'
  */
 
 export interface ForgeSeat {
+  readonly role: string | null
+  readonly round: number | null
+  readonly team: string | null
   /** The agent's presentation name — "Codex", "Gemini CLI" — never a runtime id. */
   readonly agent: string
   /** The agent's own version, when it said one. */

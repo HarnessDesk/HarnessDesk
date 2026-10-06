@@ -390,3 +390,12 @@ test('the shared icon facade reaches only its badge tile, never the pattern barr
     path: 'packages/ui/src/components/Screen.tsx', source: "import { IconTile } from '../design/ui/icon-tile'",
   }]).some(finding => finding.rule === 'nonpublic-design-import'), 'screens still compose the public entrypoint')
 })
+
+test('the canvas engine owns all React Flow imports, including its base sheet', () => {
+  for (const source of ["import { ReactFlow } from '@xyflow/react'", "import '@xyflow/react/dist/base.css'", "const engine = import('@xyflow/react')"]) {
+    assert.deepEqual(scanUiArchitecture([{ path: 'packages/ui/src/design/patterns/FlowCanvas/Engine.tsx', source }]), [])
+    for (const file of ['packages/ui/src/components/Builder.tsx', 'packages/ui/src/design/patterns/Other.tsx', 'packages/ui/src/design/ui/Other.tsx']) {
+      assert.ok(scanUiArchitecture([{ path: file, source }]).some(({ rule }) => rule === 'canvas-engine-import'))
+    }
+  }
+})
