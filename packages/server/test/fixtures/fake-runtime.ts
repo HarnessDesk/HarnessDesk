@@ -908,14 +908,18 @@ export class FakeSession implements AgentSession {
   }
 
   /** Completes the turn. Tests call this so timing is deterministic. */
-  finish(): void {
+  finish(answer = ''): void {
     if (!this.#activeTurn) return
     const id = this.#activeTurn
     this.#activeTurn = null
     this.host.emit({
       type: 'turn/completed',
       sessionId: this.id,
-      turn: { id, items: [], status: 'completed' },
+      turn: {
+        id,
+        items: answer === '' ? [] : [{ id: itemId(`a-${this.#turn}`), type: 'assistantMessage', text: answer }],
+        status: 'completed',
+      },
     })
   }
 
