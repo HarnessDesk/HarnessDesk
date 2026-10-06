@@ -29,7 +29,7 @@ export interface FlowCanvasEdge {
 }
 export type FlowCanvasNodeChange =
   | { readonly type: 'select'; readonly id: string; readonly selected: boolean }
-  | { readonly type: 'position'; readonly id: string; readonly position: { readonly x: number; readonly y: number } }
+  | { readonly type: 'position'; readonly id: string; readonly position: { readonly x: number; readonly y: number }; readonly dragging: boolean }
   | { readonly type: 'remove'; readonly id: string }
 export type FlowCanvasEdgeChange =
   | { readonly type: 'select'; readonly id: string; readonly selected: boolean }

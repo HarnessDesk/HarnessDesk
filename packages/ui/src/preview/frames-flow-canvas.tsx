@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { Chip, FlowCanvas, Text, type FlowCanvasNode, type FlowCanvasEdge, type FlowCanvasNodeChange, type FlowCanvasEdgeChange } from '../design'
+import { useRef, useState } from 'react'
+import { Chip, FlowCanvas, FLOW_CANVAS_CARD_WIDTH, FLOW_CANVAS_RUN_CARD_HEIGHT, Text, type FlowCanvasNode, type FlowCanvasEdge, type FlowCanvasNodeChange, type FlowCanvasEdgeChange } from '../design'
 import { useTheme } from '../state/theme'
-import { flowLayout } from '../lib/flow-layout'
+import { flowLayout, FLOW_CARD_H, FLOW_CARD_W, FLOW_GAP, FLOW_ROW_GAP } from '../lib/flow-layout'
 import { flowGraphModel } from './flow-graph-fixture'
 
 const plan: FlowCanvasNode[] = [
@@ -28,22 +28,33 @@ const applyEdges = (edges: readonly FlowCanvasEdge[], changes: readonly FlowCanv
 
 export const FlowCanvasExample = ({ readOnly }: { readOnly: boolean }) => {
   const [nodes, setNodes] = useState(plan), [edges, setEdges] = useState(rules)
+  const [dragStarted, setDragStarted] = useState(false), [dragging, setDragging] = useState(false)
+  const nextConnectionId = useRef(0)
   return <section id={readOnly ? 'flow-canvas-readonly' : 'flow-canvas-editable'} className="flex flex-col gap-2" data-catalog-state={readOnly ? 'disabled' : 'editing'}>
     <Text role="section">{readOnly ? 'A started plan' : 'Build a plan'}</Text>
     <div className="h-128"><FlowCanvas nodes={nodes} edges={edges} readOnly={readOnly}
-      onNodesChange={changes => setNodes(nodes => applyNodes(nodes, changes))}
+      onNodesChange={changes => {
+        for (const change of changes) if (change.type === 'position') {
+          setDragging(change.dragging)
+          if (change.dragging) setDragStarted(true)
+        }
+        setNodes(nodes => applyNodes(nodes, changes))
+      }}
       onEdgesChange={changes => setEdges(edges => applyEdges(edges, changes))}
-      onConnect={connection => setEdges(edges => [...edges, { id: `connection-${edges.length}`, ...connection, label: 'next' }])} /></div>
+      onConnect={connection => setEdges(edges => [...edges, { id: `connection-${nextConnectionId.current++}`, ...connection, label: 'next' }])} /></div>
+    <span className="sr-only" data-position-drag-started={dragStarted} data-position-dragging={dragging} />
   </section>
 }
 export const FlowCanvasRunPlan = () => {
   const model = flowGraphModel('blueprint'), layout = flowLayout(model)
+  const xScale = (FLOW_CANVAS_CARD_WIDTH + FLOW_GAP) / (FLOW_CARD_W + FLOW_GAP)
+  const yScale = (FLOW_CANVAS_RUN_CARD_HEIGHT + FLOW_ROW_GAP) / (FLOW_CARD_H + FLOW_ROW_GAP)
   const states = ['done', 'working', 'waiting', 'failed', 'skipped', 'future'] as const
   const words = ['Done', 'Running', 'Needs you', 'Failed', 'Skipped', 'Next']
   const tones = ['success', 'brand', 'warning', 'danger', 'neutral', 'neutral'] as const
   const nodes: FlowCanvasNode[] = layout.nodes.map((node, index) => {
     const step = model.steps.find(step => step.id === node.id)!
-    return { id: node.id, position: { x: node.box.x, y: node.box.y }, size: { width: node.box.w },
+    return { id: node.id, position: { x: node.box.x * xScale, y: node.box.y * yScale }, size: { width: FLOW_CANVAS_CARD_WIDTH, height: FLOW_CANVAS_RUN_CARD_HEIGHT },
       data: { name: step.name, kind: step.kind, roleLine: step.line }, state: states[index % states.length],
       stateSlot: <Chip tone={tones[index % tones.length]!}>{words[index % words.length]}</Chip> }
   })

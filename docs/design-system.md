@@ -1414,6 +1414,7 @@ back where it started.
 `packages/ui/src/design/patterns/FlowCanvas.tsx`
 
 A controlled plan drawing. Give its container a height; Fit only shrinks.
+Steps connect by pointer here; the builder dock will add keyboard connection later.
 
 ### `FlowGraph`
 
