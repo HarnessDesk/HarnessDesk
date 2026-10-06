@@ -1119,6 +1119,7 @@ export const Ranked = ({
           const label = nameOf(row)
           const share = shareOf(row.cost, total)
           const change = row.key === OTHER_KEY ? null : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
+          // A runtime breakdown totals all its accounts, so its face has no account initial.
           return <TableRow key={row.key}>
             <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={tintAt(index, row)}><RuntimeMark runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)} /></IconTile> : <span className="inline-flex items-center justify-center"><SeriesDot tint={tintAt(index, row)} /></span>}>
               <Text role="subject" truncate title={label}>{label}</Text>

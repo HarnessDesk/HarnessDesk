@@ -389,7 +389,7 @@ has a server glyph; runtime rows keep their own brand faces. When two or more
 accounts of the same runtime are signed in, their faces carry unique account
 initials from 24px up (two letters when initials collide). Smaller faces keep
 the account tint and a title naming the account. Top-right is reserved for
-attention counts.
+attention counts. A face that totals several accounts carries no initial.
 
 ### Archive and delete
 
@@ -802,6 +802,22 @@ A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
+
+**As a list.** Board · List switches the same jobs into a framed table. Filter
+jobs by words or state; All starts pressed, and the default order puts Needs
+you first, then the most recent. Job number and kind stay beside its title,
+with its description or stop reason beneath it; a completion note appears only
+on finished or set-aside jobs. Assignee, state, pull request, checks, changes and
+updated time each have a column; stale or unknown facts keep their qualification.
+Completed jobs still awaiting their first evidence read remain visible as
+Checking evidence, or Evidence unavailable if that read failed. Needs you says
+why, with a stranded claim’s age first. Finished jobs show their completing
+agent only while the channel still records it; otherwise Assignee is a dash.
+Reopen is visible on finished and stopped rows; a person step opens its answer
+or review question. Other rows keep their verbs in the menu, revealed on hover
+or keyboard focus. Empty evidence columns start hidden, and secondary columns
+yield to the pane’s width so actions stay in view. The view menu chooses
+columns and sort, and the footer names the displayed count and order.
 
 **A conversation's Seat record.** A conversation seated as an Agent shows its
 Seat record at the head of its Agents inspector, above the sub-agents it

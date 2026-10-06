@@ -92,9 +92,9 @@ import { WindowControls } from './WindowControls'
 import { SaveAsAgentDialog } from './SaveAsAgent'
 import styles from './Conversation.module.css'
 
-/** An empty-state title, in the page role at its own weight. */
+/** An empty-state title, taking the page role's size and weight together. */
 const EmptyTitle = ({ children }: { children: ReactNode }) => (
-  <Text as="div" role="page" weight="medium">
+  <Text as="div" role="page">
     {children}
   </Text>
 )
