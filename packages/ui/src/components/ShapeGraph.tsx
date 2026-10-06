@@ -39,7 +39,9 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
   const [dragging, setDragging] = useState<{ readonly id: string; readonly dx: number; readonly dy: number } | null>(null)
   const start = useRef<{ readonly id: string; readonly x: number; readonly y: number; readonly pointerX: number; readonly pointerY: number } | null>(null)
 
-  const positionOf = (id: string, index: number): GraphPoint => saved[id] ?? defaultGraphPosition(index)
+  const positionOf = (id: string, index: number): GraphPoint => (
+    Object.hasOwn(saved, id) ? saved[id]! : defaultGraphPosition(index)
+  )
   const previewOf = (id: string, index: number): GraphPoint => {
     const base = positionOf(id, index)
     return dragging && dragging.id === id ? { x: base.x + dragging.dx, y: base.y + dragging.dy } : base

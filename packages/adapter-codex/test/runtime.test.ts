@@ -1349,3 +1349,9 @@ for (const order of ['separate', 'one-chunk']) {
     assert.equal((next.item as { kind?: string }).kind, undefined, 'brief classification does not leak into the next notice')
   })
 }
+
+test('presentation declares the native commit co-author', async (t) => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  assert.deepEqual(runtime.info.presentation.coAuthor, { name: 'Codex', email: 'noreply@openai.com' })
+})

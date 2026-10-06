@@ -452,3 +452,16 @@ test('a loader whose rendered export cannot be read renders nothing, and is repo
   })
   assert.deepEqual(integrity.unloadedAnchors, ['surface.rail'])
 })
+
+test('a pattern folder is catalogued through its public facade, with no orphan folders hidden', async () => {
+  const { patternModulesFromPaths } = await import('./ui-catalog.mjs')
+  assert.deepEqual(patternModulesFromPaths([
+    'packages/ui/src/design/patterns/FlowCanvas.tsx',
+    'packages/ui/src/design/patterns/FlowCanvas/Engine.tsx',
+    'packages/ui/src/design/patterns/FlowCanvas/StepCard.tsx',
+    'packages/ui/src/design/patterns/FlowCanvas/types.ts',
+    'packages/ui/src/design/patterns/FlowCanvas/FlowCanvas.test.tsx',
+    'packages/ui/src/design/patterns/Orphan/Part.tsx',
+    'packages/ui/src/components/Other.tsx',
+  ]), ['FlowCanvas', 'Orphan'])
+})

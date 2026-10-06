@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
-import { boundInputIds, boundInputValues } from './shapes'
+import { boundInputIds, boundInputValues, readGraphPositions } from './shapes'
 
 /**
  * `boundInputIds` reads `layout.frontDoor.bindings` defensively, exactly like
@@ -21,6 +21,26 @@ const policy = (over: Partial<FlowPolicy> = {}): FlowPolicy => ({
   messaging: 'board-only',
   wait: 240,
   ...over,
+})
+
+it('reads saved positions for every role id except __proto__', () => {
+  const positions = Object.fromEntries([
+    ['constructor', { x: 400, y: 500 }],
+    ['prototype', { x: 700, y: 410 }],
+    ['__proto__', { x: 900, y: 320 }],
+  ])
+  const shape = policy({
+    roles: [
+      { id: 'constructor', kind: 'person', outcomes: ['done'] },
+      { id: 'prototype', kind: 'person', outcomes: ['done'] },
+    ],
+    layout: { positions },
+  })
+
+  expect(readGraphPositions(shape)).toEqual({
+    positions: { constructor: { x: 400, y: 500 }, prototype: { x: 700, y: 410 } },
+    invalid: true,
+  })
 })
 
 describe('boundInputIds', () => {

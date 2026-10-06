@@ -312,7 +312,9 @@ rules:
   assert.equal(reviewer.winner, null)
   assert.equal(reviewer.candidates[0]?.reason?.kind, 'sameProvider')
   assert.equal(reviewer.candidates[1]?.reason?.kind, 'unheld')
-  assert.ok(preview.problems.some((problem) => problem.at === 'roles.reviewer' && problem.level === 'error'))
+  const refusal = preview.problems.find((problem) => problem.at === 'roles.reviewer.seat[0]' && problem.level === 'error')
+  assert.ok(refusal)
+  assert.match(refusal.text, /claude-code cannot hold read/)
 })
 
 test('independence follows the final fallback winner through a chain of roles', async () => {
@@ -656,4 +658,18 @@ test('unattended preview uses the same seating policy as a trigger freeze, and s
   const preview = await other.preview('/repo', FLOW, {}, undefined, undefined, options)
   options.seats.author[0]!.runtime = 'beta'
   assert.equal(await other.redeem(preview.token!, '/repo', FLOW, {}, options), null, 'mutating the request cannot mutate the authority')
+})
+
+test('a read role with no held ceiling names the missing ceiling in its dry-run problem', async () => {
+  const state = rig()
+  state.port.previewAgent = async (_root, id) => ({
+    id, from: 'prefer', winner: null, blocked: null, ceiling: null,
+    candidates: [{ seat: { runtime: 'alpha' }, label: 'Alpha', runtimeName: 'Alpha', state: 'passed',
+      reason: { kind: 'unheld', level: 'read', detail: null, required: true }, fix: { kind: 'seats' } }],
+  })
+  const preview = await new FlowPreviews(state.port).preview('/repo', FLOW.replace('uses: writer', 'uses: writer, grant: read'))
+  assert.equal(preview.token, null)
+  const problem = preview.problems.find(one => one.level === 'error')!
+  assert.equal(problem.at, 'roles.author.seat[0]')
+  assert.match(problem.text, /Alpha cannot hold read/)
 })
