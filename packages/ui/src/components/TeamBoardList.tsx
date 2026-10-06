@@ -34,9 +34,10 @@ const JOB_COLUMN_MIN_WIDTH: Readonly<Record<JobColumn, number>> = {
 }
 
 /** The same observed jobs, grouped by state only in the compact layout. */
-export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL_COLUMNS, searchText, compact = false, grouped = false }: {
+export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL_COLUMNS, searchText, compact = false, grouped = false, unplacedTitle = 'Checking current evidence' }: {
   compact?: boolean
   grouped?: boolean
+  unplacedTitle?: string
   intents: readonly Intent[]
   placed: ReadonlyMap<number, Placement>
   defaultColumns?: ReadonlySet<JobColumn>
@@ -124,7 +125,7 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
         <TableBody>{grouped ? [...filters, 'unknown' as const].map(state => {
           const group = jobs.filter(job => (placed.get(job.id)?.column ?? 'unknown') === state)
           if (!group.length) return null
-          const title = FACT_COLUMNS.find(one => one.id === state)?.title ?? 'Unplaced'
+          const title = FACT_COLUMNS.find(one => one.id === state)?.title ?? unplacedTitle
           return <Fragment key={state}>
             <TableRow data-state-group={state}><TableCell colSpan={columns.size + 3}><GroupLabel as="h3">{title}</GroupLabel></TableCell></TableRow>
             {group.map(intent => renderRow(intent, columns))}

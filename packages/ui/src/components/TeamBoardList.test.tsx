@@ -42,3 +42,16 @@ it('compact jobs group by their observed state, with Needs you first', () => {
     expect([...container.querySelectorAll('[data-state-group]')].map(el => el.textContent)).toEqual(['Needs you', 'Working'])
   } finally { act(() => root.unmount()); container.remove() }
 })
+
+for (const title of ['Checking current evidence', 'Evidence unavailable']) it(`compact jobs awaiting placement are grouped as ${title}`, () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const job = { id: 1, title: 'Finished job', state: 'done', updatedAt: 1 } as Intent
+  try {
+    act(() => root.render(<TeamBoardList compact grouped intents={[job]} placed={new Map()} unplacedTitle={title}
+      renderRow={intent => <TableRow key={intent.id}><TableCell>{intent.title}</TableCell></TableRow>} />))
+    expect(container.querySelector('[data-state-group="unknown"] h3')?.textContent).toBe(title)
+    expect(container.querySelector('tbody tr:last-child')?.textContent).toBe('Finished job')
+  } finally { act(() => root.unmount()); container.remove() }
+})
