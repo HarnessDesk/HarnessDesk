@@ -1237,6 +1237,11 @@ step, rule and seat facts. An Agent with no explicit seats still takes its
 Agent's own preference, so the local unseated advisory means no Agent is
 named, not no seat override is written.
 
+For a list of more than one Agent or seat, its length sets the width and an
+existing `count` follows that length. A single Agent keeps its explicit
+`count`. Shrinking a list to one keeps the old width until `setCount` changes
+or clears it.
+
 The page can create a document from the host-read policy and its original
 source, draw `documentGraph`, and fold canvas positions back with
 `graphDocument`. Semantic edits use operations so rule order and references
