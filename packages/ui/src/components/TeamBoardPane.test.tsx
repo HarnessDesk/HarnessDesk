@@ -1706,6 +1706,17 @@ for (const state of ['done', 'abandoned', 'blocked'] as const) {
   })
 }
 
+it('list repair: dependency-blocked work keeps reopen in the menu, not as a row action', async () => {
+  const { store } = rig([
+    intent({ id: 1, state: 'blocked', blockedBy: 'graph', dependsOn: [2] }),
+    intent({ id: 2, title: 'Finish the dependency' }),
+  ], {}, observed([], []))
+  await showList(store)
+  expect([...listRow(1).querySelectorAll('button')].map(one => one.textContent?.trim())).not.toContain('Put back in play')
+  await pick(1, 'Put back in play')
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'reopen')
+})
+
 for (const state of ['open', 'claimed'] as const) {
   it(`list repair: ${state} keeps Mark done in the menu until chosen`, async () => {
     const { store } = rig([intent({ state, claim: state === 'claimed' ? { runtime: 'codex', sessionId: 'c1', at: 1 } : null })])

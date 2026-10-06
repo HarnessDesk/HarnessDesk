@@ -1030,7 +1030,7 @@ const IntentCard = ({
             : []),
         ]
 
-  const primary = intent.state === 'done' || intent.state === 'abandoned' || intent.state === 'blocked'
+  const primary = intent.state === 'done' || intent.state === 'abandoned' || (intent.state === 'blocked' && intent.blockedBy === 'hand')
     ? verbs.find(one => one.verb === 'reopen')
     : intent.state !== 'claimed' && role?.kind === 'person' && role.outcomes.length > 0
       ? role.review ? verbs.find(one => one.review) : { label: 'Answer…', answer: true as const }
