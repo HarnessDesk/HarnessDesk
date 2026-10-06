@@ -57,7 +57,8 @@ const recordOpen = (method, sessionId, cwd, meta) => {
     // With the attachment extension on, each line also says whether the open
     // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
     const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
-    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered })}\n`)
+    const ceiling = process.env.FAKE_ACP_READ_CEILING === '1' ? { ceiling: meta?.harnessdesk?.ceiling ?? null } : {}
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling })}\n`)
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
@@ -383,13 +384,13 @@ const runPrompt = async (id, params) => {
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id, toolCall,
       ...(input._meta ? { _meta: input._meta } : {}),
-      options: [
+      options: input.options ?? [
         { optionId: 'yes', name: 'Allow once', kind: 'allow_once' },
         { optionId: 'no', name: 'Reject', kind: 'reject_once' },
       ],
     })
     const allowed = outcome.outcome === 'selected' && outcome.optionId === 'yes'
-    say(allowed ? 'allowed.' : 'denied.')
+    say(input.reportOutcome ? JSON.stringify(outcome) : allowed ? 'allowed.' : 'denied.')
     return reply(id, { stopReason: 'end_turn' })
   }
 
@@ -972,6 +973,9 @@ const handlers = {
     }
     reply(id, {
       protocolVersion: 1,
+      // Handshake-only fixture for checking the metadata sent on opens.
+      // Native enforcement is exercised against the bundled bridge instead.
+      ...(process.env.FAKE_ACP_READ_CEILING === '1' ? { _meta: { harnessdesk: { readCeiling: true } } } : {}),
       // The process id as the version, so a test can tell a restart from a
       // reconnect; FAKE_ACP_AGENT_VERSION overrides it, and
       // FAKE_ACP_NO_AGENT_VERSION=1 plays an agent that reports none at all.

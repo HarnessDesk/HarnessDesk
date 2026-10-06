@@ -2946,16 +2946,29 @@ export class AcpRuntime implements AgentRuntime {
       const request = params as AcpPermissionRequest
       const session = this.#sessions.get(makeSessionId(request.sessionId))
       if (!session) throw new AcpError(`no session ${request.sessionId}`)
-      if (this.#sessionCeilings.get(session.id) === 'read' && !questionOf(request)) {
-        // Notifications describe work after it happened. Only requests can be
-        // refused here; the bridge's native pre-tool guard holds the ceiling.
+      if (this.#sessionCeilings.get(session.id) === 'read' && !this.#readCeiling) {
+        // A held peer already checked this call with its native pre-tool
+        // guard. Its compact permission requests need not carry a kind.
+        // Asked peers have no such guard, so their requests are checked here.
         const tool = this.trustsBridgeProvenance ? flowBoardToolOf(request) : null
-        const read = tool
-          ? READ_PERMISSION_TOOLS.has(tool.tool)
-          : request.toolCall.kind === 'read' || request.toolCall.kind === 'search'
+        const kind = request.toolCall.kind
+        const read = questionOf(request)
+          ? !WRITE_PERMISSION_KINDS.has(kind ?? '')
+          : tool
+            ? READ_PERMISSION_TOOLS.has(tool.tool)
+            : kind === 'read' || kind === 'search' || kind === 'think'
         // Execution, mode changes and unknown calls cannot be granted by the
         // person or an automatic approval policy on behalf of a read Seat.
-        if (!read) return { outcome: { outcome: 'cancelled' } }
+        if (!read) {
+          session.applyUpdate({
+            sessionUpdate: 'user_message_chunk',
+            content: { type: 'text', text: `${request.toolCall.title ?? request.toolCall.toolCallId} was refused by the Read only ceiling.` },
+            _meta: { harnessdesk: { notice: true } },
+          })
+          const reject = request.options.find(option => option.kind === 'reject_once')
+            ?? request.options.find(option => option.kind === 'reject_always')
+          return { outcome: reject ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' } }
+        }
       }
       return session.requestPermission(request)
     }
@@ -2974,6 +2987,8 @@ const READ_PERMISSION_TOOLS = new Set(
     .filter(([, ceiling]) => ceiling === 'read')
     .map(([name]) => `mcp__harnessdesk__${name}`),
 )
+
+const WRITE_PERMISSION_KINDS = new Set(['edit', 'delete', 'move', 'execute', 'switch_mode'])
 
 const NO_TOKENS: TokenUsage = {
   totalTokens: 0,

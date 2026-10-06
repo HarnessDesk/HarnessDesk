@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent, AgentSession } from '@harnessdesk/protocol'
@@ -25,7 +25,7 @@ test('a read seat refuses write, execution and unknown permission requests befor
     assert.equal(runtime.info.ceilings, undefined, 'host permission refusal alone cannot hold native tools')
     const session = await runtime.createSession({ cwd: '/tmp/acp-read-seat', requestedCeiling: 'read' })
     active = session
-    for (const kind of ['edit', 'delete', 'move', 'execute', 'switch_mode', 'other', undefined]) {
+    for (const kind of ['edit', 'delete', 'move', 'execute', 'switch_mode', 'fetch', 'other', undefined]) {
       const done = new Promise<Extract<AgentEvent, { type: 'turn/completed' }>>(resolve => {
         const off = runtime.subscribe(event => { if (event.type === 'turn/completed') { off(); resolve(event) } })
       })
@@ -33,6 +33,7 @@ test('a read seat refuses write, execution and unknown permission requests befor
       const turn = (await done).turn
       assert.equal(turn.status, 'completed')
       assert.ok(turn.items.some(item => item.type === 'assistantMessage' && item.text === 'denied.'), `${kind} must be refused`)
+      assert.ok(turn.items.some(item => item.type === 'notice' && item.text === 'Read was refused by the Read only ceiling.'), `${kind} names the refusal in the transcript`)
     }
     assert.equal(approvals.length, 0, 'write requests never reach an approval policy or the person')
   } finally { await runtime.dispose() }
@@ -75,7 +76,7 @@ test('read and search permissions pass, and an edit seat retains its normal appr
   })
   await runtime.start()
   try {
-    for (const [ceiling, kinds] of [['read', ['read', 'search']], ['edit', ['edit']]] as const) {
+    for (const [ceiling, kinds] of [['read', ['read', 'search', 'think']], ['edit', ['edit']]] as const) {
       const session = await runtime.createSession({ cwd: '/tmp/acp-permissions', requestedCeiling: ceiling })
       active = session
       for (const kind of kinds) {
@@ -86,7 +87,7 @@ test('read and search permissions pass, and an edit seat retains its normal appr
         assert.ok((await done).turn.items.some(item => item.type === 'assistantMessage' && item.text === 'allowed.'))
       }
     }
-    assert.equal(approvals, 3)
+    assert.equal(approvals, 4)
   } finally { await runtime.dispose() }
 })
 
@@ -116,5 +117,107 @@ test('a read seat still refuses writes after its handle is closed and loaded aga
   done = completed()
   await resumed.send([{ type: 'text', text: 'ceiling permission {"toolCallId":"write-after-load","kind":"edit"}' }])
   assert.ok((await done).turn.items.some(item => item.type === 'assistantMessage' && item.text === 'denied.'))
+  assert.equal(approvals, 0)
+})
+
+test('asked read seats select a reject option and keep question and provenance boundaries', { timeout: 10_000 }, async (t) => {
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE] })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/tmp/acp-read-boundaries', requestedCeiling: 'read' })
+  const approvals: AgentEvent[] = []
+  runtime.subscribe(event => {
+    if (event.type === 'approval/requested') {
+      approvals.push(event)
+      void session.respondToApproval(event.approval.id, event.approval.type === 'userInput'
+        ? { type: 'answers', answers: { q: ['yes'] } }
+        : { type: 'option', optionId: 'yes' })
+    }
+  })
+  const question = { question: 'Which file?', options: [{ label: 'Allow once' }] }
+  const reject = { outcome: 'selected', optionId: 'no' }
+  const cases = [
+    { name: 'prefer reject once', toolCall: { toolCallId: 'reject', kind: 'edit' },
+      options: [{ optionId: 'never', name: 'Reject always', kind: 'reject_always' },
+        { optionId: 'no', name: 'Reject once', kind: 'reject_once' }], expected: reject },
+    { name: 'reject always fallback', toolCall: { toolCallId: 'reject-always', kind: 'edit' },
+      options: [{ optionId: 'never', name: 'Reject', kind: 'reject_always' }], expected: { outcome: 'selected', optionId: 'never' } },
+    { name: 'cancel without reject', toolCall: { toolCallId: 'cancel', kind: 'edit' },
+      options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }], expected: { outcome: 'cancelled' } },
+    { name: 'untrusted provenance', toolCall: { toolCallId: 'spoof', kind: 'other' },
+      _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__git_status' } } }, expected: reject },
+    { name: 'fetch', toolCall: { toolCallId: 'fetch', kind: 'fetch' }, expected: reject },
+    { name: 'question', toolCall: { toolCallId: 'question', rawInput: { questions: [question] } }, expected: { outcome: 'selected', optionId: 'yes' } },
+    { name: 'edit question', toolCall: { toolCallId: 'edit-question', kind: 'edit', rawInput: { questions: [question] } }, expected: reject },
+    { name: 'execute question', toolCall: { toolCallId: 'execute-question', kind: 'execute' },
+      _meta: { harnessdesk: { question } }, expected: reject },
+  ]
+  for (const { name, expected, ...input } of cases) {
+    await t.test(name, async () => {
+      const done = new Promise<Extract<AgentEvent, { type: 'turn/completed' }>>(resolve => {
+        const off = runtime.subscribe(event => { if (event.type === 'turn/completed') { off(); resolve(event) } })
+      })
+      await session.send([{ type: 'text', text: `ceiling permission ${JSON.stringify({ ...input, reportOutcome: true })}` }])
+      const item = (await done).turn.items.find(item => item.type === 'assistantMessage')
+      assert.equal(item?.type, 'assistantMessage')
+      assert.deepEqual(JSON.parse(item.text), expected)
+    })
+  }
+  assert.equal(approvals.length, 1, 'only the non-mutating question reaches the person')
+})
+
+test('a held peer receives the remembered ceiling on load, and non-read loads stay unchanged', { timeout: 10_000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'acp-held-resume-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const opens = join(cwd, 'opens.jsonl')
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE],
+    env: { FAKE_ACP_STORE: join(cwd, 'store.json'), FAKE_ACP_READ_CEILING: '1', FAKE_ACP_OPENS: opens } })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  for (const ceiling of ['read', 'edit'] as const) {
+    const session = await runtime.createSession({ cwd, requestedCeiling: ceiling })
+    const done = new Promise<void>(resolve => {
+      const off = runtime.subscribe(event => { if (event.type === 'turn/completed') { off(); resolve() } })
+    })
+    await session.send([{ type: 'text', text: 'persist' }])
+    await done
+    await session.close()
+    const resumed = await runtime.resumeSession(session.id, { knownCwd: cwd })
+    await resumed.close()
+  }
+  const loads = (await readFile(opens, 'utf8')).trim().split('\n')
+    .map(line => JSON.parse(line) as { method: string; ceiling: string | null })
+    .filter(open => open.method === 'session/load')
+  assert.deepEqual(loads.map(open => open.ceiling), ['read', null])
+})
+
+test('a read ceiling supplied at resume is remembered on a peer without a native guard', { timeout: 10_000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'acp-read-resume-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE], env: { FAKE_ACP_STORE: join(cwd, 'store.json') } })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const original = await runtime.createSession({ cwd })
+  const send = async (session: AgentSession, text: string) => {
+    const done = new Promise<Extract<AgentEvent, { type: 'turn/completed' }>>(resolve => {
+      const off = runtime.subscribe(event => { if (event.type === 'turn/completed') { off(); resolve(event) } })
+    })
+    await session.send([{ type: 'text', text }])
+    return (await done).turn
+  }
+  await send(original, 'persist')
+  await original.close()
+  const resumed = await runtime.resumeSession(original.id, { knownCwd: cwd, requestedCeiling: 'read' })
+  let approvals = 0
+  runtime.subscribe(event => {
+    if (event.type === 'approval/requested') {
+      approvals++
+      void runtime.resumeSession(original.id).then(active => active.respondToApproval(event.approval.id, { type: 'option', optionId: 'yes' }))
+    }
+  })
+  assert.ok((await send(resumed, 'ceiling permission {"toolCallId":"write","kind":"edit"}')).items.some(item => item.type === 'assistantMessage' && item.text === 'denied.'))
+  await resumed.close()
+  const reopened = await runtime.resumeSession(original.id, { knownCwd: cwd })
+  assert.ok((await send(reopened, 'ceiling permission {"toolCallId":"write-again","kind":"edit"}')).items.some(item => item.type === 'assistantMessage' && item.text === 'denied.'))
   assert.equal(approvals, 0)
 })
