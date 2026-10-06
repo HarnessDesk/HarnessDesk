@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto'
 /**
  * Phase 8 acceptance: Intake, driven against a real, launched HarnessDesk.
  *
@@ -151,6 +152,8 @@ const environment = {
   HARNESSDESK_NO_UPDATE_CHECK: '1',
   HARNESSDESK_CODEX_BINARY: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
   CODEX_HOME: codexHome,
+  HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(),
+  HARNESSDESK_CODEX_GENERATION: '0',
   // The fake agent reports its plan's rolling windows, as a signed-in Codex does: unattended work refuses
   // to dispatch against an allowance nobody can read, so without them every trigger run waits on a person.
   FAKE_CODEX_WINDOWS: '1',

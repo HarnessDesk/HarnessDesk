@@ -1070,6 +1070,13 @@ test('deleted members memory is pruned when joining another room, leaving, forge
   assert.equal(await team.awaitWork(claude), 'stand down — the room was deleted')
   team.onRuntimeDetached(claude.runtime as RuntimeId)
   await assert.rejects(() => team.awaitWork(claude), /This conversation is not in a room/)
+
+  const room3 = await team.createRoom('/repo', 'conversation-detach')
+  await team.joinRoom(room3.id, claude.runtime as RuntimeId, claude.sessionId)
+  await team.deleteRoom(room3.id)
+  assert.equal(await team.awaitWork(claude), 'stand down — the room was deleted')
+  team.onSessionDetached(claude.runtime as RuntimeId, claude.sessionId, 'Conversation stopped.')
+  await assert.rejects(() => team.awaitWork(claude), /This conversation is not in a room/)
 })
 
 test('a delete that cannot reach the disk is refused, not acknowledged', async (t) => {

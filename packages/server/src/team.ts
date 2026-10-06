@@ -3393,6 +3393,20 @@ export class Team {
     }
   }
 
+  /** A single conversation process went away while its runtime stayed up. */
+  onSessionDetached(runtime: RuntimeId, sessionId: string, reason: string): void {
+    const key = keyOf(runtime, sessionId)
+    this.#settle(key, reason)
+    this.#owed.delete(key)
+    this.#used.delete(key)
+    this.#deletedMembers.delete(key)
+    for (const board of this.#boards.values()) {
+      const seat = this.#seatForSession(board.id, runtime, sessionId)
+      const status = seat && this.#port.memberStatus?.(seat)
+      if (seat && status?.turn) this.#memberWaits.get(board.id)?.ended(String(seat.id), status.turn, reason)
+    }
+  }
+
   /**
    * A whole runtime went away — its process died, its health failed, its
    * account was removed. Every conversation it was carrying loses its mail.
