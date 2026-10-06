@@ -15,6 +15,7 @@ import {
   type SessionOptions,
   wrapContext,
   deskContextContent,
+  splitContextContent,
 } from '@harnessdesk/protocol'
 import { ExtensionKernel } from '@harnessdesk/cordis-host'
 
@@ -1415,6 +1416,21 @@ for (const order of ['separate', 'one-chunk']) {
     assert.equal((next.item as { kind?: string }).kind, undefined, 'brief classification does not leak into the next notice')
   })
 }
+
+test('automatic context carries its record through the native user-message echo', async t => {
+  const runtime = makeRuntime({}, { capabilities: await gitKernel(t) })
+  t.after(() => runtime.dispose())
+  const seen = recorder(runtime)
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/w' })
+  await live.send([{ type: 'text', text: 'Explain it' }])
+  await seen.until(events => events.some(event => event.type === 'item/started' && event.item.type === 'userMessage'))
+  const opening = seen.events.find(event => event.type === 'item/started' && event.item.type === 'userMessage')
+  assert.ok(opening?.type === 'item/started' && opening.item.type === 'userMessage')
+  assert.deepEqual(splitContextContent(opening.item.content), {
+    injections: [{ label: 'Git', text: 'On branch main.' }], text: 'Explain it',
+  })
+})
 
 test('locally sent wrapper lookalikes carry a record through the native event stream', async t => {
   const runtime = makeRuntime()

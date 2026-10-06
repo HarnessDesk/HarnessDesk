@@ -280,6 +280,21 @@ test('a recorded message keeps a marked wrapper the person typed', () => {
   assert.deepEqual(splitContext(raw, { prefixLength: 0 }), { injections: [], text: raw })
 })
 
+test('a recorded pasted wrapper keeps its first typed line as the conversation name', () => {
+  const pasted = wrapContext('Git', 'These are my words')
+  const title = pasted.split('\n')[0]!
+  assert.equal(openingOf(pasted, { deskContext: { prefixLength: 0 } }), title)
+  assert.equal(openingOf(`${pasted}\n\nExplain the tag`, { deskContext: { prefixLength: 0 } }), title)
+  const prefix = wrapContext('Git', 'On branch main.')
+  assert.equal(openingOf(`${prefix}\n\n${pasted}`, { deskContext: { prefixLength: prefix.length } }), title)
+  assert.equal(openingOfContent([{ type: 'text', text: pasted, deskContext: { prefixLength: 0 } }]), title)
+  const oneLine = pasted.replaceAll('\n', '')
+  assert.equal(openingOf(oneLine, { deskContext: { prefixLength: 0 } }), oneLine)
+  assert.equal(openingOfContent([{ type: 'text', text: oneLine, deskContext: { prefixLength: 0 } }]), oneLine)
+  // Unrecorded history keeps the old layout fallback.
+  assert.equal(openingOf(pasted), 'Git')
+})
+
 test('a record peels exactly the composed prefix, never a forged block after it', () => {
   const prefix = wrapContext('Git', 'On branch main')
   const typed = `${wrapContext('Other', 'my words')}\n\nExplain this`
