@@ -356,7 +356,7 @@ export function errorExit(error: unknown): number {
   if (!(error instanceof WireCallError)) return 1
   if (error.code === 'noDesk') return 3
   if (['incompatible', 'deskTooOld'].includes(error.code)) return 6
-  if (['unsafeDirectory', 'unsafeSocket', 'unsafePointer', 'tierNotGranted', 'notOnClientSurface', 'helloFirst', 'badRequest', 'refused', 'alreadyAnswered', 'clientDoorOnly'].includes(error.code)) return 4
+  if (['unsafeDirectory', 'unsafeSocket', 'unsafePointer', 'tierNotGranted', 'notOnClientSurface', 'helloFirst', 'badRequest', 'refused', 'alreadyAnswered', 'cardMissing', 'clientDoorOnly'].includes(error.code)) return 4
   return 1
 }
 

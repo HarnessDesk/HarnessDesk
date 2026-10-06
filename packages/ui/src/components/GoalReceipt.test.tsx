@@ -297,3 +297,16 @@ it('preview accounting uses the Team’s own Seats and every partition adds up t
     }
   }
 })
+
+it('names work rows from the frozen title, with an honest fallback for older receipts', () => {
+  const receipt = { ...baseReceipt, cards: [
+    { id: 1, title: 'Keep the last failure visible', resolution: 'finished' as const, reason: null },
+    { id: 2, resolution: 'dropped' as const, reason: null },
+    { id: 3, title: '   ', resolution: 'finished' as const, reason: null },
+  ] }
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+  const titles = [...container.querySelectorAll('[data-slot="row-title"]')].map(one => one.textContent)
+  expect(titles).toContain('#1Keep the last failure visible')
+  expect(titles).toContain('#2Card title not recorded')
+  expect(titles).toContain('#3Card title not recorded')
+})

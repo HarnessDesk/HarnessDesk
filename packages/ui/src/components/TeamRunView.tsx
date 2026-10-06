@@ -87,6 +87,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
     }} faces={view.faces} faceTints={faceTints} doing={view.doing} /> : view.flow
   return <RunWorkspace {...view} home={snapshot.home} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     home: snapshot.home,
+    teamState: goal?.goal.state,
     faces: view.faces,
     faceTints,
     pullRequest: view.pullRequest,

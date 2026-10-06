@@ -83,10 +83,10 @@ it('abandons the card, holds the question while it is on its way, and closes onc
 })
 
 it('keeps the host\'s refusal on screen, with the act disabled, and lets the person keep the card', async () => {
-  draw({}, vi.fn().mockRejectedValue(new Error('There is no card #5 on this board.')))
+  draw({}, vi.fn().mockRejectedValue(new Error('The board is being saved. Try again when it is ready.')))
   open()
   await act(async () => inDialog('Abandon card').click())
-  expect(dialog()?.querySelector('[role="alert"]')?.textContent).toBe('There is no card #5 on this board.')
+  expect(dialog()?.querySelector('[role="alert"]')?.textContent).toBe('The board is being saved. Try again when it is ready.')
   expect(inDialog('Abandon card').disabled).toBe(true)
   act(() => inDialog('Keep it').click())
   expect(dialog()).toBeNull()
@@ -131,4 +131,33 @@ it('draws the Flow\'s and the Seat\'s words as text, with terminal escapes dropp
   expect(body.textContent).toContain('opens a <img src=x onerror="alert(1)"> round.')
   expect(body.textContent).toContain('<b>Alpha</b> holds this card now.')
   expect(body.textContent).not.toContain('\u001b')
+})
+
+it('replaces the stale question with the host explanation for a structured missing card', async () => {
+  const message = 'This card was removed from the board.'
+  const onAbandon = vi.fn().mockRejectedValue(Object.assign(new Error(message), { code: 'cardMissing' }))
+  draw({ card: card({ state: 'claimed' }), holder: 'Alpha' }, onAbandon)
+  open()
+  await act(async () => inDialog('Abandon card').click())
+  expect(document.body.textContent).toContain(message)
+  expect(document.body.textContent).not.toContain('holds this card now')
+  expect(document.body.textContent).not.toContain('opens a reviewer round')
+  expect(document.body.textContent).not.toContain('Keep it')
+  expect(door()).toBeUndefined()
+  expect([...document.body.querySelectorAll('button')].some(one => one.textContent === 'Abandon card')).toBe(false)
+  act(() => [...document.body.querySelectorAll('button')].find(one => one.textContent === 'Close')!.click())
+  expect(document.body.textContent).toContain(message)
+  expect(door()).toBeUndefined()
+  expect(onAbandon).toHaveBeenCalledTimes(1)
+})
+
+
+it('returns focus to the inline explanation when the missing-card dialog closes', async () => {
+  draw({}, vi.fn().mockRejectedValue(Object.assign(new Error('This card was removed.'), { code: 'cardMissing' })))
+  open()
+  await act(async () => inDialog('Abandon card').click())
+  await act(async () => [...document.body.querySelectorAll('button')].find(one => one.textContent === 'Close')!.click())
+  expect(document.activeElement).not.toBe(document.body)
+  expect(document.activeElement?.textContent).toContain('This card was removed.')
+  expect(document.activeElement?.getAttribute('tabindex')).toBe('-1')
 })
