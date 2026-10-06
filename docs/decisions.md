@@ -801,9 +801,12 @@ The Git plugin now signs agent descriptions, reviews and comments as one
 capability, with three editable templates and a blank value disabling each
 kind. Roles come from the stored Seat, Team names from its board and review
 rounds from the run. No Team means no invented role. Writer, Reviewer and
-Fixer are capitalised; a Flow's other role words remain its own.
+Fixer are capitalised. Other role ids use ASCII letters, digits and hyphens; other
+characters become `-`. They are bounded to 32 characters, with `role` used when
+nothing usable remains.
 
-A description keeps every role and seat pair in its hidden signature marker.
+A description keeps the latest seat for each role and agent pair in its hidden
+signature marker.
 Its visible line is rendered under the current template, so a person's edits
 to that line or a new template cannot erase the earlier credits. Legacy
 signatures are upgraded when edited. A review or comment keeps the role and
@@ -2039,14 +2042,23 @@ accounts and catalogue reads belong to the control process, which keeps
 Every process uses the same agent-owned history and configuration; nothing
 rewrites that configuration or shadows real history.
 
-MCP reload and login, plugin install and removal, and skill configuration writes
+MCP reload, plugin install and removal, and skill configuration writes
 are sent to the control process and every open conversation process. Shared
 configuration files do not establish that an already running process reloads
 its tools; the adapter explicitly asks each process to apply these verbs and
-returns the control process's response after all have answered. A process
-already closing is skipped. The fixture regression opens two conversations
-and checks that all three processes receive the reload and settings requests;
+returns the control process's response after all have answered. Recipients are
+chosen after the control request finishes, including conversations still opening
+at that point. Each recipient waits for its opening requests to settle before
+being updated; a failed opening or a process closing in that interval is skipped.
+The fixture regressions hold new, resumed and forked conversations open across
+the control response and check that tool updates follow their root registration.
+Another opens two conversations and checks that all three processes receive
+the reload and settings requests;
 this is not a claim about unmeasured cross-process propagation in the real agent.
+MCP login opens one interactive authorization flow on the control process only.
+The agent owns its stored credentials; Reload in Extensions sends the existing
+reload verb to conversation processes. Whether a running real agent process
+re-reads a newly stored credential on reload remains unmeasured.
 
 A conversation process that fails reports `session/detached` for its own roots,
 clears their live handles and holds their queued messages. It leaves the other

@@ -91,7 +91,7 @@ it('a check that may be asked again offers Run again…, and nothing runs until 
 })
 
 it('a check that cannot run again keeps its control, disabled, with the reason on screen — and opens nothing', async () => {
-  const reason = 'This run is settled. Start a new run to run this check again.'
+  const reason = 'The checkout moved. Read it before trying again.'
   const { store, previewFlowRetry } = storeWith(CONSENT)
   await render(store, <RunAgain run="run-1" card={3} refusal={reason} />)
   const again = button('Run again…')!
@@ -111,4 +111,23 @@ it('on a timeline row a refused check shows no control at all, because the inspe
   expect(container.innerHTML).toBe('')
   await render(store, <RunAgain run="run-1" card={3} refusal={null} onRow />)
   expect(button('Run again…')).toBeDefined()
+})
+
+for (const reason of ['This run is settled. Start a new run to run this check again.', 'This Team is wrapped']) {
+  it(`keeps the terminal refusal without a retry act: ${reason}`, async () => {
+    const { store, previewFlowRetry } = storeWith(CONSENT)
+    await render(store, <RunAgain run="run-1" card={3} refusal={reason} terminal />)
+    expect(container.textContent).toContain(reason)
+    expect(button('Run again…')).toBeUndefined()
+    expect(previewFlowRetry).not.toHaveBeenCalled()
+  })
+}
+it('uses lifecycle state rather than refusal wording when a mounted Run ends', async () => {
+  const { store } = storeWith(CONSENT)
+  const reason = 'This check is not waiting to be run again.'
+  await render(store, <RunAgain run="run-1" card={3} refusal={reason} />)
+  expect(button('Run again…')).toBeDefined()
+  await render(store, <RunAgain run="run-1" card={3} refusal={reason} terminal />)
+  expect(button('Run again…')).toBeUndefined()
+  expect(container.textContent).toContain(reason)
 })

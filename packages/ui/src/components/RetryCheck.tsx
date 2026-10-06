@@ -84,20 +84,24 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
  *
  * `refusal` is what the Run and the check already say (`checkRetryRefusal`,
  * the host's own sentence), and anything else the host refuses is said in the
- * dialog this opens. Where it is refused the inspector keeps the control,
- * disabled, with the reason on screen; a timeline row shows nothing, so a
+ * dialog this opens. For an actionable refusal the inspector keeps the control,
+ * disabled, with the reason on screen. An ended Run or wrapped Team keeps
+ * only the reason; a timeline row shows nothing, so a
  * settled Run does not repeat one sentence down every check row — the reason
  * is a click away in the inspector.
  */
-export const RunAgain = ({ run, card, refusal, onRow = false }: {
+export const RunAgain = ({ run, card, refusal, onRow = false, terminal = false }: {
   readonly run: string
   readonly card: number
   readonly refusal: string | null
+  /** The Run has ended or its Team is wrapped; this check can never run here again. */
+  readonly terminal?: boolean
   /** On a timeline row: a quiet link, and absent while refused. */
   readonly onRow?: boolean
 }) => {
   const [asking, setAsking] = useState(false)
-  if (refusal !== null && onRow) return null
+  if ((refusal !== null || terminal) && onRow) return null
+  if (terminal) return refusal === null ? null : <Text role="meta" as="div" className="break-words [overflow-wrap:anywhere]">{refusal}</Text>
   const ask = () => setAsking(true)
   const again = onRow
     ? <Button variant="link" size="xs" onClick={ask}>Run again…</Button>
