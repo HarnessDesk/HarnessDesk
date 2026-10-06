@@ -508,6 +508,12 @@ test('a registration snapshot carrying the pending notice does not duplicate it'
   assert.equal(reduceSession(held, { type: 'session/started', session: other }), held)
 })
 
+for (const partialHistory of [false, true]) test(`a ${partialHistory ? 'partial' : 'full'} read moving a pending notice into a real turn consumes its synthetic row`, () => {
+  const held = reduceSession(baseSession(), { type: 'notice', sessionId: SESSION, level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  const read = { ...reduceSession(held, { type: 'turn/started', sessionId: SESSION, turn: { id: TURN, status: 'inProgress', items: [] } }), partialHistory }
+  assert.deepEqual(mergeRead(held, read), read)
+})
+
 test('session errors change the row state and appear inline without changing unrelated sessions', () => {
   const event: AgentEvent = { type: 'error', sessionId: SESSION, error: { code: 'unknown', message: 'Turn failed' } }
   const failed = reduceSession(baseSession(), event)

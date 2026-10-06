@@ -30,6 +30,7 @@ import {
   type SeatCeiling,
   flowStepOf,
   isBusy,
+  isNoticeTurn,
   isSessionBusy,
   isSessionGone,
   reopenRefusedByAgent,
@@ -6107,13 +6108,15 @@ export class Host {
   #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
     const key = sessionKey(runtime, id)
     const record = this.registry.get(runtime, id)
+    // A warning given while opening the conversation is not use; only real turns count.
+    const hasRealTurn = record?.session.turns.some((turn) => !isNoticeTurn(turn)) ?? false
     const touched =
       inHand.reached ||
       this.#sendingNow.has(key) ||
       this.#draining.has(key) ||
       this.#reattaching.has(key) ||
       (record !== undefined &&
-        (record.session.turns.length > 0 ||
+        (hasRealTurn ||
           record.watched.size > 0 ||
           record.queue.messages.length > 0 ||
           (record.live !== null && record.live !== inHand.live)))
@@ -6499,7 +6502,9 @@ export class Host {
       if (settings !== event.settings) outgoing = { ...event, settings }
     }
     if (event.type === 'session/started') {
-      const session = seatedSession(event.session, record?.seatedAs ?? null)
+      // Registration carries the host fold, including notices heard before a
+      // window connected. The adapter's summary has never seen those rows.
+      const session = record?.session ?? seatedSession(event.session, null)
       if (session !== event.session) outgoing = { ...event, session }
     }
     if (record && event.type === 'turn/completed' && published.length > 0) {

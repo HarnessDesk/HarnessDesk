@@ -12,7 +12,7 @@ import type {
   AgentItem,
   TurnInsightContext,
 } from '@harnessdesk/protocol'
-import { openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
+import { isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
@@ -478,7 +478,7 @@ export class TranscriptStore {
     // Keep only their missing items; omitted work turns still belong to rollback.
     for (let index = 0; index < stored.turns.length; index++) {
       const held = stored.turns[index]!
-      if (!String(held.id).startsWith('notice:') || turns.some(turn => turn.id === held.id)) continue
+      if (!isNoticeTurn(held) || turns.some(turn => turn.id === held.id)) continue
       const items = held.items.filter(item => item.type === 'notice' && !homes.has(String(item.id)))
       if (items.length === 0) continue
       const next = stored.turns.slice(index + 1).find(turn => turns.some(read => read.id === turn.id))
