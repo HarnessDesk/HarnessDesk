@@ -91,6 +91,7 @@ export const seatOf = (
   }
   return {
     agent,
+    role: null, round: null, team: null,
     version: version && version.trim() !== '' ? version.trim() : null,
     model,
     effort,

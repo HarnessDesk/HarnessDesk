@@ -64,6 +64,7 @@ const fakeTranscript = (cwd: string): Session =>
 /** A context whose runtime resumes only when handed the known cwd directly. */
 const contextFor = (options: {
   readonly seatCwd: string | null
+  readonly ceiling?: 'read' | 'edit'
   readonly resumeSession: (id: SessionId, opts: Record<string, unknown>) => Promise<AgentSession>
 }): HostContext => {
   const runtime = {
@@ -78,7 +79,7 @@ const contextFor = (options: {
     evidence: {
       seats: {
         latestOf: (_runtime: string, _id: string) =>
-          options.seatCwd ? { checkout: { cwd: options.seatCwd } } : null,
+          options.seatCwd ? { checkout: { cwd: options.seatCwd }, standing: options.ceiling ? { kind: 'ceiling', level: options.ceiling } : { kind: 'unknown' } } : null,
       },
     },
     sessions: {
@@ -110,6 +111,16 @@ test("a flow Seat's own recorded folder resumes a conversation its agent does no
   assert.equal(calls.length, 2)
   assert.equal(calls[0]!.knownCwd, undefined)
   assert.equal(calls[1]!.knownCwd, KNOWN_CWD)
+})
+
+test('the recorded ceiling is supplied on both resume attempts', async () => {
+  for (const ceiling of ['read', 'edit'] as const) {
+    const calls: Array<Record<string, unknown>> = []
+    const ctx = contextFor({ seatCwd: KNOWN_CWD, ceiling, resumeSession: adapterLike(calls) })
+    await sessionMethods['session/resume'](ctx, { runtime: RUNTIME, sessionId: SESSION })
+    assert.equal(calls.length, 2)
+    assert.deepEqual(calls.map(call => call.requestedCeiling), [ceiling, ceiling])
+  }
 })
 
 /** Mimics the ACP adapter: `knownCwd` is trusted, a caller's `cwd` is not. */

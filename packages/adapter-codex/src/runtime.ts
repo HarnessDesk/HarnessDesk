@@ -205,6 +205,8 @@ const CAPABILITIES = {
  * describes a different runtime accurately without knowing anything about it.
  */
 const PRESENTATION = {
+  // The installed CLI's observed trailer and its cited source are recorded in docs/decisions.md.
+  coAuthor: { name: 'Codex', email: 'noreply@openai.com' },
   name: 'Codex',
   brand: 'codex',
   tagline: "OpenAI's coding agent, running locally through the Codex CLI.",

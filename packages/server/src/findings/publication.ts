@@ -353,13 +353,16 @@ export const chainOf = (segments: readonly string[], from = ''): string =>
 export const APPEND_JOIN = '\n\n'
 
 /** The signature seat a Seat record makes: its immutable readback, never the conversation's current options. */
-export const forgeSeatOf = (seat: SeatRecord): Parameters<typeof renderSignature>[1] => ({
+export const forgeSeatOf = (seat: SeatRecord, team: string | null = null, round: number | null = null): Parameters<typeof renderSignature>[1] => ({
   agent: seat.agent?.name ?? seat.seatLabel.split(' · ')[0] ?? seat.seat.runtime,
   version: null,
   model: seat.seat.model ?? null,
   effort: seat.seat.effort ?? null,
   thinking: seat.seat.thinking ?? false,
   label: seat.seatLabel,
+  role: seat.board ? seat.role : null,
+  team: seat.board ? team : null,
+  round: seat.board ? round : null,
 })
 
 /** Who made a claim, in words, from the Seat record; never an id, never the agent's own text. */
@@ -371,13 +374,15 @@ export interface BodySources {
   readonly records: ReadonlyMap<string, EvidenceRecord>
   seat(id: string): SeatRecord | null
   readonly template: string
+  teamOf?(board: string): string | null
+  reviewRoundOf?(seat: SeatRecord, round: number | null): number | null
 }
 
 const short = (sha: string): string => sha.slice(0, 12)
 
 /** The opening lines every desk comment carries: its marker, then the person's signature line when there is one. */
-const opening = (key: string, seat: SeatRecord | null, template: string): string[] => {
-  const signature = seat && template.trim() !== '' ? renderSignature(template, forgeSeatOf(seat)) : ''
+const opening = (key: string, seat: SeatRecord | null, template: string, sources: BodySources, round: number | null): string[] => {
+  const signature = seat && template.trim() !== '' ? renderSignature(template, forgeSeatOf(seat, seat.board ? sources.teamOf?.(seat.board) ?? null : null, sources.reviewRoundOf?.(seat, round) ?? null)) : ''
   return [markerOf(key), ...(signature !== '' ? [signature] : [])]
 }
 
@@ -396,7 +401,7 @@ export const renderBody = (entry: Pick<PublicationEntry, 'key' | 'evidence'> & {
   const event = sources.records.get(entry.evidence[0] ?? '')
   if (!event) return null
   const seat = event.seat ? sources.seat(event.seat) : null
-  const lines = opening(entry.key, seat, sources.template)
+  const lines = opening(entry.key, seat, sources.template, sources, event.round ?? null)
   const where = event.fact.kind === 'finding' || event.fact.kind === 'review' ? event.fact.at : null
   if (!where) return null
   if (entry.review !== undefined) {
@@ -474,7 +479,7 @@ const summaryParts = (entry: Pick<SummaryPublication, 'key' | 'round' | 'at' | '
     const record = sources.records.get(id)
     if (!record || record.fact.kind !== 'review' || record.fact.at !== entry.at) return null
     const seat = record.seat ? sources.seat(record.seat) : null
-    const signature = seat && sources.template.trim() !== '' ? renderSignature(sources.template, forgeSeatOf(seat)) : ''
+    const signature = seat && sources.template.trim() !== '' ? renderSignature(sources.template, forgeSeatOf(seat, seat.board ? sources.teamOf?.(seat.board) ?? null : null, sources.reviewRoundOf?.(seat, record.round ?? null) ?? null)) : ''
     const count = raised.filter((one) => one.record.seat === record.seat).length
     answers.push([
       ...(signature !== '' ? [signature] : []),
@@ -720,6 +725,8 @@ export interface PublicationsPort {
   seat(id: string): SeatRecord | null
   /** The person's review signature template, as the Git plugin's settings hold it. */
   template(): string
+  teamOf?(board: string): string | null
+  reviewRoundOf?(seat: SeatRecord, round: number | null): number | null
   /** The ledger's post event: idempotent by the operation key. */
   appendPost(input: { readonly goal: string; readonly finding: string; readonly operation: string; readonly location: FindingPost }): Promise<void>
   readonly forge: FindingForgePort
@@ -1199,7 +1206,7 @@ export class Publications implements FindingPublisher {
     const byId = new Map<string, EvidenceRecord>()
     for (const record of records) byId.set(record.id, record)
     for (const view of facts) byId.set(view.record.id, view.record)
-    return { records: byId, seat: (id) => this.#port.seat(id), template: this.#port.template() }
+    return { records: byId, seat: (id) => this.#port.seat(id), template: this.#port.template(), teamOf: (board) => this.#port.teamOf?.(board) ?? null, reviewRoundOf: (seat, round) => this.#port.reviewRoundOf?.(seat, round) ?? null }
   }
 
   async #read(run: string, key: string): Promise<PublicationEntry | null> {

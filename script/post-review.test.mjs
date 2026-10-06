@@ -13,11 +13,11 @@ import {
   sanitizeBody,
 } from './post-review.mjs'
 
-test('signs a review with the first verdict line, or see below when absent', () => {
+test('signs reviews with the role and later round, keeping the verdict in the body', () => {
   assert.equal(buildReviewBody('Verdict: Changes Needed\nDetails', 3, 'Codex GPT-6'),
-    'Review round 3 · Codex GPT-6 (via HarnessDesk) · Changes Needed\n\nVerdict: Changes Needed\nDetails')
+    '**Reviewer · round 3** · Codex GPT-6 · via HarnessDesk\n\nVerdict: Changes Needed\nDetails')
   assert.equal(buildReviewBody('No verdict', 1, 'Codex'),
-    'Review round 1 · Codex (via HarnessDesk) · see below\n\nNo verdict')
+    '**Reviewer** · Codex · via HarnessDesk\n\nNo verdict')
 })
 
 test('rewrites worktree and plain checkout paths in links and plain text', () => {
@@ -140,12 +140,12 @@ test('non-author changes-needed review requests changes', async () => {
   assert.ok(h.calls.some((args) => args[0] === 'pr' && args[1] === 'review' && args.includes('--request-changes')))
 })
 
-test('PR author posts changes-needed as a comment with verdict in signed line', async () => {
+test('PR author posts changes-needed as a signed comment with verdict in the body', async () => {
   const h = harness({ author: 'viewer' })
   const code = await postReview({ pr: '42', round: '1', by: 'Codex', body: 'Verdict: changes needed', repo: 'owner/repo' }, h.runner, h.io)
   assert.equal(code, 0)
   assert.ok(h.calls.some((args) => args[0] === 'pr' && args[1] === 'review' && args.includes('--comment')))
-  assert.match(h.bodies[0], /Review round 1 · Codex \(via HarnessDesk\) · changes needed/)
+  assert.match(h.bodies[0], /\*\*Reviewer\*\* · Codex · via HarnessDesk/)
 })
 
 test('PR author cannot approve and falls back to comment', async () => {
@@ -159,7 +159,7 @@ test('--dry-run prints the post plan and never calls gh to post', async () => {
   const code = await postReview({ pr: '42', round: '2', by: 'Codex', body: 'Verdict: approve', repo: 'owner/repo', dryRun: true }, h.runner, h.io)
   assert.equal(code, 0)
   assert.equal(h.calls.some(isPost), false)
-  assert.match(h.output().stdout, /Review round 2 · Codex/)
+  assert.match(h.output().stdout, /\*\*Reviewer · round 2\*\* · Codex/)
   assert.match(h.output().stdout, /'gh' 'pr' 'review' '42'.*'--approve'/)
 })
 
@@ -188,7 +188,7 @@ else process.exit(91)
     })
 
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /Review round 1 · Codex GPT-6 Luna xhigh/)
+    assert.match(result.stdout, /\*\*Reviewer\*\* · Codex GPT-6 Luna xhigh/)
     assert.match(result.stdout, /'gh' 'pr' 'review' '1199' '--approve'/)
     assert.deepEqual(readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).map((args) => args.slice(0, 2)), [
       ['pr', 'view'],
