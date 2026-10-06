@@ -77,10 +77,11 @@ const routingScenes = [
   { id: 'short-gap', name: 'The layout gap', positions: [[0, 0], [296, 0]], rules: [[0, 1, 'ok']] },
   { id: 'cross-row', name: 'Across rows', positions: [[0, 0], [328, 0], [656, 176]], rules: [[0, 2, 'next']] },
   { id: 'return-lanes', name: 'Two return answers', positions: [[0, 0], [0, 176], [656, 0]], rules: [[2, 0, 'revise'], [2, 1, 'rework']] },
+  { id: 'nudged-steps', name: 'Dragged steps', positions: [[0, 7], [328, 7], [656, 7], [253, 90]], rules: [[0, 1, 'revise'], [0, 2, 'rework']] },
 ] as const
 const FlowCanvasRoutingScenes = () => <div className="flex flex-col gap-8">{routingScenes.map(scene => {
   const nodes: FlowCanvasNode[] = scene.positions.map(([x, y], index) => ({ id: `step-${index}`, position: { x, y },
-    data: { name: ['Write', 'Review', 'Check'][index]!, kind: 'agent', roleLine: 'One seat' } }))
+    data: { name: ['Write', 'Review', 'Check', 'Wait'][index]!, kind: 'agent', roleLine: 'One seat' } }))
   const edges: FlowCanvasEdge[] = scene.rules.map(([source, target, label], index) => ({ id: `rule-${index}`, source: `step-${source}`, target: `step-${target}`, label }))
   return <section id={`flow-canvas-${scene.id}`} key={scene.id} className="flex flex-col gap-2">
     <Text role="section">{scene.name}</Text><div className="h-128"><FlowCanvas nodes={nodes} edges={edges} readOnly /></div>

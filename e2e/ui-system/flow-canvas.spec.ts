@@ -16,7 +16,7 @@ const position = (element: Locator) => element.evaluate(el => {
 })
 const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root => {
   const cards = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map(el => ({ id: el.dataset.id ?? '', box: el.getBoundingClientRect() }))
-  const pathHits: string[] = [], wordDistances: Array<{ word: string; distance: number }> = []
+  const pathHits: string[] = [], ruleLineHits: string[] = [], wordDistances: Array<{ word: string; distance: number }> = []
   for (const edge of root.querySelectorAll<SVGGElement>('.react-flow__edge')) {
     const route = edge.querySelector<SVGGElement>('[data-flow-source]')
     const path = edge.querySelector<SVGPathElement>('path.react-flow__edge-path')
@@ -43,6 +43,18 @@ const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root =>
       nearest = Math.min(nearest, Math.hypot(center.x - point.x, center.y - point.y))
     }
     wordDistances.push({ word: label.textContent ?? '', distance: nearest })
+    for (const other of root.querySelectorAll<SVGGElement>('.react-flow__edge')) {
+      if (other.dataset.id === label.dataset.flowEdgeId) continue
+      const otherPath = other.querySelector<SVGPathElement>('path.react-flow__edge-path'), otherMatrix = otherPath?.getScreenCTM()
+      if (!otherPath || !otherMatrix) continue
+      for (let distance = 0; distance <= otherPath.getTotalLength(); distance += 2) {
+        const point = new DOMPoint(otherPath.getPointAtLength(distance).x, otherPath.getPointAtLength(distance).y).matrixTransform(otherMatrix)
+        if (point.x >= box.left - 1 && point.x <= box.right + 1 && point.y >= box.top - 1 && point.y <= box.bottom + 1) {
+          ruleLineHits.push(`${label.textContent?.trim() ?? 'rule'} overlaps ${other.dataset.id ?? 'another rule'}`)
+          break
+        }
+      }
+    }
   }
   const rails = [...root.querySelectorAll<SVGGElement>('.react-flow__edge [data-flow-source]')].map(route => {
     const source = route.dataset.flowSource ?? ''
@@ -62,7 +74,7 @@ const checkCanvasGeometry = async (surface: Locator) => surface.evaluate(root =>
     const hit = cards.find(card => labelBox.left < card.box.right && labelBox.right > card.box.left && labelBox.top < card.box.bottom && labelBox.bottom > card.box.top)
     if (hit) labelHits.push(`${label.textContent?.trim() ?? 'rule'} overlaps ${hit.id}`)
   }
-  return { pathHits, closeRails, labelHits, wordDistances }
+  return { pathHits, closeRails, labelHits, ruleLineHits, wordDistances }
 })
 const checkRunCardPitch = async (surface: Locator) => surface.evaluate(root => {
   const cards = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map(el => el.getBoundingClientRect())
@@ -158,6 +170,19 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(write).toHaveCount(0)
       await expect(surface.locator('.react-flow__edge')).toHaveCount(2)
     })
+    test('Meta-click adds a step to the existing selection', async ({ page }) => {
+      await page.addInitScript(() => {
+        const userAgent = navigator.userAgent
+        Object.defineProperty(navigator, 'platform', { configurable: true, get: () => 'MacIntel' })
+        Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => `${userAgent} Mac` })
+      })
+      await page.reload()
+      const surface = canvas(page), write = node(surface, 'write'), review = node(surface, 'review')
+      await write.click()
+      await review.click({ modifiers: ['Meta'] })
+      await expect(write).toHaveClass(/selected/)
+      await expect(review).toHaveClass(/selected/)
+    })
     test('drags steps and connects through the engine callbacks', async ({ page }) => {
       const surface = canvas(page), write = node(surface, 'write')
       const before = await position(write)
@@ -198,16 +223,18 @@ for (const theme of ['light', 'dark'] as const) {
         expect(geometry.labelHits, `${scene} rule labels`).toEqual([])
         expect(geometry.pathHits, `${scene} rule paths`).toEqual([])
         expect(geometry.closeRails, `${scene} same-side rails`).toEqual([])
+        expect(geometry.ruleLineHits, `${scene} rule words on other rules`).toEqual([])
         for (const word of geometry.wordDistances) expect(word.distance, `${scene}: ${word.word}`).toBeLessThanOrEqual(12)
       }
     })
-    for (const scene of ['skip', 'long-word', 'short-gap', 'cross-row']) test(`sampled routes in ${scene} keep words on paths and avoid steps`, async ({ page }) => {
+    for (const scene of ['skip', 'long-word', 'short-gap', 'cross-row', 'return-lanes', 'nudged-steps']) test(`sampled routes in ${scene} keep words on paths and avoid steps`, async ({ page }) => {
       await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
       const surface = canvas(page, scene)
       await expect(surface.locator('.react-flow__edgelabel-renderer > div').first()).toBeVisible()
       const geometry = await checkCanvasGeometry(surface)
       expect(geometry.pathHits, scene).toEqual([])
       expect(geometry.labelHits, scene).toEqual([])
+      expect(geometry.ruleLineHits, scene).toEqual([])
       for (const word of geometry.wordDistances) expect(word.distance, `${scene}: ${word.word}`).toBeLessThanOrEqual(12)
     })
     test('two return answers from one step have non-overlapping words', async ({ page }) => {
@@ -354,7 +381,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 390, height: 900 })
       const surface = canvas(page)
       await expect(surface.locator('.react-flow__minimap')).toBeHidden()
-      expect(await surface.evaluate(root => {
+      await expect.poll(() => surface.evaluate(root => {
         const box = root.getBoundingClientRect()
         return [...root.querySelectorAll('.react-flow__node')].every(el => {
           const card = el.getBoundingClientRect()
@@ -365,6 +392,26 @@ for (const theme of ['light', 'dark'] as const) {
       const fitBox = await surface.getByRole('button', { name: 'Fit plan' }).boundingBox()
       const canvasBox = await surface.boundingBox()
       expect(fitBox && canvasBox && fitBox.x >= canvasBox.x && fitBox.x + fitBox.width <= canvasBox.x + canvasBox.width).toBe(true)
+    })
+    test('keeps the minimap clear of cards at 120% and 200%', async ({ page }) => {
+      const surface = canvas(page), minimap = surface.locator('.react-flow__minimap')
+      const overlapsCards = () => surface.evaluate(root => {
+        const map = root.querySelector('.react-flow__minimap')?.getBoundingClientRect()
+        if (!map || !map.width || !map.height) return ['missing minimap']
+        return [...root.querySelectorAll<HTMLElement>('.react-flow__node')].flatMap(el => {
+          const box = el.getBoundingClientRect()
+          return box.left < map.right && box.right > map.left && box.top < map.bottom && box.bottom > map.top
+            ? [`${el.dataset.id ?? ''} map=${[map.left, map.top, map.right, map.bottom].map(Math.round)} card=${[box.left, box.top, box.right, box.bottom].map(Math.round)}`] : []
+        })
+      })
+      await surface.getByRole('button', { name: 'Zoom in' }).click()
+      await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(1.2, 5)
+      await expect(minimap).toBeVisible()
+      await expect.poll(overlapsCards).toEqual([])
+      for (let zoom = 0; zoom < 3; zoom += 1) await surface.getByRole('button', { name: 'Zoom in' }).click()
+      await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(2, 5)
+      await expect(minimap).toBeVisible()
+      await expect.poll(overlapsCards).toEqual([])
     })
     test('read-only allows looking and selection, refuses every edit and shows Run state slots', async ({ page }) => {
       const surface = canvas(page, 'readonly'), write = node(surface, 'write')
@@ -395,13 +442,20 @@ for (const theme of ['light', 'dark'] as const) {
           await canvas(page, scene).getByRole('button', { name: 'Fit plan' }).click()
           await page.locator(`#flow-canvas-${scene}`).screenshot({ path: `${folder}/${scene}-${theme}.png` })
         }
+        await page.goto(`/preview.html?flow-canvas&theme=${theme}`)
+        await page.evaluate(theme => (window as unknown as { __hdPreview: { store: { setTheme: (theme: string) => void } } }).__hdPreview.store.setTheme(theme), theme)
+        await expect.poll(async () => (await viewport(canvas(page))).zoom).toBeCloseTo(1, 5)
+        await canvas(page).getByRole('button', { name: 'Zoom in' }).click()
+        await expect.poll(async () => (await viewport(canvas(page))).zoom).toBeCloseTo(1.2, 5)
+        await page.locator('#flow-canvas-editable').screenshot({ path: `${folder}/minimap-120-${theme}.png` })
+        await canvas(page).getByRole('button', { name: 'Fit plan' }).click()
         await page.setViewportSize({ width: 390, height: 900 })
         await expect(canvas(page).locator('.react-flow__minimap')).toBeHidden()
         await page.locator('#flow-canvas-editable').screenshot({ path: `${folder}/390-${theme}.png` })
         await page.setViewportSize({ width: 1440, height: 900 })
         await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
         await page.evaluate(async () => { await document.fonts.ready })
-        for (const scene of ['skip', 'long-word', 'short-gap', 'cross-row', 'return-lanes']) {
+        for (const scene of ['skip', 'long-word', 'short-gap', 'cross-row', 'return-lanes', 'nudged-steps']) {
           await expect(canvas(page, scene).locator('.react-flow__edgelabel-renderer > div').first()).toBeVisible()
           await canvas(page, scene).getByRole('button', { name: 'Fit plan' }).click()
           await page.locator(`#flow-canvas-${scene}`).screenshot({ path: `${folder}/${scene}-${theme}.png` })
