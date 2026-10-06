@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { CodexRuntime } from '../src/index.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 import { codexEnvironmentConfig } from '../src/lane-environment.js'
 
 const env = (start: number) => ({
@@ -32,7 +33,7 @@ test('start, resume and fork deliver each thread config to a real fixture child'
   const runtime = new CodexRuntime({
     binaryPath: fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url)),
     clientName: 'harnessdesk-test',
-    env: { FAKE_CODEX_LANE_ENV_LOG: log },
+    env: testProcessEnv({ FAKE_CODEX_LANE_ENV_LOG: log }),
   })
   t.after(async () => {
     await runtime.dispose()

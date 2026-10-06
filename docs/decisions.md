@@ -1120,6 +1120,46 @@ without them having read the file.
 onto the existing seating path, not a second enforcement mechanism, and it
 never quietly becomes an asked run to make a demonstration succeed.
 
+## An ACP read ceiling needs a native guard as well as host permission refusal
+
+ACP delegates file access and execution to the agent. A tool notification
+arrives after the work, so refusing a notification cannot hold read. The
+adapter reports `ceilings.read` only when the bridge's initialization handshake
+declares its native read guard. The bundled bridge installs its pre-tool guard
+before opening a read session, persists the ceiling across loads and resumes,
+blocks file mutation tools and unknown MCP tools, and admits shell commands
+only from its narrow read-only allowlist. Its permission mode cannot bypass
+that guard; plan mode alone is not a held ceiling.
+
+The host restores a Seat's recorded ceiling on resume, including after a
+restart, when its conversation is already open and while a read is still
+loading it. An idle handle opened without a native read guard is reloaded
+with the ceiling; a running turn refuses that resume until it finishes.
+A peer holding read natively has already checked each call with its
+pre-tool guard; its permission requests retain their ordinary approval path.
+For asked ACP read seats, the host refuses write-kind, execution, mode-change
+and unknown-kind permission requests before they reach a person or an
+automatic approval policy. Read, search and think requests retain their
+ordinary approval path; fetch requests are refused because read does not
+grant network access. Trusted provenance from shipped bridges uses the shared
+desk-tool ceiling table rather than the generic ACP tool kind. A
+question-shaped request follows the same kind rule: edit, delete, move,
+execute and switch-mode kinds are refused even when they carry a question.
+Each host refusal adds a transcript notice naming the tool and the Read only
+ceiling, and selects an offered reject option, preferring reject-once.
+Only a request with no reject option is answered as cancelled.
+
+Host refusal alone does not constrain an agent's native tools, and does not
+earn a ceiling for a peer without the native guard. This is tool enforcement,
+not an operating-system sandbox for the peer process. Other ACP peers remain
+ineligible for held read roles until their own enforcement exists. When none
+can be offered, the dry run names the missing ceiling for that role. Provider
+independence is still checked from the providers read for the actual Seats,
+never inferred from a runtime's name.
+
+**The rule:** an ACP capability reports enforcement the bridge holds, not a
+mode label or the host's ability to decline a permission request.
+
 ## A shape's `layout:` is a shortcut a person can trust to be inert
 
 `layout.frontDoor` and `layout.positions` are the same reserved key the
@@ -1932,9 +1972,64 @@ not retained; an unobserved page is read afresh through the host barrier.
 Both existing intervals stay ten minutes: a finished Seat first releases
 its handle after its quiet interval, then a wholly unused runtime stops after
 its idle interval. A Seat that never held work, or one still holding unfinished
-work, keeps its handle. A continuously working shared runtime retains finished
-threads' children until a quiet opportunity arrives. This chooses the measured
-release boundary without interrupting work or changing any configured server.
+work, keeps its handle. That first change still left a continuously working
+shared runtime retaining finished threads' children until a quiet opportunity
+arrived. It chose the measured release boundary without interrupting work or
+changing any configured server.
+
+## Finished conversations recycle their own processes
+
+Part 1 of #1418 builds on #1404's measurement above. The generated protocol
+has `thread/unsubscribe`, but no immediate per-thread unload. Its response
+reports subscription status, not helper shutdown. The existing scripted fake
+retains a thread's MCP child after unsubscribe, matching that measurement.
+[`script/probe/mcp-release.mjs`](../script/probe/mcp-release.mjs) remains the
+manual probe for a person; this change does not run another real-process probe.
+
+Recycling a shared process only after all its working Seats drain cannot free
+a finished Seat's helpers while one Seat works continuously. Each top-level
+conversation now starts or resumes in a fresh app-server process. This bounds
+conversation processes by live conversations, plus one control process, rather
+than every Seat started since launch. It costs an app-server per live root;
+this is a lifecycle choice, not a measurement of memory saved. Forks also
+receive a fresh process, reading their source from the same agent-owned history.
+Delegated threads follow their root and drain with it.
+
+The adapter's `CodexThreadServers` routes thread verbs to their owner and
+forwards notifications and tool calls through the existing adapter. Request
+ids are namespaced by process before the shared approval router sees them.
+Releasing the last root waits for unsubscribe, then exits its owner even when
+unsubscribe refuses. A resume arriving during close waits for that owner's
+release, then loads in a fresh process. Another conversation's turn and handles
+never participate in that stop. Filesystem watches, standalone terminals,
+accounts and catalogue reads belong to the control process, which keeps
+#1404's idle-stop behavior.
+Every process uses the same agent-owned history and configuration; nothing
+rewrites that configuration or shadows real history.
+
+MCP reload and login, plugin install and removal, and skill configuration writes
+are sent to the control process and every open conversation process. Shared
+configuration files do not establish that an already running process reloads
+its tools; the adapter explicitly asks each process to apply these verbs and
+returns the control process's response after all have answered. A process
+already closing is skipped. The fixture regression opens two conversations
+and checks that all three processes receive the reload and settings requests;
+this is not a claim about unmeasured cross-process propagation in the real agent.
+
+A conversation process that fails reports `session/detached` for its own roots,
+clears their live handles and holds their queued messages. It leaves the other
+roots and runtime health alone. Delegated registrations and approvals are
+forgotten with their root, so a replacement process must announce each child
+afresh. The host's existing resume barrier reopens the same stored conversation and reapplies frozen attachments; membership and the
+host transcript survive. Full runtime shutdown also stops in-flight starts,
+so an opening that loses that race cannot leave a new owner behind.
+
+The regression starts and closes three conversations while another turn stays
+active throughout, checks the closed helpers exit, and then interrupts the
+working turn deliberately. The production-host fake rig also checks the Seat
+rest boundary with another Seat still working, plus reopen and idle reads.
+Role-based tool selection and displaying process and memory cost remain for
+later parts of #1418.
 
 ## One family of tables
 

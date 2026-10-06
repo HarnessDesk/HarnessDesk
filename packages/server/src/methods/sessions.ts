@@ -152,6 +152,8 @@ export const sessionMethods = {
     // two that race — the second would drop the session under the first's
     // running turn. A conversation already live here kept its filter.
     const sessionId = makeSessionId(params.sessionId)
+    const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
+    if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
     const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
     const resolve = async (): Promise<AgentSession> => {
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId })

@@ -218,6 +218,15 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
     case 'usage/updated':
       return event.sessionId === session.id ? { ...session, usage: event.usage } : session
 
+    case 'session/detached':
+      return event.sessionId === session.id
+        ? {
+            ...session,
+            status: { type: 'idle' },
+            turns: session.turns.map((turn) => turn.status === 'inProgress' ? { ...turn, status: 'interrupted' } : turn),
+          }
+        : session
+
     case 'session/closed':
       return event.sessionId === session.id
         ? { ...session, status: { type: 'idle' } }

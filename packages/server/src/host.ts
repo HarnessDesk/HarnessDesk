@@ -5438,7 +5438,7 @@ export class Host {
          for exactly those, and on the record when there is one — where a
          fresh attach and a runtime restart already clear it, which is the
          behaviour wanted. */
-      if (agent?.health().state === 'ready' && !isSessionBusy(error)) {
+      if (agent?.health().state === 'ready' && !isSessionBusy(error) && !isRuntimeDown(error)) {
         const gone = isSessionGone(error)
         const refusals =
           (record ? record.reopenRefusals : (this.#teamRefusals.get(key) ?? 0)) +
@@ -5596,12 +5596,18 @@ export class Host {
     const reopened = await this.#reopenAttachments(runtime, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await runtime.resumeSession(id, {
+        ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
       })
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
+      // These typed failures name the runtime process, not the conversation.
+      // Keep the code so #teamLive can distinguish a stopped agent from a
+      // conversation that the running agent refused to reopen.
+      if (isRuntimeDown(error)) throw error
       // The sentence is the same either way; what differs is whether asking
       // again could help. The adapter's own "gone", or the agent answering
       // that the id names nothing, settles it — and keeps its code, so a
@@ -6502,7 +6508,13 @@ export class Host {
               ?.items ?? [],
           )
         : []
+    // The Team wait captures a running turn; settle it before detach clears
+    // that turn from the registry's live status.
+    if (event.type === 'session/detached') {
+      this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
+    }
     const record = this.registry.apply(runtime, event)
+    if (record && event.type === 'session/detached') this.#pushQueue(record)
     if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
       (event.type === 'session/tasks' && event.tasks.some((task) => task.state === 'running')))) {
       this.#seatQuietSince.delete(recordKey(record))
@@ -7495,6 +7507,11 @@ const ACCOUNT_NAME_DEADLINE_MS = 2_000
 const isInside = (path: string, base: string): boolean => path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
 
 const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, record.session.id)
+
+const isRuntimeDown = (error: unknown): boolean => {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false
+  return error.code === 'notRunning' || error.code === 'notInstalled'
+}
 
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
