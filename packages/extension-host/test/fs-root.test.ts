@@ -15,15 +15,18 @@ for (const timing of ['live', 'replay'] as const) {
     const app = join(repo, 'app')
     const other = join(base, 'other')
     const store = join(base, 'plugins')
-    const installed = join(store, 'file-probe')
-    await Promise.all([mkdir(app, { recursive: true }), mkdir(other), mkdir(installed, { recursive: true })])
+    const installedPath = join(store, 'file-probe')
+    await Promise.all([mkdir(app, { recursive: true }), mkdir(other), mkdir(installedPath, { recursive: true })])
     await Promise.all([writeFile(join(repo, 'file.txt'), 'repo'), writeFile(join(app, 'file.txt'), 'app'), writeFile(join(other, 'file.txt'), 'other')])
     const manifest = { id: 'file-probe', name: 'File probe', version: '1.0.0', main: './index.js', permissions: { workspace: { read: true } } }
-    await writeFile(join(installed, 'harnessdesk.plugin.json'), JSON.stringify(manifest))
-    await writeFile(join(installed, 'index.js'), `export const plugin = {
+    await writeFile(join(installedPath, 'harnessdesk.plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(installedPath, 'index.js'), `export const plugin = {
       name: 'file-probe', inject: ['tools', 'context', 'workspace', 'fs'], apply(ctx) {
         const where = async () => JSON.stringify({ root: ctx.workspace.root, branch: ctx.workspace.branch, read: await ctx.fs.read('file.txt') })
-        ctx.tools.register({ name: 'where', description: '', inputSchema: {}, execute: where })
+        ctx.tools.register({
+          name: 'where', description: '', inputSchema: {},
+          execute: async (_args, scope) => JSON.stringify({ ...JSON.parse(await where()), scope }),
+        })
         ctx.context.register({ label: 'Installed', resolve: where })
         ctx.context.register({ label: 'Installed chip', chip: { description: 'Fixture location' }, resolve: where })
       }
@@ -48,15 +51,22 @@ for (const timing of ['live', 'replay'] as const) {
     if (timing === 'replay') await host.loadInstalledPlugins()
     const tools = host.list('tool')
     assert.equal(tools.length, 2, 'both plugin paths are loaded')
+    const installedTool = tools.find((tool) => String(tool.owner).startsWith('file-probe#'))
+    assert.ok(installedTool, 'the installed probe is loaded')
     const scope = { workspaceRoot: other, enterCheckout: true }
-    const check = async (expected: { root: string; branch: string | null; read: string }) => {
+    const check = async (expected: { root: string; branch: string | null; read: string }, enteringSeat = false) => {
       for (const tool of tools) {
         const result = await host.invokeTool(tool.id, {}, scope)
         if (!result.ok) assert.fail(result.error)
         const part = result.content[0]
         assert.equal(part?.type, 'text')
         if (part?.type !== 'text') assert.fail('the probe returns text')
-        assert.deepEqual(JSON.parse(part.text), expected, String(tool.id))
+        const actual = JSON.parse(part.text)
+        if (tool.id === installedTool.id && enteringSeat) {
+          assert.ok(actual.scope, 'the installed probe returns its invocation scope')
+          assert.equal(Object.hasOwn(actual.scope, 'enterCheckout'), false, 'the installed scope omits host-only checkout mode')
+        }
+        assert.deepEqual({ root: actual.root, branch: actual.branch, read: actual.read }, expected, String(tool.id))
       }
       const chips = host.list('context').filter((one) => one.chip)
       assert.equal(chips.length, 2)
@@ -74,6 +84,6 @@ for (const timing of ['live', 'replay'] as const) {
     await check({ root: other, branch: null, read: 'other' })
     // A Seat owns this checkout even though the project's fallback is listed as admitted.
     admitted = { root: repo, enterCheckout: true }
-    await check({ root: repo, branch: null, read: 'repo' })
+    await check({ root: repo, branch: null, read: 'repo' }, true)
   })
 }

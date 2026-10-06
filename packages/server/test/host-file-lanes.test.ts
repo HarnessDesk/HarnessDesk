@@ -179,11 +179,15 @@ test('a Seat whose lane disappears follows the opened linked worktree for tools 
   assert.deepEqual(await d.context(scope), { root: d.linked, branch: 'feature', read: 'linked' })
 })
 
-test('a restarted host re-admits a kept Seat on the main checkout while a linked worktree is open', async (t) => {
+test('a restarted host re-admits a kept Seat and falls back when another Seat lane is missing', async (t) => {
   const d = await rig(t)
   await d.host.call('workspace/open', { path: d.linked })
   const scope = await d.seat(d.project)
   const session = d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])!.session
+  const lane = await new Worktrees(d.stateDir).create(d.project, { name: 'missing-on-restart' })
+  const missingScope = await d.seat(lane.path, d.project)
+  const missingSession = d.host.registry.get(d.agent.info.id, missingScope.sessionId as Session['id'])!.session
+  await rm(lane.path, { recursive: true, force: true })
   await d.dispose()
 
   const kernel = new SupervisedExtensionHost(new ExtensionKernel(), { env: { HARNESSDESK_PLUGINS: join(d.base, 'plugins') } })
@@ -199,6 +203,7 @@ test('a restarted host re-admits a kept Seat on the main checkout while a linked
   setEditorEngine(restarted.editorPlane)
   await restarted.call('workspace/open', { path: d.linked })
   restarted.registry.upsert({ ...session, runtime: agent.info.id }, null)
+  restarted.registry.upsert({ ...missingSession, runtime: agent.info.id }, null)
   await kernel.loadBuiltin({
     manifest: { id: 'restart-file-probe', name: 'Restart file probe', permissions: { workspace: { read: true } } },
     plugin: {
@@ -213,6 +218,11 @@ test('a restarted host re-admits a kept Seat on the main checkout while a linked
   } as HarnessPlugin)
   await new Promise((resolve) => setTimeout(resolve, 60))
   const chip = kernel.list('context').find((entry) => entry.label === 'Restart location')!
-  const resolved = await kernel.resolveOne(chip.id, undefined, { runtime: agent.info.id, sessionId: session.id })
-  assert.deepEqual(JSON.parse(resolved?.text ?? 'null'), { root: d.project, branch: null, read: 'top' })
+  const resolveFor = async (sessionId: Session['id']) => {
+    const resolved = await kernel.resolveOne(chip.id, undefined, { runtime: agent.info.id, sessionId })
+    assert.ok(resolved, 'the location chip resolves')
+    return JSON.parse(resolved.text)
+  }
+  assert.deepEqual(await resolveFor(session.id), { root: d.project, branch: null, read: 'top' })
+  assert.deepEqual(await resolveFor(missingSession.id), { root: d.linked, branch: 'feature', read: 'linked' })
 })
