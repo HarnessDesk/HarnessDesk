@@ -34,7 +34,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(table.getByRole('checkbox')).toHaveCount(0)
     const actions = table.locator('tbody tr').first().getByRole('button', { name: 'What to do with #2', exact: true })
     await actions.focus()
-    const reveal = table.locator('tbody tr').first().locator('td:last-child > span > span')
+    const reveal = table.locator('tbody tr').first().locator('td:last-child > span')
     await page.mouse.move(0, 0)
     await pane.getByRole('searchbox').focus()
     await expect(reveal).toHaveCSS('opacity', '0')
@@ -56,8 +56,8 @@ for (const theme of ['light', 'dark'] as const) {
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-${theme}.png` })
     }
-    await pane.getByRole('button', { name: 'Needs you 1', exact: true }).click()
-    await expect(table.locator('tbody tr')).toHaveCount(1)
+    await pane.getByRole('button', { name: 'Needs you 2', exact: true }).click()
+    await expect(table.locator('tbody tr')).toHaveCount(2)
     await pane.getByRole('button', { name: 'All 4', exact: true }).click()
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('Retry the checkout')
     await expect(table.locator('tbody tr')).toHaveCount(1)
@@ -157,7 +157,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await frame.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
       const title = pane.locator('[data-job="4"] td').first().locator('[title]').first()
       await expect(title).toHaveAttribute('title', /resumeAfterCompaction/)
-      const note = pane.locator('[data-job="4"] td').first().locator('[title]').last()
+      const note = pane.locator('[data-job="4"] td').first().locator('[title]').filter({ hasText: 'Recheck the checkout retry instructions' })
       await expect(note).toHaveCSS('-webkit-line-clamp', '2')
       const noteHeight = await note.evaluate(el => ({ height: el.getBoundingClientRect().height, line: parseFloat(getComputedStyle(el).lineHeight) }))
       expect(noteHeight.height).toBeLessThanOrEqual(noteHeight.line * 2 + 1)
