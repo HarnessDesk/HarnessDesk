@@ -83,7 +83,7 @@ for (const theme of ['light', 'dark'] as const) {
     await frame(page.locator('#run-view-narrow'), 'timeline-narrow', theme)
   })
 
-  test(`a Run that cannot run a check again offers nothing on the row, and the inspector says why, in ${theme}`, async ({ page }) => {
+  test(`an ended Run omits check retry, while a running check keeps its explained disabled action, in ${theme}`, async ({ page }) => {
     await open(page, theme)
     for (const id of ['run-view-settled', 'run-view-stopped', 'run-view-complete']) {
       const view = page.locator(`#${id}`)
@@ -92,14 +92,16 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(view.getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
       await expect(view.locator('[data-slot="run-ending"]').getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
     }
-    const refused = page.locator('#run-inspector-check-refused [data-slot="run-inspector"]')
-    await expect(refused).toContainText('This run is settled. Start a new run to run this check again.')
-    const again = refused.getByRole('button', { name: 'Run again…' })
-    await expect(again).toHaveCount(1)
-    await expect(again).toHaveAttribute('aria-disabled', 'true')
-    const reason = refused.locator('[data-slot="text"]', { hasText: 'This run is settled.' })
-    await expect(reason.first()).toBeVisible()
-    await frame(page.locator('#run-inspector-check-refused'), 'inspector-refused', theme)
+    for (const [scene, state] of [['check-refused', 'settled'], ['check-stopped', 'stopped']] as const) {
+      const refused = page.locator(`#run-inspector-${scene} [data-slot="run-inspector"]`)
+      await expect(refused).toContainText(`This run is ${state}. Start a new run to run this check again.`)
+      await expect(refused.getByRole('button', { name: 'Run again…' })).toHaveCount(0)
+      await expect(refused.locator('[data-slot="text"]', { hasText: `This run is ${state}.` }).first()).toBeVisible()
+      await frame(page.locator(`#run-inspector-${scene}`), `inspector-${state}`, theme)
+    }
+    const running = page.locator('#run-inspector-check-running [data-slot="run-inspector"]')
+    await expect(running).toContainText('This check is not waiting to be run again.')
+    await expect(running.getByRole('button', { name: 'Run again…' })).toHaveAttribute('aria-disabled', 'true')
   })
 
   test(`the inspector lists both attempts, newest first, and keeps an earlier output as it was, in ${theme}`, async ({ page }) => {

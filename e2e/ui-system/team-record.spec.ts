@@ -1,12 +1,22 @@
 import { expect, test, type Locator } from '@playwright/test'
 
+const members = async (frame: Locator): Promise<Locator> => {
+ const trigger = frame.getByRole('button', {name:'Team members',exact:true})
+ if (await trigger.getAttribute('aria-expanded') !== 'true') {
+  await frame.page().keyboard.press('Escape')
+  await expect(frame.page().locator('[data-slot="team-members"]:visible')).toHaveCount(0)
+  await trigger.click()
+ }
+ return frame.page().locator('[data-slot="team-members"]:visible')
+}
+
 for (const theme of ['light','dark'] as const) {
  test(`Wrapped Team: the pane title shares the receipt's reading edge in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   for (const scene of ['wrapped','older','shared','unlinked','empty','narrow','person','running']) {
    const frame=page.locator(`#team-record-${scene}`)
-   const title=frame.locator('header[data-slot="bar"]').first().getByText('Retry the checkout call',{exact:true})
+   const title=frame.locator('header[data-slot="tool-pane-header"]').first().getByText('Retry the checkout call',{exact:true})
    const heading=frame.locator('[data-slot="goal-receipt"] [data-slot="section-name"]').first()
    await expect(heading).toBeVisible()
    const titleBox=await title.boundingBox()
@@ -19,15 +29,17 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-wrapped')
-  const rail=frame.locator('aside')
+  const rail=await members(frame)
   for (const [name,key] of [['Alpha','Enter'],['Beta','Space']]) {
-   const destination=rail.getByRole('button',{name:new RegExp(`^${name}`)})
+   const destination=(await members(frame)).getByRole('button',{name:new RegExp(`^${name}`)})
    await expect(destination).toHaveCount(1)
-   await rail.getByRole('button',{name:'Receipt',exact:true}).focus()
+   await rail.locator('[data-slot="list-row"]').first().focus()
    for (let n=0;n<12 && !await destination.evaluate(el=>el===document.activeElement);n++) await page.keyboard.press('Tab')
    await expect(destination).toBeFocused()
    await page.keyboard.press(key!)
-   await expect(destination).toHaveAttribute('aria-current','true')
+   await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
+   await expect((await members(frame)).getByRole('button',{name:new RegExp(`^${name}`)})).toHaveAttribute('aria-current','true')
+   await page.keyboard.press('Escape')
    await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
   }
  })
@@ -54,7 +66,7 @@ for (const theme of ['light','dark'] as const) {
   expect(measure.answerMark).toBe(false)
   expect(measure.answerLeft).toBe(0)
   for (const name of ['Alpha','Beta']) {
-   const face=frame.locator(`aside [data-slot="list-row"]`).filter({hasText:name}).locator('[data-slot="icon-tile"]')
+   const face=(await members(frame)).locator('[data-slot="list-row"]').filter({hasText:name}).locator('[data-slot="icon-tile"]')
    const receiptFaces=frame.locator('[data-slot="goal-receipt"] [data-slot="member-name"]').filter({hasText:name}).locator('[data-slot="icon-tile"]')
    await expect(receiptFaces).toHaveCount(2)
    for (const one of await receiptFaces.all()) {
@@ -63,14 +75,14 @@ for (const theme of ['light','dark'] as const) {
    }
   }
  })
- test(`Wrapped Team: receipt, rail, conversations and Run stay readable in ${theme}`, async ({page}) => {
+ test(`Wrapped Team: receipt, members, conversations and Run stay readable in ${theme}`, async ({page}) => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
   else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme')
   const frame=page.locator('#team-record-wrapped')
   await expect(frame.getByText('What finished',{exact:true})).toBeVisible()
-  const rail=frame.locator('aside')
+  const rail=await members(frame)
   await expect(frame.getByRole('button', {name: 'Wrap', exact: true})).toHaveCount(0)
   await expect(rail).not.toContainText('Side by side')
   await expect(rail).not.toContainText('unclaimed')
@@ -106,20 +118,22 @@ for (const theme of ['light','dark'] as const) {
    await expect(frame.getByRole('button',{name,exact:true})).toBeDisabled()
    await expect(frame.getByRole('button',{name,exact:true})).toHaveAttribute('title','This Team is wrapped')
   }
-  await rail.getByRole('button',{name:/^Run/}).click()
+  await page.keyboard.press('Escape')
+  await frame.getByRole('tab',{name:/^Run/}).click()
   await expect(frame.locator('[data-slot="run-view"]')).toContainText('Build and review')
-  await rail.locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toHaveAttribute('placeholder','This Team is wrapped')
   await expect(frame.locator('[data-slot="composer-send"]')).toBeDisabled()
   await expect(frame.getByRole('button',{name:'Ask the agent to try again',exact:true})).toBeDisabled()
   await expect(frame.getByRole('button',{name:'Ask the agent to try again',exact:true})).toHaveAttribute('title','This Team is wrapped')
   const older=page.locator('#team-record-older')
-  await expect(older.locator('aside')).toContainText('Gamma')
-  await expect(older.locator('aside [title="Conversation not kept"]')).toHaveCount(1)
-  const missing=older.locator('aside [data-slot="list-row"]').filter({hasText:'Gamma'})
+  await expect((await members(older))).toContainText('Gamma')
+  await expect((await members(older)).locator('[title="Conversation not kept"]')).toHaveCount(1)
+  const missing=(await members(older)).locator('[data-slot="list-row"]').filter({hasText:'Gamma'})
   await expect(missing.getByRole('button')).toHaveCount(0)
-  await older.locator('aside').getByRole('button',{name:'Overview',exact:true}).click()
+  await page.keyboard.press('Escape')
+  await older.getByRole('tab',{name:/^Overview/}).click()
   await expect(older.locator('[data-slot="team-overview"]')).toContainText('Gamma')
   await expect(older.locator('[data-slot="team-overview"]')).toContainText('Conversation not kept')
   await expect(older.locator('[data-slot="team-overview"]').getByRole('button',{name:'Gamma',exact:true})).toHaveCount(0)
@@ -127,15 +141,15 @@ for (const theme of ['light','dark'] as const) {
  test(`Wrapped Team: a conversation seated twice is one row, and Seats with no conversation are still listed in ${theme}`, async ({page}) => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
-  const rows=(scene:string)=>page.locator(`#team-record-${scene} aside [data-slot="list-row"]`)
-  for (const name of ['Alpha','Beta']) await expect(rows('shared').filter({hasText:name})).toHaveCount(1)
+  const rows=async(scene:string)=>(await members(page.locator(`#team-record-${scene}`))).locator('[data-slot="list-row"]')
+  for (const name of ['Alpha','Beta']) await expect((await rows('shared')).filter({hasText:name})).toHaveCount(1)
   for (const name of ['Alpha','Beta']) {
-   const row=rows('unlinked').filter({hasText:name})
+   const row=(await rows('unlinked')).filter({hasText:name})
    await expect(row.locator('[title="Conversation not kept"]')).toHaveCount(1)
    await expect(row.getByRole('button')).toHaveCount(0)
   }
-  await expect(page.locator('#team-record-unlinked aside')).not.toContainText('No Agents were kept')
-  await expect(page.locator('#team-record-empty aside')).toContainText('No Agents were kept')
+  await expect((await members(page.locator('#team-record-unlinked')))).not.toContainText('No Agents were kept')
+  await expect((await members(page.locator('#team-record-empty')))).toContainText('No Agents were kept')
   const sidebar=page.locator('#team-record-sidebar-shared')
   await expect(sidebar.getByRole('button',{name:'Wrapped · 1',exact:true})).toHaveCount(0)
   await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toHaveCount(0)
@@ -145,7 +159,7 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const shared=page.locator('#team-record-shared')
-  await shared.locator('aside').getByRole('button',{name:/^Run/}).click()
+  await shared.getByRole('tab',{name:/^Run/}).click()
   const inspector=shared.locator('[data-slot="run-inspector"]')
   await expect(inspector).not.toContainText('Seat not recorded')
   for(const [title,cost] of [['Review the change','$0.21'],['Review the retry budget again','$0.13']]) {
@@ -154,7 +168,7 @@ for (const theme of ['light','dark'] as const) {
    await expect(inspector.getByRole('button',{name:'Open the conversation',exact:true})).toBeVisible()
   }
   const unlinked=page.locator('#team-record-unlinked')
-  await unlinked.locator('aside').getByRole('button',{name:/^Run/}).click()
+  await unlinked.getByRole('tab',{name:/^Run/}).click()
   await unlinked.locator('[data-slot="run-view"]').getByRole('button',{name:/Review the change/}).click()
   await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('$0.21')
   await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('Conversation not kept')
@@ -163,9 +177,9 @@ for (const theme of ['light','dark'] as const) {
  test(`Wrapped Team: a question open when the Run ends keeps its place with its final action off in ${theme}`, async ({page}) => {
   const reason='This Team is wrapped'
   const dialog=page.locator('[data-slot="dialog-content"]')
-  const board=async(open:Locator)=>{ await open.locator('aside').getByRole('button',{name:/^Board/}).click() }
+  const board=async(open:Locator)=>{ await open.getByRole('tab',{name:/^Board/}).click() }
   const cases:{name:string,action:string,ask:(open:Locator)=>Promise<void>}[]=[
-   {name:'seating an Agent',action:'Seat Agent',ask:async open=>{ await open.getByRole('button',{name:'Seat an Agent in this Goal',exact:true}).click() }},
+   {name:'seating an Agent',action:'Seat Agent',ask:async open=>{ await (await members(open)).getByRole('button',{name:'Seat an Agent in this Goal',exact:true}).click() }},
    {name:'adding work',action:'Add to board',ask:async open=>{ await board(open); await open.getByRole('button',{name:/^New job/}).click(); await dialog.getByLabel('What needs doing').fill('Check the retry budget') }},
    {name:'stopping a card',action:'Stop it',ask:async open=>{ await board(open); await open.getByRole('button',{name:'What to do with #1',exact:true}).click(); await page.getByRole('menuitem',{name:/^Stop it/}).click() }},
   ]
@@ -187,7 +201,7 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-wrapped')
-  await frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
   await frame.locator('header button[aria-label="Conversation"]').click()
   const compact=page.locator('button',{hasText:'Compact now'})
   await expect(compact).toBeDisabled()
@@ -208,14 +222,15 @@ for (const theme of ['light','dark'] as const) {
   await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(0)
   await expect(sidebar.getByRole('button',{name:'Gamma',exact:true})).toHaveCount(0)
  })
- test(`Wrapped Team: narrow rail and receipt stay inside their frame in ${theme}`, async ({page}) => {
+ test(`Wrapped Team: narrow members popover and receipt stay inside their frame in ${theme}`, async ({page}) => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-narrow')
-  await frame.getByRole('button',{name:'Agents',exact:true}).click()
-  await expect(frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
+  await members(frame)
+  await expect((await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-  await frame.locator('aside').getByRole('button',{name:'Receipt',exact:true}).click()
+  await page.keyboard.press('Escape')
+  await frame.getByRole('tab',{name:'Receipt',exact:true}).click()
   await expect(frame.getByText('What finished',{exact:true})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
   const answers=frame.locator('[data-slot="member-description"]')
@@ -225,19 +240,17 @@ for (const theme of ['light','dark'] as const) {
    expect(await answer.evaluate(el=>getComputedStyle(el).overflowWrap)).toBe('anywhere')
   }
  })
- /* A narrow room shows one half at a time. A wrapped Team opens on its Receipt, so the Receipt is the half that shows
-    — for a Team a person made, which never had a Run, as much as for one a Run wrapped. The Agents list is one tap
-    behind it, not in front of it (#1317). */
+ /* A wrapped Team opens on its Receipt, including one that never had a Run. Its members are reachable from the bar. */
  test(`Wrapped Team: a Team that never had a Run opens on its Receipt in a narrow pane in ${theme}`, async ({page}) => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-person')
   await expect(frame.getByText('What finished',{exact:true})).toBeVisible()
-  await expect(frame.locator('aside')).toBeHidden()
+  await expect(frame.locator('aside')).toHaveCount(0)
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-  await frame.getByRole('button',{name:'Agents',exact:true}).click()
-  await expect(frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
-  await expect(frame.getByText('What finished',{exact:true})).toBeHidden()
+  await members(frame)
+  await expect((await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
+  await expect(frame.getByText('What finished',{exact:true})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  })
  /* A turn can still be running in a conversation a wrap kept, and the host leaves `turn/interrupt` open for it. The
@@ -246,7 +259,7 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-running')
-  await frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toHaveAttribute('placeholder','This Team is wrapped')
   const stop=frame.getByRole('button',{name:'Stop',exact:true})
@@ -263,7 +276,7 @@ for (const theme of ['light','dark'] as const) {
   })).toBe(true)
   await expect(frame.locator('[data-slot="composer-send"]')).toHaveCount(1)
   // The other Seat's turn finished: its conversation has nothing to stop, and its single control is off.
-  await frame.locator('aside [data-slot="list-row"]').filter({hasText:'Beta'}).click()
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Beta'}).click()
   await expect(frame.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
   await expect(frame.locator('[data-slot="composer-send"]')).toBeDisabled()
  })
@@ -273,7 +286,7 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const open=page.locator('#team-record-assign')
-  await open.locator('aside').getByRole('button',{name:/^Board/}).click()
+  await open.getByRole('tab',{name:/^Board/}).click()
   await open.getByRole('button',{name:'What to do with #3',exact:true}).click()
   await page.getByRole('menuitem',{name:/^Give this to/}).click()
   const dialog=page.locator('[data-slot="dialog-content"]')

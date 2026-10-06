@@ -52,8 +52,8 @@ describe('the row under the macOS window buttons', () => {
   })
 
   it('a room’s top row leaves room for the window buttons through the shared bar’s corner', () => {
-    // The window's bar, on the rows' ink line like a conversation's header.
-    expect(teamRoomTsx).toMatch(/<Bar as="header" corner inset="ink"/)
+    // The window header delegates its corner inset to the shared tool header.
+    expect(teamRoomTsx).toMatch(/<ToolPaneHeader ref=\{headerLayout\.ref\} variant="window" corner/)
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]'")
   })
 

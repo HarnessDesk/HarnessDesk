@@ -102,6 +102,17 @@ const send = (value) => {
   })
 }
 const notify = (method, params) => send({ method, params })
+const afterHold = (hold, action, message) => {
+  if (!hold || !existsSync(hold)) { action(); return }
+  notify('warning', { message })
+  const timer = setInterval(() => {
+    if (existsSync(hold)) return
+    clearInterval(timer)
+    action()
+  }, 10)
+}
+const replyAfterHold = (hold, id, result, message) =>
+  afterHold(hold, () => send({ id, result }), message)
 // Only screenshot scenes opt in; adapter tests retain their existing turns.
 const flowWorker = scriptedFlow(process.env['FAKE_CODEX_FLOW'], { send, notify })
 const flowTools = new Map()
@@ -1413,8 +1424,15 @@ rl.on('line', (line) => {
       cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
       loadMcpChild(THREAD)
-      send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
-      notify('thread/started', { thread: thread() })
+      const result = { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) }
+      const announced = thread()
+      afterHold(process.env.FAKE_CODEX_HOLD_THREAD_OPEN, () => {
+        if (process.env.FAKE_CODEX_PROCESS_CALLS) {
+          appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method: 'thread/opened', generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
+        }
+        send({ id, result })
+        notify('thread/started', { thread: announced })
+      }, 'THREAD_OPEN_HELD')
       if (!flowWorker) notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
@@ -1464,8 +1482,15 @@ rl.on('line', (line) => {
       }
       cwdByThread.set(THREAD, settingsState.cwd)
       loadMcpChild(THREAD)
-      send({ id, result: startResponse() })
-      notify('thread/started', { thread: thread() })
+      const result = startResponse()
+      const announced = thread()
+      afterHold(process.env.FAKE_CODEX_HOLD_THREAD_OPEN, () => {
+        if (process.env.FAKE_CODEX_PROCESS_CALLS) {
+          appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method: 'thread/opened', generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
+        }
+        send({ id, result })
+        notify('thread/started', { thread: announced })
+      }, 'THREAD_OPEN_HELD')
       return
     }
 
@@ -1929,7 +1954,8 @@ rl.on('line', (line) => {
       return
 
     case 'config/mcpServer/reload':
-      send({ id, result: {} })
+      replyAfterHold(process.env.HARNESSDESK_CODEX_GENERATION === '0'
+        ? process.env.FAKE_CODEX_HOLD_MCP_RELOAD : undefined, id, {}, 'MCP_RELOAD_HELD')
       return
 
     case 'permissionProfile/list': {
@@ -2182,13 +2208,10 @@ rl.on('line', (line) => {
       return
 
     case 'account/read':
-      send({
-        id,
-        result: {
-          account: signedIn ? { type: 'chatgpt', email: 'dev@example.com', planType: 'team' } : null,
-          requiresOpenaiAuth: true,
-        },
-      })
+      replyAfterHold(process.env.FAKE_CODEX_HOLD_ACCOUNT, id, {
+        account: signedIn ? { type: 'chatgpt', email: 'dev@example.com', planType: 'team' } : null,
+        requiresOpenaiAuth: true,
+      }, 'ACCOUNT_HELD')
       return
 
     case 'config/read':
@@ -2327,6 +2350,13 @@ rl.on('line', (line) => {
         return
       }
       if (mode === 'turn') setImmediate(playTurn)
+      if (mode === 'delegated-approval') setImmediate(() => {
+        const parent = THREAD
+        THREAD = `${parent}-child`
+        TURN = `turn-${THREAD}`
+        notify('thread/started', { thread: thread({ id: THREAD, parentThreadId: parent, preview: 'A sub-agent.' }) })
+        playTurn()
+      })
       if (mode === 'dynamic-tools') setImmediate(callDeclaredTool)
       if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
       if (mode === 'delegated-tools-deep') setImmediate(() => callDeclaredToolAsDeepChild(9))

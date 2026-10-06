@@ -1508,7 +1508,7 @@ export class Team {
     }
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
-    if (!intent) throw new Error(`There is no card #${id} on this board.`)
+    if (!intent) throw Object.assign(new Error(`There is no card #${id} on this board.`), { wireCode: 'cardMissing' })
     /* The same answer to a card already answered that way is a retry (a
        person's pick answered once, a second press), not news: nothing is
        signalled or handed to its flow twice. A changed person answer and
@@ -3420,7 +3420,6 @@ export class Team {
   onSessionDetached(runtime: RuntimeId, sessionId: string, reason: string): void {
     const key = keyOf(runtime, sessionId)
     this.#settle(key, reason)
-    this.#owed.delete(key)
     this.#used.delete(key)
     this.#deletedMembers.delete(key)
     for (const board of this.#boards.values()) {
