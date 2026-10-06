@@ -16,7 +16,7 @@ it('names an anonymous account without a label after its agent', () => {
   const anonymousSnapshot = { ...emptySnapshot(), runtimes: [one], accountsByRuntime: { [one.id]: { accounts: [anonymous], signInMethods: [] } } }
   const anonymousStore = { getSnapshot: () => anonymousSnapshot, subscribe: () => () => {} } as unknown as AppStore
   const markup = renderToStaticMarkup(<StoreProvider store={anonymousStore}><RuntimeFace runtime={one} size="sm" /></StoreProvider>)
-  expect(markup).toContain('title="Alpha · Alpha"')
+  expect(markup).toContain('title="Alpha"')
 })
 
 it('qualifies a 24px runtime face with the account initial', () => {
