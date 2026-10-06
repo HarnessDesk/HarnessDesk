@@ -47,6 +47,8 @@ import {
   Board,
   BoardCard,
   BoardColumn,
+  BOARD_COLUMN_MIN_WIDTH,
+  BOARD_RAIL_WIDTH,
   Banner,
   BannerAction,
   Button,
@@ -248,13 +250,17 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const snapshot = useSnapshot()
   const [preferredView, setView] = useState<'board' | 'list'>('board')
   const paneRef = useRef<HTMLElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [paneSize, setPaneSize] = useState<{ width: number; contentWidth: number; gap: number } | null>(null)
   const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
     const pane = paneRef.current
-    if (!pane) return
+    const body = bodyRef.current
+    if (!pane || !body) return
     const measure = () => {
-      const width = pane.getBoundingClientRect().width
+      // The scrollbar occupies layout space even when the pane's border box
+      // is unchanged. Observe the body's content box and fit its client width.
+      const width = body.clientWidth
       if (width <= 0) return
       const style = getComputedStyle(pane)
       const inset = parseFloat(style.getPropertyValue('--hd-inset-dense'))
@@ -267,7 +273,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       return () => window.removeEventListener('resize', measure)
     }
     const observer = new ResizeObserver(measure)
-    observer.observe(pane)
+    observer.observe(body)
     return () => observer.disconnect()
   }, [])
   const layout = teamBoardLayout(paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, openedColumns, paneSize?.gap ?? 12)
@@ -618,11 +624,11 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                   losing the action. `@container/board` is on the pane. */}
               <span className="hidden @[26rem]/board:inline">New job</span>
             </Button>
-            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board' }, { value: 'list', label: 'List' }]} onChange={setView} />
+            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board', disabled: layout.compact && 'Board needs a pane at least 600px wide' }, { value: 'list', label: 'List' }]} onChange={setView} />
           </div>
         }
       />
-      <ToolPaneBody bleed={view === 'list'}>
+      <ToolPaneBody ref={bodyRef} bleed={view === 'list'}>
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —
@@ -664,8 +670,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         ) : (
           <Board wrap derived className="items-stretch" data-layout={layout.lanes ? 'lanes' : 'columns'}
             style={{ gridTemplateColumns: layout.lanes
-              ? `repeat(2, minmax(220px, 1fr))${layout.folded.includes('ready') ? ' 44px' : ''}`
-              : ['needs', 'working', 'review', 'todo', 'ready'].map(id => layout.folded.includes(id as FactColumn) ? '44px' : 'minmax(220px, 1fr)').join(' ') }}>
+              ? `repeat(2, minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr))${layout.folded.includes('ready') ? ` ${BOARD_RAIL_WIDTH}px` : ''}`
+              : ['needs', 'working', 'review', 'todo', 'ready'].map(id => layout.folded.includes(id as FactColumn) ? `${BOARD_RAIL_WIDTH}px` : `minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr)`).join(' ') }}>
             {['needs', 'working', 'review', 'todo', 'ready', 'aside'].flatMap(id => shown.filter(column => column.id === id)).map((column) => {
               const cards = byColumn.get(column.id) ?? []
               return (

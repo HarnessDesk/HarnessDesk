@@ -1861,6 +1861,7 @@ focus, the arrow keys, Home/End, and the form value with it.
 
 The canonical toggle group supplies radio semantics and roving focus while
 this pattern supplies the settings-specific segmented appearance.
+An unavailable answer takes a disabled reason, kept in its hover title.
 
 ### `PageHead`
 

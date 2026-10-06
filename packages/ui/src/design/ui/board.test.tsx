@@ -343,3 +343,15 @@ it('uses the system small tag and tone priority chips on a board card', () => {
   act(() => container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]')!.click())
   expect(change).toHaveBeenLastCalledWith(true)
 })
+
+it('a rail announces its visible title and count, including zero', () => {
+  for (const count of [0, 2]) {
+    draw(<Board><BoardColumn title="Ready" count={count} collapsed /></Board>)
+    expect(container.querySelector('button')?.getAttribute('aria-label')).toBe(`Ready ${count} — Open column`)
+  }
+})
+
+it('a folded column owns its rail width without a caller class', () => {
+  draw(<Board><BoardColumn title="Ready" collapsed /></Board>)
+  expect(container.querySelector<HTMLElement>('[data-slot="board-column"]')?.style.width).toBe('44px')
+})

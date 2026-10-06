@@ -1304,7 +1304,7 @@ const KanbanBoard = () => {
       </Board>
       <Board derived className="mt-3">
         <BoardColumn title="No result" count={0} onAdd={() => undefined} />
-        <BoardColumn title="Ready" count={1} collapsed={folded} onCollapsedChange={setFolded} className={folded ? 'w-11' : undefined}>
+        <BoardColumn title="Ready" count={1} collapsed={folded} onCollapsedChange={setFolded}>
           <BoardCard title="Ship the retry coverage" />
         </BoardColumn>
       </Board>

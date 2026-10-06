@@ -9,6 +9,10 @@ import { EmptyState } from './empty-state'
 import { dotTint, type Tint, type Tone } from './tone'
 import { Chip } from '../patterns/Settings'
 
+/** Shared fit geometry for readable open columns and their folded rails. */
+export const BOARD_COLUMN_MIN_WIDTH = 220
+export const BOARD_RAIL_WIDTH = 44
+
 /**
  * Work in columns: what is waiting, what is being done, and who has it.
  *
@@ -147,6 +151,7 @@ const BoardColumn = ({
   onAddTitle,
   addPlaceholder = 'What needs doing?',
   children,
+  style,
   ...props
 }: BoardColumnProps) => {
   const contentId = useId()
@@ -181,12 +186,13 @@ const BoardColumn = ({
          room's right half. */
       '@container/board-column flex w-(--hd-board-column-width) min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
       'border border-(--hd-border-strong) bg-(--hd-muted) p-(--hd-inset-dense)',
-      collapsed && 'self-stretch items-center px-1',
+      collapsed && 'self-stretch items-center',
       className,
     )}
     {...props}
+    style={collapsed ? { ...style, width: BOARD_RAIL_WIDTH } : style}
   >
-    {collapsed && <Button ref={railRef} variant="ghost" size="content-min" className="flex h-full w-full flex-col gap-2 py-2" aria-label={`Open ${title}`} aria-expanded={false} aria-controls={contentId} onClick={() => toggle(false)}>
+    {collapsed && <Button ref={railRef} variant="ghost" size="content-min" className="flex h-full w-full flex-col gap-2 py-2" aria-label={`${title}${count != null ? ` ${count}` : ''} — Open column`} aria-expanded={false} aria-controls={contentId} onClick={() => toggle(false)}>
       <span className="[writing-mode:vertical-rl] rotate-180">{title}</span>
       <span className="text-xs tabular-nums text-(--hd-muted-foreground)">{count}</span>
     </Button>}

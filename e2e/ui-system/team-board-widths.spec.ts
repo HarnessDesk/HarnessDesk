@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
@@ -33,8 +34,8 @@ for (const theme of ['light', 'dark'] as const) {
         expect(review!.y).toBe(todo!.y)
         expect(review!.y).toBeGreaterThan(needs!.y)
       }
-      if (width === 900) await expect(board.getByRole('button', { name: 'Open To do', exact: true })).toBeVisible()
-      if (width !== 1440) await expect(board.getByRole('button', { name: 'Open Ready', exact: true })).toBeVisible()
+      if (width === 900) await expect(board.getByRole('button', { name: 'To do 1 — Open column', exact: true })).toBeVisible()
+      if (width !== 1440) await expect(board.getByRole('button', { name: 'Ready 1 — Open column', exact: true })).toBeVisible()
     })
   }
   test(`folded rails open and close in place with the keyboard in ${theme}`, async ({ page }) => {
@@ -43,7 +44,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html?board-list')
     const pane = page.locator('[data-frame-id="board-list-page"]')
     const ready = pane.locator('[data-column="ready"]')
-    const rail = ready.getByRole('button', { name: 'Open Ready', exact: true })
+    const rail = ready.getByRole('button', { name: 'Ready 1 — Open column', exact: true })
     await rail.focus()
     await rail.press('Enter')
     await expect(ready).not.toHaveAttribute('data-collapsed')
@@ -68,6 +69,74 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(pane.getByRole('table', { name: 'Jobs' })).toHaveAttribute('data-hd-table', 'compact')
     await pane.evaluate(el => { el.style.width = '1000px' })
     await expect(pane.locator('[data-slot="board"]')).toBeVisible()
-    await expect(pane.getByRole('button', { name: 'Open Ready', exact: true })).toBeVisible()
+    await expect(pane.getByRole('button', { name: 'Ready 1 — Open column', exact: true })).toBeVisible()
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`folded columns keep the dense inset in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 1000 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list')
+    const rail = page.locator('[data-column="ready"]')
+    await expect(rail).toHaveAttribute('data-collapsed', 'true')
+    const insets = await rail.evaluate(el => {
+      const style = getComputedStyle(el)
+      return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]
+    })
+    expect(insets).toEqual(['8px', '8px', '8px', '8px'])
+  })
+
+  test(`compact Board choice explains its width and keeps the preference in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 1000 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list')
+    const board = page.getByRole('radio', { name: 'Board', exact: true })
+    const list = page.getByRole('radio', { name: 'List', exact: true })
+    await list.click()
+    await page.setViewportSize({ width: 560, height: 1000 })
+    await expect(board).toBeDisabled()
+    await expect(board).toHaveAttribute('title', 'Board needs a pane at least 600px wide')
+    await page.setViewportSize({ width: 1000, height: 1000 })
+    await expect(board).toBeEnabled()
+    await expect(list).toBeChecked()
+    await board.click()
+    await expect(board).toBeChecked()
+  })
+
+  test(`scrolling board keeps its gutters at fold thresholds in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list')
+    await page.addStyleTag({ content: '*::-webkit-scrollbar { display: block !important; width: 8px !important; } [data-slot="tool-pane-body"] { overflow-y: scroll !important; scrollbar-gutter: stable; }' })
+    const board = page.locator('[data-slot="board"]')
+    const body = page.locator('[data-slot="tool-pane-body"]')
+    await expect.poll(() => body.evaluate(el => el.offsetWidth - el.clientWidth)).toBe(8)
+    for (const width of [812, 814, 988, 990, 1164, 1166]) {
+      await page.setViewportSize({ width, height: 300 })
+      await expect.poll(() => board.evaluate(el => {
+        const open = [...el.querySelectorAll('[data-slot="board-column"]:not([data-collapsed])')]
+        return el.scrollWidth - el.clientWidth <= 1 && open.every(column => column.getBoundingClientRect().width >= 220)
+      })).toBe(true)
+    }
+    // Removing and restoring a scrollbar remeasures without changing the pane's border box.
+    await page.setViewportSize({ width: 990, height: 1000 })
+    const todo = board.locator('[data-column="todo"]')
+    await expect(todo).toHaveAttribute('data-collapsed', 'true')
+    await page.addStyleTag({ content: '[data-slot="tool-pane-body"] { overflow-y: hidden !important; scrollbar-gutter: auto; }' })
+    await expect.poll(() => body.evaluate(el => el.offsetWidth - el.clientWidth)).toBe(0)
+    await expect(todo).not.toHaveAttribute('data-collapsed')
+    await page.addStyleTag({ content: '[data-slot="tool-pane-body"] { overflow-y: scroll !important; scrollbar-gutter: stable; }' })
+    await expect.poll(() => body.evaluate(el => el.offsetWidth - el.clientWidth)).toBe(8)
+    await expect(todo).toHaveAttribute('data-collapsed', 'true')
+    await expect.poll(() => board.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.HD_BOARD_WIDTH_FRAMES) await page.locator('[data-frame-id="board-list-page"]').screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/scrolling-990-${theme}.png` })
+  })
+}
+
+test('the interface names board columns in their rendered order', async ({ page }) => {
+  await page.goto('/preview.html?board-list')
+  const names = await page.locator('[data-slot="board-column"] h3').allTextContents()
+  const paragraph = readFileSync('docs/interface.md', 'utf8').split('**On a card.**')[1]!.split('A completed card')[0]!
+  expect(paragraph).toContain(names.join(', '))
+})
