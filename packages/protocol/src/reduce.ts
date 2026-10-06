@@ -2,6 +2,7 @@ import type { AgentEvent } from './events.js'
 import type { ItemId, TurnId } from './ids.js'
 import type { AgentItem, FileChange, ItemDelta } from './items.js'
 import type { Session, Turn } from './session.js'
+import { isNoticeTurn } from './notices.js'
 
 /**
  * Folding the event stream back into a `Session`.
@@ -154,7 +155,7 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       // Its synthetic turn waits for the first real turn, just as it does
       // when the notice arrives after registration; the snapshot cannot see it.
       const ids = new Set(event.session.turns.map(turn => turn.id))
-      const pending = session.turns.filter(turn => String(turn.id).startsWith('notice:') && !ids.has(turn.id))
+      const pending = session.turns.filter(turn => isNoticeTurn(turn) && !ids.has(turn.id))
       return pending.length ? { ...event.session, turns: [...event.session.turns, ...pending] } : event.session
     }
 
@@ -175,7 +176,7 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       const exists = session.turns.some((turn) => turn.id === event.turn.id)
       return exists
         ? mapTurn(session, event.turn.id, (turn) => ({ ...turn, ...event.turn, items: turn.items }))
-        : { ...session, turns: [...session.turns.filter(turn => !String(turn.id).startsWith('notice:')), { ...event.turn, items: [...session.turns.filter(turn => String(turn.id).startsWith('notice:')).flatMap(turn => turn.items), ...event.turn.items] }] }
+        : { ...session, turns: [...session.turns.filter(turn => !isNoticeTurn(turn)), { ...event.turn, items: [...session.turns.filter(isNoticeTurn).flatMap(turn => turn.items), ...event.turn.items] }] }
     }
 
     case 'turn/completed': {
@@ -334,7 +335,7 @@ export const mergeRead = (
   // the first one it shares with us is history, and stays ahead of it.
   const noticeIds = new Set(turns.flatMap(turn => turn.items.flatMap(item => item.type === 'notice' ? [item.id] : [])))
   const unrepresented = (turn: Turn): boolean =>
-    !String(turn.id).startsWith('notice:') || !turn.items.every(item => noticeIds.has(item.id))
+    !isNoticeTurn(turn) || !turn.items.every(item => noticeIds.has(item.id))
   const firstShared = held.turns.findIndex((turn) => readIds.has(turn.id))
   const earlier = read.partialHistory
     ? held.turns.slice(0, firstShared === -1 ? held.turns.length : firstShared)
@@ -346,7 +347,7 @@ export const mergeRead = (
   // A pending notice may now live in a real turn. Its synthetic turn is no
   // longer missing history, even when the caller keeps all watched turns.
   const missing = held.turns.filter((turn) => !readIds.has(turn.id) && !earlierIds.has(turn.id) &&
-    unrepresented(turn) && (keep(turn) || String(turn.id).startsWith('notice:')))
+    unrepresented(turn) && (keep(turn) || isNoticeTurn(turn)))
   return keepUsage({ ...read, turns: [...earlier, ...turns, ...missing] })
 }
 
