@@ -1119,6 +1119,46 @@ without them having read the file.
 onto the existing seating path, not a second enforcement mechanism, and it
 never quietly becomes an asked run to make a demonstration succeed.
 
+## An ACP read ceiling needs a native guard as well as host permission refusal
+
+ACP delegates file access and execution to the agent. A tool notification
+arrives after the work, so refusing a notification cannot hold read. The
+adapter reports `ceilings.read` only when the bridge's initialization handshake
+declares its native read guard. The bundled bridge installs its pre-tool guard
+before opening a read session, persists the ceiling across loads and resumes,
+blocks file mutation tools and unknown MCP tools, and admits shell commands
+only from its narrow read-only allowlist. Its permission mode cannot bypass
+that guard; plan mode alone is not a held ceiling.
+
+The host restores a Seat's recorded ceiling on resume, including after a
+restart, when its conversation is already open and while a read is still
+loading it. An idle handle opened without a native read guard is reloaded
+with the ceiling; a running turn refuses that resume until it finishes.
+A peer holding read natively has already checked each call with its
+pre-tool guard; its permission requests retain their ordinary approval path.
+For asked ACP read seats, the host refuses write-kind, execution, mode-change
+and unknown-kind permission requests before they reach a person or an
+automatic approval policy. Read, search and think requests retain their
+ordinary approval path; fetch requests are refused because read does not
+grant network access. Trusted provenance from shipped bridges uses the shared
+desk-tool ceiling table rather than the generic ACP tool kind. A
+question-shaped request follows the same kind rule: edit, delete, move,
+execute and switch-mode kinds are refused even when they carry a question.
+Each host refusal adds a transcript notice naming the tool and the Read only
+ceiling, and selects an offered reject option, preferring reject-once.
+Only a request with no reject option is answered as cancelled.
+
+Host refusal alone does not constrain an agent's native tools, and does not
+earn a ceiling for a peer without the native guard. This is tool enforcement,
+not an operating-system sandbox for the peer process. Other ACP peers remain
+ineligible for held read roles until their own enforcement exists. When none
+can be offered, the dry run names the missing ceiling for that role. Provider
+independence is still checked from the providers read for the actual Seats,
+never inferred from a runtime's name.
+
+**The rule:** an ACP capability reports enforcement the bridge holds, not a
+mode label or the host's ability to decline a permission request.
+
 ## A shape's `layout:` is a shortcut a person can trust to be inert
 
 `layout.frontDoor` and `layout.positions` are the same reserved key the
