@@ -1595,6 +1595,103 @@ const bodyWithAuthors = (body: string, authors: readonly Record<string, unknown>
   body.replace(/<!-- harnessdesk:authors:[^ ]+ -->/, () =>
     `<!-- harnessdesk:authors:${encodeURIComponent(JSON.stringify(authors))} -->`)
 
+test('a role-less description edit retains an earlier Team writer and its own credit', () => {
+  const writer = { ...SEAT, agent: 'Writer Agent', label: 'Writer Agent', role: 'writer' }
+  const roleless = { ...SEAT, agent: 'Solo Agent', label: 'Solo Agent', role: null }
+  const first = signDescription('First.', DEFAULT_SIGNATURE, writer)
+  const updated = signDescription('Edited.', DEFAULT_SIGNATURE, roleless, first)
+
+  assert.deepEqual(authorsFrom(updated), [
+    { role: 'writer', agent: 'Writer Agent', label: 'Writer Agent' },
+    { role: null, agent: 'Solo Agent', label: 'Solo Agent' },
+  ])
+  assert.equal(unmarked(updated), 'Edited.\n\n🤖 Writer: Writer Agent · Solo Agent · via [HarnessDesk](https://harnessdesk.app)')
+})
+
+test('a role-less description opener remains credited after a Team fixer edits it', () => {
+  const roleless = { ...SEAT, agent: 'Solo Agent', label: 'Solo Agent', role: null }
+  const fixer = { ...SEAT, agent: 'Fixer Agent', label: 'Fixer Agent', role: 'fixer' }
+  const first = signDescription('First.', DEFAULT_SIGNATURE, roleless)
+  const updated = signDescription('Fixed.', DEFAULT_SIGNATURE, fixer, first)
+
+  assert.deepEqual(authorsFrom(updated), [
+    { role: null, agent: 'Solo Agent', label: 'Solo Agent' },
+    { role: 'fixer', agent: 'Fixer Agent', label: 'Fixer Agent' },
+  ])
+  assert.equal(unmarked(updated), 'Fixed.\n\n🤖 Solo Agent · Fixer: Fixer Agent · via [HarnessDesk](https://harnessdesk.app)')
+})
+
+test('description author markers sanitise Flow role ids with underscores', () => {
+  const seat = { ...SEAT, agent: 'Design Reviewer', label: 'Design Reviewer', role: 'design_review' }
+  const signed = signDescription('Designed.', '{role}: {seat}', seat)
+
+  assert.deepEqual(authorsFrom(signed), [
+    { role: 'design-review', agent: 'Design Reviewer', label: 'Design Reviewer' },
+  ])
+  assert.equal(unmarked(signed), 'Designed.\n\ndesign-review: Design Reviewer')
+})
+
+test('description authors retain requested model and effort parts across edits', () => {
+  const writer = {
+    ...SEAT,
+    agent: 'Writer Agent',
+    model: 'Writer Model',
+    effort: 'High',
+    label: 'Writer Model · High',
+    role: 'writer',
+  }
+  const fixer = {
+    ...SEAT,
+    agent: 'Fixer Agent',
+    model: 'Fixer Model',
+    effort: 'Max',
+    label: 'Fixer Model · Max',
+    role: 'fixer',
+  }
+  const template = '{role}: {agent} ({model}, {effort})'
+  const first = signDescription('First.', template, writer)
+  const updated = signDescription('Fixed.', template, fixer, first)
+
+  assert.deepEqual(authorsFrom(updated), [
+    { role: 'writer', agent: 'Writer Agent', label: 'Writer Model · High', model: 'Writer Model', effort: 'High' },
+    { role: 'fixer', agent: 'Fixer Agent', label: 'Fixer Model · Max', model: 'Fixer Model', effort: 'Max' },
+  ])
+  assert.equal(unmarked(updated), 'Fixed.\n\nWriter: Writer Agent (Writer Model, High) · Fixer: Fixer Agent (Fixer Model, Max)')
+})
+
+test('description authors retain requested version and thinking parts across edits', () => {
+  const writer = { ...SEAT, agent: 'Writer Agent', label: 'Writer Agent', role: 'writer', version: '1.2.3', thinking: true }
+  const fixer = { ...SEAT, agent: 'Fixer Agent', label: 'Fixer Agent', role: 'fixer', version: '2.3.4' }
+  const template = '{role}: {agent} {version} {thinking}'
+  const first = signDescription('First.', template, writer)
+  const updated = signDescription('Fixed.', template, fixer, first)
+
+  assert.deepEqual(authorsFrom(updated), [
+    { role: 'writer', agent: 'Writer Agent', label: 'Writer Agent', version: '1.2.3', thinking: true },
+    { role: 'fixer', agent: 'Fixer Agent', label: 'Fixer Agent', version: '2.3.4', thinking: false },
+  ])
+  assert.equal(unmarked(updated), 'Fixed.\n\nWriter: Writer Agent 1.2.3 Thinking · Fixer: Fixer Agent 2.3.4')
+})
+
+test('description author markers reject unsafe or out-of-range presentation parts', () => {
+  const first = signDescription('First.', '{role}: {agent} {model} {effort} {version} {thinking}', {
+    ...SEAT,
+    agent: 'Preview Agent',
+    label: 'Preview Agent',
+    role: 'writer',
+  })
+  const author = authorsFrom(first)[0]!
+  for (const alteredAuthor of [
+    { ...author, model: 'm'.repeat(81) },
+    { ...author, effort: '[unsafe]' },
+    { ...author, version: 'v1\nsecond line' },
+    { ...author, thinking: 'yes' },
+  ]) {
+    const altered = bodyWithAuthors(first, [alteredAuthor])
+    assert.deepEqual(authorsFrom(signDescription('Edited.', DEFAULT_SIGNATURE, null, altered)), [])
+  }
+})
+
 test('description author spans keep emphasis balanced for bold-role and default-review templates', () => {
   const writer = { ...SEAT, role: 'writer' }
   const fixer = { ...SEAT, role: 'fixer' }

@@ -326,7 +326,7 @@ export const NO_CAPABILITIES: RuntimeCapabilities = {
  * itself; the shell renders what it is given and invents nothing.
  */
 export interface RuntimePresentation {
-  /** Verified native commit credit, supplied by the adapter; absent or null adds no runtime trailer. */
+  /** Native commit credit supplied by the adapter; absent or null adds no runtime trailer. */
   readonly coAuthor?: { readonly name: string; readonly email: string } | null
   /** What to call it in the interface. */
   readonly name: string

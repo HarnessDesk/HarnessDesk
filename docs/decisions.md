@@ -810,8 +810,8 @@ signatures are upgraded when edited. A review or comment keeps the role and
 seat that made that publication.
 
 Card commits keep the desk co-author, which gives GitHub its desk icon, and
-add the runtime's native co-author through the adapter's presentation. Credits
-come from local observations or cited sources; an unknown address is null,
+add the native commit credit supplied by the running adapter through its
+presentation. Credits come from local observations or cited sources; an unknown address is null,
 never guessed by the host. On this Mac, Claude Code 2.1.285 contained
 `Co-Authored-By: ${Jqn(e)} <noreply@anthropic.com>`, and codex-cli 0.160.0
 contained `Co-authored-by: Codex <noreply@openai.com>`. Cursor Agent

@@ -672,10 +672,11 @@ prefix and suffix shared. Old marked signatures and the former default's
 unmarked trailing line are recognised and upgraded without duplication.
 Comments mark their opening signature line with the same signature mark.
 
-Card commits retain the desk's co-author and add the running adapter's verified
-`RuntimeInfo.presentation.coAuthor` (`{name, email}`), when present. An absent
-or null credit adds no runtime trailer; the host never infers one from a
-runtime id. Git's `addIfDifferent` trailer rule handles placement and duplicates.
+Card commits retain the desk's co-author and add the native commit credit
+supplied by the running adapter in `RuntimeInfo.presentation.coAuthor`
+(`{name, email}`), when present. An absent or null credit adds no runtime
+trailer; the host never infers one from a runtime id. Git's `addIfDifferent`
+trailer rule handles placement and duplicates.
 
 **No built-in gives an agent a write tool**, and that is a decision rather than
 an omission — [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)

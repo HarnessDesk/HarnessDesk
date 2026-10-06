@@ -307,9 +307,13 @@ export const signBody = (body: string, signature: string | null, previous: strin
 /** Structured contributors survive edits to the visible credit and changes of template. */
 const AUTHORS_MARK = /<!-- harnessdesk:authors:([^\n]*?) -->/
 interface DescriptionAuthor {
-  readonly role: string
+  readonly role: string | null
   readonly agent: string
   readonly label: string
+  readonly model?: string | null
+  readonly effort?: string | null
+  readonly version?: string | null
+  readonly thinking?: boolean
   readonly team?: string | null
   readonly round?: number | null
 }
@@ -317,13 +321,25 @@ interface DescriptionAuthor {
 const AUTHOR_ROLE = /^[a-z][a-z0-9-]{0,31}$/i
 const safeAuthorLabel = (value: string): boolean =>
   Array.from(value).length <= 80 && !/[\[\]()<>*_`\r\n]/.test(value)
+const safeAuthorPart = (value: unknown): boolean =>
+  value === undefined || value === null || (typeof value === 'string' && safeAuthorLabel(value))
+
+/** Flow role ids are arbitrary strings; retain a bounded, plain-text form in the marker. */
+const sanitizeAuthorRole = (value: string): string => {
+  let role = value.replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '')
+  if (!role) role = 'role'
+  if (!/^[a-z]/i.test(role)) role = `role-${role}`
+  return role.slice(0, 32).replace(/-+$/g, '') || 'role'
+}
 
 const isDescriptionAuthor = (entry: unknown): entry is DescriptionAuthor => {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false
   const author = entry as Record<string, unknown>
   const round = author.round
-  return typeof author.role === 'string' && AUTHOR_ROLE.test(author.role) &&
+  return (author.role === null || (typeof author.role === 'string' && AUTHOR_ROLE.test(author.role))) &&
     typeof author.agent === 'string' && typeof author.label === 'string' && safeAuthorLabel(author.label) &&
+    safeAuthorPart(author.model) && safeAuthorPart(author.effort) && safeAuthorPart(author.version) &&
+    (author.thinking === undefined || typeof author.thinking === 'boolean') &&
     (author.team === undefined || author.team === null || typeof author.team === 'string') &&
     (round === undefined || round === null || (typeof round === 'number' && Number.isSafeInteger(round) && round >= 1 && round <= 99))
 }
@@ -340,6 +356,10 @@ const authorsOf = (body: string | null | undefined): DescriptionAuthor[] => {
       role: author.role,
       agent: author.agent,
       label: author.label,
+      ...(author.model === undefined ? {} : { model: author.model }),
+      ...(author.effort === undefined ? {} : { effort: author.effort }),
+      ...(author.version === undefined ? {} : { version: author.version }),
+      ...(author.thinking === undefined ? {} : { thinking: author.thinking }),
       ...(author.team === undefined ? {} : { team: author.team }),
       ...(author.round === undefined ? {} : { round: author.round }),
     }))
@@ -350,18 +370,26 @@ const authorForTemplate = (author: DescriptionAuthor, template: string): Descrip
   role: author.role,
   agent: author.agent,
   label: author.label,
+  ...(template.includes('{model}') && author.model !== undefined ? { model: author.model } : {}),
+  ...(template.includes('{effort}') && author.effort !== undefined ? { effort: author.effort } : {}),
+  ...(template.includes('{version}') && author.version !== undefined ? { version: author.version } : {}),
+  ...(template.includes('{thinking}') && author.thinking !== undefined ? { thinking: author.thinking } : {}),
   ...(template.includes('{team}') && author.team !== undefined ? { team: author.team } : {}),
   ...(template.includes('{round}') && author.round !== undefined ? { round: author.round } : {}),
 })
 
 const descriptionAuthor = (seat: ForgeSeat, template: string): DescriptionAuthor | null => {
-  if (!seat.role || !AUTHOR_ROLE.test(seat.role) || !safeAuthorLabel(seat.label) || typeof seat.agent !== 'string') return null
+  if (!safeAuthorLabel(seat.label) || typeof seat.agent !== 'string') return null
   if (template.includes('{round}') && seat.round !== null && seat.round !== undefined &&
     (!Number.isSafeInteger(seat.round) || seat.round < 1 || seat.round > 99)) return null
   return authorForTemplate({
-    role: seat.role,
+    role: seat.role === null ? null : sanitizeAuthorRole(seat.role),
     agent: seat.agent,
     label: seat.label,
+    model: seat.model,
+    effort: seat.effort,
+    version: seat.version,
+    thinking: seat.thinking,
     team: seat.team,
     round: seat.round,
   }, template)
@@ -369,10 +397,10 @@ const descriptionAuthor = (seat: ForgeSeat, template: string): DescriptionAuthor
 
 const forgeSeatFromAuthor = (author: DescriptionAuthor): ForgeSeat => ({
   agent: author.agent,
-  version: null,
-  model: null,
-  effort: null,
-  thinking: false,
+  version: author.version ?? null,
+  model: author.model ?? null,
+  effort: author.effort ?? null,
+  thinking: author.thinking ?? false,
   label: author.label,
   role: author.role,
   round: author.round ?? null,
@@ -384,7 +412,11 @@ export const signDescription = (body: string, template: string, seat: ForgeSeat 
   const previous = previousSignature(previousBody)
   if (template.trim() === '') return signBody(body, null, previous)
   const authors = authorsOf(previousBody)
-  const current = seat ? descriptionAuthor(seat, template) : null
+  const publicationSeat = seat ? {
+    ...seat,
+    role: seat.role === null ? null : sanitizeAuthorRole(seat.role),
+  } : null
+  const current = publicationSeat ? descriptionAuthor(publicationSeat, template) : null
   if (current) {
     const index = authors.findIndex((author) => author.role === current.role && author.agent === current.agent)
     if (index >= 0) authors[index] = current
@@ -392,12 +424,12 @@ export const signDescription = (body: string, template: string, seat: ForgeSeat 
   }
   const retained = authors.slice(-8).map((author) => authorForTemplate(author, template))
   if (!retained.length) {
-    const signature = seat ? renderSignature(template, seat).trim() : ''
+    const signature = publicationSeat ? renderSignature(template, publicationSeat).trim() : ''
     return signBody(body, signature || null, previous)
   }
   const renderSeats = retained.map((author) =>
-    current && seat && author.role === current.role && author.agent === current.agent
-      ? seat
+    current && publicationSeat && author.role === current.role && author.agent === current.agent
+      ? publicationSeat
       : forgeSeatFromAuthor(author))
   const matches = [...template.matchAll(/\{(?:role|seat|agent|model|effort|version|thinking|team|round)\}/g)]
   const first = matches[0]?.index
@@ -406,8 +438,20 @@ export const signDescription = (body: string, template: string, seat: ForgeSeat 
   if (first !== undefined && last) {
     let start = first
     let end = last.index! + last[0].length
-    while (start > 0 && /[*_`]/.test(template[start - 1]!)) start -= 1
-    while (end < template.length && /[*_`]/.test(template[end]!)) end += 1
+    while (start > 0 && /[*_`(]/.test(template[start - 1]!)) start -= 1
+    let openParens = 0
+    for (const character of template.slice(start, end)) {
+      if (character === '(') openParens += 1
+      else if (character === ')' && openParens > 0) openParens -= 1
+    }
+    while (end < template.length) {
+      const character = template[end]!
+      if (/[*_`]/.test(character)) end += 1
+      else if (character === ')' && openParens > 0) {
+        openParens -= 1
+        end += 1
+      } else break
+    }
     const span = template.slice(start, end)
     line = template.slice(0, start) + renderSeats.map((author) => renderSignature(span, author)).filter(Boolean).join(' · ') + template.slice(end)
   } else {
