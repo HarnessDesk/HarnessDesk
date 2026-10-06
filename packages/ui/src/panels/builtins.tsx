@@ -328,12 +328,8 @@ registerView({
   title: (view, names) =>
     view.kind === 'room' ? `Room — ${names.rooms?.get(view.room) ?? 'room'}` : 'Room',
   bare: true,
-  /* The room draws the verbs on its own top row, so it gets no strip above it.
-     It used to get one, and the strip printed `Room — <name>` over a rail that
-     printed `<name>` — the same room named twice, in two rows, with a lone
-     expand button at the end of the upper one. The room's row was already the
-     better place for both; all it was missing was the promise to draw them.
-     `chrome.test.ts` holds this to it. */
+  /* The Team header includes its panel verbs in More, so it gets no strip
+     above it. `chrome.test.ts` holds this to the new composition. */
   ownsChrome: true,
 })
 

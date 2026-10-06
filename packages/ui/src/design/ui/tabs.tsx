@@ -74,11 +74,11 @@ const tabsListVariants = cva(
              at 22, under the target floor, and 1 puts it on the floor with
              the strip unmoved. */
           'rounded-(--hd-radius-sm) bg-(--hd-muted) p-px group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
+        line: 'gap-1 rounded-none bg-transparent group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
         /* The underline: no track, an indicator under the active tab. Belongs
            where the tabs sit *above* what they switch — a pane, a page — and
            the rule under them is shared with the content's own top edge. */
         section: 'min-w-full justify-start gap-1 rounded-none bg-transparent border-b border-(--hd-border) px-(--hd-space-2) group-data-[orientation=horizontal]/tabs:h-(--hd-bar-h)',
-        line: 'gap-1 rounded-none bg-transparent group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
       },
     },
     defaultVariants: { variant: 'default' },

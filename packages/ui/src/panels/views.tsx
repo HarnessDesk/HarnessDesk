@@ -90,10 +90,11 @@ export interface ViewDefinition {
    */
   readonly bare?: boolean
   /**
-   * Set when the view's own header renders `<PanelActions />`.
+   * Set when the view's own header includes `<PanelActionMenuItems />` in its
+   * overflow menu, or renders `<PanelActions />` directly.
    *
    * Alone in a stack, such a view gets no strip above it at all: its header is
-   * the only row, and the panel's verbs sit at the end of it. That is what
+   * the only row, and the panel's verbs are in its existing overflow menu. That is what
    * stops the browser showing a tab row above its tab row.
    *
    * It is deliberately *not* the same flag as `bare`. `bare` says "I paint my

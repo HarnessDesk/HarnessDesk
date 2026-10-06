@@ -1,8 +1,20 @@
 import { expect, test } from '@playwright/test'
+import { mkdirSync } from 'node:fs'
+
+const captureFrame = async (page: import('@playwright/test').Page, name: string) => {
+ const directory = process.env.TEAM_FRAME_SHOTS_DIR
+ if (!directory) return
+ mkdirSync(directory, {recursive:true})
+ await page.screenshot({path:`${directory}/${name}.png`})
+}
 
 for (const theme of ['light','dark'] as const) {
  test(`Team frame: one sidebar, section tabs and a reversible layout toggle in ${theme}`, async ({page}) => {
+  await page.setViewportSize({width:1440,height:900})
+  await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
+  if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme','')
+  else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme','')
   const team=page.locator('[data-slot="team-room"]')
   await expect(team.getByRole('tab')).toHaveCount(5)
   await expect(team.locator('aside')).toHaveCount(0)
@@ -19,6 +31,8 @@ for (const theme of ['light','dark'] as const) {
    return Math.abs(title.left - range.getBoundingClientRect().left)
   })
   expect(aligned).toBeLessThan(2)
+  await page.evaluate(async () => { await document.fonts.ready })
+  await captureFrame(page, `after-frame-1440-${theme}`)
   await team.getByRole('tab',{name:/^Board/}).click()
   const toggle=header.getByRole('button',{name:'Side by side',exact:true})
   await toggle.click()
@@ -33,6 +47,7 @@ for (const theme of ['light','dark'] as const) {
  })
  test(`Team frame: folded tools and scrolling tabs stay reachable in ${theme}`, async ({page}) => {
   await page.setViewportSize({width:320,height:760})
+  await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-frame&theme=${theme}`)
   const team=page.locator('[data-slot="team-room"]')
   const header=team.locator('header').first()
@@ -58,6 +73,7 @@ for (const theme of ['light','dark'] as const) {
  })
  test(`Team frame: folded layout toggle reports its state in ${theme}`, async ({page}) => {
   await page.setViewportSize({width:320,height:760})
+  await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
   const team=page.locator('[data-slot="team-room"]')
   const more=team.locator('header').first().getByRole('button',{name:'More',exact:true})
@@ -72,7 +88,31 @@ for (const theme of ['light','dark'] as const) {
   await toggle.click()
   await expect(team.locator('[data-slot="team-overview"]')).toBeVisible()
  })
+ test(`Team frame: More menu labels share one left edge in ${theme}`, async ({page}) => {
+  await page.setViewportSize({width:320,height:760})
+  await page.emulateMedia({colorScheme:theme})
+  await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
+  if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme','')
+  else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme','')
+  const team=page.locator('[data-slot="team-room"]')
+  await team.locator('header').first().getByRole('button',{name:'More',exact:true}).click()
+  const labelLeft = (role: 'switch' | 'menuitem', label: string) =>
+   page.getByRole(role,{name:label,exact:true}).evaluate((row, label) => {
+    const text = [...row.querySelectorAll('span')].find(span => span.textContent?.trim() === label)
+    return text!.getBoundingClientRect().left
+   }, label)
+  const edges = await Promise.all([
+   labelLeft('switch','Side by side'),
+   labelLeft('switch','Hold messages at the board'),
+   labelLeft('menuitem','Pull request #7'),
+   labelLeft('menuitem','Wrap…'),
+   labelLeft('menuitem','Fill the window'),
+  ])
+  expect(Math.max(...edges)-Math.min(...edges)).toBeLessThanOrEqual(1)
+  await captureFrame(page, `after-controls-${theme}`)
+ })
  test(`Team frame: Wrap is primary only on a ready Overview in ${theme}`, async ({page}) => {
+  await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-frame=ready&theme=${theme}`)
   const team=page.locator('[data-slot="team-room"]')
   await expect(team.locator('[data-slot="team-overview"]').getByRole('button',{name:'Wrap',exact:true})).toBeVisible()
