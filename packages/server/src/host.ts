@@ -186,6 +186,7 @@ import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
+import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
@@ -1115,11 +1116,11 @@ export class Host {
                where the set-aside is tried again, behind whatever holds the
                Goal queue — never awaited here (review P2-1 on #940). */
             this.#retryStuckGoals()
-            return { ok: false as const, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
+            return { ok: false as const, readOnly: false, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
           }
           return !document.restored && document.goal.state === 'open' && document.operation === null
             ? { ok: true as const }
-            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+            : { ok: false as const, readOnly: Boolean(document.restored || document.goal.state !== 'open' || document.operation?.kind === 'wrap'), reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
         } catch {
           // A legacy room has no Goal document and retains the Team engine's
           // standalone behaviour until migration gives it one.
@@ -3357,11 +3358,12 @@ export class Host {
        still queued behind another. Patched onto the document instead, that
        card was missing, the claim was refused, and the assignment stayed
        staged, refusing every later save of the Goal. */
+    const carriedPatch = (intents: readonly Intent[]) => carryCardWork(intents, patch(intents))
     const staged = this.#goalStore.read(goal).operation?.kind === 'wrap'
     const save = staged
       ? async () => {
         const now = this.#goalStore.read(goal)
-        const intents = patch(now.board.intents)
+        const intents = carriedPatch(now.board.intents)
         if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
       }
       /* Whole: a Team save this write carries is answered as done once it
@@ -3369,7 +3371,7 @@ export class Host {
       : (state: TeamState) => this.#writeGoalBoard(goal, state, { whole: true })
     if (!(await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged }))) {
       const document = this.#goalStore.read(goal)
-      const intents = patch(document.board.intents)
+      const intents = carriedPatch(document.board.intents)
       if (intents === document.board.intents) return
       await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
     }
@@ -3454,7 +3456,7 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream, dirtyPaths },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
         updatedAt: at,
@@ -6629,8 +6631,8 @@ export class Host {
          finished, a usage window ran out, a harness refused the next call —
          the flow stalls silently: cards stay open, nobody is waiting on them,
          and the only sign is a room that stopped moving. So the seat is
-         handed its order again. Budgeted, because a seat that cannot start is
-         a seat that would otherwise be re-armed forever. */
+         handed its order again. Unfinished turns and self-block hand-backs
+         have separate hourly allowances, so neither can re-arm forever. */
       void this.#flows.reArm(runtime, String(event.sessionId))
       // The same turn-ended signal answers a v2 release still waiting on this
       // Seat, rather than a poll of its own guessing when to ask again (#1027).
