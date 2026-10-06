@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { type AgentEvent } from '@harnessdesk/protocol'
+import { reduceSession, type AgentEvent } from '@harnessdesk/protocol'
 import { AppStore, type AppSnapshot } from '../state/store'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
@@ -20,12 +20,30 @@ const compacted: AgentEvent = { type: 'notice', level: 'info', sessionId: 's1', 
 export const NoticesFrame = () => {
   useTheme()
   const scene = new URLSearchParams(window.location.search).get('notices') ?? 'startup'
+  const conversationScene = scene.startsWith('conversation-')
   const store = useMemo(() => {
     const own = new AppStore('ws://localhost:0/')
     const base = fixture.getSnapshot()
     const workbench = { ...emptyWorkbench(), main: { root: { kind: 'pane' as const, id: 'notice-conversation', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } }, focused: 'notice-conversation', expanded: null } }
-    const session = base.sessions.get(PREVIEW_SESSION_KEY)!
-    Object.assign(own.getSnapshot(), { ...base, home: '/Users/user', inbox: [], agentNotices: [], notices: [], health: { state: 'ready' }, workbench, layout: workbench.main, sessions: new Map([[PREVIEW_SESSION_KEY, session]]), activeSessionKey: PREVIEW_SESSION_KEY, preferencesLoaded: false } satisfies Partial<AppSnapshot>)
+    const original = base.sessions.get(PREVIEW_SESSION_KEY)!
+    const restoreScene = scene.startsWith('conversation-restore')
+    const afterScene = scene.endsWith('-after')
+    const emptyConversation = conversationScene
+      ? {
+          id: original.id,
+          runtime: original.runtime,
+          cwd: '/workspace/demo-project',
+          status: { type: 'idle' as const },
+          createdAt: original.createdAt,
+          updatedAt: restoreScene ? original.createdAt + 1 : original.createdAt,
+          turns: [],
+          itemsLoaded: true,
+        }
+      : original
+    const session = conversationScene && afterScene
+      ? reduceSession(emptyConversation, { type: 'notice', sessionId: original.id, class: 'conversation', level: 'warning', message: 'A tool was unavailable when this conversation opened.', id: 'notice-preview-1' })
+      : emptyConversation
+    Object.assign(own.getSnapshot(), { ...base, home: conversationScene ? '/workspace' : base.home, inbox: [], agentNotices: [], notices: [], health: { state: 'ready' }, workbench, layout: workbench.main, sessions: new Map([[PREVIEW_SESSION_KEY, session]]), activeSessionKey: PREVIEW_SESSION_KEY, preferencesLoaded: false } satisfies Partial<AppSnapshot>)
     const surface = window as unknown as { noticeReveals: unknown[] }
     surface.noticeReveals = []
     own.transport.request = (async (method: string, params: unknown) => {
@@ -48,15 +66,17 @@ export const NoticesFrame = () => {
     void store.loadPreferences().then(() => {
       const workbench = { ...emptyWorkbench(), main: { root: { kind: 'pane' as const, id: 'notice-conversation', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } }, focused: 'notice-conversation', expanded: null } }
       Object.assign(store.getSnapshot(), { workbench, layout: workbench.main, activeSessionKey: PREVIEW_SESSION_KEY })
-      handlers.onEvent('codex', config)
-      handlers.onEvent('codex', config)
-      handlers.onEvent('codex', config)
-      handlers.onEvent('codex', depreciation)
-      if (new URLSearchParams(window.location.search).has('longNotice')) handlers.onEvent('codex', { type: 'notice', kind: 'runtime:warning', level: 'warning', message: 'A background configuration warning contains guidance that must stay readable all the way to the end of this long message, including the final instruction: check the configuration file before the next run.' })
-      handlers.onEvent('codex', compacted)
-      handlers.onNotification({ method: 'person/notice', params: { notice: { id: 'demo-agent', from: { runtime: 'codex', sessionId: 's1', name: 'Alpha' }, where: 'inbox', title: 'Alpha finished “Retry the checkout call”', body: 'All checks passed. The change is ready to review.', at: Date.now() - 90_000 } } })
+      if (!conversationScene) {
+        handlers.onEvent('codex', config)
+        handlers.onEvent('codex', config)
+        handlers.onEvent('codex', config)
+        handlers.onEvent('codex', depreciation)
+        if (new URLSearchParams(window.location.search).has('longNotice')) handlers.onEvent('codex', { type: 'notice', kind: 'runtime:warning', level: 'warning', message: 'A background configuration warning contains guidance that must stay readable all the way to the end of this long message, including the final instruction: check the configuration file before the next run.' })
+        handlers.onEvent('codex', compacted)
+        handlers.onNotification({ method: 'person/notice', params: { notice: { id: 'demo-agent', from: { runtime: 'codex', sessionId: 's1', name: 'Alpha' }, where: 'inbox', title: 'Alpha finished “Retry the checkout call”', body: 'All checks passed. The change is ready to review.', at: Date.now() - 90_000 } } })
+      }
     })
-  }, [store])
+  }, [conversationScene, scene, store])
   return <StoreProvider store={store}>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
       <div data-frame-id={`notices-${scene}`} className="h-screen bg-background">
