@@ -101,6 +101,7 @@ export const PlansView = ({
       <section className={styles.band} aria-label="What is left">
         <PlansTable
           rows={rows}
+          snapshot={snapshot}
           onSignIn={onSignIn}
           signInRuntimes={new Set(silent.map(agent => agent.info.id))}
           tintFor={(runtime, accountLabel) => {

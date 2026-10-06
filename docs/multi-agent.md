@@ -346,7 +346,11 @@ in *Needs you* too, because somebody has to take it over.
 
 Nothing is dragged, and no column takes a title: there is no column to put a
 card in, only the one its facts put it in, and work goes on through *New job*.
-An empty column says *Nothing here*. Every verb is in the card's ⋮ menu —
+An empty column says *Nothing here*. In List, *Put back in play* is visible on
+finished, set-aside and stopped jobs; a person step shows *Answer…* or
+*Pick an attempt…*, opening its question before recording anything. A live
+claim has no visible verb. Every other verb stays in ⋮; a row with no remaining
+menu items has no menu trigger. On Board, every verb is in the card's ⋮ menu —
 *Mark done*, *Take it back off …*, *Put back in play*, *Stop it — say why*,
 *Abandon* — and, when the project names checks, *Run <check>* for each. A
 check that cannot run now stays in the menu, greyed, and says why: the file

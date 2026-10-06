@@ -126,7 +126,7 @@ const SelectScrollUpButton = ({
 }: React.ComponentProps<typeof SelectPrimitive.ScrollUpArrow>) => (
   <SelectPrimitive.ScrollUpArrow
     data-slot="select-scroll-up-button"
-    className={cn('flex cursor-default items-center justify-center py-1', className)}
+    className={cn('inset-x-1 top-1 z-1 flex cursor-default items-center justify-center rounded-sm bg-popover py-1', className)}
     {...props}
   >
     <CaretIcon size={14} className="rotate-180" />
@@ -139,7 +139,7 @@ const SelectScrollDownButton = ({
 }: React.ComponentProps<typeof SelectPrimitive.ScrollDownArrow>) => (
   <SelectPrimitive.ScrollDownArrow
     data-slot="select-scroll-down-button"
-    className={cn('flex cursor-default items-center justify-center py-1', className)}
+    className={cn('inset-x-1 bottom-1 z-1 flex cursor-default items-center justify-center rounded-sm bg-popover py-1', className)}
     {...props}
   >
     <CaretIcon size={14} />

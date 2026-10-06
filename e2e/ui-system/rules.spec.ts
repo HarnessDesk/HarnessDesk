@@ -199,6 +199,21 @@ const namesViolations = (page: Page) =>
   }, NAME_PAIRS)
 
 test.describe('rule: names', () => {
+  test('rule: names — a conversation with a folder and no turns keeps the page pair', async ({ page }) => {
+    await page.goto('/preview.html?empty')
+    await page.evaluate(async () => { await document.fonts.ready })
+    const frame = page.locator('[data-frame-id="conversation-empty"]')
+    await expect(frame.getByRole('button', { name: 'Start with a team…' })).toBeVisible()
+    for (const theme of ['light', 'dark'] as const) {
+      for (const look of ['desk', 'studio'] as const) {
+        await setPreviewDials(page, theme, look)
+        const { out, measured } = await namesViolations(page)
+        expect(measured).toBeGreaterThan(0)
+        expect(out).toEqual([])
+      }
+    }
+  })
+
   test('rule: names — content names use 14/500 and one token restores 14/600', async ({ page }) => {
     await gotoPreview(page)
     const inline = page.locator('[data-frame-id="goal-roster"] [data-slot="member-name"] [data-role="member"]')

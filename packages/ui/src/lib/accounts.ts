@@ -219,7 +219,8 @@ export const runtimeAccountBadge = (
     const collision = signedIn.filter(other => other.letters[0] === first).length > 1
     let badge = first
     if (collision) {
-      const candidates = [one.letters[1] ?? first, ...Array.from(one.account.label.split('@')[0]!.toUpperCase()).filter(letter => /[\p{L}]/u.test(letter)), ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']
+      const label = one.account.label ?? ''
+      const candidates = [one.letters[1] ?? first, ...Array.from(label.split('@')[0]!.toUpperCase()).filter(letter => /[\p{L}]/u.test(letter)), ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']
       badge = candidates.map(second => first + second).find(candidate => !used.has(candidate))
         ?? Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').flatMap(a => Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ', b => a + b)).find(candidate => !used.has(candidate))
         ?? first + first
