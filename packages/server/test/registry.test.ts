@@ -82,6 +82,15 @@ test('pending notices belong to one runtime and are consumed by a read or discar
   assert.deepEqual(registry.upsert(session([], { id: missing }), null).session.turns, [], 'deletion discards an unregistered conversation too')
 })
 
+test('closing an unregistered conversation discards its pending notices', () => {
+  const registry = new SessionRegistry()
+  registry.apply(RUNTIME, { type: 'notice', sessionId: ID, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  registry.apply(RUNTIME, { type: 'session/closed', sessionId: ID })
+
+  const registered = registry.apply(RUNTIME, { type: 'session/started', session: session([]) })
+  assert.deepEqual(registered?.session.turns, [])
+})
+
 test('a read never takes away a turn the host watched, nor its items', (t) => {
   const registry = new SessionRegistry()
   registry.upsert(session([]), null)
