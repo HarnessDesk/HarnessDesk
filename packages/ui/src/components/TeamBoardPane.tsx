@@ -634,8 +634,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             searchText={intent => {
               const copy = jobCopy(intent, room, snapshot)
               const stranded = strandedFor(intent, now, attached)
-              return [copy.holderName, copy.note, stranded !== null ? `stranded ${describeAge(stranded)}` : placed.get(intent.id)?.why,
-                ...intent.files,
+              const placement = placed.get(intent.id)
+              const reason = stranded !== null ? `stranded ${describeAge(stranded)}`
+                : placement?.column === 'needs' ? placement.why : null
+              const outcome = intent.state === 'done' && !reason ? intent.outcome : null
+              return [copy.holderName, copy.note, reason,
+                outcome, ...intent.files,
                 ...(evidence?.cards.find(one => one.card === intent.id)?.facts.flatMap(one => one.record.fact.kind === 'pr' ? [`#${one.record.fact.number}`] : []) ?? [])]
             }} renderRow={(intent, columns) => (
             <IntentCard key={intent.id} listColumns={columns} intent={intent} room={room}
@@ -1088,6 +1092,7 @@ const IntentCard = ({
     : snapshot.boardEvidenceFailed.has(room) ? 'Evidence unavailable' : 'Checking evidence'
   const reason = stranded !== null ? `stranded ${describeAge(stranded)}`
     : placement?.column === 'needs' ? placement.why : null
+  const visibleOutcome = intent.state === 'done' && !reason ? intent.outcome : null
   const brand = runtime ? brandForRuntime(runtime) : null
   const face = assignee ? <IconTile shape="face" tint={holderTint}>
     {brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />}
@@ -1100,13 +1105,20 @@ const IntentCard = ({
         <TableCell className="whitespace-normal min-w-0 max-w-0">
           <span className="flex min-w-0 flex-wrap items-center gap-2"><Text role="meta">#{intent.id}</Text><Text role="row" className="min-w-0 break-words [overflow-wrap:anywhere]" title={intent.title}>{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
           {note && <Text role="meta" className="whitespace-normal line-clamp-2 break-words [overflow-wrap:anywhere]" title={note}>{note}</Text>}
-          {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason && ` · ${reason}`}</Text></span>}
+          {intent.files.length > 0 && <Text role="meta" className="block min-w-0 truncate" title={`Owns ${intent.files.join(', ')} while claimed`}>{intent.files.join(', ')}</Text>}
+          {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason ? ` · ${reason}` : visibleOutcome ? ` · ${visibleOutcome}` : ''}</Text></span>}
         </TableCell>
         {listColumns.has('assignee') && <TableCell className={JOB_COLUMN_CLASS.assignee}>
           {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="gap-2">{face}{holderName}</Button>
             : <span className="inline-flex items-center gap-2">{holderName !== '—' && face}<Text role="meta">{holderName}</Text></span>}
         </TableCell>}
-        {listColumns.has('state') && <TableCell className={`${JOB_COLUMN_CLASS.state} whitespace-normal`}><Chip tone={placement?.column === 'needs' ? 'warning' : placement?.column === 'ready' ? 'success' : 'neutral'}>{stateWords}</Chip>{reason && <Text role="meta" className="block whitespace-normal break-words" title={reason}>{reason}</Text>}</TableCell>}
+        {listColumns.has('state') && <TableCell className={`${JOB_COLUMN_CLASS.state} whitespace-normal`}>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <Chip tone={placement?.column === 'needs' ? 'warning' : placement?.column === 'ready' ? 'success' : 'neutral'}>{stateWords}</Chip>
+            {visibleOutcome && <Chip tone="neutral">{visibleOutcome}</Chip>}
+          </span>
+          {reason && <Text role="meta" className="block whitespace-normal break-words" title={reason}>{reason}</Text>}
+        </TableCell>}
         {listColumns.has('pr') && <TableCell className={JOB_COLUMN_CLASS.pr}>
           {pr?.record.fact.kind === 'pr' ? <Button variant="link" size="inline" disabled={!pr.record.fact.url} title={standingWords(pr.freshness)} onClick={() => pr.record.fact.kind === 'pr' && pr.record.fact.url && openExternal(pr.record.fact.url)}>
             #{pr.record.fact.number}{!isCurrent(pr.freshness) && ' · stale or unknown'}

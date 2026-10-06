@@ -1634,7 +1634,7 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
-    '#2Blocked jobChoose the targetNeeds you · stopped', '#1Recent jobTo do', '#3Finished jobChecking evidence',
+    '#2Blocked jobChoose the targetsrc/api/**Needs you · stopped', '#1Recent jobsrc/api/**To do', '#3Finished jobsrc/api/**Checking evidence',
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
@@ -1804,6 +1804,22 @@ it('list repair: Needs you carries the placement reason and searches number, ass
       filter.dispatchEvent(new Event('input', { bubbles: true }))
     })
     expect(container.querySelectorAll('tbody tr'), word).toHaveLength(1)
+  }
+})
+
+it('list repair: finished rows show and search their outcome and owned files', async () => {
+  const { store } = rig([intent({ id: 42, state: 'done', outcome: 'request-changes', files: ['src/retry/**'] })], {},
+    observed([], [cardEvidence(42, [checkView({ card: 42 })])] ))
+  await showList(store)
+  expect(listRow(42).textContent).toContain('request-changes')
+  expect(listRow(42).textContent).toContain('src/retry/**')
+  const filter = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  for (const word of ['request-changes', 'src/retry/**']) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, word)
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect([...container.querySelectorAll('tbody tr')].map(one => one.getAttribute('data-job')), word).toEqual(['42'])
   }
 })
 
