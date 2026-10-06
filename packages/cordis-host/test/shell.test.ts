@@ -95,7 +95,7 @@ test('shell calls keep concurrent invocation checkouts separate and confine expl
   for (const cwd of [project, two, '../two', 'escape']) {
     const refused = await run(one, { cwd })
     assert.equal(refused.ok, false, cwd)
-    assert.match(String(output(refused)), /outside the open workspace/)
+    assert.match(String(output(refused)), /is outside the checkout this call runs in$/)
   }
   assert.deepEqual(output(await run(undefined)), [{ type: 'text', text: await realpath(project) }])
 })

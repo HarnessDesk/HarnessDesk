@@ -817,11 +817,15 @@ Completed jobs still awaiting their first evidence read remain visible as
 Checking evidence, or Evidence unavailable if that read failed. Needs you says
 why, with a stranded claim’s age first. Finished jobs show their completing
 agent only while the channel still records it; otherwise Assignee is a dash.
-Reopen is visible on finished and stopped rows; a person step opens its answer
-or review question. Other rows keep their verbs in the menu, revealed on hover
-or keyboard focus. Empty evidence columns start hidden, and secondary columns
-yield to the pane’s width so actions stay in view. The view menu chooses
-columns and sort, and the footer names the displayed count and order.
+Reopen is visible on finished, set-aside and hand-stopped rows; dependency-
+blocked jobs keep it in the menu. A finished outcome sits beside its state when
+there is no Needs-you reason, and owned files appear below the title. Below
+720px the job cell still names the assignee. Columns too wide for the pane keep
+their View switch disabled with the width they need, and search includes the
+state each row shows, including Checking evidence. Other verbs stay in the
+menu, revealed on hover or keyboard focus. Empty evidence columns start hidden,
+and secondary columns yield to the pane’s width so actions stay in view. The
+footer names the displayed count and order.
 
 **A conversation's Seat record.** A conversation seated as an Agent shows its
 Seat record at the head of its Agents inspector, above the sub-agents it
