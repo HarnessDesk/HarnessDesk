@@ -57,11 +57,11 @@ it('every view that claims the chrome actually draws it', () => {
 
 it('and the shared header is where four of the six get them', () => {
   // `ToolPaneHeader` is the frame a file, a preview, a repository and a browser
-  // all wear; the terminal has a bar of its own and the room has its top row,
-  // and both draw them directly.
+  // all wear; the terminal has a bar of its own, while the Team header puts its
+  // panel actions in its existing More menu.
   expect(toolPaneHeader).toContain('<PanelActions')
   expect(terminalPane).toContain('<PanelActions')
-  expect(teamRoomPane).toContain('<PanelActions')
+  expect(teamRoomPane).toContain('<PanelActionMenuItems')
 })
 
 it('a view with nowhere to put them does not claim them', () => {

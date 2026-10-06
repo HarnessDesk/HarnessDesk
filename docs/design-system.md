@@ -419,10 +419,11 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | `--hd-nav-gap` | `8px` |
 | `--hd-nav-inset` | `8px` |
 | `--hd-nav-padding` | `0 8px` |
+| `--hd-label-weight` | `500` |
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Studio sets the same label in the medium weight with more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
+The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Both interfaces use medium weight; Studio adds more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
 
 ### The card
 
@@ -483,7 +484,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
-| `--hd-label-weight` | `` |
 | `--hd-label-space` | `` |
 | `--hd-card-fill` | `` |
 | `--hd-card-border` | `` |
