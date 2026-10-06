@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -51,7 +52,7 @@ const shapes: readonly RuntimeShape[] = [
         binaryPath: CODEX_FAKE,
         codexHome: home,
         clientName: 'harnessdesk-test',
-        env: { FAKE_CODEX_ADDITIONAL_MODEL: 'gpt-5.6-sol' },
+        env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', FAKE_CODEX_ADDITIONAL_MODEL: 'gpt-5.6-sol' },
       })
       harness.host.register(runtime)
       await runtime.start()
@@ -62,7 +63,14 @@ const shapes: readonly RuntimeShape[] = [
         const session = await createSession({ ...args[0], ...(forceReadbackMismatch ? { model: 'gpt-5.5' } : {}) })
         const setOption = session.setOption.bind(session)
         session.setOption = async (id, value) => {
-          if (id === 'model' && forceReadbackMismatch) return
+          if (id === 'model' && forceReadbackMismatch) {
+            // Arrives after registration: housekeeping alone does not use a seat.
+            const record = harness.host.registry.get(this.id, session.id)!
+            record.session = { ...record.session, turns: [{ id: 'housekeeping' as never,
+              status: 'completed', items: [{ type: 'notice', id: 'housekeeping' as never,
+                text: 'Tools are ready.' }] }] }
+            return
+          }
           await setOption(id, value)
         }
         return session

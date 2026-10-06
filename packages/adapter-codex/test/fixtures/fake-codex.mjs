@@ -86,9 +86,20 @@ const loadMcpChild = (threadId) => {
   appendFileSync(ledger, `${JSON.stringify({ threadId, pid: child.pid, parent: process.pid })}\n`)
 }
 
+let output = []
+let outputScheduled = false
 const send = (value) => {
   saveSharedThread(value)
-  process.stdout.write(`${JSON.stringify(value)}\n`)
+  output.push(`${JSON.stringify(value)}\n`)
+  if (outputScheduled) return
+  outputScheduled = true
+  // Finish this request's snapshots before exposing its reply and notices.
+  setImmediate(() => {
+    const batch = output.join('')
+    output = []
+    outputScheduled = false
+    process.stdout.write(batch)
+  })
 }
 const notify = (method, params) => send({ method, params })
 // Only screenshot scenes opt in; adapter tests retain their existing turns.
@@ -1343,6 +1354,10 @@ rl.on('line', (line) => {
   // for something, which "the round trip still works" cannot show on its own.
   if (process.env['FAKE_CODEX_CALLS']) {
     appendFileSync(process.env['FAKE_CODEX_CALLS'], `${method}\n`)
+  }
+
+  if (process.env.FAKE_CODEX_PROCESS_CALLS) {
+    appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method, generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
   }
 
   switch (method) {

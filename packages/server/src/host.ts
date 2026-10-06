@@ -6114,7 +6114,7 @@ export class Host {
       this.#draining.has(key) ||
       this.#reattaching.has(key) ||
       (record !== undefined &&
-        (record.session.turns.length > 0 ||
+        (record.session.turns.some((turn) => turn.items.length === 0 || turn.items.some((item) => item.type !== 'notice')) ||
           record.watched.size > 0 ||
           record.queue.messages.length > 0 ||
           (record.live !== null && record.live !== inHand.live)))
@@ -6473,6 +6473,11 @@ export class Host {
               ?.items ?? [],
           )
         : []
+    // The Team wait captures a running turn; settle it before detach clears
+    // that turn from the registry's live status.
+    if (event.type === 'session/detached') {
+      this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
+    }
     const record = this.registry.apply(runtime, event)
     if (record && event.type === 'session/detached') this.#pushQueue(record)
     if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
@@ -6596,9 +6601,6 @@ export class Host {
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))
-    }
-    if (event.type === 'session/detached') {
-      this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
     }
   }
 

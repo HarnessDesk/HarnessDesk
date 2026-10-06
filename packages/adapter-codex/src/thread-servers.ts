@@ -34,8 +34,8 @@ export class CodexThreadServers extends CodexAppServer {
 
   constructor(options: CodexAppServerOptions, private readonly lost: (threads: readonly string[]) => void) {
     super(options)
-    this.#testGroup = options.env?.['HARNESSDESK_CODEX_PROCESS_GROUP']
-    const initialGeneration = options.env?.['HARNESSDESK_CODEX_GENERATION']
+    this.#testGroup = options.env?.['HARNESSDESK_CODEX_PROCESS_GROUP'] ?? process.env['HARNESSDESK_CODEX_PROCESS_GROUP']
+    const initialGeneration = options.env?.['HARNESSDESK_CODEX_GENERATION'] ?? process.env['HARNESSDESK_CODEX_GENERATION']
     this.#testGenerationEnabled = initialGeneration !== undefined
     this.#generation = Number(initialGeneration ?? 0)
     super.onNotification((notification) => { for (const listener of this.#notifications) listener(notification) })
@@ -73,6 +73,17 @@ export class CodexThreadServers extends CodexAppServer {
   }
 
   override async request<M extends CodexMethod>(method: M, params: CodexParams<M>, options?: { readonly timeoutMs?: number; readonly signal?: AbortSignal }): Promise<CodexResult<M>> {
+    // These verbs update process-local tool/config state. Shared files alone
+    // do not reload the servers or skill settings of already open threads.
+    if (method === 'config/mcpServer/reload' || method === 'skills/config/write' ||
+      method === 'plugin/install' || method === 'plugin/uninstall' || method === 'mcpServer/oauth/login') {
+      const workers = [...this.#workers].filter((worker) => worker.roots.size > 0 && !worker.stopping)
+      const result = await super.request(method, params, options)
+      await Promise.all(workers.map(async (worker) => {
+        if (!worker.stopping) await worker.server.request(method, params, options)
+      }))
+      return result
+    }
     const id = params && typeof params === 'object' && 'threadId' in params && typeof params.threadId === 'string'
       ? params.threadId : undefined
     const opening = method === 'thread/start' || method === 'thread/resume' || method === 'thread/fork'

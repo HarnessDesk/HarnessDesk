@@ -1877,6 +1877,15 @@ accounts and catalogue reads belong to the control process, which keeps
 Every process uses the same agent-owned history and configuration; nothing
 rewrites that configuration or shadows real history.
 
+MCP reload and login, plugin install and removal, and skill configuration writes
+are sent to the control process and every open conversation process. Shared
+configuration files do not establish that an already running process reloads
+its tools; the adapter explicitly asks each process to apply these verbs and
+returns the control process's response after all have answered. A process
+already closing is skipped. The fixture regression opens two conversations
+and checks that all three processes receive the reload and settings requests;
+this is not a claim about unmeasured cross-process propagation in the real agent.
+
 A conversation process that fails reports `session/detached` for its own roots,
 clears their live handles and holds their queued messages. It leaves the other
 roots and runtime health alone. Delegated registrations and approvals are

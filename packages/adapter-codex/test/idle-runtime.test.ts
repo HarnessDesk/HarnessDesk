@@ -426,3 +426,54 @@ test('a conversation that crashes during catalogue loading is never registered a
   assert.match(String(result.error), /stopped|not running/)
   assert.equal(d.runtime.session(child.threadId as never), undefined)
 })
+
+test('tool settings reach the control process and every open conversation', async (t) => {
+  const calls = join(tmpdir(), `hd-settings-${randomUUID()}.log`)
+  await writeFile(calls, '')
+  t.after(() => rm(calls, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_PROCESS_CALLS: calls })
+  const first = await d.runtime.createSession({ cwd: d.dir })
+  const second = await d.runtime.createSession({ cwd: d.dir })
+  for (const [method, run] of [
+    ['config/mcpServer/reload', () => d.runtime.extensions.reloadMcp()],
+    ['skills/config/write', () => d.runtime.setSkillEnabled({ name: 'release-notes' }, true)],
+    ['plugin/install', () => d.runtime.extensions.install('official', 'helper')],
+    ['plugin/uninstall', () => d.runtime.extensions.uninstall('helper')],
+    ['mcpServer/oauth/login', () => d.runtime.extensions.mcpLogin('github')],
+  ] as const) {
+    await writeFile(calls, '')
+    await run()
+    const asked = (await readFile(calls, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { method: string; generation: string })
+    assert.deepEqual(asked.filter((call) => call.method === method).map((call) => Number(call.generation)).sort(),
+      [0, 1, 2], method)
+  }
+  await first.close()
+  await second.close()
+})
+
+test('host environment process markers reach distinct conversation processes', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-inherited-env-'))
+  const captured = join(dir, 'process-env.ndjson')
+  await writeFile(captured, '')
+  const keys = ['HARNESSDESK_CODEX_PROCESS_GROUP', 'HARNESSDESK_CODEX_GENERATION'] as const
+  const before = keys.map((key) => process.env[key])
+  t.after(() => keys.forEach((key, index) => {
+    const value = before[index]
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }))
+  process.env.HARNESSDESK_CODEX_PROCESS_GROUP = randomUUID()
+  process.env.HARNESSDESK_CODEX_GENERATION = '0'
+  const runtime = new CodexRuntime({ binaryPath: FAKE, codexHome: dir,
+    env: { FAKE_CODEX_PROCESS_ENV: captured } })
+  t.after(async () => { await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await runtime.start()
+  const first = await runtime.createSession({ cwd: dir })
+  const second = await runtime.createSession({ cwd: dir })
+  assert.notEqual(first.id, second.id)
+  const rows = (await readFile(captured, 'utf8')).trim().split('\n')
+    .map((line) => JSON.parse(line) as { processGroup: string; generation: string })
+  assert.deepEqual(rows.map((row) => row.generation), ['0', '1', '2'])
+  assert.ok(rows.every((row) => row.processGroup === process.env.HARNESSDESK_CODEX_PROCESS_GROUP))
+})

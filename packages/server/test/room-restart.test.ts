@@ -251,22 +251,33 @@ test('a failed reopen while the agent is down does not count against its member'
 })
 
 test('a detached conversation refuses queued mail and cannot answer into the room later', async () => {
-  const { client, runtime, room, member, close } = await boot()
+  const { host, client, runtime, room, member, peers, close } = await boot()
   try {
+    const caller = await member()
     const id = await member()
     const live = runtime.sessions.get(id)!
+    const nickname = (await peers()).find((one) => one.sessionId === id)!.nickname
+    await host.teamPlane.addIntent({ title: 'Before detach' }, { runtime: 'fake', sessionId: id })
+    assert.equal((await peers()).find((one) => one.sessionId === id)?.usedBoard, true)
 
     await client.call('team/post', { room: room.id, text: 'First room message.' })
     await client.call('team/post', { room: room.id, text: 'Queued room message.' })
+    const waiting = host.teamPlane.awaitMember({ runtime: 'fake', sessionId: caller, invocation: 'detach-wait' },
+      { member: nickname, cycle: 4, blockMs: 1_000 })
     runtime.emit({ type: 'session/detached', sessionId: live.id })
+    assert.equal(await waiting, 'stopped: The conversation process stopped before the message was read.; cycle: 5')
 
     let state = await client.call('team/state', { room: room.id }) as TeamState
     let posts = state.channel.filter((entry): entry is TeamMessage => entry.kind === 'message')
     assert.equal(posts.at(-1)?.state, 'refused')
     assert.match(posts.at(-1)?.reason ?? '', /conversation process stopped before the message was read/)
 
-    await live.send([{ type: 'text', text: 'Direct follow-up.' }])
-    live.finish('Direct answer after detach.')
+    await client.call('session/resume', { runtime: 'fake', sessionId: id })
+    assert.equal((await peers()).find((one) => one.sessionId === id)?.usedBoard, false,
+      'a reopened member has no board proof from the lost process')
+    const reopened = runtime.sessions.get(id)!
+    await reopened.send([{ type: 'text', text: 'Direct follow-up.' }])
+    reopened.finish('Direct answer after detach.')
     state = await client.call('team/state', { room: room.id }) as TeamState
     posts = state.channel.filter((entry): entry is TeamMessage => entry.kind === 'message')
     assert.equal(posts.some((entry) => entry.text === 'Direct answer after detach.'), false,

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord } from '@harnessdesk/protocol'
+import { membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord, type WireNotification } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -111,11 +111,19 @@ test('a single conversation process loss preserves its queue and other working h
     input: [{ type: 'text', text: 'Keep working' }] })
   host.registry.enqueue(record, 'waiting', [{ type: 'text', text: 'Follow up' }])
   const live = working.live
+  const notifications: WireNotification[] = []
+  const unsubscribe = host.addBroadcaster((notification) => notifications.push(notification))
+  t.after(unsubscribe)
   runtime.emit({ type: 'session/detached', sessionId: first.id as never })
   assert.equal(record.live, null)
   assert.equal(record.detached, true)
   assert.equal(record.queue.status, 'paused')
   assert.equal(record.queue.messages[0]?.id, 'waiting')
+  const queue = notifications.flatMap((one) => one.method === 'event' ? [one.params.event] : [])
+    .find((event) => event.type === 'session/queue' && event.sessionId === first.id)
+  assert.ok(queue && queue.type === 'session/queue', 'detach pushes the queue to connected windows')
+  assert.equal(queue.queue.status, 'paused')
+  assert.equal(queue.queue.messages[0]?.id, 'waiting')
   assert.equal(working.live, live)
   assert.ok(working.running.size > 0)
   assert.equal(runtime.stops, 0)
