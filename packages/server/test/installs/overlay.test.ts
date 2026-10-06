@@ -133,12 +133,27 @@ test('native commit credit follows the executable command, never the row id', ()
   const claude = knownAgent('claude-code')!
   const cursor = knownAgent('cursor')!
   const claudeCredit = Reflect.get(claude, 'coAuthor')
+  const cursorCredit = Reflect.get(cursor, 'coAuthor')
   const creditOf = (row: Parameters<typeof knowledgeOverlay>[0], known: Parameters<typeof knowledgeOverlay>[1]) =>
     Reflect.get(knowledgeOverlay(row, known, { env: {} }), 'coAuthor')
+  const shippedClaudeRow: Parameters<typeof knowledgeOverlay>[0] = {
+    id: 'claude-code',
+    name: 'Claude Code',
+    command: '/usr/local/bin/node',
+    executable: { command: 'claude', env: 'CLAUDE_CODE_EXECUTABLE' },
+  }
+  const shippedCursorRow: Parameters<typeof knowledgeOverlay>[0] = {
+    id: 'cursor',
+    name: 'Cursor',
+    command: '/usr/local/bin/node',
+    executable: { command: 'cursor-agent', env: 'CURSOR_AGENT_EXECUTABLE' },
+  }
 
   assert.ok(claudeCredit, 'native credits live in the known-agent table')
-  assert.deepEqual(creditOf({ id: 'claude-code', name: 'Claude', command: 'claude' }, claude), claudeCredit,
+  assert.deepEqual(creditOf(shippedClaudeRow, claude), claudeCredit,
     'the shipped Claude template is credited')
+  assert.deepEqual(creditOf(shippedCursorRow, cursor), cursorCredit,
+    'the shipped Cursor template is credited')
   assert.deepEqual(creditOf({ id: 'renamed-claude', name: 'My Claude', command: '/vendor/bin/claude' }, undefined), claudeCredit,
     'a person-named row running the Claude CLI is credited')
   assert.equal(creditOf({ id: 'cursor', name: 'Unrelated', command: 'unrelated-agent' }, cursor), null,

@@ -239,6 +239,18 @@ interface GitConfig {
   reviewSignature?: string
 }
 
+/** Keep role words identical across descriptions, reviews and comments. */
+const ROLE_CHARACTER_CLASS = 'a-z0-9-'
+const ROLE_LIMIT = 32
+const UNSUPPORTED_ROLE_CHARACTERS = new RegExp(`[^${ROLE_CHARACTER_CLASS}]+`, 'gi')
+const AUTHOR_ROLE = new RegExp(`^[a-z][${ROLE_CHARACTER_CLASS}]{0,${ROLE_LIMIT - 1}}$`, 'i')
+const normalizeRole = (value: string): string => {
+  let role = value.replace(UNSUPPORTED_ROLE_CHARACTERS, '-').replace(/^-+|-+$/g, '')
+  if (!role) role = 'role'
+  if (!/^[a-z]/i.test(role)) role = `role-${role}`
+  return role.slice(0, ROLE_LIMIT).replace(/-+$/g, '') || 'role'
+}
+
 /**
  * A template with the seat's parts filled in. A part that resolves to
  * nothing takes its separator with it — an agent with no effort control
@@ -246,7 +258,10 @@ interface GitConfig {
  * blank is no signature at all.
  */
 export const renderSignature = (template: string, seat: ForgeSeat): string => {
-  const role = seat.role ?? ''
+  const role = seat.role ? normalizeRole(seat.role) : ''
+  const displayRole = ['writer', 'reviewer', 'fixer'].includes(role.toLowerCase())
+    ? role.charAt(0).toUpperCase() + role.slice(1)
+    : role
   const parts: Record<string, string> = {
     seat: seat.label,
     agent: seat.agent,
@@ -254,7 +269,7 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
     effort: seat.effort ?? '',
     version: seat.version ?? '',
     thinking: seat.thinking ? 'Thinking' : '',
-    role: ['writer', 'reviewer', 'fixer'].includes(role) ? role.charAt(0).toUpperCase() + role.slice(1) : role,
+    role: displayRole,
     round: seat.round != null && seat.round > 1 ? `round ${seat.round}` : '',
     team: seat.team ?? '',
   }
@@ -318,29 +333,34 @@ interface DescriptionAuthor {
   readonly round?: number | null
 }
 
-const AUTHOR_ROLE = /^[a-z][a-z0-9-]{0,31}$/i
-const safeAuthorLabel = (value: string): boolean =>
-  Array.from(value).length <= 80 && !/[\[\]()<>*_`\r\n]/.test(value)
-const safeAuthorPart = (value: unknown): boolean =>
-  value === undefined || value === null || (typeof value === 'string' && safeAuthorLabel(value))
-
-/** Flow role ids are arbitrary strings; retain a bounded, plain-text form in the marker. */
-const sanitizeAuthorRole = (value: string): string => {
-  let role = value.replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '')
-  if (!role) role = 'role'
-  if (!/^[a-z]/i.test(role)) role = `role-${role}`
-  return role.slice(0, 32).replace(/-+$/g, '') || 'role'
+const DESCRIPTION_PART_LIMIT = 80
+const DESCRIPTION_CHARACTER_CLASS = String.raw`\p{L}\p{N} .,: '()+/·-`
+const DESCRIPTION_TEXT = new RegExp(`^[${DESCRIPTION_CHARACTER_CLASS}]*$`, 'u')
+const UNSUPPORTED_DESCRIPTION_CHARACTERS = new RegExp(`[^${DESCRIPTION_CHARACTER_CLASS}]+`, 'gu')
+const DESCRIPTION_LINK_FORM = /:\/\/|www\.|gh-\d+/i
+const isDescriptionText = (value: unknown): value is string =>
+  typeof value === 'string' && Array.from(value).length <= DESCRIPTION_PART_LIMIT &&
+  DESCRIPTION_TEXT.test(value) && !DESCRIPTION_LINK_FORM.test(value)
+const isOptionalDescriptionText = (value: unknown): boolean =>
+  value === undefined || value === null || isDescriptionText(value)
+const normalizeAuthorLabel = (value: string): string => {
+  const plain = value.replace(UNSUPPORTED_DESCRIPTION_CHARACTERS, ' ')
+    .replace(/:\/\/|www\.|gh-\d+/gi, ' ').replace(/ +/g, ' ').trim()
+  const characters = Array.from(plain)
+  return characters.length <= DESCRIPTION_PART_LIMIT
+    ? plain
+    : `${characters.slice(0, DESCRIPTION_PART_LIMIT - 3).join('')}...`
 }
 
 const isDescriptionAuthor = (entry: unknown): entry is DescriptionAuthor => {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false
   const author = entry as Record<string, unknown>
   const round = author.round
-  return (author.role === null || (typeof author.role === 'string' && AUTHOR_ROLE.test(author.role))) &&
-    typeof author.agent === 'string' && typeof author.label === 'string' && safeAuthorLabel(author.label) &&
-    safeAuthorPart(author.model) && safeAuthorPart(author.effort) && safeAuthorPart(author.version) &&
+  return (author.role === null || (isDescriptionText(author.role) && AUTHOR_ROLE.test(author.role))) &&
+    isDescriptionText(author.agent) && isDescriptionText(author.label) &&
+    isOptionalDescriptionText(author.model) && isOptionalDescriptionText(author.effort) && isOptionalDescriptionText(author.version) &&
     (author.thinking === undefined || typeof author.thinking === 'boolean') &&
-    (author.team === undefined || author.team === null || typeof author.team === 'string') &&
+    isOptionalDescriptionText(author.team) &&
     (round === undefined || round === null || (typeof round === 'number' && Number.isSafeInteger(round) && round >= 1 && round <= 99))
 }
 
@@ -378,21 +398,33 @@ const authorForTemplate = (author: DescriptionAuthor, template: string): Descrip
   ...(template.includes('{round}') && author.round !== undefined ? { round: author.round } : {}),
 })
 
+const normalizeAuthorPart = (value: string | null): string | null =>
+  value === null ? null : normalizeAuthorLabel(value)
+
 const descriptionAuthor = (seat: ForgeSeat, template: string): DescriptionAuthor | null => {
-  if (!safeAuthorLabel(seat.label) || typeof seat.agent !== 'string') return null
   if (template.includes('{round}') && seat.round !== null && seat.round !== undefined &&
     (!Number.isSafeInteger(seat.round) || seat.round < 1 || seat.round > 99)) return null
-  return authorForTemplate({
-    role: seat.role === null ? null : sanitizeAuthorRole(seat.role),
-    agent: seat.agent,
-    label: seat.label,
-    model: seat.model,
-    effort: seat.effort,
-    version: seat.version,
+  const author = authorForTemplate({
+    role: seat.role === null ? null : normalizeRole(seat.role),
+    agent: template.includes('{agent}') ? seat.agent : normalizeAuthorLabel(seat.agent),
+    label: normalizeAuthorLabel(seat.label),
+    model: normalizeAuthorPart(seat.model),
+    effort: normalizeAuthorPart(seat.effort),
+    version: normalizeAuthorPart(seat.version),
     thinking: seat.thinking,
-    team: seat.team,
+    team: normalizeAuthorPart(seat.team),
     round: seat.round,
   }, template)
+  return isDescriptionAuthor(author) ? author : null
+}
+
+const descriptionSignatureLine = (
+  seat: ForgeSeat | null,
+  signed: { readonly line: string | null; readonly template: string },
+): string | null => {
+  if (!seat || signed.line === null || signed.template.trim() === '') return signed.line
+  const author = descriptionAuthor(seat, signed.template)
+  return author ? renderSignature(signed.template, forgeSeatFromAuthor(author)) : null
 }
 
 const forgeSeatFromAuthor = (author: DescriptionAuthor): ForgeSeat => ({
@@ -412,11 +444,8 @@ export const signDescription = (body: string, template: string, seat: ForgeSeat 
   const previous = previousSignature(previousBody)
   if (template.trim() === '') return signBody(body, null, previous)
   const authors = authorsOf(previousBody)
-  const publicationSeat = seat ? {
-    ...seat,
-    role: seat.role === null ? null : sanitizeAuthorRole(seat.role),
-  } : null
-  const current = publicationSeat ? descriptionAuthor(publicationSeat, template) : null
+  const current = seat ? descriptionAuthor(seat, template) : null
+  const publicationSeat = current ? forgeSeatFromAuthor(current) : null
   if (current) {
     const index = authors.findIndex((author) => author.role === current.role && author.agent === current.agent)
     if (index >= 0) authors[index] = current
@@ -424,7 +453,7 @@ export const signDescription = (body: string, template: string, seat: ForgeSeat 
   }
   const retained = authors.slice(-8).map((author) => authorForTemplate(author, template))
   if (!retained.length) {
-    const signature = publicationSeat ? renderSignature(template, publicationSeat).trim() : ''
+    const signature = current && publicationSeat ? renderSignature(template, publicationSeat).trim() : ''
     return signBody(body, signature || null, previous)
   }
   const renderSeats = retained.map((author) =>
@@ -453,7 +482,13 @@ export const signDescription = (body: string, template: string, seat: ForgeSeat 
       } else break
     }
     const span = template.slice(start, end)
-    line = template.slice(0, start) + renderSeats.map((author) => renderSignature(span, author)).filter(Boolean).join(' · ') + template.slice(end)
+    const rendered = new Set<string>()
+    const credits = renderSeats.map((author) => renderSignature(span, author)).filter((credit) => {
+      if (!credit || rendered.has(credit)) return false
+      rendered.add(credit)
+      return true
+    })
+    line = template.slice(0, start) + credits.join(' · ') + template.slice(end)
   } else {
     line = renderSignature(template, renderSeats[0]!)
   }
@@ -716,7 +751,7 @@ export const gitPlugin: HarnessPlugin = {
           type: 'string',
           title: 'Description signature',
           description:
-            'Ends the description and keeps each role and seat that wrote it.',
+            'Ends the description and keeps the latest seat for each role and agent pair.',
           default: DEFAULT_SIGNATURE,
         },
         reviewSignature: {
@@ -890,6 +925,16 @@ export const gitPlugin: HarnessPlugin = {
               ? 'Unsigned: the signature template produced nothing for this seat.'
               : 'Unsigned: the signature is switched off in the Git plugin’s settings.'
 
+      const descriptionSeatNote = (
+        seat: ForgeSeat | null,
+        signed: { readonly line: string | null; readonly template: string; readonly why: 'seat' | 'blank' | 'empty' | null },
+      ): string => {
+        if (seat && signed.line !== null && signed.template.trim() !== '' && descriptionAuthor(seat, signed.template) === null) {
+          return 'Description credit not kept: the seat contains text that cannot be retained safely.'
+        }
+        return seatNote(seat, signed)
+      }
+
       const describePullRequest = (pr: GhPullRequest): string => {
         const state = stateOf(pr)
         const head = [
@@ -1056,10 +1101,15 @@ export const gitPlugin: HarnessPlugin = {
           const url = created.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? ''
           const pr = await viewPullRequest(url || branch)
           const note = await publish(
-            referenceOf(pr, { kind: 'pullRequest', action: 'opened', via: await viaOf(scope), signature: signed.line }),
+            referenceOf(pr, {
+              kind: 'pullRequest',
+              action: 'opened',
+              via: await viaOf(scope),
+              signature: descriptionSignatureLine(seat, signed),
+            }),
             scope,
           )
-          return [`Opened pull request #${pr.number}: ${pr.title}`, pr.url, seatNote(seat, signed), note]
+          return [`Opened pull request #${pr.number}: ${pr.title}`, pr.url, descriptionSeatNote(seat, signed), note]
             .filter((line) => line !== null && line !== '')
             .join('\n')
         },
@@ -1113,7 +1163,7 @@ export const gitPlugin: HarnessPlugin = {
           return [
             `Updated pull request #${pr.number}: ${pr.title}`,
             pr.url,
-            typeof args.body === 'string' ? seatNote(seat, signed) : null,
+            typeof args.body === 'string' ? descriptionSeatNote(seat, signed) : null,
             note,
           ]
             .filter((line) => line !== null && line !== '')
