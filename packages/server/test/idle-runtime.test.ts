@@ -905,6 +905,54 @@ test('a terminal beside another runtime wakes its idle process provider exactly 
   assert.equal(attached.exitCode, null)
 })
 
+test('two terminals opened during a provider startup share the same start', async (t) => {
+  class StartingRuntime extends IdleRuntime {
+    override async start(): Promise<void> {
+      if (this.starts > 0) this.setHealth({ state: 'starting' })
+      await super.start()
+    }
+  }
+  const provider = new StartingRuntime({ id: 'starting-terminal-provider' as never, name: 'Terminal Provider' })
+  const requested = new FakeRuntime({ id: 'starting-conversation-agent' as never, name: 'Conversation Agent' })
+  Object.defineProperty(requested, 'processes', { value: undefined })
+  const { host, stateDir } = await makeHost(provider)
+  host.register(requested)
+  t.after(async () => {
+    provider.continueStart()
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.call('workspace/open', { path: stateDir })
+  await host.start()
+  await until(() => provider.health().state === 'idle')
+
+  const starting = new Promise<void>((resolve) => {
+    const unsubscribe = provider.onHealthChange((health) => {
+      if (health.state !== 'starting') return
+      unsubscribe()
+      resolve()
+    })
+  })
+  const starts = provider.starts
+  provider.holdNextStart()
+  const first = host.call('terminal/open', {
+    runtime: requested.info.id, cwd: stateDir, size: { rows: 24, cols: 80 },
+  })
+  await starting
+  const second = host.call('terminal/open', {
+    runtime: requested.info.id, cwd: stateDir, size: { rows: 24, cols: 80 },
+  })
+  const results = Promise.allSettled([first, second])
+
+  assert.equal(provider.starts, starts + 1, 'both terminal opens share the held start')
+  assert.equal(provider.spawned.length, 0, 'both spawns wait for the startup handshake')
+  provider.continueStart()
+  const settled = await results
+  assert.ok(settled.every((result) => result.status === 'fulfilled'), 'both opens succeed after startup')
+  assert.equal(provider.starts, starts + 1, 'opening both terminals starts the provider only once')
+  assert.equal(provider.spawned.length, 2)
+})
+
 for (const surface of ['hooks', 'files', 'extensions', 'processes'] as const) {
   test(`${surface} wait for idle stop and shared startup, and protect in-flight work`, async (t) => {
     const runtime = new IdleRuntime({ id: `surface-${surface}` as never, name: 'Surface Test' })

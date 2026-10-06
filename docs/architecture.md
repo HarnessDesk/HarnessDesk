@@ -123,10 +123,13 @@ two policies, one of them weaker. HarnessDesk permanently declines ACP's `fs`
 and `terminal` client capabilities: execution belongs to the agent. Because
 ACP agents expose no command execution for the interface, terminals beside a
 conversation prefer a ready runtime with sandboxed process support
-(`runtime.processes` in `adapter-codex`), then an idle one whose managed spawn
-restarts it through the host's stop/start barrier. Unavailable providers and
-providers offering sign-in with no signed-in account are skipped; when none
-is available, the terminal is refused in the requested agent's name.
+(`runtime.processes` in `adapter-codex`), then one whose start is already in
+progress, then an idle one whose managed spawn starts it through the host's
+stop/start barrier. Among multiple ready providers, one with a signed-in
+account or no sign-in method comes before a signed-out one; account status is
+read only for that comparison, so sign-in never prevents a terminal.
+Unavailable providers are skipped; when none is available, the terminal is
+refused in the requested agent's name.
 
 Sandboxed process startup waits for an acknowledgement, rather than a grace
 timer. The adapter follows `command/exec` with one `command/exec/write` carrying
