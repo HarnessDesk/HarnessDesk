@@ -801,9 +801,12 @@ The Git plugin now signs agent descriptions, reviews and comments as one
 capability, with three editable templates and a blank value disabling each
 kind. Roles come from the stored Seat, Team names from its board and review
 rounds from the run. No Team means no invented role. Writer, Reviewer and
-Fixer are capitalised; a Flow's other role words remain its own.
+Fixer are capitalised. Other role ids use ASCII letters, digits and hyphens; other
+characters become `-`. They are bounded to 32 characters, with `role` used when
+nothing usable remains.
 
-A description keeps every role and seat pair in its hidden signature marker.
+A description keeps the latest seat for each role and agent pair in its hidden
+signature marker.
 Its visible line is rendered under the current template, so a person's edits
 to that line or a new template cannot erase the earlier credits. Legacy
 signatures are upgraded when edited. A review or comment keeps the role and
