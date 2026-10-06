@@ -6,7 +6,7 @@ import { StateStore } from '../src/state.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
-import { runtimeId, runtimeNoticeKey, type AgentEvent } from '@harnessdesk/protocol'
+import { runtimeId, runtimeNoticeKey, sessionId, type AgentEvent, type Session } from '@harnessdesk/protocol'
 import { retainRuntimeNotice, readRuntimeNotices, keepRuntimeInboxEntry, mergeNoticePreferences } from '../src/runtime-notices.js'
 
 const event = (): Extract<AgentEvent, { type: 'notice' }> => ({ type: 'notice', kind: 'runtime:config', class: 'info', level: 'warning', message: 'Ignored settings', detail: { summary: 'Ignored settings', settings: ['features.bogus'], file: '/Users/user/.config/agent.toml' }, id: 'event-1', at: 1 })
@@ -21,6 +21,28 @@ test('runtime information is retained before a client joins, counted and read af
 })
 test('conversation notices never enter runtime information history', () => {
   assert.deepEqual(retainRuntimeNotice([], runtimeId('demo'), { ...event(), kind: 'conversation:warning', class: 'conversation', sessionId: 's1' as never }), [])
+})
+
+test('registration broadcasts early notices to a window that missed their arrival', async t => {
+  const base = tempDir('hd-conversation-notices-')
+  const host = new Host({ logger: silent, state: new StateStore(join(base, 'state.json')), builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime()
+  host.register(runtime)
+  await host.start()
+  const id = sessionId('review')
+  const notice: AgentEvent = { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' }
+  runtime.emit(notice)
+  runtime.emit({ ...notice, id: 'tools-2' })
+  runtime.emit({ ...notice, id: 'tools-3' })
+  const events: AgentEvent[] = []
+  host.addBroadcaster(notification => { if (notification.method === 'event') events.push(notification.params.event) })
+  const session: Session = { id, runtime: runtime.info.id, cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }
+  runtime.emit({ type: 'session/started', session })
+  const opened = events.at(-1)
+  assert.ok(opened?.type === 'session/started')
+  assert.deepEqual(opened.session.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice').map(item => [item.text, item.count]), [['No tools declared', 3]])
+  assert.deepEqual(host.registry.snapshot(), [opened.session], 'registration and cold hydration carry the same host state')
 })
 
 

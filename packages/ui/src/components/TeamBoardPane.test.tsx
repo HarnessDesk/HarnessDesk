@@ -1634,7 +1634,9 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
-    '#2Blocked jobChoose the targetNeeds you · stopped', '#1Recent jobTo do', '#3Finished jobChecking evidence',
+    '#2Blocked jobChoose the targetsrc/api/**Assignee · UnassignedNeeds you · stopped',
+    '#1Recent jobsrc/api/**Assignee · UnassignedTo do',
+    '#3Finished jobsrc/api/**Assignee · —Checking evidence',
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
@@ -1705,6 +1707,17 @@ for (const state of ['done', 'abandoned', 'blocked'] as const) {
     expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'reopen')
   })
 }
+
+it('list repair: dependency-blocked work keeps reopen in the menu, not as a row action', async () => {
+  const { store } = rig([
+    intent({ id: 1, state: 'blocked', blockedBy: 'graph', dependsOn: [2] }),
+    intent({ id: 2, title: 'Finish the dependency' }),
+  ], {}, observed([], []))
+  await showList(store)
+  expect([...listRow(1).querySelectorAll('button')].map(one => one.textContent?.trim())).not.toContain('Put back in play')
+  await pick(1, 'Put back in play')
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'reopen')
+})
 
 for (const state of ['open', 'claimed'] as const) {
   it(`list repair: ${state} keeps Mark done in the menu until chosen`, async () => {
@@ -1794,6 +1807,34 @@ it('list repair: Needs you carries the placement reason and searches number, ass
     })
     expect(container.querySelectorAll('tbody tr'), word).toHaveLength(1)
   }
+})
+
+it('list repair: finished rows show and search their outcome and owned files', async () => {
+  const { store } = rig([intent({ id: 42, state: 'done', outcome: 'request-changes', files: ['src/retry/**'] })], {},
+    observed([], [cardEvidence(42, [checkView({ card: 42 })])] ))
+  await showList(store)
+  expect(listRow(42).textContent).toContain('request-changes')
+  expect(listRow(42).textContent).toContain('src/retry/**')
+  const filter = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  for (const word of ['request-changes', 'src/retry/**']) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, word)
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect([...container.querySelectorAll('tbody tr')].map(one => one.getAttribute('data-job')), word).toEqual(['42'])
+  }
+})
+
+it('list repair: searching a drawn Checking evidence state finds the finished job', async () => {
+  const { store } = rig([intent({ state: 'done' })])
+  await showList(store)
+  expect(listRow().textContent).toContain('Checking evidence')
+  const filter = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, 'checking')
+    filter.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(container.querySelectorAll('tbody tr')).toHaveLength(1)
 })
 
 it('list repair: all-empty evidence columns are optional, but still offered by View', async () => {

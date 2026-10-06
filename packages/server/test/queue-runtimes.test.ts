@@ -66,7 +66,7 @@ const shapes: readonly RuntimeShape[] = [
           if (id === 'model' && forceReadbackMismatch) {
             // Arrives after registration: housekeeping alone does not use a seat.
             const record = harness.host.registry.get(this.id, session.id)!
-            record.session = { ...record.session, turns: [{ id: 'housekeeping' as never,
+            record.session = { ...record.session, turns: [{ id: 'notice:housekeeping' as never,
               status: 'completed', items: [{ type: 'notice', id: 'housekeeping' as never,
                 text: 'Tools are ready.' }] }] }
             return

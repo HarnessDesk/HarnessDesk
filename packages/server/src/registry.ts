@@ -1,6 +1,7 @@
 import {
   emptyQueue,
   mergeRead,
+  PendingConversationNotices,
   permissionOfCeiling,
   preserveNoticeItems,
   reduceSession,
@@ -40,7 +41,7 @@ const hasQueuedContent = (input: readonly UserContent[]): boolean =>
 
 export interface SessionRecord {
   /** Host-assigned shell checkout, separate from every runtime read and replay. */
-  shellCheckout: { readonly project: string; readonly cwd: string } | null
+  shellCheckout: { readonly project: string; readonly cwd: string; readonly source: 'own' | 'fallback' } | null
   session: Session
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */
@@ -251,6 +252,7 @@ const charsOf = (input: readonly UserContent[]): number =>
  */
 export class SessionRegistry {
   readonly #records = new Map<SessionKey, SessionRecord>()
+  readonly #pendingNotices = new PendingConversationNotices()
   /**
    * Where a conversation seen for the first time learns which Agent it was
    * seated as, from the desk's durable Seat records — so a restarted desk shows
@@ -276,6 +278,7 @@ export class SessionRegistry {
    * never resolves.
    */
   upsert(session: Session, live: AgentSession | null): SessionRecord {
+    session = this.#pendingNotices.apply(session)
     const existing = this.#records.get(sessionKey(session.runtime, session.id))
     if (existing) {
       existing.session = seatedSession(
@@ -357,6 +360,7 @@ export class SessionRegistry {
   }
 
   delete(runtime: RuntimeId, id: SessionId): void {
+    this.#pendingNotices.delete(runtime, id)
     this.#records.delete(sessionKey(runtime, id))
   }
 
@@ -523,7 +527,11 @@ export class SessionRegistry {
     const target = sessionOf(event)
     if (!target) return undefined
     const record = this.get(runtime, target)
-    if (!record) return undefined
+    if (!record) {
+      if (event.type === 'session/closed') this.#pendingNotices.delete(runtime, target)
+      else this.#pendingNotices.keep(runtime, event)
+      return undefined
+    }
     record.session = seatedSession(reduceSession(record.session, event), record.seatedAs)
     return record
   }
