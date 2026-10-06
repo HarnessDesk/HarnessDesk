@@ -13,6 +13,7 @@ import {
   reduceSession,
   sessionKey,
   splitSessionKey,
+  typedUserText,
   type AccountStatus,
   type ExtensionEvent,
   type PluginInstance,
@@ -144,7 +145,7 @@ import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatc
 import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
-import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
+import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
@@ -2538,7 +2539,7 @@ export class AppStore {
       .flatMap((turn) => turn.items)
       .filter((item): item is Extract<AgentItem, { type: 'userMessage' }> => item.type === 'userMessage')
       // By the rule every adapter's preview follows (review of #231).
-      .map((item) => openingOf(item.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')))
+      .map((item) => openingOfContent(item.content))
       .find((text) => text.length > 0)
     const title = shortLabel(sessionLabel(summary?.title ?? open?.title, summary?.preview || firstAsk), 120)
     this.#parkedHandoff = null
@@ -3791,7 +3792,9 @@ export class AppStore {
       ? DOCKS.reduce((current, area) => {
           const entries = dockViews(current[area])
           const runOnly = entries.length > 0 && entries.every(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
-          return runOnly ? collapseDockIn(current, area, true) : current
+          if (runOnly) return collapseDockIn(current, area, true)
+          return entries.filter(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
+            .reduce((next, one) => undockIn(next, one.id), current)
         }, rehomed)
       : null
     const workbench = restored ?? emptyWorkbench()
@@ -6400,10 +6403,7 @@ export class AppStore {
       for (const turn of session.turns) {
         for (const item of turn.items) {
           if (item.type === 'userMessage') {
-            const text = item.content
-              .filter((part) => part.type === 'text')
-              .map((part) => (part.type === 'text' ? part.text : ''))
-              .join(' ')
+            const text = typedUserText(item.content)
             if (text.trim()) lines.push(`Asked: ${text.trim().slice(0, 400)}`)
           }
           if (item.type === 'assistantMessage' && item.phase !== 'commentary') {

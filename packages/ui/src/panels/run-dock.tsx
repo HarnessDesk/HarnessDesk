@@ -4,6 +4,7 @@ import { PanelEmpty } from '../design'
 import { RunInspector, type RunInspectorProps } from '../components/RunInspector'
 import { RunSteps } from '../components/RunSteps'
 import type { ComponentProps } from 'react'
+import type { DockId } from '../state/workbench'
 
 export interface RunDockContent {
   readonly inspector: RunInspectorProps
@@ -11,34 +12,30 @@ export interface RunDockContent {
 }
 const registry = () => {
   let content = new Map<string, RunDockContent>()
-  const producers = new Map<string, object>()
   const listeners = new Set<() => void>()
-  const collapsedOnLeave = new Set<string>()
-  const returnTabs = new Map<string, { area: 'right' | 'bottom' | 'sidebar'; id: string }>()
+  const collapsedOnLeave = new Set<DockId>()
+  const returnTabs = new Map<DockId, { id: string; collapsed: boolean }>()
   return {
     getSnapshot: () => content,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
-    markCollapsedOnLeave: (owner: string) => { collapsedOnLeave.add(owner) },
-    takeCollapsedOnLeave: (owner: string) => {
-      const collapsed = collapsedOnLeave.delete(owner)
+    markCollapsedOnLeave: (area: DockId) => { collapsedOnLeave.add(area) },
+    takeCollapsedOnLeave: (area: DockId) => {
+      const collapsed = collapsedOnLeave.delete(area)
       return collapsed
     },
-    rememberReturnTab: (owner: string, tab: { area: 'right' | 'bottom' | 'sidebar'; id: string } | null) => {
-      if (tab) returnTabs.set(owner, tab)
-      else returnTabs.delete(owner)
+    rememberReturnTab: (area: DockId, tab: { id: string; collapsed: boolean } | null) => {
+      if (tab) returnTabs.set(area, tab)
+      else returnTabs.delete(area)
     },
-    getReturnTab: (owner: string) => returnTabs.get(owner) ?? null,
-    clearReturnTab: (owner: string) => { returnTabs.delete(owner) },
-    isPublishedBy: (owner: string, producer: object) => producers.get(owner) === producer,
-    publish: (owner: string, next: RunDockContent, producer: object) => {
+    getReturnTab: (area: DockId) => returnTabs.get(area) ?? null,
+    clearReturnTab: (area: DockId) => { returnTabs.delete(area) },
+    publish: (owner: string, next: RunDockContent) => {
       content = new Map(content).set(owner, next)
-      producers.set(owner, producer)
       for (const listener of listeners) listener()
       return () => {
         if (content.get(owner) !== next) return
         content = new Map(content)
         content.delete(owner)
-        producers.delete(owner)
         for (const listener of listeners) listener()
       }
     },
