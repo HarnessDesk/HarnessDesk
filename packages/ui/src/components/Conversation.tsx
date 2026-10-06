@@ -140,9 +140,11 @@ const STATUS_PILL_TONE: Record<PaneStatus, Tone> = {
 const NEAR_BOTTOM_PX = 120
 
 const ConversationEmpty = ({
+  height,
   onSignIn,
   onOpenRuntimes,
 }: {
+  height?: 'pane' | 'content'
   onSignIn: (runtime?: RuntimeId) => void
   onOpenRuntimes: () => void
 }) => {
@@ -167,7 +169,7 @@ const ConversationEmpty = ({
     // next move per agent. A dead agent's empty pane is exactly where the
     // user is standing when they need to know what else would work.
     return (
-      <ConversationEmptyState>
+      <ConversationEmptyState height={height}>
         <EmptyTitle>{words.name} isn’t available</EmptyTitle>
         <EmptyBody>
           {health.message}
@@ -184,7 +186,7 @@ const ConversationEmpty = ({
     const driveable = account.signInMethods.some((method) => method.flow !== 'external')
     const external = account.signInMethods.find((method) => method.flow === 'external')
     return (
-      <ConversationEmptyState>
+      <ConversationEmptyState height={height}>
         <EmptyTitle>Sign in to {words.name}</EmptyTitle>
         <EmptyBody>
           HarnessDesk uses your existing {words.name} installation and never stores your
@@ -216,7 +218,7 @@ const ConversationEmpty = ({
       : null
   if (blocked) {
     return (
-      <ConversationEmptyState>
+      <ConversationEmptyState height={height}>
         <EmptyTitle>{blocked.title}</EmptyTitle>
         <EmptyBody>
           {words.name} is signed in and healthy. {blocked.detail}
@@ -226,7 +228,7 @@ const ConversationEmpty = ({
   }
 
   return (
-    <ConversationEmptyState>
+    <ConversationEmptyState height={height}>
       <EmptyTitle>What should we build?</EmptyTitle>
       <EmptyBody>
         {folder
@@ -597,15 +599,16 @@ export const Conversation = ({
 
   const items = useMemo(() => (session ? allItems(session) : []), [session])
   const hasRealTurn = session?.turns.some(turn => !isNoticeTurn(turn)) ?? false
+  const emptyHeight = !hasRealTurn && items.length > 0 ? 'content' : 'pane'
   const emptyState = session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
-    <ConversationEmptyState>
+    <ConversationEmptyState height={emptyHeight}>
       <EmptyTitle>Nothing to show</EmptyTitle>
       <EmptyBody>
         {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The agent'}{' '}
         couldn’t restore this conversation’s messages. Sending a message continues the same session.
       </EmptyBody>
     </ConversationEmptyState>
-  ) : <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
+  ) : <ConversationEmpty height={emptyHeight} onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
   const busy = session ? isBusy(session) : false
   const live = session ? currentTurn(session) : undefined
 

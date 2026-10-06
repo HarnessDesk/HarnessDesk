@@ -134,6 +134,7 @@ const expectNoticeBelowEmptyState = () => {
   const empty = transcript?.querySelector('[data-slot="conversation-empty-state"]')
   const notice = transcript?.querySelector('[data-turn^="notice:"]')
   expect(empty).not.toBeNull()
+  expect(empty?.getAttribute('data-height')).toBe('content')
   expect(notice).not.toBeNull()
   expect(empty!.compareDocumentPosition(notice!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 }
