@@ -45,6 +45,7 @@ import {
   type HookVerdict,
   type PluginInstance,
   type ScopeQuery,
+  type WorkspaceAdmission,
   type SessionId,
   type ToolResult,
   type UiDecoration,
@@ -1070,18 +1071,22 @@ export class SupervisedExtensionHost {
     return [...this.#kernel.plugins(), ...this.#child.plugins]
   }
 
-  #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<string | undefined> = async (scope) => scope.workspaceRoot
+  #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined> = async (scope) => scope.workspaceRoot === undefined
+    ? undefined : { root: scope.workspaceRoot, enterCheckout: scope.enterCheckout === true }
 
   /** Resolve in the parent: installed plugins never get a shell-root setter. */
-  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void {
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined>): void {
     this.#shellWorkspaceResolver = resolve
     this.#kernel.setShellWorkspaceResolver(resolve)
   }
 
   async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
-    const { workspaceRoot: _hint, ...identity } = scope
-    const workspaceRoot = await this.#shellWorkspaceResolver(scope)
-    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }))
+    const { workspaceRoot: _hint, enterCheckout: _mode, ...identity } = scope
+    const admitted = await this.#shellWorkspaceResolver(scope)
+    const workspaceRoot = typeof admitted === 'string' ? admitted : admitted?.root
+    const enterCheckout = typeof admitted === 'object' && admitted.enterCheckout
+    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+      ...(enterCheckout ? { enterCheckout: true } : {}) }))
   }
 
   setBrowserResolver(resolve: (scope: ScopeQuery) => string | undefined): void {

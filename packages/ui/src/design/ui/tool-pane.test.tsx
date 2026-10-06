@@ -169,3 +169,11 @@ it('draws a document tab’s part in a reorder with the sortable part’s own ma
   const classes = host.firstElementChild?.className.split(' ') ?? []
   for (const token of sortableItemClass('horizontal').split(' ')) expect(classes).toContain(token)
 })
+
+it('a reading-table header owns the same content inset as its table', () => {
+  const header = renderToStaticMarkup(<ToolPaneHeader title="Jobs" contentInset="reading-table" />)
+  expect(header).toContain('pl-[calc(var(--hd-space-6)+var(--hd-table-edge))]')
+  expect(header).toContain('pr-(--hd-space-6)')
+  const withIcon = renderToStaticMarkup(<ToolPaneHeader title="Jobs" icon={<span>mark</span>} contentInset="reading-table" />)
+  expect(withIcon).toContain('pl-[calc(var(--hd-space-6)+var(--hd-table-edge)-var(--hd-space-4)-var(--hd-bar-gap))]')
+})

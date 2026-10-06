@@ -6,6 +6,7 @@ import {
   runtimeId,
   sessionId,
   turnId,
+  type AgentEvent,
   type Session,
   type Turn,
 } from '@harnessdesk/protocol'
@@ -43,6 +44,42 @@ const turn = (id: string, status: Turn['status'], items: number): Turn => ({
     type: 'assistantMessage' as const,
     text: `part ${index}`,
   })),
+})
+
+for (const noticeFirst of [true, false]) {
+  test(`an empty registry keeps conversation notices with registration ${noticeFirst ? 'last' : 'first'}`, () => {
+    const registry = new SessionRegistry()
+    const notice: AgentEvent = { type: 'notice', sessionId: ID, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' }
+    const repeated: AgentEvent = { ...notice, id: 'tools-2' }
+    const opened: AgentEvent = { type: 'session/started', session: session([]) }
+    for (const event of noticeFirst ? [notice, repeated, repeated, opened] : [opened, notice, repeated, repeated]) {
+      registry.apply(RUNTIME, event)
+    }
+    const registered = registry.snapshot()[0]!
+    assert.deepEqual(registered.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice').map(item => [item.text, item.count]), [['No tools declared', 2]])
+    registry.apply(RUNTIME, opened)
+    registry.apply(RUNTIME, { type: 'turn/started', sessionId: ID, turn: turn('review', 'inProgress', 0) })
+    registry.apply(RUNTIME, repeated)
+    const held = registry.snapshot()[0]!
+    assert.deepEqual(held.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice').map(item => [item.text, item.count]), [['No tools declared', 2]])
+    assert.equal(held.turns.some(turn => String(turn.id).startsWith('notice:')), false)
+  })
+}
+
+test('pending notices belong to one runtime and are consumed by a read or discarded on deletion', () => {
+  const registry = new SessionRegistry()
+  const other = runtimeId('other')
+  registry.apply(RUNTIME, { type: 'notice', sessionId: ID, level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  assert.deepEqual(registry.snapshot(), [], 'a notice cannot invent conversation metadata')
+  assert.deepEqual(registry.upsert(session([], { runtime: other }), null).session.turns, [])
+  const registered = registry.upsert(session([]), null).session
+  assert.equal(registered.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice').length, 1)
+  registry.delete(RUNTIME, ID)
+  assert.deepEqual(registry.upsert(session([]), null).session.turns, [], 'the consumed buffer cannot replay on another registration')
+  const missing = sessionId('missing')
+  registry.apply(RUNTIME, { type: 'notice', sessionId: missing, level: 'warning', message: 'No tools declared' })
+  registry.delete(RUNTIME, missing)
+  assert.deepEqual(registry.upsert(session([], { id: missing }), null).session.turns, [], 'deletion discards an unregistered conversation too')
 })
 
 test('a read never takes away a turn the host watched, nor its items', (t) => {
