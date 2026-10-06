@@ -261,7 +261,7 @@ jobs:
         with:
           name: HarnessDesk-unsigned
           path: packages/desktop/release/mac-*/HarnessDesk.app
-          retention-days: 7
+          retention-days: 1
 
   ui-system-browser:
     needs: changes
@@ -301,7 +301,7 @@ jobs:
         with:
           name: ui-system-browser-report-${{ matrix.shard }}
           path: output/playwright/ui-system/
-          retention-days: 7
+          retention-days: 3
 
   ui-system-server:
     needs: changes
@@ -335,11 +335,11 @@ jobs:
           pnpm test:ui-system "${specs[@]}"
 
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure()
         with:
           name: ui-system-server-report
           path: output/playwright/ui-system/
-          retention-days: 7
+          retention-days: 3
 
   ui-system-browser-integration:
     name: UI system browser integration
@@ -392,11 +392,11 @@ jobs:
       - run: pnpm test:ui-system:native
 
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure()
         with:
           name: ui-system-native-report
           path: output/native-ui-system/
-          retention-days: 7
+          retention-days: 3
 
   ui-system-native-integration:
     name: UI system native integration
