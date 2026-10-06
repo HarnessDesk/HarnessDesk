@@ -10,6 +10,8 @@ import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
   wrapContext,
+  deskContextContent,
+  splitContextContent,
   findOption,
   OptionRefusedError,
   refuseOptionValue,
@@ -4025,12 +4027,14 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
     'the silent order to finish',
   )
   const request = 'Continue with the person\'s request.'
+  const pastedWrapper = wrapContext('Pasted elsewhere', 'keep this wrapper as typed text')
+  const typed = `${request}\n\n${pastedWrapper}`
   await client.call('turn/send', {
     runtime: session.runtime,
     sessionId: session.id,
     input: [
-      { type: 'text', text: wrapContext('Git', 'Status: ## main') },
-      { type: 'text', text: request },
+      deskContextContent(wrapContext('Git', 'Status: ## main')),
+      { type: 'text', text: typed },
     ],
   })
 
@@ -4042,10 +4046,12 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
     .flatMap((turn) => turn.items)
     .filter((item) => item.type === 'userMessage')
   assert.equal(spoken.length, 1, 'only the person\'s follow-up is speech')
-  const spokenText = spoken.flatMap((item) =>
-    item.type === 'userMessage' ? item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])) : [],
-  )
-  assert.ok(spokenText.includes(request), 'the normal message is recorded in the person\'s voice')
+  const message = spoken.find((item) => item.type === 'userMessage')
+  assert.ok(message && message.type === 'userMessage')
+  assert.deepEqual(splitContextContent(message.content), {
+    injections: [{ label: 'Git', text: 'Status: ## main' }],
+    text: typed,
+  })
   const summary = (await runtime.listSessions()).data.find((row) => row.id === session.id)
   assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
   // `agent/seat` names the conversation before handing over its silent order,

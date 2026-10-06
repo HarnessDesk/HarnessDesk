@@ -7,6 +7,8 @@ import {
   sessionId,
   sessionKey,
   turnId,
+  deskContextContent,
+  wrapContext,
   type AgentEvent,
   type HostMethodName,
   type RuntimeId,
@@ -358,6 +360,27 @@ describe('which agent a conversation is read from', () => {
     await store.summariseSession(ID, OTHER)
 
     expect(reads).toEqual([OTHER])
+  })
+
+  it('summarises typed words after a composed hand-off packet', async () => {
+    const packet = deskContextContent(wrapContext('Handed off from Claude Code', '## Goal\ncontext-only-summary-marker'))
+    answers['session/read'] = session({
+      runtime: OTHER,
+      turns: [{
+        id: turnId('t-summary'),
+        status: 'completed',
+        items: [{
+          id: itemId('u-summary'),
+          type: 'userMessage',
+          content: [packet, { type: 'text', text: 'Continue from the hand-off.' }],
+        }],
+      }] as never,
+    })
+
+    const summary = await store.summariseSession(ID, OTHER)
+
+    expect(summary).toContain('Asked: Continue from the hand-off.')
+    expect(summary).not.toContain('context-only-summary-marker')
   })
 })
 

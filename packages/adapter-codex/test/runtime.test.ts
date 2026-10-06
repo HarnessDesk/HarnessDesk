@@ -8,6 +8,7 @@ import {
   reduceAll,
   sessionId,
   type AgentEvent,
+  type UserMessageItem,
   type Approval,
   runtimeId,
   type Session,
@@ -282,6 +283,69 @@ test('history lists and searches map onto session summaries', async (t) => {
 
   const found = await runtime.searchSessions('files')
   assert.equal(found.data.length, 1)
+})
+
+test('an item completion releases its recorded sent input', async (t) => {
+  const completedRuntime = makeRuntime()
+  t.after(() => completedRuntime.dispose())
+  await completedRuntime.start()
+  const completedTape = recorder(completedRuntime)
+  const completedSession = await completedRuntime.createSession({ cwd: '/w' })
+  await completedSession.send([deskContextContent(wrapContext('Git', 'On branch main'))])
+  await completedTape.until(events => events.some(event => event.type === 'approval/requested'))
+  const completedApprovalEvent = completedTape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> => event.type === 'approval/requested',
+  )
+  assert.ok(completedApprovalEvent)
+  const completedApproval = completedApprovalEvent.approval
+  assert.equal(completedApproval.type, 'command')
+  await completedSession.respondToApproval(completedApproval.id, {
+    type: 'option',
+    optionId: completedApproval.options.find(option => option.intent === 'approve')!.id,
+  })
+  await completedTape.until(events => events.some(event => event.type === 'turn/completed'))
+  const completedUser = completedTape.events.findLast(event =>
+    event.type === 'item/completed' && event.item.type === 'userMessage',
+  )
+  assert.ok(completedUser && completedUser.type === 'item/completed' && completedUser.item.type === 'userMessage')
+  const completedAccess = completedSession as unknown as {
+    recordedUserInput(item: UserMessageItem): UserMessageItem
+  }
+  const freshRead = { ...completedUser.item, content: [{ type: 'text' as const, text: 'fresh read' }] }
+  assert.deepEqual(completedAccess.recordedUserInput(freshRead), freshRead)
+})
+
+test('a turn end clears input that never bound to a user item', async (t) => {
+  const unboundRuntime = makeRuntime({ FAKE_CODEX_SKIP_USER_ITEM: '1' })
+  t.after(() => unboundRuntime.dispose())
+  await unboundRuntime.start()
+  const unboundTape = recorder(unboundRuntime)
+  const unboundSession = await unboundRuntime.createSession({ cwd: '/w' })
+  const sent = 'input whose item the runtime did not announce'
+  await unboundSession.send([{ type: 'text', text: sent }])
+  await unboundTape.until(events => events.some(event => event.type === 'approval/requested'))
+  const unboundApprovalEvent = unboundTape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> => event.type === 'approval/requested',
+  )
+  assert.ok(unboundApprovalEvent)
+  const unboundApproval = unboundApprovalEvent.approval
+  assert.equal(unboundApproval.type, 'command')
+  await unboundSession.respondToApproval(unboundApproval.id, {
+    type: 'option',
+    optionId: unboundApproval.options.find(option => option.intent === 'approve')!.id,
+  })
+  await unboundTape.until(events => events.some(event => event.type === 'turn/completed'))
+  const unboundAccess = unboundSession as unknown as {
+    noteUserInput(id: string, text: string): void
+    recordedUserInput(item: UserMessageItem): UserMessageItem
+  }
+  const lateItem = {
+    id: 'late-item' as UserMessageItem['id'],
+    type: 'userMessage' as const,
+    content: [{ type: 'text' as const, text: sent }],
+  }
+  unboundAccess.noteUserInput(String(lateItem.id), sent)
+  assert.deepEqual(unboundAccess.recordedUserInput(lateItem), lateItem)
 })
 
 test('a thread working on its first turn is in the list, under its ask', async (t) => {
@@ -1362,6 +1426,6 @@ test('locally sent wrapper lookalikes carry a record through the native event st
   await seen.until(events => events.some(event => event.type === 'item/started' && event.item.type === 'userMessage'))
   const opening = seen.events.find(event => event.type === 'item/started' && event.item.type === 'userMessage')
   assert.ok(opening?.type === 'item/started' && opening.item.type === 'userMessage')
-  assert.deepEqual(opening.item.content, [{ type: 'text', text: raw, deskContext: { prefix: '' } }])
+  assert.deepEqual(opening.item.content, [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }])
   assert.equal(opening.item.context?.length ?? 0, 0)
 })

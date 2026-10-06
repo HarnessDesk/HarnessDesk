@@ -299,7 +299,7 @@ it('strips shared context envelopes from user labels across runtime transcripts'
 it('keeps a recorded lookalike in the person’s trajectory label', async () => {
   const raw = `${wrapContext('Git', 'my words')}\n\nExplain it`
   await render([{ ...TURN, items: [item('forged-user', { type: 'userMessage',
-    content: [{ type: 'text', text: raw, deskContext: { prefix: '' } }],
+    content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }],
   })] } as unknown as Turn])
   expect(rows()[0]?.getAttribute('title')).toBe(raw)
 })

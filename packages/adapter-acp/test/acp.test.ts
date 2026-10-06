@@ -13,6 +13,9 @@ import {
   type AgentEvent,
   type AgentRuntime,
   wrapContext,
+  deskContextContent,
+  recordDeskInput,
+  splitContextContent,
 } from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
@@ -94,16 +97,18 @@ test('a live ACP user message peels the shared desk envelope around its typed se
   const tape = record(runtime)
   try {
     const session = await runtime.createSession({ cwd: '/tmp/w' })
-    await session.send([{
-      type: 'text',
-      text: `${wrapContext('Git', 'On branch main')}\n\nFix the stale branch filter.`,
-    }])
+    await session.send([
+      deskContextContent(wrapContext('Git', 'On branch main')),
+      { type: 'text', text: 'Fix the stale branch filter.' },
+    ])
     const completed = await tape.until((event) => event.type === 'turn/completed')
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     const user = turn.items.find((item) => item.type === 'userMessage')
     assert.ok(user && user.type === 'userMessage')
-    assert.deepEqual(user.content, [{ type: 'text', text: 'Fix the stale branch filter.' }])
-    assert.deepEqual(user.context, [{ label: 'Git', text: 'On branch main' }])
+    assert.deepEqual(splitContextContent(user.content), {
+      injections: [{ label: 'Git', text: 'On branch main' }],
+      text: 'Fix the stale branch filter.',
+    })
   } finally {
     await runtime.dispose()
   }
@@ -2941,13 +2946,37 @@ test('a conversation opened with only context blocks is called by the first one,
   await runtime.start()
   try {
     const session = await runtime.createSession({ cwd: '/tmp/w' })
-    await session.send([
-      { type: 'text', text: wrapContext('Handed off from Claude Code', `## Goal\nfinish the migration\n${'- a step taken\n'.repeat(20)}`) },
-      { type: 'text', text: wrapContext('Git', `On branch main.\n${'M  src/file.ts\n'.repeat(20)}`) },
-    ])
+    const handoff = wrapContext('Handed off from Claude Code', `## Goal\nfinish the migration\n${'- a step taken\n'.repeat(20)}`)
+    const git = wrapContext('Git', `On branch main.\n${'M  src/file.ts\n'.repeat(20)}`)
+    await session.send([deskContextContent(handoff), deskContextContent(git)])
     await tape.until((event) => event.type === 'turn/completed')
     const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
     assert.equal(row?.preview, 'Handed off from Claude Code')
+    const completed = tape.events.find((event) => event.type === 'turn/completed')
+    assert.ok(completed && completed.type === 'turn/completed')
+    const user = completed.turn.items.find((item) => item.type === 'userMessage')
+    assert.ok(user && user.type === 'userMessage')
+    assert.deepEqual(splitContextContent(user.content).injections.map((block) => block.label), [
+      'Handed off from Claude Code',
+      'Git',
+    ])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a wrapper copied into a newly sent message remains the person\'s words', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const pasted = wrapContext('Pasted elsewhere', 'these words were copied into the prompt')
+    await session.send(recordDeskInput([{ type: 'text', text: pasted }]))
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const user = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.items.find((item) => item.type === 'userMessage')
+    assert.ok(user && user.type === 'userMessage')
+    assert.deepEqual(splitContextContent(user.content), { injections: [], text: pasted })
   } finally {
     await runtime.dispose()
   }

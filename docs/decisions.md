@@ -2013,12 +2013,14 @@ consume the width its identity and sentences need.
 
 *Issue #1181.* The desk’s marked context wrapper is also text a person can
 paste. Its marker identifies a layout, not who wrote it. Each newly sent text
-part now carries the exact prefix the desk composed beside its text; an empty
-prefix records that none was added. Adapters carry that record into the host’s
-own transcript, and richer runtime reads retain the recorded content even
-when the runtime has already folded its wrappers. The window, queue and
-hand-off reader all use the protocol’s same prefix parser with that record.
-A second marked block after the recorded prefix is still the person’s words.
+part records the length of the exact prefix the desk composed beside its text;
+zero records that no prefix was added. Adapters carry that boundary into the host’s
+own transcript, and richer runtime reads retain the recorded content even when
+the runtime has already folded its wrappers. The window, queue and
+hand-off reader all use the protocol’s same prefix parser with that record;
+transcript search, the conversation rail and session summaries use its typed
+text view. A second marked block after the recorded prefix is still the
+person’s words.
 
 Agent-owned history and older desk transcripts have no such record. Their
 readers keep the start-anchored layout rule as a compatibility fallback, and

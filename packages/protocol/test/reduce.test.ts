@@ -45,7 +45,7 @@ const openTurn = (): AgentEvent => ({
 test('a reload and item completion retain the recorded user input', () => {
   const raw = `${wrapContext('Other', 'typed words')}\n\nKeep it`
   const user: AgentItem = { id: itemId('u1'), type: 'userMessage',
-    content: [{ type: 'text', text: raw, deskContext: { prefix: '' } }] }
+    content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] }
   const replay: AgentItem = { ...user, content: [{ type: 'text', text: 'Keep it' }],
     context: [{ label: 'Other', text: 'typed words' }] }
   const held: Session = { ...baseSession(), turns: [{ id: TURN, status: 'completed', items: [user] }] }
@@ -55,7 +55,7 @@ test('a reload and item completion retain the recorded user input', () => {
 
 test('reused replay ids do not put provenance onto different words', () => {
   const recorded: AgentItem = { id: itemId('u1'), type: 'userMessage',
-    content: [{ type: 'text', text: 'Earlier prompt', deskContext: { prefix: '' } }] }
+    content: [{ type: 'text', text: 'Earlier prompt', deskContext: { prefixLength: 0 } }] }
   const replay: AgentItem = { ...recorded, content: [{ type: 'text', text: 'Different prompt' }] }
   assert.deepEqual(preserveDeskContext([replay], [recorded]), [replay])
 })

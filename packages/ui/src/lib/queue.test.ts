@@ -56,7 +56,7 @@ describe('describeQueued', () => {
     const prefix = wrapContext('Git', 'On branch main')
     const typed = `${wrapContext('Other', 'typed words')}\n\nExplain it`
     expect(describeQueued([
-      { type: 'text', text: prefix, deskContext: { prefix } },
+      { type: 'text', text: prefix, deskContext: { prefixLength: prefix.length } },
       { type: 'text', text: typed },
     ])).toEqual({ text: typed, context: [{ label: 'Git', text: 'On branch main' }], attachments: [] })
   })

@@ -25,17 +25,18 @@ const LEGACY_PREFIX_PATTERN = /^<context source="((?:[^"\\]|\\.)*)">\n([\s\S]*?)
 /** Exact prefix composed by the desk; an empty prefix records that it added none.
  * Absence is reserved for history the desk did not record. */
 export interface DeskContextRecord {
-  readonly prefix: string
+  /** UTF-16 code-unit length of the exact prefix the desk composed. */
+  readonly prefixLength: number
 }
 
 /** Record local input before an adapter sends it, without inferring authorship from text. */
 export const recordDeskInput = (input: readonly UserContent[]): readonly UserContent[] =>
   input.map(part => part.type === 'text' && part.deskContext === undefined
-    ? { ...part, deskContext: { prefix: '' } } : part)
+    ? { ...part, deskContext: { prefixLength: 0 } } : part)
 
 /** A composed text part carries its provenance beside the text, never inside it. */
 export const deskContextContent = (text: string): Extract<UserContent, { type: 'text' }> =>
-  ({ type: 'text', text, deskContext: { prefix: text } })
+  ({ type: 'text', text, deskContext: { prefixLength: text.length } })
 
 export interface ContextBlock {
   readonly label: string
@@ -102,27 +103,35 @@ const legacyLabel = (captured: string): string | null => {
  * historical layout rule. The empty-tail mode retains context-only messages.
  */
 export const peelDeskContextPrefix = (raw: string, allowEmptyTail = false, record?: DeskContextRecord): SplitText | null => {
-  if (record !== undefined && (record.prefix === '' || !raw.startsWith(record.prefix))) return null
-  let rest = raw
+  if (record !== undefined && (
+    !Number.isSafeInteger(record.prefixLength) || record.prefixLength < 0 || record.prefixLength > raw.length
+  )) return null
+  const boundary = record?.prefixLength
+  const source = boundary === undefined ? raw : raw.slice(0, boundary)
+  let offset = 0
   const injections: ContextBlock[] = []
   let sawLegacy = false
   for (;;) {
-    if (record !== undefined && raw.length - rest.length >= record.prefix.length) break
-    const marked = PREFIX_PATTERN.exec(rest)
+    const remainder = source.slice(offset)
+    const separator = injections.length > 0 ? /^(?:\r?\n)+/.exec(remainder)?.[0] ?? '' : ''
+    const candidateOffset = offset + separator.length
+    const candidate = source.slice(candidateOffset)
+    const marked = PREFIX_PATTERN.exec(candidate)
     if (marked) {
       injections.push({ label: unquote(marked[1] ?? ''), text: (marked[2] ?? '').replace(/<\\\/context>/g, '</context>') })
-      rest = rest.slice(marked[0].length).replace(/^(?:\r?\n)+/, '')
+      offset = candidateOffset + marked[0].length
       continue
     }
-    const legacy = LEGACY_PREFIX_PATTERN.exec(rest)
+    const legacy = LEGACY_PREFIX_PATTERN.exec(candidate)
     if (!legacy) break
     const label = legacyLabel(legacy[1] ?? '')
     if (label === null) break
     injections.push({ label, text: (legacy[2] ?? '').replace(/<\\\/context>/g, '</context>') })
-    rest = rest.slice(legacy[0].length).replace(/^(?:\r?\n)+/, '')
+    offset = candidateOffset + legacy[0].length
     sawLegacy = true
   }
-  if (record !== undefined && raw.slice(0, raw.length - rest.length).replace(/(?:\r?\n)+$/, '') !== record.prefix) return null
+  if (boundary !== undefined && offset !== boundary) return null
+  const rest = boundary === undefined ? raw.slice(offset) : raw.slice(boundary)
   if (injections.length === 0 || ((sawLegacy || !allowEmptyTail) && rest.trim().length === 0)) return null
   return { injections, text: rest.trim() }
 }
@@ -289,14 +298,17 @@ import type { CeilingLevel } from './evidence.js'
 export const splitContextContent = (content: readonly UserContent[]): SplitText => {
   const parts = content.filter(part => part.type === 'text')
   if (!parts.some(part => part.deskContext !== undefined)) return splitContext(parts.map(part => part.text).join('\n'))
-  const splits = parts.map(part => splitContext(part.text, part.deskContext ?? { prefix: '' }))
+  const splits = parts.map(part => splitContext(part.text, part.deskContext ?? { prefixLength: 0 }))
   return { injections: splits.flatMap(split => split.injections), text: splits.map(split => split.text).filter(Boolean).join('\n') }
 }
+
+/** The words a person typed in this message, without desk-composed context. */
+export const typedUserText = (content: readonly UserContent[]): string => splitContextContent(content).text
 
 export const openingOfContent = (content: readonly UserContent[]): string => {
   const split = splitContextContent(content)
   const recorded = content.some(part => part.type === 'text' && part.deskContext !== undefined)
-  const said = openingOf(split.text, recorded ? { deskContext: { prefix: '' } } : {})
+  const said = openingOf(split.text, recorded ? { deskContext: { prefixLength: 0 } } : {})
   if (said) return said
   return split.injections.find(block => isHandoffSource(block.label) || isAgentMessageSource(block.label))?.label
     ?? split.injections[0]?.label ?? ''

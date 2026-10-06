@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Turn } from '@harnessdesk/protocol'
+import { deskContextContent, wrapContext, type Turn } from '@harnessdesk/protocol'
 
 import { buildMarks, PREVIEW_MAX, RAIL_HYSTERESIS, railFit, shouldRenderMap, stripMarkdown } from './conversation-map'
 
@@ -18,6 +18,18 @@ describe('the conversation map', () => {
     expect(marks).toEqual([
       { turn: 't1', kind: 'prompt', preview: 'why does checkout retry' },
       { turn: 't1', kind: 'answer', preview: 'because 502 is not listed' },
+    ])
+  })
+
+  it('previews the typed words after a composed hand-off packet', () => {
+    const packet = deskContextContent(wrapContext('Handed off from Claude Code', '## Goal\ncontext-only-rail-marker'))
+    const prompt = {
+      id: 'handoff-user',
+      type: 'userMessage',
+      content: [packet, { type: 'text', text: 'Continue from the hand-off.' }],
+    } as never
+    expect(buildMarks([turn('handoff', [prompt])])).toEqual([
+      { turn: 'handoff', kind: 'prompt', preview: 'Continue from the hand-off.' },
     ])
   })
 

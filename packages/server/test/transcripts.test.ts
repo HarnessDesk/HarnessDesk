@@ -14,6 +14,7 @@ import {
   type TurnInsightContext,
   type Turn,
   wrapContext,
+  deskContextContent,
   splitContextContent,
 } from '@harnessdesk/protocol'
 
@@ -386,6 +387,25 @@ test('search reads every agent’s transcripts and says where the words were', a
   })
 })
 
+test('search and its preview use typed words after a composed hand-off packet', async () => {
+  await withStore(async (store) => {
+    const packet = deskContextContent(wrapContext('Handed off from Claude Code', '## Goal\ncontext-only-index-marker'))
+    const user = {
+      id: 'handoff-user',
+      type: 'userMessage',
+      content: [packet, { type: 'text', text: 'Continue from the hand-off.' }],
+    } as unknown as AgentItem
+    store.record(session([turn('t1', [user])]), { now: true })
+    await store.flush()
+
+    assert.deepEqual(await store.search('context-only-index-marker'), [])
+    const [hit] = await store.search('Continue from the hand-off')
+    assert.ok(hit)
+    assert.equal(hit.line, 'Continue from the hand-off.')
+    assert.equal(hit.summary.preview, 'Continue from the hand-off.')
+  })
+})
+
 test('tool output and reasoning are not the conversation', async () => {
   await withStore(async (store) => {
     const noisy: Session = {
@@ -609,7 +629,7 @@ test('dropping queued turns keeps only Insight context for the retained transcri
   })
 })
 
-test('a file from before the metadata, opened with only context blocks, is called by the first one (#186)', async () => {
+test('a file from before the metadata with only context blocks is not searchable as typed text (#186)', async () => {
   await withStore(async (store, dir) => {
     const opening = `${wrapContext('Handed off from Claude Code', '## Goal\nfinish')}\n${wrapContext('Git', 'On branch main.')}`
     store.record(talk('codex', 'blocks', [['userMessage', opening]]), { now: true })
@@ -619,23 +639,21 @@ test('a file from before the metadata, opened with only context blocks, is calle
     const parsed = JSON.parse(await read(file, 'utf8')) as Record<string, unknown>
     delete parsed['preview']
     await write(file, JSON.stringify(parsed))
-    const [hit] = await store.search('Handed off')
-    assert.ok(hit)
-    // Its first text part's first line was the envelope's own.
-    assert.equal(hit.summary.preview, 'Handed off from Claude Code')
+    assert.deepEqual(await store.search('Handed off'), [])
   })
 })
 
-test('a name read from the opening survives a restart, and an unclosed context lookalike stays literal', async () => {
+test('a typed opening after a hand-off packet survives restart, and an unclosed context lookalike stays literal', async () => {
   await withStore(async (store, dir) => {
     const packet = wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish')
-    store.record(talk('codex', 'handed', [['userMessage', `${wrapContext('Git', 'On branch main.')}\n${packet}`]]), { now: true })
+    store.record(talk('codex', 'handed', [['userMessage', `${wrapContext('Git', 'On branch main.')}\n${packet}\n\nContinue with migration`]]), { now: true })
     store.record(talk('codex', 'cut', [['userMessage', '<context source="Handed off from Claude Code — “Queue work']]), { now: true })
     await store.flush()
     // A second store over the same folder is the desk after a restart.
     const again = new TranscriptStore(dir)
-    const [handed] = await again.search('finish')
-    assert.equal(handed?.summary.preview, 'Handed off from Claude Code — “Migrate webhooks”')
+    assert.deepEqual(await again.search('finish'), [])
+    const [handed] = await again.search('Continue')
+    assert.equal(handed?.summary.preview, 'Continue with migration')
     const [cut] = await again.search('Queue work')
     assert.ok(cut)
     assert.equal(cut.summary.preview, '<context source="Handed off from Claude Code — “Queue work')
@@ -910,7 +928,7 @@ test('a cold richer read restores the recorded user content even after the backe
     const forged = `${wrapContext('Other', 'typed words')}\n\nKeep it`
     const prefix = wrapContext('Git', 'On branch main')
     const recorded = { ...item('u', 'userMessage'), type: 'userMessage', content: [
-      { type: 'text', text: `${prefix}\n\n${forged}`, deskContext: { prefix } },
+      { type: 'text', text: `${prefix}\n\n${forged}`, deskContext: { prefixLength: prefix.length } },
     ] } as AgentItem
     store.record(session([turn('t1', [recorded])]), { now: true })
     await store.flush()
@@ -927,7 +945,7 @@ test('a cold resegmented read retains provenance when turn and user item ids cha
   await withStore(async (store, dir) => {
     const raw = `${wrapContext('Other', 'typed words')}\n\nKeep it`
     const recorded: AgentItem = { ...item('sent-user', 'userMessage'), type: 'userMessage',
-      content: [{ type: 'text', text: raw, deskContext: { prefix: '' } }] }
+      content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] }
     store.record(session([turn('sent-turn', [recorded])]), { now: true })
     await store.flush()
     const replay: AgentItem = { ...item('replayed-user', 'userMessage'), type: 'userMessage',
@@ -947,7 +965,7 @@ test('recording an ACP replay before a cold read cannot overwrite stored context
   await withStore(async (store, dir) => {
     const raw = `${wrapContext('Other', 'typed words')}\n\nKeep it`
     const recorded: AgentItem = { ...item('user', 'userMessage'), type: 'userMessage',
-      content: [{ type: 'text', text: raw, deskContext: { prefix: '' } }] }
+      content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] }
     store.record(session([turn('t1', [recorded])]), { now: true })
     await store.flush()
     const cold = new TranscriptStore(dir)

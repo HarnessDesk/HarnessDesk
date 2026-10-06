@@ -45,11 +45,19 @@ import type { ReviewRequest } from './runtime.js'
  * code, the socket is a loopback port that other local processes can reach.
  */
 
+const nonNegativeSafeInteger: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < 0) {
+    throw new ValidationError(path, 'expected a non-negative safe integer')
+  }
+  return number
+}
+
 export const userContentValidator: Validator<UserContent> = taggedUnion('type', {
   text: shape({
     type: literalUnion('text'),
     text: isString,
-    deskContext: optional(shape({ prefix: isString })),
+    deskContext: optional(shape({ prefixLength: nonNegativeSafeInteger })),
     spans: optional(
       arrayOf(
         shape({

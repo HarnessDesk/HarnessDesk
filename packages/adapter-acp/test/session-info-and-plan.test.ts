@@ -110,6 +110,6 @@ test('locally sent wrapper lookalikes carry a record through ACP turns', async t
   assert.ok(opening?.type === 'turn/started')
   const item = opening.turn.items[0]
   assert.ok(item?.type === 'userMessage')
-  assert.deepEqual(item.content, [{ type: 'text', text: raw, deskContext: { prefix: '' } }])
+  assert.deepEqual(item.content, [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }])
   assert.equal(item.context?.length ?? 0, 0)
 })

@@ -1,4 +1,4 @@
-import { editOf } from '@harnessdesk/protocol'
+import { editOf, typedUserText } from '@harnessdesk/protocol'
 
 import type { AgentItem, FileChange, Session } from '@harnessdesk/protocol'
 
@@ -82,7 +82,7 @@ const textOf = (item: AgentItem): Exchange | null => {
     // What the user typed, without the envelopes the desk itself injected —
     // a git note or a previous hand-off quoted back inside this one is both
     // noise and a `<context>` nested in a `<context>`.
-    const text = splitContextContent(item.content).text.trim()
+    const text = typedUserText(item.content).trim()
     return text ? { role: 'user', text } : null
   }
   if (item.type === 'assistantMessage' && item.phase !== 'commentary' && item.text.trim()) {

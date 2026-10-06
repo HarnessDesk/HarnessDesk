@@ -12,6 +12,7 @@ import {
   reduceSession,
   sessionKey,
   splitSessionKey,
+  typedUserText,
   type AccountStatus,
   type ExtensionEvent,
   type PluginInstance,
@@ -6390,10 +6391,7 @@ export class AppStore {
       for (const turn of session.turns) {
         for (const item of turn.items) {
           if (item.type === 'userMessage') {
-            const text = item.content
-              .filter((part) => part.type === 'text')
-              .map((part) => (part.type === 'text' ? part.text : ''))
-              .join(' ')
+            const text = typedUserText(item.content)
             if (text.trim()) lines.push(`Asked: ${text.trim().slice(0, 400)}`)
           }
           if (item.type === 'assistantMessage' && item.phase !== 'commentary') {

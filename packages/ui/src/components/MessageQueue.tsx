@@ -341,8 +341,9 @@ const QueueMessageEditor = ({
 /** Keep resolved context and every non-text part while replacing only what was typed. */
 const withEditedText = (input: readonly UserContent[], text: string): readonly UserContent[] => {
   const context = describeQueued(input).context
+  const prefix = context.map((block) => wrapContext(block.label, block.text)).join('\n\n')
   const replacement = [
-    ...context.map((block) => wrapContext(block.label, block.text)),
+    ...(prefix ? [prefix] : []),
     text,
   ].filter((part) => part.length > 0).join('\n\n')
   let inserted = false
@@ -351,7 +352,7 @@ const withEditedText = (input: readonly UserContent[], text: string): readonly U
     if (part.type !== 'text') {
       output.push(part)
     } else if (!inserted) {
-      if (replacement.length > 0) output.push({ type: 'text', text: replacement, deskContext: { prefix: context.map(block => wrapContext(block.label, block.text)).join('\n\n') } })
+      if (replacement.length > 0) output.push({ type: 'text', text: replacement, deskContext: { prefixLength: prefix.length } })
       inserted = true
     }
   }

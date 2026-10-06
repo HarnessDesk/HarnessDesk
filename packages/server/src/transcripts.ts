@@ -12,7 +12,7 @@ import type {
   AgentItem,
   TurnInsightContext,
 } from '@harnessdesk/protocol'
-import { openingOfContent, preserveDeskContext, preserveNoticeItems } from '@harnessdesk/protocol'
+import { openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
@@ -791,9 +791,8 @@ const spokenText = function* (turns: readonly Turn[]): Generator<string> {
     for (const item of turn.items) {
       if (item.type === 'assistantMessage' && typeof item.text === 'string') yield item.text
       if (item.type === 'userMessage' && Array.isArray(item.content)) {
-        for (const part of item.content) {
-          if (part.type === 'text' && typeof part.text === 'string') yield part.text
-        }
+        const text = typedUserText(item.content)
+        if (text) yield text
       }
     }
   }

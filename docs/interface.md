@@ -540,17 +540,13 @@ Opening any step shows the command under a prompt mark, then what it printed;
 the sentence never has the command glued to it, because a sentence in monospace
 with a shell line hanging off it teaches a CLI that does not exist.
 
-**A bubble holds what a person typed, and nothing their app added.** A prompt
-composed in Claude Code's or Codex's desktop app carries that app's additions
-inside the message it stores as the user's turn — notes over screenshots,
-injected reminders, slash-command echoes, open browser tabs, files an `@` named.
-Each vendor app hides its wrapper and no other client can; HarnessDesk strips
-the wrapper from the sentence and keeps it beside it as "Sent with your
-message" — one row per item, opening onto the block exactly as sent. It is never
-dropped: it is context the model was given, and a transcript that deletes it
-cannot explain what the agent knew. "Context added" is the same row for an
-envelope HarnessDesk sends, kept worded apart because our name does not belong on
-someone else's text.
+**A bubble holds what a person typed, and nothing the desk composed.** The
+wrapper's shape cannot prove who wrote it: a person can paste the same text.
+Newly sent messages record the exact boundary of the desk-composed prefix, so
+only blocks inside that boundary fold beside the message as "Context added" or
+"Sent with your message". The block stays available exactly as sent because it
+is context the agent received; an identical wrapper beyond the recorded
+boundary stays in the person's words.
 
 **What the conversation put on the forge is a row of its own.** A pull request
 opened or updated through the desk's own tools, a review or a comment posted

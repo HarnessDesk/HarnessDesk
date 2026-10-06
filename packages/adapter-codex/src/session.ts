@@ -131,6 +131,7 @@ export class CodexSession implements AgentSession {
 
   /** Bind sent input to the runtime's own item id before its mapper peels text. */
   noteUserInput(id: string, text: string): void {
+    if (this.#recordedInputs.has(id)) return
     const at = this.#pendingInputs.findIndex(input =>
       input.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n') === text)
     if (at === -1) return
@@ -138,9 +139,11 @@ export class CodexSession implements AgentSession {
     if (input) this.#recordedInputs.set(id, input)
   }
 
-  recordedUserInput(item: UserMessageItem): UserMessageItem {
-    const input = this.#recordedInputs.get(String(item.id))
+  recordedUserInput(item: UserMessageItem, completed = false): UserMessageItem {
+    const id = String(item.id)
+    const input = this.#recordedInputs.get(id)
     if (!input) return item
+    if (completed) this.#recordedInputs.delete(id)
     const { context: _context, ...rest } = item
     return { ...rest, content: input }
   }
@@ -471,7 +474,10 @@ export class CodexSession implements AgentSession {
   }
 
   noteTurnEnded(turnId: string): void {
-    if (this.#currentTurnId === turnId) this.#currentTurnId = null
+    if (this.#currentTurnId === turnId) {
+      this.#currentTurnId = null
+      this.#pendingInputs.length = 0
+    }
     this.#silentTurnIds.delete(turnId)
   }
 
@@ -558,7 +564,7 @@ export class CodexSession implements AgentSession {
   async #nameFromOpeningMessage(input: readonly UserContent[]): Promise<void> {
     if (!this.#nameable) return
     this.#nameable = false
-    if (!input.some(part => part.type === 'text' && part.deskContext?.prefix)) return
+    if (!input.some(part => part.type === 'text' && part.deskContext && part.deskContext.prefixLength > 0)) return
     const name = nameFromMessage(openingOfContent(input))
     if (!name) return
     try {

@@ -1495,9 +1495,9 @@ export class CodexRuntime implements AgentRuntime {
     if (event.type !== 'item/started' && event.type !== 'item/completed') return event
     if (event.item.type !== 'userMessage') return event
     const session = this.#sessions.get(event.sessionId)
-    if (!session?.isSilentTurn(event.turnId)) {
-      return session ? { ...event, item: session.recordedUserInput(event.item) } : event
-    }
+    if (!session) return event
+    const recorded = session.recordedUserInput(event.item, event.type === 'item/completed')
+    if (!session.isSilentTurn(event.turnId)) return { ...event, item: recorded }
     return { ...event, item: noticeFromUserMessage(event.item, session.noticeKindOf(event.turnId)) }
   }
 
