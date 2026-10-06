@@ -21,7 +21,7 @@ const engine = (): ForgeEngine & { readonly seats: unknown[]; readonly published
     published,
     seat: async (scope) => {
       seats.push(scope)
-      return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High' }
+      return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High', role: null, round: null, team: null }
     },
     identity: async (scope) => {
       seats.push({ identity: scope })

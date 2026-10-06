@@ -716,3 +716,21 @@ test('commit_work refuses an empty or oversized message, and a checkout with no 
   })
   assert.equal((await git(root, 'rev-list', '--count', 'HEAD')).trim(), '1', 'nothing was committed')
 })
+
+test('card commits carry the adapter credit once alongside the desk credit', async (t) => {
+  for (const credit of [
+    { name: 'Example Agent', email: 'agent@example.com' },
+    null,
+  ]) {
+    const root = await repo(t)
+    const before = await snapshot(root)
+    await writeFile(join(root, 'a.txt'), 'new\n')
+    const trailer = credit ? `Co-authored-by: ${credit.name} <${credit.email}>` : ''
+    const done = await commitCardWork(root, before, `Change\n\n${trailer}`, credit)
+    assert.ok('commit' in done)
+    assert.equal(await parsedTrailers(root), [trailer, coauthor].filter(Boolean).join('\n') + '\n')
+    await writeFile(join(root, 'a.txt'), 'next\n')
+    assert.ok('commit' in await commitCardWork(root, [], 'Change again', credit))
+    assert.equal(await parsedTrailers(root), [trailer, coauthor].filter(Boolean).join('\n') + '\n')
+  }
+})

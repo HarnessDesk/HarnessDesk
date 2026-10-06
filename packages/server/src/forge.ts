@@ -35,6 +35,8 @@ export interface ForgePort {
   agentOf(runtime: string): { readonly name: string; readonly version: string | null } | null
   /** The controls of a conversation with their current values, or null when the host holds no such conversation. */
   optionsOf(runtime: string, sessionId: string): readonly ConfigOption[] | null
+  /** The Team role, review round and Team name for this conversation; null outside a Team. */
+  teamOf?(runtime: string, sessionId: string): Pick<ForgeSeat, 'role' | 'round' | 'team'> | null
   /**
    * Puts a publication into a conversation's transcript, in the turn that is
    * running. False when the host holds no such conversation, or it has no
@@ -123,7 +125,7 @@ export class ForgePlane implements ForgeEngine {
     if (!agent) return null
     const options = this.port.optionsOf(scope.runtime, scope.sessionId)
     if (options === null) return null
-    return seatOf(agent.name, options, agent.version)
+    return { ...seatOf(agent.name, options, agent.version), ...this.port.teamOf?.(scope.runtime, scope.sessionId) }
   }
 
   /**
