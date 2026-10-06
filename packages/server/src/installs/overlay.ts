@@ -3,7 +3,8 @@ import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { usageRecordFor } from '../usage/antigravity-store.js'
 import { identityReaderFor } from './identity.js'
 import { providerReaderFor } from './provider.js'
-import { currentNameOf, type KnownAgent } from './known-agents.js'
+import { currentNameOf, knownAgentByCommand, type KnownAgent } from './known-agents.js'
+import { commandName } from './service.js'
 
 /**
  * What the desk lays over a row for an agent it knows: today's name where
@@ -23,7 +24,7 @@ export const knowledgeOverlay = (
     /** Where a changed vendor format is reported; see `AntigravityStoreOptions.warn`. */
     readonly warn?: (message: string, details?: unknown) => void
   } = {},
-): Pick<AcpAgentConfig, 'name' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account'> => {
+): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account'> => {
   const env = options.env ?? { ...process.env, ...agent.env }
   const resolveIdentity = identityReaderFor(known, {
     ...(agent.args ? { args: agent.args } : {}),
@@ -44,6 +45,7 @@ export const knowledgeOverlay = (
     : undefined
   return {
     name: currentNameOf(known, agent.name),
+    coAuthor: knownAgentByCommand(commandName(agent.executable?.command ?? agent.command))?.coAuthor ?? null,
     ...(resolveIdentity ? { resolveIdentity } : {}),
     ...(resolveProvider ? { resolveProvider } : {}),
     ...(usageRecord ? { usageRecord } : {}),

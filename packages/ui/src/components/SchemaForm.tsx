@@ -105,6 +105,7 @@ export const SchemaForm = ({
 
   return (
     <>
+      {typeof schema?.description === 'string' && <Note>{schema.description}</Note>}
       <Rows>
         {properties.map((property) => (
           <Row

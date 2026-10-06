@@ -94,8 +94,7 @@ const verdictFrom = (text) => {
 
 export const buildReviewBody = (body, round, by) => {
   const sanitized = sanitizeBody(body)
-  const verdict = verdictFrom(sanitized)
-  return `Review round ${round} · ${by} (via HarnessDesk) · ${verdict}\n\n${sanitized}`
+  return `**Reviewer${Number(round) > 1 ? ` · round ${round}` : ''}** · ${by} · via HarnessDesk\n\n${sanitized}`
 }
 
 const privateLines = (body) => {
