@@ -805,12 +805,23 @@ along with what Settings still does not do — is recorded with the audit.
 ## What the desk observed
 
 **On a card.** A room's board draws each card's evidence as chips in its foot,
-and its columns — To do, Working, Needs you, In review, Ready, and Set aside
+and its columns — Needs you, Working, In review, To do, Ready, and Set aside
 while anything is — come from those facts, so nothing on the board is dragged.
 A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
+
+**As the board narrows.** Open columns keep at least 220px. Ready folds first,
+then To do, into named rails with their counts; each rail opens in place and
+offers a keyboard Fold control only when it can return to a rail. The scroll
+body reserves its gutter so a scrollbar appearing cannot move the fold
+thresholds. When the columns and rails no longer fit,
+or below 760px of pane width, Needs you and Working share the first row,
+In review and To do the second; Ready stays a rail. Below 600px the pane uses
+the compact list, grouped by state with Needs you first. The pane measures
+itself, including space lost to a sidebar or dock, and restores the selected
+view when it widens. Set aside keeps its own lane while it contains work.
 
 **As a list.** Board · List switches the same jobs into a framed table. Filter
 jobs by words or state; All starts pressed, and the default order puts Needs
@@ -825,7 +836,8 @@ agent only while the channel still records it; otherwise Assignee is a dash.
 Reopen is visible on finished, set-aside and hand-stopped rows; dependency-
 blocked jobs keep it in the menu. A finished outcome sits beside its state when
 there is no Needs-you reason, and owned files appear below the title. Below
-720px the job cell still names the assignee. Columns too wide for the pane keep
+720px the job cell still names the assignee. Names stay on one line, truncate
+with an ellipsis, and show their full name on hover. Columns too wide for the pane keep
 their View switch disabled with the width they need, and search includes the
 state each row shows, including Checking evidence. Other verbs stay in the
 menu, revealed on hover or keyboard focus. Empty evidence columns start hidden,
