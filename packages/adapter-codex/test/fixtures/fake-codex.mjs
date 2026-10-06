@@ -9,8 +9,10 @@
 
 import readline from 'node:readline'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { scriptedFlow } from './scripted-flow.mjs'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
@@ -65,6 +67,12 @@ if (process.argv.includes('--version')) {
 if (process.env['FAKE_CODEX_CLAIMS']) {
   appendFileSync(process.env['FAKE_CODEX_CLAIMS'], `${process.pid}\n`)
 }
+if (process.env['FAKE_CODEX_PROCESS_ENV']) {
+  appendFileSync(process.env['FAKE_CODEX_PROCESS_ENV'], `${JSON.stringify({
+    processGroup: process.env.HARNESSDESK_CODEX_PROCESS_GROUP,
+    generation: process.env.HARNESSDESK_CODEX_GENERATION,
+  })}\n`)
+}
 
 // Opt-in resource evidence. Measured on 0.160.0: unsubscribe acknowledges
 // release but retains the thread's MCP child until the app-server exits.
@@ -78,7 +86,21 @@ const loadMcpChild = (threadId) => {
   appendFileSync(ledger, `${JSON.stringify({ threadId, pid: child.pid, parent: process.pid })}\n`)
 }
 
-const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
+let output = []
+let outputScheduled = false
+const send = (value) => {
+  saveSharedThread(value)
+  output.push(`${JSON.stringify(value)}\n`)
+  if (outputScheduled) return
+  outputScheduled = true
+  // Finish this request's snapshots before exposing its reply and notices.
+  setImmediate(() => {
+    const batch = output.join('')
+    output = []
+    outputScheduled = false
+    process.stdout.write(batch)
+  })
+}
 const notify = (method, params) => send({ method, params })
 // Only screenshot scenes opt in; adapter tests retain their existing turns.
 const flowWorker = scriptedFlow(process.env['FAKE_CODEX_FLOW'], { send, notify })
@@ -113,7 +135,10 @@ let THREAD = 'thread-e2e'
 let TURN = 'turn-e2e'
 let threadCounter = 0
 const nextThreadId = () => {
-  const id = threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`
+  const generation = Number(process.env.HARNESSDESK_CODEX_GENERATION ?? 1)
+  const n = threadCounter++
+  const id = n === 0 ? (generation <= 1 ? 'thread-e2e' : `thread-e2e-${generation}`)
+    : process.env.HARNESSDESK_CODEX_GENERATION ? `thread-e2e-${generation}-${n + 1}` : `thread-e2e-${n + 1}`
   // Resource rigs restart under one host; new threads cannot reuse the
   // previous process's identities, while ordinary adapter tests keep theirs.
   return process.env['FAKE_CODEX_MCP_CHILDREN'] ? `${id}-${process.pid}` : id
@@ -412,6 +437,7 @@ for (const id of ['thread-2', 'thread-3', 'thread-4']) cwdByThread.set(id, '/w')
  * answers for each of them.
  */
 const storedThreads = () => [
+  ...sharedSummaries.values(),
   thread(),
   thread({ id: 'thread-2', name: 'Named thread', preview: 'Another' }),
   // A thread whose first message was sent from HarnessDesk with a context
@@ -429,7 +455,7 @@ const storedThreads = () => [
     preview:
       '<context source="Git" data-hd-envelope="harnessdesk-v1">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes" data-hd-envelope="harnessdesk-v1">\nStatus: ## main\n</context>',
   }),
-].filter((t) => !deletedThreads.has(t.id)).map((t) => threadNames.has(t.id) ? { ...t, name: threadNames.get(t.id) } : t)
+].filter((t, n, all) => all.findIndex((other) => other.id === t.id) === n && !deletedThreads.has(t.id)).map((t) => threadNames.has(t.id) ? { ...t, name: threadNames.get(t.id) } : t)
 
 /**
  * What Codex has stored of each thread's history, kept the two ways Codex
@@ -488,6 +514,51 @@ const histories = new Map([
     ],
   }],
 ])
+// The real agent's store is shared across app-server processes. Keep the
+// scripted store under a unique scratch group too, never in a user's home.
+const processGroup = process.env.HARNESSDESK_CODEX_PROCESS_GROUP
+// Resource rigs own a scratch directory that outlives control idle stops.
+const resourceLedger = process.env.FAKE_CODEX_MCP_CHILDREN
+const sharedStore = processGroup ? join(resourceLedger ? dirname(resourceLedger) : tmpdir(), `hd-fake-codex-${processGroup}`) : null
+const sharedSummaries = new Map()
+const sharedSettings = new Map()
+const sharedTools = new Map()
+if (sharedStore) mkdirSync(sharedStore, { recursive: true })
+const loadSharedThreads = () => {
+  if (!sharedStore) return
+  for (const file of readdirSync(sharedStore).filter((file) => file.endsWith('.json'))) {
+    const value = JSON.parse(readFileSync(join(sharedStore, file), 'utf8'))
+    const id = value.thread.id
+    sharedSummaries.set(id, value.thread)
+    sharedSettings.set(id, value.settings)
+    sharedTools.set(id, value.tools ?? [])
+    histories.set(id, value.history)
+    cwdByThread.set(id, value.thread.cwd)
+    if (value.deleted) deletedThreads.add(id); else deletedThreads.delete(id)
+    if (value.archived) archivedThreads.add(id); else archivedThreads.delete(id)
+    if (value.name !== undefined) threadNames.set(id, value.name)
+  }
+}
+const saveSharedThread = (message) => {
+  if (!sharedStore) return
+  const described = message.result?.thread ?? (message.method === 'thread/started' ? message.params.thread : null)
+  if (described) sharedSummaries.set(described.id, described)
+  const id = message.params?.threadId ?? described?.id ?? currentRequest?.params?.threadId
+  if (!id || !histories.has(id)) return
+  const summary = sharedSummaries.get(id) ?? thread({ id })
+  if (id === THREAD) {
+    sharedSettings.set(id, { ...settingsState })
+    sharedTools.set(id, declaredTools)
+  }
+  const value = { thread: summary, history: histories.get(id), settings: sharedSettings.get(id), tools: sharedTools.get(id),
+    deleted: deletedThreads.has(id), archived: archivedThreads.has(id), name: threadNames.get(id) }
+  // Rename publishes the complete snapshot even when a sibling is reading.
+  const file = join(sharedStore, `${encodeURIComponent(id)}.json`)
+  writeFileSync(`${file}.${process.pid}.tmp`, JSON.stringify(value))
+  renameSync(`${file}.${process.pid}.tmp`, file)
+}
+loadSharedThreads()
+
 /** A thread's history. A thread nothing is stored for yet — one started here — is empty. */
 const historyOf = (threadId) => {
   if (!histories.has(threadId)) histories.set(threadId, { mode: NEW_HISTORY, stored: false, turns: [] })
@@ -1196,8 +1267,10 @@ const fuzzy = (query, candidate) => {
   return indices
 }
 
+let currentRequest = null
 const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
+  loadSharedThreads()
   if (!line.trim()) return
   let message
   try {
@@ -1247,6 +1320,7 @@ rl.on('line', (line) => {
     return
   }
 
+  currentRequest = message
   const { id, method, params } = message
   const laneEnvironment = params?.config?.['shell_environment_policy.set']
   if (
@@ -1285,6 +1359,10 @@ rl.on('line', (line) => {
   // for something, which "the round trip still works" cannot show on its own.
   if (process.env['FAKE_CODEX_CALLS']) {
     appendFileSync(process.env['FAKE_CODEX_CALLS'], `${method}\n`)
+  }
+
+  if (process.env.FAKE_CODEX_PROCESS_CALLS) {
+    appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method, generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
   }
 
   switch (method) {
@@ -1362,6 +1440,8 @@ rl.on('line', (line) => {
       // from left them, not wherever the last *different* thread active in
       // this process happened to leave `settingsState` — cwd most of all,
       // the one setting a test routinely gives a fresh value at `thread/start`.
+      Object.assign(settingsState, sharedSettings.get(params.threadId) ?? {})
+      declaredTools = sharedTools.get(params.threadId) ?? []
       settingsState.cwd = cwdByThread.get(params.threadId) ?? settingsState.cwd
       THREAD = method === 'thread/resume' ? params.threadId : nextThreadId()
       TURN = `turn-${THREAD}`
@@ -1852,9 +1932,18 @@ rl.on('line', (line) => {
       send({ id, result: {} })
       return
 
-    case 'permissionProfile/list':
-      send({ id, result: { data: PROFILES, nextCursor: null } })
+    case 'permissionProfile/list': {
+      const hold = process.env.FAKE_CODEX_HOLD_CATALOGUE
+      if (hold && existsSync(hold)) {
+        notify('warning', { message: 'CATALOGUE_HELD' })
+        const timer = setInterval(() => {
+          if (existsSync(hold)) return
+          clearInterval(timer)
+          send({ id, result: { data: PROFILES, nextCursor: null } })
+        }, 10)
+      } else send({ id, result: { data: PROFILES, nextCursor: null } })
       return
+    }
 
     case 'collaborationMode/list':
       send({
@@ -2286,9 +2375,18 @@ rl.on('line', (line) => {
       send({ id, result: {} })
       return
 
-    case 'thread/unsubscribe':
-      send({ id, result: { status: 'unsubscribed' } })
+    case 'thread/unsubscribe': {
+      const hold = process.env.FAKE_CODEX_HOLD_UNSUBSCRIBE
+      if (hold && existsSync(hold)) {
+        notify('warning', { threadId: params.threadId, message: 'UNSUBSCRIBING' })
+        const timer = setInterval(() => {
+          if (existsSync(hold)) return
+          clearInterval(timer)
+          send({ id, result: { status: 'unsubscribed' } })
+        }, 10)
+      } else send({ id, result: { status: 'unsubscribed' } })
       return
+    }
 
     case 'thread/delete':
       if (params?.threadId) deletedThreads.add(params.threadId)
@@ -2321,4 +2419,7 @@ rl.on('line', (line) => {
   }
 })
 
-process.stdin.on('close', () => process.exit(0))
+process.stdin.on('close', () => {
+  if (sharedStore && !resourceLedger && process.env.HARNESSDESK_CODEX_GENERATION === '0') rmSync(sharedStore, { recursive: true, force: true })
+  process.exit(0)
+})

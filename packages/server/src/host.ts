@@ -187,6 +187,7 @@ import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
+import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
@@ -1118,11 +1119,11 @@ export class Host {
                where the set-aside is tried again, behind whatever holds the
                Goal queue — never awaited here (review P2-1 on #940). */
             this.#retryStuckGoals()
-            return { ok: false as const, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
+            return { ok: false as const, readOnly: false, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
           }
           return !document.restored && document.goal.state === 'open' && document.operation === null
             ? { ok: true as const }
-            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+            : { ok: false as const, readOnly: Boolean(document.restored || document.goal.state !== 'open' || document.operation?.kind === 'wrap'), reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
         } catch {
           // A legacy room has no Goal document and retains the Team engine's
           // standalone behaviour until migration gives it one.
@@ -3360,11 +3361,12 @@ export class Host {
        still queued behind another. Patched onto the document instead, that
        card was missing, the claim was refused, and the assignment stayed
        staged, refusing every later save of the Goal. */
+    const carriedPatch = (intents: readonly Intent[]) => carryCardWork(intents, patch(intents))
     const staged = this.#goalStore.read(goal).operation?.kind === 'wrap'
     const save = staged
       ? async () => {
         const now = this.#goalStore.read(goal)
-        const intents = patch(now.board.intents)
+        const intents = carriedPatch(now.board.intents)
         if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
       }
       /* Whole: a Team save this write carries is answered as done once it
@@ -3372,7 +3374,7 @@ export class Host {
       : (state: TeamState) => this.#writeGoalBoard(goal, state, { whole: true })
     if (!(await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged }))) {
       const document = this.#goalStore.read(goal)
-      const intents = patch(document.board.intents)
+      const intents = carriedPatch(document.board.intents)
       if (intents === document.board.intents) return
       await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
     }
@@ -3457,7 +3459,7 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream, dirtyPaths },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
         updatedAt: at,
@@ -5441,7 +5443,7 @@ export class Host {
          for exactly those, and on the record when there is one — where a
          fresh attach and a runtime restart already clear it, which is the
          behaviour wanted. */
-      if (agent?.health().state === 'ready' && !isSessionBusy(error)) {
+      if (agent?.health().state === 'ready' && !isSessionBusy(error) && !isRuntimeDown(error)) {
         const gone = isSessionGone(error)
         const refusals =
           (record ? record.reopenRefusals : (this.#teamRefusals.get(key) ?? 0)) +
@@ -5607,6 +5609,10 @@ export class Host {
       })
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
+      // These typed failures name the runtime process, not the conversation.
+      // Keep the code so #teamLive can distinguish a stopped agent from a
+      // conversation that the running agent refused to reopen.
+      if (isRuntimeDown(error)) throw error
       // The sentence is the same either way; what differs is whether asking
       // again could help. The adapter's own "gone", or the agent answering
       // that the id names nothing, settles it — and keeps its code, so a
@@ -6507,7 +6513,13 @@ export class Host {
               ?.items ?? [],
           )
         : []
+    // The Team wait captures a running turn; settle it before detach clears
+    // that turn from the registry's live status.
+    if (event.type === 'session/detached') {
+      this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
+    }
     const record = this.registry.apply(runtime, event)
+    if (record && event.type === 'session/detached') this.#pushQueue(record)
     if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
       (event.type === 'session/tasks' && event.tasks.some((task) => task.state === 'running')))) {
       this.#seatQuietSince.delete(recordKey(record))
@@ -6622,8 +6634,8 @@ export class Host {
          finished, a usage window ran out, a harness refused the next call —
          the flow stalls silently: cards stay open, nobody is waiting on them,
          and the only sign is a room that stopped moving. So the seat is
-         handed its order again. Budgeted, because a seat that cannot start is
-         a seat that would otherwise be re-armed forever. */
+         handed its order again. Unfinished turns and self-block hand-backs
+         have separate hourly allowances, so neither can re-arm forever. */
       void this.#flows.reArm(runtime, String(event.sessionId))
       // The same turn-ended signal answers a v2 release still waiting on this
       // Seat, rather than a poll of its own guessing when to ask again (#1027).
@@ -7500,6 +7512,11 @@ const ACCOUNT_NAME_DEADLINE_MS = 2_000
 const isInside = (path: string, base: string): boolean => path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
 
 const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, record.session.id)
+
+const isRuntimeDown = (error: unknown): boolean => {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false
+  return error.code === 'notRunning' || error.code === 'notInstalled'
+}
 
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)

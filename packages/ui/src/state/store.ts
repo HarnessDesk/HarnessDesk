@@ -3788,7 +3788,14 @@ export class AppStore {
           strayTerminals(raw).reduce((acc, view) => dockIn(acc, 'bottom', view), saved),
         )
       : null
-    const workbench = rehomed ?? emptyWorkbench()
+    const restored = rehomed
+      ? DOCKS.reduce((current, area) => {
+          const entries = dockViews(current[area])
+          const runOnly = entries.length > 0 && entries.every(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
+          return runOnly ? collapseDockIn(current, area, true) : current
+        }, rehomed)
+      : null
+    const workbench = restored ?? emptyWorkbench()
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
       workbench,

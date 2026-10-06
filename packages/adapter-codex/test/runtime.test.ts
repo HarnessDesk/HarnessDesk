@@ -22,6 +22,7 @@ import { automaticContext } from '../src/capabilities.js'
 import { CodexRuntime, type CodexRuntimeOptions } from '../src/index.js'
 import { CODEX_PROFILE_OPTION_ID } from '../src/profiles.js'
 import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/session.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
@@ -34,7 +35,7 @@ const makeRuntime = (
   env: Readonly<Record<string, string>> = {},
   options: Omit<CodexRuntimeOptions, 'binaryPath' | 'clientName' | 'env'> = {},
 ): CodexRuntime =>
-  new CodexRuntime({ ...options, binaryPath: FAKE, clientName: 'harnessdesk-test', env })
+  new CodexRuntime({ ...options, binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv(env) })
 
 /** Collects the event stream so assertions can look at ordering, not just state. */
 const recorder = (runtime: CodexRuntime) => {
@@ -1192,10 +1193,10 @@ test('checkInstallation moves an idle runtime onto an upgraded binary, and waits
 
     // "Upgrade" the binary: discovery probes `--version` in this process's
     // environment, so the fixture reports the new number from here on.
+    const session = await runtime.createSession({ cwd: '/tmp/repo' })
     process.env['FAKE_CODEX_VERSION'] = '0.200.0'
 
-    // Busy: a turn in flight means the change is reported but not acted on.
-    const session = await runtime.createSession({ cwd: '/tmp/repo' })
+    // Busy: the existing conversation stays on its original build while its turn runs.
     await session.send([{ type: 'text', text: 'hello' }])
     await until((seen) => seen.some((event) => event.type === 'turn/started'))
     const deferred = await runtime.checkInstallation()
@@ -1309,7 +1310,7 @@ test('a hand-off to Codex is called by the hand-off, not by the block the adapte
     },
   })
   await new Promise((resolve) => setTimeout(resolve, 60))
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel, env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   const previewOf = (session: unknown): string | null => (session as { summary(): { preview: string | null } }).summary().preview
@@ -1355,7 +1356,7 @@ const gitKernel = async (t: { after(fn: () => unknown): void }): Promise<Extensi
 test('a preview that is the person’s own words reads the same listed as opened', async (t) => {
   // The control for the pair below: nothing here needs a predicate at all.
   const kernel = await gitKernel(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel, env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   const listed = (await runtime.listSessions({ pageSize: 10 })).data.find((row) => String(row.id) === 'thread-2')
@@ -1369,7 +1370,7 @@ test('a conversation is called the same thing opened as it is in the list (revie
      and the `session/started` event went on naming a conversation after the
      adapter's own block. Both paths, one thread, one answer. */
   const kernel = await gitKernel(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel, env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
 
