@@ -564,7 +564,7 @@ test('a forge call rides its own invocation or is refused; the identity needs no
   const engine: ForgeEngine = {
     seat: async (callScope) => {
       seats.push(callScope)
-      return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High' }
+      return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High', role: null, round: null, team: null }
     },
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
     publish: async () => {},
@@ -646,7 +646,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
   const forge: ForgeEngine = {
     seat: async (callScope) => {
       seats.push(callScope)
-      return { agent: 'Codex', version: null, model: null, effort: null, thinking: false, label: 'Codex' }
+      return { agent: 'Codex', version: null, model: null, effort: null, thinking: false, label: 'Codex', role: null, round: null, team: null }
     },
     identity: async (callScope) => {
       identities.push(callScope)

@@ -1,18 +1,21 @@
 import { sessionId as makeSessionId } from '@harnessdesk/protocol'
 
+import { within } from '../seat-reads.js'
 import { confine } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
+const TERMINAL_ACCOUNT_READ_DEADLINE_MS = 2_000
+
 /** PTYs that outlive a client reload, hosted by whichever runtime runs processes. */
 export const terminalMethods = {
-  'terminal/open': async (ctx, params) => {
+  'terminal/open': async (ctx, params, accountReadDeadlineMs = TERMINAL_ACCOUNT_READ_DEADLINE_MS) => {
     const requested = ctx.runtimes.resolve(params)
     // A terminal is a workbench tool, not a property of the conversation's
     // backend. When the conversation's runtime runs no processes (ACP
     // agents don't), prefer providers that are ready, then already starting,
     // then idle. The managed process surface joins or starts the runtime.
-    // Account reads can wake a resting runtime, so use them only to order a
-    // ready tier with multiple candidates.
+    // Only a ready tier has a choice worth ordering; a starting provider's
+    // account read would wait for its start.
     let provider = requested.processes ? requested : undefined
     if (!provider) {
       const candidates = ctx.runtimes.all().filter((candidate) => candidate.processes)
@@ -24,18 +27,16 @@ export const terminalMethods = {
           break
         }
 
-        const ranked = await Promise.all(tier.map(async (candidate) => {
-          try {
-            const account = await candidate.getAccount()
-            return {
-              candidate,
-              signedOut: account.accounts.length === 0 && account.signInMethods.length > 0,
-            }
-          } catch {
-            return { candidate, signedOut: true }
+        for (const candidate of tier) {
+          const result = await within(() => candidate.getAccount(), accountReadDeadlineMs)
+          const signedOut = result.settled !== 'value' ||
+            (result.value.accounts.length === 0 && result.value.signInMethods.length > 0)
+          if (!signedOut) {
+            provider = candidate
+            break
           }
-        }))
-        provider = ranked.find((entry) => !entry.signedOut)?.candidate ?? tier[0]
+        }
+        provider ??= tier[0]
         break
       }
     }

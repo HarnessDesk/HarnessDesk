@@ -1,13 +1,10 @@
 import type { AgentEvent, NoticeClass, NoticeDetail } from './events.js'
 import { sessionKey, type RuntimeId, type SessionId, type SessionKey } from './ids.js'
 import { reduceSession } from './reduce.js'
-import type { Session, Turn } from './session.js'
+import type { Session } from './session.js'
 
 const MAX_PENDING_NOTICES_PER_CONVERSATION = 20
 const MAX_PENDING_CONVERSATIONS = 100
-
-/** Identifies a host-created turn that holds conversation notices before real turns arrive. */
-export const isNoticeTurn = (turn: Turn): boolean => String(turn.id).startsWith('notice:')
 
 export const classifyNotice = (notice: { readonly class?: NoticeClass; readonly kind?: string; readonly sessionId?: string }): 'toast' | 'inbox' | 'conversation' | 'standing' => {
   if (notice.class === 'result') return 'toast'

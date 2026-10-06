@@ -29,6 +29,7 @@ test('the seat is the agent, the model by its label, then a separate effort', ()
   )
   assert.deepEqual(seat, {
     agent: 'Codex',
+    role: null, round: null, team: null,
     version: '0.153.0',
     model: 'GPT-5.4',
     effort: 'High',

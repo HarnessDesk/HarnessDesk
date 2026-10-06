@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
+import { reduceSession, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -129,6 +129,15 @@ const render = (store: AppStore, key: string | null = KEY): void => {
   })
 }
 
+const expectNoticeBelowEmptyState = () => {
+  const transcript = container.querySelector('[data-live-transcript]')
+  const empty = transcript?.querySelector('[data-slot="conversation-empty-state"]')
+  const notice = transcript?.querySelector('[data-turn^="notice:"]')
+  expect(empty).not.toBeNull()
+  expect(notice).not.toBeNull()
+  expect(empty!.compareDocumentPosition(notice!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+}
+
 it('a session that has never been used is not reported as a broken one', () => {
   // `updatedAt === createdAt`: the host made it and nothing has happened since.
   render(rig(session()).store)
@@ -160,6 +169,27 @@ it('says plainly when an agent could not restore a conversation that was used', 
   expect(container.textContent).toContain('Nothing to show')
   expect(container.textContent).toContain('Codex')
   expect(container.textContent).toContain('restore')
+})
+
+it('keeps the opening pitch above a notice-only conversation', () => {
+  const id = sessionId('s-1')
+  const withNotice = reduceSession(session(), { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  render(rig(withNotice).store)
+
+  expect(container.textContent).toContain('What should we build?')
+  expect(container.textContent).toContain('No tools declared')
+  expectNoticeBelowEmptyState()
+})
+
+it('keeps the restore explanation above a notice-only conversation', () => {
+  const id = sessionId('s-1')
+  const withNotice = reduceSession(session({ updatedAt: 9_000 }), { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  render(rig(withNotice).store)
+
+  expect(container.textContent).toContain('Nothing to show')
+  expect(container.textContent).toContain('restore')
+  expect(container.textContent).toContain('No tools declared')
+  expectNoticeBelowEmptyState()
 })
 
 it('shows the transcript once there is one, and neither empty state', () => {
