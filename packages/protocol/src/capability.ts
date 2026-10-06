@@ -42,9 +42,14 @@ export type CapabilityScope =
 
 export const GLOBAL_SCOPE: CapabilityScope = { kind: 'global' }
 
+/** A host-admitted shell root, optionally kept in its own checkout instead of the open workspace. */
+export type WorkspaceAdmission = string | { readonly root: string; readonly enterCheckout: boolean }
+
 /** Context a scope is tested against when deciding what is currently in force. */
 export interface ScopeQuery {
   readonly workspaceRoot?: string
+  /** Host admission only; replaced along with workspaceRoot before plugins receive a call. */
+  readonly enterCheckout?: boolean
   readonly runtime?: RuntimeId
   readonly sessionId?: SessionId
   readonly turnId?: TurnId

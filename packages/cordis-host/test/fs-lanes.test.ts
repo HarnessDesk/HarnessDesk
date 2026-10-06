@@ -9,13 +9,13 @@ import { ExtensionKernel, setEditorEngine, type HarnessContext, type HarnessPlug
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 60))
 const missing = async (path: string): Promise<boolean> => stat(path).then(() => false, () => true)
 
-type Probe = { delay?: boolean; read?: string; write?: string; open?: string }
+type Probe = { delay?: boolean; read?: string; write?: string; open?: string; cwd?: string }
 
 /** One tool that reports, through every workspace capability, where its call ran. */
 const probePlugin = {
-  manifest: { id: 'fs-lanes', name: 'File lanes', permissions: { workspace: { read: true, write: true }, editor: true } },
+  manifest: { id: 'fs-lanes', name: 'File lanes', permissions: { workspace: { read: true, write: true }, editor: true, shell: true } },
   plugin: {
-    name: 'fs-lanes', inject: ['tools', 'fs', 'workspace', 'harness', 'editor'],
+    name: 'fs-lanes', inject: ['tools', 'fs', 'workspace', 'harness', 'editor', 'shell'],
     apply(ctx: HarnessContext) {
       ctx.tools.register({
         name: 'probe', description: '', inputSchema: { type: 'object' },
@@ -26,6 +26,7 @@ const probePlugin = {
             await ctx.fs.write(args.write, basename(ctx.workspace.root ?? ''))
             return 'written'
           }
+          if (args.cwd !== undefined) return (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'], { cwd: args.cwd })).stdout
           if (args.open !== undefined) {
             await ctx.editor.open(args.open)
             await ctx.editor.decorate(args.open, [])
@@ -119,7 +120,7 @@ test('a tool call reads, lists, writes, shows and names the root of its own chec
   // The caller's checkout is the boundary, for reading, writing and showing: the open workspace and a sibling are
   // outside it, and the refusal names the checkout the call runs in rather than the desk's folder.
   for (const path of [join(two, 'brief.md'), '../two/brief.md', join(project, 'brief.md')]) {
-    for (const args of [{ read: path }, { write: path.replace('brief.md', 'escaped.md') }, { open: path }]) {
+    for (const args of [{ read: path }, { write: path.replace('brief.md', 'escaped.md') }, { open: path }, { cwd: path }]) {
       const refused = await run(one, args)
       assert.equal(refused.ok, false, JSON.stringify(args))
       assert.match(refused.ok ? '' : refused.error, /is outside the checkout this call runs in$/)
