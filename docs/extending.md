@@ -739,6 +739,13 @@ privileged path:
 | Android | `ctx.android` (adb) | devices, install, launch, screenshot, tap, key, text, logcat |
 | tests | `ctx.shell` | `run_tests` with the framework detected, structured pass/fail; the `/test` command |
 
+`pr_create` uses the upstream to check for unpublished commits only when it
+names the current branch on `origin` (or the first remote when there is no
+`origin`). With no upstream, or one naming another branch such as
+`origin/main`, it reads the current branch's published copy on that remote
+instead. A missing copy or commits ahead of or behind it refuse creation;
+the tool never pushes or changes the upstream.
+
 `pr_merge` is deliberately head-bound. It requires the pull request `number`
 and the reviewed full `head` commit (40 or 64 lowercase hexadecimal characters),
 accepts an optional `method` of `squash`, `merge` or `rebase`, and defaults to
