@@ -238,7 +238,8 @@ it('draws recorded Run state with faces, a badge and duration, a working ring an
     faces={new Map([['alpha', <span>Alpha mark</span>], ['beta', <span>Beta mark</span>], ['gamma', <span>Gamma mark</span>]])}
     doing={new Map([['alpha', 'Editing src/retry.ts']])} />))
   const write = container.querySelector('[data-step="write"]')!
-  expect(container.querySelector('[data-step-row="land"] [data-slot="list-row-trail"]')).toBeNull()
+  const future = container.querySelector('[data-step-row="land"] [data-slot="list-row-trail"]')!
+  expect(future.querySelector('[data-slot="chip"][data-tone="neutral"]')?.textContent).toBe('Not reached')
   expect(write.getAttribute('data-state')).toBe('done')
   expect(write.querySelector('[data-slot="flow-complete"]')).not.toBeNull()
   expect(write.querySelector('[data-slot="flow-duration"]')?.textContent).toBe('11m')
@@ -268,7 +269,7 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
   expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
   expect(list.querySelector('[data-step-row="write"] [title="Time not recorded"]')?.textContent).toBe('—')
   expect(list.textContent).toContain('2 runs')
-  expect(list.querySelector('[data-step-row="write"] [data-slot="list-row-trail"]')?.textContent).toBe('Done—2 runs')
+  expect(list.querySelector('[data-step-row="write"] [data-slot="list-row-trail"]')?.textContent).toBe('Published— · 2 runs')
   expect(container.textContent).not.toContain('<script>')
   expect(container.querySelector('script')).toBeNull()
 })

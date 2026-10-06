@@ -496,6 +496,7 @@ export class SessionRegistry {
    * record so callers can react without a second lookup.
    */
   apply(runtime: RuntimeId, event: AgentEvent): SessionRecord | undefined {
+    if (event.type === 'session/detached') this.detachAll(runtime, event.sessionId)
     if (event.type === 'session/started') {
       return this.upsert(event.session, this.get(runtime, event.session.id)?.live ?? null)
     }
@@ -581,10 +582,10 @@ export class SessionRegistry {
    * has to tell its clients about — a queue that quietly stopped looks to the
    * user like a message that vanished.
    */
-  detachAll(runtime: RuntimeId): SessionRecord[] {
+  detachAll(runtime: RuntimeId, session?: SessionId): SessionRecord[] {
     const held: SessionRecord[] = []
     for (const record of this.#records.values()) {
-      if (record.runtime !== runtime) continue
+      if (record.runtime !== runtime || (session !== undefined && record.session.id !== session)) continue
       // Only a handle that was there can be lost to a restart. A conversation
       // already closed by the user stays closed.
       record.detached = record.live !== null || record.detached

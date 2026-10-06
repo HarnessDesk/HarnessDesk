@@ -14,6 +14,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 import type { CodexSession } from '../src/session.js'
 
 /**
@@ -27,7 +28,7 @@ import type { CodexSession } from '../src/session.js'
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
 
 const start = async (t: { after(fn: () => Promise<void>): void }, env: Record<string, string> = {}) => {
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv(env) })
   t.after(() => runtime.dispose())
   await runtime.start()
   const events: AgentEvent[] = []

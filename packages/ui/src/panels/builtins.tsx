@@ -1,3 +1,4 @@
+import { RunDetailsView, RunStepsView } from './run-dock'
 import { Approvals } from '../components/Approvals'
 import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { BrowserPane } from '../components/BrowserPane'
@@ -407,3 +408,9 @@ registerView({
     return key ? (snapshot.tasks.get(key) ?? []).some((task) => task.state === 'running') : false
   },
 })
+
+// Like the conversation inspectors, these follow the Run mounted in main.
+registerView({ kind: 'run-details', label: 'Run details', icon: PlanIcon,
+  mounts: ['right', 'bottom', 'sidebar'], defaultMount: 'right', component: RunDetailsView })
+registerView({ kind: 'run-steps', label: 'Steps', icon: TrajectoryIcon,
+  mounts: ['right', 'bottom', 'sidebar'], defaultMount: 'right', component: RunStepsView })

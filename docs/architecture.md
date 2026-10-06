@@ -220,8 +220,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   `capabilities.resume` and implementing `stopForIdle` participates (currently
   the ACP and Codex adapters); the existing idle reaper can then stop its process
   after `IDLE_STOP_MS` (ten minutes) with nothing else using it. Codex keeps
-  thread MCP children after unsubscribe, so process exit releases those too
-  ([measurement and lifecycle](decisions.md#finished-seats-release-handles-and-idle-runtimes-release-retained-tools)).
+  thread MCP children after unsubscribe. Each top-level conversation therefore
+  loads in a fresh process; releasing its last handle stops that process and
+  its retained tools even while other conversations work. Forks get a fresh
+  process too; delegated threads stay with their root. The control process owns
+  catalogue reads, file watches and standalone terminals. A conversation
+  process failure detaches only its own handles for the normal resume path.
+  Process exit releases its thread helpers
+  ([measurement and lifecycle](decisions.md#finished-conversations-recycle-their-own-processes)).
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening
