@@ -268,7 +268,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
         </Card>
         {gaps.length > 0 && <div data-slot="run-recording-gaps"><SectionBody spacing="inline"><Text as="p" role="meta">{`This Run did not record: ${gaps.join(', ')}.`}</Text></SectionBody></div>}
       </div></PanelBody>
-      <PanelFooter left="Recorded for this Run" right={`${execution.rounds.length} rounds`} />
+      <PanelFooter left="Recorded for this Run" right={`${execution.rounds.length} ${execution.rounds.length === 1 ? 'round' : 'rounds'}`} />
     </PanelFrame>
   </div>
 }

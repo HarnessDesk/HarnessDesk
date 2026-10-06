@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runFixture } from '../preview/run-view-fixture'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
-import type { FindingRunState, FlowCheckAttempt } from '@harnessdesk/protocol'
+import type { Evidence, FindingRunState, FlowCheckAttempt, Freshness } from '@harnessdesk/protocol'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const render = (props: Partial<RunInspectorProps> = {}) => {
@@ -635,3 +635,44 @@ it('uses the wrapped Team state to omit the check retry act even if its Run is s
     expect([...view.container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(false)
   } finally { view.close() }
 })
+it('uses a singular footer for a Run with one round', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, rounds: fixture.execution.rounds.slice(0, 1) } } })
+  try {
+    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('1 round')
+    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).not.toContain('1 rounds')
+  } finally { view.close() }
+})
+
+it.each(['other Run', 'restored', 'stale CI', 'other-head CI', 'dirty diff', 'other-head diff', 'stale diff'] as const)(
+  'keeps newer %s evidence out of the Run summary', scenario => {
+    const fixture = runFixture()
+    const current: Evidence[] = [
+      { kind: 'pr', number: 412, head: 'abc123', state: 'open', url: 'https://example.com/pull/412' },
+      { kind: 'ci', at: 'abc123', checks: [{ name: 'Verify', state: 'passed', url: null }] },
+      { kind: 'diff', files: 3, added: 177, removed: 82, from: 'base123', to: 'abc123' },
+    ]
+    const observe = (fact: Evidence, n: number, freshness: Freshness = { state: 'fresh' }) => ({ by: null, freshness,
+      record: { id: `scope-${n}`, observedAt: n, round: 1, fact,
+        checkout: { root: '/work/demo', cwd: '/work/demo', commonDir: '/work/demo/.git', head: 'abc123', branch: 'fix/current' } } })
+    const foreign: Evidence = scenario === 'other Run' || scenario === 'restored'
+      ? { kind: 'pr', number: 999, head: 'other123', state: 'closed', url: 'https://example.com/pull/999' }
+      : scenario.endsWith('CI')
+        ? { kind: 'ci', at: scenario === 'other-head CI' ? 'other123' : 'abc123', checks: [{ name: 'Foreign', state: 'failed', url: null }] }
+        : { kind: 'diff', files: 90, added: 999, removed: 888, from: 'base123', to: scenario === 'other-head diff' ? 'other123' : 'abc123', dirty: scenario === 'dirty diff' }
+    const newer = observe(foreign, 100, scenario.startsWith('stale') ? { state: 'behind', commits: 1 } : { state: 'fresh' })
+    const input = { ...fixture, evidence: { ...fixture.evidence, cards: [
+      { card: 1, running: [], facts: current.map((fact, n) => observe(fact, n)) },
+      { card: scenario === 'other Run' ? 999 : 1, running: [], facts: [{ ...newer,
+        record: { ...newer.record, ...(scenario === 'restored' ? { restored: { at: 101 } } : {}) } }] },
+    ] } }
+    const view = render({ input })
+    try {
+      const pr = [...view.container.querySelectorAll('[data-slot="card"]')].find(card => card.querySelector('[data-slot="card-title"]')?.textContent?.startsWith('Pull request'))!
+      expect(pr.querySelector('[data-slot="card-title"]')?.textContent).toBe('Pull request #412Open')
+      expect(pr.textContent).toContain('1 passed')
+      expect(pr.textContent).not.toContain('failed')
+      expect(pr.querySelector('[data-slot="change-stats"]')?.textContent).toBe('+177−82')
+    } finally { view.close() }
+  },
+)

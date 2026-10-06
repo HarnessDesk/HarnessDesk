@@ -33,7 +33,7 @@ import {
 } from '../design'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 
-import { isBusy, openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { isBusy, openingOfContent, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
@@ -1131,7 +1131,7 @@ const firstAsk = (session: Session): string | null => {
   for (const turn of session.turns) {
     for (const item of turn.items) {
       if (item.type !== 'userMessage') continue
-      const opening = openingOf(item.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n'))
+      const opening = openingOfContent(item.content)
       if (opening) return opening
     }
   }

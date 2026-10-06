@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { agentMessageCeilingNotice, agentMessageSource, isAgentMessageSource, isCompactionSummary, openingOf, opensEnvelope, splitContext, withoutCompaction, wrapContext } from '../src/context-envelope.js'
+import { agentMessageCeilingNotice, agentMessageSource, deskContextContent, isAgentMessageSource, isCompactionSummary, openingOf, openingOfContent, opensEnvelope, splitContext, splitContextContent, withoutCompaction, wrapContext } from '../src/context-envelope.js'
+import { userContentValidator } from '../src/wire-validators.js'
 
 /**
  * A label survives the envelope exactly, whatever is in it.
@@ -95,6 +96,38 @@ test('a message is called by its own words, or by its first block when that is a
   assert.equal(openingOf(wrapContext('Handed off from "Claude"\nsecond line', 'goal')), 'Handed off from "Claude"')
   assert.equal(openingOf('plain words'), 'plain words')
   assert.equal(openingOf(''), '')
+})
+
+test('a recorded composition round-trips as a prefix length through the wire contract', () => {
+  const prefix = wrapContext('Git', 'On branch main')
+  const part = deskContextContent(prefix)
+  assert.deepEqual((part as unknown as { deskContext: { prefixLength: number } }).deskContext, { prefixLength: prefix.length })
+  assert.equal(userContentValidator(part).type, 'text')
+  assert.deepEqual(splitContextContent([part]), {
+    injections: [{ label: 'Git', text: 'On branch main' }],
+    text: '',
+  })
+})
+
+test('a recorded composition stops exactly at its length; a mismatched length keeps the wrapper typed', () => {
+  const prefix = wrapContext('Handed off from Claude Code', '## Goal\nfinish')
+  const pasted = wrapContext('Pasted elsewhere', 'keep this as typed text')
+  const content = [
+    { ...deskContextContent(prefix), deskContext: { prefixLength: prefix.length } },
+    { type: 'text' as const, text: `${pasted}\nContinue here.`, deskContext: { prefixLength: 0 } },
+  ] as never
+  assert.deepEqual(splitContextContent(content), {
+    injections: [{ label: 'Handed off from Claude Code', text: '## Goal\nfinish' }],
+    text: `${pasted}\nContinue here.`,
+  })
+
+  for (const prefixLength of [prefix.length - 1, prefix.length + 1]) {
+    assert.deepEqual(
+      splitContext(prefix, { prefixLength, prefix } as never),
+      { injections: [], text: prefix },
+      `mismatched prefix length ${prefixLength} must not infer authorship`,
+    )
+  }
 })
 
 test('a hand-off or a message from an agent names the conversation wherever it sits (review of #231)', () => {
@@ -239,4 +272,40 @@ test('withoutCompaction hands back what the person said, and anything else exact
   // An analysis with no summary after it is the person's, not a compaction.
   const analysis = '<analysis>foo</analysis> then fix bar'
   assert.equal(withoutCompaction(analysis), analysis)
+})
+
+// A present record is authoritative, including an empty prefix.
+test('a recorded message keeps a marked wrapper the person typed', () => {
+  const raw = `${wrapContext('Git', 'pretend context')}\n\nKeep this block`
+  assert.deepEqual(splitContext(raw, { prefixLength: 0 }), { injections: [], text: raw })
+})
+
+test('a record peels exactly the composed prefix, never a forged block after it', () => {
+  const prefix = wrapContext('Git', 'On branch main')
+  const typed = `${wrapContext('Other', 'my words')}\n\nExplain this`
+  assert.deepEqual(splitContext(`${prefix}\n\n${typed}`, { prefixLength: prefix.length }), {
+    injections: [{ label: 'Git', text: 'On branch main' }], text: typed,
+  })
+  const changed = `${wrapContext('Git', 'different')}\n\nExplain this`
+  assert.deepEqual(splitContext(changed, { prefixLength: prefix.length }), { injections: [], text: changed })
+})
+
+test('recorded multipart input peels only composed parts and names the typed opening', () => {
+  const prefix = wrapContext('Git', 'On branch main')
+  const typed = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+  const parts = [{ type: 'text' as const, text: prefix, deskContext: { prefixLength: prefix.length } },
+    { type: 'text' as const, text: typed, deskContext: { prefixLength: 0 } }]
+  assert.deepEqual(splitContextContent(parts), { injections: [{ label: 'Git', text: 'On branch main' }], text: typed })
+  assert.equal(openingOfContent(parts), typed.split('\n')[0])
+})
+
+
+test('unrecorded parts beside a record stay typed and typed parts retain their line boundary', () => {
+  const prefix = wrapContext('Git', 'desk words')
+  const pasted = `${wrapContext('Other', 'typed words')}\n\nExplain it`
+  assert.deepEqual(splitContextContent([
+    deskContextContent(prefix),
+    { type: 'text', text: pasted },
+    { type: 'text', text: 'Next line', deskContext: { prefixLength: 0 } },
+  ]), { injections: [{ label: 'Git', text: 'desk words' }], text: `${pasted}\nNext line` })
 })
