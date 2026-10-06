@@ -199,6 +199,14 @@ it('a ready, empty pane whose folder is known offers to start with a team there'
   expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, undefined)
 })
 
+it('uses the page role’s own weight for the empty conversation title', () => {
+  render(rig(session()).store)
+  const title = container.querySelector('[data-slot="conversation-empty-state"] [data-role="page"]')!
+  expect(title.textContent).toBe('What should we build?')
+  expect(title.classList.contains('font-semibold')).toBe(true)
+  expect(title.hasAttribute('data-weight')).toBe(false)
+})
+
 it('with no session at all — no folder to read a catalogue from — offers no team action', () => {
   render(rig(null).store, null)
   expect([...container.querySelectorAll('button')].some((one) => one.textContent?.trim().startsWith('Start with a team'))).toBe(false)

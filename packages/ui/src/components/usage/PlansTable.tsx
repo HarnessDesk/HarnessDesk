@@ -32,7 +32,8 @@ import {
 } from '../../design'
 import { formatTokens } from '../../lib/context-usage'
 import { accountActivitySummary, type AccountActivitySummary } from '../../lib/usage'
-import { defaultTint } from '../../lib/accounts'
+import { accountForUsage, defaultTint, runtimeAccountBadge } from '../../lib/accounts'
+import type { AppSnapshot } from '../../state/store'
 import { CaretIcon } from '../Icons'
 import { RuntimeMark } from '../BrandIcons'
 import { Card } from './shared'
@@ -100,6 +101,7 @@ export const PlansTable = ({
   onSignIn,
   signInRuntimes,
   tintFor = defaultTint,
+  snapshot = { accountsByRuntime: {}, accountPrefs: {} },
 }: {
   /** Every row, already described and sorted — `planRows(...)`, computed once by the caller (review of #1069, B3) and never recomputed here. */
   rows: readonly PlanRow[]
@@ -115,6 +117,7 @@ export const PlansTable = ({
   onSignIn?: (runtime: RuntimeId) => void
   signInRuntimes?: ReadonlySet<RuntimeId>
   tintFor?: (runtime: RuntimeId, accountLabel: string | null) => import('../../design').Tint
+  snapshot?: Pick<AppSnapshot, 'accountsByRuntime' | 'accountPrefs'>
 }) => {
   const [expanded, setExpanded] = useState<string | null>(initialExpanded)
   const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
@@ -144,6 +147,8 @@ export const PlansTable = ({
         <TableBody>
           {shown.map((row) => {
             const info = byId.get(row.report.runtime) ?? null
+            const account = accountForUsage(row.report.runtime, row.report.account, snapshot.accountsByRuntime)
+            const badge = info && account ? runtimeAccountBadge(info, [...byId.values()], snapshot.accountsByRuntime, snapshot.accountPrefs, account) : undefined
             const isOpen = expanded === row.key
             const bodyId = `plans-row-body-${row.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`
             const name = info?.presentation.name ?? String(row.report.runtime)
@@ -154,6 +159,7 @@ export const PlansTable = ({
                 row={row}
                 info={info}
                 name={name}
+                badge={badge}
                 tint={tintFor(row.report.runtime, row.report.account)}
                 onSignIn={onSignIn && signInRuntimes?.has(row.report.runtime) ? () => onSignIn(row.report.runtime) : undefined}
                 bodyId={bodyId}
@@ -201,6 +207,7 @@ const TableRowGroup = ({
   info,
   name,
   tint,
+  badge,
   onSignIn,
   bodyId,
   isOpen,
@@ -217,6 +224,7 @@ const TableRowGroup = ({
   info: RuntimeInfo | null
   name: string
   tint: import('../../design').Tint
+  badge?: string
   onSignIn?: () => void
   bodyId: string
   isOpen: boolean
@@ -231,7 +239,7 @@ const TableRowGroup = ({
 }) => (
   <>
     <TableRow data-state={isOpen ? 'selected' : undefined}>
-      <TableCell className={styles.colAccount} lead={info && <IconTile shape="face" {...(row.shape === 'metered' || row.shape === 'free' ? { tone: 'neutral' as const } : { tint })}><RuntimeMark runtime={info} /></IconTile>}>
+      <TableCell className={styles.colAccount} lead={info && <IconTile shape="face" badge={badge} {...(row.shape === 'metered' || row.shape === 'free' ? { tone: 'neutral' as const } : { tint })}><RuntimeMark runtime={info} /></IconTile>}>
         <span className={styles.plansName}>
           <Text role="subject" truncate>{row.report.account ?? name}</Text>
           <Text role="meta" truncate>{[row.report.account && name, shapeWords(row)].filter(Boolean).join(' · ')}</Text>
