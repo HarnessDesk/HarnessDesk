@@ -799,7 +799,8 @@ export const Conversation = ({
         {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
           // In the same column as every other empty state here, clear of the
-          // composer, so the word does not jump when loading ends in one.
+          // composer. Pane-filling empty states keep the word in place;
+          // notice-only restores move the explanation up beside their notice.
           <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
             <ConversationEmptyState row>
               <Spinner size="sm" tone="brand" />

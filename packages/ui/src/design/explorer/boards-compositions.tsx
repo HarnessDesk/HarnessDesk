@@ -1228,10 +1228,10 @@ const EmptyBoard = () => (
           />
         </Rows>
       </div>
-      {/* The conversation pane's own two shapes, exactly as Conversation.tsx
-          mounts them: a title over a sentence, and the loading row. */}
+      {/* The conversation pane's three shapes: a pane-filling column, a
+          content-height column beside an early notice, and the loading row. */}
       <div className="flex flex-col gap-1">
-        <Text role="meta">conversation pane — a column, and the loading row</Text>
+        <Text role="meta">conversation pane — full height, beside a notice, and loading</Text>
         <div className="flex h-48 rounded-(--hd-radius-lg) border border-(--hd-border)">
           <ConversationEmptyState data-catalog-variant="column">
             <Text as="div" role="page" weight="medium">What should we build?</Text>
@@ -1239,6 +1239,15 @@ const EmptyBoard = () => (
               Describe what you want done in harnessdesk.
             </Text>
           </ConversationEmptyState>
+        </div>
+        <div className="flex h-64 flex-col rounded-(--hd-radius-lg) border border-(--hd-border)">
+          <ConversationEmptyState height="content" data-catalog-variant="content">
+            <Text as="div" role="page" weight="medium">What should we build?</Text>
+            <Text as="p" role="prose" className="m-0">
+              Describe what you want done in harnessdesk.
+            </Text>
+          </ConversationEmptyState>
+          <ToolPaneNotice tone="warning">A tool was unavailable when this conversation opened.</ToolPaneNotice>
         </div>
         <div className="flex h-32 rounded-(--hd-radius-lg) border border-(--hd-border)">
           <ConversationEmptyState row data-catalog-variant="row">

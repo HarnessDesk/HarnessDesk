@@ -695,6 +695,14 @@
     "pad": "40 40 40 40",
     "radius": 0
   },
+  "empty/conversation-empty-state/variant/content": {
+    "h": 138,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "40 40 40 40",
+    "radius": 0
+  },
   "empty/conversation-empty-state/variant/row": {
     "h": 126,
     "text": 14,
