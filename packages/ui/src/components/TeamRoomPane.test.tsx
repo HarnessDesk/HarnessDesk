@@ -8,6 +8,7 @@ import {
   sessionKey,
   type FlowExecution,
   type FindingPublicationsView,
+  type FindingRunView,
   type Intent,
   type InsightReport,
   type RuntimeInfo,
@@ -3564,7 +3565,7 @@ it('opens a read-only Run from the rail and Overview, and keeps selection in the
   const card = container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement
   expect(card).not.toBeNull()
   await act(async () => card.click())
-  expect(store.readFindingPublications).toHaveBeenCalledWith(ROOM, execution.id)
+  expect(store.readFindingPublications).not.toHaveBeenCalled()
   expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
   const overview = [...container.querySelectorAll('aside button')].find(one => one.textContent === 'Overview') as HTMLButtonElement
   await act(async () => overview.click())
@@ -3628,7 +3629,8 @@ it('loads older Runs for the rail count and keeps each Run’s own selected row'
   const choose = async (label: string) => { await act(async () => { ([...container.querySelectorAll('[aria-label="Choose a Run"] button')].find(one => one.textContent === label) as HTMLButtonElement).click() }) }
   await choose('Run 1')
   await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
-  expect(store.readFindingPublications).toHaveBeenLastCalledWith(ROOM, 'old-run')
+  expect(store.readFindingPublications).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
   await choose('Run 2')
   expect(container.querySelector('[aria-current="true"][data-row]')).toBeNull()
   await choose('Run 1')
@@ -4013,4 +4015,28 @@ it('wrapped Agent destinations are native keyboard buttons', async () => {
  const kept = [...container.querySelectorAll<HTMLElement>('aside [data-slot="list-row"]')].find(one => one.textContent?.includes('Writer'))!
  expect(kept.tagName).toBe('BUTTON')
  expect(kept.tabIndex).toBe(0)
+})
+
+
+it('reads publication actions when the selected card holds a completed recorded review', async () => {
+  const execution = { version: 2, id: 'review-run', goal: ROOM, state: 'running', reason: null, operations: [],
+    rounds: [{ n: 1, role: 'reviewer', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
+    document: { format: 'agents', flow: { name: 'Review', roles: [], rules: [] } } } as unknown as FlowExecution
+  const card = { ...state.intents[0]!, state: 'done' as const, claim: null, handoff: 'The change is ready to review.' }
+  const { store } = rig([], undefined, { members: [], intents: [card] }, GOAL, new Map([[execution.id, execution]]))
+  const snapshot = store.getSnapshot()
+  const review: FindingRunView = {
+    run: execution.id, goal: ROOM, stamp: 'recorded-review', publication: 'local', round: 1, total: 1, finished: 1,
+    embargoed: false, open: 0, blocking: 0, reason: null, ceilingStop: false,
+    rounds: [{ round: 1, state: 'local', reason: null, pr: null, cards: [1] }],
+    reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
+  }
+  const reviewed = { ...snapshot, findingRuns: new Map([[execution.id, review]]) }
+  Object.assign(store, { getSnapshot: () => reviewed, loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
+  expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
+  expect(store.readFindingPublications).toHaveBeenCalledWith(ROOM, execution.id)
 })

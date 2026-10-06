@@ -125,7 +125,7 @@ test('missing board card refusals use card vocabulary', async (t) => {
   const { team, port, room } = await rig(t)
   await twoAgents(port, team, room)
 
-  await assert.rejects(team.intentAction(room, 99, 'abandon'), /There is no card #99 on this board\./)
+  await assert.rejects(team.intentAction(room, 99, 'abandon'), { message: 'There is no card #99 on this board.', wireCode: 'cardMissing' })
   assert.match(await team.claim(99, codex), /^There is no card #99\./)
   assert.match(await team.commitWork(99, 'message', codex), /^There is no card #99\./)
   assert.match(await team.runCheck(99, {}, codex), /^There is no card #99\./)

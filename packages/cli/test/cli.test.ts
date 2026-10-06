@@ -158,7 +158,7 @@ test('the usage line of every command, and each option it documents, is accepted
 
 test('the exit codes are the ones the command line returns', () => {
   assert.deepEqual(Object.keys(EXIT_CODES).map(Number), [0, 1, 2, 3, 4, 5, 6, 7, 8, 130, 143])
-  for (const [code, expected] of [['noDesk', 3], ['unsafeDirectory', 4], ['tierNotGranted', 4], ['alreadyAnswered', 4], ['incompatible', 6], ['deskTooOld', 6], ['deadline', 1]] as const) {
+  for (const [code, expected] of [['noDesk', 3], ['unsafeDirectory', 4], ['tierNotGranted', 4], ['alreadyAnswered', 4], ['cardMissing', 4], ['incompatible', 6], ['deskTooOld', 6], ['deadline', 1]] as const) {
     assert.ok(Object.hasOwn(EXIT_CODES, errorExit(new WireCallError(code, 'demo'))), code)
     assert.equal(errorExit(new WireCallError(code, 'demo')), expected, code)
   }
