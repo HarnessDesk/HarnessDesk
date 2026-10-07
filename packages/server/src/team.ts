@@ -45,7 +45,7 @@ import { blockedByCaller, carryCardWork, retainedWorkExpired, RETAINED_WORK_MS }
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
-import { sameCanonicalPath } from './path-identity.js'
+import { sameCanonicalPath, withCanonicalPaths } from './path-identity.js'
 
 /**
  * The team plane: one board and one channel per workspace, host-owned.
@@ -3727,10 +3727,10 @@ export class Team {
 
   /** The rooms in one project, newest activity first. */
   roomsFor(root: string): readonly TeamState[] {
-    return [...this.#boards.values()]
+    return withCanonicalPaths(() => [...this.#boards.values()]
       .filter((board) => sameCanonicalPath(board.root, root))
       .map((board) => this.#wireStateOf(board))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => b.updatedAt - a.updatedAt))
   }
 
   /**
