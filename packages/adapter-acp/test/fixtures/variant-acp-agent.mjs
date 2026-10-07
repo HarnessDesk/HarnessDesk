@@ -112,9 +112,10 @@ const handlers = {
     reply(id, {
       protocolVersion: 1,
       agentInfo: { name: 'variant-acp-agent', version: '1' },
-      agentCapabilities: { loadSession: false, promptCapabilities: { image: false } },
+      agentCapabilities: { sessionCapabilities: { close: {} }, loadSession: false, promptCapabilities: { image: false } },
       authMethods: [],
     }),
+  'session/close': (id, params) => { sessions.delete(params.sessionId); reply(id, {}) },
   'session/new': (id) => {
     const sessionId = `variant-${++counter}`
     const wanted = { effort: 'high', thinking: false }

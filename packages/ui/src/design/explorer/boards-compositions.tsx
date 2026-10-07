@@ -1,3 +1,4 @@
+import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { LibrarySection } from '../../components/Library'
 import { previewStore } from '../../preview/harness'
 import { PluginPanelTableExample } from '../../preview/plugin-panel-table'
@@ -3040,6 +3041,21 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Stop a Run',
     about: 'The Run and Overview doors, each Seat’s ability to stop, an optional note, cleanup failure and the stopped record.',
     render: StopRunBoard,
+  },
+  {
+    id: 'timeline',
+    title: 'Timeline',
+    about: 'One continuous rail with finished, active, pending, attention and failed rings. Known times precede the title; child records keep its content edge.',
+    render: () => <div data-catalog-state="default" className="max-w-xl">
+      <Timeline aria-label="Recorded progress">
+        {(['done', 'active', 'warning', 'danger', 'pending'] as const).map((state: TimelineState, index) =>
+          <TimelineItem key={state} state={state} data-catalog-state={state === 'done' ? 'success' : state === 'pending' ? 'inactive' : state === 'danger' ? 'error' : state}
+            meta={state === 'pending' ? undefined : `12:0${index} · 2m`} title={['Start', 'Build the change', 'Review the result', 'Check failed', 'End'][index]}
+            detail={state === 'pending' ? undefined : 'Recorded detail stays in the title’s content column.'}>
+            {state === 'active' ? <Text role="muted">Editing the retry</Text> : undefined}
+          </TimelineItem>)}
+      </Timeline>
+    </div>,
   },
   {
     id: 'run-view',

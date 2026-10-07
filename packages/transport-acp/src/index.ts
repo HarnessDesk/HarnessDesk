@@ -41,6 +41,7 @@ export interface AcpAgentCapabilities {
    * of these is a `Boolean(…)` or a `!…`, which answers `null` correctly.
    */
   readonly sessionCapabilities?: {
+    readonly close?: object | null
     readonly list?: object | null
     readonly resume?: object | null
     readonly fork?: object | null
@@ -1048,14 +1049,22 @@ export class AcpConnection {
     return true
   }
 
-  async request<T = unknown>(method: string, params: unknown): Promise<T> {
+  async request<T = unknown>(method: string, params: unknown, timeoutMs?: number): Promise<T> {
     if (!this.alive) throw new AcpError('The agent is not running.')
     const id = ++this.#nextId
     const promise = new Promise<T>((resolve, reject) => {
       this.#pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
     })
     this.#child!.stdin!.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
-    return promise
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    if (timeoutMs !== undefined) {
+      timeout = setTimeout(() => {
+        const pending = this.#pending.get(id)
+        this.#pending.delete(id)
+        pending?.reject(new AcpError(`${method} timed out.`))
+      }, timeoutMs)
+    }
+    try { return await promise } finally { clearTimeout(timeout) }
   }
 
   notify(method: string, params: unknown): void {

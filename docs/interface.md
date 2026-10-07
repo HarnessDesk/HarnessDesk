@@ -407,7 +407,13 @@ agents connected via the Agent Client Protocol (ACP), which provides no archive
 operation, HarnessDesk records the archived mark in its own local store.
 HarnessDesk holds what the agent does not, and never shadows what it does: where
 an agent maintains its own archive history, HarnessDesk defers to it, because
-two archives disagreeing is worse than one that is only ours.
+two archives disagreeing is worse than one that is only ours. A quiet archived
+conversation releases its live agent handle when the agent can resume it.
+Archiving leaves working turns, approvals, queued messages and running tasks
+live; their handles rest after the work becomes quiet.
+Reopening restores the conversation from the agent's history. Personal
+conversations also release after ten quiet minutes; working turns, approvals,
+queued messages and running tasks keep them live.
 
 **Not every agent can delete, and the interface says which.** Deleting has to
 reach the agent's own store, so it is offered exactly where something can:
@@ -1225,6 +1231,21 @@ opens that Run's timeline directly.
 The list follows the existing Goal grouping: it does not combine other Teams
 opened by the same trigger.
 
+The page-wide header keeps the Run's state and recorded start, elapsed time,
+round budget and Seat cost, with Stop and Timeline · Flow on the right.
+Missing times and costs stay explicit; an incomplete cost says partial.
+The timeline shares the conversation's centred reading measure with the need
+card. One continuous rail joins Start, the brief, recorded rounds and End;
+spacing separates steps. A ring centres on each title's first line: finished
+steps and their incoming rail use full ink, active work spins, pending work
+stays faint, and attention or failure carries its tone. An ended round with
+unanswered or unavailable cards stays pending even when Stop closed the round
+and released its claims. Reduced motion keeps the active ring still.
+Known times and durations sit above the title, followed
+by muted detail; unknown times are omitted. Cards, checks and findings are
+quiet rows in the content column, with actions at the right. End selects its
+recorded detail with a plain title. Narrow panes retain the reading inset.
+
 Run details and Steps live in the app’s dock, with the same tabs, move,
 expand and hide controls as the conversation’s inspectors. The title-bar’s
 right-panel control puts them away and brings them back. Run details keeps
@@ -1250,9 +1271,11 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
-An ended Run keeps its reason, time and next actions together in one End summary.
-Status and aggregate publication stay in the Run header; the ending uses a warning
-only when a consequence needs attention. Finished work offers **Wrap**;
+When a Run needs the person, one need card above Timeline and Flow keeps its
+reason and at most two existing next actions. The End row stays selectable
+without repeating that reason or its actions. Other ended Runs keep their
+reason, time and next actions together in one End summary. Status and aggregate
+publication stay in the Run header. Finished work offers **Wrap**;
 an answer no rule follows offers **Run again…** and **Board**; a person or desk
 stop offers **Run again…**. An interrupted check keeps **Review and run again…**
 and its recorded reason. A spent budget names the limit and how many rounds

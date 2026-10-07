@@ -209,6 +209,8 @@ export interface AcpAgentConfig {
   readonly command: string
   readonly args?: readonly string[]
   readonly env?: Readonly<Record<string, string>>
+  /** Keep a no-close peer shared; its retained state is reaped after the last handle closes. */
+  readonly sharedSessionProcess?: boolean
   /**
    * Where to start the process. A bridge that must run from its own checkout
    * — a repo-adjacent agent, a workspace runner — needs this; without it the
@@ -882,7 +884,12 @@ export class AcpRuntime implements AgentRuntime {
     this.extensions = config.mcp
       ? new AcpExtensions(new CliMcp(config.mcp, (msg, details) => config.logger?.debug?.(msg, details)))
       : undefined
-    this.#connection = new AcpConnection({
+    this.#connection = this.#makeConnection()
+  }
+
+  #makeConnection(worker = false): AcpConnection {
+    const config = this.#config
+    const connection = new AcpConnection({
       command: config.command,
       args: config.args ?? [],
       ...(config.env ? { env: config.env } : {}),
@@ -906,8 +913,70 @@ export class AcpRuntime implements AgentRuntime {
          ceiling is a ceiling rather than a number somebody picked. */
       onShutdownIncomplete: (detail) =>
         config.logger?.warn?.('agent shutdown incomplete', { agent: config.id, detail }),
-      onExit: (code) => this.#onExit(code),
+      onExit: (code) => worker ? this.#workerExited(connection, code) : this.#onExit(code),
     })
+    return connection
+  }
+
+  readonly #workers = new Set<AcpConnection>()
+  readonly #sessionConnections = new Map<SessionId, AcpConnection>()
+  readonly #closing = new Map<SessionId, Promise<void>>()
+  #sharedReleasePending = false
+  #idleStopping: Promise<void> | null = null
+  readonly #readRest = new Map<SessionId, ReturnType<typeof setTimeout>>()
+
+  #cancelReadRest(id: SessionId): void {
+    clearTimeout(this.#readRest.get(id))
+    this.#readRest.delete(id)
+  }
+
+  #restReadLater(session: AcpSession): void {
+    this.#cancelReadRest(session.id)
+    const timer = setTimeout(() => {
+      this.#readRest.delete(session.id)
+      void session.close().catch(error => this.#config.logger?.warn?.('a read handle could not close', {
+        agent: this.#config.id, error: describeAcp(error),
+      }))
+    }, 5_000)
+    timer.unref()
+    this.#readRest.set(session.id, timer)
+  }
+
+  async #restSharedIfUnused(): Promise<void> {
+    if (this.#sharedReleasePending && await this.stopForIdle()) this.#sharedReleasePending = false
+  }
+
+  #workerExited(connection: AcpConnection, _code: number | null): void {
+    for (const [id, owned] of this.#sessionConnections) {
+      if (owned !== connection) continue
+      this.#sessions.get(id)?.agentDied()
+      this.#sessions.delete(id)
+      this.#tasks?.forget(id)
+      this.#sessionConnections.delete(id)
+      if (this.#probe?.id === id) { this.#probe = null; this.#probeId = null }
+      if (!this.#isProbe(id)) this.emit({ type: 'session/detached', sessionId: id })
+    }
+    // Keep the connection until its process group has been reaped.
+    void connection.stop().finally(() => this.#workers.delete(connection))
+  }
+
+  #stoppingConnections: Promise<void> | null = null
+
+  async #stopConnections(): Promise<void> {
+    for (const id of this.#readRest.keys()) this.#cancelReadRest(id)
+    this.#stoppingConnections ??= (async () => {
+      await Promise.all([this.#connection, ...this.#workers].map(connection => connection.stop()))
+      this.#workers.clear()
+      this.#sessionConnections.clear()
+    })()
+    const stopping = this.#stoppingConnections
+    try { await stopping } finally {
+      if (this.#stoppingConnections === stopping) this.#stoppingConnections = null
+    }
+  }
+
+  connectionFor(id: SessionId): AcpConnection {
+    return this.#sessionConnections.get(id) ?? this.#connection
   }
 
   get info(): RuntimeInfo {
@@ -1051,9 +1120,33 @@ export class AcpRuntime implements AgentRuntime {
     return this.#provider === null || this.#provider === undefined ? this.#provider : this.#readProvider(cwd)
   }
 
+  #initializeConnection(connection: AcpConnection): Promise<AcpInitializeResult> {
+    return connection.request<AcpInitializeResult>('initialize', {
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: {
+        // Declined, deliberately and forever. See the class comment.
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+        // Claude Agent ACP 0.77 exposes native subagents and background
+        // work only when the client opts into their standard lifecycle
+        // updates. HarnessDesk translates those updates at the adapter
+        // boundary; keeping the capability here also lets other ACP agents
+        // use the same standard surface.
+        subagents: {},
+        _meta: {
+          'subagent-transcript': true,
+          jetbrains: { air: { version: 1, capabilities: ['asyncTasks'] } },
+        },
+      },
+    })
+  }
+
   async start(): Promise<void> {
+    await this.#idleStopping
     // A new process refreshes the observations cached for an idle runtime.
     this.#idleInfo = null
+    this.#probeOptions = null
+    this.#draftValues = {}
     // Read beside the start, never ahead of it; `providerAt` waits for it.
     this.#providerRead = this.#refreshProvider()
     // A start that never begins. Not the guard that holds the invariant —
@@ -1087,24 +1180,7 @@ export class AcpRuntime implements AgentRuntime {
       throw new Error(message)
     }
     try {
-      this.#initialized = await this.#connection.request<AcpInitializeResult>('initialize', {
-        protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {
-          // Declined, deliberately and forever. See the class comment.
-          fs: { readTextFile: false, writeTextFile: false },
-          terminal: false,
-          // Claude Agent ACP 0.77 exposes native subagents and background
-          // work only when the client opts into their standard lifecycle
-          // updates. HarnessDesk translates those updates at the adapter
-          // boundary; keeping the capability here also lets other ACP agents
-          // use the same standard surface.
-          subagents: {},
-          _meta: {
-            'subagent-transcript': true,
-            jetbrains: { air: { version: 1, capabilities: ['asyncTasks'] } },
-          },
-        },
-      })
+      this.#initialized = await this.#initializeConnection(this.#connection)
       // So may whether it takes the tool server. A refusal is the answer of
       // the build that gave it: an agent upgraded since and restarted without
       // the app kept getting none, and every board call its seats made
@@ -1186,6 +1262,7 @@ export class AcpRuntime implements AgentRuntime {
    * is merely restarting has not been disposed.
    */
   async #spawnBridge(): Promise<boolean> {
+    await this.#stoppingConnections
     if (this.#disposed) {
       /* And it says so in the health, because its sibling does. `start()` set
          `starting` on the way in, and the other refusal that can land here —
@@ -1213,7 +1290,7 @@ export class AcpRuntime implements AgentRuntime {
   async #observeToolReach(): Promise<void> {
     if (!this.#config.toolServer || this.#toolServerRefused) return
     try {
-      await this.#openProbe()
+      await this.#useProbe(undefined, async () => {})
     } catch (error) {
       this.#config.logger?.debug?.('the agent would not open a probe session', {
         agent: this.#config.id,
@@ -1304,7 +1381,7 @@ export class AcpRuntime implements AgentRuntime {
     // because `map` runs each `dispose()` up to its first yield before any of
     // them gets to continue.
     this.#disposed = true
-    await this.#connection.stop()
+    await this.#stopConnections()
     this.#sessions.clear()
     this.#invalidateSearchListing()
     this.#resuming.clear()
@@ -1317,18 +1394,28 @@ export class AcpRuntime implements AgentRuntime {
 
   /** Stop only the helper process; the host keeps the session and catalogue records. */
   async stopForIdle(): Promise<boolean> {
-    if (this.#health.state !== 'ready' || this.#opening !== null || this.#optionReads > 0) return false
-    const live = [...this.#sessions.values()].filter((session) => !this.#isProbe(session.id))
+    if (this.#health.state !== 'ready' || this.#opening !== null || this.#optionReads > 0 || this.#sessionOpens > 0 || this.#resuming.size > 0 || this.#closing.size > 0) return false
+    const live = [...this.#sessions.values()].filter((session) => !this.#isProbe(session.id) && !this.#transientReads.has(session.id))
     if (live.length > 0 || live.some((session) => session.busy)) return false
     this.#probeOptions = this.#probe?.options() ?? this.#probeOptions
     this.#idleInfo = this.info
-    await this.#connection.stop()
-    this.#sessions.clear()
-    this.#resuming.clear()
-    this.#probe = null
-    this.#probeId = null
-    this.#optionProbeIds.clear()
+    // Publish both the state and the entire cleanup barrier before yielding.
+    // Host callers then join start(), which waits for this stop to finish.
+    const stopping = Promise.resolve().then(async () => {
+      await this.#stopConnections()
+      for (const session of this.#sessions.values()) session.released()
+      this.#sessions.clear()
+      this.#transientReads.clear()
+      this.#resuming.clear()
+      this.#probe = null
+      this.#probeId = null
+      this.#optionProbeIds.clear()
+    })
+    this.#idleStopping = stopping
     this.#setHealth({ state: 'idle' })
+    try { await stopping } finally {
+      if (this.#idleStopping === stopping) this.#idleStopping = null
+    }
     return true
   }
 
@@ -1427,6 +1514,7 @@ export class AcpRuntime implements AgentRuntime {
     // Explicit refresh is also recovery from a peer that never answered a
     // probe. Stop will reject those requests; automatic restarts still wait.
     // The real-session guards below must pass before any helper is stopped.
+    if (this.#sessionOpens > 0 || this.#closing.size > 0) return { restarted: false, reason: 'A conversation is opening or closing.' }
     if (this.#optionReads > 0 && why !== 'refresh') return { restarted: false, reason: 'Session options are being read.' }
     const crashed = this.#health.state === 'unavailable' && this.#health.reason === 'crashed'
     if (this.#health.state !== 'ready' && !crashed) {
@@ -1463,7 +1551,7 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     this.#config.logger?.info?.('restarting agent', { agent: this.#config.id, why })
-    await this.#connection.stop()
+    await this.#stopConnections()
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null
@@ -1495,14 +1583,14 @@ export class AcpRuntime implements AgentRuntime {
     const busy = [...this.#sessions.values()].some(
       (session) => !this.#isProbe(session.id) && session.busy,
     )
-    if (busy || this.#optionReads > 0) {
+    if (busy || this.#optionReads > 0 || this.#sessionOpens > 0 || this.#closing.size > 0) {
       this.#config.logger?.info?.('secret changed but a turn is in flight; it applies next start', {
         agent: this.#config.id,
       })
       return 'busy'
     }
     this.#config.logger?.info?.('restarting agent', { agent: this.#config.id, why: 'a secret changed' })
-    await this.#connection.stop()
+    await this.#stopConnections()
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null
@@ -1516,8 +1604,8 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   resourceProcessIds(): readonly number[] {
-    const pid = this.#connection.processId
-    return pid === null ? [] : [pid]
+    return [this.#connection, ...this.#workers].flatMap(connection =>
+      connection.processId === null ? [] : [connection.processId])
   }
 
   health(): RuntimeHealth {
@@ -1561,9 +1649,9 @@ export class AcpRuntime implements AgentRuntime {
    * none, and that is an empty list.
    */
   async knownModels(): Promise<readonly ModelInfo[] | null> {
-    if (this.#catalog.length === 0 && this.#health.state === 'ready') {
+    if (!this.#catalogKnown && this.#health.state === 'ready') {
       try {
-        await this.#openProbe()
+        await this.#useProbe(undefined, async () => {})
       } catch (error) {
         this.#config.logger?.debug?.('the agent would not open a probe session', {
           agent: this.#config.id,
@@ -1602,11 +1690,10 @@ export class AcpRuntime implements AgentRuntime {
     }
     if (!this.#commandsKnown && this.#health.state === 'ready') {
       try {
-        await this.#openProbe(cwd)
+        await this.#useProbe(cwd, async () => { await this.#firstCommands() })
         // They are declared just *after* the session exists, as an update.
         // A moment is given for the first one; anything later arrives as
         // `catalog/changed`, and the window re-reads then.
-        await this.#firstCommands()
       } catch (error) {
         this.#config.logger?.debug?.('the agent would not open a probe session', {
           agent: this.#config.id,
@@ -1873,7 +1960,7 @@ export class AcpRuntime implements AgentRuntime {
     if (query?.cursor) return { data: [], nextCursor: null }
     if (this.#health.state === 'idle') return this.#historyCache ?? { data: [], nextCursor: null }
     const live = [...this.#sessions.values()]
-      .filter((session) => !this.#isProbe(session.id))
+      .filter((session) => !this.#isProbe(session.id) && !this.#transientReads.has(session.id))
       .map((session) => session.summary())
     if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.list) {
       return { data: live, nextCursor: null }
@@ -1917,7 +2004,8 @@ export class AcpRuntime implements AgentRuntime {
           : { ...summary, title, preview }
       })
       const stored = rows
-        .filter((row) => !this.#isProbe(makeSessionId(row.sessionId)) && !this.#sessions.has(makeSessionId(row.sessionId)))
+        .filter((row) => !this.#isProbe(makeSessionId(row.sessionId)) &&
+          (!this.#sessions.has(makeSessionId(row.sessionId)) || this.#transientReads.has(makeSessionId(row.sessionId))))
         .map(
           (row): SessionSummary => ({
             id: makeSessionId(row.sessionId),
@@ -1997,7 +2085,7 @@ export class AcpRuntime implements AgentRuntime {
     // A live summary wins over the listed form for a duplicate id, while
     // retaining metadata learned from the agent's latest listing.
     for (const session of this.#sessions.values()) {
-      if (this.#isProbe(session.id)) continue
+      if (this.#isProbe(session.id) || this.#transientReads.has(session.id)) continue
       const summary = session.summary()
       const title = summary.title ?? this.#titles.get(session.id) ?? null
       const preview = summary.preview ?? this.#previews.get(session.id) ?? null
@@ -2016,7 +2104,10 @@ export class AcpRuntime implements AgentRuntime {
     const resuming = this.#resuming.get(id)
     if (resuming) return (await resuming as AcpSession).snapshot()
     const live = this.#sessions.get(id)
-    if (live && !this.#isProbe(id)) return live.snapshot()
+    if (live && !this.#isProbe(id)) {
+      if (this.#transientReads.has(id)) this.#restReadLater(live)
+      return live.snapshot()
+    }
     // ACP has no read-only fetch; loading replays without prompting. A read
     // owns its temporary handle until an explicit resume takes ownership.
     this.#transientReads.add(id)
@@ -2025,7 +2116,11 @@ export class AcpRuntime implements AgentRuntime {
         const loaded = await this.#resumeSession(id)
         return (loaded as AcpSession).snapshot()
       } finally {
-        if (this.#transientReads.delete(id)) await this.#sessions.get(id)?.close()
+        if (this.#transientReads.has(id)) {
+          const loaded = this.#sessions.get(id)
+          if (loaded) this.#restReadLater(loaded)
+          else this.#transientReads.delete(id)
+        }
       }
     })()
     this.#reads.set(id, read)
@@ -2035,8 +2130,52 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /** Release only this handle; the agent owns the stored conversation. */
-  releaseSession(session: AgentSession): void {
-    if (this.#sessions.get(session.id) === session) this.#sessions.delete(session.id)
+  async releaseSession(session: AcpSession): Promise<void> {
+    if (this.#sessions.get(session.id) !== session) return
+    const pending = this.#closing.get(session.id)
+    if (pending) return pending
+    const closing = Promise.resolve().then(async () => {
+      this.#cancelReadRest(session.id)
+      const connection = this.connectionFor(session.id)
+      try {
+        if (connection === this.#connection) {
+          if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
+            await connection.request('session/close', { sessionId: session.id }, 3_000)
+          } else {
+            // The peer has no release verb. Cancel only this conversation;
+            // keep working siblings on their shared process until all handles rest.
+            await session.interrupt()
+            if (!this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
+          }
+        } else {
+          await connection.stop()
+          this.#workers.delete(connection)
+        }
+      } catch (error) {
+        this.#config.logger?.warn?.('the agent refused to close a session', {
+          agent: this.#config.id, error: describeAcp(error),
+        })
+      }
+      if (this.#sessions.get(session.id) !== session) return
+      this.#sessions.delete(session.id)
+      this.#transientReads.delete(session.id)
+      session.released()
+      this.#sessionConnections.delete(session.id)
+      this.#tasks?.forget(session.id)
+      if (this.#tasks && !this.#isProbe(session.id)) {
+        this.emit({ type: 'session/tasks', sessionId: session.id, tasks: [] })
+      }
+      this.#attachmentInputs.delete(session.id)
+      if (this.#probe === session) {
+        this.#probe = null
+        this.#probeId = null
+      }
+    })
+    this.#closing.set(session.id, closing)
+    try { await closing } finally {
+      if (this.#closing.get(session.id) === closing) this.#closing.delete(session.id)
+      await this.#restSharedIfUnused()
+    }
   }
 
   /**
@@ -2061,7 +2200,7 @@ export class AcpRuntime implements AgentRuntime {
     }
     const live = this.#sessions.get(id)
     if (live) {
-      await live.close().catch(() => {})
+      await live.close()
       this.#sessions.delete(id)
     }
     const result = await this.#connection.request<AcpSessionDeleted>(ACP_SESSION_DELETE, {
@@ -2106,14 +2245,16 @@ export class AcpRuntime implements AgentRuntime {
         const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', {
           cwd: where,
           ...(Object.keys(values ?? {}).length > 0 ? { _meta: { harnessdesk: { options: values } } } : {}),
-        })
+        }, undefined, true)
         probe = AcpSession.probe(this, opened, where)
         this.#rememberProbe(probe.id)
         this.#sessions.set(probe.id, probe)
         return await this.#draftOptions(probe, values)
       } finally {
-        if (probe) this.#sessions.delete(probe.id)
-        this.#optionReads--
+        try { if (probe) this.#restReadLater(probe) } finally {
+          this.#optionReads--
+          await this.#restSharedIfUnused()
+        }
       }
     }
     if (this.#health.state === 'idle') {
@@ -2141,9 +2282,16 @@ export class AcpRuntime implements AgentRuntime {
       }
       return options
     }
-    const probe = await this.#openProbe(cwd)
-    this.#probeOptions = await this.#draftOptions(probe, values)
-    return this.#probeOptions
+    if (!values || Object.keys(values).length === 0) {
+      if (this.#probeOptions && !this.#opening && !this.#probe) return this.#probeOptions
+    }
+    return this.#useProbe(cwd, async (probe) => {
+      this.#probeOptions = await this.#draftOptions(probe, { ...this.#draftValues, ...values })
+      this.#draftValues = Object.fromEntries(this.#probeOptions
+        .filter(option => !option.disabled)
+        .map(option => [option.id, option.currentValue]))
+      return this.#probeOptions
+    })
   }
 
   async #draftOptions(probe: AcpSession, values?: Readonly<Record<string, OptionValue>>): Promise<readonly ConfigOption[]> {
@@ -2185,11 +2333,20 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /**
-   * The draft session, opened once. It is a real session the agent counts as
-   * one — never registered with the host, never listed, never prompted — and
-   * the only place the agent's declarations can be read before a
-   * conversation exists.
+   * Catalogue readers and nearby picks share one silent draft session.
+   * A short quiet interval reaps it; declarations remain cached.
    */
+  async #useProbe<T>(cwd: string | undefined, read: (probe: AcpSession) => Promise<T>): Promise<T> {
+    while (this.#probe && this.#closing.has(this.#probe.id)) await this.#closing.get(this.#probe.id)
+    if (this.#probe) this.#cancelReadRest(this.#probe.id)
+    this.#optionReads++
+    try { return await read(await this.#openProbe(cwd)) } finally {
+      this.#optionReads--
+      if (this.#optionReads === 0 && this.#probe) this.#restReadLater(this.#probe)
+      await this.#restSharedIfUnused()
+    }
+  }
+
   async #openProbe(cwd?: string): Promise<AcpSession> {
     if (this.#probe) return this.#probe
     // The *opening* is what is shared, not just the opened session. Two
@@ -2208,7 +2365,7 @@ export class AcpRuntime implements AgentRuntime {
     } finally {
       // The probe is retained separately; this promise represents only work
       // still opening it, so an idle stop can distinguish the two.
-      if (this.#probe && this.#opening) this.#opening = null
+      this.#opening = null
     }
   }
 
@@ -2220,7 +2377,7 @@ export class AcpRuntime implements AgentRuntime {
     // home folder is the same however it was, and holds the agent's own
     // settings, which are what a conversation has before a folder is chosen.
     const where = cwd ?? homedir()
-    const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', { cwd: where })
+    const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', { cwd: where }, undefined, true)
     const probe = AcpSession.probe(this, opened, where)
     this.#rememberProbe(probe.id)
     // Registered so the agent's follow-up notifications (an agent may
@@ -2272,6 +2429,7 @@ export class AcpRuntime implements AgentRuntime {
   #opening: Promise<AcpSession> | null = null
   /** Last options from the draft probe; a picker can keep working while stopped. */
   #probeOptions: readonly ConfigOption[] | null = null
+  #draftValues: Readonly<Record<string, OptionValue>> = {}
   #idleInfo: RuntimeInfo | null = null
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
@@ -2331,20 +2489,59 @@ export class AcpRuntime implements AgentRuntime {
    * agent has already refused it. A refusal is not a failure: retry once
    * without the bridge, remember, and log why the plugin tools are absent.
    */
+  #sessionOpens = 0
+
   async #openWithTools<T>(
     method: 'session/new' | 'session/load' | 'session/resume',
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
+    probe = false,
   ): Promise<T> {
+    if (!probe) this.#sessionOpens++
+    try { return await this.#openSessionWithTools<T>(method, params, attachments) } finally {
+      if (!probe) this.#sessionOpens--
+    }
+  }
+
+  async #openSessionWithTools<T>(
+    method: 'session/new' | 'session/load' | 'session/resume',
+    params: Record<string, unknown>,
+    attachments?: SessionAttachments,
+  ): Promise<T> {
+    let connection = this.#connection
+    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess) {
+      if (this.#disposed) throw shutDown(this.#config.name)
+      connection = this.#makeConnection(true)
+      if (this.#launch && !('blocked' in this.#launch)) {
+        connection.withCommand(this.#launch.command, this.#launch.args)
+        if (this.#launch.env) connection.withEnv(this.#launch.env)
+      }
+      const executable = this.#config.executable
+      if (executable && this.#executable) connection.withEnv({ [executable.env]: this.#executable.path })
+      this.#workers.add(connection)
+      try {
+        if (!(await connection.start()) || this.#disposed) throw shutDown(this.#config.name)
+        await this.#initializeConnection(connection)
+      } catch (error) {
+        await connection.stop()
+        this.#workers.delete(connection)
+        throw error
+      }
+    }
+    const existingId = params['sessionId']
+    if (typeof existingId === 'string') this.#sessionConnections.set(makeSessionId(existingId), connection)
+    let opened = false
     const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
     // The token's runtime is known now; its session only once the open answers.
     if (servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
     // The claim closes the loop: the bridge this open spawns carries the
     // token, and whoever built the runtime now learns which session it names.
-    const claim = (result: T): T => {
+    const claim = (result: T, acceptedTools = true): T => {
       const sessionId = (result as { sessionId?: unknown }).sessionId ?? params['sessionId']
-      if (servers.length > 0 && typeof sessionId === 'string') {
+      if (typeof sessionId === 'string') this.#sessionConnections.set(makeSessionId(sessionId), connection)
+      opened = true
+      if (acceptedTools && servers.length > 0 && typeof sessionId === 'string') {
         this.#config.toolServer?.onSession?.(caller, sessionId)
       }
       return result
@@ -2358,7 +2555,7 @@ export class AcpRuntime implements AgentRuntime {
     }
     try {
       return this.#opened(
-        claim(await this.#connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
+        claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
       )
     } catch (error) {
       const message = describeAcp(error)
@@ -2386,10 +2583,18 @@ export class AcpRuntime implements AgentRuntime {
         for (const listener of this.#infoListeners) listener()
       }
       try {
-        return this.#opened(await this.#connection.request<T>(method, extend({ ...params, mcpServers: [] })))
+        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false))
       } catch (again) {
         this.refusedForSignIn(again)
         throw again
+      }
+    } finally {
+      if (!opened && connection !== this.#connection) {
+        await connection.stop()
+        this.#workers.delete(connection)
+        if (typeof existingId === 'string' && this.#sessionConnections.get(makeSessionId(existingId)) === connection) {
+          this.#sessionConnections.delete(makeSessionId(existingId))
+        }
       }
     }
   }
@@ -2496,6 +2701,14 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async createSession(options: SessionOptions): Promise<AgentSession> {
+    this.#sessionOpens++
+    try { return await this.#createSession(options) } finally {
+      this.#sessionOpens--
+      await this.#restSharedIfUnused()
+    }
+  }
+
+  async #createSession(options: SessionOptions): Promise<AgentSession> {
     /* `SessionOptions` is `Partial<SessionSettings> & …`, so `model` is legal
        to write — and it used to be read by nobody here, which made "start this
        conversation on that model" a request that was accepted and dropped. It
@@ -2591,9 +2804,8 @@ export class AcpRuntime implements AgentRuntime {
       // session anyone asked for. Left registered, it sat in the list as an
       // "Untitled session" with no turns, for the life of the process — the
       // Codex adapter has always closed it; this one kept it.
-      this.#sessions.delete(session.id)
       this.#environments.delete(session.id)
-      await session.close()
+      await session.close().catch(() => {})
       throw error
     }
     if (isAbsolute(options.cwd)) this.#openedIn.set(session.id, options.cwd)
@@ -2602,11 +2814,13 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    this.#cancelReadRest(id)
     this.#transientReads.delete(id)
     return this.#resumeSession(id, options)
   }
 
   async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    await this.#closing.get(id)
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
     const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
@@ -2646,8 +2860,7 @@ export class AcpRuntime implements AgentRuntime {
     // Replacing a live handle to acquire its guard preserves its frozen filter.
     const attachments = unguarded ? this.#attachmentInputs.get(id) ?? options.attachments : options.attachments
     if (live) {
-      this.#sessions.delete(id)
-      await live.close().catch(() => {})
+      await live.close()
     }
 
     const run = (async () => {
@@ -2711,9 +2924,10 @@ export class AcpRuntime implements AgentRuntime {
         session.finishReplay(loaded, verb === 'session/load')
         return session
       } catch (error) {
-        this.#sessions.delete(id)
         this.#environments.delete(id)
         await session.close().catch(() => {})
+        if (this.#sessions.get(id) === session) this.#sessions.delete(id)
+        this.#sessionConnections.delete(id)
         throw error
       }
     })()
@@ -2723,6 +2937,7 @@ export class AcpRuntime implements AgentRuntime {
       return await run
     } finally {
       this.#resuming.delete(id)
+      await this.#restSharedIfUnused()
     }
   }
 
@@ -2859,7 +3074,7 @@ export class AcpRuntime implements AgentRuntime {
   async attachmentReceipt(session: SessionId): Promise<SessionAttachmentReceipt> {
     const intended = this.#attachmentInputs.get(session)
     if (!intended) throw new Error(`${session} was never given attachments to load.`)
-    const raw = await this.#connection.request<unknown>(ACP_ATTACHMENT_RECEIPT, { sessionId: String(session), key: intended.key })
+    const raw = await this.connectionFor(session).request<unknown>(ACP_ATTACHMENT_RECEIPT, { sessionId: String(session), key: intended.key })
     const validated = validateAttachmentReceipt(raw, intended)
     if (!validated) throw new Error(`${this.#config.name} answered an attachment receipt this desk will not trust.`)
     return validated
@@ -2895,6 +3110,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   #onExit(code: number | null): void {
+    void this.#stopConnections()
     this.#setHealth({
       state: 'unavailable',
       reason: 'crashed',
@@ -2924,7 +3140,7 @@ export class AcpRuntime implements AgentRuntime {
    * only ever show it empty.
    */
   #adoptTasks(): AcpTasks {
-    this.#tasks ??= new AcpTasks(this.#connection, (sessionId, tasks) =>
+    this.#tasks ??= new AcpTasks((id) => this.connectionFor(id), (sessionId, tasks) =>
       this.emit({ type: 'session/tasks', sessionId, tasks }),
     )
     return this.#tasks
@@ -3758,7 +3974,7 @@ class AcpSession implements AgentSession {
     const refusal = refuseOptionValue(option, value)
     if (refusal) throw new OptionRefusedError(refusal, id, value, false)
     if (id === 'mode' && this.#modes) {
-      await this.#host.connection.request('session/set_mode', {
+      await this.#host.connectionFor(this.id).request('session/set_mode', {
         sessionId: this.id,
         modeId: value,
       })
@@ -3771,7 +3987,7 @@ class AcpSession implements AgentSession {
       const currentModel = this.#models?.currentModelId ?? (modelOption && typeof modelOption.currentValue === 'string' ? modelOption.currentValue : null)
       if (currentModel === value) return
       const before = { ...this.#announced }
-      const response = await this.#host.connection.request<{
+      const response = await this.#host.connectionFor(this.id).request<{
         configOptions?: readonly AcpConfigOption[] | null
         models?: AcpModelState | null
       } | null>(modelOption ? 'session/set_config_option' : 'session/set_model',
@@ -3807,7 +4023,7 @@ class AcpSession implements AgentSession {
     } else {
       const declared = this.#configOptions.find((entry) => entry.id === id)
       const before = this.#announced.options
-      const response = await this.#host.connection.request<{
+      const response = await this.#host.connectionFor(this.id).request<{
         configOptions?: readonly AcpConfigOption[] | null
       } | null>('session/set_config_option', {
         sessionId: this.id,
@@ -3921,7 +4137,7 @@ class AcpSession implements AgentSession {
     // ACP's prompt resolves when the *turn* ends; the send contract resolves
     // on acceptance. Fire, return, and settle the turn when the agent does —
     // including when it dies, which must fail the turn, never strand it.
-    void this.#host.connection
+    void this.#host.connectionFor(this.id)
       .request<AcpPromptResponse>('session/prompt', { sessionId: this.id, prompt })
       .then((response) => {
         // The turn's tokens land before the turn does, so the finished turn's
@@ -3951,7 +4167,7 @@ class AcpSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
-    this.#host.connection.notify('session/cancel', { sessionId: this.id })
+    this.#host.connectionFor(this.id).notify('session/cancel', { sessionId: this.id })
   }
 
   async respondToApproval(id: ApprovalId, decision: ApprovalDecision): Promise<void> {
@@ -3989,8 +4205,8 @@ class AcpSession implements AgentSession {
   }
 
   async close(): Promise<void> {
-    // ACP has no explicit close. Forget the handle, never the agent's history.
-    this.#host.releaseSession(this)
+    // Release the peer's live state, never its durable history.
+    await this.#host.releaseSession(this)
   }
 
   // ------------------------------------------------------------------ internal
@@ -4589,13 +4805,23 @@ class AcpSession implements AgentSession {
   agentDied(): void {
     const turn = this.#currentTurn
     if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`)
+    this.#abandonPermissions('The agent exited.')
+  }
+
+  released(): void {
+    const turn = this.#currentTurn
+    if (turn && !this.#replaying) this.#finishTurn(turn, 'cancelled')
+    this.#abandonPermissions('The conversation closed.')
+  }
+
+  #abandonPermissions(reason: string): void {
     for (const [id, resolve] of this.#pendingPermissions) {
       resolve({ outcome: 'cancelled' })
       this.#host.emit({
         type: 'approval/resolved',
         sessionId: this.id,
         approvalId: id,
-        resolution: { outcome: 'abandoned', reason: 'The agent exited.' },
+        resolution: { outcome: 'abandoned', reason },
       })
     }
     this.#pendingPermissions.clear()
