@@ -798,9 +798,10 @@ sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
 "Needs sign-in" on the strength of an empty list. ⌘, opens this page.
 
-Extensions › Reload holds changes while any conversation on the account has
-selected tool servers. Its notice asks you to close those conversations, then
-try Reload again. Each Seat keeps the tool servers it opened with.
+Extensions › Reload and plugin installation hold changes while any conversation
+on the account has selected tool servers. Each notice says how many conversations
+hold it and asks you to close them, then try again. Each Seat keeps the tool
+servers it opened with.
 
 **Workspaces** lists every folder opened, each a way into its project's page —
 *Project settings* in the sidebar's project menu opens the same page — which

@@ -337,6 +337,18 @@ export class PreviewFileTooLargeError extends Error {
 }
 
 const START_TIMEOUT_MS = 15_000
+/**
+ * The waits, in order, between the asks that follow a first ask whose program
+ * was there and would not answer — a launcher that has not yet found its
+ * `node`, a spawn the machine refused for a moment, a first run slow enough to
+ * time out. The first ask is made as the desk opens and the desk does not wait
+ * for any later one: they run in the background, from the moment the desk
+ * starts, and a quit ends them. Together they span about 12 s, which outlasts
+ * the login shell's own deadline (5 s) by a margin; the PATH it builds has its
+ * own look (`retryProgramLookup`), so this is only for what a PATH does not explain.
+ */
+const RETRY_DELAYS_MS: readonly number[] = [250, 500, 1_000, 2_000, 3_000, 5_000]
+type UnavailableReason = Extract<RuntimeHealth, { readonly state: 'unavailable' }>['reason']
 const HELD_ALLOW = 'allow'
 const HELD_REFUSE = 'refuse'
 
@@ -474,6 +486,11 @@ export interface HostOptions {
    * waiting for it. See `START_TIMEOUT_MS`.
    */
   readonly startTimeoutMs?: number
+  /**
+   * The waits between the asks that follow a first ask whose program was there
+   * and would not answer, in milliseconds; `[]` makes none. See `RETRY_DELAYS_MS`.
+   */
+  readonly retryDelaysMs?: readonly number[]
   /** How long a runtime can remain unused before its process is stopped. */
   readonly idleStopMs?: number
   /** How long a finished Seat stays quiet before its live handle is released. */
@@ -647,6 +664,8 @@ export class Host {
   readonly #restingSessions = new Map<string, Promise<void>>()
   readonly #seatHeldCards: SeatHeldCards
   #idleReaper: ReturnType<typeof setInterval> | null = null
+  /** The asks still to come after a program that would not answer: see `#scheduleRetries`. */
+  readonly #retryTimers: ReturnType<typeof setTimeout>[] = []
   readonly #subscriptions: Unsubscribe[] = []
   /** Kept apart from `#subscriptions` so one runtime can be dropped alone. */
   readonly #runtimeSubscriptions = new Map<string, Unsubscribe[]>()
@@ -2449,6 +2468,7 @@ export class Host {
         })
       })
     }
+    this.#scheduleRetries()
     await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
     /* And only now wake what stopped while the desk was down. Reconciling a
        run's rounds is board work and belongs above; *sending* to a seat needs
@@ -2475,6 +2495,71 @@ export class Host {
     })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
+  }
+
+  /**
+   * Asks again every runtime whose program could not be found, or would not
+   * answer, when it was first asked.
+   *
+   * The PATH the person's shell builds lands in the background, after the
+   * runtimes were first asked (`installs/shell-path.ts`): an agent installed
+   * somewhere only that PATH names reads as not installed in those first
+   * moments, and one whose launcher needs a folder only that PATH names would
+   * not answer. Nothing else would look again until the app restarted. This is
+   * the look.
+   *
+   * What it asks is what a PATH could change, which is `notInstalled` and
+   * `unreadable`; a program that was found and would not run for a reason of
+   * its own, a program that was too old and one that crashed are not a PATH's
+   * doing.
+   *
+   * It never holds one runtime up behind another: each is judged after its own
+   * start, if it has one in flight, and not before. That start may have looked
+   * before the PATH landed and fail after it. And the wait ends at the deadline
+   * every start has (`startTimeoutMs`), because a start can neither resolve nor
+   * reject — an agent that speaks a protocol we do not never answers
+   * `initialize` — and the look must not turn off with it.
+   */
+  async retryProgramLookup(): Promise<void> {
+    await this.#askAgain(['notInstalled', 'unreadable'], 'the PATH changed after it was first asked')
+  }
+
+  /**
+   * The asks that follow a first ask whose program was there and would not
+   * answer. Armed as the desk starts, so the window never waits on them: each
+   * is a timer, `dispose()` clears what is left, and nothing here is awaited.
+   *
+   * Only `unreadable` is on the schedule. What a missing program waits for is a
+   * PATH, which has its own look, and asking an agent that is not installed
+   * again every few seconds would only make its row flicker.
+   */
+  #scheduleRetries(): void {
+    if (this.#disposed) return
+    let after = 0
+    for (const wait of this.options.retryDelaysMs ?? RETRY_DELAYS_MS) {
+      after += wait
+      const timer = setTimeout(() => {
+        void this.#askAgain(['unreadable'], 'it was there and would not answer').catch((error: unknown) => {
+          this.#logger.warn('asking an agent again failed', { error: error instanceof Error ? error.message : String(error) })
+        })
+      }, after)
+      timer.unref?.()
+      this.#retryTimers.push(timer)
+    }
+  }
+
+  async #askAgain(reasons: readonly UnavailableReason[], why: string): Promise<void> {
+    await Promise.all([...this.#runtimes.values()].map(async (runtime) => {
+      const id = String(runtime.info.id)
+      // A start in flight is judged once it settles, and `#startOne` is the wait: its own start, up to its deadline.
+      if (this.#startingRuntimes.has(id)) await this.#startOne(runtime)
+      // Still going after the deadline: left alone. Asking joins it, so there is nothing to ask.
+      if (this.#disposed || this.#startingRuntimes.has(id)) return
+      const health = runtime.health()
+      if (health.state !== 'unavailable' || !reasons.includes(health.reason)) return
+      this.#logger.info('asking an agent again', { runtime: id, why })
+      await this.#startOne(runtime)
+    }))
   }
 
   /**
@@ -2779,6 +2864,7 @@ export class Host {
     this.#seatActivities.dispose()
     if (this.#idleReaper !== null) clearInterval(this.#idleReaper)
     this.#idleReaper = null
+    for (const timer of this.#retryTimers.splice(0)) clearTimeout(timer)
     // No Seat reaches a server past this point: every live grant is revoked,
     // every exchange in flight is aborted, and the gateway's socket is closed.
     // (Synchronous: nothing here may yield before every runtime is told, below.)
@@ -7624,7 +7710,8 @@ const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, 
 
 const isRuntimeDown = (error: unknown): boolean => {
   if (typeof error !== 'object' || error === null || !('code' in error)) return false
-  return error.code === 'notRunning' || error.code === 'notInstalled'
+  // A program that was found and would not run (`unreadable`, `spawnFailed`) is down, like one that is missing.
+  return error.code === 'notRunning' || error.code === 'notInstalled' || error.code === 'unreadable' || error.code === 'spawnFailed'
 }
 
 const describeError = (error: unknown): string =>
