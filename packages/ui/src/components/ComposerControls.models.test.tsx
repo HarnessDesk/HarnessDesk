@@ -108,19 +108,27 @@ it('offers only the models Settings left visible, and always the one the draft i
   expect(rows.join(' ')).not.toContain('Brain 9')
 })
 
-it('shows an agent-declared model status on the model label and removes it when cleared', () => {
+it('keeps a long model name on the trigger and reports its status in the title and menu', () => {
+  const longModel: ConfigOption = { ...model, choices: [{ value: 'spark-3', label: 'Spark Research 3' }] }
   let snapshot: AppSnapshot = {
     ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id,
-    draftOptions: [model, { id: 'wide-window', type: 'boolean', label: 'Wide window',
+    draftOptions: [longModel, { id: 'wide-window', type: 'boolean', label: 'Wide window',
       currentValue: true, modelStatus: 'Auto Max' }],
   }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   const render = () => act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
   render()
   const trigger = () => container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
-  expect(trigger().textContent).toContain('Spark 3')
-  expect(trigger().textContent).toContain('Auto Max')
-  snapshot = { ...snapshot, draftOptions: [model] }
+  expect(trigger().textContent).toContain('Spark Research 3')
+  expect(trigger().textContent).not.toContain('Auto Max')
+  expect(trigger().title).toContain('Auto Max')
+  click(trigger())
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Auto Max')
+  click(trigger())
+  snapshot = { ...snapshot, draftOptions: [longModel] }
   render()
   expect(trigger().textContent).not.toContain('Auto Max')
+  expect(trigger().title).not.toContain('Auto Max')
+  click(trigger())
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Auto Max')
 })

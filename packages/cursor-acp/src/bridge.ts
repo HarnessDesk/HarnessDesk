@@ -825,8 +825,8 @@ interface Session {
   thinking: boolean
   fast: boolean
   /**
-   * Cursor's Max mode for this session: the widest context window the model
-   * offers. After a turn this reflects the CLI's saved flag, including a
+   * Cursor's Max mode for this session. After a turn it reflects the CLI's
+   * saved flag independently of its context window, including a
    * mode the CLI enabled on its own.
    */
   maxMode: boolean
@@ -1063,7 +1063,10 @@ export class CursorAcpBridge {
 
   /** The full catalog, grouped into families by the id grammar. */
   async #families(): Promise<readonly ModelFamily[]> {
-    const rows = await this.#listModels()
+    return this.#familiesFrom(await this.#listModels())
+  }
+
+  #familiesFrom(rows: readonly ModelRow[]): readonly ModelFamily[] {
     const grouped = new Map<string, { labels: string[]; variants: CatalogVariant[] }>()
     for (const row of rows) {
       const { family, variant } = parseVariant(row.modelId)
@@ -1623,6 +1626,7 @@ export class CursorAcpBridge {
     try {
       const text = this.#textOf(params['prompt'], session)
       if (text.trim() === '') throw new Error('the prompt contains no text')
+      const wantedMaxMode = session.wantedMaxMode
 
       // Two ways to name a model, and only one of them can widen a window.
       // `--model <slug>` names a fixed variant of the flat catalogue, context
@@ -1631,7 +1635,7 @@ export class CursorAcpBridge {
       // instead, which lives in the config rather than on the command line, so
       // the flag comes off and the config carries the choice.
       const wide =
-        session.wantedMaxMode && session.familyId !== 'auto'
+        wantedMaxMode && session.familyId !== 'auto'
           ? (() => {
               const known = this.#parameterisedFor(session.familyId)
               return known ? withContext(known, MAX_CONTEXT) : null
@@ -1681,7 +1685,7 @@ export class CursorAcpBridge {
           return { stopReason: 'cancelled' }
         }
         try {
-          const outcome = await this.#runTurn(session, args, configHome, spoke, leave)
+          const outcome = await this.#runTurn(session, args, configHome, wantedMaxMode, spoke, leave)
           // The agent has read the prompt — briefing included — whatever the
           // turn's outcome; the chat remembers it under `--resume`.
           session.briefed = true
@@ -1750,6 +1754,7 @@ export class CursorAcpBridge {
     session: Session,
     args: readonly string[],
     configHome: string,
+    wantedMaxMode: boolean,
     spoke: { yet: boolean },
     leave: () => void,
   ): Promise<TurnOutcome> {
@@ -1763,7 +1768,7 @@ export class CursorAcpBridge {
     session.child = child
 
     const stderrTail: string[] = []
-    createInterface({ input: child.stderr! }).on('line', (line) => {
+    const stderr = createInterface({ input: child.stderr! }).on('line', (line) => {
       stderrTail.push(line)
       if (stderrTail.length > 20) stderrTail.shift()
       this.#log(`cursor-agent: ${line}`)
@@ -1779,7 +1784,7 @@ export class CursorAcpBridge {
     let outcome: TurnOutcome | Error | null = null
 
     const capture = process.env['CURSOR_ACP_CAPTURE']
-    createInterface({ input: child.stdout! }).on('line', (line) => {
+    const stdout = createInterface({ input: child.stdout! }).on('line', (line) => {
       if (line.trim() === '') return
       if (capture) {
         // Debugging aid: the raw stream-json tape, appended verbatim. The
@@ -1818,33 +1823,45 @@ export class CursorAcpBridge {
     })
 
     return new Promise((resolve, reject) => {
-      child.once('error', (error) => {
+      let settled = false
+      let grace: ReturnType<typeof setTimeout> | undefined
+      const cleanup = () => {
+        settled = true
+        clearTimeout(grace)
+        stdout.close()
+        stderr.close()
+        child.stdout?.destroy()
+        child.stderr?.destroy()
         session.child = null
         leave()
+      }
+      child.once('error', (error) => {
+        if (settled) return
+        cleanup()
         reject(
           error.message.includes('ENOENT')
             ? new Error(`${this.#command} was not found — is the Cursor CLI installed and on PATH?`)
             : error,
         )
       })
-      child.once('close', async (code) => {
-        session.child = null
-        leave()
-        // Read this turn's private file after the process and its streams
-        // finish. Context size does not establish whether Max mode ran.
+      const finish = (code: number | null) => {
+        if (settled) return
+        cleanup()
+        // The CLI has exited and its pipes have drained, or their short
+        // grace expired. A grandchild must not keep the turn open forever.
         if (session.familyId === familyId && session.modelId === modelId) {
           this.#learn(familyId, session.chatId)
-          const config = readJson(join(configHome, 'cli-config.json'))
-          session.maxMode = typeof config?.['maxMode'] === 'boolean' ? config['maxMode'] : session.wantedMaxMode
-          session.maxModeAutoEnabled = config?.['maxMode'] === true && config['maxModeAutoEnabled'] === true
-          // Announce before settling the prompt so turn completion already
-          // carries the corrected controls, rather than racing a catalogue read.
-          try {
-            const family = (await this.#families()).find((entry) => entry.id === familyId)
-            if (session.familyId === familyId && session.modelId === modelId) this.#announceOptions(session, family)
-          } catch {
-            // Catalogue failure must not lose the turn's own result.
+          // A choice made since this config was prepared belongs to the
+          // next turn; the older report must not overwrite that choice.
+          if (session.wantedMaxMode === wantedMaxMode) {
+            const config = readJson(join(configHome, 'cli-config.json'))
+            session.maxMode = typeof config?.['maxMode'] === 'boolean' ? config['maxMode'] : session.wantedMaxMode
+            session.maxModeAutoEnabled = config?.['maxMode'] === true && config['maxModeAutoEnabled'] === true
           }
+          // Completion carries corrected controls without starting a models
+          // process. The next catalogue request can refresh the aged rows.
+          const family = this.#familiesFrom(this.#models ?? []).find((entry) => entry.id === familyId)
+          this.#announceOptions(session, family)
         }
         if (session.cancelled) {
           resolve({ stopReason: 'cancelled' })
@@ -1860,7 +1877,14 @@ export class CursorAcpBridge {
             ),
           )
         }
+      }
+      child.once('exit', (code) => {
+        if (!settled) {
+          grace = setTimeout(() => finish(code), 250)
+          grace.unref()
+        }
       })
+      child.once('close', finish)
     })
   }
 

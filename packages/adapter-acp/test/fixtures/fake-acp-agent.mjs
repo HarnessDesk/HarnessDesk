@@ -178,6 +178,9 @@ const configOptionsOf = (state) => [
     description: 'How the fake answers.',
     type: 'select',
     currentValue: state.options.voice,
+    ...(process.env.FAKE_MODEL_STATUS ? { _meta: { harnessdesk: {
+      modelStatus: state.options.voice === 'plain' ? JSON.parse(process.env.FAKE_MODEL_STATUS) : '',
+    } } } : {}),
     options: [
       { value: 'plain', name: 'Plain' },
       { value: 'pirate', name: 'Pirate', description: 'Yarr.' },

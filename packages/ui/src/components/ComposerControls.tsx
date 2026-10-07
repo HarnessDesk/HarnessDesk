@@ -632,7 +632,8 @@ export const ModelControl = () => {
           /* Narrow, the words go to the hover text — and so, with nothing else
              to name the trigger, to its accessible name. */
           title={
-            folded ? `${[name, effort, ...statuses].filter(Boolean).join(' · ')} — model and reasoning` : 'Model and reasoning'
+            folded ? `${[name, effort, ...statuses].filter(Boolean).join(' · ')} — model and reasoning`
+              : ['Model and reasoning', ...statuses].join(' · ')
           }
           drop="up"
           label={
@@ -651,13 +652,14 @@ export const ModelControl = () => {
               {/* The model reads as the subject, its effort as the qualifier. */}
               {!folded && <Text role="row">{name}</Text>}
               {effort && !folded && <Text ink="muted">{effort}</Text>}
-              {!folded && statuses.map((status) => <Chip key={status} tone="neutral">{status}</Chip>)}
               {!tight && <Chevron />}
             </>
           }
         >
           {(close) => (
             <Menu close={close}>
+              {statuses.length > 0 && <MenuLabel>{name} {statuses.map((status) =>
+                <Chip key={status} tone="neutral">{status}</Chip>)}</MenuLabel>}
               {model.type === 'select' ? (
                 <>
                   {model.disabled && <MenuNote>{model.disabled}</MenuNote>}

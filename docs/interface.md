@@ -618,7 +618,8 @@ in [extending.md](extending.md).
   *how* the message is read, not what it says. Beside the model sits the
   context ring — how full the window is for whichever agent this pane talks to
   ([context-usage.md](context-usage.md)). When an agent enables a model setting
-  itself, its reported state appears as a chip on the model’s label line. Max
+  itself, its reported state appears in the model control’s hover text and as
+  a chip beside the model name in its menu. Max
   mode reflects the flag saved after the turn; **Auto Max** says the
   agent enabled it, without changing the person’s choice for the next turn.
 - The composer floats over the transcript with a gradient scrim; the first and

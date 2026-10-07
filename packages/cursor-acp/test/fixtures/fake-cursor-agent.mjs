@@ -15,6 +15,7 @@
  */
 import { appendFileSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { spawn } from 'node:child_process'
 
 const argv = process.argv.slice(2)
 const out = (line) => process.stdout.write(`${JSON.stringify(line)}\n`)
@@ -34,6 +35,9 @@ const extraModels = () => {
 }
 
 if (argv[0] === 'models') {
+  if (process.env.FAKE_CURSOR_MODELS_LOG) appendFileSync(process.env.FAKE_CURSOR_MODELS_LOG, 'models\n')
+  const gate = process.env.FAKE_CURSOR_MODELS_GATE
+  while (gate && existsSync(gate)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
   // brain-9 exercises the dimension grammar: efforts, thinking, fast, max.
   const baseModels = process.env.FAKE_CURSOR_NO_AUTO_MODEL
     ? 'Available models\n\nfast-1 - Fast Model\nsmart-1 - Smart Model\n'
@@ -73,6 +77,17 @@ if (process.env.FAKE_LANE_ENV_LOG && process.env.HARNESSDESK_LANE_ID) {
 }
 
 const sessionId = valueOf('--resume') ?? 'fake-chat-unresumed'
+// A child can keep the CLI's pipes open after it exits. Tests release it
+// explicitly rather than relying on a long sleep to reproduce that lifecycle.
+if (process.env.FAKE_CURSOR_PIPE_GATE) {
+  spawn(process.execPath, ['-e', `
+    const fs = require('node:fs');
+    const timer = setInterval(() => {
+      if (fs.existsSync(process.env.FAKE_CURSOR_PIPE_GATE)) { clearInterval(timer); process.exit(0); }
+    }, 20);
+    setTimeout(() => process.exit(1), 20000).unref();
+  `], { stdio: ['ignore', process.stdout, process.stderr], env: process.env }).unref()
+}
 const model = valueOf('--model') ?? 'auto'
 const mode = valueOf('--mode') ?? 'default'
 const sandbox = valueOf('--sandbox') ?? 'default'
