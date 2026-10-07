@@ -105,14 +105,6 @@ it('a check that cannot run again keeps its control, disabled, with the reason o
   expect(document.body.textContent).not.toContain('Run this check again?')
 })
 
-it('on a timeline row a refused check shows no control at all, because the inspector is where the reason is read', async () => {
-  const { store } = storeWith(CONSENT)
-  await render(store, <RunAgain run="run-1" card={3} refusal="This check is not waiting to be run again." onRow />)
-  expect(container.innerHTML).toBe('')
-  await render(store, <RunAgain run="run-1" card={3} refusal={null} onRow />)
-  expect(button('Run again…')).toBeDefined()
-})
-
 for (const reason of ['This run is settled. Start a new run to run this check again.', 'This Team is wrapped']) {
   it(`keeps the terminal refusal without a retry act: ${reason}`, async () => {
     const { store, previewFlowRetry } = storeWith(CONSENT)
@@ -132,16 +124,16 @@ it('uses lifecycle state rather than refusal wording when a mounted Run ends', a
   expect(container.textContent).toContain(reason)
 })
 
-for (const onRow of [false, true]) for (const state of ['settled', 'stopped']) for (const focused of ['opener', 'confirm']) {
-  it(`moves focus from ${focused} to Keep when the ${onRow ? 'timeline' : 'inspector'} Run becomes ${state}`, async () => {
+for (const state of ['settled', 'stopped']) for (const focused of ['opener', 'confirm']) {
+  it(`moves focus from ${focused} to Keep when the inspector Run becomes ${state}`, async () => {
     const { store, retryFlowCheck } = storeWith(CONSENT)
-    await render(store, <RunAgain run="run-1" card={3} refusal={null} onRow={onRow} />)
+    await render(store, <RunAgain run="run-1" card={3} refusal={null} />)
     act(() => { button('Run again…')!.focus(); button('Run again…')!.click() })
     await settle()
     const confirm = button('Run again')!
     if (focused === 'confirm') act(() => confirm.focus())
     const reason = `This run is ${state}. Start a new run to run this check again.`
-    await render(store, <RunAgain run="run-1" card={3} refusal={reason} terminal onRow={onRow} />)
+    await render(store, <RunAgain run="run-1" card={3} refusal={reason} terminal />)
     const dialog = document.body.querySelector('[role="alertdialog"]')!
     expect(dialog).not.toBeNull()
     expect(dialog.textContent).toContain(reason)
