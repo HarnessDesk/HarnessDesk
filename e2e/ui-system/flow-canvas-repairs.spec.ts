@@ -106,12 +106,16 @@ for (const theme of ['light', 'dark'] as const) {
       const box = (await scroll.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height - 30)
       await page.mouse.wheel(0, 1600)
+      await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)).toBe(true)
+      await expect(graph.locator('section[aria-label="Rules"]')).toBeInViewport()
+      // The Run header leaves a short scroll area, so the Rules can fill it at the end: the last Step is reached by wheeling back up.
+      const above = await row.evaluate(el => el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect().top - el.getBoundingClientRect().top)
+      if (above > 0) await page.mouse.wheel(0, -(above + 16))
       await expect(row).toBeInViewport()
       await expect.poll(() => row.evaluate(el => {
         const rect = el.getBoundingClientRect(), clip = el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect()
         return rect.top >= clip.top && rect.bottom <= clip.bottom
       })).toBe(true)
-      await expect(graph.locator('section[aria-label="Rules"]')).toBeInViewport()
       expect(await row.evaluate(el => (el as HTMLButtonElement).tabIndex)).toBe(0)
       await row.click()
       await expect(row).toHaveAttribute('aria-current', 'true')
