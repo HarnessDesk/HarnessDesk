@@ -13,7 +13,7 @@ import {
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { Host } from './host.js'
 import type { Logger } from './log.js'
-import { sameCanonicalPath } from './path-identity.js'
+import { sameCanonicalPath, withCanonicalPaths } from './path-identity.js'
 
 export interface ClientDoorOptions {
   readonly host: Host
@@ -94,10 +94,10 @@ const overlaySnapshot = (previous: WireNotification | undefined, next: WireNotif
 const viewsInScope = async (host: Host, scope: Subscription['scope']): Promise<readonly GoalView[]> => {
   const views = await host.call('goal/list', {})
   const runGoal = scope?.run ? (await host.call('flow/execution', { run: scope.run })).goal : null
-  return views.filter(view =>
+  return withCanonicalPaths(() => views.filter(view =>
     (scope?.team === undefined || view.goal.id === scope.team) &&
     (runGoal === null || view.goal.id === runGoal) &&
-    (scope?.project === undefined || sameCanonicalPath(view.goal.root, scope.project)))
+    (scope?.project === undefined || sameCanonicalPath(view.goal.root, scope.project))))
 }
 
 /** Every active Run and the newest one, whatever its state: a Team's starting state, read before its broadcasts. */

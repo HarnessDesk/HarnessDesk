@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { rmSync } from 'node:fs'
+import { constants, rmSync } from 'node:fs'
 import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile, type FileHandle } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -973,7 +973,9 @@ test('export stops opening files once an Agent folder’s byte budget is already
   const realOpen = fsp.open
   let opened = 0
   fsp.open = async (...args: unknown[]) => {
-    opened += 1
+    // Linux content opens also traverse directory descriptors. Count the
+    // content files this budget limits, rather than those parent handles.
+    if (!(Number(args[1]) & constants.O_DIRECTORY)) opened += 1
     return realOpen(...args)
   }
   syncBuiltinESMExports()
