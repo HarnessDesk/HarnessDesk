@@ -131,3 +131,28 @@ it('uses lifecycle state rather than refusal wording when a mounted Run ends', a
   expect(button('Run again…')).toBeUndefined()
   expect(container.textContent).toContain(reason)
 })
+
+for (const onRow of [false, true]) for (const state of ['settled', 'stopped']) for (const focused of ['opener', 'confirm']) {
+  it(`moves focus from ${focused} to Keep when the ${onRow ? 'timeline' : 'inspector'} Run becomes ${state}`, async () => {
+    const { store, retryFlowCheck } = storeWith(CONSENT)
+    await render(store, <RunAgain run="run-1" card={3} refusal={null} onRow={onRow} />)
+    act(() => { button('Run again…')!.focus(); button('Run again…')!.click() })
+    await settle()
+    const confirm = button('Run again')!
+    if (focused === 'confirm') act(() => confirm.focus())
+    const reason = `This run is ${state}. Start a new run to run this check again.`
+    await render(store, <RunAgain run="run-1" card={3} refusal={reason} terminal onRow={onRow} />)
+    const dialog = document.body.querySelector('[role="alertdialog"]')!
+    expect(dialog).not.toBeNull()
+    expect(dialog.textContent).toContain(reason)
+    expect(button('Run again')!.disabled).toBe(true)
+    expect(document.activeElement).toBe(button('Keep'))
+    act(() => button('Run again')!.click())
+    await settle()
+    expect(retryFlowCheck).not.toHaveBeenCalled()
+    act(() => button('Keep')!.click())
+    await settle()
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(button('Run again…')).toBeUndefined()
+  })
+}

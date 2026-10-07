@@ -7,7 +7,7 @@ import { currentRunEnd, type RunTimelineInput, type runTimeline } from '../lib/r
 import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import { AgentIcon, CheckIcon, ReviewIcon } from './Icons'
-import { RunAgain } from './RetryCheck'
+import { RetryCheck } from './RetryCheck'
 import { formatDuration } from './TurnTail'
 import styles from './RunView.module.css'
 
@@ -57,6 +57,9 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
   continuesNumber?: number
 }) => {
   const [kept, keep] = useState<RunViewTab>('timeline')
+  // Consent belongs to the Run view: an ending removes the row's retry control.
+  const [retry, setRetry] = useState<{ run: string; card: number } | null>(null)
+  useEffect(() => setRetry(null), [model.header.run])
   const showing: RunViewTab = flow ? view ?? kept : 'timeline'
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
@@ -178,7 +181,7 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
                 const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
                 const item = <ListRow density="compact" wrapTitle data-row={row.id} data-kind={row.kind} as={again ? "div" : "button"} interactive selected={selectedRow === row.id || selectedRows?.includes(row.id)}
                   onClick={event => { if (!event.currentTarget.contains(event.target as Node)) return; if (!(event.target as Element).closest('[data-slot="list-row-trail"]') && (!again || !(event.target as Element).closest('button'))) onSelect(row.id) }} title={again ? <Button stretched hoverFill={false} variant="row" size="content-min" bordered={false} onClick={() => onSelect(row.id)}>{title}</Button> : title}
-                  trail={again ? <RunAgain run={header.run} card={row.card!} refusal={null} onRow /> : undefined}
+                  trail={again ? <Button variant="link" size="xs" onClick={() => setRetry({ run: header.run, card: row.card! })}>Run again…</Button> : undefined}
                   className={again ? 'relative isolate min-w-0' : 'min-w-0'}
                   lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
                     : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
@@ -194,6 +197,9 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
         </div>}
       </PaneColumn>
     </div>
+    {retry?.run === header.run && <RetryCheck run={retry.run} card={retry.card}
+      refusal={model.rows.find(row => row.kind === 'check' && row.card === retry.card)?.retryRefusal ?? null}
+      onClose={() => setRetry(null)} />}
     {showing === 'timeline' && timelineDetail}
     </div>
   </div>

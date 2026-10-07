@@ -508,3 +508,38 @@ it.each([0, 86_400_000])('uses the same dated clock in the header and timeline (
     expect(container.querySelector('[data-kind="end"] [data-slot="timeline-meta"]')!.textContent).toContain(clock)
   } finally { done(); vi.useRealTimers() }
 })
+
+it.each(['settled', 'stopped'] as const)('keeps the timeline consent mounted when its Run becomes %s', async state => {
+  const fixture = runFixture('running')
+  const retryFlowCheck = vi.fn(async () => ({}))
+  const store = {
+    subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), retryFlowCheck,
+    previewFlowRetry: vi.fn(async () => ({ token: 'consent-1', commands: [], problems: [] })),
+  } as unknown as AppStore
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const onSelect = vi.fn()
+  const render = async (ended: boolean) => {
+    const execution = ended ? { ...fixture.execution, state } : fixture.execution
+    await act(async () => root.render(<StoreProvider store={store}><RunView model={runTimeline({ ...fixture, execution })} number={1} selectedRow={null} onSelect={onSelect} /></StoreProvider>))
+  }
+  try {
+    await render(false)
+    const opener = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Run again…')!
+    await act(async () => opener.click())
+    const dialog = document.querySelector('[role="alertdialog"]')!
+    expect(dialog).not.toBeNull()
+    await render(true)
+    expect(document.querySelector('[role="alertdialog"]')).toBe(dialog)
+    expect(dialog.textContent).toContain(`This run is ${state}. Start a new run to run this check again.`)
+    const confirm = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Run again')!
+    expect(confirm.disabled).toBe(true)
+    await act(async () => confirm.click())
+    expect(retryFlowCheck).not.toHaveBeenCalled()
+    expect(onSelect).not.toHaveBeenCalled()
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Keep')!.click())
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(container.textContent).not.toContain('Run again…')
+  } finally { act(() => root.unmount()); container.remove() }
+})
