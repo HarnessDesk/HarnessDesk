@@ -2550,9 +2550,13 @@ so it is not done. Archiving a quiet resumable
 conversation releases its handle through the same release and the same quiet
 test. Archiving preserves working turns,
 approvals, queued input and running tasks for the normal quiet sweep.
+Closing a pane lets go of its handle at once, whatever is happening in it, and,
+for an agent that can reopen the conversation, holds its picks the way a quiet
+release does.
 Reopening waits for close, then loads the same
-agent-owned history; a quiet release holds the conversation's option
-values and reapplies changed picks before reopening it to a client or a send.
+agent-owned history; a quiet release, and a pane the person closes, hold the
+conversation's option values and reapply changed picks before reopening it to a
+client or a send.
 A held pick the reopened conversation has no place for, such as a control the
 agent now greys, is dropped and logged rather than refusing the reopen; the
 picks are spent once tried, and a reopen that still fails closes the handle it

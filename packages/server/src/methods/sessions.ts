@@ -159,7 +159,10 @@ export const sessionMethods = {
     const record = ctx.registry.get(runtime.info.id, sessionId)
     const scoped = !record?.live && (record?.restedOptions !== undefined || ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false))
     const resolve = async (): Promise<AgentSession> => {
-      if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId })
+      // The host's reopen puts the held picks back, and the picks the person
+      // left win over any the caller names. A route is not a pick: it is where
+      // the conversation runs, so the reopen runs on the one the caller asked for.
+      if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId, ...(options.route ? { route: options.route } : {}) })
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
       return runtime.resumeSession(sessionId, { ...options, ...(environment ? { environment } : {}) })
     }
@@ -318,6 +321,10 @@ export const sessionMethods = {
 
   'session/close': async (ctx, params) => {
     const record = ctx.registry.get(params.runtime, makeSessionId(params.sessionId))
+    // The handle takes the person's picks with it unless they are kept for the
+    // reopen, as the quiet release and archive keep them. A pane closes at
+    // once, whatever is happening in it, so there is no quiet to wait for.
+    ctx.sessions.holdPicks({ runtime: params.runtime, sessionId: makeSessionId(params.sessionId) })
     await record?.live?.close()
     if (record) {
       record.live = null

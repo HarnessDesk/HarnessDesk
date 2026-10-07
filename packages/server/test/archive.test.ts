@@ -51,7 +51,7 @@ interface Rig {
   close(): Promise<void>
 }
 
-const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: boolean }, name?: string): Promise<Rig> => {
+const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: boolean; resume?: boolean }, name?: string): Promise<Rig> => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-archive-'))
   const runtime = new FakeRuntime({ ...(capabilities ? { capabilities } : {}), ...(name ? { name } : {}) })
   const host = new Host({
@@ -448,6 +448,35 @@ test('archive keeps the picks a quiet conversation held, as the rest does', asyn
     await rig.client.call('session/archive', { ...params, archived: false })
     const resumed = await rig.client.call('session/resume', params) as Session
     assert.deepEqual(heldPicks(resumed.options), { model: 'fake-2', tone: 'cheerful' })
+  } finally { await rig.close() }
+})
+
+test('closing a pane keeps the picks a conversation held, as archive does', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+    await rig.client.call('session/close', params)
+    // Another window closing the same pane finds no handle, and must not lose what the first held.
+    await rig.client.call('session/close', params)
+    assert.equal(record.live, null)
+    // The agent forgets what it was told while the pane is closed, so the
+    // handle it hands back answers with its own defaults.
+    rig.runtime.sessions.delete(params.sessionId)
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.deepEqual(heldPicks(resumed.options), { model: 'fake-2', tone: 'cheerful' })
+  } finally { await rig.close() }
+})
+
+test('closing a pane holds no picks for an agent that cannot reopen the conversation', async () => {
+  const rig = await start({ archiveHistory: false, resume: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/close', params)
+    assert.equal(record.live, null)
+    assert.equal(record.restedOptions, undefined, 'there is no reopen to put them back')
   } finally { await rig.close() }
 })
 

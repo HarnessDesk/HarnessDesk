@@ -2838,7 +2838,7 @@ export class Host {
     // Publish before close yields: sends and opens wait, then resume the same id.
     const resting = Promise.resolve().then(async () => {
       if (!this.#personalConversationQuiet(record) || record.live !== live) return
-      record.restedOptions = Object.fromEntries(live.options().map(option => [option.id, option.currentValue]))
+      this.#holdPicks(record, live)
       try {
         await live.close()
       } finally {
@@ -2852,6 +2852,15 @@ export class Host {
     } finally {
       if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
     }
+  }
+
+  /**
+   * Keeps the picks made in a handle that is about to go, for the reopen to put
+   * back. A quiet release and a pane the person closes both hold them here, so
+   * what "the picks" means is written once.
+   */
+  #holdPicks(record: SessionRecord, live: AgentSession): void {
+    record.restedOptions = Object.fromEntries(live.options().map(option => [option.id, option.currentValue]))
   }
 
   async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
@@ -4102,6 +4111,11 @@ export class Host {
         releaseQuiet: async (params) => {
           const record = this.registry.get(params.runtime, makeSessionId(params.sessionId))
           if (record) await this.#releaseQuiet(record)
+        },
+        holdPicks: (params) => {
+          const record = this.registry.get(params.runtime, makeSessionId(params.sessionId))
+          // Only a conversation the agent can reopen has a use for them: the reopen is what puts them back.
+          if (record?.live && this.#runtimes.get(record.runtime)?.info.capabilities.resume) this.#holdPicks(record, record.live)
         },
       },
       seats: {
@@ -5557,8 +5571,9 @@ export class Host {
   async #live(params: {
     readonly runtime: RuntimeId
     readonly sessionId: SessionId
+    readonly route?: ResolvedModelRoute
   }): Promise<AgentSession> {
-    return this.#liveFor(params.runtime, makeSessionId(params.sessionId))
+    return this.#liveFor(params.runtime, makeSessionId(params.sessionId), params.route)
   }
 
   /**
@@ -5576,8 +5591,11 @@ export class Host {
    * Resuming is free of tokens — it replays what the agent already stored —
    * and the agents that cannot do it say so, which is the one case where the
    * refusal is real and has to name what is actually lost.
+   *
+   * A caller that names a route has the reopen run on it. One that arrives
+   * while a reopen is already in flight shares that reopen, route and all.
    */
-  async #liveFor(runtime: RuntimeId, id: SessionId): Promise<AgentSession> {
+  async #liveFor(runtime: RuntimeId, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     const key = sessionKey(runtime, id)
     this.#seatQuietSince.delete(key)
     await this.#restingSessions.get(key)
@@ -5596,7 +5614,7 @@ export class Host {
         else this.#reopenWaiters.delete(key)
       }
     }
-    const attempt = this.#reattach(this.#runtime({ runtime }), id)
+    const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
     this.#reattaching.set(key, attempt)
     try {
       return await attempt
@@ -5826,7 +5844,7 @@ export class Host {
     }
   }
 
-  async #reattach(runtime: AgentRuntime, id: SessionId): Promise<AgentSession> {
+  async #reattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     const name = runtime.info.presentation.name
     const health = runtime.health()
     if (health.state !== 'ready' && health.state !== 'idle') {
@@ -5851,6 +5869,7 @@ export class Host {
       const frozen = this.#evidence.seats.latestKeptOf(runtime.info.id, String(id))
       const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await runtime.resumeSession(id, {
+        ...(route ? { route } : {}),
         ...(frozen?.runtimeServers !== undefined ? { runtimeServers: frozen.runtimeServers } : {}),
         ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
