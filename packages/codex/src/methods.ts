@@ -98,6 +98,8 @@ import type {
   ThreadItemsListResponse,
   ThreadListParams,
   ThreadListResponse,
+  ThreadLoadedListParams,
+  ThreadLoadedListResponse,
   ThreadMemoryModeSetParams,
   ThreadMemoryModeSetResponse,
   ThreadReadParams,
@@ -144,6 +146,8 @@ export interface CodexMethods {
   'thread/resume': { params: ThreadResumeParams; result: ThreadResumeResponse }
   'thread/fork': { params: ThreadForkParams; result: ThreadForkResponse }
   'thread/list': { params: ThreadListParams; result: ThreadListResponse }
+  /** The threads this process holds loaded, whoever subscribed them: a sub-agent's is there until it is let go of. */
+  'thread/loaded/list': { params: ThreadLoadedListParams; result: ThreadLoadedListResponse }
   'thread/search': { params: ThreadSearchParams; result: ThreadSearchResponse }
   'thread/read': { params: ThreadReadParams; result: ThreadReadResponse }
   'thread/turns/list': { params: ThreadTurnsListParams; result: ThreadTurnsListResponse }

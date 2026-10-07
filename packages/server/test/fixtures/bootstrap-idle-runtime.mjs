@@ -99,7 +99,7 @@ try {
   await rest()
   await Promise.all(seats.slice(0, 2).map((seat) => host.call('session/resume', { runtime, sessionId: seat.session.id })))
   const reopened = await children()
-  assert.equal(new Set(reopened.slice(4).map((child) => child.parent)).size, 2, 'resumed roots each receive a fresh conversation process')
+  assert.equal(new Set(reopened.slice(4).map((child) => child.parent)).size, 1, 'resumed roots share the one fresh process')
   for (const seat of seats.slice(0, 2)) assert.equal(seat.record.live.id, seat.session.id)
   for (const seat of seats.slice(0, 2)) await host.call('session/close', { runtime, sessionId: seat.session.id })
   // The Flow door seats into the same production adapter and rests its Seat.

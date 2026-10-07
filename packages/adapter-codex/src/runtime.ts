@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import {
+  CodexAppServer,
   CodexError,
   CodexRpcError,
   discoverCodex,
@@ -86,10 +87,10 @@ import {
   type ThreadState,
 } from './mapping/options.js'
 import { CODEX_RUNTIME_ID, mapSession, mapSummary } from './mapping/session.js'
+import { isClosingRefusal, ThreadReleases } from './releases.js'
 import { ReviewTurns } from './review-turns.js'
 import { salvageSession } from './salvage.js'
 import { CodexSession } from './session.js'
-import { CodexThreadServers } from './thread-servers.js'
 import { ApprovalRouter } from './approvals.js'
 import { holderOf, isBusyRefusal, sessionStoreOf } from './writer-lock.js'
 import { codexEnvironmentConfig } from './lane-environment.js'
@@ -98,9 +99,12 @@ import { codexProvider, launchOverridesProvider } from './provider.js'
 /**
  * `AgentRuntime` over `codex app-server`.
  *
- * Owns a control app-server and recyclable conversation processes. Codex keeps
- * its own thread store in `~/.codex`, so this class deliberately does not shadow
- * history — it reads through.
+ * Owns exactly one app-server process and every live session on it: one per
+ * account, however many seats and conversations the account carries. What
+ * differs between them travels with each thread (its folder, its model, its
+ * sandbox and approval policy, its lane environment, its tools), never with
+ * the process. Codex keeps its own thread store in `~/.codex`, so this class
+ * deliberately does not shadow history — it reads through.
  */
 
 export interface CodexRuntimeOptions {
@@ -165,6 +169,10 @@ const OPT_OUT_NOTIFICATIONS = [
   'thread/realtime/transcript/delta',
   'rawResponseItem/completed',
 ]
+
+/** How often, and for how long each time, a resume that Codex refused as closing is asked again. */
+const CLOSING_ATTEMPTS = 6
+const CLOSING_WAIT_MS = 2_000
 
 const CAPABILITIES = {
   sessionEnvironment: true,
@@ -242,7 +250,7 @@ export const installCommandFor = (path: string | null | undefined): string => {
 }
 
 export class CodexRuntime implements AgentRuntime {
-  readonly #server: CodexThreadServers
+  readonly #server: CodexAppServer
   readonly #binaryPath: string | null
   readonly #logger: CodexLogger | undefined
   readonly #approvals: ApprovalRouter
@@ -257,6 +265,10 @@ export class CodexRuntime implements AgentRuntime {
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
   readonly #closingSessions = new Map<string, Promise<void>>()
+  /** Closed handles Codex has not yet closed the threads of; see `ThreadReleases`. */
+  readonly #releases = new ThreadReleases()
+  /** Conversations being started, resumed or forked right now; the process cannot rest under one. */
+  #opening = 0
   readonly #environments = new Map<string, Readonly<Record<string, string>>>()
   /** Child thread id to the thread that spawned it. */
   readonly #parents = new Map<string, string>()
@@ -325,16 +337,7 @@ export class CodexRuntime implements AgentRuntime {
       ...(options.env ? { env: options.env } : {}),
       ...(options.logger ? { logger: options.logger } : {}),
     }
-    this.#server = new CodexThreadServers(serverOptions, (threads) => {
-      for (const id of threads) {
-        this.#forgetDelegates(id)
-        this.#sessions.delete(id)
-        this.#reviewTurns.forget(id)
-        this.tasks.forget(id)
-        this.#approvals.abandonSession(makeSessionId(id), 'The conversation process stopped.')
-        this.#emit({ type: 'session/detached', sessionId: makeSessionId(id) })
-      }
-    })
+    this.#server = new CodexAppServer(serverOptions)
     this.#catalog = new CodexCatalog(this.#server)
     this.files = new CodexFiles(this.#server)
     this.processes = new CodexProcesses(this.#server, (session) =>
@@ -348,6 +351,7 @@ export class CodexRuntime implements AgentRuntime {
 
     this.#disposeServer.push(
       this.#server.onNotification((notification) => {
+        if (this.#releases.ends(notification)) return
         // A review's turn is told as any other turn is before anything reads
         // it; see `ReviewTurns`.
         for (const seen of this.#reviewTurns.see(notification)) {
@@ -358,10 +362,6 @@ export class CodexRuntime implements AgentRuntime {
       this.#server.onServerRequest((request, responder) =>
         this.#onServerRequest(request, responder),
       ),
-      this.#server.onBusyChange(() => {
-        const health = this.health()
-        for (const listener of this.#healthListeners) listener(health)
-      }),
       this.#server.onStateChange((state) => this.#onStateChange(state)),
       // The one stderr line worth keeping: why the model list is the fallback.
       this.#server.onLog((line) => {
@@ -503,12 +503,14 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   /**
-   * Unsubscribe retains a thread's MCP children (measured on 0.160.0).
-   * The host's existing reaper owns when to recycle; no open handle may be
-   * discarded here. Its stop barrier also keeps new opens behind these reads.
+   * A process with nothing open rests: whatever Codex still holds for a thread
+   * that was closed — loaded, with its tools — goes with the process, rather
+   * than waiting out Codex's minute. The host's existing reaper owns when to
+   * rest; no open handle may be discarded here. Its stop barrier also keeps
+   * new opens behind these reads.
    */
   async stopForIdle(): Promise<boolean> {
-    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#server.busy || this.processes.busy || this.files.busy) return false
+    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#opening > 0 || this.processes.busy || this.files.busy) return false
     // Keep the observations readable even if nobody opened their menus yet.
     // A failed snapshot leaves the process running, rather than inventing a
     // signed-out account or an empty catalogue when it rests.
@@ -517,7 +519,7 @@ export class CodexRuntime implements AgentRuntime {
       this.listSessions(), this.listSessions({ archived: 'only' }),
       this.defaultSessionOptions(), ...[...this.#knownCwds].map((cwd) => this.defaultSessionOptions(cwd)),
     ])
-    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#server.busy || this.processes.busy || this.files.busy) return false
+    if (this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#opening > 0 || this.processes.busy || this.files.busy) return false
     this.#idleStopped = true
     await this.#server.stop()
     return true
@@ -525,7 +527,6 @@ export class CodexRuntime implements AgentRuntime {
 
   health(): RuntimeHealth {
     const state = this.#server.state
-    if (!this.#disposed && this.#server.busy) return { state: 'ready' }
     switch (state.type) {
       case 'ready':
         return { state: 'ready' }
@@ -1039,7 +1040,11 @@ export class CodexRuntime implements AgentRuntime {
 
   // ------------------------------------------------------------ live sessions
 
-  async createSession(options: SessionOptions): Promise<AgentSession> {
+  createSession(options: SessionOptions): Promise<AgentSession> {
+    return this.#opened(() => this.#createSession(options))
+  }
+
+  async #createSession(options: SessionOptions): Promise<AgentSession> {
     const projection = new ToolProjection()
     const dynamicTools = this.#projectTools(projection, { workspaceRoot: options.cwd })
     const { start, after } = await this.#startParamsFor(options)
@@ -1111,7 +1116,11 @@ export class CodexRuntime implements AgentRuntime {
     return session
   }
 
-  async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+  resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    return this.#opened(() => this.#resumeSession(id, options))
+  }
+
+  async #resumeSession(id: SessionId, options: Partial<SessionOptions>): Promise<AgentSession> {
     await this.#closingSessions.get(id)
     const held = this.#environments.get(id)
     if (
@@ -1130,7 +1139,7 @@ export class CodexRuntime implements AgentRuntime {
     const { start, after } = await this.#startParamsFor(options)
     let response: CodexProtocol.v2.ThreadResumeResponse
     try {
-      response = await this.#server.request('thread/resume', {
+      response = await this.#resumeThread({
         threadId: id,
         ...(options.cwd ? { cwd: options.cwd } : {}),
         ...this.#developerInstructions(),
@@ -1142,6 +1151,8 @@ export class CodexRuntime implements AgentRuntime {
     } catch (error) {
       throw (await this.#busyOr(error, id)) ?? error
     }
+    // Subscribed again: a thread that was waiting out its minute stays loaded.
+    this.#releases.cancel(id)
     // `dynamicTools` is only accepted on thread/start, so a resumed thread keeps
     // whatever tool set it was created with. The session reports that as stale
     // rather than pretending newly loaded plugins are available.
@@ -1188,7 +1199,11 @@ export class CodexRuntime implements AgentRuntime {
    * taken from `thread/fork` itself — asked for there, a paginated source's
    * are answered with a deprecationNotice.
    */
-  async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+  forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    return this.#opened(() => this.#forkSession(id, options))
+  }
+
+  async #forkSession(id: SessionId, options: Partial<SessionOptions>): Promise<AgentSession> {
     const environment = options.environment ?? this.#environments.get(id)
     if (environment) options = { ...options, environment }
     const { start, after } = await this.#startParamsFor(options)
@@ -1292,19 +1307,16 @@ export class CodexRuntime implements AgentRuntime {
     const created = opened.created ?? false
     // Whatever was heard of this thread before it was opened here is over.
     this.#reviewTurns.forget(thread.id)
-    const owner = this.#server.thread(thread.id)
-    this.#version = owner.server.installation?.version ?? this.#version
     let catalog: Catalog
     try { catalog = await this.#catalog.load(state.cwd) }
-    catch (error) { await owner.release(); throw error }
-    if (owner.server.state.type !== 'ready') {
-      await owner.release()
-      throw new CodexError('notRunning', 'The conversation process stopped while it was opening.')
+    catch (error) { await this.#letGo(thread.id); throw error }
+    if (this.#server.state.type !== 'ready') {
+      throw new CodexError('notRunning', 'The runtime stopped while the conversation was opening.')
     }
-    if (this.#disposed) { await owner.release(); throw new Error(`${this.#name} has been shut down.`) }
+    if (this.#disposed) { await this.#letGo(thread.id); throw new Error(`${this.#name} has been shut down.`) }
     const session = new CodexSession({
       runtime: this.#id,
-      server: owner.server,
+      server: this.#server,
       approvals: this.#approvals,
       thread,
       state,
@@ -1313,11 +1325,14 @@ export class CodexRuntime implements AgentRuntime {
       created,
       route: opened.route ?? null,
       environment: opened.environment,
-      startBeside: (like) => this.#startBeside(like),
+      startBeside: (like) => this.#opened(() => this.#startBeside(like)),
       interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
-      onReleased: () => owner.release(),
+      onReleased: (id, status) => {
+        this.#released(id, status)
+        if (status !== undefined) void this.#letGoOfDelegates(id)
+      },
       onClosed: (id, closing) => {
         if (this.#sessions.get(id) !== session) return
         this.#closingSessions.set(id, closing)
@@ -1540,14 +1555,113 @@ export class CodexRuntime implements AgentRuntime {
     return { ...event, item: noticeFromUserMessage(event.item, session.noticeKindOf(event.turnId)) }
   }
 
-  /** A replacement owner must hear each delegated registration afresh. */
+  /** Counts a conversation being opened, so the process is not rested under it. */
+  async #opened<T>(open: () => Promise<T>): Promise<T> {
+    this.#opening++
+    try {
+      return await open()
+    } finally {
+      this.#opening--
+    }
+  }
+
+  /** A handle was closed; unless nothing was loaded or Codex never answered, the thread now waits out Codex's minute. */
+  #released(id: string, status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined): void {
+    if (status === undefined || status === 'notLoaded' || this.#disposed) return
+    this.#releases.expect(id)
+  }
+
+  /**
+   * Gives back the threads a closed conversation's sub-agents left loaded.
+   *
+   * Codex subscribes the parent's connection to each sub-agent thread it
+   * spawns, without announcing it, so none is ever unsubscribed and idle: each
+   * keeps its tool helpers until the process ends, long after its root has
+   * closed (measured on 0.160.0). A process of its own per conversation ended
+   * them with it; one process per account lets go of them one by one. They are
+   * found among the loaded threads by their parent, and a thread a session here
+   * holds, or that belongs to another conversation, is left alone.
+   */
+  async #letGoOfDelegates(root: string): Promise<void> {
+    try {
+      const loaded: string[] = []
+      for (let cursor: string | null = null, page = 0; page < 10; page++) {
+        const response: CodexProtocol.v2.ThreadLoadedListResponse = await this.#server.request(
+          'thread/loaded/list', { cursor }, { timeoutMs: 2_000 })
+        loaded.push(...response.data)
+        if (!(cursor = response.nextCursor)) break
+      }
+      const strangers = loaded.filter((id) => id !== root && !this.#sessions.has(id) && !this.#releases.closed(id))
+      if (strangers.length === 0) return
+      const parents = new Map<string, string | null>()
+      await Promise.all(strangers.map(async (id) => {
+        try {
+          parents.set(id, (await this.#server.request('thread/read', { threadId: id, includeTurns: false }, { timeoutMs: 2_000 })).thread.parentThreadId)
+        } catch {
+          // Closed since the listing, or not readable: not ours to give back.
+        }
+      }))
+      const descendants = new Set([root])
+      for (let grew = true; grew;) {
+        grew = false
+        for (const [id, parent] of parents) {
+          if (parent !== null && descendants.has(parent) && !descendants.has(id)) { descendants.add(id); grew = true }
+        }
+      }
+      descendants.delete(root)
+      await Promise.all([...descendants].map(async (id) => {
+        try {
+          this.#released(id, (await this.#server.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 2_000 })).status)
+        } catch {
+          // The thread stays with the process until it rests.
+        }
+      }))
+    } catch {
+      // A process that is gone has nothing left to give back.
+    }
+  }
+
+  /** Gives back a thread that was started but never became a session here. */
+  async #letGo(id: string): Promise<void> {
+    let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
+    try {
+      status = (await this.#server.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 2_000 })).status
+    } catch {
+      // A process that is gone has nothing left to give back.
+    }
+    this.#released(id, status)
+  }
+
+  /**
+   * `thread/resume`, which Codex refuses with a hint to ask again while it is
+   * closing that very thread. The close ends with `thread/closed`, which this
+   * runtime has been waiting for since it closed its handle, so the next ask
+   * waits for it — and for a minute's worth of nothing when it was not the
+   * one that closed it.
+   */
+  async #resumeThread(params: CodexProtocol.v2.ThreadResumeParams): Promise<CodexProtocol.v2.ThreadResumeResponse> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.#server.request('thread/resume', params)
+      } catch (error) {
+        if (attempt >= CLOSING_ATTEMPTS || !isClosingRefusal(error)) throw error
+        await new Promise<void>((resolve) => {
+          const later = setTimeout(resolve, CLOSING_WAIT_MS)
+          later.unref()
+          void this.#releases.closed(params.threadId)?.then(() => { clearTimeout(later); resolve() })
+        })
+      }
+    }
+  }
+
+  /** A conversation closed here must hear each delegated registration afresh when it is opened again. */
   #forgetDelegates(root: string): void {
     for (const [child, parent] of this.#parents) {
       if (parent !== root) continue
       this.#parents.delete(child)
       this.#reviewTurns.forget(child)
       this.tasks.forget(child)
-      this.#approvals.abandonSession(makeSessionId(child), 'The conversation process stopped.')
+      this.#approvals.abandonSession(makeSessionId(child), 'The conversation was closed.')
     }
     this.#delegationUncertain = true
   }
@@ -1676,21 +1790,24 @@ export class CodexRuntime implements AgentRuntime {
     if (state.type !== 'stopped') this.#idleStopped = false
     if (state.type === 'ready') this.#version = state.installation.version
     if (state.type !== 'ready') {
-      // Control watches and terminals belong to this process. Conversation
-      // handles belong to their own workers and survive a control restart;
-      // a full stop has already drained those workers before reaching here.
-      // The catalogue goes too: the new process asks its vendor afresh, and
-      // may be answered differently — or be a different binary.
-      if (!this.#server.busy) {
-        this.#sessions.clear()
-        // A child id can be reused by the next app-server. Its parent came from
-        // the old process, so it is not evidence that this epoch delegated it.
-        this.#parents.clear()
-        this.#delegationUncertain = true
-        this.#reviewTurns.clear()
-        this.tasks.dispose()
-        this.#approvals.abandonAll('The Codex runtime restarted.')
-      }
+      // A restarted app-server has no memory of live threads or watches. Drop
+      // the handles so the host resumes rather than sending turns into a dead
+      // session, and so a watcher is not left waiting for changes that will
+      // never arrive — and say so of each, so the host reattaches every seat
+      // the same way it does after the desk itself restarts. The catalogue
+      // goes too: the new process asks its vendor afresh, and may be answered
+      // differently — or be a different binary.
+      const lost = [...this.#sessions.keys()]
+      this.#sessions.clear()
+      this.#releases.clear()
+      // A child id can be reused by the next app-server. Its parent came from
+      // the old process, so it is not evidence that this epoch delegated it.
+      this.#parents.clear()
+      this.#delegationUncertain = true
+      this.#reviewTurns.clear()
+      this.tasks.dispose()
+      this.#approvals.abandonAll('The Codex runtime restarted.')
+      if (!this.#disposed) for (const id of lost) this.#emit({ type: 'session/detached', sessionId: makeSessionId(id) })
       if (!resting) {
         this.#catalog.invalidate()
         this.#catalog.forgetWarning()

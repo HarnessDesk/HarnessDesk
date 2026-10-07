@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 
 import type { AgentEvent, AgentRuntime } from '@harnessdesk/protocol'
 import { CodexRuntime } from '../src/index.js'
-import { CodexThreadServers } from '../src/thread-servers.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
 const running = (pid: number): boolean => {
@@ -21,6 +20,8 @@ const until = async (condition: () => boolean | Promise<boolean>, message = 'the
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+/** `released` makes Codex close an unsubscribed idle thread at once rather than after its minute. */
+const released = { FAKE_CODEX_UNLOAD_MS: '1' } as const
 const rig = async (t: TestContext, mode = 'hold', env: Readonly<Record<string, string>> = {}, maxRestarts = 5) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-idle-'))
   const ledger = join(dir, 'children.ndjson')
@@ -46,8 +47,8 @@ const rig = async (t: TestContext, mode = 'hold', env: Readonly<Record<string, s
   return { runtime, events, children, servers, stop, dir }
 }
 
-test('closing finished threads releases their children before the control process rests', async (t) => {
-  const d = await rig(t)
+test('closing finished threads releases their children before the process rests', async (t) => {
+  const d = await rig(t, 'hold', released)
   for (let n = 0; n < 3; n++) {
     const session = await d.runtime.createSession({ cwd: d.dir })
     await session.close()
@@ -62,7 +63,7 @@ test('closing finished threads releases their children before the control proces
 })
 
 test('finished conversations release their children while another turn keeps working', async (t) => {
-  const d = await rig(t)
+  const d = await rig(t, 'hold', released)
   const active = await d.runtime.createSession({ cwd: d.dir })
   await active.send([{ type: 'text', text: 'Keep working' }])
   await until(() => d.events.some((event) => event.type === 'turn/started' && event.sessionId === active.id))
@@ -88,7 +89,7 @@ test('finished conversations release their children while another turn keeps wor
 })
 
 test('an open conversation and a working turn keep their children alive', async (t) => {
-  const d = await rig(t)
+  const d = await rig(t, 'hold', released)
   const finished = await d.runtime.createSession({ cwd: d.dir })
   await finished.close()
   const active = await d.runtime.createSession({ cwd: d.dir })
@@ -97,8 +98,8 @@ test('an open conversation and a working turn keep their children alive', async 
   await until(() => d.events.some((event) => event.type === 'turn/started'))
   assert.equal(await d.stop(), false)
   const childrenBefore = await d.children()
+  await until(() => childrenBefore.filter((child) => child.threadId === finished.id).every((child) => !running(child.pid)), 'the finished conversation was released')
   assert.ok(childrenBefore.filter((child) => child.threadId === active.id).every((child) => running(child.pid)))
-  assert.ok(childrenBefore.filter((child) => child.threadId === finished.id).every((child) => !running(child.pid)))
   await active.interrupt()
   await until(() => d.events.some((event) => event.type === 'turn/completed'))
   await active.close()
@@ -136,7 +137,7 @@ test('idle stop keeps learned models, options, account and history readable and 
 })
 
 test('a finished fork releases its helpers while its source turn keeps working', async (t) => {
-  const d = await rig(t)
+  const d = await rig(t, 'hold', released)
   const source = await d.runtime.createSession({ cwd: d.dir })
   await source.send([{ type: 'text', text: 'Keep working' }])
   const fork = await d.runtime.forkSession(source.id, { cwd: d.dir })
@@ -148,40 +149,6 @@ test('a finished fork releases its helpers while its source turn keeps working',
   assert.ok(!d.events.some((event) => event.type === 'turn/completed' && event.sessionId === source.id))
   await source.interrupt()
   await source.close()
-})
-
-test('a conversation process crash detaches only its own handle and can reopen', async (t) => {
-  const d = await rig(t)
-  const first = await d.runtime.createSession({ cwd: d.dir })
-  const second = await d.runtime.createSession({ cwd: d.dir })
-  await second.send([{ type: 'text', text: 'Keep working' }])
-  const child = (await d.children()).find((entry) => entry.threadId === first.id)!
-  process.kill(child.parent, 'SIGKILL')
-  await until(() => d.events.some((event) => event.type === 'session/detached' && event.sessionId === first.id))
-  assert.equal(d.runtime.session(first.id), undefined)
-  assert.equal(d.runtime.session(second.id), second)
-  assert.equal(d.runtime.health().state, 'ready')
-  const reopened = await d.runtime.resumeSession(first.id, { cwd: d.dir })
-  assert.equal(reopened.id, first.id)
-  await second.interrupt()
-  await second.close()
-  await reopened.close()
-})
-
-test('a failed control process becomes unhealthy when the last conversation is released', async (t) => {
-  const d = await rig(t, 'hold', {}, 0)
-  const session = await d.runtime.createSession({ cwd: d.dir })
-  const changes: string[] = []
-  d.runtime.onHealthChange((health) => changes.push(health.state))
-  const control = (await d.servers())[0]!
-  process.kill(control, 'SIGKILL')
-  await until(() => changes.includes('ready'), 'the failed control process is hidden while a conversation remains open')
-  assert.equal(d.runtime.health().state, 'ready')
-
-  await session.close()
-
-  assert.equal(d.runtime.health().state, 'unavailable')
-  assert.ok(changes.includes('unavailable'), 'releasing the last worker notifies health listeners')
 })
 
 test('ordinary Codex spawns do not receive HarnessDesk process markers', async (t) => {
@@ -196,9 +163,9 @@ test('ordinary Codex spawns do not receive HarnessDesk process markers', async (
     await session.close()
     const rows = (await readFile(captured, 'utf8')).trim().split('\n').filter(Boolean)
       .map((line) => JSON.parse(line) as { processGroup?: string; generation?: string })
-    assert.ok(rows.length >= 2, 'the control and conversation processes were spawned')
+    assert.equal(rows.length, 1, 'one process serves the runtime and its conversation')
     assert.ok(rows.every((row) => row.processGroup === undefined && row.generation === undefined),
-      'neither process receives test-only HarnessDesk environment markers')
+      'the process receives no test-only HarnessDesk environment markers')
   } finally {
     await runtime.dispose()
     await rm(dir, { recursive: true, force: true })
@@ -225,25 +192,7 @@ test('a never-answering unsubscribe times out so close and reopen can finish', a
   await settled.close()
 })
 
-test('a request to a stopping conversation process does not claim it was opening', async (t) => {
-  const server = new CodexThreadServers({
-    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
-    binaryPath: FAKE,
-    maxRestarts: 0,
-  }, () => {})
-  t.after(() => server.stop())
-  await server.start()
-  const started = await server.request('thread/start', { cwd: '/w' })
-  const owner = server.thread(started.thread.id)
-  const reading = server.request('thread/read', { threadId: started.thread.id, includeTurns: false })
-    .then(() => null, (error: unknown) => error)
-  await owner.release()
-  const error = await reading
-  assert.ok(error instanceof Error)
-  assert.match(error.message, /process stopped while handling the request/)
-})
-
-test('approvals from separate conversation processes remain independently answerable', async (t) => {
+test('approvals from separate conversations in one process remain independently answerable', async (t) => {
   const d = await rig(t, 'turn')
   const first = await d.runtime.createSession({ cwd: d.dir })
   const second = await d.runtime.createSession({ cwd: d.dir })
@@ -270,18 +219,6 @@ test('closing an old handle again cannot release its reopened conversation', asy
   await reopened.send([{ type: 'text', text: 'Continue' }])
   await reopened.interrupt()
   await reopened.close()
-})
-
-test('a control-process restart leaves a working conversation attached', async (t) => {
-  const d = await rig(t)
-  const session = await d.runtime.createSession({ cwd: d.dir })
-  await session.send([{ type: 'text', text: 'Keep working' }])
-  process.kill((await d.servers())[0]!, 'SIGKILL')
-  await until(async () => (await d.servers()).length === 3)
-  assert.equal(d.runtime.session(session.id), session)
-  assert.ok(!d.events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id))
-  await session.interrupt()
-  await session.close()
 })
 
 test('a standalone terminal keeps an otherwise unused runtime running', async (t) => {
@@ -386,7 +323,7 @@ test('stored history survives conversation release and a control idle restart', 
   await reopened.close()
 })
 
-test('a resume arriving during close waits for the retiring conversation owner', async (t) => {
+test('a resume arriving while the close is in flight waits for it', async (t) => {
   const hold = join(tmpdir(), `hd-unsubscribe-${process.pid}.hold`)
   t.after(() => rm(hold, { force: true }))
   const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_UNSUBSCRIBE: hold })
@@ -396,7 +333,7 @@ test('a resume arriving during close waits for the retiring conversation owner',
   await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'UNSUBSCRIBING'))
   const opening = d.runtime.resumeSession(session.id, { cwd: d.dir })
   const outcome = opening.then((live) => ({ live }), (error: unknown) => ({ error }))
-  // Round trips through the retiring owner while its unsubscribe is held.
+  // Round trips to the process while its unsubscribe is held.
   await d.runtime.readSession(session.id)
   await rm(hold)
   await closing
@@ -409,7 +346,7 @@ test('a resume arriving during close waits for the retiring conversation owner',
   await reopened.close()
 })
 
-test('a conversation that crashes during catalogue loading is never registered as live', async (t) => {
+test('a process that crashes while a conversation is opening never registers it as live', async (t) => {
   const hold = join(tmpdir(), `hd-catalogue-${process.pid}.hold`)
   t.after(() => rm(hold, { force: true }))
   const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_CATALOGUE: hold })
@@ -419,59 +356,69 @@ test('a conversation that crashes during catalogue loading is never registered a
   await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'CATALOGUE_HELD'))
   const child = (await d.children())[0]!
   process.kill(child.parent, 'SIGKILL')
-  await until(() => d.events.some((event) => event.type === 'session/detached' && event.sessionId === child.threadId))
+  await until(async () => (await d.servers()).length === 2 && d.runtime.health().state === 'ready', 'the runtime started its process again')
   await rm(hold)
   const result = await outcome
-  assert.ok('error' in result, 'opening a dead owner must fail instead of publishing a live handle')
-  assert.match(String(result.error), /stopped|not running/)
+  assert.ok('error' in result, 'opening in a dead process must fail instead of publishing a live handle')
+  assert.match(String(result.error), /stopped|not running|shutting down|exited/)
   assert.equal(d.runtime.session(child.threadId as never), undefined)
 })
-
-test('a failed catalogue load releases its conversation process and helpers', async (t) => {
-  const hold = join(tmpdir(), `hd-failed-catalogue-${randomUUID()}.hold`)
-  t.after(() => rm(hold, { force: true }))
-  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_CATALOGUE: hold }, 0)
-  await writeFile(hold, '')
-  const opening = d.runtime.createSession({ cwd: d.dir })
-  const outcome = opening.then(() => null, (error: unknown) => error)
-  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'CATALOGUE_HELD'))
-  const child = (await d.children())[0]!
-  process.kill((await d.servers())[0]!, 'SIGKILL')
-  assert.ok(await outcome instanceof Error, 'the control failure rejects the catalogue load')
-  await until(() => !running(child.parent) && !running(child.pid), 'failed registration must release its process and helper')
-  assert.equal(d.runtime.session(child.threadId as never), undefined)
-  assert.equal(d.runtime.health().state, 'unavailable', 'no leaked worker masks the failed control process')
+test('a failed catalogue load gives its thread back so its helpers are released', async (t) => {
+  const failing = join(tmpdir(), `hd-failed-catalogue-${randomUUID()}.fail`)
+  t.after(() => rm(failing, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_FAIL_CATALOGUE: failing, ...released })
+  const kept = await d.runtime.createSession({ cwd: d.dir })
+  await writeFile(failing, '')
+  // Another folder, so the refused read is not one an earlier open already cached.
+  await assert.rejects(() => d.runtime.createSession({ cwd: join(d.dir, 'refused') }), /could not be listed/)
+  const [own, started] = await d.children()
+  assert.ok(started, 'the refused conversation had started a thread, and tools with it')
+  await until(() => !running(started!.pid), 'the thread of a failed registration was released')
+  assert.ok(running(own!.pid), 'the conversation that opened is untouched')
+  assert.equal(d.runtime.session(started!.threadId as never), undefined)
+  assert.equal(d.runtime.session(kept.id), kept)
+  assert.equal((await d.servers()).length, 1)
+  await kept.close()
 })
-
 for (const mode of ['turn', 'delegated-approval']) {
-  for (const ending of ['close', 'crash']) {
-    test(`${ending} abandons the pending ${mode === 'turn' ? 'root' : 'delegated'} approval once`, async (t) => {
-      const d = await rig(t, mode)
-      const session = await d.runtime.createSession({ cwd: d.dir })
-      const other = await d.runtime.createSession({ cwd: d.dir })
-      await session.send([{ type: 'text', text: 'Inspect' }])
-      await other.send([{ type: 'text', text: 'Keep inspecting' }])
-      await until(() => d.events.filter((event) => event.type === 'approval/requested').length === 2)
-      const approvals = d.events.filter((event) => event.type === 'approval/requested').map((event) => event.approval)
-      const target = mode === 'turn' ? String(session.id) : `${session.id}-child`
-      const approval = approvals.find((entry) => String(entry.sessionId) === target)!
-      assert.ok(approval)
-      if (ending === 'close') await session.close()
-      else {
-        process.kill((await d.children()).find((child) => child.threadId === session.id)!.parent, 'SIGKILL')
-        await until(() => d.events.some((event) => event.type === 'session/detached' && event.sessionId === session.id))
-      }
-      const resolved = d.events.filter((event) => event.type === 'approval/resolved')
-      assert.equal(resolved.length, 1, 'the other conversation keeps its pending approval')
-      assert.equal(resolved[0]!.approvalId, approval.id)
-      assert.equal(resolved[0]!.sessionId, approval.sessionId)
-      assert.deepEqual(resolved[0]!.resolution, { outcome: 'abandoned', reason:
-        ending === 'close' && mode === 'turn' ? 'The conversation was closed.' : 'The conversation process stopped.' })
-      assert.equal(d.runtime.session(other.id), other)
-      await other.close()
-    })
-  }
+  test(`closing a conversation abandons its pending ${mode === 'turn' ? 'root' : 'delegated'} approval once`, async (t) => {
+    const d = await rig(t, mode)
+    const session = await d.runtime.createSession({ cwd: d.dir })
+    const other = await d.runtime.createSession({ cwd: d.dir })
+    await session.send([{ type: 'text', text: 'Inspect' }])
+    await other.send([{ type: 'text', text: 'Keep inspecting' }])
+    await until(() => d.events.filter((event) => event.type === 'approval/requested').length === 2)
+    const approvals = d.events.filter((event) => event.type === 'approval/requested').map((event) => event.approval)
+    const target = mode === 'turn' ? String(session.id) : `${session.id}-child`
+    const approval = approvals.find((entry) => String(entry.sessionId) === target)!
+    assert.ok(approval)
+    await session.close()
+    const resolved = d.events.filter((event) => event.type === 'approval/resolved')
+    assert.equal(resolved.length, 1, 'the other conversation keeps its pending approval')
+    assert.equal(resolved[0]!.approvalId, approval.id)
+    assert.equal(resolved[0]!.sessionId, approval.sessionId)
+    assert.deepEqual(resolved[0]!.resolution, { outcome: 'abandoned', reason: 'The conversation was closed.' })
+    assert.equal(d.runtime.session(other.id), other)
+    await other.close()
+  })
 }
+
+test('a crashed process abandons every pending approval, each once', async (t) => {
+  const d = await rig(t, 'turn')
+  const first = await d.runtime.createSession({ cwd: d.dir })
+  const second = await d.runtime.createSession({ cwd: d.dir })
+  await first.send([{ type: 'text', text: 'Inspect' }])
+  await second.send([{ type: 'text', text: 'Keep inspecting' }])
+  await until(() => d.events.filter((event) => event.type === 'approval/requested').length === 2)
+  const approvals = d.events.filter((event) => event.type === 'approval/requested').map((event) => event.approval)
+  process.kill((await d.servers())[0]!, 'SIGKILL')
+  await until(() => d.events.filter((event) => event.type === 'approval/resolved').length === 2)
+  const resolved = d.events.filter((event) => event.type === 'approval/resolved')
+  assert.deepEqual(resolved.map((event) => event.approvalId).sort(), approvals.map((approval) => approval.id).sort())
+  assert.ok(resolved.every((event) => JSON.stringify(event.resolution) === JSON.stringify({ outcome: 'abandoned', reason: 'The Codex runtime restarted.' })))
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(d.events.filter((event) => event.type === 'approval/resolved').length, 2, 'and none twice')
+})
 
 test('idle rest refuses a conversation still loading its catalogue', async (t) => {
   const hold = join(tmpdir(), `hd-opening-catalogue-${randomUUID()}.hold`)
@@ -514,46 +461,7 @@ test('idle rest rechecks opening conversations after its snapshot reads', async 
   await result.live.close()
 })
 
-for (const during of [false, true]) {
-  test(`tool updates skip a process stopping ${during ? 'during' : 'before'} the control request`, async (t) => {
-    const dir = await mkdtemp(join(tmpdir(), 'hd-stopping-tools-'))
-    const calls = join(dir, 'calls.ndjson')
-    const hold = join(dir, 'reload.hold')
-    await writeFile(calls, '')
-    const server = new CodexThreadServers({ binaryPath: FAKE,
-      clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
-      env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0',
-        FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_MCP_RELOAD: hold },
-    }, () => {})
-    let releaseStop!: () => void
-    const stopping = new Promise<void>((resolve) => { releaseStop = resolve })
-    t.after(async () => { releaseStop(); await rm(hold, { force: true }); await server.stop(); await rm(dir, { recursive: true, force: true }) })
-    let held = false
-    server.onNotification((event) => { if (event.method === 'warning' && event.params.message === 'MCP_RELOAD_HELD') held = true })
-    await server.start()
-    const started = await server.request('thread/start', { cwd: dir })
-    const owner = server.thread(started.thread.id).server
-    const stopOwner = owner.stop.bind(owner)
-    // Hold the public process-stop boundary: roots still exist while its stop is pending.
-    owner.stop = async () => { await stopping; await stopOwner() }
-    if (during) await writeFile(hold, '')
-    const stopped = during ? undefined : server.stop()
-    const updating = server.request('config/mcpServer/reload', undefined)
-    const result = updating.then(() => null, (error: unknown) => error)
-    if (during) await until(() => held)
-    const stoppedDuring = during ? server.stop() : undefined
-    await rm(hold, { force: true })
-    assert.equal(await result, null, 'stopping workers cannot fail a successful control update')
-    const asked = (await readFile(calls, 'utf8')).trim().split('\n')
-      .map((line) => JSON.parse(line) as { method: string; generation: string })
-    assert.deepEqual(asked.filter((call) => call.method === 'config/mcpServer/reload')
-      .map((call) => Number(call.generation)), [0])
-    releaseStop()
-    await (stopped ?? stoppedDuring)
-  })
-}
-
-test('tool settings reach the control process and every open conversation', async (t) => {
+test('tool settings are sent once, to the one process, whatever conversations are open', async (t) => {
   const calls = join(tmpdir(), `hd-settings-${randomUUID()}.log`)
   await writeFile(calls, '')
   t.after(() => rm(calls, { force: true }))
@@ -565,192 +473,14 @@ test('tool settings reach the control process and every open conversation', asyn
     ['skills/config/write', () => d.runtime.setSkillEnabled({ name: 'release-notes' }, true)],
     ['plugin/install', () => d.runtime.extensions.install('official', 'helper')],
     ['plugin/uninstall', () => d.runtime.extensions.uninstall('helper')],
+    ['mcpServer/oauth/login', () => d.runtime.extensions.mcpLogin('github')],
   ] as const) {
     await writeFile(calls, '')
     await run()
     const asked = (await readFile(calls, 'utf8')).trim().split('\n')
       .map((line) => JSON.parse(line) as { method: string; generation: string })
-    assert.deepEqual(asked.filter((call) => call.method === method).map((call) => Number(call.generation)).sort(),
-      [0, 1, 2], method)
+    assert.deepEqual(asked.filter((call) => call.method === method).map((call) => Number(call.generation)), [0], method)
   }
   await first.close()
   await second.close()
-})
-
-test('tool updates include conversations opened while the control request is held', async (t) => {
-  const hold = join(tmpdir(), `hd-reload-${randomUUID()}.hold`)
-  const calls = `${hold}.log`
-  await writeFile(calls, '')
-  t.after(async () => { await rm(hold, { force: true }); await rm(calls, { force: true }) })
-  const d = await rig(t, 'hold', { FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_MCP_RELOAD: hold })
-  const first = await d.runtime.createSession({ cwd: d.dir })
-  await writeFile(hold, '')
-  const reloading = d.runtime.extensions.reloadMcp()
-  await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'MCP_RELOAD_HELD'))
-  const second = await d.runtime.createSession({ cwd: d.dir })
-  await rm(hold)
-  await reloading
-  const asked = (await readFile(calls, 'utf8')).trim().split('\n')
-    .map((line) => JSON.parse(line) as { method: string; generation: string })
-  assert.deepEqual(asked.filter((call) => call.method === 'config/mcpServer/reload')
-    .map((call) => Number(call.generation)).sort(), [0, 1, 2])
-  await first.close()
-  await second.close()
-})
-
-for (const [method, update] of [
-  ['config/mcpServer/reload', (runtime: CodexRuntime) => runtime.extensions.reloadMcp()],
-  ['skills/config/write', (runtime: CodexRuntime) => runtime.setSkillEnabled({ name: 'release-notes' }, true)],
-  ['plugin/install', (runtime: CodexRuntime) => runtime.extensions.install('official', 'helper')],
-  ['plugin/uninstall', (runtime: CodexRuntime) => runtime.extensions.uninstall('helper')],
-] as const) {
-  test(`${method} waits for an opening conversation to register before updating it`, async (t) => {
-    const hold = join(tmpdir(), `hd-opening-update-${randomUUID()}.hold`)
-    const controlHold = `${hold}.reload`
-    const calls = `${hold}.log`
-    await writeFile(calls, '')
-    t.after(async () => { await rm(hold, { force: true }); await rm(controlHold, { force: true }); await rm(calls, { force: true }) })
-    const d = await rig(t, 'hold', { FAKE_CODEX_PROCESS_CALLS: calls,
-      FAKE_CODEX_HOLD_THREAD_OPEN: hold, FAKE_CODEX_HOLD_MCP_RELOAD: controlHold })
-    const first = await d.runtime.createSession({ cwd: d.dir })
-    const runUpdate = () => update(d.runtime).then(() => null, (error: unknown) => error)
-    if (method === 'config/mcpServer/reload') await writeFile(controlHold, '')
-    const heldUpdate = method === 'config/mcpServer/reload' ? runUpdate() : undefined
-    if (heldUpdate) await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'MCP_RELOAD_HELD'))
-    await writeFile(hold, '')
-    const opening = d.runtime.createSession({ cwd: d.dir })
-    const opened = opening.then((live) => ({ live }), (error: unknown) => ({ error }))
-    await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'THREAD_OPEN_HELD'))
-    const updated = heldUpdate ?? runUpdate()
-    if (heldUpdate) await rm(controlHold)
-    const readCalls = async () => (await readFile(calls, 'utf8')).trim().split('\n')
-      .map((line) => JSON.parse(line) as { method: string; generation: string })
-    await until(async () => (await readCalls()).some((call) => call.method === method && call.generation === '1'))
-    await rm(hold)
-    const second = await opened
-    assert.ok('live' in second, 'error' in second ? String(second.error) : '')
-    assert.equal(await updated, null)
-    const asked = await readCalls()
-    assert.deepEqual(asked.filter((call) => call.method === method)
-      .map((call) => Number(call.generation)).sort(), [0, 1, 2])
-    assert.deepEqual(asked.filter((call) => call.generation === '2').map((call) => call.method)
-      .filter((call) => call === 'thread/start' || call === 'thread/opened' || call === method),
-    ['thread/start', 'thread/opened', method], 'the update follows root registration')
-    await first.close()
-    await second.live.close()
-  })
-}
-
-for (const method of ['thread/resume', 'thread/fork'] as const) {
-  test(`tool updates wait for a pending ${method} in a fresh process`, async (t) => {
-    const dir = await mkdtemp(join(tmpdir(), 'hd-opening-tools-'))
-    const calls = join(dir, 'calls.ndjson')
-    const hold = join(dir, 'opening.hold')
-    await writeFile(calls, '')
-    const server = new CodexThreadServers({ binaryPath: FAKE,
-      clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
-      env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0',
-        FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_THREAD_OPEN: hold },
-    }, () => {})
-    t.after(async () => { await rm(hold, { force: true }); await server.stop(); await rm(dir, { recursive: true, force: true }) })
-    let held = false
-    server.onNotification((event) => { if (event.method === 'warning' && event.params.message === 'THREAD_OPEN_HELD') held = true })
-    await server.start()
-    const source = await server.request('thread/start', { cwd: dir })
-    if (method === 'thread/resume') await server.thread(source.thread.id).release()
-    await writeFile(hold, '')
-    const opening = server.request(method, { threadId: source.thread.id })
-    const opened = opening.then((result) => ({ result }), (error: unknown) => ({ error }))
-    await until(() => held)
-    const updating = server.request('config/mcpServer/reload', undefined)
-    const updated = updating.then(() => null, (error: unknown) => error)
-    const readCalls = async () => (await readFile(calls, 'utf8')).trim().split('\n')
-      .map((line) => JSON.parse(line) as { method: string; generation: string })
-    await until(async () => (await readCalls()).some((call) => call.method === 'config/mcpServer/reload' && call.generation === '0'))
-    await rm(hold)
-    const result = await opened
-    assert.ok('result' in result, 'error' in result ? String(result.error) : '')
-    assert.equal(await updated, null)
-    const asked = await readCalls()
-    assert.deepEqual(asked.filter((call) => call.generation === '2').map((call) => call.method)
-      .filter((call) => call === method || call === 'thread/opened' || call === 'config/mcpServer/reload'),
-    [method, 'thread/opened', 'config/mcpServer/reload'])
-  })
-}
-
-for (const ending of ['abort', 'stop'] as const) {
-  test(`a tool update skips an opening ended by ${ending}`, { timeout: 10_000 }, async (t) => {
-    const dir = await mkdtemp(join(tmpdir(), 'hd-ended-opening-'))
-    const calls = join(dir, 'calls.ndjson')
-    const hold = join(dir, 'opening.hold')
-    await writeFile(calls, '')
-    await writeFile(hold, '')
-    const server = new CodexThreadServers({ binaryPath: FAKE,
-      clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.1.0' },
-      env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0',
-        FAKE_CODEX_PROCESS_CALLS: calls, FAKE_CODEX_HOLD_THREAD_OPEN: hold },
-    }, () => {})
-    t.after(async () => { await rm(hold, { force: true }); await server.stop(); await rm(dir, { recursive: true, force: true }) })
-    let held = false
-    server.onNotification((event) => { if (event.method === 'warning' && event.params.message === 'THREAD_OPEN_HELD') held = true })
-    await server.start()
-    const controller = new AbortController()
-    const opening = server.request('thread/start', { cwd: dir }, { signal: controller.signal })
-    const opened = opening.then(() => null, (error: unknown) => error)
-    await until(() => held)
-    const updating = server.request('config/mcpServer/reload', undefined)
-    const updated = updating.then(() => null, (error: unknown) => error)
-    // A later control round trip puts cancellation after the update's response.
-    await server.request('config/read', { includeLayers: false })
-    if (ending === 'abort') controller.abort()
-    else await server.stop()
-    assert.ok(await opened instanceof Error)
-    assert.equal(await updated, null, 'the successful control update settles without a failed recipient')
-    const asked = (await readFile(calls, 'utf8')).trim().split('\n')
-      .map((line) => JSON.parse(line) as { method: string; generation: string })
-    assert.deepEqual(asked.filter((call) => call.method === 'config/mcpServer/reload')
-      .map((call) => Number(call.generation)), [0])
-  })
-}
-
-test('MCP login starts one authorization flow on the control process', async (t) => {
-  const calls = join(tmpdir(), `hd-login-${randomUUID()}.log`)
-  await writeFile(calls, '')
-  t.after(() => rm(calls, { force: true }))
-  const d = await rig(t, 'hold', { FAKE_CODEX_PROCESS_CALLS: calls })
-  const first = await d.runtime.createSession({ cwd: d.dir })
-  const second = await d.runtime.createSession({ cwd: d.dir })
-  assert.equal(await d.runtime.extensions.mcpLogin('github'), 'https://auth.example/mcp/github')
-  const asked = (await readFile(calls, 'utf8')).trim().split('\n')
-    .map((line) => JSON.parse(line) as { method: string; generation: string })
-  assert.deepEqual(asked.filter((call) => call.method === 'mcpServer/oauth/login')
-    .map((call) => Number(call.generation)), [0], 'only the control process opens a login flow')
-  await first.close()
-  await second.close()
-})
-
-test('host environment process markers reach distinct conversation processes', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-inherited-env-'))
-  const captured = join(dir, 'process-env.ndjson')
-  await writeFile(captured, '')
-  const keys = ['HARNESSDESK_CODEX_PROCESS_GROUP', 'HARNESSDESK_CODEX_GENERATION'] as const
-  const before = keys.map((key) => process.env[key])
-  t.after(() => keys.forEach((key, index) => {
-    const value = before[index]
-    if (value === undefined) delete process.env[key]
-    else process.env[key] = value
-  }))
-  process.env.HARNESSDESK_CODEX_PROCESS_GROUP = randomUUID()
-  process.env.HARNESSDESK_CODEX_GENERATION = '0'
-  const runtime = new CodexRuntime({ binaryPath: FAKE, codexHome: dir,
-    env: { FAKE_CODEX_PROCESS_ENV: captured } })
-  t.after(async () => { await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
-  await runtime.start()
-  const first = await runtime.createSession({ cwd: dir })
-  const second = await runtime.createSession({ cwd: dir })
-  assert.notEqual(first.id, second.id)
-  const rows = (await readFile(captured, 'utf8')).trim().split('\n')
-    .map((line) => JSON.parse(line) as { processGroup: string; generation: string })
-  assert.deepEqual(rows.map((row) => row.generation), ['0', '1', '2'])
-  assert.ok(rows.every((row) => row.processGroup === process.env.HARNESSDESK_CODEX_PROCESS_GROUP))
 })

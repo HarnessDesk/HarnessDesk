@@ -78,7 +78,8 @@ export interface CodexSessionDeps {
   /** Maps Codex's tool callbacks back to the contributions that produced them. */
   readonly projection: ToolProjection
   readonly capabilities?: CapabilityRegistry
-  readonly onReleased?: (id: string) => Promise<void>
+  /** The handle was closed; `status` is Codex's answer to the unsubscribe, and nothing when it gave none. */
+  readonly onReleased?: (id: string, status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined) => void
   readonly onClosed: (id: string, closing: Promise<void>) => void
   readonly emit: (event: AgentEvent) => void
   /**
@@ -782,13 +783,14 @@ export class CodexSession implements AgentSession {
   }
 
   async #close(): Promise<void> {
+    let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
     try {
-      await this.deps.server.request('thread/unsubscribe', { threadId: this.id }, { timeoutMs: 2_000 })
+      status = (await this.deps.server.request('thread/unsubscribe', { threadId: this.id }, { timeoutMs: 2_000 })).status
     } catch {
       // Unsubscribing is best-effort — the thread is already detached on our
       // side, and a dead app-server has nothing to unsubscribe from.
     } finally {
-      await this.deps.onReleased?.(this.id)
+      this.deps.onReleased?.(this.id, status)
     }
   }
 }

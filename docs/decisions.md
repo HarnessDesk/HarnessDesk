@@ -2015,6 +2015,11 @@ changing any configured server.
 
 ## Finished conversations recycle their own processes
 
+> Reversed by [One Codex process per account](#one-codex-process-per-account-shared-by-every-seat):
+> its measurement stopped listening after one second, and a minute later the
+> release it asked a process per conversation for happens in a shared process.
+> What follows is the record of why each conversation once had its own.
+
 Part 1 of #1418 builds on #1404's measurement above. The generated protocol
 has `thread/unsubscribe`, but no immediate per-thread unload. Its response
 reports subscription status, not helper shutdown. The existing scripted fake
@@ -2075,6 +2080,107 @@ working turn deliberately. The production-host fake rig also checks the Seat
 rest boundary with another Seat still working, plus reopen and idle reads.
 Role-based tool selection and displaying process and memory cost remain for
 later parts of #1418.
+
+## One Codex process per account, shared by every seat
+
+This reverses the process model of [Finished conversations recycle their own
+processes](#finished-conversations-recycle-their-own-processes). What that entry
+measured still holds; what it concluded from it does not.
+
+**Why a seat had a process of its own.** `thread/unsubscribe` answered
+`unsubscribed` and one second later the thread's tool child was still alive, so
+the only way to free a finished seat's helpers while other seats worked looked
+like ending the process that held them. Each root conversation therefore got an
+app-server of its own: on a desk with three Teams and two accounts that was five
+processes, each busy one with its own launcher and helpers, and one more for
+every seat started.
+
+**What the longer measurement showed.** The probe ended after one second. Run
+for a minute on codex-cli 0.160.0 (an isolated `CODEX_HOME`, a loopback provider
+that answers a real turn, no account, and a synthetic tool server that starts a
+child of its own), one app-server holding three threads did this:
+
+- A thread unsubscribed while idle was closed by Codex sixty seconds later:
+  `thread/status/changed` to `notLoaded`, then `thread/closed`. Its tool server
+  and the child that server had started both exited. The other threads' helpers
+  stayed.
+- A thread unsubscribed while its turn ran stayed loaded and the turn finished.
+  Another seat's turn finished normally while the first was released.
+- A resume inside the minute (at 5 s, and again at 57 s) answered with the same
+  loaded thread, started no second set of helpers, and the thread was still
+  loaded after the minute. A resume after `thread/closed` loaded it again with
+  fresh helpers.
+- A seat whose agent spawned a sub-agent (the loopback provider answered the
+  turn with a `spawn_agent` call) had two loaded threads, and two sets of
+  helpers. Codex subscribes the parent's client to the sub-agent without
+  announcing it, so it is never unsubscribed and idle: the roots closed at
+  sixty seconds and their sub-agents were still loaded, with their helpers, when
+  the probe stopped watching forty seconds later. Unsubscribing a sub-agent
+  directly answered `unsubscribed`, and it closed with its root: no thread and
+  no helper was left. `thread/read` names a sub-agent's parent.
+
+Not reproduced: the refusal a resume gets in the instant of the close, whose
+words ("thread … is closing; retry thread/resume after the thread is closed")
+are in the binary and played by the scripted fake, and how long a real tool set
+takes to exit. [`script/probe/mcp-release.mjs`](../script/probe/mcp-release.mjs)
+now waits for the close and reports what exited with it,
+[`script/probe/subagent-release.mjs`](../script/probe/subagent-release.mjs)
+records the sub-agent case, and
+[`script/probe/seat-processes.mjs`](../script/probe/seat-processes.mjs) counts
+the processes and resident memory N seats hold.
+
+**The rule.** One `codex app-server` per account, per `CODEX_HOME`, however many
+seats and conversations the account carries; two accounts are two processes.
+`CodexRuntime` owns it directly, and the per-conversation layer is gone. What
+differs between seats is a parameter of their own thread, never of the process:
+
+- *Working folder.* `cwd` and the writable roots go with `thread/start`,
+  `resume` and `fork`, and the sandbox is judged per thread, so a seat's lane
+  checkout confines it in the shared process as it did in its own.
+- *Lane environment.* The six values travel as the thread's `shell_environment_policy.set`
+  configuration (never as process environment), are held per thread, and a
+  resume or fork carries its own thread's values.
+- *Per-seat settings.* Model, effort, sandbox, approval policy and model route
+  are thread parameters. The process carries only the account's: its home, its
+  `-c` overrides and the desk's own environment.
+- *Isolation.* Stopping a seat is `turn/interrupt` and `thread/unsubscribe` on
+  its own thread. Neither names another thread, so no other seat's turn, helper
+  or approval is touched; the test holds three turns open and stops one.
+- *Accounts.* Auth and limits stay per account, because the process is.
+- *Finishing a seat.* Closing the handle unsubscribes the thread. Codex closes
+  it after its minute and the helpers go with it; the runtime counts the
+  closed handle until `thread/closed` arrives and does not announce that close
+  or its `notLoaded` status back to the desk, which asked for it. The
+  sub-agent threads it left loaded are found among the loaded threads by their
+  parent and unsubscribed with it, which a process of its own used to do by
+  exiting; a thread a session here holds, or another seat's, is left alone. A
+  seat opened again inside the minute subscribes the same loaded thread; one
+  opened while Codex is closing it waits for `thread/closed` and asks again. A
+  thread started for a conversation that never registered is unsubscribed the
+  same way.
+- *The process failing.* A crash or a restart for a new build is the account's
+  event: every conversation it held is detached with `session/detached`, the
+  restarted process starts empty, and the host reattaches each seat through the
+  resume path it uses after the desk itself restarts.
+
+**What it costs.** One process failing now takes every seat of that account's
+running turns with it, where a seat's own process took only its own. A finished
+seat's helpers live for Codex's minute rather than ending with a process, which
+bounds them to the seats released in the last minute and not to every seat since
+launch. A close the process never answers (the unsubscribe times out after two
+seconds) leaves that thread's helpers until the process rests or restarts.
+
+**Where a separate process is still called for.** Nowhere a seat needs one:
+nothing a seat carries is process-wide. What still ends the process is the
+account's: the idle rest when nothing is open, a crash, and a restart for a newly
+installed build. A future need for a process of its own (a configuration Codex
+only takes at launch, say) is named here before it is built.
+
+The scripted fake plays the measured behavior: it closes an unsubscribed idle
+thread after `FAKE_CODEX_UNLOAD_MS` (the minute, unless a test shortens it),
+never one with a turn running, kills that thread's helper, announces
+`thread/closed`, and refuses a resume that arrives mid-close. Two gate files let a
+test hold the close open instead of racing it.
 
 ## One family of tables
 

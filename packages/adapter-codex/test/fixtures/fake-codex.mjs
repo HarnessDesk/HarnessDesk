@@ -74,9 +74,13 @@ if (process.env['FAKE_CODEX_PROCESS_ENV']) {
   })}\n`)
 }
 
-// Opt-in resource evidence. Measured on 0.160.0: unsubscribe acknowledges
-// release but retains the thread's MCP child until the app-server exits.
-// Reading a pipe keeps the tiny stand-in alive; the parent's exit closes it.
+// Opt-in resource evidence. Measured on 0.160.0 (script/probe/mcp-release.mjs):
+// one app-server keeps a thread's MCP child for as long as the thread is
+// loaded. `thread/unsubscribe` only stops the events; a minute later, if the
+// thread is still unsubscribed and idle, Codex closes it, its children exit
+// with it and `thread/closed` says so. A resume inside that minute subscribes
+// the same loaded thread again and the close never happens. Reading a pipe
+// keeps the tiny stand-in alive; the parent's exit closes it.
 const mcpChildren = new Map()
 const loadMcpChild = (threadId) => {
   const ledger = process.env['FAKE_CODEX_MCP_CHILDREN']
@@ -86,10 +90,92 @@ const loadMcpChild = (threadId) => {
   appendFileSync(ledger, `${JSON.stringify({ threadId, pid: child.pid, parent: process.pid })}\n`)
 }
 
+/** How long an unsubscribed idle thread stays loaded: Codex's minute, unless a test shortens it. */
+const UNLOAD_MS = Number(process.env['FAKE_CODEX_UNLOAD_MS'] ?? 60_000)
+/**
+ * A test holds the close of a thread open, the way the `FAKE_CODEX_HOLD_*`
+ * files hold the other steps: while `FAKE_CODEX_UNLOAD_GATE` names a file that
+ * exists, a thread due to close stays loaded; while `FAKE_CODEX_CLOSE_GATE`
+ * does, a thread that has begun closing stays in that state. Time is the
+ * test's to control, never the machine's.
+ */
+const gated = (name) => {
+  const gate = process.env[name]
+  return Boolean(gate) && existsSync(gate)
+}
+/** Every thread this process holds: whether a client is subscribed, the pending close, and whether the close has begun. */
+const loadedThreads = new Map()
+/** The threads with a turn in flight, which Codex never closes. */
+const workingThreads = new Set()
+/**
+ * Sub-agent threads, by parent. Measured on 0.160.0: Codex loads one with its
+ * own tool helpers, subscribes the parent's client to it without announcing it,
+ * and so never closes it — until a client unsubscribes it.
+ */
+const childParents = new Map()
+let spawned = 0
+const spawnChild = (parent) => {
+  const child = `${parent}-sub-${++spawned}`
+  childParents.set(child, parent)
+  loadedThreads.set(child, { subscribed: true, timer: null, closing: false })
+  loadMcpChild(child)
+  return child
+}
+const holdLoaded = (threadId) => {
+  const held = loadedThreads.get(threadId) ?? { subscribed: false, timer: null, closing: false }
+  clearTimeout(held.timer)
+  held.timer = null
+  held.subscribed = true
+  loadedThreads.set(threadId, held)
+}
+const logThread = (method, params) => {
+  const file = process.env['FAKE_CODEX_THREADS']
+  if (!file) return
+  appendFileSync(file, `${JSON.stringify({
+    method,
+    threadId: THREAD,
+    pid: process.pid,
+    cwd: params?.cwd ?? null,
+    model: params?.model ?? null,
+    environment: params?.config?.['shell_environment_policy.set'] ?? null,
+  })}\n`)
+}
+const closeIfIdle = (threadId) => {
+  const held = loadedThreads.get(threadId)
+  if (!held || held.subscribed || held.closing) return
+  if (workingThreads.has(threadId) || gated('FAKE_CODEX_UNLOAD_GATE')) {
+    held.timer = setTimeout(() => closeIfIdle(threadId), 10)
+    return
+  }
+  held.closing = true
+  held.timer = null
+  mcpChildren.get(threadId)?.kill()
+  mcpChildren.delete(threadId)
+  const finish = () => {
+    if (gated('FAKE_CODEX_CLOSE_GATE')) {
+      setTimeout(finish, 10)
+      return
+    }
+    loadedThreads.delete(threadId)
+    notify('thread/status/changed', { threadId, status: { type: 'notLoaded' } })
+    notify('thread/closed', { threadId })
+  }
+  setTimeout(finish, 0)
+}
+const unsubscribeThread = (threadId) => {
+  const held = loadedThreads.get(threadId)
+  if (!held) return 'notLoaded'
+  if (!held.subscribed) return 'notSubscribed'
+  held.subscribed = false
+  held.timer = setTimeout(() => closeIfIdle(threadId), UNLOAD_MS)
+  return 'unsubscribed'
+}
+
 let output = []
 let outputScheduled = false
 const send = (value) => {
   saveSharedThread(value)
+  if (value.method === 'turn/completed') workingThreads.delete(value.params?.threadId)
   output.push(`${JSON.stringify(value)}\n`)
   if (outputScheduled) return
   outputScheduled = true
@@ -1147,17 +1233,21 @@ const callDeclaredToolsAsChild = (announceChild) => {
 }
 
 /**
- * Before the simulated upgrade this establishes C -> R. The replacement
- * process first calls C without naming it, then repeats with a fresh child
- * registration, which exercises the adapter's epoch boundary.
+ * Before the simulated upgrade the first call establishes C -> R. Later calls
+ * in that same process are C speaking again after its root was closed and
+ * resumed: Codex announced C once, so it is not named again until a fresh
+ * registration. The replacement process of an upgrade first calls C without
+ * naming it, then repeats with a fresh child registration. Both exercise the
+ * adapter's epoch boundary.
  */
 let restartEpochCalls = 0
 const callRestartEpochTools = () => {
+  restartEpochCalls += 1
   if (!since(200)) {
-    callDeclaredToolAsChild()
+    if (restartEpochCalls === 1) callDeclaredToolAsChild()
+    else callDeclaredToolsAsChild(restartEpochCalls > 2)
     return
   }
-  restartEpochCalls += 1
   callDeclaredToolsAsChild(restartEpochCalls > 1)
 }
 
@@ -1359,6 +1449,10 @@ rl.on('line', (line) => {
     )
   }
 
+  // FAKE_CODEX_THREADS=<file> records what each thread was opened with and by which
+  // process — one JSON line per start, resume and fork, as the request carried it.
+  // `logThread` is called once the thread's id is known.
+
   // FAKE_CODEX_FOLDERS=<file> records which folder each configuration read was
   // asked about, one JSON line each — null for one asked about none.
   if (process.env['FAKE_CODEX_FOLDERS'] && (method === 'config/read' || method === 'permissionProfile/list')) {
@@ -1423,7 +1517,9 @@ rl.on('line', (line) => {
       // would be for every thread that shares it.
       cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
+      holdLoaded(THREAD)
       loadMcpChild(THREAD)
+      logThread(method, params)
       const result = { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) }
       const announced = thread()
       afterHold(process.env.FAKE_CODEX_HOLD_THREAD_OPEN, () => {
@@ -1454,6 +1550,11 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: `thread ${params.threadId} not found` } })
         return
       }
+      // Codex's own words (seen in the 0.160.0 build) for a thread it is in the middle of closing.
+      if (method === 'thread/resume' && loadedThreads.get(params?.threadId)?.closing) {
+        send({ id, error: { code: -32600, message: `thread ${params.threadId} is closing; retry thread/resume after the thread is closed` } })
+        return
+      }
       // A resume or a fork picks its settings up where the thread it came
       // from left them, not wherever the last *different* thread active in
       // this process happened to leave `settingsState` — cwd most of all,
@@ -1481,7 +1582,9 @@ rl.on('line', (line) => {
         settingsState.sandboxPolicy = JSON.parse(resumed)
       }
       cwdByThread.set(THREAD, settingsState.cwd)
+      holdLoaded(THREAD)
       loadMcpChild(THREAD)
+      logThread(method, params)
       const result = startResponse()
       const announced = thread()
       afterHold(process.env.FAKE_CODEX_HOLD_THREAD_OPEN, () => {
@@ -1959,6 +2062,12 @@ rl.on('line', (line) => {
       return
 
     case 'permissionProfile/list': {
+      // FAKE_CODEX_FAIL_CATALOGUE=<file> refuses this read while the file exists, which fails a catalogue load in a process that stays up.
+      const failing = process.env.FAKE_CODEX_FAIL_CATALOGUE
+      if (failing && existsSync(failing)) {
+        send({ id, error: { code: -32603, message: 'the permission profiles could not be listed' } })
+        return
+      }
       const hold = process.env.FAKE_CODEX_HOLD_CATALOGUE
       if (hold && existsSync(hold)) {
         notify('warning', { message: 'CATALOGUE_HELD' })
@@ -2070,7 +2179,7 @@ rl.on('line', (line) => {
       // listing describe the same conversation, down to its stored preview.
       // A thread the listing does not hold is one this process started, or
       // one of the unlisted histories.
-      const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread({ id: params.threadId, sessionId: params.threadId })
+      const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread({ id: params.threadId, sessionId: params.threadId, parentThreadId: childParents.get(params.threadId) ?? null })
       const history = historyOf(params.threadId)
       if (!params.includeTurns) {
         send({ id, result: { thread: { ...stored, turns: [] } } })
@@ -2295,6 +2404,7 @@ rl.on('line', (line) => {
     case 'turn/start': {
       THREAD = params.threadId
       TURN = `turn-${THREAD}`
+      workingThreads.add(THREAD)
       lastInput = params.input ?? null
       const response = { id, result: { turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null } } }
       const said = (params.input ?? [])
@@ -2309,6 +2419,22 @@ rl.on('line', (line) => {
         const cwd = cwdByThread.get(threadId)
         const tools = flowTools.get(threadId) ?? []
         setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: said }))
+        return
+      }
+      // A turn in which the agent spawns a sub-agent, and ends: `spawn`.
+      if (said === 'spawn') {
+        spawnChild(THREAD)
+        send(response)
+        setImmediate(() => notify('turn/completed', { threadId: THREAD, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } }))
+        return
+      }
+      // A thread Codex closes on its own while a client still holds it: `closeit`.
+      if (said === 'closeit') {
+        send(response)
+        setImmediate(() => {
+          notify('turn/completed', { threadId: THREAD, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } })
+          notify('thread/closed', { threadId: THREAD })
+        })
         return
       }
       const background = /^(bg|failbg|endbg)\s+(.+)$/.exec(said)
@@ -2391,7 +2517,7 @@ rl.on('line', (line) => {
       }
       send({ id, result: {} })
       notify('turn/completed', {
-        threadId: THREAD,
+        threadId: params.threadId ?? THREAD,
         turn: { id: params.turnId, items: [], itemsView: 'summary', status: 'interrupted', error: null },
       })
       return
@@ -2412,11 +2538,15 @@ rl.on('line', (line) => {
         const timer = setInterval(() => {
           if (existsSync(hold)) return
           clearInterval(timer)
-          send({ id, result: { status: 'unsubscribed' } })
+          send({ id, result: { status: unsubscribeThread(params.threadId) } })
         }, 10)
-      } else send({ id, result: { status: 'unsubscribed' } })
+      } else send({ id, result: { status: unsubscribeThread(params.threadId) } })
       return
     }
+
+    case 'thread/loaded/list':
+      send({ id, result: { data: [...loadedThreads.keys()], nextCursor: null } })
+      return
 
     case 'thread/delete':
       if (params?.threadId) deletedThreads.add(params.threadId)
