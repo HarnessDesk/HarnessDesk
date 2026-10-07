@@ -129,7 +129,7 @@ const Meter = ({
   promoted?: boolean
   onOpen: () => void
 }) => (
-  <HeaderStatusReading label={promoted ? "Other agent limit" : "Plan usage"} detail={`${view.title}${view.out ? ` · available in ${view.figure}` : ''}`}>
+  <HeaderStatusReading label={promoted ? "Other agent limit" : "Plan usage"} detail={`${view.title}${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`}>
     <Popover
       title={view.title}
       drop="down"

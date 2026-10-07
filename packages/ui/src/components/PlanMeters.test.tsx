@@ -13,6 +13,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { HeaderStatusGroup } from '../design'
 import { PlanMeters } from './PlanMeters'
 import { formatReset } from '../lib/limits'
 
@@ -315,4 +316,16 @@ it('leaves another agent sign-in to the token, which is where a count belongs', 
   })
   expect(bars().map((bar) => bar.textContent)).toEqual(['55%', '2'])
   expect(titles()[1]).toBe('2 other agents — 2 needs sign-in')
+})
+
+it('names a spent allowance honestly when its reset time is unknown', () => {
+  const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A')], usage: [at('a', 0)], ...conversationWith('a') }
+  act(() => root.render(
+    <StoreProvider store={storeOf(snapshot)}>
+      <HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup>
+    </StoreProvider>,
+  ))
+  const card = document.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('out of quota')
+  expect(card.textContent).not.toContain('available in out')
 })
