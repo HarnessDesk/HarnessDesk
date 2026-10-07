@@ -3,7 +3,6 @@ import { realpathSync } from 'node:fs'
 import { access, constants } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import { CodexError } from './errors.js'
@@ -46,24 +45,9 @@ export interface DiscoveryOptions {
   readonly env?: NodeJS.ProcessEnv
   /** The well-known install locations. Default `CANDIDATE_PATHS`. */
   readonly locations?: readonly string[]
-  /** Waits between attempts when a copy is there and will not answer. Default `RETRY_DELAYS_MS`. */
-  readonly retryDelaysMs?: readonly number[]
-  /** Ends the waiting between attempts: the app is quitting. */
-  readonly signal?: AbortSignal
+  /** How long one copy gets to print its version, in milliseconds. Default `PROBE_TIMEOUT_MS`. */
+  readonly probeTimeoutMs?: number
 }
-
-/**
- * How long a copy that is there gets to start answering, in waits between
- * attempts. The longest single wait outlasts the login shell's own deadline
- * (5 s): the app asks for its PATH in the background and opens before it
- * lands, so a Codex that needs a folder only that PATH names is unreadable for
- * the first moments and fine after. Together they stay under the 15 s the host
- * waits on any one runtime before it carries on without it.
- */
-export const RETRY_DELAYS_MS: readonly number[] = [250, 500, 1_000, 2_000, 3_000, 5_000]
-
-/** The whole of the waiting is bounded, however long each attempt takes. */
-const RETRY_BUDGET_MS = 15_000
 
 /** How long one copy gets to print its version. */
 const PROBE_TIMEOUT_MS = 10_000
@@ -96,6 +80,8 @@ export interface UnreadableCopy {
   readonly path: string
   /** What happened when it was run, as a clause that follows "it": `exited with code 127: …`. */
   readonly reason: string
+  /** Whether asking again could get a different answer. See `isTransientFailure`. */
+  readonly transient: boolean
 }
 
 /** What discovery found: the newest copy that answered, and every copy that is there and did not. */
@@ -119,26 +105,49 @@ const firstLine = (text: unknown): string =>
  * may be slow on a machine that has just started, a process limit may refuse
  * the spawn. Each reads differently and none of them is "not installed".
  */
-const describeFailure = (error: unknown): string => {
+const describeFailure = (error: unknown, limitMs: number): string => {
   const failed = error as { code?: unknown; killed?: boolean; signal?: unknown; stderr?: unknown }
   const said = firstLine(failed.stderr)
-  if (failed.killed === true) return `did not answer within ${PROBE_TIMEOUT_MS / 1000} seconds`
+  if (failed.killed === true) return `did not answer within ${limitMs / 1000} seconds`
   if (typeof failed.signal === 'string' && failed.signal.length > 0) return `was ended by ${failed.signal}`
   if (typeof failed.code === 'number') return `exited with code ${failed.code}${said ? `: ${said}` : ''}`
   if (typeof failed.code === 'string') return `could not be started (${failed.code})`
   return `could not be run (${error instanceof Error ? error.message : String(error)})`
 }
 
+/** Spawn errors that are the machine being out of something for a moment, not a fact about the copy. */
+const TRANSIENT_SPAWN_CODES: ReadonlySet<string> = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM', 'EBUSY'])
+
+/**
+ * Whether asking the same copy again could get a different answer.
+ *
+ * Yes for what a moment, or a PATH that has not arrived yet, can change: it
+ * did not answer in time (a first run on a machine that has just started), it
+ * was ended by a signal, it exited non-zero (a launcher whose `node` lives in
+ * a folder the PATH it was run with does not name exits 127), or the spawn was
+ * refused for want of a resource. No for what is a fact about the copy: it
+ * printed something that is not a version, it is not executable, it is not a
+ * program. Those are said at once and not asked about again.
+ */
+export const isTransientFailure = (error: unknown): boolean => {
+  const failed = error as { code?: unknown; killed?: boolean; signal?: unknown }
+  if (failed.killed === true) return true
+  if (typeof failed.signal === 'string' && failed.signal.length > 0) return true
+  if (typeof failed.code === 'number') return true
+  return typeof failed.code === 'string' && TRANSIENT_SPAWN_CODES.has(failed.code)
+}
+
 const isInstallation = (probed: CodexInstallation | UnreadableCopy): probed is CodexInstallation => 'semver' in probed
 
-const probe = async (path: string, env?: NodeJS.ProcessEnv): Promise<CodexInstallation | UnreadableCopy> => {
+const probe = async (path: string, options: DiscoveryOptions): Promise<CodexInstallation | UnreadableCopy> => {
+  const limit = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS
   try {
-    const { stdout } = await run(path, ['--version'], { timeout: PROBE_TIMEOUT_MS, ...(env ? { env } : {}) })
+    const { stdout } = await run(path, ['--version'], { timeout: limit, ...(options.env ? { env: options.env } : {}) })
     const semver = parseVersion(stdout)
-    if (!semver) return { path, reason: `printed no version number${firstLine(stdout) ? ` ("${firstLine(stdout)}")` : ''}` }
+    if (!semver) return { path, reason: `printed no version number${firstLine(stdout) ? ` ("${firstLine(stdout)}")` : ''}`, transient: false }
     return { path, version: stdout.trim(), semver }
   } catch (error) {
-    return { path, reason: describeFailure(error) }
+    return { path, reason: describeFailure(error, limit), transient: isTransientFailure(error) }
   }
 }
 
@@ -177,8 +186,8 @@ const copiesOf = (paths: readonly (string | null)[], env?: NodeJS.ProcessEnv): s
  * still wins between equals.
  *
  * Says what it saw rather than what it concluded: a copy that is on disk and
- * would not answer is `unreadable`, not absent. Whether that is a Codex that
- * is not installed is for the caller, and `requireCodex` says it is not.
+ * would not answer is `unreadable`, not absent. A copy that is there is not a
+ * copy that is missing, and `requireCodex` does not call it one.
  */
 export const locateCodex = async (
   override?: string | null,
@@ -190,13 +199,13 @@ export const locateCodex = async (
     } catch {
       throw new CodexError('notInstalled', `Configured Codex path is not executable: ${override}`)
     }
-    const probed = await probe(override, options.env)
+    const probed = await probe(override, options)
     return isInstallation(probed) ? { installation: probed, unreadable: [] } : { installation: null, unreadable: [probed] }
   }
 
   const onPath = await fromPathLookup(options.env)
   const copies = copiesOf([onPath, ...(options.locations ?? CANDIDATE_PATHS())], options.env)
-  const probed = await Promise.all(copies.map((path) => probe(path, options.env)))
+  const probed = await Promise.all(copies.map((path) => probe(path, options)))
   return {
     installation: newestOf(probed.filter(isInstallation)),
     unreadable: probed.filter((one): one is UnreadableCopy => !isInstallation(one)),
@@ -247,27 +256,12 @@ const realpathOrSelf = (path: string): string => {
 const unreadableError = (unreadable: readonly UnreadableCopy[]): CodexError => {
   const [first, ...others] = unreadable
   const more = others.length > 0 ? ` (${others.length} more ${others.length === 1 ? 'copy is' : 'copies are'} the same)` : ''
+  // `unreadable` when a later ask could differ for any copy; `spawnFailed` when none could.
   return new CodexError(
-    'spawnFailed',
+    unreadable.some((copy) => copy.transient) ? 'unreadable' : 'spawnFailed',
     `Codex was found at ${first?.path ?? 'this machine'} but would not report its version: it ${first?.reason ?? 'did not answer'}${more}.`,
     unreadable,
   )
-}
-
-const stoppedWhileStarting = (): CodexError =>
-  new CodexError('notRunning', 'The app-server was stopped while it was starting.')
-
-/**
- * Waits `ms`, unless the app quits first. A quit is `notRunning`, the same
- * refusal a start gets when it is overtaken anywhere else.
- */
-const pause = async (ms: number, signal?: AbortSignal): Promise<void> => {
-  if (signal?.aborted) throw stoppedWhileStarting()
-  try {
-    await delay(ms, undefined, signal ? { signal } : {})
-  } catch {
-    throw stoppedWhileStarting()
-  }
 }
 
 /**
@@ -275,35 +269,31 @@ const pause = async (ms: number, signal?: AbortSignal): Promise<void> => {
  * answer, or is too old.
  *
  * **Missing and not answering are different, and only one of them is final.**
- * No copy anywhere on the machine is `notInstalled`, said at once. A copy that
- * is there and does not print its version is a machine in some state — a PATH
- * that has not been completed yet, a spawn refused under load — and that state
- * passes. So it is asked again, a few times, over the seconds in which it
- * usually does; and if it still will not answer the error says which copy and
- * what it did (`spawnFailed`), because "not installed" about a Codex that
- * `ls` can see sends the person to install what they already installed, and
- * the verdict is not looked at again until the app restarts.
+ * No copy anywhere on the machine is `notInstalled`. A copy that is there and
+ * does not print its version is `unreadable` when a later ask could differ — a
+ * PATH that has not been completed yet, a spawn refused under load, a first
+ * run slow enough to time out — and `spawnFailed` when it could not. Either
+ * names the copy and what it did, because "not installed" about a Codex that
+ * `ls` can see sends the person to install what they already installed.
+ *
+ * It asks once and says so at once. A start is waited on by the window, and a
+ * machine that is genuinely broken has to say so then, not after a retry: the
+ * asking again is the host's, in the background (`Host.retryProgramLookup`
+ * and its schedule), where nothing waits on it.
  */
 export const requireCodex = async (
   override?: string | null,
   options: DiscoveryOptions = {},
 ): Promise<CodexInstallation> => {
-  const waits = options.retryDelaysMs ?? RETRY_DELAYS_MS
-  const began = Date.now()
-  for (let attempt = 0; ; attempt += 1) {
-    if (options.signal?.aborted) throw stoppedWhileStarting()
-    const { installation: found, unreadable } = await locateCodex(override, options)
-    if (found) return checked(found)
-    const wait = waits[attempt]
-    if (unreadable.length === 0) {
-      throw new CodexError(
-        'notInstalled',
-        'Codex is not installed. Install it with `brew install codex` or `npm i -g @openai/codex`.',
-      )
-    }
-    if (wait === undefined || Date.now() - began + wait > RETRY_BUDGET_MS) throw unreadableError(unreadable)
-    await pause(wait, options.signal)
+  const { installation: found, unreadable } = await locateCodex(override, options)
+  if (found) return checked(found)
+  if (unreadable.length === 0) {
+    throw new CodexError(
+      'notInstalled',
+      'Codex is not installed. Install it with `brew install codex` or `npm i -g @openai/codex`.',
+    )
   }
+  throw unreadableError(unreadable)
 }
 
 const checked = (found: CodexInstallation): CodexInstallation => {

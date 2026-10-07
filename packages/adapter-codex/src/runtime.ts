@@ -1978,13 +1978,14 @@ const healthFromError = (error: CodexError): RuntimeHealth => {
         message: error.message,
         remediation: 'Upgrade with `brew upgrade codex` or `npm i -g @openai/codex@latest`.',
       }
-    case 'spawnFailed':
-      // Found, and would not run: the message names the copy and what it said.
-      // Not `notInstalled` — the install hint would send the person to
-      // install what is already there.
+    case 'unreadable':
+      // Found, and would not answer: the message names the copy and what it
+      // did. Not `notInstalled` — the install hint would send the person to
+      // install what is already there. The host asks again, so what is worth
+      // doing meanwhile is to see the same words for oneself.
       return {
         state: 'unavailable',
-        reason: 'unknown',
+        reason: 'unreadable',
         message: error.message,
         remediation: 'Run `codex --version` in a terminal to see why, then choose Codex again.',
       }

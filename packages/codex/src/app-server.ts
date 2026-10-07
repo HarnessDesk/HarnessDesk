@@ -57,7 +57,9 @@ export interface CodexAppServerOptions {
   readonly logger?: CodexLogger
   readonly env?: Readonly<Record<string, string>>
   /** What discovery reads from the machine. Injected by tests; production passes nothing. */
-  readonly discovery?: Omit<DiscoveryOptions, 'signal'>
+  readonly discovery?: DiscoveryOptions
+  /** The wait before the first restart, doubling for each consecutive one. Injected by tests; default 500 ms. */
+  readonly restartDelayMs?: number
 }
 
 /** Responder handed to server-request listeners; exactly one call takes effect. */
@@ -98,8 +100,8 @@ export class CodexAppServer {
   /** Set while `stop()` is unwinding, so exit handling does not try to restart. */
   #shuttingDown = false
   #startPromise: Promise<void> | null = null
-  /** The wait inside discovery that `stop()` ends, while there is one. */
-  #waiting: AbortController | null = null
+  /** The wait before a restart, which `stop()` ends, while there is one. */
+  #backingOff: AbortController | null = null
 
   constructor(private readonly options: CodexAppServerOptions) {
     this.#decoder = new NdjsonDecoder({
@@ -144,21 +146,31 @@ export class CodexAppServer {
     return () => this.#logListeners.delete(listener)
   }
 
-  /** Idempotent: concurrent callers share one startup. */
+  /**
+   * Idempotent: concurrent callers share one startup, and a restart in progress
+   * is that startup — a `start()` that arrives while the server is restarting
+   * waits for the restart rather than begin a second app-server beside it.
+   */
   async start(): Promise<void> {
     if (this.#state.type === 'ready') return
     if (this.#startPromise) return this.#startPromise
-    this.#startPromise = this.#startOnce().finally(() => {
-      this.#startPromise = null
+    return this.#track(this.#startOnce())
+  }
+
+  /** Makes `starting` the one start in flight until it settles. */
+  #track(starting: Promise<void>): Promise<void> {
+    const tracked = starting.finally(() => {
+      if (this.#startPromise === tracked) this.#startPromise = null
     })
-    return this.#startPromise
+    this.#startPromise = tracked
+    return tracked
   }
 
   async #startOnce(): Promise<void> {
     this.#shuttingDown = false
     this.#setState({ type: 'starting' })
     try {
-      const installation = await this.#findInstallation()
+      const installation = await requireCodex(this.options.binaryPath ?? null, this.options.discovery)
       this.#installation = installation
       await this.#spawnAndHandshake(installation)
       this.#restarts = 0
@@ -172,21 +184,6 @@ export class CodexAppServer {
       // somebody deliberately stopped as one that is broken.
       if (!this.#shuttingDown) this.#setState({ type: 'failed', error: wrapped })
       throw wrapped
-    }
-  }
-
-  /**
-   * Asks the machine which Codex to run. When a copy is there and will not
-   * answer yet, discovery waits and asks again; that wait ends the moment
-   * `stop()` is called, so a quit never sits out a retry.
-   */
-  async #findInstallation(): Promise<CodexInstallation> {
-    const waiting = new AbortController()
-    this.#waiting = waiting
-    try {
-      return await requireCodex(this.options.binaryPath ?? null, { ...this.options.discovery, signal: waiting.signal })
-    } finally {
-      if (this.#waiting === waiting) this.#waiting = null
     }
   }
 
@@ -281,7 +278,7 @@ export class CodexAppServer {
 
   async stop(): Promise<void> {
     this.#shuttingDown = true
-    this.#waiting?.abort()
+    this.#backingOff?.abort()
     const child = this.#child
     this.#child = null
     this.#rejectAllPending(new CodexError('notRunning', 'app-server is shutting down'))
@@ -503,24 +500,24 @@ export class CodexAppServer {
 
     this.#restarts += 1
     this.#setState({ type: 'restarting', attempt: this.#restarts, reason })
-    void this.#restart()
+    // How it ended is in the state, and in whoever joined it; nobody here waits on it.
+    this.#track(this.#restart()).catch(() => undefined)
   }
 
   async #restart(): Promise<void> {
     const backoff = Math.min(
-      RESTART_BASE_DELAY_MS * 2 ** (this.#restarts - 1),
+      (this.options.restartDelayMs ?? RESTART_BASE_DELAY_MS) * 2 ** (this.#restarts - 1),
       RESTART_MAX_DELAY_MS,
     )
     this.options.logger?.warn?.('restarting codex app-server', {
       attempt: this.#restarts,
       backoffMs: backoff,
     })
-    await delay(backoff)
-    if (this.#shuttingDown) return
+    await this.#backOff(backoff)
     try {
       // An in-place CLI upgrade can leave the same path naming a new build.
       // Re-probe before spawning so version guards describe this process.
-      const installation = await this.#findInstallation()
+      const installation = await requireCodex(this.options.binaryPath ?? null, this.options.discovery)
       this.#installation = installation
       await this.#spawnAndHandshake(installation)
     } catch (error) {
@@ -530,7 +527,26 @@ export class CodexAppServer {
           : new CodexError('spawnFailed', `Restart failed: ${String(error)}`)
       // As above: a shutdown that overtook the restart is not a failed restart.
       if (!this.#shuttingDown) this.#setState({ type: 'failed', error: wrapped })
+      throw wrapped
     }
+  }
+
+  /**
+   * Waits out a restart's backoff, unless `stop()` comes first. A quit never sits
+   * one out, and neither does whoever joined the restart: they are told the
+   * server was stopped, as a start that a stop overtakes is told.
+   */
+  async #backOff(ms: number): Promise<void> {
+    const waiting = new AbortController()
+    this.#backingOff = waiting
+    try {
+      await delay(ms, undefined, { signal: waiting.signal })
+    } catch {
+      // Aborted by `stop()`.
+    } finally {
+      if (this.#backingOff === waiting) this.#backingOff = null
+    }
+    if (this.#shuttingDown) throw new CodexError('notRunning', 'The app-server was stopped while it was restarting.')
   }
 
   #rejectAllPending(error: CodexError): void {

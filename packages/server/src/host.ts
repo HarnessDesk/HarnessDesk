@@ -7706,8 +7706,8 @@ const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, 
 
 const isRuntimeDown = (error: unknown): boolean => {
   if (typeof error !== 'object' || error === null || !('code' in error)) return false
-  // `spawnFailed` is a program that was found and would not run: down, like one that is missing.
-  return error.code === 'notRunning' || error.code === 'notInstalled' || error.code === 'spawnFailed'
+  // A program that was found and would not run (`unreadable`, `spawnFailed`) is down, like one that is missing.
+  return error.code === 'notRunning' || error.code === 'notInstalled' || error.code === 'unreadable' || error.code === 'spawnFailed'
 }
 
 const describeError = (error: unknown): string =>
