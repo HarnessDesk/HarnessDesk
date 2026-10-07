@@ -2355,7 +2355,11 @@ approvals, queued input and running tasks protecting them. Archiving a quiet res
 conversation releases its handle. Archiving preserves working turns,
 approvals, queued input and running tasks for the normal quiet sweep.
 Reopening waits for close, then loads the same
-agent-owned history; a stale close cannot release its replacement. A shared
+agent-owned history; personal quiet release holds the conversation's option
+values and reapplies changed picks before reopening it to a client or a send.
+Transient history handles keep the stored row's status and timestamps and do
+not request a shared last-handle stop; the host owns that idle interval.
+A stale close cannot release its replacement. A shared
 last-handle stop publishes idle state and its cleanup barrier before awaiting
 exit, so host callers wait for restart. Passive process counts include both the
 control connection and every live session worker.

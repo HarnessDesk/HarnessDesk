@@ -156,7 +156,8 @@ export const sessionMethods = {
     const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
     if (frozenSeat?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozenSeat.runtimeServers }
     if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
-    const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
+    const record = ctx.registry.get(runtime.info.id, sessionId)
+    const scoped = !record?.live && (record?.restedOptions !== undefined || ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false))
     const resolve = async (): Promise<AgentSession> => {
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId })
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -121,12 +121,59 @@ test('a silent native close times out and releases all lifecycle guards', async 
   await runtime.start()
   const session = await runtime.createSession({ cwd: '/tmp' })
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const closed = assert.rejects(session.close(), /timed out/)
+  const closed = session.close().then(() => null, error => error)
   // releaseSession publishes its promise before sending the peer request.
   await Promise.resolve()
   await Promise.resolve()
   t.mock.timers.tick(3_000)
-  await closed
+  const failure = await closed
   t.mock.timers.reset()
+  assert.equal(failure, null, 'a timed-out native close still completes local release')
   assert.equal(await runtime.stopForIdle(), true)
 })
+
+for (const shared of [false, true]) {
+  test(`retained history reads keep stored ordering and ${shared ? 'shared' : 'native'} peer health`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-read-listing-'))
+    const store = join(dir, 'store.json')
+    const firstTime = '2026-01-01T00:00:00.000Z'
+    await writeFile(store, JSON.stringify({
+      first: { sessionId: 'first', cwd: dir, title: 'History first', updatedAt: firstTime, turns: [] },
+      other: { sessionId: 'other', cwd: dir, title: 'History other', updatedAt: '2026-01-02T00:00:00.000Z', turns: [] },
+    }))
+    const runtime = new AcpRuntime({ id: 'history', name: 'History', command: process.execPath, args: [FAKE],
+      sharedSessionProcess: shared, env: { FAKE_ACP_STORE: store, ...(shared ? { FAKE_ACP_NO_CLOSE: '1' } : {}) } })
+    t.after(async () => { await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await runtime.start()
+    const before = await runtime.listSessions()
+    const id = before.data.find(row => String(row.id) === 'first')!.id
+    await runtime.readSession(id)
+    const listed = await runtime.listSessions()
+    const searched = await runtime.searchSessions('History')
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    await runtime.readSession(id)
+    const connection = runtime.connectionFor(id)
+    const request = connection.request.bind(connection)
+    let released!: () => void
+    const release = new Promise<void>(resolve => { released = resolve })
+    if (!shared) connection.request = async <T>(method: string, params: unknown, timeoutMs?: number): Promise<T> => {
+      const result = await request<T>(method, params, timeoutMs)
+      if (method === 'session/close') released()
+      return result
+    }
+    const interrupt = connection.notify.bind(connection)
+    if (shared) connection.notify = (...args) => {
+      interrupt(...args)
+      if (args[0] === 'session/cancel') released()
+    }
+    t.mock.timers.tick(5_000)
+    t.mock.timers.reset()
+    await release
+    // Finish the close continuation without advancing the host idle interval.
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(runtime.health().state, 'ready', 'a history read leaves the host in charge of account idle stop')
+    assert.deepEqual(listed, before, 'a read does not promote stored history to a live row')
+    assert.deepEqual(searched, before, 'search retains stored timestamps and status')
+    assert.deepEqual(await runtime.listSessions(), before)
+  })
+}

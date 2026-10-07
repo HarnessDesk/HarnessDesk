@@ -1960,7 +1960,7 @@ export class AcpRuntime implements AgentRuntime {
     if (query?.cursor) return { data: [], nextCursor: null }
     if (this.#health.state === 'idle') return this.#historyCache ?? { data: [], nextCursor: null }
     const live = [...this.#sessions.values()]
-      .filter((session) => !this.#isProbe(session.id))
+      .filter((session) => !this.#isProbe(session.id) && !this.#transientReads.has(session.id))
       .map((session) => session.summary())
     if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.list) {
       return { data: live, nextCursor: null }
@@ -2004,7 +2004,8 @@ export class AcpRuntime implements AgentRuntime {
           : { ...summary, title, preview }
       })
       const stored = rows
-        .filter((row) => !this.#isProbe(makeSessionId(row.sessionId)) && !this.#sessions.has(makeSessionId(row.sessionId)))
+        .filter((row) => !this.#isProbe(makeSessionId(row.sessionId)) &&
+          (!this.#sessions.has(makeSessionId(row.sessionId)) || this.#transientReads.has(makeSessionId(row.sessionId))))
         .map(
           (row): SessionSummary => ({
             id: makeSessionId(row.sessionId),
@@ -2084,7 +2085,7 @@ export class AcpRuntime implements AgentRuntime {
     // A live summary wins over the listed form for a duplicate id, while
     // retaining metadata learned from the agent's latest listing.
     for (const session of this.#sessions.values()) {
-      if (this.#isProbe(session.id)) continue
+      if (this.#isProbe(session.id) || this.#transientReads.has(session.id)) continue
       const summary = session.summary()
       const title = summary.title ?? this.#titles.get(session.id) ?? null
       const preview = summary.preview ?? this.#previews.get(session.id) ?? null
@@ -2136,7 +2137,6 @@ export class AcpRuntime implements AgentRuntime {
     const closing = Promise.resolve().then(async () => {
       this.#cancelReadRest(session.id)
       const connection = this.connectionFor(session.id)
-      let refusal: unknown
       try {
         if (connection === this.#connection) {
           if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
@@ -2145,14 +2145,13 @@ export class AcpRuntime implements AgentRuntime {
             // The peer has no release verb. Cancel only this conversation;
             // keep working siblings on their shared process until all handles rest.
             await session.interrupt()
-            if (!this.#isProbe(session.id)) this.#sharedReleasePending = true
+            if (!this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
           }
         } else {
           await connection.stop()
           this.#workers.delete(connection)
         }
       } catch (error) {
-        refusal = error
         this.#config.logger?.warn?.('the agent refused to close a session', {
           agent: this.#config.id, error: describeAcp(error),
         })
@@ -2171,7 +2170,6 @@ export class AcpRuntime implements AgentRuntime {
         this.#probe = null
         this.#probeId = null
       }
-      if (refusal !== undefined) throw refusal
     })
     this.#closing.set(session.id, closing)
     try { await closing } finally {

@@ -26,7 +26,10 @@ test('eight sessions share a Claude bridge and closing them releases each CLI, i
     }
   }
   await runtime.start()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   await runtime.defaultSessionOptions()
+  t.mock.timers.tick(5_000)
+  t.mock.timers.reset()
   await expectCount(0)
   const sessions = []
   for (let n = 1; n <= 8; n++) {

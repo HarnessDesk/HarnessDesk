@@ -2715,6 +2715,7 @@ export class Host {
       const live = record.live!
       const resting = Promise.resolve().then(async () => {
         if (!this.#personalConversationQuiet(record) || record.live !== live) return
+        record.restedOptions = Object.fromEntries(live.options().map(option => [option.id, option.currentValue]))
         await live.close()
         if (record.live === live) { record.live = null; record.detached = false }
       })
@@ -5693,6 +5694,13 @@ export class Host {
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
       })
+      const held = this.registry.get(runtime.info.id, id)
+      for (const [optionId, value] of Object.entries(held?.restedOptions ?? {})) {
+        const option = live.options().find(one => one.id === optionId)
+        if (!option || option.currentValue === value) continue
+        await live.setOption(optionId, value)
+      }
+      if (held) delete held.restedOptions
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // These typed failures name the runtime process, not the conversation.
@@ -6338,9 +6346,9 @@ export class Host {
    * Closes one handle, and lets the host's record of it go as `session/close`
    * does: nothing it was waiting to be asked, and no live handle kept on it.
    *
-   * A handle is not gone because it was closed. Over ACP closing is no call at
-   * all — dropping the handle is the whole gesture — so a record still holding
-   * one is a conversation the desk would go on routing turns to, and a room
+   * A handle is not gone because it was closed. ACP releases its session
+   * resources while retaining stored history. A record still holding a closed
+   * handle is a conversation the desk would go on routing turns to, and a room
    * would go on counting. Only the handle that was closed is let go: one a
    * reopen put there in the meantime is somebody else's.
    */
