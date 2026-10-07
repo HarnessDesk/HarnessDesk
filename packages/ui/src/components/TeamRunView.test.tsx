@@ -54,6 +54,25 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
 const sectionText = (container: HTMLElement, title: string): string =>
   [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
 
+it('totals each recorded Seat once in the Run header rather than borrowing the Goal total', async () => {
+  const store = storeWith(snapshot => ({ runtimes: snapshot.runtimes.map(runtime => ({ ...runtime,
+    capabilities: { ...runtime.capabilities, metered: true } })) }))
+  const view = await mount(store)
+  try {
+    expect(view.container.querySelector('[data-slot="run-facts"]')!.textContent).toContain('Seat cost $0.85')
+  } finally { view.close() }
+})
+
+it('qualifies the header cost when a Run Seat has no recorded usage', async () => {
+  const fixture = runFixture('complete')
+  const execution = { ...fixture.execution, rounds: fixture.execution.rounds.map((round, index) =>
+    index === 0 ? { ...round, seats: [...round.seats, 'unrecorded-seat'] } : round) }
+  const view = await mount(storeWith(), { execution, model: runTimeline({ ...fixture, execution }) })
+  try {
+    expect(view.container.querySelector('[data-slot="run-facts"]')!.textContent).toContain('Seat cost 96 turns · partial')
+  } finally { view.close() }
+})
+
 it.each(['member', 'answer', 'missing'] as const)('reads wrapped Run Seats with a conversation %s pointer', async pointer => {
   const open = vi.fn()
   const store = storeWith(snapshot => {
@@ -286,7 +305,7 @@ it('gives the Flow the whole pane: the inspector steps aside on the Flow tab and
     await act(async () => choice(view.container, 'Flow').click())
     expect(view.container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
     expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull()
-    expect(view.container.textContent).not.toContain('Run details')
+    expect(view.container.textContent).toContain('Run details')
     await act(async () => choice(view.container, 'Timeline').click())
     expect(view.container.querySelector('[data-testid="the-flow"]')).toBeNull()
     expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()

@@ -117,6 +117,67 @@ it('does not invent a new ending door for a legacy Run without an end kind', () 
 const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
 
+it('keeps recorded Run facts and controls in the header on both views', () => {
+  const execution = { ...runFixture('running').execution, startedAt: 1000 }
+  const { container, done } = withFlow({ model: runTimeline(runFixture('running')), execution, cost: 'Seat cost $1.20', onStop: vi.fn() })
+  try {
+    const header = container.querySelector('[data-slot="run-header"]')!
+    const facts = header.querySelector('[data-slot="run-facts"]')!
+    expect(facts.textContent).toContain('Started')
+    expect(facts.textContent).toContain('Elapsed')
+    expect(facts.textContent).toContain('Round 4')
+    expect(facts.textContent).toContain('Seat cost $1.20')
+    const actions = header.querySelector('[data-slot="run-actions"]')!
+    expect(actions.textContent).toMatch(/Stop run…TimelineFlow/)
+    act(() => choice(container, 'Flow').click())
+    expect(header.querySelector('[data-slot="run-facts"]')).toBe(facts)
+    expect(header.querySelector('[data-slot="run-actions"]')).toBe(actions)
+  } finally { done() }
+})
+
+it('puts each round time outside its selectable title and calls active time now', () => {
+  const { container, done } = withFlow({ model: runTimeline(runFixture('running')) })
+  try {
+    const rounds = container.querySelectorAll('[data-kind="round"]')
+    for (const round of rounds) {
+      expect(round.querySelector('[data-slot="list-row-title"]')!.textContent).not.toMatch(/\d+m|so far/)
+      expect(round.parentElement!.querySelector('[data-slot="run-time"]')).not.toBeNull()
+    }
+    expect(container.querySelector('[data-time-for="round-4"]')!.textContent).toContain('now')
+  } finally { done() }
+})
+
+it('raises one need card with the recorded reason and existing recovery actions above both views', () => {
+  const model = runTimeline(runFixture('stalled'))
+  const onReviewCheck = vi.fn()
+  const { container, done } = withFlow({ model, onReviewCheck })
+  try {
+    const need = container.querySelector('[data-slot="run-need"]')!
+    expect(need.textContent).toContain('The desk stopped while the check ran')
+    expect(need.querySelectorAll('button')).toHaveLength(1)
+    expect(need.querySelector('button')!.getAttribute('data-variant')).toBe('default')
+    act(() => need.querySelector('button')!.click())
+    expect(onReviewCheck).toHaveBeenCalledOnce()
+    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).not.toContain('The desk stopped while the check ran')
+    expect(container.querySelector('[data-slot="run-header"]')!.textContent).not.toContain('Needs you')
+    act(() => choice(container, 'Flow').click())
+    expect(container.querySelector('[data-slot="run-need"]')).not.toBeNull()
+  } finally { done() }
+})
+
+it('offers a person step once and opens its existing inspector', () => {
+  const model = runTimeline(runFixture('person'))
+  const onSelect = vi.fn()
+  const { container, done } = withFlow({ model, onSelect })
+  try {
+    const need = container.querySelector('[data-slot="run-need"]')!
+    expect(need.textContent).toContain('Answer the review')
+    act(() => need.querySelector('button')!.click())
+    expect(onSelect).toHaveBeenCalledWith('person-4-4')
+    expect(container.querySelector('[data-kind="person"]')!.textContent).not.toContain('Needs you')
+  } finally { done() }
+})
+
 it.each([
   ['complete', 'Wrap'], ['settled', 'Run again…'], ['stopped', 'Run again…'], ['stalled', 'Review and run again…'],
 ] as const)('gives %s an ending summary and an independent door', (scene, label) => {
@@ -125,12 +186,13 @@ it.each([
   try {
     const banner = container.querySelector('[data-slot="run-ending"]')!
     expect(banner).not.toBeNull()
-    const button = [...banner.querySelectorAll('button')].find(one => one.textContent === label)!
+    const actions = container.querySelector('[data-slot="run-need"]') ?? banner
+    const button = [...actions.querySelectorAll('button')].find(one => one.textContent === label)!
     expect(button.parentElement?.closest('button')).toBeNull()
     act(() => button.click())
     expect(scene === 'complete' ? onWrap : scene === 'stalled' ? onReviewCheck : onRunAgain).toHaveBeenCalledOnce()
     if (scene === 'settled') {
-      act(() => [...banner.querySelectorAll('button')].find(one => one.textContent === 'Board')!.click())
+      act(() => [...actions.querySelectorAll('button')].find(one => one.textContent === 'Board')!.click())
       expect(onBoard).toHaveBeenCalledOnce()
     }
     expect(onSelect).not.toHaveBeenCalled()
@@ -141,8 +203,8 @@ it.each(['rounds', 'without-progress'] as const)('names the %s budget and its re
   const execution = { ...runFixture('stalled').execution, operations: [], end: { kind: 'budget' as const, which, used: 7 }, reason: null }
   const { container, done } = withFlow({ model: runTimeline({ execution, cards: [] }), onRunAgain: () => {} })
   try {
-    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('7')
-    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('Run again…')
+    expect(container.querySelector('[data-slot="run-need"]')!.textContent).toContain('7')
+    expect(container.querySelector('[data-slot="run-need"]')!.textContent).toContain('Run again…')
   } finally { done() }
 })
 
@@ -295,7 +357,8 @@ it.each(['complete','stopped','stalled'] as const)('keeps %s status in the heade
   expect(ending.textContent).not.toContain(scene==='complete'?'Settled':scene==='stopped'?'Stopped':'Needs you')
   expect(container.querySelectorAll('[data-row="end"]')).toHaveLength(1)
   expect(ending.querySelector('[data-row="end"] [data-slot="list-row-title"]')).not.toBeNull()
-  expect(ending.querySelectorAll('[data-tone="warning"]')).toHaveLength(scene==='stalled'?1:0)
+  expect(ending.querySelectorAll('[data-tone="warning"]')).toHaveLength(0)
+  expect(container.querySelectorAll('[data-slot="run-need"]')).toHaveLength(scene==='stalled'?1:0)
   act(()=> (ending.querySelector('[data-row="end"] button') as HTMLButtonElement).click())
   expect(onSelect).toHaveBeenCalledWith('end')
   if(scene==='complete')expect(ending.textContent).toContain('Nothing waits.')

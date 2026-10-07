@@ -38,7 +38,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('#run-view-stopped [data-slot="run-header"]')).toContainText('Stopped')
     await expect(page.locator('#run-view-stopped [data-slot="run-ending"]')).toContainText('By you')
     await expect(page.locator('#run-view-stalled')).toContainText('The desk stopped while the check ran')
-    await expect(page.locator('#run-view-person')).toContainText('Needs you')
+    await expect(page.locator('#run-view-person [data-slot="run-need"]')).toContainText('Answer the review')
     await expect(page.locator('#run-view-pending')).toContainText('Reading checks and findings')
     await expect(page.locator('#run-view-failed')).toContainText('Some Run details could not be read')
     await expect(page.locator('#run-view-empty')).toContainText('No rounds have opened yet')
@@ -50,7 +50,7 @@ for (const theme of ['light', 'dark'] as const) {
     const rig = page.locator('#run-view-team')
     await rig.getByRole('tab', { name: 'Run 1', exact: true }).click()
     await expect(rig.locator('[data-slot="run-view"]')).toBeVisible()
-    await expect(rig.locator('[data-slot="run-ending"]')).toContainText('Ended without a next step')
+    await expect(rig.locator('[data-slot="run-need"]')).toContainText('Ended without a next step')
   })
 
   test(`Run findings keep damaged history visible at narrow width in ${theme}`, async ({ page }) => {
@@ -106,6 +106,58 @@ for (const theme of ['light', 'dark'] as const) {
     })
     expect(ratios.ink).toBeGreaterThanOrEqual(4.5)
     expect(ratios.boundary).toBeGreaterThanOrEqual(3)
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Run reading measure, time gutter and stable page header in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const running = page.locator('#run-view-running')
+    const measure = await running.locator('[data-slot="run-reading"]').evaluate(el => {
+      const box = el.getBoundingClientRect()
+      const scroll = el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect()
+      const row = el.querySelector('[data-kind="round"]')!.getBoundingClientRect()
+      const time = el.querySelector('[data-time-for="round-1"]')!.getBoundingClientRect()
+      return { width: box.width, column: Number.parseFloat(getComputedStyle(el).getPropertyValue('--hd-column')),
+        gutter: row.left - box.left, centre: (box.left + box.right - scroll.left - scroll.right) / 2,
+        timeBeforeRow: time.right < row.left }
+    })
+    expect(measure.width).toBe(measure.column + 112)
+    expect(measure.gutter).toBe(112)
+    expect(Math.abs(measure.centre)).toBeLessThan(1)
+    expect(measure.timeBeforeRow).toBe(true)
+    await expect(running.locator('[data-time-for="round-4"]')).toContainText('now')
+    const stalled = page.locator('#run-view-stalled')
+    const needBox = await stalled.locator('[data-slot="run-need"]').boundingBox()
+    const readingBox = await stalled.locator('[data-slot="run-reading"]').boundingBox()
+    expect(needBox!.x).toBe(readingBox!.x)
+    expect(needBox!.width).toBe(readingBox!.width)
+    await expect(stalled.locator('[data-slot="run-need"] button')).toHaveCount(1)
+    await expect(stalled.locator('[data-slot="run-ending"]')).not.toContainText('The desk stopped')
+    const workspace = page.locator('#run-view-flow')
+    await workspace.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    const header = workspace.locator('[data-slot="run-header"]')
+    const actions = workspace.locator('[data-slot="run-actions"]')
+    const before = { header: await header.boundingBox(), actions: await actions.boundingBox() }
+    await workspace.getByRole('radio', { name: 'Flow', exact: true }).click()
+    expect(await header.boundingBox()).toEqual(before.header)
+    expect(await actions.boundingBox()).toEqual(before.actions)
+    for (const width of [848, 768, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      const geometry = await running.locator('[data-slot="run-scroll"]').evaluate(el => {
+        const bounds = el.getBoundingClientRect()
+        const reading = el.querySelector('[data-slot="run-reading"]')!.getBoundingClientRect()
+        return { overflow: el.scrollWidth > el.clientWidth + 1, left: reading.left - bounds.left,
+          right: bounds.right - reading.right, rowOverflow: [...el.querySelectorAll('[data-row]')].some(row => row.scrollWidth > row.clientWidth + 1),
+          timeInset: [...el.querySelectorAll('[data-slot="run-time"]')].every(time => {
+            const range = document.createRange()
+            range.selectNodeContents(time)
+            return !time.textContent || range.getBoundingClientRect().left >= reading.left
+          }) }
+      })
+      expect(geometry).toEqual({ overflow: false, left: 24, right: 24, rowOverflow: false, timeInset: true })
+    }
   })
 }
 

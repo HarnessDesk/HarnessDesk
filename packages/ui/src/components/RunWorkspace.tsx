@@ -9,6 +9,18 @@ import styles from './RunWorkspace.module.css'
 
 type WorkspaceProps = ComponentProps<typeof RunView> & { inspector: Omit<RunInspectorProps, 'selectedRow'> }
 
+/** Match the inspector's recorded Seat costs, keeping a missing partition explicit. */
+const recordedCost = (inspector: WorkspaceProps['inspector']): string => {
+  const ids = [...new Set(inspector.input.execution.rounds.flatMap(round => round.seats))]
+  const costs = ids.flatMap(id => { const cost = inspector.seats.find(seat => seat.id === id)?.cost; return cost ? [cost] : [] })
+  const totals = (['money', 'turns'] as const).flatMap(unit => {
+    const values = costs.filter(cost => cost.unit === unit)
+    const value = values.reduce((sum, cost) => sum + cost.value, 0)
+    return values.length ? [`${values.some(cost => cost.estimated) ? 'About ' : ''}${unit === 'money' ? `$${value.toFixed(2)}` : `${value} turns`}`] : []
+  })
+  return totals.length ? `Seat cost ${totals.join(' · ')}${costs.length < ids.length ? ' · partial' : ''}` : 'Cost not recorded'
+}
+
 const DockedRunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
   const store = useStore()
   const dock = useRunDock()!
@@ -93,7 +105,7 @@ const DockedRunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
       onSelect: view.onSelect, onSelectStep: id => view.onSelect(`step:${id}`) },
   }), [dock, owner, inspector, view.selectedRow, view.faces, view.onSelect])
   return <div data-slot="run-workspace" className="flex min-h-0 min-w-0 flex-1">
-    <RunView {...view} view={tab} onDetails={() => { view.onSelect('run'); show('run-details', true) }}
+    <RunView {...view} execution={inspector.input.execution} cost={recordedCost(inspector)} view={tab} onDetails={() => { view.onSelect('run'); show('run-details', true) }}
       onView={next => { if (view.view === undefined) keep(next); view.onView?.(next); show(next === 'flow' ? 'run-steps' : 'run-details') }}
       onSelect={id => { view.onSelect(id); show('run-details', true) }} />
   </div>
@@ -111,13 +123,10 @@ export const RunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
   if (dock) return <DockedRunWorkspace {...view} inspector={inspector} />
   const timeline = tab === 'timeline'
   return <div data-slot="run-workspace" data-detail={(detail && timeline) || undefined} className={styles.workspace}>
-    <div className={styles.timeline}>
-      <RunView {...view} onDetails={() => { view.onSelect('run'); setDetail(true) }} view={tab} onView={next => { if (view.view === undefined) keep(next); view.onView?.(next) }}
-        onSelect={id => { view.onSelect(id); setDetail(true) }} />
-    </div>
-    {timeline && <div className={styles.detail}>
+      <RunView {...view} execution={inspector.input.execution} cost={recordedCost(inspector)} onDetails={() => { view.onSelect('run'); setDetail(true) }} view={tab} onView={next => { if (view.view === undefined) keep(next); view.onView?.(next) }}
+        onSelect={id => { view.onSelect(id); setDetail(true) }} timelineDetail={<div className={styles.detail}>
       <div className={styles.back}><BackLink to="Run timeline" onClick={() => setDetail(false)} /></div>
       <RunInspector {...inspector} selectedRow={view.selectedRow} />
-    </div>}
+    </div>} />
   </div>
 }

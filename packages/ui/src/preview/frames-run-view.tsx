@@ -22,7 +22,7 @@ export const RunExample = ({ scene, input }: { scene: RunScene; input?: RunTimel
   const execution = useMemo(() => input?.execution ?? runFixture(scene).execution, [scene, input])
   const [again, setAgain] = useState(false)
   const [retry, setRetry] = useState(false)
-  return <StoreProvider store={sharedStore()}><RunView model={input ? runTimeline(input) : runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
+  return <StoreProvider store={sharedStore()}><RunView execution={execution} model={input ? runTimeline(input) : runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
     doing={new Map([['seat-0', 'Editing src/checkout/retry.ts']])}
     pending={scene === 'pending'} problem={scene === 'failed' ? 'Check evidence is unavailable.' : null}
     onRunAgain={() => setAgain(true)} onWrap={() => setSelected('end')} onBoard={() => setSelected('end')} onReviewCheck={() => setRetry(true)}
