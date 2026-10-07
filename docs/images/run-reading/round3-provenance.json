@@ -1,0 +1,6 @@
+{
+  "before": "c6dd84e7ba7207180b16d206d71f84d0d85b7b49",
+  "renderer": "packages/ui/src/components/RunView.tsx",
+  "fixtures": "Matching synthetic Run records in the preview harness",
+  "after": "c665fae840b499da45848808ef4ea75c89d70461"
+}
