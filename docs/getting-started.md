@@ -273,9 +273,11 @@ and running `codex --version` failed; the message says how (an exit code and
 what it printed, or that it did not answer). The usual cause with an npm or
 Homebrew-npm install is that `node`, which the `codex` script starts, is not on
 the `PATH` HarnessDesk was started with. Run `codex --version` in a terminal to
-see the same words. HarnessDesk asks again for several seconds while it opens,
-so a machine that was busy or a `PATH` still arriving clears by itself; choose
-Codex again to try once more.
+see the same words. HarnessDesk keeps asking in the background for several
+seconds after it opens, and again once the `PATH` your login shell builds has
+arrived, so a machine that was busy or a `PATH` still arriving clears by
+itself; choose Codex again to try once more. One that prints no version at all,
+or is not executable, is said once and not asked about again.
 
 **"Usage limit reached"** — the agent is healthy and signed in, but a rolling
 usage window is spent, so turns will fail until it resets. Past sessions stay

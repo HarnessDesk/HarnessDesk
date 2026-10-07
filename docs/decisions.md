@@ -763,14 +763,26 @@ that pass — read as "Codex is not installed", with an install hint for a progr
 the person had installed. And nothing looked again: the runtime stayed failed
 until the app restarted.
 
-So the two are told apart. No copy anywhere is `notInstalled`, said at once. A
-copy that is there and silent is asked again over the first seconds — the
-longest wait outlasts the login shell's own deadline, because the PATH it
-builds arrives in the background after the desk has opened — and if it still
-will not answer, the error names the copy and what it did (`spawnFailed`). And
-when that PATH lands and changes anything, the runtimes that found their
-program missing are asked once more (`Host.retryNotInstalled`): the look
-`installs/shell-path.ts` always said would happen.
+So the two are told apart, and the second is told apart again. No copy anywhere
+is `notInstalled`. A copy that is there and would not answer is `unreadable`
+when a later ask could differ — it timed out, was ended by a signal, exited
+non-zero (a launcher whose `node` is in a folder the PATH it was run with does
+not name exits 127), or the machine refused the spawn for want of a resource —
+and `spawnFailed` when it could not: it printed no version, it is not
+executable, it is not Codex. Either names the copy and what it did.
+
+**Discovery asks once, and the desk never waits on a second ask.** The window
+opens after the runtimes are started, so a retry inside the start is a blank
+screen for as long as it lasts, on every launch, for a machine that is genuinely
+broken. Asking again is the host's, in the background: when the PATH the login
+shell builds lands and changes anything, the runtimes that read `notInstalled`
+or `unreadable` are asked once more (`Host.retryProgramLookup`, the look
+`installs/shell-path.ts` always said would happen); and an `unreadable` runtime
+is asked again on a short schedule from the moment the desk starts
+(`retryDelaysMs`), which a quit ends. Each runtime is judged after its own start
+only, up to the deadline every start has, because one agent that never answers
+`initialize` must not turn the look off for the others. A missing program is not
+on the schedule: what it waits for is a PATH.
 
 *Open:* the install lookup that picks which copy of an ACP agent runs
 (`installs/locate.ts`) has the same shape — an unreadable copy is never chosen,
@@ -778,7 +790,8 @@ so the agent reads "not installed" — and has only the second half of this, the
 re-ask on a PATH change.
 
 **The rule:** "not installed" is said of a machine with no copy of the program.
-A copy that exists is never called missing.
+A copy that exists is never called missing, and the window never waits on the
+asking again.
 
 ## A pull request is published through the desk, and the desk signs it
 
