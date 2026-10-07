@@ -373,11 +373,13 @@ for (const retirement of ['close', 'crash'] as const) {
     await root.interrupt()
     if (retirement === 'close') await root.close()
     else {
-      const pid = (await readFile(claims, 'utf8')).trim().split('\n').map(Number)[1]!
+      // The upgrade is on disk before the process dies, so its replacement is the new build.
+      await writeFile(version, '0.200.0')
+      const pid = (await readFile(claims, 'utf8')).trim().split('\n').map(Number)[0]!
       process.kill(pid, 'SIGKILL')
       await waitFor(() => events.some((event) => event.type === 'session/detached' && event.sessionId === root.id), 'the detached root')
+      await waitFor(() => runtime.health().state === 'ready', 'the replacement process')
     }
-    await writeFile(version, '0.200.0')
     const resumed = await runtime.resumeSession(root.id)
     const before = notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).length
     await resumed.send([{ type: 'text', text: 'Call the stale child' }])

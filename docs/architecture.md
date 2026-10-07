@@ -240,13 +240,13 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   `live` becomes null and `detached` stays false. Only a runtime reporting
   `capabilities.resume` and implementing `stopForIdle` participates (currently
   the ACP and Codex adapters); the existing idle reaper can then stop its process
-  after `IDLE_STOP_MS` (ten minutes) with nothing else using it. Codex keeps
-  thread MCP children after unsubscribe. Each top-level conversation therefore
-  loads in a fresh process; releasing its last handle stops that process and
-  its retained tools even while other conversations work. Forks get a fresh
-  process too; delegated threads stay with their root. The control process owns
-  catalogue reads, file watches and standalone terminals. A conversation
-  process failure detaches only its own handles for the normal resume path.
+  after `IDLE_STOP_MS` (ten minutes) with nothing else using it. One Codex
+  process serves every conversation of an account. Closing a handle interrupts
+  its active turn before unsubscribing its thread; Codex closes an unsubscribed idle thread a minute later and the
+  thread's tool helpers go with it, while other conversations keep working. A
+  process failure detaches every conversation it held, and the normal resume path
+  reattaches each
+  ([measurement and lifecycle](decisions.md#one-codex-process-per-account-shared-by-every-seat)).
   Native server selection is an optional capability: an Agent's
   `runtime-servers` names only already configured servers. The host freezes
   the list in the Seat record and reapplies it on resume; the adapter supplies
@@ -255,8 +255,6 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   process-table read for the desk, including descendants and RSS. The renderer
   polls only while the runtime page is mounted. Manual idle recycling shares
   the reaper's stop/start barrier and refuses in-flight work and open handles.
-  Process exit releases its thread helpers
-  ([measurement and lifecycle](decisions.md#finished-conversations-recycle-their-own-processes)).
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening
