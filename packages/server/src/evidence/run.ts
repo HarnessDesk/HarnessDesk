@@ -125,6 +125,8 @@ export const runCommand = (
      * Refused before anything spawns when it would exceed `FLOW_CONTEXT_LIMIT`.
      */
     readonly flowContext?: string
+    /** Host-derived Flow launch mode: true for a Seat's advisory request, false for a Flow's check card. */
+    readonly flowAdvisory?: boolean
     /** Host-owned durable launch journal; the child waits until its pgid is synced. */
     readonly processDir?: string
     /** Host-derived card identity, retained with the group so uncertain cleanup blocks this card. */
@@ -150,17 +152,22 @@ export const runCommand = (
     let afterExit: ReturnType<typeof setTimeout> | null = null
     let forget: (() => void) | undefined
     const gated = where.processDir !== undefined
+    const env = {
+      ...checkEnvironment(),
+      ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}),
+      ...(where.flowAdvisory !== undefined ? { HARNESSDESK_FLOW_ADVISORY: where.flowAdvisory ? '1' : '0' } : {}),
+    }
     // The supervisor retains its identity until the host kills the entire group,
     // even if the command finishes after the host dies. fd 3 reports the command's
     // exit without giving the command access to the supervisor's status pipe.
     const child = gated ? spawn('/bin/sh', ['-c', 'IFS= read -r ready || exit; /bin/sh -c "$1" 3>&- & command_pid=$!; wait "$command_pid"; status=$?; trap "" PIPE; printf "%s\\n" "$status" >&3; exec 1>&- 2>&- 3>&-; while :; do sleep 60 & wait $!; done', `hd-check-${randomUUID()}`, command], {
-      cwd: where.cwd, detached: true, env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
+      cwd: where.cwd, detached: true, env,
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     }) : spawn(command, {
       cwd: where.cwd,
       shell: true,
       detached: true,
-      env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const finish = (exit: number | null, said?: string, problem?: Error): void => {
