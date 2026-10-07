@@ -39,15 +39,17 @@ const origin = `http://127.0.0.1:${port}`
  * four-core runner was tried first, and two of six shards then ran their tests
  * twice as slowly as the other four, with a test timing out in each of two.
  *
- * `PLAYWRIGHT_UI_SYSTEM_WORKERS` overrides it.
+ * `PLAYWRIGHT_UI_SYSTEM_WORKERS` overrides it except while recording a baseline.
  */
 const envWorkers = Number(process.env.PLAYWRIGHT_UI_SYSTEM_WORKERS)
 const workers =
-  Number.isInteger(envWorkers) && envWorkers > 0
-    ? envWorkers
-    : process.env.CI
-      ? Math.max(1, Math.floor(os.availableParallelism() / 2))
-      : 1
+  process.env.UPDATE_METRICS === '1' || process.env.UPDATE_ALIGNMENT === '1'
+    ? 1
+    : Number.isInteger(envWorkers) && envWorkers > 0
+      ? envWorkers
+      : process.env.CI
+        ? Math.max(1, Math.floor(os.availableParallelism() / 2))
+        : 1
 
 export default defineConfig({
   testDir: './e2e/ui-system',

@@ -9,6 +9,20 @@ import { plan, recordedSeconds, secondsFromLogs, specFiles } from './ci-browser-
 const root = fileURLToPath(new URL('../', import.meta.url))
 const CLI = fileURLToPath(new URL('./ci-browser-shards.mjs', import.meta.url))
 
+test('recording either browser baseline stays serial even on CI with a worker override', () => {
+  for (const flag of ['UPDATE_METRICS', 'UPDATE_ALIGNMENT']) {
+    const run = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e',
+      "import config from './playwright.ui-system.config.ts'; console.log(JSON.stringify({ workers: config.workers, fullyParallel: config.fullyParallel }))",
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, CI: 'true', PLAYWRIGHT_UI_SYSTEM_WORKERS: '2', UPDATE_METRICS: '0', UPDATE_ALIGNMENT: '0', [flag]: '1' },
+    })
+    assert.equal(run.status, 0, run.stderr)
+    assert.deepEqual(JSON.parse(run.stdout), { workers: 1, fullyParallel: false }, flag)
+  }
+})
+
 test('every spec runs on exactly one shard, however many shards there are', () => {
   const specs = specFiles(root)
   assert.ok(specs.length > 50, 'the suite is found')
