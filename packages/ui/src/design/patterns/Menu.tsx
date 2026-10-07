@@ -178,6 +178,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
       >
         <ScopeContext.Provider value={scope}>
           <DropdownMenuPortal container={host}>
+            {/* Base UI keeps children hidden until positioning resolves against this host anchor. */}
             <DropdownMenuPositioner
               anchor={host}
               style={{ position: 'static', inset: 'auto', transform: 'none' }}

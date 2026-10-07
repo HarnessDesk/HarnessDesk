@@ -293,7 +293,8 @@
   background: transparent; /* desk: var(--hd-code-fill) → transparent, the outer code plate owns the shared fill */
 }
 
-/* Shiki's inline ground is removed when the block is mounted; the plate
+/* Shiki replaces the source pre; it does not nest under it. */
+/* Its inline ground is removed when the block is mounted; the plate
    keeps the same fill before and after its grammar arrives. */
 .markdown pre:global(.shiki) {
   background: var(--hd-code-fill); /* desk: the renderer removes the inline ground before mounting (#954) */

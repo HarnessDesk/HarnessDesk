@@ -331,11 +331,12 @@ a:hover {
   -webkit-user-select: none;
 }
 
-:root[data-hd-resizing='vertical'] body * {
+/* The extra state match puts the drag cursor above three-class vendor rules. */
+:root[data-hd-resizing='vertical'][data-hd-resizing] body * {
   cursor: col-resize; /* desk: root interaction state owns the drag cursor (#954) */
 }
 
-:root[data-hd-resizing='horizontal'] body * {
+:root[data-hd-resizing='horizontal'][data-hd-resizing] body * {
   cursor: row-resize; /* desk: root interaction state owns the drag cursor (#954) */
 }
 

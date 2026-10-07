@@ -94,6 +94,14 @@
     visibility 0s linear var(--hd-duration-slow);
 }
 
+/* A closed narrow drawer also leaves by its transform, not its width. Keep
+   that transition at the hidden-state specificity so resize can still stop it. */
+:where(.shell[data-narrow]) .sidebar[data-hidden] {
+  transition:
+    transform var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
+}
+
 .shell[data-dragging] .sidebar {
   transition: none;
 }
