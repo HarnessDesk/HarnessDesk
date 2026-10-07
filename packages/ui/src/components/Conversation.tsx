@@ -44,6 +44,9 @@ import {
   Bar,
   Button,
   Chip,
+  HeaderStatusGroup,
+  HeaderStatusReading,
+  useHeaderStatusGroup,
   ComposerDock,
   ConversationEmptyState,
   Menu,
@@ -105,10 +108,9 @@ const EmptyBody = ({ children }: { children: ReactNode }) => (
   </Text>
 )
 
-/** The dot's own tone: brand while a turn is running, so the one moving mark
-    is the one that says so. */
+/** Shape and motion name a running turn; tone belongs to a condition needing attention. */
 const STATUS_TONE: Record<PaneStatus, Tone> = {
-  running: 'brand',
+  running: 'neutral',
   waiting: 'warning',
   failed: 'danger',
   idle: 'neutral',
@@ -117,10 +119,8 @@ const STATUS_TONE: Record<PaneStatus, Tone> = {
 /**
  * The pill's own ground — its own judgement, not the dot's.
  *
- * Running is the most common live state, so its pill stays the neutral tone
- * idle already wears; only the dot inside it turns brand. A pill that also
- * went brand while running left the header shouting through most of a turn,
- * and named only "failed" as worth a colour of its own.
+ * Running and idle stay neutral. A waiting approval or a failure keeps its
+ * tone while it needs the person.
  */
 const STATUS_PILL_TONE: Record<PaneStatus, Tone> = {
   running: 'neutral',
@@ -483,6 +483,7 @@ const ConversationMenu = () => {
  * there is nothing: an agent without the concept never shows it.
  */
 const TasksChip = () => {
+  const grouped = useHeaderStatusGroup()
   const store = useStore()
   const key = useSessionKey()
   const snapshot = useSnapshot()
@@ -492,22 +493,25 @@ const TasksChip = () => {
   const live = split.running.length > 0
   const open = shownView(snapshot.workbench, 'tasks')
   return (
-    <Button variant="quiet" size="inline" className={`${styles.tasksChip} hd-no-drag`}
-      data-testid="tasks-chip"
-      {...(live ? { 'data-live': '' } : {})}
-      aria-pressed={open}
-      /* Led by the chip's own words, which a narrow header folds down to its
-         mark: hover is where they are still read. */
-      title={`${tasksChipLabel(split)}. ${
-        live
-          ? 'Work that keeps going after the turn. Opens the Background tasks panel, with the output.'
-          : 'Work that ran after a turn ended. Opens the Background tasks panel, with the output.'
-      }`}
-      onClick={() => store.showView('tasks')}
-    >
-      {live ? <Spinner size="sm" tone="success" aria-hidden="true" /> : <CheckIcon size={11} />}
-      <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
-    </Button>
+    <HeaderStatusReading label="Background tasks" detail={tasksChipLabel(split)}>
+      <Button variant="quiet" size="inline" className={`${styles.tasksChip} hd-no-drag`}
+        data-testid="tasks-chip"
+        {...(live ? { 'data-live': '' } : {})}
+        aria-pressed={open}
+        /* Led by the chip's own words, which a narrow header folds down to its
+           mark: hover is where they are still read. */
+        aria-label={tasksChipLabel(split)}
+        title={grouped ? undefined : `${tasksChipLabel(split)}. ${
+          live
+            ? 'Work that keeps going after the turn. Opens the Background tasks panel, with the output.'
+            : 'Work that ran after a turn ended. Opens the Background tasks panel, with the output.'
+        }`}
+        onClick={() => store.showView('tasks')}
+      >
+        {live ? <Spinner size="sm" tone="neutral" aria-hidden="true" /> : <CheckIcon size={11} />}
+        <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
+      </Button>
+    </HeaderStatusReading>
   )
 }
 
@@ -725,43 +729,42 @@ export const Conversation = ({
             <WindowControls />
           )}
           <HeaderTitle session={session} />
-          {/* Folds at a phone's width, same as the idle status and the rule:
-              the title is the one name in this row and must win the space.
-              The ceiling itself is not lost — it is still read from the seat's
-              own card (AgentCards, opened from Settings › Agents or this
-              conversation's own ⋯ › Save as an Agent…). */}
-          {session && (
-            <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
-              <HeaderCeiling session={session} />
-            </span>
-          )}
-          {session && (
-            <Chip
-              tone={STATUS_PILL_TONE[status]}
-              dotTone={STATUS_TONE[status]}
-              dotPulse={status === 'running'}
-              className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
-              title={STATUS_LABEL[status]}
-            >
-              {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
-            </Chip>
-          )}
-          {session && <TasksChip />}
-          <div className="hd-no-drag">
+          <HeaderStatusGroup>
+            {/* Folds at a phone's width, same as the idle status and the rule:
+                the title is the one name in this row and must win the space.
+                The ceiling itself is not lost — it is still read from the seat's
+                own card (AgentCards, opened from Settings › Agents or this
+                conversation's own ⋯ › Save as an Agent…). */}
+            {session && <HeaderCeiling session={session} />}
+            {session && (
+              <HeaderStatusReading label="Status" detail={STATUS_LABEL[status]} className={status === 'idle' ? styles.statusIdle : undefined}>
+                <Chip
+                  variant="quiet"
+                  tone={STATUS_PILL_TONE[status]}
+                  dotTone={STATUS_TONE[status]}
+                  dotPulse={status === 'running'}
+                  dotShape={status === 'running' ? 'square' : 'round'}
+                  className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
+                >
+                  {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
+                </Chip>
+              </HeaderStatusReading>
+            )}
+            {session && <TasksChip />}
             <GitControl
               onRemoveWorktree={() => setRemovingWorktree(true)}
               onBringHome={() => setBringingHome(true)}
             />
-          </div>
-          {/* Empty when nothing is registered — and an empty box in a flex row
-              still takes the row's gap, which left a hole in the header that
-              looked like a control had failed to draw. */}
-          <div className={`${styles.headerSlot} hd-no-drag`}>
-            <Slot name="session.header" />
-          </div>
-          {/* What every signed-in plan has left. Ambient, so it sits with the
-              status rather than with the buttons that do something. */}
-          <PlanMeters onOpen={onOpenUsage} onSignIn={onSignIn} />
+            {/* Empty when nothing is registered — and an empty box in a flex row
+                still takes the row's gap, which left a hole in the header that
+                looked like a control had failed to draw. */}
+            <div className={`${styles.headerSlot} hd-no-drag`}>
+              <Slot name="session.header" />
+            </div>
+            {/* What every signed-in plan has left. Ambient, so it sits with the
+                status rather than with the buttons that do something. */}
+            <PlanMeters onOpen={onOpenUsage} onSignIn={onSignIn} />
+          </HeaderStatusGroup>
           {/* Everything to the left of this states a fact; everything to the
               right does something — the tool header's own divider, drawn for
               the same reason between a tool's controls and its panel's. Wrapped
@@ -1018,139 +1021,149 @@ export const GitControl = ({
       ).size
     : 0
 
+  // An armed draft's path is its source folder, not a worktree made yet.
+  // The accessible name and the grouped card must describe the same place.
+  const placeTitle = armed
+    ? `${branch} · new worktree off ${cwd}`
+    : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
+
   return (
-    <Popover
-      /* What the chip says, then where it is. The words fold to the glyph in a
-         narrow header, and hover is where they are still read — the path alone
-         was not the word that folded. A worktree says so, as its badge does,
-         and a draft armed with a new one names the folder it will be cut from:
-         its worktree is not at that path yet. */
-      title={
-        armed
-          ? `${branch} · new worktree off ${cwd}`
-          : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
-      }
-      align="right"
-      label={
-        <>
-          {/* The glyph says where, so it can stand alone when a narrow header
-              folds the words away: a branch for a worktree, a branch with a
-              plus for one a draft will cut, a laptop for the main checkout,
-              a folder for one that is not a repository. */}
-          {armed ? (
-            <NewWorktreeIcon size={13} />
-          ) : linked ? (
-            <BranchIcon size={13} />
-          ) : branch ? (
-            <LocalIcon size={13} />
-          ) : (
-            <FolderIcon size={13} />
-          )}
-          <span className={styles.gitWords}>
-            <Text as="span" role="navigation" className={styles.gitLabel}>{branch ?? folder}</Text>
-            {linked && (
-              <Badge variant="secondary" className={styles.gitBadge}>
-                worktree
-              </Badge>
+    <HeaderStatusReading label={branch ? "Branch" : "Folder"} detail={placeTitle}>
+      <Popover
+        /* What the chip says, then where it is. The words fold to the glyph in a
+           narrow header, and hover is where they are still read — the path alone
+           was not the word that folded. A worktree says so, as its badge does,
+           and a draft armed with a new one names the folder it will be cut from:
+           its worktree is not at that path yet. */
+        title={placeTitle}
+        align="right"
+        label={
+          <>
+            {/* The glyph says where, so it can stand alone when a narrow header
+                folds the words away: a branch for a worktree, a branch with a
+                plus for one a draft will cut, a laptop for the main checkout,
+                a folder for one that is not a repository. */}
+            {armed ? (
+              <NewWorktreeIcon size={13} />
+            ) : linked ? (
+              <BranchIcon size={13} />
+            ) : branch ? (
+              <LocalIcon size={13} />
+            ) : (
+              <FolderIcon size={13} />
             )}
-          </span>
-        </>
-      }
-    >
-      {(close) => (
-        <Menu close={close}>
-          <MenuLabel>{folder}</MenuLabel>
-          {session && (
-            <MenuItem
-              icon={<DiffIcon size={16} />}
-              label={`Changes${touched > 0 ? ` · ${touched} file${touched === 1 ? '' : 's'}` : ''}`}
-              title="What this conversation edited, as diffs."
-              onSelect={() => store.setDetailsTab('changes')}
-            />
-          )}
-          {elsewhere ? (
-            <MenuItem
-              icon={armed ? <NewWorktreeIcon size={16} /> : <BranchIcon size={16} />}
-              label={armed ? 'The worktree is made when the message goes' : 'Starts in this worktree when the message goes'}
-              title="Where it starts is chosen in the composer, under Work in."
-              disabled
-              onSelect={() => {}}
-            />
-          ) : (
-            <>
-              <MenuItem
-                icon={<HistoryIcon size={16} />}
-                label="History"
-                title="The repository's commits, branches and tags, in a pane."
-                onSelect={() => store.openGitHistory(cwd)}
-              />
-              {/* The branch is one row, and the branches are behind it — Codex
-                  hangs its list off the branch rather than repeating it as a
-                  heading over a second list of the same names. */}
-              {branch ? (
-                <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
-                  <BranchSwitcher root={cwd} onDone={close} />
-                </Submenu>
-              ) : (
-                <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
+            <span className={styles.gitWords}>
+              <Text as="span" role="navigation" className={styles.gitLabel}>{branch ?? folder}</Text>
+              {linked && (
+                <Badge variant="secondary" className={styles.gitBadge}>
+                  worktree
+                </Badge>
               )}
-            </>
-          )}
-          {worktree?.branch && (
-            <MenuItem
-              icon={<HomeIcon size={16} />}
-              label="Bring it back to the main checkout…"
-              title="Checks its branch out in the main checkout; the worktree's folder goes."
-              onSelect={onBringHome}
-            />
-          )}
-          {worktree && (
-            <MenuItem
-              icon={<TrashIcon size={16} />}
-              label="Remove this worktree…"
-              title="Lists what would be lost first. The branch stays."
-              onSelect={onRemoveWorktree}
-            />
-          )}
-          {session && key && runtime.capabilities.review && (
-            <MenuItem
-              icon={<ReviewIcon size={16} />}
-              label="Review uncommitted changes"
-              title="On a side thread, leaving this one as it is."
-              disabled={record ? RECORD_REASON : false}
-              onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
-            />
-          )}
-          {session && (
-            <MenuItem
-              icon={<CommitIcon size={16} />}
-              label="Commit the changes"
-              title="Asks the agent, in this conversation; you send it."
-              onSelect={() =>
-                window.dispatchEvent(
-                  new CustomEvent('harnessdesk:compose', {
-                    detail:
-                      'Commit the changes from this conversation with a clear message, then tell me the commit hash.',
-                  }),
-                )
-              }
-            />
-          )}
-        </Menu>
-      )}
-    </Popover>
+            </span>
+          </>
+        }
+      >
+        {(close) => (
+          <Menu close={close}>
+            <MenuLabel>{folder}</MenuLabel>
+            {session && (
+              <MenuItem
+                icon={<DiffIcon size={16} />}
+                label={`Changes${touched > 0 ? ` · ${touched} file${touched === 1 ? '' : 's'}` : ''}`}
+                title="What this conversation edited, as diffs."
+                onSelect={() => store.setDetailsTab('changes')}
+              />
+            )}
+            {elsewhere ? (
+              <MenuItem
+                icon={armed ? <NewWorktreeIcon size={16} /> : <BranchIcon size={16} />}
+                label={armed ? 'The worktree is made when the message goes' : 'Starts in this worktree when the message goes'}
+                title="Where it starts is chosen in the composer, under Work in."
+                disabled
+                onSelect={() => {}}
+              />
+            ) : (
+              <>
+                <MenuItem
+                  icon={<HistoryIcon size={16} />}
+                  label="History"
+                  title="The repository's commits, branches and tags, in a pane."
+                  onSelect={() => store.openGitHistory(cwd)}
+                />
+                {/* The branch is one row, and the branches are behind it — Codex
+                    hangs its list off the branch rather than repeating it as a
+                    heading over a second list of the same names. */}
+                {branch ? (
+                  <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
+                    <BranchSwitcher root={cwd} onDone={close} />
+                  </Submenu>
+                ) : (
+                  <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
+                )}
+              </>
+            )}
+            {worktree?.branch && (
+              <MenuItem
+                icon={<HomeIcon size={16} />}
+                label="Bring it back to the main checkout…"
+                title="Checks its branch out in the main checkout; the worktree's folder goes."
+                onSelect={onBringHome}
+              />
+            )}
+            {worktree && (
+              <MenuItem
+                icon={<TrashIcon size={16} />}
+                label="Remove this worktree…"
+                title="Lists what would be lost first. The branch stays."
+                onSelect={onRemoveWorktree}
+              />
+            )}
+            {session && key && runtime.capabilities.review && (
+              <MenuItem
+                icon={<ReviewIcon size={16} />}
+                label="Review uncommitted changes"
+                title="On a side thread, leaving this one as it is."
+                disabled={record ? RECORD_REASON : false}
+                onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
+              />
+            )}
+            {session && (
+              <MenuItem
+                icon={<CommitIcon size={16} />}
+                label="Commit the changes"
+                title="Asks the agent, in this conversation; you send it."
+                onSelect={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('harnessdesk:compose', {
+                      detail:
+                        'Commit the changes from this conversation with a clear message, then tell me the commit hash.',
+                    }),
+                  )
+                }
+              />
+            )}
+          </Menu>
+        )}
+      </Popover>
+    </HeaderStatusReading>
   )
 }
 
-import { CeilingChip } from './CeilingChip'
-import { seatCeilingOf } from '../lib/ceilings'
+import { seatCeilingWords } from '../lib/agents'
+import { ceilingTitle, seatCeilingOf } from '../lib/ceilings'
 
 /** The ceiling governing this conversation, or nothing on the plain path. */
 const HeaderCeiling = ({ session }: { readonly session: Session }) => {
   const snapshot = useSnapshot()
   const runs = useMemo(() => [...snapshot.flowRuns.values()].flat(), [snapshot.flowRuns])
   const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
-  return shown ? <CeilingChip ceiling={shown.ceiling} note={shown.note} /> : null
+  return shown ? (
+    <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
+      <HeaderStatusReading label="Ceiling" detail={ceilingTitle(shown.ceiling, shown.note)}>
+        <Text role="meta" data-ceiling={shown.ceiling.level} data-hold={shown.ceiling.hold}>{seatCeilingWords(shown.ceiling)}</Text>
+      </HeaderStatusReading>
+    </span>
+  ) : null
 }
 
 /**

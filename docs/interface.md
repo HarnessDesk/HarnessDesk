@@ -440,8 +440,14 @@ once.
 
 ## The conversation
 
-**The header earns each button**: title · status dot and label · background
-tasks chip · git control · plan meters · browser button · terminal toggle · ⋮.
+**The header earns each button**: title · status group · browser button ·
+terminal toggle · ⋮. The status group puts the ceiling, status, background work,
+branch and plan readings on one chip ground. Hover or keyboard focus names every
+reading in one card, including words folded away in a narrow pane. Working and
+other agents’ limits stay neutral; an approval, failure or this conversation’s
+low or spent allowance takes a tone while it needs attention. Working has a
+square light that stays distinct when reduced motion stops its pulse. The context ring
+stays beside the model in the composer, with its own usage card.
 
 - The **git control** is the branch chip and the menu behind it: Changes with the
   count of files this conversation touched, the branch and folder, bring a
@@ -791,6 +797,10 @@ answers showed: "Signed in" once a conversation has opened, its declared
 sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
 "Needs sign-in" on the strength of an empty list. ⌘, opens this page.
+
+Extensions › Reload holds changes while any conversation on the account has
+selected tool servers. Its notice asks you to close those conversations, then
+try Reload again. Each Seat keeps the tool servers it opened with.
 
 **Workspaces** lists every folder opened, each a way into its project's page —
 *Project settings* in the sidebar's project menu opens the same page — which

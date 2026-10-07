@@ -78,7 +78,8 @@ export interface CodexSessionDeps {
   /** Maps Codex's tool callbacks back to the contributions that produced them. */
   readonly projection: ToolProjection
   readonly capabilities?: CapabilityRegistry
-  readonly onReleased?: (id: string) => Promise<void>
+  /** The handle was closed; `status` is Codex's answer to the unsubscribe, and nothing when it gave none. */
+  readonly onReleased?: (id: string, status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined) => void
   readonly onClosed: (id: string, closing: Promise<void>) => void
   readonly emit: (event: AgentEvent) => void
   /**
@@ -127,6 +128,7 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  #turnRevision = 0
   readonly #pendingInputs: (readonly UserContent[])[] = []
   readonly #recordedInputs = new Map<string, readonly UserContent[]>()
 
@@ -466,6 +468,7 @@ export class CodexSession implements AgentSession {
 
   /** Called by the runtime as turns open and close on this thread. */
   noteTurnStarted(turnId: string): void {
+    this.#turnRevision++
     this.#currentTurnId = turnId
     if (this.#pendingSilentOrder) {
       this.#silentTurnIds.set(turnId, this.#pendingNoticeKind)
@@ -475,6 +478,7 @@ export class CodexSession implements AgentSession {
   }
 
   noteTurnEnded(turnId: string): void {
+    this.#turnRevision++
     if (this.#currentTurnId === turnId) {
       this.#currentTurnId = null
       this.#pendingInputs.length = 0
@@ -484,6 +488,18 @@ export class CodexSession implements AgentSession {
 
   get activeTurnId(): TurnId | null {
     return this.#currentTurnId ? makeTurnId(this.#currentTurnId) : null
+  }
+
+  /** A resume subscribes to a running thread without repeating its turn/started. */
+  async recoverActiveTurn(): Promise<void> {
+    const revision = this.#turnRevision
+    const turns = await this.deps.server.request('thread/turns/list', {
+      threadId: this.id, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded',
+    })
+    // A notification heard during the read is newer than its snapshot.
+    if (this.#closing || this.#turnRevision !== revision) return
+    const active = turns.data.find((turn) => turn.status === 'inProgress')
+    if (active) this.noteTurnStarted(active.id)
   }
 
   /** Whether `turnId`'s opening item is a standing order, not a person's turn — see `#silentTurnIds`. */
@@ -776,19 +792,26 @@ export class CodexSession implements AgentSession {
 
   close(): Promise<void> {
     if (this.#closing) return this.#closing
-    this.#closing = Promise.resolve().then(() => this.#close())
+    this.#closing = Promise.resolve().then(() => this.#close()).catch((error: unknown) => {
+      this.#closing = null
+      throw error
+    })
     this.deps.onClosed(this.id, this.#closing)
     return this.#closing
   }
 
   async #close(): Promise<void> {
+    // Closing a pane ends its work before dropping the subscription that
+    // carries completion and approvals back to the host. Other threads stay live.
+    if (this.#currentTurnId !== null) await this.interrupt()
+    let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
     try {
-      await this.deps.server.request('thread/unsubscribe', { threadId: this.id }, { timeoutMs: 2_000 })
+      status = (await this.deps.server.request('thread/unsubscribe', { threadId: this.id }, { timeoutMs: 2_000 })).status
     } catch {
       // Unsubscribing is best-effort — the thread is already detached on our
       // side, and a dead app-server has nothing to unsubscribe from.
     } finally {
-      await this.deps.onReleased?.(this.id)
+      this.deps.onReleased?.(this.id, status)
     }
   }
 }

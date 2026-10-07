@@ -131,6 +131,7 @@
      attribute selector, on `data-slot` Chip always sets, breaks the tie in
      this rule's favour regardless of load order. */
   .statusIdle[data-slot='chip'],
+  .statusIdle[data-slot='header-status-reading'],
   .headerRuleWrap,
   /* Same tie as the idle pill above: Tailwind's own `inline-flex` utility on
      this span is a single class too, so a plain `.ceilingWrap` here can lose

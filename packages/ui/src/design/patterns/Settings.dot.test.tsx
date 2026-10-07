@@ -22,6 +22,12 @@ afterEach(() => {
 })
 
 describe('Dot', () => {
+  it('can name activity by shape when motion is reduced', () => {
+    act(() => root.render(<Dot tone="neutral" shape="square" pulse />))
+    expect(container.querySelector('[data-slot="dot"]')?.getAttribute('data-shape')).toBe('square')
+    expect(css).toMatch(/\.dot\[data-shape='square'\]\s*\{[^}]*border-radius:\s*var\(--hd-radius-2xs\)/s)
+  })
+
   it('is the neutral light when it is given no state', () => {
     act(() => root.render(<Dot />))
     const dot = container.querySelector<HTMLElement>('[data-slot="dot"]')

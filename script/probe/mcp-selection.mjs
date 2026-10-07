@@ -32,7 +32,7 @@ const pids = async () => (await readFile(ledger, 'utf8')).trim().split('\n').fil
 const running = (pid) => { try { process.kill(pid, 0); return true } catch { return false } }
 const count = async () => (await pids()).filter(running).length
 const until = async (read) => {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + 75_000
   while (!await read()) {
     if (Date.now() >= deadline) throw new Error('The synthetic MCP child did not reach the expected state.')
     await pause(20)
@@ -88,7 +88,7 @@ try {
     const ordinary = await runtime.createSession({ cwd: root })
     await until(async () => await count() === 3)
     const none = await runtime.createSession({ cwd: root, runtimeServers: [] })
-    if (await count() !== 3 || runtime.resourceProcessIds().length !== 4) throw new Error('The adapter did not preserve the independent selections and roots.')
+    if (await count() !== 3 || runtime.resourceProcessIds().length !== 1) throw new Error('The adapter did not preserve the independent selections and roots.')
     await narrowed.close()
     await until(async () => await count() === 2)
     await ordinary.close()

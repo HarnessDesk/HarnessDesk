@@ -24,6 +24,10 @@
   height: 7px;
 }
 
+.dot[data-shape='square'] {
+  border-radius: var(--hd-radius-2xs);
+}
+
 .dot[data-state='ready'] {
   background: var(--hd-success);
 }
