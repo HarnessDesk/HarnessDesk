@@ -771,26 +771,31 @@ test('Cline-style auto_approve is a permission option and round-trips as a boole
   }
 })
 
-test('a select carries model status and drops cleared or malformed provenance (#1311)', async () => {
-  for (const status of ['Auto voice', 42, null]) {
-    const runtime = make({ FAKE_MODEL_STATUS: JSON.stringify(status) })
-    await runtime.start()
-    const tape = record(runtime)
-    try {
-      const session = await runtime.createSession({ cwd: '/tmp/w' })
-      const voice = () => session.options().find((option) => option.id === 'voice')
-      assert.equal(voice()?.type, 'select')
-      assert.equal(voice()?.modelStatus, typeof status === 'string' ? status : undefined)
-      await session.setOption('voice', 'pirate')
-      await tape.until((event) => event.type === 'session/options' && event.options.some((option) =>
-        option.id === 'voice' && option.currentValue === 'pirate' && option.modelStatus === undefined))
-      assert.equal(voice()?.currentValue, 'pirate')
-      assert.equal(voice()?.modelStatus, undefined, 'an empty status removes the report')
-    } finally {
-      await runtime.dispose()
+for (const control of [
+  { id: 'voice', type: 'select', status: 'Auto voice', next: 'pirate' },
+  { id: 'verbose', type: 'boolean', status: 'Auto detail', next: true },
+] as const) {
+  test(`a ${control.type} carries model status and drops cleared or malformed provenance (#1311)`, async () => {
+    for (const status of [control.status, 42, null]) {
+      const runtime = make({ FAKE_MODEL_STATUS: JSON.stringify(status) })
+      await runtime.start()
+      const tape = record(runtime)
+      try {
+        const session = await runtime.createSession({ cwd: '/tmp/w' })
+        const option = () => session.options().find((option) => option.id === control.id)
+        assert.equal(option()?.type, control.type)
+        assert.equal(option()?.modelStatus, typeof status === 'string' ? status : undefined)
+        await session.setOption(control.id, control.next)
+        await tape.until((event) => event.type === 'session/options' && event.options.some((option) =>
+          option.id === control.id && option.currentValue === control.next && option.modelStatus === undefined))
+        assert.equal(option()?.currentValue, control.next)
+        assert.equal(option()?.modelStatus, undefined, 'an empty status removes the report')
+      } finally {
+        await runtime.dispose()
+      }
     }
-  }
-})
+  })
+}
 
 test('changing the model in ACP emits session/settings as well as session/options (#374)', async () => {
   const runtime = make()

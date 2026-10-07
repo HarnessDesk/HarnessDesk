@@ -191,6 +191,9 @@ const configOptionsOf = (state) => [
     name: 'Verbose',
     type: 'toggle',
     currentValue: state.options.verbose,
+    ...(process.env.FAKE_MODEL_STATUS ? { _meta: { harnessdesk: {
+      modelStatus: !state.options.verbose ? JSON.parse(process.env.FAKE_MODEL_STATUS) : '',
+    } } } : {}),
   },
   {
     id: 'auto_approve',
