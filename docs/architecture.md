@@ -162,9 +162,12 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   receive an error after ten seconds. A deadline cannot cancel the adapter, so retries
   receive that same error until the underlying read settles, rather than
   starting more work. Settlement releases the hold without caching the answer;
-  another account or a replacement registration has its own hold. Account-change
-  events reject an older shared read and release its hold, so fresh callers can
-  read the new sign-in state without waiting for the old adapter. A deadline logs
+  another account or a replacement registration has its own hold. An
+  account-change event hands the callers of an older shared read to a fresh
+  read that begins after it, and releases the older hold: nobody waits for the
+  old adapter, is answered by it, or is failed by a change that was not theirs
+  to retry ([why](decisions.md#an-account-change-hands-the-reads-in-flight-to-a-fresh-read)).
+  An event with no read in flight starts none. A deadline logs
   one warning with the runtime named. Removing or replacing the registration and
   closing the host clear its deadline and reject callers still waiting.
 - **Sessions and events.** One registry, fanned out to every connected client;

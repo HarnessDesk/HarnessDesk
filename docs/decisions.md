@@ -2572,3 +2572,53 @@ was made; a saved flag reports configuration, not a measured charge.
 The bridge reflects that flag after a turn while preserving a newer manual
 choice. Automatic provenance stays an observation: it is shown in the model
 menu and hover text and is excluded from saved preset preferences.
+
+## An account change hands the reads in flight to a fresh read
+
+[Account reads](architecture.md) are bounded: host calls through a registered
+runtime share one read per account generation, each with a ten-second deadline.
+When an account-change notice arrived while a read was in flight, that read was
+ended with "Account changed during a read. Try again.", so that nobody was
+answered by an adapter that began before the change and nobody waited on one
+that never answered.
+
+**What it did to a seat.** No caller retries that error, and the seat offer
+reports an account it cannot read as the runtime being unavailable. A signed-in
+Codex says `account/updated` once, on its own, between 0.36 and 0.90 s after its
+app-server is up (nine runs on 0.160.0, `script/probe/account-notice.mjs`), and
+the desk reads the account the moment it resolves a seat, which just after a
+start is inside that window. The notice landed on the read and failed it: the
+seat was passed over as `unavailable: its account could not be read — Account
+changed during a read. Try again`, and a Flow could not seat Codex at all, with
+a refusal that said only "No seat could be opened". The same resolution a few
+seconds later was accepted. Reproduced on the real binary and the real home
+through the whole host: a Flow dry run right after the start was refused five
+times out of five, and accepted three times out of three with the change below.
+An empty home says nothing, which is why a throwaway home never showed it. The
+build before #1480 had no bound on account reads and so nothing to fail.
+
+**The decision.** A change hands the callers of the read in flight to a fresh
+read that begins after the notice. They are answered by something no older than
+the notice, never by an error, and never by the older adapter, whenever it
+speaks. That keeps what the bound was made for: one shared read per account
+generation, the deadline on each, the older read's late settlement neither
+releasing nor changing the newer one, and a teardown refusing the callers still
+waiting. A change with nothing in flight starts nothing.
+
+**What it costs.** A notice that lands on a read in flight starts one more
+adapter read while the older one is still outstanding, as a fresh caller's
+already did. A stream of notices would start one each; none does today, since
+Codex says it once.
+
+**Refused.** *Retrying in the seat offer.* That repairs one caller and leaves
+`runtime/account` and every other reader raising the same sentence. *Ignoring
+the notice.* It is how a sign-in finished in another window reaches this one.
+*Reverting the bound.* Reads a client had stopped waiting for did accumulate,
+which is what it was made to stop.
+
+**Not measured.** A real change of account, a sign-in finishing elsewhere,
+landing on a read in flight: the scripted Codex plays the notice from the
+measurement above and nothing else. Whether Codex says `account/updated` again
+later in a session, when another process refreshes the shared credential: it
+was not heard in a run of about seventeen seconds, which says nothing about an
+hour.
