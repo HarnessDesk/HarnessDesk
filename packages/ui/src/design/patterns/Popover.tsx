@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { buttonEdge, buttonVariants } from '../ui/button'
 
 import styles from './Popover.module.css'
+import { useHeaderStatusGroup } from './HeaderStatusGroup'
 
 /* The contract itself is in `lib/overlays.ts`, free of React so that anything
    can take part in it; it is re-exported here because this is the module the
@@ -151,6 +152,7 @@ export const Popover = ({
   sideOffset?: number
   children: (close: () => void) => ReactNode
 }) => {
+  const grouped = useHeaderStatusGroup()
   const [open, setOpenState] = useState(false)
   // What the caller was last told, kept beside the state rather than read out
   // of an updater: an updater runs during render (twice, in StrictMode), and a
@@ -223,23 +225,14 @@ export const Popover = ({
           style={edge?.style}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
-          title={title}
-        /* A glyph is not a name. When the trigger's content is an icon rather
-           than words, the hover text becomes the accessible name — otherwise
-           the control is announced as "button" and a screen reader user has no
-           way to know what it opens. A trigger that already says something in
-           text keeps saying it.
-
-           "Says something in text" is the whole of the condition, and it used
-           to be spelled `typeof label === 'string'` — which is true of a bare
-           string and false of *every* fragment, including the ones that are
-           mostly words. So the conversation header's branch chip, whose label
-           is an icon plus `<span>feat/worktrees</span>`, was announced as
-           `/Users/…/.claude/worktrees/worktree`: its own visible label
-           replaced by a path. That is WCAG 2.5.3 — "click feat/worktrees"
-           matches nothing — and it fails in the direction that matters,
-           because the visible text is what a person says out loud. */
-          {...(title === undefined || hasText(label) ? {} : { 'aria-label': title })}
+          title={grouped ? undefined : title}
+        /* Icon-only triggers use their title as a name. Outside a status
+           group, words (including text in fragments) name themselves.
+           Grouped triggers instead use the title to keep folded words and
+           facts accessible without a second tooltip; their caller must
+           include every visible word in that title, including countdowns,
+           so voice commands can still match the control (WCAG 2.5.3). */
+          {...(title === undefined || (!grouped && hasText(label)) ? {} : { 'aria-label': title })}
         >
           {label}
         </PopoverTrigger>

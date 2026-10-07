@@ -1,0 +1,52 @@
+.group {
+  display: inline-flex;
+  flex: none;
+  min-width: 0;
+}
+
+.group[hidden] {
+  display: none;
+}
+
+/* A group costs the chip's one ground, rather than one pill per reading. */
+.chip[data-slot='chip'] {
+  max-width: none;
+  height: auto;
+  min-height: var(--hd-chip-h);
+  padding: 0 var(--hd-space-1);
+}
+
+/* Readings own their folds; clipping the chip's words cuts control rings. */
+.chip > [data-slot='chip-words'],
+.chip > [data-slot='chip-words'] > span {
+  overflow: visible;
+}
+
+@container hd-header (max-width: 400px) {
+  .chip[data-slot='chip'] {
+    padding: 0;
+  }
+}
+
+.reading {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.facts {
+  display: grid;
+  gap: var(--hd-space-2);
+  margin: var(--hd-space-2) 0 0;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--hd-space-2);
+}
+
+.detail {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

@@ -1381,10 +1381,10 @@ no conversation open the selected agent stands in. If signed out, it displays a
 sign-in button in accent ink, offering the one press that clears the blocker.
 
 **The rest** — one token, of constant width, for every other agent: the mark for
-*everyone*, and one figure. It says `3 out` in red when three of them are out,
-otherwise the least left among them, otherwise how many there are. It carries
-tone, because a bare `+5` would have to be opened before anyone could tell
-whether it mattered, and that is the one thing chrome must never ask. Its panel
+*everyone*, and one figure. It says `3 out` when three of them are out,
+otherwise the least left among them, otherwise how many there are. It stays
+neutral: those agents do not block this conversation. The header status group’s
+shared hover and focus card labels the count and every promoted countdown. Its panel
 is the roster it stands for — one row per **account**, in roster order, plus the
 agents with no bar saying what they are instead, so the count and the rows can
 never disagree.
@@ -1418,7 +1418,7 @@ describing depended on a race.
 **What a bar is made of.** The agent's mark, a 34px track filled by what is
 *left*, and the figure. The mark identifies the agent without spending a word on
 its name; the fill is read before any number is; the figure is what you
-actually repeat out loud. Tone is what is left — ≥20% neutral, under 20% amber,
+actually repeat out loud. The anchor’s tone is what is left — ≥20% neutral, under 20% amber,
 nothing left red. The card's tone also folds in pace, and the strip deliberately
 does not: pace is a prediction, a 34px bar has no room to explain one, and an
 unexplained amber on an agent with 71% left is noise. Colour on the strip means
