@@ -37,6 +37,9 @@ export interface AgentDefinition {
    * (`parseNames` in `attachments/catalog.ts`), but never each other's names.
    */
   readonly mcp: readonly string[]
+  /** Native configured servers only: omitted keeps defaults; [] suppresses all.
+   * Never enables a disabled server or imports a new server specification. */
+  readonly runtimeServers?: readonly string[]
   /**
    * Ordered seat preference — the first candidate that is installed, signed in
    * and unspent is taken. The same grammar a flow role's `seats` uses, because

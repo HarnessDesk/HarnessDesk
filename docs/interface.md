@@ -767,8 +767,16 @@ For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
 regardless of the stored switch. The switch shows and changes the stored
 preference; disabling it does not remove that environment override.
 
-**Runtimes** is every registered runtime with its accounts beneath it, and a
-page per runtime (health, update, the runtime's own options) or per account;
+**Runtimes** lists every registered runtime with its accounts beneath it.
+Its Process cost section lists runtimes holding processes, with process count and
+resident memory, including descendants, refreshed every five seconds while the
+page is open. A failed or unsupported measurement says so. Shared pages may
+count more than once. **Recycle** stops only an unused running
+runtime; open conversations, work and in-flight reads prevent it. The same
+section appears on a runtime's detail page, where an idle runtime says **Not running**;
+observing it never starts one. Shared recycling refusals are stated once below the table.
+
+It has a page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* is where a registry entry or a custom one is added. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
 means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
@@ -777,6 +785,10 @@ answers showed: "Signed in" once a conversation has opened, its declared
 sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
 "Needs sign-in" on the strength of an empty list. ⌘, opens this page.
+
+Extensions › Reload holds changes while any conversation on the account has
+selected tool servers. Its notice asks you to close those conversations, then
+try Reload again. Each Seat keeps the tool servers it opened with.
 
 **Workspaces** lists every folder opened, each a way into its project's page —
 *Project settings* in the sidebar's project menu opens the same page — which

@@ -7,14 +7,15 @@ import { fileURLToPath } from 'node:url'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
-test('the production host releases finished-seat MCP processes, protects work, and resumes through fresh conversation processes', { timeout: 30_000 }, async () => {
+test('the production host releases finished-seat MCP processes, protects work, and resumes in one process', { timeout: 30_000 }, async () => {
   const root = tempDir('hd-idle-bootstrap-')
   const repo = await makeRepo('hd-idle-bootstrap-repo-')
   const env: NodeJS.ProcessEnv = { ...process.env,
     HOME: tempDir('hd-idle-bootstrap-home-'), HARNESSDESK_NO_UPDATE_CHECK: '1',
     HD_STATE: root, HD_REPO: repo.dir, HD_BOOTSTRAP: new URL('../src/bootstrap.js', import.meta.url).href,
     HD_FAKE: fileURLToPath(new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url)),
-    FAKE_CODEX_MODE: 'hold', FAKE_CODEX_MCP_CHILDREN: join(root, 'children.ndjson'),
+    // Codex closes an unsubscribed idle thread after a minute; the scripted one does so at once.
+    FAKE_CODEX_MODE: 'hold', FAKE_CODEX_MCP_CHILDREN: join(root, 'children.ndjson'), FAKE_CODEX_UNLOAD_MS: '1',
     FAKE_CODEX_PAGED_HISTORY: '1', FAKE_CODEX_FILE_ROOT: repo.dir,
   }
   delete env['SHELL']

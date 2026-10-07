@@ -925,6 +925,8 @@ export class AcpConnection {
     this.#options = options
   }
 
+  get processId(): number | null { return this.#child?.pid ?? null }
+
   get alive(): boolean {
     return this.#child !== null && this.#child.exitCode === null
   }

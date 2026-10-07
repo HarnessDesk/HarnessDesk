@@ -301,7 +301,7 @@ const flowSeatOverrides: Validator<Record<string, FlowSeat[]>> = (value, path = 
 
 const withoutHostOnly = <T>(read: Validator<T>): Validator<T> => (value: unknown, path = '') => {
   const object = isObject(value, path)
-  for (const key of ['attachments', 'knownCwd']) {
+  for (const key of ['attachments', 'knownCwd', 'runtimeServers']) {
     if (Object.hasOwn(object, key)) throw new ValidationError(`${path}.${key}`, 'set by the host only')
   }
   return read(value, path)
@@ -936,6 +936,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   ...insightValidators,
   'host/hello': shape({ clientVersion: isString }),
 
+  'runtime/resources': shape({}),
+  'runtime/recycle': shape({ runtime: isString }),
   'runtime/health': shape({ runtime: isString }),
   'diagnostics/bundle': isObject,
   'runtime/models': shape({ runtime: isString }),

@@ -1515,6 +1515,11 @@ export class AcpRuntime implements AgentRuntime {
     return 'restarted'
   }
 
+  resourceProcessIds(): readonly number[] {
+    const pid = this.#connection.processId
+    return pid === null ? [] : [pid]
+  }
+
   health(): RuntimeHealth {
     return this.#health
   }

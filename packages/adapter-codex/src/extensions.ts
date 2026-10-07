@@ -26,7 +26,7 @@ import type {
 const isSessionImport = (kind: string): boolean => kind.toUpperCase() === 'SESSIONS'
 
 export class CodexExtensions implements RuntimeExtensions {
-  constructor(private readonly server: CodexAppServer) {}
+  constructor(private readonly server: CodexAppServer, private readonly reload?: () => Promise<void>) {}
 
   /**
    * The plugin marketplaces — the curated, on-disk plugins a Codex user
@@ -134,7 +134,8 @@ export class CodexExtensions implements RuntimeExtensions {
   }
 
   async reloadMcp(): Promise<void> {
-    await this.server.request('config/mcpServer/reload', undefined)
+    if (this.reload) await this.reload()
+    else await this.server.request('config/mcpServer/reload', undefined)
   }
 }
 
