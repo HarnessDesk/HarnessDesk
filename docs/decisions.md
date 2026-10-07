@@ -2170,7 +2170,9 @@ differs between seats is a parameter of their own thread, never of the process:
 - *Finishing a seat.* Closing the handle interrupts its active turn before
   unsubscribing the thread, while completion and approval events are still heard. Codex closes
   it after its minute and the helpers go with it; the runtime counts the
-  closed handle until `thread/closed` arrives and does not announce that close
+  closed handle from the moment it asks for the unsubscribe, not from its
+  answer, until `thread/closed` arrives — a close Codex makes at once can be
+  read in the same chunk as the answer — and does not announce that close
   or its `notLoaded` status back to the desk, which asked for it. The
   sub-agent threads it left loaded are found among the loaded threads by their
   parent and unsubscribed with it, which a process of its own used to do by
