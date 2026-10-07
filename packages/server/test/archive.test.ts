@@ -487,3 +487,17 @@ test('a reopen that still fails lets go of the handle it resumed and spends the 
     assert.ok(record.live)
   } finally { await rig.close() }
 })
+
+test('the resume of a released conversation that cannot be reopened gives its reason once', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params } = await openWithATurn(rig)
+    await rig.client.call('session/archive', { ...params, archived: true })
+    rig.runtime.resumeFailure = new Error('the agent is gone')
+    await assert.rejects(rig.client.call('session/resume', params), (error: Error) => {
+      assert.equal(error.message.match(/could not reopen this conversation/g)?.length, 1, error.message)
+      assert.ok(error.message.endsWith('the agent is gone'), error.message)
+      return true
+    })
+  } finally { await rig.close() }
+})

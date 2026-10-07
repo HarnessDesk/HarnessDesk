@@ -167,6 +167,9 @@ export const sessionMethods = {
     try {
       live = await resolve()
     } catch (error) {
+      // The scoped path reopens through the host, which has already worded the
+      // refusal and kept its code; wording it again says the sentence twice.
+      if (scoped) throw error
       // A conversation held by another writer is not a failure to explain
       // but a place to be sent; it keeps its own sentence and its code.
       if (isSessionBusy(error)) {
