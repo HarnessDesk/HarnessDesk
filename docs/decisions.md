@@ -971,6 +971,17 @@ the same way, can replay.
 write there happens without checking every component for links, with the
 macOS kernel flag or the Linux component walk.
 
+Agent-folder copy, export, Save and restore have a narrower content-open
+boundary in `agent-file-open.ts`: macOS uses `O_NOFOLLOW_ANY`; Linux holds a
+directory descriptor and opens each next name through `/proc/self/fd` with
+`O_NOFOLLOW`. A linked ancestor is refused before it is opened, and replacing
+an already-open directory's name cannot redirect a later content read or
+write. Every directory descriptor is closed before the content handle is
+returned or an error escapes. Linux without procfs, and other platforms,
+refuse these opens rather than falling back to path-only checks. Directory
+creation, publication and cleanup still use paths and identity checks; this
+does not turn the whole operation into a descriptor-relative transaction.
+
 ## An evidence guard judges revisions, found by card and revision, never by round
 
 A finished round's rule asks whether some work is good enough to move on,
