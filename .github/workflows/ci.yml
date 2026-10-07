@@ -363,12 +363,12 @@ jobs:
   ui-system-browser:
     needs: changes
     if: needs.changes.outputs.browser == 'all'
-    name: UI system browser integration shard ${{ matrix.shard }}/6
+    name: UI system browser integration shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     # Four shards took 14–17 minutes and a loaded runner reached the 20-minute
     # job limit (#1140). Spread the suite further and leave room for setup,
     # runner variation and the report upload after tests finish.
@@ -376,9 +376,10 @@ jobs:
     # Six shards dealt by Playwright's `--shard` took from 10 to 20 minutes,
     # because it deals by the number of tests and they take two seconds to three
     # minutes each. `script/ci-browser-shards.mjs` deals the spec files by the
-    # time they took instead, so the six finish together, and each shard runs
-    # its specs on three workers (`playwright.ui-system.config.ts`) rather than
-    # one on a four-core runner.
+    # time they took instead, so the shards finish together, and each shard runs
+    # two browsers at once (`playwright.ui-system.config.ts`) rather than one on
+    # a four-core runner, and there are eight of them so that each has less to
+    # do.
     timeout-minutes: 30
 
     steps:
@@ -400,7 +401,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - name: Run this shard's specs
         run: |
-          mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/6)
+          mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/8)
           # An empty deal must never accidentally run the entire suite.
           test "${#specs[@]}" -gt 0
           pnpm test:ui-system "${specs[@]}"

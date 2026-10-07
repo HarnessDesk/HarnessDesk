@@ -32,21 +32,21 @@ const origin = `http://127.0.0.1:${port}`
 
 /**
  * How many browsers run at once. One anywhere but CI: a Mac that other work
- * shares should not have three started on it, and a re-record of a baseline
+ * shares should not have several started on it, and a re-record of a baseline
  * (`UPDATE_METRICS`, `UPDATE_ALIGNMENT`) must stay a run of one file at a time.
- * A CI runner has four cores, and a shard of this suite on one of them used a
- * quarter of the machine for as long as ten to twenty minutes; three browsers
- * leave the dev server the fourth.
+ * On CI, half the cores, which is Playwright's own default: each browser draws
+ * on a core of its own and the dev server needs one more. Three on a
+ * four-core runner was tried first, and two of six shards then ran their tests
+ * twice as slowly as the other four, with a test timing out in each of two.
  *
- * `PLAYWRIGHT_UI_SYSTEM_WORKERS` overrides it. If a shard ever starts to flake
- * under contention, lowering it there is the first thing to try.
+ * `PLAYWRIGHT_UI_SYSTEM_WORKERS` overrides it.
  */
 const envWorkers = Number(process.env.PLAYWRIGHT_UI_SYSTEM_WORKERS)
 const workers =
   Number.isInteger(envWorkers) && envWorkers > 0
     ? envWorkers
     : process.env.CI
-      ? Math.max(1, Math.min(3, os.availableParallelism() - 1))
+      ? Math.max(1, Math.floor(os.availableParallelism() / 2))
       : 1
 
 export default defineConfig({
@@ -60,10 +60,10 @@ export default defineConfig({
   workers,
   retries: 0,
   // The defaults (30s a test, 5s an assertion) are sized for a browser that has
-  // the machine to itself. Beside two more, and the dev server, a test that
-  // takes twenty seconds alone takes longer; the limit is for a test that is
-  // stuck, not for one that is slow because its neighbours are busy.
-  ...(workers > 1 ? { timeout: 60_000, expect: { timeout: 10_000 } } : {}),
+  // the machine to itself. Beside another, and the dev server, a test that takes
+  // twenty seconds alone takes longer; the limit is for a test that is stuck,
+  // not for one that is slow because its neighbour is busy.
+  ...(workers > 1 ? { timeout: 90_000, expect: { timeout: 10_000 } } : {}),
   reporter: [['list'], ['html', { outputFolder: './output/playwright/ui-system/report', open: 'never' }]],
   use: {
     baseURL: origin,

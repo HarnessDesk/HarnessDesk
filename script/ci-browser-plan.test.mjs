@@ -12,14 +12,14 @@ const CLI = fileURLToPath(new URL('./ci-browser-shards.mjs', import.meta.url))
 test('every spec runs on exactly one shard, however many shards there are', () => {
   const specs = specFiles(root)
   assert.ok(specs.length > 50, 'the suite is found')
-  for (const total of [1, 2, 3, 6, 7, 12]) {
+  for (const total of [1, 2, 3, 6, 8, 12]) {
     const dealt = plan(specs, recordedSeconds(root), total).flatMap(shard => shard.specs)
     assert.deepEqual([...dealt].sort(), specs, `${total} shards`)
   }
 })
 
 test('the shards of the recorded suite finish together', () => {
-  const loads = plan(specFiles(root), recordedSeconds(root), 6).map(shard => shard.load)
+  const loads = plan(specFiles(root), recordedSeconds(root), 8).map(shard => shard.load)
   const mean = loads.reduce((a, b) => a + b, 0) / loads.length
   assert.ok(Math.max(...loads) - Math.min(...loads) <= mean * 0.1, `loads ${loads.join(', ')}`)
 })
@@ -41,7 +41,7 @@ test('a spec nobody has timed yet still runs, counted as a typical one', () => {
 })
 
 test('a shard is printed as the paths Playwright is given', () => {
-  const run = spawnSync(process.execPath, [CLI, '2/6'], { encoding: 'utf8' })
+  const run = spawnSync(process.execPath, [CLI, '2/8'], { encoding: 'utf8' })
   assert.equal(run.status, 0, run.stderr)
   const paths = run.stdout.trim().split('\n')
   assert.ok(paths.length > 5)
@@ -49,7 +49,7 @@ test('a shard is printed as the paths Playwright is given', () => {
     assert.match(path, /^e2e\/ui-system\/[\w./-]+\.spec\.ts$/)
     assert.ok(existsSync(new URL(`../${path}`, import.meta.url)), path)
   }
-  for (const wrong of ['0/6', '7/6', '2', 'x/6', '']) {
+  for (const wrong of ['0/8', '9/8', '2', 'x/8', '']) {
     const refused = spawnSync(process.execPath, [CLI, wrong], { encoding: 'utf8' })
     assert.equal(refused.status, 2, `${wrong} is refused`)
     assert.equal(refused.stdout, '')

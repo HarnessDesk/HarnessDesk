@@ -12,14 +12,14 @@ const job = (name) => {
   return match[1]
 }
 
-test('browser CI spreads the suite across six shards with time for setup and reports (#1140)', () => {
+test('browser CI spreads the suite across eight shards with time for setup and reports (#1140)', () => {
   const browser = job('ui-system-browser')
-  assert.match(browser, /^    name: UI system browser integration shard \$\{\{ matrix.shard \}\}\/6$/m)
-  assert.match(browser, /^        shard: \[1, 2, 3, 4, 5, 6\]$/m)
+  assert.match(browser, /^    name: UI system browser integration shard \$\{\{ matrix.shard \}\}\/8$/m)
+  assert.match(browser, /^        shard: \[1, 2, 3, 4, 5, 6, 7, 8\]$/m)
   assert.match(browser, /^    timeout-minutes: 30$/m)
   // Dealt by measured time, not by Playwright's count of tests (script/ci-browser-shards.mjs):
-  // the deal and the matrix have to agree on six, and an empty deal must never run the whole suite.
-  assert.match(browser, /^          mapfile -t specs < <\(node script\/ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/6\)$/m)
+  // the deal and the matrix have to agree on eight, and an empty deal must never run the whole suite.
+  assert.match(browser, /^          mapfile -t specs < <\(node script\/ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/8\)$/m)
   assert.match(browser, /^          test "\$\{#specs\[@\]\}" -gt 0$/m)
   assert.match(browser, /^          pnpm test:ui-system "\$\{specs\[@\]\}"$/m)
   assert.doesNotMatch(browser, /--shard=/)

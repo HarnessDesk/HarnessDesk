@@ -8,7 +8,7 @@
 // the time they took instead, longest first onto the lightest shard, so the
 // shards finish together.
 //
-//   node script/ci-browser-shards.mjs 3/6     the specs shard 3 of 6 runs, one path per line
+//   node script/ci-browser-shards.mjs 3/8     the specs shard 3 of 8 runs, one path per line
 //
 // The times are `e2e/ui-system/durations.json`: seconds per spec file, the
 // median of five green runs on `main`, from the `list` reporter's lines. A spec
@@ -95,7 +95,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const index = Number(match?.[1])
     const total = Number(match?.[2])
     if (!match || index < 1 || index > total) {
-      process.stderr.write('usage: node script/ci-browser-shards.mjs <shard>/<shards>   (for example 3/6)\n')
+      process.stderr.write('usage: node script/ci-browser-shards.mjs <shard>/<shards>   (for example 3/8)\n')
       process.exit(2)
     }
     const shard = plan(specFiles(root), recordedSeconds(root), total)[index - 1]
