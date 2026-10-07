@@ -237,7 +237,7 @@ export const COMMANDS = [
     json: '`{ "team": "<Team id>", "card": <number>, "outcome": "<outcome>" }`.',
     exits: {
       0: 'Answered.',
-      4: "Refused: the card is not addressed to a person, the outcome is not one its role declares, the card was already answered (`alreadyAnswered`), or the desk does not grant answers (`tierNotGranted`). The desk's code is printed on stderr.",
+      4: "Refused: the card is missing (`cardMissing`), is not addressed to a person, the outcome is not one its role declares, the card was already answered (`alreadyAnswered`), or the desk does not grant answers (`tierNotGranted`). The desk's code is printed on stderr.",
     },
   },
   {

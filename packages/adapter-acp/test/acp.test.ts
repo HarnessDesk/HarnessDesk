@@ -613,8 +613,8 @@ test('a record that cannot be read leaves the turn without usage rather than a g
 /**
  * A greyed control still has a value, and leaving it where it is must work.
  *
- * This cost two dead sessions to find. Cursor's Gemini and Codex families have
- * one context window, so their Max mode switch is disabled and reads `false` —
+ * An agent with one context window declares a disabled wide-window switch
+ * that reads `false` —
  * and setting it to `false` was refused, because the check looked at
  * `disabled` before it looked at whether anything was actually changing. The
  * refusal then rode into the agent's stored picks and every later
@@ -770,6 +770,32 @@ test('Cline-style auto_approve is a permission option and round-trips as a boole
     await runtime.dispose()
   }
 })
+
+for (const control of [
+  { id: 'voice', type: 'select', status: 'Auto voice', next: 'pirate' },
+  { id: 'verbose', type: 'boolean', status: 'Auto detail', next: true },
+] as const) {
+  test(`a ${control.type} carries model status and drops cleared or malformed provenance (#1311)`, async () => {
+    for (const status of [control.status, 42, null]) {
+      const runtime = make({ FAKE_MODEL_STATUS: JSON.stringify(status) })
+      await runtime.start()
+      const tape = record(runtime)
+      try {
+        const session = await runtime.createSession({ cwd: '/tmp/w' })
+        const option = () => session.options().find((option) => option.id === control.id)
+        assert.equal(option()?.type, control.type)
+        assert.equal(option()?.modelStatus, typeof status === 'string' ? status : undefined)
+        await session.setOption(control.id, control.next)
+        await tape.until((event) => event.type === 'session/options' && event.options.some((option) =>
+          option.id === control.id && option.currentValue === control.next && option.modelStatus === undefined))
+        assert.equal(option()?.currentValue, control.next)
+        assert.equal(option()?.modelStatus, undefined, 'an empty status removes the report')
+      } finally {
+        await runtime.dispose()
+      }
+    }
+  })
+}
 
 test('changing the model in ACP emits session/settings as well as session/options (#374)', async () => {
   const runtime = make()
@@ -3287,5 +3313,18 @@ test('ACP presentation uses only a co-author supplied by the agent row', async (
     const unconfigured = new AcpRuntime({ id, name: 'Preview Agent', command: process.execPath, args: [FAKE] })
     t.after(() => unconfigured.dispose())
     assert.equal(unconfigured.info.presentation.coAuthor, null, `${id} does not identify what command the row runs`)
+  }
+})
+
+test('an agent without status metadata does not acquire a model report from its controls', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.ok(session.options().every((option) => option.modelStatus === undefined))
+    await session.setOption('ponder', 'long')
+    assert.ok(session.options().every((option) => option.modelStatus === undefined))
+  } finally {
+    await runtime.dispose()
   }
 })

@@ -6334,14 +6334,16 @@ export class Host {
         })
       })
     }
-    for (const id of ['thinking', 'fast', 'max-mode']) {
-      if (id === 'thinking' && seat.thinking !== undefined) continue
-      const option = live.options().find((one) => one.id === id)
-      if (!option || option.disabled || option.currentValue !== true) continue
-      await live.setOption(id, false).catch((error: unknown) => {
+    for (const option of live.options()) {
+      if (option.id === 'thinking' && seat.thinking !== undefined) continue
+      // A confirmation declares a switch that needs an explicit decision;
+      // an inherited value is not the new seat's consent.
+      if (option.type !== 'boolean' || !(option.confirm || ['thinking', 'fast'].includes(option.id))) continue
+      if (option.disabled || option.currentValue !== true) continue
+      await live.setOption(option.id, false).catch((error: unknown) => {
         this.#logger.warn('a flow seat inherited a switch it could not turn off', {
           runtime: seat.runtime,
-          option: id,
+          option: option.id,
           error: describeError(error),
         })
       })
