@@ -16,6 +16,18 @@
   padding: 0 var(--hd-space-1);
 }
 
+/* Readings own their folds; clipping the chip's words cuts control rings. */
+.chip > [data-slot='chip-words'],
+.chip > [data-slot='chip-words'] > span {
+  overflow: visible;
+}
+
+@container hd-header (max-width: 400px) {
+  .chip[data-slot='chip'] {
+    padding: 0;
+  }
+}
+
 .reading {
   display: inline-flex;
   align-items: center;

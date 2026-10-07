@@ -735,13 +735,9 @@ export const Conversation = ({
                 The ceiling itself is not lost — it is still read from the seat's
                 own card (AgentCards, opened from Settings › Agents or this
                 conversation's own ⋯ › Save as an Agent…). */}
+            {session && <HeaderCeiling session={session} />}
             {session && (
-              <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
-                <HeaderCeiling session={session} />
-              </span>
-            )}
-            {session && (
-              <HeaderStatusReading label="Status" detail={STATUS_LABEL[status]}>
+              <HeaderStatusReading label="Status" detail={STATUS_LABEL[status]} className={status === 'idle' ? styles.statusIdle : undefined}>
                 <Chip
                   variant="quiet"
                   tone={STATUS_PILL_TONE[status]}
@@ -755,12 +751,10 @@ export const Conversation = ({
               </HeaderStatusReading>
             )}
             {session && <TasksChip />}
-            <div className="hd-no-drag">
-              <GitControl
-                onRemoveWorktree={() => setRemovingWorktree(true)}
-                onBringHome={() => setBringingHome(true)}
-              />
-            </div>
+            <GitControl
+              onRemoveWorktree={() => setRemovingWorktree(true)}
+              onBringHome={() => setBringingHome(true)}
+            />
             {/* Empty when nothing is registered — and an empty box in a flex row
                 still takes the row's gap, which left a hole in the header that
                 looked like a control had failed to draw. */}
@@ -1164,9 +1158,11 @@ const HeaderCeiling = ({ session }: { readonly session: Session }) => {
   const runs = useMemo(() => [...snapshot.flowRuns.values()].flat(), [snapshot.flowRuns])
   const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
   return shown ? (
-    <HeaderStatusReading label="Ceiling" detail={ceilingTitle(shown.ceiling, shown.note)}>
+    <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
+      <HeaderStatusReading label="Ceiling" detail={ceilingTitle(shown.ceiling, shown.note)}>
         <Text role="meta" data-ceiling={shown.ceiling.level} data-hold={shown.ceiling.hold}>{seatCeilingWords(shown.ceiling)}</Text>
-    </HeaderStatusReading>
+      </HeaderStatusReading>
+    </span>
   ) : null
 }
 

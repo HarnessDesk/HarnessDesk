@@ -24,6 +24,7 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 }) => {
   const [readings, setReadings] = useState<ReadonlyMap<string, RegisteredReading>>(() => new Map())
   const [open, setOpen] = useState(false)
+  const group = useRef<HTMLSpanElement>(null)
   const put = useCallback((id: string, reading: RegisteredReading) => {
     setReadings((held) => new Map(held).set(id, reading))
   }, [])
@@ -48,17 +49,31 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
   })
   return (
     <StatusGroupContext.Provider value={registry}>
-      <HoverCard open={controlledOpen ?? open} onOpenChange={setOpen}>
-        <HoverCardTrigger render={<span role="group" tabIndex={0} />} aria-label={label}
+      <HoverCard open={controlledOpen ?? open} onOpenChange={(next, details) => {
+        // A portaled menu is a React descendant, but not part of this trigger.
+        // Cancel Base UI's delayed focus-open as well as our immediate one.
+        const target = details.event.target
+        if (next && (target instanceof Node && !group.current?.contains(target)
+          || details.reason === 'trigger-focus' && document.documentElement.dataset['focusInput'] === 'pointer')) {
+          details.cancel()
+          return
+        }
+        setOpen(next)
+      }}>
+        <HoverCardTrigger render={<span ref={group} role="group" tabIndex={0} />} aria-label={label}
           className={`${styles.group} hd-no-drag`} hidden={readings.size === 0}
-          onFocus={(event) => { if ((event.target as HTMLElement).matches(':focus-visible')) setOpen(true) }}
+          onFocus={(event) => {
+            if (event.currentTarget.contains(event.target)
+              && document.documentElement.dataset['focusInput'] !== 'pointer'
+              && (event.target as HTMLElement).matches(':focus-visible')) setOpen(true)
+          }}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
           }}
           onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false) }}
           onClick={() => setOpen(false)}
         >
-          <Chip tone="neutral" className={styles.chip}>{children}</Chip>
+          <Chip tone="neutral" autoTitle={false} className={styles.chip}>{children}</Chip>
         </HoverCardTrigger>
         <HoverCardContent side="bottom" align="end">
           <Text as="div" role="subject">{label}</Text>
@@ -77,11 +92,11 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 }
 
 /** Works outside a group too; only grouped readings contribute to its card. */
-export const HeaderStatusReading = ({ label, detail, children }: Reading & { readonly children: ReactNode }) => {
+export const HeaderStatusReading = ({ label, detail, children, className }: Reading & { readonly children: ReactNode; readonly className?: string | undefined }) => {
   const registry = useContext(StatusGroupContext)
   const id = useId()
   const element = useRef<HTMLSpanElement>(null)
   useEffect(() => { if (element.current) registry?.put(id, { label, detail, element: element.current }) }, [registry, id, label, detail])
   useEffect(() => () => registry?.remove(id), [registry, id])
-  return <span ref={element} data-slot="header-status-reading" className={styles.reading}>{children}</span>
+  return <span ref={element} data-slot="header-status-reading" className={[styles.reading, className].filter(Boolean).join(' ')}>{children}</span>
 }

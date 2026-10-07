@@ -127,6 +127,8 @@ type ChipBaseProps = {
   children?: ReactNode
   /** Always shown. Without one, the chip names itself in full on hover only while it is cut. */
   title?: string
+  /** Leave clipped words to a surrounding labelled hover card. */
+  autoTitle?: boolean
   size?: 'default' | 'sm'
   /** Quiet keeps the tone and type, without a pill or horizontal padding. */
   variant?: 'default' | 'outline' | 'quiet'
@@ -181,7 +183,8 @@ const chipIsCut = (words: Element): boolean =>
  *
  * - **One line, always.** It never wraps: it stops at its box (at most 240px,
  *   less when its container is narrower), ellipsises, and says itself whole
- *   in `title` while it is cut. A fact that needs two lines is a row's
+   *   in `title` while it is cut. A surrounding labelled hover card can own
+   *   that reading instead, with `autoTitle={false}`. A fact that needs two lines is a row's
  *   description, not a chip.
  * - **Stale is marked, never struck.** A stale fact leads with a history
  *   glyph, and the word "stale" is there for a screen reader. A stale *pass*
@@ -219,6 +222,7 @@ export const Chip = (props: ChipProps) => {
     unknown = false,
     children,
     title,
+    autoTitle = true,
     size = 'default',
     variant = 'default',
     count,
@@ -262,14 +266,14 @@ export const Chip = (props: ChipProps) => {
       {...(unknown ? { 'data-unknown': '' } : {})}
       {...(title
         ? { title }
-        : {
+        : autoTitle ? {
             onMouseEnter: (event: { readonly currentTarget: HTMLSpanElement }) => {
               const node = event.currentTarget
               const box = node.querySelector('[data-slot="chip-words"]')
               if (box && chipIsCut(box)) node.title = box.textContent ?? ''
               else node.removeAttribute('title')
             },
-          })}
+          } : {})}
     >
       {stale && <StaleIcon size={11} aria-hidden="true" className={styles.chipGlyph} />}
       {state && <Dot state={state} />}

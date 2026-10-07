@@ -155,6 +155,15 @@ it('says itself whole in title while it is cut, and keeps a title the caller gav
   expect(named.getAttribute('title')).toBe('Whole story')
 })
 
+it('can leave truncated words to the caller\'s hover card', () => {
+  const chip = draw(<Chip tone="neutral" autoTitle={false}>Branch reading</Chip>)
+  const words = chip.querySelector<HTMLElement>('[data-slot="chip-words"]')!
+  Object.defineProperty(words, 'scrollWidth', { configurable: true, value: 300 })
+  Object.defineProperty(words, 'clientWidth', { configurable: true, value: 120 })
+  act(() => { chip.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(chip.hasAttribute('title')).toBe(false)
+})
+
 it('marks stale with a history glyph, never a strikethrough, and mutes only a stale pass', () => {
   const pass = draw(<Chip tone="success" stale>verify ✓ @a1b2c3d</Chip>)
   expect(css).not.toMatch(/text-decoration:\s*line-through/)

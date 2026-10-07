@@ -1784,7 +1784,8 @@ facts keep those meanings distinct in both ink and their accessible names.
 
 - **One line, always.** It never wraps: it stops at its box (at most 240px,
   less when its container is narrower), ellipsises, and says itself whole
-  in `title` while it is cut. A fact that needs two lines is a row's
+  in `title` while it is cut. A surrounding labelled hover card can own
+  that reading instead, with `autoTitle={false}`. A fact that needs two lines is a row's
   description, not a chip.
 - **Stale is marked, never struck.** A stale fact leads with a history
   glyph, and the word "stale" is there for a screen reader. A stale *pass*

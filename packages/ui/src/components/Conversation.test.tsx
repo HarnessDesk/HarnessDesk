@@ -756,3 +756,15 @@ it('marks a running status for its stationary shape as well as its pulse', () =>
   const dot = container.querySelector('header [data-slot="dot"][data-pulse]')!
   expect(dot.getAttribute('data-shape')).toBe('square')
 })
+
+it('leaves no ceiling wrapper on the plain conversation path', () => {
+  render(rig(session()).store)
+  expect(container.querySelector('header [data-slot="ceiling-wrap"]')).toBeNull()
+})
+
+it('allocates no empty git slot when a draft has no folder', () => {
+  render(rig(null, new Map(), { workspace: null }).store, null)
+  const emptySlots = [...container.querySelectorAll('header [data-slot="chip-words"] > div:empty')]
+  // The extension slot already has an :empty fold; git must not leave another.
+  expect(emptySlots.every((node) => node.classList.contains(styles.headerSlot!))).toBe(true)
+})
