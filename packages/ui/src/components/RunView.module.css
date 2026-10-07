@@ -1,0 +1,8 @@
+.reading,
+.need {
+  max-width: var(--hd-column);
+  margin-inline: auto;
+}
+.need {
+  margin-block: var(--hd-space-4);
+}

@@ -20,6 +20,23 @@ const session = (startedAt = 100, busy = true): Session => ({ runtime: runtimeId
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it('records whether every round card is answered independently of round closure', () => {
+    const execution = run({ state: 'stopped', rounds: [{ ...run().rounds[0]!, state: 'closed', cards: [1, 2] }] })
+    for (const state of ['open', 'claimed', 'blocked', 'done', 'abandoned'] as const) {
+      const model = runTimeline({ execution, cards: [card({ state: 'done' }), card({ id: 2, state, claim: null })] })
+      assert.partialDeepStrictEqual(model.rows.find(row => row.kind === 'round'), { complete: state === 'done' || state === 'abandoned' })
+      assert.partialDeepStrictEqual(model.rows.find(row => row.kind === 'card'), { complete: null })
+    }
+    assert.partialDeepStrictEqual(runTimeline({ execution, cards: [card({ state: 'done' })] }).rows.find(row => row.kind === 'round'), { complete: false })
+  })
+  it('exposes recorded round start times and active state without inventing missing times', () => {
+    const round = (execution: FlowExecution, cards: Intent[]) => runTimeline({ execution, cards }).rows.find(row => row.kind === 'round')!
+    assert.partialDeepStrictEqual(round(run(), [card()]), { since: 100, working: true })
+    assert.partialDeepStrictEqual(round(run({ state: 'stopped' }), [card()]), { since: 100, working: false })
+    assert.partialDeepStrictEqual(round(run({ rounds: [{ ...run().rounds[0]!, state: 'closed' }] }), [card({ state: 'done' })]), { since: 100, working: false, durationMs: 200 })
+    assert.equal(round(run(), [card({ claim: null })]).since, null)
+    assert.equal(round(run(), []).since, null)
+  })
   it('shares evidence-wait attention with Overview and clears it when the wait closes or the Run ends', () => {
     for (const wait of [WAITING_FINDINGS(1), WAITING_FINDINGS(3), WAITING_EXCEPTION, WAITING_LEDGER]) for (const state of ['running','settled','stopped'] as const) for (const roundState of ['waiting-evidence','closed'] as const) {
       const execution=run({state,reason:`Rule after-review: ${wait}`,rounds:[{...run().rounds[0]!,state:roundState}]})

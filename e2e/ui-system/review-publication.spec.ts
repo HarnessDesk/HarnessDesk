@@ -26,7 +26,7 @@ for (const theme of ['light', 'dark'] as const) {
       const frame = page.locator(`#review-publication-${state}`)
       const header = frame.locator('[data-slot="run-header"]')
       await expect(header).toContainText(words)
-      if (['local', 'partial', 'uncertain', 'refused'].includes(state)) await expect(header).toContainText('Needs you')
+      if (['local', 'partial', 'uncertain', 'refused'].includes(state)) await expect(frame.locator('[data-slot="run-need"]')).toBeVisible()
       const round = frame.locator('[data-row="findings-3"]')
       await expect(round).toContainText(words)
       const ending = frame.locator('[data-slot="run-ending"]')
@@ -40,8 +40,9 @@ for (const theme of ['light', 'dark'] as const) {
       }[state]
       if (waitingReason) {
         await expect(ending).not.toContainText('Needs you')
-        await expect(ending.locator('[data-tone="warning"]')).toHaveCount(1)
-        await expect(ending).toContainText(waitingReason)
+        await expect(frame.locator('[data-slot="run-need"] [data-tone="warning"]')).toHaveCount(1)
+        await expect(frame.locator('[data-slot="run-need"]')).toContainText(waitingReason)
+        await expect(ending).not.toContainText(waitingReason)
         await expect(ending).not.toContainText('Nothing waits.')
       } else {
         await expect(ending).not.toContainText('Settled')
@@ -94,7 +95,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(local.getByRole('button', { name: 'Post to pull request', exact: true })).toBeDisabled()
     const narrow = page.locator('#review-publication-narrow')
     await narrow.locator('[data-row="card-3-3"]').click()
-    await expect(narrow.locator('[data-slot="run-view"]')).toBeHidden()
+    await expect(narrow.locator('[data-slot="run-scroll"]')).toBeHidden()
     const detail = narrow.locator('[data-slot="run-inspector"]')
     await expect(detail.getByRole('button', { name: 'Post to pull request', exact: true })).toBeEnabled()
     expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)

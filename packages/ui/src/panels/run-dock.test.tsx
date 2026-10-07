@@ -411,3 +411,25 @@ it('keeps a returning Run visible when the dock would cover it', async () => {
     expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
   } finally { act(() => root.unmount()) }
 })
+
+
+it('passes recorded execution facts and qualified Seat costs to the docked header', () => {
+  const store = runDockStore()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const fixture = runFixture('complete')
+  const execution = { ...fixture.execution, startedAt: 1000, endedAt: 121000, currentEndedAt: 121000,
+    findings: { version: 1 as const, budget: { rounds: 7, withoutProgress: 2 }, closedRounds: [], idleRounds: 0, progress: [], series: [], stopped: null, extraRound: null, overrides: [], lastDecision: null },
+    rounds: fixture.execution.rounds.map(round => ({ ...round, seats: ['one', 'one', 'missing'] })) }
+  const input = { ...fixture, execution }
+  try {
+    act(() => root.render(<StoreProvider store={store}><RunDockProvider>
+      <RunWorkspace model={runTimeline(input)} number={1} selectedRow={null} onSelect={() => {}}
+        inspector={{ input, seats: [{ id: 'one', name: 'Jane Doe', cost: { unit: 'money', value: 1.25, estimated: true } }] }} />
+    </RunDockProvider></StoreProvider>))
+    const facts = container.querySelector('[data-slot="run-header"] [data-slot="run-facts"]')!
+    expect(facts.textContent).toContain('Elapsed 2m')
+    expect(facts.textContent).toContain('Round 4 of 7')
+    expect(facts.textContent).toContain('Seat cost About $1.25 · Partial')
+  } finally { act(() => root.unmount()) }
+})
