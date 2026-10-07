@@ -1,6 +1,7 @@
 import { readProcessTable, resourcesFromProcessTable } from './runtime-resources.js'
 import { retainRuntimeNotice } from './runtime-notices.js'
 import { AccountReads } from './account-reads.js'
+import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
@@ -5868,13 +5869,13 @@ export class Host {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
       const frozen = this.#evidence.seats.latestKeptOf(runtime.info.id, String(id))
       const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
-      live = await runtime.resumeSession(id, {
+      live = await resumeSeatSession(runtime, id, {
         ...(route ? { route } : {}),
         ...(frozen?.runtimeServers !== undefined ? { runtimeServers: frozen.runtimeServers } : {}),
         ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
-      })
+      }, this.#evidence.seats.latestOf(runtime.info.id, String(id))?.checkout.cwd)
       await this.#restoreRestedPicks(runtime, live, id)
     } catch (error) {
       // The adapter hands a handle it still holds to the next resume, picks and

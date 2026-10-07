@@ -15,6 +15,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
+import { resumeSeatSession } from '../session-resume.js'
 import { laneEnvironmentFor } from '../goals/lane-environment.js'
 import { assertAbsoluteCwd } from '../workspace.js'
 import type { HostContext, MethodsUnder } from './context.js'
@@ -164,7 +165,8 @@ export const sessionMethods = {
       // the conversation runs, so the reopen runs on the one the caller asked for.
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId, ...(options.route ? { route: options.route } : {}) })
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
-      return runtime.resumeSession(sessionId, { ...options, ...(environment ? { environment } : {}) })
+      return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
+        ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)
     }
     let live: AgentSession
     try {
@@ -178,62 +180,12 @@ export const sessionMethods = {
       if (isSessionBusy(error)) {
         throw await ctx.sessions.busyElsewhere(runtime, makeSessionId(params.sessionId), error)
       }
-      /*
-       * A flow's Seat is not always in the agent's own listing yet.
-       *
-       * Measured on the real, signed-in Google Antigravity: a Seat still
-       * inside its first turn was refused with "does not list conversation
-       * …, so the folder it worked in is not known" — even though this desk
-       * opened that exact conversation, in that exact folder, and kept its
-       * own durable record of it (`evidence.seats`). Retried once, on that
-       * record alone: never on anything the agent itself reports, which is
-       * the risk `#cwdOf`'s own listing-only rule exists to avoid.
-       */
-      const knownCwd =
-        !scoped && error instanceof Error && isSessionGone(error) && /does not list conversation/.test(error.message)
-          ? ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd
-          : undefined
-      const retried = knownCwd
-        ? await (async (): Promise<AgentSession | null> => {
-            try {
-              const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
-              // In the host-only field: the adapter never reads a caller's
-              // `cwd` in its place, so only this record can name the folder.
-              return await runtime.resumeSession(sessionId, {
-                ...options,
-                knownCwd,
-                ...(environment ? { environment } : {}),
-              })
-            } catch (retryError) {
-              // The Seat's own folder is gone: that is the news, with the
-              // state and the row mark it draws — not the listing's sentence.
-              if (isFolderGone(retryError)) {
-                throw new SessionFolderGoneError(ctx.sessions.cannotReopen(runtime, retryError), folderGoneOf(retryError))
-              }
-              // Anything else falls through to the same refusal the first
-              // attempt gave; this is not the place to invent a third.
-              return null
-            }
-          })()
-        : null
-      if (!retried) {
-        // The same sentence a reopen gives, because it is the same event to
-        // the person reading it: the agent's own words alone ("Session not
-        // found") name neither the agent nor what was being attempted.
-        //
-        // The *code* survives with it, the way `#reattach` has always kept
-        // it. Flattening every refusal to a plain `Error` here threw away
-        // the one thing a caller cannot recover by reading English — and
-        // this is the path the app opens a conversation on, so `sessionGone`
-        // reached the renderer from a restart and never from a click (#127).
-        const sentence = ctx.sessions.cannotReopen(runtime, error)
-        throw isFolderGone(error)
-          ? new SessionFolderGoneError(sentence, folderGoneOf(error))
-          : isSessionGone(error)
-            ? new SessionGoneError(sentence)
-            : new Error(sentence)
-      }
-      live = retried
+      const sentence = ctx.sessions.cannotReopen(runtime, error)
+      throw isFolderGone(error)
+        ? new SessionFolderGoneError(sentence, folderGoneOf(error))
+        : isSessionGone(error)
+          ? new SessionGoneError(sentence)
+          : new Error(sentence)
     }
     // Resume returns metadata only; the transcript comes from a full read so
     // the user sees their history immediately rather than an empty pane.
