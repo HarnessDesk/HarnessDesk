@@ -510,3 +510,11 @@ test('a drafted sandbox is the one the configuration writes', () => {
     excludeSlashTmp: true,
   })
 })
+
+test('reasoning levels and speed tiers declare no model status', () => {
+  for (const effort of ['low', 'high'] as const) {
+    const options = sessionOptions({ ...state, effort, serviceTier: 'priority' }, catalog)
+    assert.equal(byId(options, 'effort').currentValue, effort)
+    assert.ok(options.every((option) => option.modelStatus === undefined))
+  }
+})
