@@ -110,24 +110,27 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Run reading measure, time gutter and stable page header in ${theme}`, async ({ page }) => {
+  test(`Run reading measure, state rail and stable page header in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const running = page.locator('#run-view-running')
     const measure = await running.locator('[data-slot="run-reading"]').evaluate(el => {
       const box = el.getBoundingClientRect()
       const scroll = el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect()
-      const row = el.querySelector('[data-kind="round"]')!.getBoundingClientRect()
-      const time = el.querySelector('[data-time-for="round-1"]')!.getBoundingClientRect()
+      const rowElement = el.querySelector('[data-kind="round"]')!
+      const row = rowElement.getBoundingClientRect()
+      const meta = rowElement.querySelector('[data-slot="timeline-meta"]')!.getBoundingClientRect()
+      const title = rowElement.querySelector('[data-slot="timeline-heading"]')!.getBoundingClientRect()
       return { width: box.width, column: Number.parseFloat(getComputedStyle(el).getPropertyValue('--hd-column')),
         gutter: row.left - box.left, centre: (box.left + box.right - scroll.left - scroll.right) / 2,
-        timeBeforeRow: time.right < row.left }
+        metaAboveTitle: meta.bottom <= title.top }
     })
-    expect(measure.width).toBe(measure.column + 112)
-    expect(measure.gutter).toBe(112)
+    expect(measure.width).toBe(measure.column)
+    expect(measure.gutter).toBe(32)
     expect(Math.abs(measure.centre)).toBeLessThan(1)
-    expect(measure.timeBeforeRow).toBe(true)
-    await expect(running.locator('[data-time-for="round-4"]')).toContainText('now')
+    expect(measure.metaAboveTitle).toBe(true)
+    await expect(running.locator('[data-row="round-4"] [data-slot="timeline-meta"]')).toContainText('so far')
+    await expect(running.locator('[data-row="round-2"] [data-slot="timeline-meta"]')).toHaveCount(0)
     const stalled = page.locator('#run-view-stalled')
     const needBox = await stalled.locator('[data-slot="run-need"]').boundingBox()
     const readingBox = await stalled.locator('[data-slot="run-reading"]').boundingBox()
@@ -156,7 +159,11 @@ for (const theme of ['light', 'dark'] as const) {
             return !time.textContent || range.getBoundingClientRect().left >= reading.left
           }) }
       })
-      expect(geometry).toEqual({ overflow: false, left: 24, right: 24, rowOverflow: false, timeInset: true })
+      expect(geometry.overflow).toBe(false)
+      expect(geometry.rowOverflow).toBe(false)
+      expect(geometry.left).toBeGreaterThanOrEqual(24)
+      expect(geometry.right).toBeCloseTo(geometry.left, 1)
+      expect(geometry.timeInset).toBe(true)
     }
   })
 }
@@ -198,5 +205,37 @@ for (const theme of ['light', 'dark'] as const) {
     const members = page.locator('[data-slot="team-members"]:visible')
     await expect(members.locator('[data-ceiling="edit"]')).toHaveText('Edit · asked, not enforced')
     await expect(members.locator('[data-ceiling="read"]')).toHaveText('Read only')
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Timeline rings align with the first title line and motion respects the person in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const timeline = page.locator('#run-view-running [data-slot="timeline"]')
+    await expect(timeline.locator(':scope > li')).toHaveCount(6)
+    const alignment = await timeline.locator('[data-slot="timeline-item"]').evaluateAll(items => items.map(item => {
+      const ring = item.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
+      const title = item.querySelector('[data-slot="timeline-heading"] button [data-slot="text"]')!
+      const line = document.createRange()
+      line.selectNodeContents(title)
+      const first = line.getClientRects()[0]!
+      return Math.abs((ring.top + ring.bottom - first.top - first.bottom) / 2)
+    }))
+    expect(alignment.every(delta => delta < 2)).toBe(true)
+    const rails = await timeline.locator('[data-slot="timeline-item"]').evaluateAll(items => items.slice(0, -1).map((item, index) => {
+      const rail = item.querySelector('[data-slot="timeline-rail"]')!.getBoundingClientRect()
+      const next = items[index + 1]!.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
+      return Math.abs(rail.bottom - (next.top + next.bottom) / 2)
+    }))
+    expect(rails.every(delta => delta < 1)).toBe(true)
+    const active = timeline.locator('[data-state="active"] > [data-slot="timeline-indicator"]')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    expect(await active.evaluate(el => getComputedStyle(el).animationName)).not.toBe('none')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    expect(await active.evaluate(el => getComputedStyle(el).animationName)).toBe('none')
+    await expect(page.locator('#run-view-stalled [data-row="round-4"]').locator('..').locator('..')).toHaveAttribute('data-state', 'warning')
+    await expect(page.locator('#run-view-failed-check [data-row="round-4"]').locator('..').locator('..')).toHaveAttribute('data-state', 'danger')
+    const borders = await timeline.locator(':scope > li').evaluateAll(items => items.map(item => getComputedStyle(item).borderTopWidth))
+    expect(borders.every(width => width === '0px')).toBe(true)
   })
 }

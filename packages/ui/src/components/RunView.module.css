@@ -1,43 +1,8 @@
 .reading,
 .need {
-  /* The conversation's measure, plus the approved 112px time-and-rail geometry. */
-  max-width: calc(var(--hd-column) + 112px);
+  max-width: var(--hd-column);
   margin-inline: auto;
 }
 .need {
   margin-block: var(--hd-space-4);
-}
-.reading {
-  container-type: inline-size;
-}
-.entry {
-  display: grid;
-  grid-template-columns: var(--hd-space-16) var(--hd-space-6) minmax(0, 1fr);
-  column-gap: var(--hd-space-3);
-  align-items: stretch;
-}
-.entry:has([data-kind="round"]) {
-  margin-top: var(--hd-space-4);
-}
-.time {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  margin-top: var(--hd-inset-row);
-  white-space: nowrap;
-}
-.rail {
-  position: relative;
-  display: flex;
-  justify-content: center;
-}
-.marker {
-  position: absolute;
-  top: var(--hd-inset-row);
-}
-@container (width < 32rem) {
-  .entry {
-    grid-template-columns: var(--hd-space-16) var(--hd-space-2) minmax(0, 1fr);
-    column-gap: var(--hd-space-1);
-  }
 }

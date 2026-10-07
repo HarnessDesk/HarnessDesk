@@ -135,15 +135,13 @@ it('keeps recorded Run facts and controls in the header on both views', () => {
   } finally { done() }
 })
 
-it('puts each round time outside its selectable title and calls active time now', () => {
+it('keeps round times above their selectable titles and ticks the active duration', () => {
   const { container, done } = withFlow({ model: runTimeline(runFixture('running')) })
   try {
-    const rounds = container.querySelectorAll('[data-kind="round"]')
-    for (const round of rounds) {
-      expect(round.querySelector('[data-slot="list-row-title"]')!.textContent).not.toMatch(/\d+m|so far/)
-      expect(round.parentElement!.querySelector('[data-slot="run-time"]')).not.toBeNull()
+    for (const round of container.querySelectorAll('[data-kind="round"]')) {
+      expect(round.querySelector('[data-slot="timeline-heading"]')!.textContent).not.toMatch(/\d+m|so far/)
     }
-    expect(container.querySelector('[data-time-for="round-4"]')!.textContent).toContain('now')
+    expect(container.querySelector('[data-row="round-4"] [data-slot="timeline-meta"]')!.textContent).toContain('so far')
   } finally { done() }
 })
 
@@ -356,10 +354,10 @@ it.each(['complete','stopped','stalled'] as const)('keeps %s status in the heade
   expect(ending.querySelectorAll('[data-slot="chip"]')).toHaveLength(0)
   expect(ending.textContent).not.toContain(scene==='complete'?'Settled':scene==='stopped'?'Stopped':'Needs you')
   expect(container.querySelectorAll('[data-row="end"]')).toHaveLength(1)
-  expect(ending.querySelector('[data-row="end"] [data-slot="list-row-title"]')).not.toBeNull()
+  expect(ending.querySelector('[data-slot="timeline-heading"]')).not.toBeNull()
   expect(ending.querySelectorAll('[data-tone="warning"]')).toHaveLength(0)
   expect(container.querySelectorAll('[data-slot="run-need"]')).toHaveLength(scene==='stalled'?1:0)
-  act(()=> (ending.querySelector('[data-row="end"] button') as HTMLButtonElement).click())
+  act(()=> (ending.querySelector('[data-slot="timeline-heading"] button') as HTMLButtonElement).click())
   expect(onSelect).toHaveBeenCalledWith('end')
   if(scene==='complete')expect(ending.textContent).toContain('Nothing waits.')
  } finally {done()}
@@ -398,4 +396,115 @@ it('a retryable check has a named row button independent of Run again',()=>{
   act(()=>open!.click())
   expect(onSelect).toHaveBeenCalledOnce()
  } finally {done()}
+})
+
+it('groups quiet records under a step and puts the recorded time above its title', () => {
+  const model = runTimeline(runFixture('running'))
+  const { container, done } = withFlow({ model })
+  try {
+    const timeline = container.querySelector('ol[data-slot="timeline"]')
+    expect(timeline).not.toBeNull()
+    const round = container.querySelector('[data-row="round-1"]')!
+    const step = round.closest('[data-slot="timeline-item"]')!
+    expect(step.querySelector('[data-row="card-1-1"]')).not.toBeNull()
+    const summary = step.querySelector('[data-slot="timeline-summary"]')!
+    expect([...summary.children].map(child => child.getAttribute('data-slot'))).toEqual(['timeline-meta', 'timeline-heading', 'timeline-detail'])
+    expect(summary.querySelector('[data-slot="timeline-meta"]')!.textContent).toContain('·')
+    expect(container.querySelector('[data-slot="run-time"]')).toBeNull()
+    expect(container.querySelector('[data-row="round-4"]')!.closest('[data-slot="timeline-item"]')!.getAttribute('data-state')).toBe('active')
+    expect(step.getAttribute('data-state')).toBe('done')
+  } finally { done() }
+})
+
+it('omits unavailable timeline times and gives an unreached step a pending ring', () => {
+  const source = runTimeline(runFixture('running'))
+  const model = { ...source, rows: source.rows.map(row => ({ ...row, since: null, durationMs: null, working: false, status: row.kind === 'card' ? 'Waiting' : row.status })) }
+  const { container, done } = withFlow({ model })
+  try {
+    expect(container.querySelector('[data-slot="timeline-meta"]')).toBeNull()
+    expect(container.querySelector('[data-slot="timeline"]')!.textContent).not.toMatch(/Unknown|—/)
+    expect(container.querySelector('[data-row="round-4"]')!.closest('[data-slot="timeline-item"]')!.getAttribute('data-state')).toBe('pending')
+  } finally { done() }
+})
+
+it.each(['stalled', 'person'] as const)('puts the %s attention state on the step ring', scene => {
+  const { container, done } = withFlow({ model: runTimeline(runFixture(scene)) })
+  try {
+    const step = container.querySelector('[data-row="round-4"]')!.closest('[data-slot="timeline-item"]')!
+    expect(step.getAttribute('data-state')).toBe('warning')
+    expect(step.querySelector('[data-slot="timeline-indicator"]')!.getAttribute('aria-label')).toBe('Needs attention')
+  } finally { done() }
+})
+
+it('keeps End selectable with plain title styling and independent actions', () => {
+  const onSelect = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline(runFixture('complete')), onSelect, onWrap: vi.fn() })
+  try {
+    const end = container.querySelector('[data-kind="end"]')!
+    const title = end.querySelector<HTMLButtonElement>('[data-slot="timeline-heading"] button')!
+    expect(title.textContent).toBe('End')
+    expect(title.getAttribute('data-variant')).toBe('row')
+    act(() => title.click())
+    expect(onSelect).toHaveBeenCalledWith('end')
+    expect(title.querySelector('button')).toBeNull()
+  } finally { done() }
+})
+
+
+it('keeps the ended person step out of Answer and preserves both unrouted doors', () => {
+  const fixture = runFixture('person')
+  const execution = { ...fixture.execution, state: 'settled' as const, end: { kind: 'unrouted' as const, card: 4, outcome: 'no-pr' }, reason: 'No rule follows this answer.' }
+  const cards = fixture.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const, outcome: 'no-pr' } : card)
+  const onRunAgain = vi.fn(), onBoard = vi.fn(), onSelect = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline({ ...fixture, execution, cards }), onRunAgain, onBoard, onSelect })
+  try {
+    const need = container.querySelector('[data-slot="run-need"]')!
+    const buttons = [...need.querySelectorAll<HTMLButtonElement>('button')]
+    expect(buttons.map(button => button.textContent)).toEqual(['Run again…', 'Board'])
+    act(() => buttons[0]!.click())
+    act(() => buttons[1]!.click())
+    expect(onRunAgain).toHaveBeenCalledOnce()
+    expect(onBoard).toHaveBeenCalledOnce()
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(need.textContent).toContain('No rule follows this answer.')
+  } finally { done() }
+})
+
+it('preserves Wrap in the need card when a complete Run has a waiting publication', () => {
+  const source = runTimeline(runFixture('complete'))
+  const model = { ...source, header: { ...source.header, needsYou: true } }
+  const onWrap = vi.fn()
+  const { container, done } = withFlow({ model, onWrap })
+  try {
+    const wrap = container.querySelector<HTMLButtonElement>('[data-slot="run-need"] button')!
+    expect(wrap.textContent).toBe('Wrap')
+    act(() => wrap.click())
+    expect(onWrap).toHaveBeenCalledOnce()
+  } finally { done() }
+})
+
+it('says what a person step waits for and omits a round fact before any round opens', () => {
+  const waiting = withFlow({ model: runTimeline(runFixture('person')) })
+  try { expect(waiting.container.querySelector('[data-slot="run-need"]')!.textContent).toContain('Waiting for your answer') } finally { waiting.done() }
+})
+
+it('omits a round fact before any round opens', () => {
+  const empty = withFlow({ model: runTimeline(runFixture('empty')) })
+  try { expect(empty.container.querySelector('[data-slot="run-facts"]')!.textContent).not.toContain('Round') } finally { empty.done() }
+})
+
+it.each([0, 86_400_000])('uses the same dated clock in the header and timeline (%s ms old)', age => {
+  vi.useFakeTimers()
+  const now = new Date('2026-10-06T12:34:00').getTime()
+  vi.setSystemTime(now)
+  const fixture = runFixture('complete')
+  const at = now - age
+  const execution = { ...fixture.execution, startedAt: at, endedAt: at, currentEndedAt: at }
+  const { container, done } = withFlow({ model: runTimeline({ ...fixture, execution }), execution })
+  try {
+    const clock = age === 0 ? new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    expect(container.querySelector('[data-slot="run-facts"]')!.textContent).toContain(`Started ${clock}`)
+    expect(container.querySelector('[data-kind="start"] [data-slot="timeline-meta"]')!.textContent).toContain(clock)
+    expect(container.querySelector('[data-kind="end"] [data-slot="timeline-meta"]')!.textContent).toContain(clock)
+  } finally { done(); vi.useRealTimers() }
 })
