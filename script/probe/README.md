@@ -259,3 +259,19 @@ the sub-agent is never unsubscribed and idle: closing its seat leaves it and its
 tools loaded until the process ends. The adapter finds a closed seat's
 sub-agents by their parent (`thread/read`) among `thread/loaded/list` and
 unsubscribes them with it ([decision](../../docs/decisions.md#one-codex-process-per-account-shared-by-every-seat)).
+
+## `mcp-selection.mjs`
+
+Starts synthetic native servers in an isolated agent home without a model turn.
+It checks selected, default and empty server lists, create/resume/fork overrides,
+reload, independent conversation release, and passive process roots.
+
+```bash
+pnpm build:node
+node script/probe/mcp-selection.mjs
+```
+
+Measured on 0.160.0. Expect only the selected helper on create, resume and fork,
+both configured helpers on an unrestricted concurrent thread, and zero owned
+roots after closing the conversations and stopping the idle runtime. The probe
+writes only synthetic configuration and rollout records and removes its own home.

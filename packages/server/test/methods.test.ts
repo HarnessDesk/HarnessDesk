@@ -59,7 +59,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
       upsert: (opened: unknown) => ({ session: opened }),
     },
     attachments: { carriesFilter: async () => false },
-    evidence: { seats: { latestOf: () => null } },
+    evidence: { seats: { latestOf: () => null, latestKeptOf: () => null } },
     routes: { resolve: async () => null },
     push: (notification: unknown) => pushed.push(notification),
   })

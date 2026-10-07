@@ -1789,6 +1789,11 @@ class PreviewStore {
         ] as const)
       : []
   optionsFor = async () => []
+  runtimeResources = async () => this.getSnapshot().runtimes.map((info, index) => {
+    const running = [...this.getSnapshot().sessions.values()].some(session => session.runtime === info.id)
+    return { runtime: info.id, observedAt: Date.now(), processes: running ? index + 2 : 0, residentBytes: running ? (index + 1) * 64 * 1024 * 1024 : 0, canRecycle: false, reason: running ? 'Close its conversations and let its work finish before recycling.' : 'This runtime is not running.' }
+  })
+  recycleRuntime = async () => ({ recycled: false })
   healthFor = async () => ({ state: 'ready' as const })
   limitsFor = async () => null
   // The Dashboard's own verbs. `ledger` is the only one that has to answer
@@ -1891,6 +1896,7 @@ class PreviewStore {
    * One breakdown, one row, is enough to draw the real thing.
    */
   readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor(goal)
+  readAgentInsight = async (): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor('preview-agent')
 
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
 

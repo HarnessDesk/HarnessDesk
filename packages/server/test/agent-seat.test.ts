@@ -169,6 +169,7 @@ class SeatFake extends FakeRuntime {
   deleteRefusal: string | null = null
   /** Conversations reopened, each on a handle of its own. */
   readonly reopened: SeatSession[] = []
+  readonly nativeInputs: (readonly string[] | undefined)[] = []
 
   constructor(identity: { readonly id?: string; readonly capabilities?: Partial<RuntimeCapabilities> } = {}) {
     super({
@@ -189,6 +190,7 @@ class SeatFake extends FakeRuntime {
   }
 
   override async createSession(options: SessionOptions): Promise<AgentSession> {
+    this.nativeInputs.push(options.runtimeServers)
     if (this.breakAtCreate) throw this.breakAtCreate
     this.beforeCreate?.()
     const id = sessionId(this.mintAs ?? `seat-${this.opened.length + 1}`)
@@ -237,7 +239,8 @@ class SeatFake extends FakeRuntime {
   }
 
   /** Reopened on a handle of its own — a conversation it still has, that is; a deleted one is gone. */
-  override async resumeSession(id: SessionId): Promise<AgentSession> {
+  override async resumeSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession> {
+    this.nativeInputs.push(options?.runtimeServers)
     this.resumes += 1
     const held = this.#latest(id)
     if (!held) throw new Error(`Seat Fake has no record of conversation ${String(id)}.`)
@@ -4115,4 +4118,31 @@ test('held-only seating closes a candidate whose readback is asked before its br
   })
   await seatAgent(watched.ctx, { id: 'reviewer', cwd: '/tmp/x' }, { board: 'goal-1', role: null })
   assert.deepEqual(watched.recorded[0]?.ceiling, { level: 'edit', hold: 'asked' })
+})
+
+
+test('through the host: native selection is frozen before opening and reused after the Agent file changes', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  ;(seats as { info: RuntimeInfo }).info = { ...seats.info, capabilities: { ...seats.info.capabilities, nativeServerSelection: true } }
+  const source = (await writeReviewer(harness.stateDir, 'seatfake=big/high')).replace('---\nRead', 'runtime-servers: [docs]\n---\nRead')
+  const file = join(harness.stateDir, 'agents', 'reviewer', 'AGENT.md')
+  await writeFile(file, source)
+  const session = await client.call('agent/seat', { id: 'reviewer', cwd: work }) as Session
+  assert.deepEqual(seats.nativeInputs[0], ['docs'])
+  assert.deepEqual(harness.host.registry.get(seats.info.id, session.id)?.seatedAs?.runtimeServers, ['docs'])
+  await client.call('session/close', { runtime: seats.info.id, sessionId: session.id })
+  await writeFile(file, source.replace('[docs]', '[]'))
+  await client.call('session/resume', { runtime: seats.info.id, sessionId: session.id })
+  assert.deepEqual(seats.nativeInputs.at(-1), ['docs'])
+  await assert.rejects(() => client.call('session/fork', { runtime: seats.info.id, sessionId: session.id }), /frozen native server selection/)
+})
+
+test('through the host: an unsupported runtime cannot silently ignore native server selection', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  const source = (await writeReviewer(harness.stateDir, 'seatfake=big/high')).replace('---\nRead', 'runtime-servers: []\n---\nRead')
+  await writeFile(join(harness.stateDir, 'agents', 'reviewer', 'AGENT.md'), source)
+  const plans = await client.call('agent/seat/dry', { ids: ['reviewer'] }) as readonly SeatPlan[]
+  assert.equal(plans[0]?.winner, null, 'the preview also refuses a runtime that cannot hold the selection')
+  await assert.rejects(() => client.call('agent/seat', { id: 'reviewer', cwd: work }), /cannot select native servers/)
+  assert.equal(seats.opened.length, 0)
 })

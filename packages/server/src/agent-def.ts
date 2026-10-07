@@ -1,6 +1,7 @@
 import {
   ceilingOfPermission,
   isCeilingLevel,
+  isNativeServerName,
   SEAT_PREFERENCE_LIMIT,
   type AgentDefinition,
   type AgentProblem,
@@ -64,13 +65,26 @@ const namesField = (raw: unknown[], at: 'skills' | 'mcp', problems: AgentProblem
   }
 }
 
+const nativeNamesField = (value: unknown, problems: AgentProblem[]): string[] => {
+  const raw = oneOrMore(value)
+  const error = value === undefined || value === null || value === ''
+    ? 'A blank native selection is refused; write [] to suppress all native servers, or omit the field to keep defaults.'
+    : raw.length > 64 || new Set(raw).size !== raw.length
+      ? 'Choose at most 64 distinct native server names.'
+      : !raw.every(isNativeServerName)
+        ? 'Native server names use 1–128 ASCII letters, digits, underscores, colons, @, slashes, dots or hyphens.'
+        : null
+  if (error) { problems.push(problem('error', 'runtime-servers', error)); return [] }
+  return raw as string[]
+}
+
 /**
  * The fields an Agent has. The front matter is read for these and nothing else,
  * each only where the file itself sets it; any other key is named in a warning,
  * because read as nothing it fails silently — `permissions: merge` is a ceiling
  * of read, and an author who believes otherwise.
  */
-const FIELDS = ['name', 'description', 'ceiling', 'permission', 'answers', 'produces', 'skills', 'mcp', 'prefer'] as const
+const FIELDS = ['name', 'description', 'ceiling', 'permission', 'answers', 'produces', 'skills', 'mcp', 'runtime-servers', 'prefer'] as const
 type Field = (typeof FIELDS)[number]
 
 /** Front matter opens on a line of exactly `---`, so `--- draft` opens nothing. */
@@ -197,6 +211,7 @@ export const parseAgentDefinition = (
      command or a credential a repository must never get to hand a runtime. */
   const skills = namesField(asWords(field('skills')), 'skills', problems)
   const mcp = namesField(oneOrMore(field('mcp')), 'mcp', problems)
+  const runtimeServers = Object.hasOwn(head, 'runtime-servers') ? nativeNamesField(field('runtime-servers'), problems) : undefined
 
   for (const key of Object.keys(head)) {
     if (!(FIELDS as readonly string[]).includes(key)) {
@@ -220,6 +235,7 @@ export const parseAgentDefinition = (
       produces: asWords(field('produces')),
       skills,
       mcp,
+      ...(runtimeServers !== undefined ? { runtimeServers } : {}),
       prefer,
       brief,
     },

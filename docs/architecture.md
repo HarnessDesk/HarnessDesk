@@ -247,6 +247,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   process failure detaches every conversation it held, and the normal resume path
   reattaches each
   ([measurement and lifecycle](decisions.md#one-codex-process-per-account-shared-by-every-seat)).
+  Native server selection is an optional capability: an Agent's
+  `runtime-servers` names only already configured servers. The host freezes
+  the list in the Seat record and reapplies it on resume; the adapter supplies
+  thread-local disabling overrides, leaving agent-owned files alone.
+  Resource observations use optional adapter process roots and one bounded
+  process-table read for the desk, including descendants and RSS. The renderer
+  polls only while the runtime page is mounted. Manual idle recycling shares
+  the reaper's stop/start barrier and refuses in-flight work and open handles.
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening

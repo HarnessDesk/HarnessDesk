@@ -107,6 +107,8 @@ export class CodexAppServer {
     })
   }
 
+  get processId(): number | null { return this.#child?.pid ?? null }
+
   get state(): ConnectionState {
     return this.#state
   }

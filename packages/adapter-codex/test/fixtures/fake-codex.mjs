@@ -82,12 +82,20 @@ if (process.env['FAKE_CODEX_PROCESS_ENV']) {
 // the same loaded thread again and the close never happens. Reading a pipe
 // keeps the tiny stand-in alive; the parent's exit closes it.
 const mcpChildren = new Map()
-const loadMcpChild = (threadId) => {
+const nativeServers = process.env.FAKE_CODEX_NATIVE_SERVERS ? JSON.parse(process.env.FAKE_CODEX_NATIVE_SERVERS) : null
+const projectNativeServers = process.env.FAKE_CODEX_PROJECT_NATIVE_SERVERS ? JSON.parse(process.env.FAKE_CODEX_PROJECT_NATIVE_SERVERS) : {}
+const nativeServersFor = (cwd) => [...(nativeServers ?? ['default']), ...(projectNativeServers[cwd] ?? [])]
+const loadMcpChild = (threadId, config = {}) => {
   const ledger = process.env['FAKE_CODEX_MCP_CHILDREN']
-  if (!ledger || mcpChildren.has(threadId)) return
-  const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
-  mcpChildren.set(threadId, child)
-  appendFileSync(ledger, `${JSON.stringify({ threadId, pid: child.pid, parent: process.pid })}\n`)
+  if (!ledger) return
+  for (const name of nativeServersFor(cwdByThread.get(threadId))) {
+    if (config.mcp_servers?.[name]?.enabled === false) continue
+    const key = `${threadId}:${name}`
+    if (mcpChildren.has(key)) continue
+    const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
+    mcpChildren.set(key, child)
+    appendFileSync(ledger, `${JSON.stringify({ threadId, name, pid: child.pid, parent: process.pid })}\n`)
+  }
 }
 
 /** How long an unsubscribed idle thread stays loaded: Codex's minute, unless a test shortens it. */
@@ -1528,7 +1536,7 @@ rl.on('line', (line) => {
       cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
       holdLoaded(THREAD)
-      loadMcpChild(THREAD)
+      loadMcpChild(THREAD, params.config ?? {})
       logThread(method, params)
       const result = { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) }
       const announced = thread()
@@ -1593,7 +1601,7 @@ rl.on('line', (line) => {
       }
       cwdByThread.set(THREAD, settingsState.cwd)
       holdLoaded(THREAD)
-      loadMcpChild(THREAD)
+      loadMcpChild(THREAD, params.config ?? {})
       logThread(method, params)
       const result = startResponse()
       const announced = thread()
@@ -2344,7 +2352,7 @@ rl.on('line', (line) => {
     case 'config/read':
       send({
         id,
-        result: { config: { forced_login_method: forcedLoginMethod }, origins: {}, layers: null },
+        result: { config: { forced_login_method: forcedLoginMethod, ...(nativeServers ? { mcp_servers: Object.fromEntries(nativeServersFor(params?.cwd).map(name => [name, { command: 'synthetic', enabled: true }])) } : {}) }, origins: {}, layers: null },
       })
       return
 
