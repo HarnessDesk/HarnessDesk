@@ -27,7 +27,31 @@ test('the stable browser check requires every shard and keeps reports after fail
   assert.match(aggregate, /^    needs: \[changes, ui-system-browser, ui-system-server\]$/m)
   assert.match(aggregate, /^    if: always\(\)$/m)
   assert.match(aggregate, /SHARDS_RESULT: \$\{\{ needs.ui-system-browser.result \}\}/)
-  assert.match(job('ui-system-browser'), /- uses: actions\/upload-artifact@\S+\n        if: always\(\)\n        with:\n          name: ui-system-browser-report-\$\{\{ matrix.shard \}\}/)
+  assert.match(job('ui-system-browser'), /- uses: actions\/upload-artifact@\S+\n        if: failure\(\) \|\| cancelled\(\)\n        with:\n          name: ui-system-browser-report-\$\{\{ matrix.shard \}\}/)
+})
+
+for (const [name, artifact, path] of [
+  ['ui-system-browser', 'ui-system-browser-report-${{ matrix.shard }}', 'output/playwright/ui-system/'],
+  ['ui-system-server', 'ui-system-server-report', 'output/playwright/ui-system/'],
+  ['ui-system-native', 'ui-system-native-report', 'output/native-ui-system/'],
+]) {
+  test(`${name} uploads only failed or cancelled diagnostics for three days`, () => {
+    const uploads = [...job(name).matchAll(/      - uses: actions\/upload-artifact@\S+\n([\s\S]*?)(?=^      -|$(?![\s\S]))/gm)]
+    assert.equal(uploads.length, 1)
+    const upload = uploads[0][1]
+    assert.match(upload, /^        if: failure\(\) \|\| cancelled\(\)$/m)
+    assert.ok(upload.includes(`          name: ${artifact}\n`))
+    assert.ok(upload.includes(`          path: ${path}\n`))
+    assert.match(upload, /^          retention-days: 3$/m)
+  })
+}
+
+test('unsigned packaging proves the app builds without retaining an unused bundle', () => {
+  const packaging = job('package')
+  assert.match(packaging, /name: Build app bundle/)
+  assert.match(packaging, /electron-builder --mac dir/)
+  assert.doesNotMatch(packaging, /actions\/upload-artifact@|HarnessDesk-unsigned/)
+  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 3)
 })
 
 // Execute the workflow's actual shell, so the required checks cannot report
