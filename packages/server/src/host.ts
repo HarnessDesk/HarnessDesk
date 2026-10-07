@@ -2758,7 +2758,8 @@ export class Host {
           title: session.title,
           preview: session.preview,
           cwd: session.cwd,
-          status: record.live ? { type: 'active' } : { type: 'notLoaded' },
+          // A loaded handle can be resting; the host tracks turns separately from status events.
+          status: record.live ? { type: record.running.size > 0 ? 'active' : 'idle' } : { type: 'notLoaded' },
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
           git: session.git,
