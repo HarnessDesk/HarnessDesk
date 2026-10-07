@@ -264,6 +264,12 @@ test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Es
   await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
   await alpha.click()
   await expectExpansion(target, 1)
+  // Expansion moves the member's hover target under the pointer. A card that
+  // opens while the next assertions run consumes Escape before the receipt's
+  // window listener (seen in CI). Leave it and wait for its dismissal so this
+  // press tests the grid's defaultPrevented contract.
+  await page.mouse.move(0, 0)
+  await expect(page.locator('[data-slot="hover-card-content"]:visible')).toHaveCount(0)
   await page.evaluate(() => {
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') event.preventDefault()

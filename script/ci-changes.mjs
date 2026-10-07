@@ -25,6 +25,7 @@ const SHARED = [
 const BROWSER = [
   ...SHARED,
   /^playwright\.ui-system\.config\.ts$/, // Defines the browser suite and its Vite preview server.
+  /^script\/ci-browser-shards\.mjs$/, // Deals the specs to the shards: a change to it changes what each shard runs.
   /^e2e\/ui-system\//, // Browser specs, helpers and recorded metrics live in this test directory.
 ]
 

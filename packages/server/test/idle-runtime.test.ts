@@ -878,9 +878,10 @@ test('a completed held card trimmed from the board does not prevent Seat rest', 
 test('ordinary completion and trimming retain held-card history through restart', async (t) => {
   const d = await seated(t, new IdleRuntime(), 60_000)
   // Fill the board through its ordinary save path before completing the held card.
-  for (let n = 0; n < 199; n++) {
-    await d.host.call('team/add', { room: d.goal.id, title: `Later work ${n}` })
-  }
+  // All at once: each is still a real `team/add`, and the Team folds the ones
+  // that arrive while a save is queued into that save, so the board fills in a
+  // handful of saves instead of 199 one after another (each fsynced, ~100ms).
+  await Promise.all(Array.from({ length: 199 }, (_, n) => d.host.call('team/add', { room: d.goal.id, title: `Later work ${n}` })))
   await d.finish()
   await d.host.call('team/add', { room: d.goal.id, title: 'Trim the completed card' })
   const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
