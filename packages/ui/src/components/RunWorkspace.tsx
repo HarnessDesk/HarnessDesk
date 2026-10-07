@@ -99,7 +99,7 @@ const DockedRunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
       selectedStep: view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : null,
       onSelect: view.onSelect, onSelectStep: id => view.onSelect(`step:${id}`) },
   }), [dock, owner, inspector, view.selectedRow, view.faces, view.onSelect])
-  return <div data-slot="run-workspace" className="flex min-h-0 min-w-0 flex-1">
+  return <div data-slot="run-workspace" data-view={tab} className={styles.workspace}>
     <RunView {...view} execution={inspector.input.execution} cost={recordedCost(inspector)} view={tab} onDetails={() => { view.onSelect('run'); show('run-details', true) }}
       onView={next => { if (view.view === undefined) keep(next); view.onView?.(next); show(next === 'flow' ? 'run-steps' : 'run-details') }}
       onSelect={id => { view.onSelect(id); show('run-details', true) }} />
@@ -111,13 +111,13 @@ export const RunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
   const dock = useRunDock()
   const [detail, setDetail] = useState(false)
   const [kept, keep] = useState<RunViewTab>('timeline')
-  // The Flow is a drawing of the whole Run, so it has the pane to itself: the inspector explains a row of
-  // the timeline, and on the Flow tab there is no row on show. A caller that chooses the tab is followed.
+  // Standalone Runs use the graph’s responsive list; the app owns a sibling Steps dock.
+  // The timeline inspector still explains one row.
   const tab: RunViewTab = view.flow ? view.view ?? kept : 'timeline'
   // In the app, inspectors are sibling views owned by the workbench.
   if (dock) return <DockedRunWorkspace {...view} inspector={inspector} />
   const timeline = tab === 'timeline'
-  return <div data-slot="run-workspace" data-detail={(detail && timeline) || undefined} className={styles.workspace}>
+  return <div data-slot="run-workspace" data-view={tab} data-detail={(detail && timeline) || undefined} className={styles.workspace}>
       <RunView {...view} execution={inspector.input.execution} cost={recordedCost(inspector)} onDetails={() => { view.onSelect('run'); setDetail(true) }} view={tab} onView={next => { if (view.view === undefined) keep(next); view.onView?.(next) }}
         onSelect={id => { view.onSelect(id); setDetail(true) }} timelineDetail={<div className={styles.detail}>
       <div className={styles.back}><BackLink to="Run timeline" onClick={() => setDetail(false)} /></div>

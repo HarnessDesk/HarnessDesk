@@ -13,6 +13,7 @@ import {
   cornerArea,
   dock,
   dockViews,
+  drawnInDock,
   emptyWorkbench,
   findView,
   focusedComposerVisible,
@@ -897,6 +898,47 @@ describe('the visible inspector', () => {
 
   test('and a tool is not an inspector', () => {
     expect(visibleInspector(dock(emptyWorkbench(), 'bottom', TERM))).toBeNull()
+  })
+})
+
+describe('a view drawn in a dock', () => {
+  const STEPS = { kind: 'run-steps' } as const
+  const DETAILS = { kind: 'run-details' } as const
+  const appState = (
+    workbench: Workbench,
+    over: { narrowWindow?: boolean; sidebarCollapsed?: boolean; sidebarFloating?: boolean } = {},
+  ) => ({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false, workbench, ...over })
+
+  test('is drawn while its dock is open and showing it', () => {
+    expect(drawnInDock(appState(dock(emptyWorkbench(), 'right', STEPS)), 'run-steps')).toBe(true)
+    expect(drawnInDock(appState(dock(emptyWorkbench(), 'bottom', STEPS)), 'run-steps')).toBe(true)
+    expect(drawnInDock(appState(emptyWorkbench()), 'run-steps')).toBe(false)
+  })
+
+  test('is not drawn while its dock is put away to the strip', () => {
+    const away = collapseDock(dock(emptyWorkbench(), 'right', STEPS), 'right', true)
+    expect(drawnInDock(appState(away), 'run-steps')).toBe(false)
+  })
+
+  test('is not drawn behind the tab in front of it', () => {
+    const behind = dock(dock(emptyWorkbench(), 'right', STEPS), 'right', DETAILS)
+    expect(drawnInDock(appState(behind), 'run-steps')).toBe(false)
+    expect(drawnInDock(appState(behind), 'run-details')).toBe(true)
+  })
+
+  test('is not drawn while a zoom has the room elsewhere', () => {
+    // `shownView` reads this dock as open, which it is; it is not on the screen.
+    const docked = dock(emptyWorkbench(), 'right', STEPS)
+    expect(drawnInDock(appState(docked), 'run-steps')).toBe(true)
+    expect(drawnInDock(appState(zoomArea(docked, 'main', 'content')), 'run-steps')).toBe(false)
+  })
+
+  test('is not drawn in a sidebar the window has put away', () => {
+    const sidebar = dock(emptyWorkbench(), 'sidebar', STEPS)
+    expect(drawnInDock(appState(sidebar), 'run-steps')).toBe(true)
+    expect(drawnInDock(appState(sidebar, { sidebarCollapsed: true }), 'run-steps')).toBe(false)
+    expect(drawnInDock(appState(sidebar, { narrowWindow: true }), 'run-steps')).toBe(false)
+    expect(drawnInDock(appState(sidebar, { narrowWindow: true, sidebarFloating: true }), 'run-steps')).toBe(true)
   })
 })
 

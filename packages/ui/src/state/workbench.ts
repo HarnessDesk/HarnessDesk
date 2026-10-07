@@ -892,6 +892,23 @@ export const shownView = (workbench: Workbench, kind: PaneView['kind']): boolean
   return panes(workbench.main.root).some((pane) => pane.view.kind === kind)
 }
 
+/**
+ * Whether a kind is drawn in a docked area right now: the area is on the
+ * screen, not put away to its strip, and a stack of it is showing the view.
+ *
+ * Stricter than `shownView`, which answers a menu's "is it open" and so reads
+ * a dock that a zoom has taken off the screen, or a sidebar the window has put
+ * away, as open. A pane deciding whether it may leave a list to the dock needs
+ * the dock to be there to read it in.
+ */
+export const drawnInDock = (state: Parameters<typeof sidebarPlacement>[0], kind: PaneView['kind']): boolean =>
+  DOCKS.some((area) => {
+    const held = state.workbench[area]
+    if (held.collapsed || !areaVisible(state.workbench, area)) return false
+    if (area === 'sidebar' && sidebarPlacement(state) === 'away') return false
+    return visibleViews(held).some((entry) => entry.view.kind === kind)
+  })
+
 // -------------------------------------------------------------------- zoom
 
 /**
