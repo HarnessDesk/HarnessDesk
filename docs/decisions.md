@@ -2541,7 +2541,12 @@ nothing in the agent, and a warning given while the conversation opened is the
 host's own, so neither lets the handle go. The host cannot tell a prompt the
 agent rejected from one it took and then stopped on, a limit say, so a failed
 turn is counted as not taken: the cost is a handle kept until a later turn
-succeeds, never a conversation that cannot be reopened. Archiving a quiet resumable
+succeeds, never a conversation that cannot be reopened. Keeping it live has a
+second cost: an agent process stops for idleness only while no conversation
+holds a handle, archived or not, so one kept this way holds its agent process
+open until the agent takes a prompt in it or the person closes it. Releasing it
+as soon as the agent lists it would need a listing, which not every agent has,
+so it is not done. Archiving a quiet resumable
 conversation releases its handle through the same release and the same quiet
 test. Archiving preserves working turns,
 approvals, queued input and running tasks for the normal quiet sweep.
