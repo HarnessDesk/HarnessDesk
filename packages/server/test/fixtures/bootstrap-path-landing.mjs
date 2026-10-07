@@ -5,7 +5,7 @@ const { host, extensions, pathReady } = createDefaultHost({
   stateDir: process.env.HD_STATE, console: false, logLevel: 'error', codexBinaryPath: process.env.HD_FAKE,
 })
 let asked = 0
-host.retryNotInstalled = async () => { asked += 1 }
+host.retryProgramLookup = async () => { asked += 1 }
 const before = process.env.PATH
 try {
   await pathReady

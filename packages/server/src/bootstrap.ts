@@ -602,11 +602,11 @@ export const createDefaultHost = (
 
   // The shell's PATH lands after the first ask, and an agent installed where
   // only that PATH looks would stay "not installed" until the app restarted. So
-  // when it changes anything, the runtimes that found their program missing are
-  // asked once more. Nothing awaits this; `retryNotInstalled` says why it is safe
-  // to run whenever the PATH lands.
+  // when it changes anything, the runtimes that could not find their program, or
+  // found it and could not run it, are asked once more. Nothing awaits this;
+  // `retryProgramLookup` says why it is safe to run whenever the PATH lands.
   void pathReady.then(() => {
-    if (process.env['PATH'] !== pathAtStart) void host.retryNotInstalled().catch((error: unknown) => {
+    if (process.env['PATH'] !== pathAtStart) void host.retryProgramLookup().catch((error: unknown) => {
       logger.child('path').warn('asking the missing agents again failed', { error: String(error) })
     })
   })

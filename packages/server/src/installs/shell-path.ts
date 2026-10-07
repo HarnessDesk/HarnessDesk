@@ -395,7 +395,7 @@ export interface AppliedPath {
    * cache was fresh. Nothing has to await it: what it adds is the person's
    * own PATH order and any directory the well-known list does not know, and
    * a runtime started before it lands is asked again when it does
-   * (`Host.retryNotInstalled`, called by `createDefaultHost`).
+   * (`Host.retryProgramLookup`, called by `createDefaultHost`).
    */
   readonly settled: Promise<ResolvedPath>
 }

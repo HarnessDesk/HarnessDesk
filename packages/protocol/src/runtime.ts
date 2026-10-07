@@ -592,7 +592,14 @@ export type RuntimeHealth =
   | { readonly state: 'starting' }
   | {
       readonly state: 'unavailable'
-      readonly reason: 'notInstalled' | 'versionTooOld' | 'crashed' | 'unknown'
+      /**
+       * `notInstalled` says there is no copy of the program on this machine.
+       * `unreadable` says there is one and it would not answer — it failed to
+       * run, or did not answer in time — in a way a later ask may change, so
+       * the host asks again: when the PATH changes and, for the first seconds,
+       * on a schedule. A copy that is there is never `notInstalled`.
+       */
+      readonly reason: 'notInstalled' | 'unreadable' | 'versionTooOld' | 'crashed' | 'unknown'
       readonly message: string
       readonly remediation?: string
     }

@@ -79,7 +79,7 @@ test('a Codex only the login shell knows about is found when its PATH lands', { 
   // What `createDefaultHost` does with it.
   const pathAtStart = process.env['PATH']
   void applied.settled.then(() => {
-    if (process.env['PATH'] !== pathAtStart) void host.retryNotInstalled()
+    if (process.env['PATH'] !== pathAtStart) void host.retryProgramLookup()
   })
 
   await host.start()
