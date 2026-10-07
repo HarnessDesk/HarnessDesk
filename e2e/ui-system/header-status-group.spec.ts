@@ -46,17 +46,10 @@ test('the review scenes select the git trigger and open its menu', async ({ page
 
 test('a reduced-motion narrow header keeps running distinct from idle', async ({ page }) => {
   await page.setViewportSize({ width: 460, height: 900 })
-  await page.goto('/preview.html')
-  const bar = page.locator('h2', { hasText: 'Conversation — the transcript and its composer' }).locator('xpath=following-sibling::*[1]').locator('header')
+  const bar = page.locator('[data-frame-id="header-status-conversation"] header')
   const dot = bar.locator('[data-slot="header-status-reading"]').filter({ has: page.locator('[data-slot="dot"]') }).first().locator('[data-slot="dot"]')
   const idle = await dot.evaluate((node) => getComputedStyle(node).borderRadius)
-  await page.evaluate(() => {
-    const { store, sessionKey } = (window as any).__hdPreview
-    const snapshot = store.getSnapshot()
-    const sessions = new Map(snapshot.sessions)
-    sessions.set(sessionKey, { ...sessions.get(sessionKey), turns: [{ id: 'running', status: 'inProgress', items: [] }] })
-    store.patch({ sessions })
-  })
+  await page.goto('/preview.html?header-status&running')
   await expect(dot).toHaveAttribute('data-pulse', '')
   expect(await dot.evaluate((node) => getComputedStyle(node).animationName)).toBe('none')
   expect(await dot.evaluate((node) => getComputedStyle(node).borderRadius)).not.toBe(idle)

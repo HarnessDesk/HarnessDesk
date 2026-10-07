@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { turnId } from '@harnessdesk/protocol'
 import { Conversation } from '../components/Conversation'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
@@ -28,6 +29,7 @@ export const HeaderStatusFrames = () => {
     const sessions = new Map(snapshot.sessions)
     sessions.set(PREVIEW_SESSION_KEY, {
       ...session, cwd,
+      turns: query.has('running') ? [...session.turns, { id: turnId('header-running'), status: 'inProgress', items: [] }] : session.turns,
       settings: { ...session.settings, cwd, model: session.settings?.model ?? 'model-a' },
     })
     const usage = snapshot.usage.map((original) => {
