@@ -131,6 +131,8 @@ export class CodexSession implements AgentSession {
    */
   #currentTurnId: string | null = null
   #turnRevision = 0
+  readonly #interruptions = new Map<string, Promise<void>>()
+  readonly #turnEndWaiters = new Set<() => void>()
   readonly #pendingInputs: (readonly UserContent[])[] = []
   readonly #recordedInputs = new Map<string, readonly UserContent[]>()
 
@@ -486,6 +488,8 @@ export class CodexSession implements AgentSession {
       this.#pendingInputs.length = 0
     }
     this.#silentTurnIds.delete(turnId)
+    this.#interruptions.delete(turnId)
+    for (const settled of this.#turnEndWaiters) settled()
   }
 
   get activeTurnId(): TurnId | null {
@@ -523,6 +527,7 @@ export class CodexSession implements AgentSession {
       this.#pendingSilentOrder = true
       this.#pendingNoticeKind = opts.noticeKind
     }
+    const revision = this.#turnRevision
     let response: CodexProtocol.v2.TurnStartResponse
     try {
       response = await this.deps.server.request('turn/start', {
@@ -539,7 +544,7 @@ export class CodexSession implements AgentSession {
       }
       throw error
     }
-    this.#currentTurnId = response.turn.id
+    if (this.#turnRevision === revision) this.#currentTurnId = response.turn.id
     if (!silent) {
       // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
       // Skipped for a standing order: it is not what opened this conversation for a person, and must not name the row after it.
@@ -628,14 +633,43 @@ export class CodexSession implements AgentSession {
    */
   async interrupt(): Promise<void> {
     const turnId = this.#requireActiveTurn('interrupt')
+    const prior = this.#interruptions.get(turnId)
+    if (prior) return prior
     const named = this.deps.interruptible?.(this.id, turnId) ?? turnId
-    try {
-      await this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: named })
-    } catch (error) {
-      const held = heldTurn(error)
-      if (held === null || held === named) throw error
-      await this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: held })
-    }
+    const request = (id: string) => this.deps.server.request('turn/interrupt',
+      { threadId: this.id, turnId: id }, { timeoutMs: 2_000 })
+    const interruption = (async () => {
+      try {
+        try { await request(named) } catch (error) {
+          const held = heldTurn(error)
+          if (held === null || held === named) throw error
+          await request(held)
+        }
+      } catch (error) {
+        this.#interruptions.delete(turnId)
+        throw error
+      }
+    })()
+    // Keep an acknowledged interrupt until completion, so close after Stop
+    // never repeats a request the app-server can leave unanswered.
+    this.#interruptions.set(turnId, interruption)
+    return interruption
+  }
+
+  #waitForTurnEnd(turnId: string): Promise<void> {
+    if (this.#currentTurnId !== turnId) return Promise.resolve()
+    return new Promise(resolve => {
+      const finish = () => {
+        clearTimeout(timer)
+        this.#turnEndWaiters.delete(settled)
+        resolve()
+      }
+      const settled = () => { if (this.#currentTurnId !== turnId) finish() }
+      // An acknowledged interrupt can precede its notice. Hear the notice
+      // before unsubscribing, but do not hold a close forever if it is lost.
+      const timer = setTimeout(finish, 2_000)
+      this.#turnEndWaiters.add(settled)
+    })
   }
 
   /**
@@ -805,7 +839,14 @@ export class CodexSession implements AgentSession {
   async #close(): Promise<void> {
     // Closing a pane ends its work before dropping the subscription that
     // carries completion and approvals back to the host. Other threads stay live.
-    if (this.#currentTurnId !== null) await this.interrupt()
+    const turnId = this.#currentTurnId
+    if (turnId !== null) {
+      try { await this.interrupt() } catch (error) {
+        if (!(error instanceof CodexRpcError) || error.message !== 'no active turn to interrupt') throw error
+        this.noteTurnEnded(turnId)
+      }
+      await this.#waitForTurnEnd(turnId)
+    }
     this.deps.onReleasing?.(this.id)
     let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
     try {

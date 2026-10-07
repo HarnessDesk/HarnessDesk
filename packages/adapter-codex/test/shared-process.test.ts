@@ -37,7 +37,7 @@ const environment = (start: number) => ({
 const account = async (
   t: TestContext,
   env: Readonly<Record<string, string>> = {},
-  gates: readonly ('unload' | 'close' | 'delegate-list' | 'delegate-read')[] = [],
+  gates: readonly ('unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt')[] = [],
 ) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-shared-'))
   const helpers = join(dir, 'helpers.ndjson')
@@ -76,7 +76,7 @@ const account = async (
     },
     ended: (session: AgentSession) =>
       events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
-    release: (name: 'unload' | 'close' | 'delegate-list' | 'delegate-read') => rm(gateFile(name), { force: true }),
+    release: (name: 'unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt') => rm(gateFile(name), { force: true }),
   }
 }
 
@@ -171,6 +171,52 @@ test('closing a seat interrupts its turn before unsubscribing, leaving the other
   const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
   await assert.rejects(() => again.interrupt(), /no turn is currently running/)
   assert.ok(!d.ended(other), 'the other seat keeps working')
+})
+
+test('completion in the turn/start reply chunk keeps the finished turn inactive', async (t) => {
+  const d = await account(t, { FAKE_CODEX_COMPLETE_ON_START: '1', FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'Finish immediately' }])
+  assert.ok(d.ended(seat))
+  await assert.rejects(seat.interrupt(), /no turn is currently running/)
+  await seat.close()
+  assert.equal(d.runtime.session(seat.id), undefined)
+  assert.equal(d.runtime.canStopForIdle(), true)
+})
+
+test('closing accepts a turn that ended before its completion notice arrives', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1', FAKE_CODEX_NO_ACTIVE_ON_INTERRUPT: '1' })
+  const seat = await d.seat('seat')
+  await d.turn(seat)
+  await seat.close()
+  assert.equal(d.runtime.session(seat.id), undefined)
+  assert.equal(d.runtime.canStopForIdle(), true)
+})
+
+test('close after interrupt waits for completion without sending a second interrupt', { timeout: 5_000 }, async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' }, ['interrupt'])
+  const seat = await d.seat('seat')
+  await d.turn(seat)
+  await seat.interrupt()
+  let closed = false
+  const closing = seat.close().then(() => { closed = true })
+  // A later read is a transport barrier for close's synchronous start.
+  await d.runtime.extensions.catalog()
+  assert.equal(closed, false, 'close still hears the held completion')
+  assert.equal((await d.calls()).filter(call => call.threadId === seat.id && call.method === 'turn/interrupt').length, 1)
+  assert.ok(!(await d.calls()).some(call => call.threadId === seat.id && call.method === 'thread/unsubscribe'))
+  await d.release('interrupt')
+  await closing
+  assert.ok(d.ended(seat))
+  assert.equal(d.runtime.session(seat.id), undefined)
+})
+
+test('closing bounds an interrupt the server never answers', { timeout: 5_000 }, async (t) => {
+  const d = await account(t, { FAKE_CODEX_HOLD_INTERRUPT: '1' })
+  const seat = await d.seat('seat')
+  await d.turn(seat)
+  await assert.rejects(seat.close(), /turn\/interrupt timed out after 2000ms/)
+  assert.equal(d.runtime.session(seat.id), seat, 'an unanswered stop keeps the live handle')
 })
 
 test('a failed close interruption retains the subscribed handle for a retry', async (t) => {
@@ -333,6 +379,25 @@ test('closing a seat gives back the sub-agent threads it left loaded, and only i
   await working.close()
   await until(() => theirs.every((helper) => !running(helper.pid)), 'closing the other seat gives back its own')
   assert.equal((await d.servers()).length, 1)
+})
+
+test('closing stops a running descendant before unsubscribe and preserves another root’s descendant', async (t) => {
+  const d = await account(t, { FAKE_CODEX_UNLOAD_MS: '1', FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  const other = await d.seat('other')
+  await seat.send([{ type: 'text', text: 'spawn-working' }])
+  await other.send([{ type: 'text', text: 'spawn-working' }])
+  await until(() => d.ended(seat) && d.ended(other), 'the parent turns ended')
+  const helpers = await d.helpers()
+  const own = helpers.find(helper => helper.threadId.startsWith(`${seat.id}-sub-`))!
+  const theirs = helpers.find(helper => helper.threadId.startsWith(`${other.id}-sub-`))!
+  await seat.close()
+  await until(() => !running(own.pid), 'the running descendant was stopped and released')
+  const calls = (await d.calls()).filter(call => call.threadId === own.threadId).map(call => call.method)
+  assert.ok(calls.indexOf('turn/interrupt') >= 0)
+  assert.ok(calls.indexOf('turn/interrupt') < calls.indexOf('thread/unsubscribe'))
+  assert.ok(running(theirs.pid), 'another root’s descendant keeps working')
+  assert.ok(!(await d.calls()).some(call => call.threadId === theirs.threadId && call.method === 'turn/interrupt'))
 })
 
 test('a close the desk asked for is not announced back when Codex makes it in the same read as its answer', async (t) => {
