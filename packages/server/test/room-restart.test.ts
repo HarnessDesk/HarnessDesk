@@ -690,3 +690,27 @@ test('two deliveries to the same member that is not open share one reopen', asyn
     await second.close()
   }
 })
+
+// Both ways a copy that is there can fail to run: one a later ask could change, and one it could not.
+for (const code of ['unreadable', 'spawnFailed'] as const) {
+  test(`a failed reopen because Codex was found and would not run (${code}) does not count against its member`, async () => {
+    const { client, runtime, room, member, peers, restart, close } = await boot()
+    try {
+      const kept = await member()
+      restart()
+      const refusal = (): Error => Object.assign(
+        new Error('Codex was found at /usr/local/bin/codex but would not report its version: it exited with code 127.'),
+        { code },
+      )
+      runtime.resumeFailure = refusal()
+      await client.call('team/post', { room: room.id, text: 'First attempt.' })
+      runtime.resumeFailure = refusal()
+      await client.call('team/post', { room: room.id, text: 'Second attempt.' })
+
+      assert.deepEqual((await peers()).map((peer) => peer.sessionId), [kept],
+        'a program that would not run is the process being down, not the conversation being gone')
+    } finally {
+      await close()
+    }
+  })
+}
