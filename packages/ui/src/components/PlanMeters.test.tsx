@@ -329,3 +329,12 @@ it('names a spent allowance honestly when its reset time is unknown', () => {
   expect(card.textContent).toContain('out of quota')
   expect(card.textContent).not.toContain('available in out')
 })
+
+it('includes a promoted chip countdown in its grouped accessible name', () => {
+  const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')], usage: [at('a', 78), spent('b', 6 * HOUR)], ...conversationWith('a') }
+  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup></StoreProvider>))
+  const promoted = container.querySelector('[data-promoted]')!
+  const name = promoted.closest('button')!.getAttribute('aria-label')!
+  expect(name).toContain(`resets in ${promoted.textContent}`)
+  expect(document.querySelector('[data-slot="hover-card-content"]')!.textContent).toContain(name)
+})

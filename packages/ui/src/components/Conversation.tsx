@@ -108,7 +108,7 @@ const EmptyBody = ({ children }: { children: ReactNode }) => (
   </Text>
 )
 
-/** Motion names a running turn; tone belongs only to a condition needing attention. */
+/** Shape and motion name a running turn; tone belongs to a condition needing attention. */
 const STATUS_TONE: Record<PaneStatus, Tone> = {
   running: 'neutral',
   waiting: 'warning',
@@ -747,6 +747,7 @@ export const Conversation = ({
                   tone={STATUS_PILL_TONE[status]}
                   dotTone={STATUS_TONE[status]}
                   dotPulse={status === 'running'}
+                  dotShape={status === 'running' ? 'square' : 'round'}
                   className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
                 >
                   {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
@@ -1026,19 +1027,21 @@ export const GitControl = ({
       ).size
     : 0
 
+  // An armed draft's path is its source folder, not a worktree made yet.
+  // The accessible name and the grouped card must describe the same place.
+  const placeTitle = armed
+    ? `${branch} · new worktree off ${cwd}`
+    : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
+
   return (
-    <HeaderStatusReading label={branch ? "Branch" : "Folder"} detail={`${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`}>
+    <HeaderStatusReading label={branch ? "Branch" : "Folder"} detail={placeTitle}>
       <Popover
         /* What the chip says, then where it is. The words fold to the glyph in a
            narrow header, and hover is where they are still read — the path alone
            was not the word that folded. A worktree says so, as its badge does,
            and a draft armed with a new one names the folder it will be cut from:
            its worktree is not at that path yet. */
-        title={
-          armed
-            ? `${branch} · new worktree off ${cwd}`
-            : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
-        }
+        title={placeTitle}
         align="right"
         label={
           <>

@@ -97,7 +97,7 @@ test.describe('a Popover’s menu', () => {
   test('Tab walks a panel’s own buttons first, and past the last one leaves the same way', async ({ page }) => {
     // The plan meters' "other agents" menu holds plain buttons, not rows, and
     // Tab is how the keyboard gets from one to the next.
-    const trigger = page.locator('[data-slot="popover-trigger"][title*="other agents"]')
+    const trigger = page.locator('[data-slot="popover-trigger"][aria-label*="other agents"]')
     await trigger.scrollIntoViewIfNeeded()
     const next = await stopAfter(page, trigger)
     await trigger.focus()

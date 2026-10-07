@@ -439,7 +439,8 @@ terminal toggle · ⋮. The status group puts the ceiling, status, background wo
 branch and plan readings on one chip ground. Hover or keyboard focus names every
 reading in one card, including words folded away in a narrow pane. Working and
 other agents’ limits stay neutral; an approval, failure or this conversation’s
-low or spent allowance takes a tone while it needs attention. The context ring
+low or spent allowance takes a tone while it needs attention. Working has a
+square light that stays distinct when reduced motion stops its pulse. The context ring
 stays beside the model in the composer, with its own usage card.
 
 - The **git control** is the branch chip and the menu behind it: Changes with the

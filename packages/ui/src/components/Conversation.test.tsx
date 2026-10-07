@@ -39,6 +39,13 @@ afterEach(() => {
   container.remove()
 })
 
+// jsdom does not track keyboard/pointer modality across these rendered rigs.
+const keyboardFocus = (element: HTMLElement) => {
+  const matches = element.matches.bind(element)
+  vi.spyOn(element, 'matches').mockImplementation((selector) => selector === ':focus-visible' ? true : matches(selector))
+  act(() => element.focus())
+}
+
 const KEY = sessionKey('codex', sessionId('s-1'))
 
 const session = (over: Partial<Session> = {}): Session =>
@@ -341,7 +348,7 @@ it('the chips a narrow header folds still say their words in the shared card', (
     tasks: new Map([[KEY, [{ id: 't1', label: 'npm run dev', kind: 'command', state: 'running' }]]]),
   } as unknown as AppSnapshot
   render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
-  act(() => container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!.focus())
+  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
   const card = document.querySelector('[data-slot="hover-card-content"]')!
   expect(card.textContent).toContain('Folderrepo — /repo')
   expect(card.textContent).toContain('Background tasks1 running in the background')
@@ -445,7 +452,7 @@ it('a conversation seated as an Agent carries its ceiling beside its title — h
   )
   const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
   expect(chip?.textContent).toBe('Read only')
-  act(() => container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!.focus())
+  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
   expect(document.querySelector('[data-slot="hover-card-content"]')?.textContent).toMatch(/Ceiling.*Held: Read-only sandbox/)
 
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
@@ -738,8 +745,14 @@ it('groups and names the header facts for keyboard readers', () => {
   render(rig(session({ git: { branch: 'main' } as Session['git'] })).store)
   const group = container.querySelector<HTMLElement>('header [role="group"][aria-label="Conversation status"]')
   expect(group).not.toBeNull()
-  act(() => group!.focus())
+  keyboardFocus(group!)
   const card = document.querySelector('[data-slot="hover-card-content"]')!
   expect(card.textContent).toContain('StatusIdle')
   expect(card.textContent).toContain('Branchmain')
+})
+
+it('marks a running status for its stationary shape as well as its pulse', () => {
+  render(rig(session({ turns: [{ id: turnId('running'), status: 'inProgress', items: [] }] })).store)
+  const dot = container.querySelector('header [data-slot="dot"][data-pulse]')!
+  expect(dot.getAttribute('data-shape')).toBe('square')
 })

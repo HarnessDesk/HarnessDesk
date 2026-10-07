@@ -117,6 +117,8 @@ export const PlanMeters = ({
   )
 }
 
+const meterTitle = (view: StripMeter): string => `${view.title}${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`
+
 const Meter = ({
   view,
   now,
@@ -129,9 +131,9 @@ const Meter = ({
   promoted?: boolean
   onOpen: () => void
 }) => (
-  <HeaderStatusReading label={promoted ? "Other agent limit" : "Plan usage"} detail={`${view.title}${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`}>
+  <HeaderStatusReading label={promoted ? "Other agent limit" : "Plan usage"} detail={meterTitle(view)}>
     <Popover
-      title={view.title}
+      title={meterTitle(view)}
       drop="down"
       align="right"
       label={

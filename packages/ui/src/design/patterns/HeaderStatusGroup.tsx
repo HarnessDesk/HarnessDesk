@@ -1,11 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card'
 import { Chip, Text } from './Settings'
 import styles from './HeaderStatusGroup.module.css'
 
 type Reading = { readonly label: string; readonly detail: string }
+type RegisteredReading = Reading & { readonly element: HTMLSpanElement }
 type Registry = {
-  readonly put: (id: string, reading: Reading) => void
+  readonly put: (id: string, reading: RegisteredReading) => void
   readonly remove: (id: string) => void
 }
 const StatusGroupContext = createContext<Registry | null>(null)
@@ -21,9 +22,9 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
   readonly label?: string
   readonly open?: boolean
 }) => {
-  const [readings, setReadings] = useState<ReadonlyMap<string, Reading>>(() => new Map())
+  const [readings, setReadings] = useState<ReadonlyMap<string, RegisteredReading>>(() => new Map())
   const [open, setOpen] = useState(false)
-  const put = useCallback((id: string, reading: Reading) => {
+  const put = useCallback((id: string, reading: RegisteredReading) => {
     setReadings((held) => new Map(held).set(id, reading))
   }, [])
   const remove = useCallback((id: string) => {
@@ -34,12 +35,23 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
     })
   }, [])
   const registry = useMemo(() => ({ put, remove }), [put, remove])
+  // Registration follows mount time; the card follows chip order, including
+  // conditional readings and keyed controls moved without changing their facts.
+  useLayoutEffect(() => {
+    setReadings((held) => {
+      const ordered = [...held].sort(([, a], [, b]) =>
+        a.element.compareDocumentPosition(b.element) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+      )
+      const ids = [...held.keys()]
+      return ordered.some(([id], index) => id !== ids[index]) ? new Map(ordered) : held
+    })
+  })
   return (
     <StatusGroupContext.Provider value={registry}>
       <HoverCard open={controlledOpen ?? open} onOpenChange={setOpen}>
         <HoverCardTrigger render={<span role="group" tabIndex={0} />} aria-label={label}
           className={`${styles.group} hd-no-drag`} hidden={readings.size === 0}
-          onFocus={() => setOpen(true)}
+          onFocus={(event) => { if ((event.target as HTMLElement).matches(':focus-visible')) setOpen(true) }}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
           }}
@@ -68,7 +80,8 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 export const HeaderStatusReading = ({ label, detail, children }: Reading & { readonly children: ReactNode }) => {
   const registry = useContext(StatusGroupContext)
   const id = useId()
-  useEffect(() => { registry?.put(id, { label, detail }) }, [registry, id, label, detail])
+  const element = useRef<HTMLSpanElement>(null)
+  useEffect(() => { if (element.current) registry?.put(id, { label, detail, element: element.current }) }, [registry, id, label, detail])
   useEffect(() => () => registry?.remove(id), [registry, id])
-  return <span data-slot="header-status-reading" className={styles.reading}>{children}</span>
+  return <span ref={element} data-slot="header-status-reading" className={styles.reading}>{children}</span>
 }

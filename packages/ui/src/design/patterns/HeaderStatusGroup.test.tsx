@@ -63,3 +63,24 @@ it('draws no empty chip when a draft has no readings', () => {
   act(() => root.render(<HeaderStatusGroup>{null}</HeaderStatusGroup>))
   expect(container.querySelector('[role="group"]')?.hasAttribute('hidden')).toBe(true)
 })
+
+it('keeps focus returned after a pointer action quiet', () => {
+  act(() => root.render(<HeaderStatusGroup><HeaderStatusReading label="Branch" detail="main"><button>main</button></HeaderStatusReading></HeaderStatusGroup>))
+  const button = container.querySelector('button')!
+  const matches = button.matches.bind(button)
+  vi.spyOn(button, 'matches').mockImplementation((selector) => selector === ':focus-visible' ? false : matches(selector))
+  act(() => button.focus())
+  expect(document.querySelector('[data-slot="hover-card-content"]')).toBeNull()
+})
+
+it('orders late-mounted and moved readings by their chips', () => {
+  const render = (labels: string[]) => act(() => root.render(
+    <HeaderStatusGroup open>{labels.map((label) => <HeaderStatusReading key={label} label={label} detail={label}>{label}</HeaderStatusReading>)}</HeaderStatusGroup>,
+  ))
+  const labels = () => [...document.querySelectorAll('[data-slot="hover-card-content"] dt')].map((node) => node.textContent)
+  render(['Status', 'Branch'])
+  render(['Status', 'Background tasks', 'Branch'])
+  expect(labels()).toEqual(['Status', 'Background tasks', 'Branch'])
+  render(['Branch', 'Status', 'Background tasks'])
+  expect(labels()).toEqual(['Branch', 'Status', 'Background tasks'])
+})

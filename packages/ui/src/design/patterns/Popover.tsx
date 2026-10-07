@@ -226,21 +226,12 @@ export const Popover = ({
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
           title={grouped ? undefined : title}
-        /* A glyph is not a name. When the trigger's content is an icon rather
-           than words, the hover text becomes the accessible name — otherwise
-           the control is announced as "button" and a screen reader user has no
-           way to know what it opens. A trigger that already says something in
-           text keeps saying it.
-
-           "Says something in text" is the whole of the condition, and it used
-           to be spelled `typeof label === 'string'` — which is true of a bare
-           string and false of *every* fragment, including the ones that are
-           mostly words. So the conversation header's branch chip, whose label
-           is an icon plus `<span>feat/worktrees</span>`, was announced as
-           `/Users/…/.claude/worktrees/worktree`: its own visible label
-           replaced by a path. That is WCAG 2.5.3 — "click feat/worktrees"
-           matches nothing — and it fails in the direction that matters,
-           because the visible text is what a person says out loud. */
+        /* Icon-only triggers use their title as a name. Outside a status
+           group, words (including text in fragments) name themselves.
+           Grouped triggers instead use the title to keep folded words and
+           facts accessible without a second tooltip; their caller must
+           include every visible word in that title, including countdowns,
+           so voice commands can still match the control (WCAG 2.5.3). */
           {...(title === undefined || (!grouped && hasText(label)) ? {} : { 'aria-label': title })}
         >
           {label}

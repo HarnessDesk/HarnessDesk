@@ -1811,6 +1811,8 @@ two never disagree about what they report. The one exception is a live
 indicator sitting on a pill that must stay calm while the mark itself
 keeps moving — a running turn, say — and `dotTone` is that dot's own
 colour, apart from `tone`.
+**`dotShape`.** Square activity remains distinct from a round resting light
+when reduced motion stops the pulse. Shape does not change the chip's tone.
 
 ### `Search`
 

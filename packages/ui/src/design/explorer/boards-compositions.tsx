@@ -2894,7 +2894,7 @@ const HeaderStatusBoard = () => (
   <div className="flex flex-col items-start gap-6" data-catalog="header-status">
     <Text role="subject">At rest</Text>
     <HeaderStatusGroup>
-      <HeaderStatusReading label="Status" detail="Working"><Chip tone="neutral" variant="quiet" dotTone="neutral" dotPulse>Working</Chip></HeaderStatusReading>
+      <HeaderStatusReading label="Status" detail="Working"><Chip tone="neutral" variant="quiet" dotTone="neutral" dotPulse dotShape="square">Working</Chip></HeaderStatusReading>
       <HeaderStatusReading label="Ceiling" detail="Read only · Held by the runtime"><Text role="meta">Read only</Text></HeaderStatusReading>
       <HeaderStatusReading label="Branch" detail="main"><Button variant="ghost" size="chip"><BranchIcon size={13} />main</Button></HeaderStatusReading>
       <HeaderStatusReading label="Plan usage" detail="Weekly allowance · 78% left"><Text role="meta" numeric>78%</Text></HeaderStatusReading>

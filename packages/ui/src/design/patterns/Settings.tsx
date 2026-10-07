@@ -41,6 +41,7 @@ export const Dot = ({
   state,
   tone,
   pulse = false,
+  shape = 'round',
   variant = 'default',
   ground = 'background',
   struck = false,
@@ -57,6 +58,8 @@ export const Dot = ({
    */
   tone?: Tone
   pulse?: boolean
+  /** Square activity stays distinct when reduced motion stops its pulse. */
+  shape?: 'round' | 'square'
   variant?: 'default' | 'navigation' | 'presence'
   /** The surface a presence light's tile stands on. */
   ground?: 'background' | 'popover'
@@ -72,6 +75,7 @@ export const Dot = ({
       data-variant={variant}
       {...(variant === 'presence' ? { 'data-ground': ground } : {})}
       {...(pulse ? { 'data-pulse': '' } : {})}
+      {...(shape === 'square' ? { 'data-shape': shape } : {})}
     />
   )
   if (!struck) return light
@@ -144,6 +148,8 @@ type ChipBaseProps = {
   dotTone?: Tone
   /** The dot pulses — a state still in progress. Meaningless without `dotTone`. */
   dotPulse?: boolean
+  /** A stationary distinction for activity, independent of tone or motion. */
+  dotShape?: 'round' | 'square'
 }
 
 export type ChipProps = ChipBaseProps & (
@@ -202,6 +208,8 @@ const chipIsCut = (words: Element): boolean =>
  * indicator sitting on a pill that must stay calm while the mark itself
  * keeps moving — a running turn, say — and `dotTone` is that dot's own
  * colour, apart from `tone`.
+ * **`dotShape`.** Square activity remains distinct from a round resting light
+ * when reduced motion stops the pulse. Shape does not change the chip's tone.
  */
 export const Chip = (props: ChipProps) => {
   const {
@@ -217,6 +225,7 @@ export const Chip = (props: ChipProps) => {
     showZero = false,
     dotTone,
     dotPulse = false,
+    dotShape,
   } = props
   if (count === 0 && !showZero) return null
   const state = props.state
@@ -268,7 +277,7 @@ export const Chip = (props: ChipProps) => {
         {/* Inside `chipWords`, not beside it: a readiness dot sits in the
             chip's own outer gap, but this one takes the words' own — the
             gap the hand-drawn status dot always read at, next to its label. */}
-        {!state && dotTone && <Dot tone={dotTone} pulse={dotPulse} variant="navigation" />}
+        {!state && dotTone && <Dot tone={dotTone} pulse={dotPulse} shape={dotShape} variant="navigation" />}
         {words}
       </span>
       {stale && <span className="sr-only"> (stale)</span>}

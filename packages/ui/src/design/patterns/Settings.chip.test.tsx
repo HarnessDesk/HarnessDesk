@@ -44,6 +44,11 @@ it('keeps the readiness form and its dot', () => {
   expect(chip.querySelector('[data-state="ready"]')).not.toBeNull()
 })
 
+it('keeps its activity dot shape separate from tone and motion', () => {
+  const chip = draw(<Chip tone="neutral" dotTone="neutral" dotShape="square" dotPulse>Working</Chip>)
+  expect(chip.querySelector('[data-slot="dot"]')?.getAttribute('data-shape')).toBe('square')
+})
+
 it('gives its dot a tone apart from the pill, on purpose', () => {
   const chip = draw(
     <Chip tone="neutral" dotTone="brand" dotPulse>
