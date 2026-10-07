@@ -358,7 +358,7 @@ const normalizeAuthorLabel = (value: string): string => {
   const characters = Array.from(plain)
   return characters.length <= DESCRIPTION_PART_LIMIT
     ? plain
-    : `${characters.slice(0, DESCRIPTION_PART_LIMIT - 3).join('')}...`
+    : removeDescriptionLinkForms(`${characters.slice(0, DESCRIPTION_PART_LIMIT - 3).join('')}...`, ' ')
 }
 
 const isDescriptionAuthor = (entry: unknown): entry is DescriptionAuthor => {
