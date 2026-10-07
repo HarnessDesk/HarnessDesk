@@ -343,8 +343,8 @@ const START_TIMEOUT_MS = 15_000
  * `node`, a spawn the machine refused for a moment, a first run slow enough to
  * time out. The first ask is made as the desk opens and the desk does not wait
  * for any later one: they run in the background, from the moment the desk
- * starts, and a quit ends them. The longest wait outlasts the login shell's own
- * deadline (5 s), which is when the PATH it builds arrives; that arrival has its
+ * starts, and a quit ends them. Together they span about 12 s, which outlasts
+ * the login shell's own deadline (5 s) by a margin; the PATH it builds has its
  * own look (`retryProgramLookup`), so this is only for what a PATH does not explain.
  */
 const RETRY_DELAYS_MS: readonly number[] = [250, 500, 1_000, 2_000, 3_000, 5_000]
