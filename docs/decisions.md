@@ -1941,8 +1941,9 @@ not know; it predicts no future route and offers no execution control.
 ## A Run's publication and a review round are separate facts
 
 The Run's `finding/run.publication` folds every posting it holds. It belongs
-on the Overview strip, Run header and Findings summary. Its ending keeps the
-reason for attention without repeating the aggregate chip. A review
+on the Overview strip, Run header and Findings summary. A need card above
+Timeline and Flow keeps the reason for attention and the existing next actions;
+the selectable End step does not repeat them or the aggregate chip. A review
 row reads only its own `FindingRunView.rounds` record; a missing record or
 `none` never inherits the aggregate. The round budget and Goal-owned open
 finding counts cannot establish a new Run's publication.

@@ -69,7 +69,7 @@ it('qualifies the header cost when a Run Seat has no recorded usage', async () =
     index === 0 ? { ...round, seats: [...round.seats, 'unrecorded-seat'] } : round) }
   const view = await mount(storeWith(), { execution, model: runTimeline({ ...fixture, execution }) })
   try {
-    expect(view.container.querySelector('[data-slot="run-facts"]')!.textContent).toContain('Seat cost 96 turns · partial')
+    expect(view.container.querySelector('[data-slot="run-facts"]')!.textContent).toContain('Seat cost 96 turns · Partial')
   } finally { view.close() }
 })
 
