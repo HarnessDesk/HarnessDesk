@@ -107,8 +107,10 @@ in the Seat record and reapplied on resume. A Seat's fork is refused; start a
 new Seat to choose its servers. Internal side reviews inherit the selection.
 If a selected server is removed or renamed in the runtime's configuration,
 the Seat cannot reopen: restore the server or start a new Seat with a new selection.
-Tool-server reloads apply to unfiltered conversations; a filtered conversation
-keeps its opening selection until reopened. Currently the native override is
+A Seat keeps the tool servers it opened with across a Reload. Reload is held
+while any conversation on the account has selected tool servers, including an
+empty selection. Close those conversations, then try Reload again. Reopening
+reapplies each Seat's frozen selection to the current native configuration. Currently the native override is
 measured on runtime builds starting at 0.160.0; other adapters do not declare
 this capability.
 

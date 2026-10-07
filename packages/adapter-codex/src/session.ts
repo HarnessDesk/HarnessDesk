@@ -792,12 +792,18 @@ export class CodexSession implements AgentSession {
 
   close(): Promise<void> {
     if (this.#closing) return this.#closing
-    this.#closing = Promise.resolve().then(() => this.#close())
+    this.#closing = Promise.resolve().then(() => this.#close()).catch((error: unknown) => {
+      this.#closing = null
+      throw error
+    })
     this.deps.onClosed(this.id, this.#closing)
     return this.#closing
   }
 
   async #close(): Promise<void> {
+    // Closing a pane ends its work before dropping the subscription that
+    // carries completion and approvals back to the host. Other threads stay live.
+    if (this.#currentTurnId !== null) await this.interrupt()
     let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
     try {
       status = (await this.deps.server.request('thread/unsubscribe', { threadId: this.id }, { timeoutMs: 2_000 })).status

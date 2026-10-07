@@ -241,8 +241,8 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   `capabilities.resume` and implementing `stopForIdle` participates (currently
   the ACP and Codex adapters); the existing idle reaper can then stop its process
   after `IDLE_STOP_MS` (ten minutes) with nothing else using it. One Codex
-  process serves every conversation of an account. Closing a handle unsubscribes
-  its thread; Codex closes an unsubscribed idle thread a minute later and the
+  process serves every conversation of an account. Closing a handle interrupts
+  its active turn before unsubscribing its thread; Codex closes an unsubscribed idle thread a minute later and the
   thread's tool helpers go with it, while other conversations keep working. A
   process failure detaches every conversation it held, and the normal resume path
   reattaches each

@@ -272,6 +272,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly #releases = new ThreadReleases()
   /** Conversations being started, resumed or forked right now; the process cannot rest under one. */
   #opening = 0
+  #reloadingMcp: Promise<void> | null = null
   readonly #runtimeServers = new Map<string, readonly string[]>()
   readonly #environments = new Map<string, Readonly<Record<string, string>>>()
   /** Child thread id to the thread that spawned it. */
@@ -347,7 +348,7 @@ export class CodexRuntime implements AgentRuntime {
     this.processes = new CodexProcesses(this.#server, (session) =>
       this.#sessions.get(session)?.permissionProfile(),
     )
-    this.extensions = new CodexExtensions(this.#server)
+    this.extensions = new CodexExtensions(this.#server, () => this.#reloadMcp())
     this.tasks = new CodexTasks(this.#server, (sessionId, tasks) =>
       this.#emit({ type: 'session/tasks', sessionId, tasks }),
     )
@@ -514,7 +515,7 @@ export class CodexRuntime implements AgentRuntime {
    * new opens behind these reads.
    */
   canStopForIdle(): boolean {
-    return !(this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#opening > 0 || this.processes.busy || this.files.busy)
+    return !(this.#disposed || this.#server.state.type !== 'ready' || this.#sessions.size > 0 || this.#opening > 0 || this.#reloadingMcp !== null || this.processes.busy || this.files.busy)
   }
 
   async stopForIdle(): Promise<boolean> {
@@ -1397,7 +1398,7 @@ export class CodexRuntime implements AgentRuntime {
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onReleased: (id, status) => {
         this.#released(id, status)
-        if (status !== undefined) void this.#letGoOfDelegates(id)
+        if (status !== undefined) void (this.#closingSessions.get(id) ?? Promise.resolve()).then(() => this.#letGoOfDelegates(id), () => {})
       },
       onClosed: (id, closing) => {
         if (this.#sessions.get(id) !== session) return
@@ -1405,12 +1406,15 @@ export class CodexRuntime implements AgentRuntime {
         const forgetClosing = () => {
           if (this.#closingSessions.get(id) === closing) this.#closingSessions.delete(id)
         }
-        void closing.then(forgetClosing, forgetClosing)
-        this.#forgetDelegates(id)
-        this.#approvals.abandonSession(makeSessionId(id), 'The conversation was closed.')
-        this.#sessions.delete(id)
-        this.#reviewTurns.forget(id)
-        this.tasks.forget(id)
+        void closing.then(() => {
+          forgetClosing()
+          if (this.#sessions.get(id) !== session) return
+          this.#forgetDelegates(id)
+          this.#approvals.abandonSession(makeSessionId(id), 'The conversation was closed.')
+          this.#sessions.delete(id)
+          this.#reviewTurns.forget(id)
+          this.tasks.forget(id)
+        }, forgetClosing)
       },
       emit: (event) => this.#emit(event),
     })
@@ -1626,10 +1630,25 @@ export class CodexRuntime implements AgentRuntime {
   async #opened<T>(open: () => Promise<T>): Promise<T> {
     this.#opening++
     try {
+      // A thread opened after Reload begins must see the updated configuration.
+      await this.#reloadingMcp
       return await open()
     } finally {
       this.#opening--
     }
+  }
+
+  #reloadMcp(): Promise<void> {
+    if (this.#opening > 0) return Promise.reject(new Error('Reload is held while a conversation opens. Try Reload again after it opens.'))
+    if ([...this.#sessions.keys()].some(id => this.#runtimeServers.has(id))) {
+      return Promise.reject(new Error('Reload is held. Close conversations with selected tool servers, then try Reload again.'))
+    }
+    if (this.#reloadingMcp) return this.#reloadingMcp
+    const reloading = this.#server.request('config/mcpServer/reload', undefined).then(() => {}).finally(() => {
+      if (this.#reloadingMcp === reloading) this.#reloadingMcp = null
+    })
+    this.#reloadingMcp = reloading
+    return reloading
   }
 
   /** A handle was closed; unless nothing was loaded or Codex never answered, the thread now waits out Codex's minute. */

@@ -2081,7 +2081,8 @@ the reload and settings requests;
 this is not a claim about unmeasured cross-process propagation in the real agent.
 MCP login opens one interactive authorization flow on the control process only.
 The agent owns its stored credentials; Reload in Extensions sends the existing
-reload verb to unfiltered conversation processes. Whether a running real agent process
+reload verb to unfiltered conversation processes (the shared-process rule below
+now holds reloads while any filtered conversation remains open). Whether a running real agent process
 re-reads a newly stored credential on reload remains unmeasured.
 
 A conversation process that fails reports `session/detached` for its own roots,
@@ -2165,7 +2166,8 @@ differs between seats is a parameter of their own thread, never of the process:
   its own thread. Neither names another thread, so no other seat's turn, helper
   or approval is touched; the test holds three turns open and stops one.
 - *Accounts.* Auth and limits stay per account, because the process is.
-- *Finishing a seat.* Closing the handle unsubscribes the thread. Codex closes
+- *Finishing a seat.* Closing the handle interrupts its active turn before
+  unsubscribing the thread, while completion and approval events are still heard. Codex closes
   it after its minute and the helpers go with it; the runtime counts the
   closed handle until `thread/closed` arrives and does not announce that close
   or its `notLoaded` status back to the desk, which asked for it. The
@@ -2193,11 +2195,22 @@ seat's helpers live for Codex's minute rather than ending with a process, which
 bounds them to the seats released in the last minute and not to every seat since
 launch. A close the process never answers (the unsubscribe times out after two
 seconds) leaves that thread's helpers until the process rests or restarts.
-Closing a pane does not interrupt its running turn: it runs on without the
-pane's subscription until it finishes, or until the reopened pane stops it.
+Closing a pane interrupts its running turn before unsubscribing, so a Flow
+Stop or a budget stop never leaves work running behind a closed handle.
+If interruption fails, closing fails and keeps the handle subscribed for retry.
 
-**Where a separate process is still called for.** Nowhere a seat needs one:
-nothing a seat carries is process-wide. What still ends the process is the
+**Reload and a frozen native-server selection.** A Seat keeps the tool servers
+it opened with across a Reload. The choice is (a): hold the account's reload
+while any open conversation has a frozen selection, including an empty one.
+Extensions › Reload reports "Reload is held. Close conversations with selected
+tool servers, then try Reload again." The person retries after the last
+filtered handle closes; no deferred reload runs unexpectedly. Conversations
+opening also hold Reload, and an opening that follows an in-flight Reload
+waits for it before reading configuration. Closing and resuming a filtered
+Seat rereads native configuration and reapplies its frozen list.
+
+**Where a separate process is still called for.** A frozen selection uses the
+reload hold above and does not require another process. What still ends the process is the
 account's: the idle rest when nothing is open, a crash, and a restart for a newly
 installed build. A future need for a process of its own (a configuration Codex
 only takes at launch, say) is named here before it is built.
@@ -2447,9 +2460,9 @@ claiming it on older supported builds by inference.
 
 The list is frozen in the durable Seat record, not reread from an edited
 Agent file on resume. Native configuration is reread on opening so new
-unselected servers are disabled too. A filtered worker skips tool-server
-reload fan-out, preserving its opening selection; close and resume applies
-configuration updates. Side reviews inherit the selection. A person's fork
+unselected servers are disabled too. The [shared-process decision](#one-codex-process-per-account-shared-by-every-seat)
+holds tool-server Reload while any filtered conversation remains open, preserving
+its opening selection; close and resume applies configuration updates. Side reviews inherit the selection. A person's fork
 of a filtered Seat is refused like a fork of a Seat with approved attachments.
 Scripted helper-child tests cover concurrent defaults, release, resume, fork,
 an empty selection, reload and passive process-root observation.

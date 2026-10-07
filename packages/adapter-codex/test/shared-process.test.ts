@@ -157,15 +157,47 @@ test('stopping one seat leaves the other seats’ turns running', async (t) => {
   assert.ok(!d.ended(other), 'and stopping it does not stop the next one either')
 })
 
-test('a seat closed mid-turn can steer and stop that same turn after reopening', async (t) => {
+test('closing a seat interrupts its turn before unsubscribing, leaving the other seat working', async (t) => {
   const d = await account(t)
   const seat = await d.seat('seat')
   const other = await d.seat('other')
   await d.turn(seat)
   await d.turn(other)
   await seat.close()
-  assert.ok(!d.ended(seat), 'closing the pane leaves its turn running')
+  await until(() => d.ended(seat), 'the closed seat must finish its interrupted turn')
+  const calls = (await d.calls()).filter(call => call.threadId === seat.id).map(call => call.method)
+  assert.ok(calls.indexOf('turn/interrupt') >= 0)
+  assert.ok(calls.indexOf('turn/interrupt') < calls.indexOf('thread/unsubscribe'))
+  const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
+  await assert.rejects(() => again.interrupt(), /no turn is currently running/)
+  assert.ok(!d.ended(other), 'the other seat keeps working')
+})
 
+test('a failed close interruption retains the subscribed handle for a retry', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await d.turn(seat)
+  const interrupt = seat.interrupt.bind(seat)
+  seat.interrupt = async () => { throw new Error('Synthetic interruption refusal') }
+  await assert.rejects(seat.close(), /Synthetic interruption refusal/)
+  assert.equal(d.runtime.session(seat.id), seat)
+  assert.ok(!(await d.calls()).some(call => call.method === 'thread/unsubscribe' && call.threadId === seat.id))
+  seat.interrupt = interrupt
+  await seat.close()
+  await until(() => d.ended(seat), 'the retry ends the turn')
+  assert.equal(d.runtime.session(seat.id), undefined)
+})
+
+test('a resumed active thread can steer and stop its current turn', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  const other = await d.seat('other')
+  await d.turn(seat)
+  await d.turn(other)
+
+  // Simulate an externally unsubscribed active thread. Local pane close now interrupts.
+  seat.interrupt = async () => {}
+  await seat.close()
   const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
   await again.steer([{ type: 'text', text: 'Continue here' }])
   await again.interrupt()
@@ -179,6 +211,7 @@ test('a completion heard while recovering a resumed turn beats the older turn sn
   const d = await account(t, { FAKE_CODEX_COMPLETE_ON_TURNS_LIST: '1' })
   const seat = await d.seat('seat')
   await d.turn(seat)
+  seat.interrupt = async () => {}
   await seat.close()
   const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
   assert.ok(d.ended(seat), 'completion arrived with the in-progress history snapshot')

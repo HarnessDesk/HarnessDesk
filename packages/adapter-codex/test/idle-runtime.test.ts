@@ -434,7 +434,8 @@ test('idle rest refuses a conversation still loading its catalogue', async (t) =
   const outcome = opening.then((live) => ({ live }), (error: unknown) => ({ error }))
   await until(() => d.events.some((event) => event.type === 'notice' && event.message === 'CATALOGUE_HELD'))
   await writeFile(calls, '')
-  assert.equal(await d.stop(), false, 'an opening worker prevents idle rest before snapshot reads')
+  assert.equal(d.runtime.canStopForIdle(), false, 'the resource observation refuses an opening conversation')
+  assert.equal(await d.stop(), false, 'an opening conversation prevents idle rest before snapshot reads')
   assert.equal(await readFile(calls, 'utf8'), '', 'no idle snapshots are requested while registration is pending')
   await rm(hold)
   const result = await outcome
@@ -487,6 +488,38 @@ test('tool settings are sent once, to the one process, whatever conversations ar
   await second.close()
 })
 
+test('a filtered conversation opening holds Reload, and a prior Reload finishes before opening', async (t) => {
+  const hold = join(tmpdir(), `hd-reload-open-${randomUUID()}.hold`)
+  const catalogue = `${hold}.catalogue`
+  const calls = `${hold}.log`
+  await writeFile(calls, '')
+  t.after(async () => { await rm(hold, { force: true }); await rm(catalogue, { force: true }); await rm(calls, { force: true }) })
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_MCP_RELOAD: hold, FAKE_CODEX_HOLD_CATALOGUE: catalogue,
+    FAKE_CODEX_NATIVE_SERVERS: '["docs"]', FAKE_CODEX_PROCESS_CALLS: calls })
+  await d.runtime.defaultSessionOptions()
+  await writeFile(hold, '')
+  const reload = d.runtime.extensions.reloadMcp()
+  await until(() => d.events.some(event => event.type === 'notice' && event.message === 'MCP_RELOAD_HELD'))
+  assert.equal(d.runtime.canStopForIdle(), false, 'a reload must finish before idle recycling')
+  await writeFile(catalogue, '')
+  const opening = d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held while a conversation opens/)
+  const readCalls = async () => (await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean)
+    .map(line => JSON.parse(line) as { method: string })
+  assert.ok(!(await readCalls()).some(call => call.method === 'thread/start'), 'opening waits for the earlier Reload')
+  await rm(hold)
+  await reload
+  await until(() => d.events.some(event => event.type === 'notice' && event.message === 'CATALOGUE_HELD'))
+  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held while a conversation opens/)
+  await rm(catalogue)
+  const selected = await opening
+  await selected.close()
+  await d.runtime.extensions.reloadMcp()
+})
+
 test('native server selection suppresses unused helpers on create, resume and fork while another seat works', async (t) => {
   const previousVersion = process.env['FAKE_CODEX_VERSION']
   process.env['FAKE_CODEX_VERSION'] = '0.160.0'
@@ -508,19 +541,29 @@ test('native server selection suppresses unused helpers on create, resume and fo
   assert.ok((await selectedChildren(working.id)).every(one => running(one.pid)))
 })
 
-test('tool reload does not widen a native server selection on an open worker', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-native-reload-'))
-  const calls = join(dir, 'calls.ndjson')
+test('a Seat keeps the tool servers it opened with across a Reload on the shared process', async (t) => {
+  const calls = join(tmpdir(), `hd-native-reload-${randomUUID()}.log`)
   await writeFile(calls, '')
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(calls, { force: true }))
   const previousVersion = process.env['FAKE_CODEX_VERSION']
   process.env['FAKE_CODEX_VERSION'] = '0.160.0'
   t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
   const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["docs","simulator"]', FAKE_CODEX_PROCESS_CALLS: calls })
-  await d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  const unfiltered = await d.runtime.createSession({ cwd: d.dir })
+  const selected = await d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  const empty = await d.runtime.createSession({ cwd: d.dir, runtimeServers: [] })
+  const reloads = async () => (await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean)
+    .map(line => JSON.parse(line) as { method: string }).filter(one => one.method === 'config/mcpServer/reload')
+  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held.*Close.*selected tool servers/i)
+  assert.equal((await reloads()).length, 0)
+  await selected.close()
+  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held/)
+  assert.equal((await reloads()).length, 0, 'an empty selection also holds Reload')
+  await empty.close()
   await d.runtime.extensions.reloadMcp()
-  const reloads = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { method: string; generation: string }).filter(one => one.method === 'config/mcpServer/reload')
-  assert.deepEqual(reloads.map(one => one.generation), ['0'])
+  assert.equal((await reloads()).length, 1, 'the last filtered close allows Reload with other conversations open')
+  assert.equal(d.runtime.session(unfiltered.id), unfiltered)
+  assert.equal(d.runtime.resourceProcessIds().length, 1)
 })
 
 test('no-cwd resume and fork reread native configuration in the source thread folder', async (t) => {

@@ -158,8 +158,11 @@ const closeIfIdle = (threadId) => {
   }
   held.closing = true
   held.timer = null
-  mcpChildren.get(threadId)?.kill()
-  mcpChildren.delete(threadId)
+  for (const [key, child] of mcpChildren) {
+    if (!key.startsWith(`${threadId}:`)) continue
+    child.kill()
+    mcpChildren.delete(key)
+  }
   const finish = () => {
     if (gated('FAKE_CODEX_CLOSE_GATE')) {
       setTimeout(finish, 10)
