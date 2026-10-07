@@ -25,7 +25,7 @@ vi.mock('../lib/highlight', () => ({
     grammar.listeners.add(listener)
     return () => grammar.listeners.delete(listener)
   },
-  highlight: (code: string) => (grammar.landed ? `<pre class="shiki"><code>${code}</code></pre>` : null),
+  highlight: (code: string) => (grammar.landed ? `<pre class="shiki" style="background-color:#fff;color:#24292e"><code><span style="color:#005cc5">${code}</span></code></pre>` : null),
 }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -64,4 +64,13 @@ it('colours a finished message once its grammar lands', () => {
     for (const listener of grammar.listeners) listener()
   })
   expect(container.querySelector('pre.shiki')?.textContent).toContain('const opened = true')
+})
+
+it('lets the code plate own the background when highlighting arrives', () => {
+  grammar.landed = true
+  act(() => root.render(<StoreProvider store={store}><Markdown text={'```ts\nconst opened = true\n```'} /></StoreProvider>))
+  const pre = container.querySelector<HTMLElement>('pre.shiki')!
+  expect(pre.style.backgroundColor).toBe('')
+  expect(pre.style.color).toBe('rgb(36, 41, 46)')
+  expect(pre.querySelector<HTMLElement>('span')?.style.color).toBe('rgb(0, 92, 197)')
 })

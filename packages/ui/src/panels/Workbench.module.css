@@ -94,6 +94,14 @@
     visibility 0s linear var(--hd-duration-slow);
 }
 
+/* A closed narrow drawer also leaves by its transform, not its width. Keep
+   that transition at the hidden-state specificity so resize can still stop it. */
+:where(.shell[data-narrow]) .sidebar[data-hidden] {
+  transition:
+    transform var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
+}
+
 .shell[data-dragging] .sidebar {
   transition: none;
 }
@@ -380,6 +388,11 @@
   max-width: calc(100% - var(--hd-space-10));
   transform: translateX(-100%);
   visibility: hidden;
+}
+
+/* Placement needs the shell state; motion stays below the document's active
+   resize state, so the drawer cannot animate against the pointer. */
+:where(.shell[data-narrow]) .sidebar {
   transition:
     transform var(--hd-duration-slow) var(--hd-ease),
     visibility 0s linear var(--hd-duration-slow);
@@ -388,6 +401,9 @@
 .shell[data-narrow] .sidebar[data-floating] {
   transform: none;
   visibility: visible;
+}
+
+:where(.shell[data-narrow]) .sidebar[data-floating] {
   transition: transform var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
