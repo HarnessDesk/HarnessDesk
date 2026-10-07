@@ -293,22 +293,11 @@
   background: transparent; /* desk: var(--hd-code-fill) → transparent, the outer code plate owns the shared fill */
 }
 
-/*
- * Shiki's own background, taken back.
- *
- * `codeToHtml` writes the theme's page colour onto that element as an INLINE
- * style — `style="background-color:#fff;color:#24292e"` — and an inline style
- * is the one thing a class cannot outrank on specificity, so `!important` is
- * the mechanism and not a preference. Without it a block wears GitHub's white
- * (or #24292e at night) when the grammar has loaded and the app's plate when
- * it has not, so the colour reports load timing.
- *
- * The selector is on the element, not a descendant of it: shiki replaces our
- * `pre` rather than nesting inside it, so `pre :global(.shiki)` matches
- * nothing.
- */
+/* Shiki replaces the source pre; it does not nest under it. */
+/* Its inline ground is removed when the block is mounted; the plate
+   keeps the same fill before and after its grammar arrives. */
 .markdown pre:global(.shiki) {
-  background: var(--hd-code-fill) !important;
+  background: var(--hd-code-fill); /* desk: the renderer removes the inline ground before mounting (#954) */
 }
 
 /* The text inside, from either renderer: shiki's `<code>` is a child of its
