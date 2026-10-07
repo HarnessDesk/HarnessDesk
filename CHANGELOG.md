@@ -45,20 +45,20 @@ let go of their processes sooner.
   and opening or messaging a released conversation restores it from the agent's
   history with its picks. Claude Code and Cursor conversations also release
   their own child processes, and Gemini frees its one shared process family with
-  its last conversation. In a measurement with eight sessions, ten processes and
-  about 2 GB stayed after close; now one bridge at about 133 MB does. Agents
-  that cannot reopen a conversation, or cannot be stopped when idle, keep their
-  processes as before.
+  its last conversation. In a measurement with eight Claude Code sessions, ten
+  processes and about 2 GB stayed after close; now one bridge at about 133 MB
+  does. Agents that cannot reopen a conversation, or cannot be stopped when
+  idle, are not released after ten quiet minutes or when a Seat finishes, and
+  keep their live sessions until their pane is closed.
 
 - **A finished Codex Seat's tool servers go while other Seats keep working.**
   Every conversation of an account shares that account's one Codex process (two
   accounts, two processes), each keeping its own folder, environment, model and
   policies, and a finished Seat's tool servers go about a minute after the desk
   releases its conversation, because Codex closes an idle unsubscribed
-  conversation itself. Closing a pane now ends that conversation's running turn
-  first, and a failed interruption keeps it attached for a retry. A crash or
-  restart detaches every conversation of the account, and the desk reattaches
-  them.
+  conversation itself. If ending the running turn fails when a pane is closed,
+  the conversation stays attached for a retry. A crash or restart detaches every
+  conversation of the account, and the desk reattaches them.
 
 - **Cursor's Max mode follows what Cursor saved.** The Max mode switch now
   follows the flag Cursor saved after each turn, whatever context window the
@@ -160,12 +160,13 @@ let go of their processes sooner.
 
 - **A read ceiling holds across resume, and an asked one refuses writes.** A
   Claude Code Seat held at Read keeps that ceiling when its conversation is
-  resumed, after a restart, while already open, or while a read is loading it; a
-  conversation busy with a turn refuses it until the turn finishes. On an agent
-  only asked to stay at Read, the desk refuses edit, execute, mode-change and
-  unknown-kind permission requests before a person or an automatic approval
-  policy can allow them, with a transcript notice that the tool was refused by
-  the Read only ceiling; read, search and think keep their ordinary approval.
+  resumed, loaded or forked, after a restart, while already open, or while a
+  read is loading it; a conversation busy with a turn refuses it until the turn
+  finishes. On an agent only asked to stay at Read, the desk refuses edit,
+  execute, mode-change and unknown-kind permission requests before a person or
+  an automatic approval policy can allow them, with a transcript notice that the
+  tool was refused by the Read only ceiling; read, search and think keep their
+  ordinary approval.
 
 - **`pr_create` no longer mistakes a pushed branch for an unpublished one.** A
   branch pushed without an upstream, or one that inherited an upstream such as
@@ -246,13 +247,13 @@ let go of their processes sooner.
   control are centred on the whole row, however many lines the copy takes;
   headers, labels and row heights come from one set of sizes; and numbers align
   right in tabular figures. Git's history is one accessible table with resizable
-  columns: PageUp and PageDown scroll it without moving the selected commit, ref
-  chips shrink before the subject, group labels carry counts ("Remotes · 3"),
-  and merge commits read in secondary ink. The Library's List view is a table of
-  Skill (or Server), State and Loaded by; State reads Ready or the one thing to
-  fix, such as "Empty on disk", a refusal that names the agent, or "2 copies
-  differ", Loaded by shows faces only for the agents that load the entry, or
-  None, and below 600px wide the table becomes list rows.
+  columns: PageUp and PageDown scroll it without moving the selected commit,
+  long ref chips shrink to leave the subject room, group labels carry counts
+  ("Remotes · 3"), and merge commits read in secondary ink. The Library's List
+  view is a table of Skill (or Server), State and Loaded by; State reads Ready
+  or the one thing to fix, such as "Empty on disk", a refusal that names the
+  agent, or "2 copies differ", Loaded by shows faces only for the agents that
+  load the entry, or None, and below 600px wide the table becomes list rows.
 
 - **Dashboard › Plans shows one reading per row.** Account, Status (Ready, Low,
   On overage, Out, Not reporting), Left and Resets, with a Details button,
@@ -294,10 +295,14 @@ let go of their processes sooner.
   focus, the first arrow key now moves from that row's new position instead of
   from where it used to be.
 
-- **Finished work releases its idle tools.** After a Team's Seats finish and
-  the agent is unused, the desk stops its helper process to release retained
-  tool servers. Working turns and terminals keep it running; conversations
-  and sign-in remain available, and new work starts it again. (Fixes #1397)
+- **Finished work releases its idle tools.** After a Team's Seats finish and the
+  agent is unused, the desk stops its helper process to release retained tool
+  servers, and so it does for any agent with no live conversation, running turn,
+  pending approval, running task, open Seat or waiting message and no host call
+  for ten minutes. Working turns and terminals keep it running. The agent still
+  shows as available (health idle), conversations and sign-in remain available,
+  its models, options, account and history keep being served from the last known
+  state without waking it, and new work starts it again. (Fixes #1397)
 
 - **A conversation that cannot open leaves a usable draft.** When its
   transcript cannot be read, the pane shows the error and returns to a fresh
@@ -311,14 +316,14 @@ let go of their processes sooner.
   the app (ledger spend still earns a card), and a late refresh reply no longer
   brings the old account back.
 
-- **A Run says where its review went.** The Run header, Overview strip, end
-  banner and Findings summary each show the publication once, and a review row
-  carries its own round as one chip: Posted to #n, Waiting to post, Partly
-  posted, Not confirmed, Not posted or Kept on the desk. A confirmed review that
-  still needs posting makes the Team and its Run Needs you. For a finished
-  review with text, the inspector keeps the host's reason whole and offers Copy
-  review and Post to pull request, asking you to confirm for an earlier round; a
-  refusal stays visible, and nothing posts without a press. When the intake gate
+- **A Run says where its review went.** The Run header, Overview strip and
+  Findings summary each show the publication once, and a review row carries its
+  own round as one chip: Posted to #n, Waiting to post, Partly posted, Not
+  confirmed, Not posted or Kept on the desk. A confirmed review that still needs
+  posting makes the Team and its Run Needs you. For a finished review with text,
+  the inspector keeps the host's reason whole and offers Copy review and Post to
+  pull request, asking you to confirm for an earlier round; a refusal stays
+  visible, and the inspector posts nothing without a press. When the intake gate
   holds a post, each unsent posting records its reason, the Run and round stay
   Waiting to post with it shown, and posting retries on its own when the gate
   allows it, including after a restart; a readiness check that cannot finish
@@ -340,9 +345,8 @@ let go of their processes sooner.
   sent." with Restore, and if adding a message to a running turn fails (the turn
   ended, the connection was lost or the agent timed out), its words and chips
   wait in that conversation's Restore list with the failure reason beside them,
-  which survives reopening the view. Restore never overwrites a newer draft:
-  both stay available to swap. Drafts and refused messages survive a window
-  reload; pasted images do not.
+  which survives reopening the view. Drafts and refused messages survive a
+  window reload; pasted images do not.
 
 - **Runtime information waits quietly in the Inbox.** Configuration warnings
   and retiring settings show their details, a file action and a mute option.
@@ -392,14 +396,14 @@ let go of their processes sooner.
 
 - **A submodule's worktrees can be listed, opened and made beside its folder.**
   A submodule, or a checkout made with a separate Git directory, opened on its
-  own now lists its worktrees and can bring a worktree home or remove it;
-  before, these were refused with "… belongs to …, which is not a project opened
-  here. Open it first." The main checkout is its working folder, not its Git
-  directory under `.git/modules`, so the composer's Main checkout row and the
-  bring-home dialog start there, the Git pane's Worktrees list marks it current,
-  and a worktree made for the submodule lands beside the submodule folder. A
-  worktree of a separate-Git-directory checkout is still refused when only that
-  checkout is open.
+  own now lists its worktrees, and a submodule's worktree can be brought home or
+  removed; before, these were refused with "… belongs to …, which is not a
+  project opened here. Open it first." The main checkout is its working folder,
+  not its Git directory under `.git/modules`, so the composer's Main checkout
+  row and the bring-home dialog start there, the Git pane's Worktrees list marks
+  it current, and a worktree made for the submodule lands beside the submodule
+  folder. A worktree of a separate-Git-directory checkout is still refused when
+  only that checkout is open.
 
 - **The Inbox bell sits in the sidebar's title row.** It moves from beside the
   account seat in the footer to just before Search everything (⌘K); both are now
@@ -475,13 +479,13 @@ let go of their processes sooner.
   Teams leave the sidebar for the Teams page, and project headings lose the
   folder icon.
 
-- **One repository is one sidebar project.** Team clones and linked worktrees
-  share its row. Gone folders leave the list while their conversations remain
-  searchable, and a quiet line counts them and offers to forget them. Seats with
-  no first message are named by their job and Team, and an agent's compaction
-  summary is never a conversation title. Capture trouble is in the project's
-  menu, with Retry or Turn on, and a stopped capture also shows a quiet Capture
-  stopped label on its row.
+- **One repository is one sidebar project.** Clones of one repository (same
+  remote) and its linked worktrees share its row. Gone folders leave the list
+  while their conversations remain searchable, and a quiet line counts them and
+  offers to forget them. Seats with no first message are named by their job and
+  Team, and an agent's compaction summary is never a conversation title. Capture
+  trouble is in the project's menu, with Retry or Turn on, and a stopped capture
+  also shows a quiet Capture stopped label on its row.
 
 - **A finished or interrupted check can be run again from the Run.** While a Run
   is running or stalled, the check's row in the timeline and its inspector offer
@@ -506,7 +510,7 @@ let go of their processes sooner.
   makes are removed when it stops or the app exits, and any that a crash left
   behind are swept at the next start.
 
-- **The command line now ships inside the app.** HarnessDesk › Install
+- **A `harnessdesk` command line comes with the app.** HarnessDesk › Install
   command-line tool… puts a `harnessdesk` command in a folder you own
   (`~/.local/bin` or `~/bin`) and, if that folder is not on your PATH, shows the
   one line that adds it, so a terminal or a script can list Teams and runs,
@@ -520,9 +524,10 @@ let go of their processes sooner.
 
 - **A wrapped Team stays readable** — it opens on its receipt, in a narrow
   window as in a wide one and whether or not it ever had a Run. The receipt
-  keeps every Seat's conversation, and its page tabs and members popover still
-  open those conversations and the Run. A conversation seated more than once is
-  listed once; Run details still keep each Seat and its recorded usage,
+  keeps each Seat's conversation where one was retained, and its page tabs and
+  members popover still open those conversations and the Run. A conversation
+  seated more than once is listed once; Run details still keep each Seat and
+  its recorded usage,
   including a Seat whose conversation was not kept. Older receipts keep Seats without a retained conversation visible, even
   when that is every Seat, rather than saying no Agents were kept. Composers and
   work-dispatching controls say “This Team
@@ -585,13 +590,13 @@ let go of their processes sooner.
 
 - **Names, small titles and meters settle on quieter weights and tones.** Names
   beside faces (a chat's sender, an agent card's name, a Needs-you row, a member
-  named in a sentence) are medium weight instead of semibold at the same size.
-  Small row titles, such as the rows of the Team members list, are regular
-  weight, and a selected row shows in its fill instead of a heavier weight.
-  Empty-state headings and a notice's or the Inbox's title are medium, as are
-  group labels such as Workspaces and Agents. A budget meter with plenty left is
-  drawn in the neutral fill (it was green); low reads as a warning and spent as
-  danger, so the one card running low stands out. (Fixes #1061, #1072, #1122)
+  named in a sentence) share one medium weight; the agent card's name was
+  semibold at the same size. Small row titles, such as the rows of the Team
+  members list, are regular weight, and a selected row shows in its fill instead
+  of a heavier weight. Empty-state headings and a notice's or the Inbox's title
+  are medium. A budget meter with plenty left is drawn in the neutral fill (it
+  was green); low reads as a warning and spent as danger, so the one card
+  running low stands out. (Fixes #1061, #1072, #1122)
 
 - **Teams have one page, with attention first.** Teams in the left menu lists
   work by project, its Seats and recorded usage. Active, Needs you and Settled
@@ -608,9 +613,10 @@ let go of their processes sooner.
   its recorded turns' working durations, fixed when its last turn ended, and
   reads unknown when a turn's timing is missing; Now and Cost drop out when
   empty. A wait on findings, an unreadable ledger included, raises Needs you,
-  while a wait on other evidence reads Waiting. A finding raised in another Run
-  or Goal says "Raised in round N · of another run" (or Goal) beside its number.
-  A Team with neither a Run nor a Goal ready to wrap opens on Chat.
+  while a wait on other evidence reads Waiting. On the Findings page, a finding
+  raised in another Run or Goal says "Raised in round N · of another run" (or
+  Goal) beside its number. A Team with neither a Run nor a Goal ready to wrap
+  opens on Chat.
 
 - **Sidebar states read as quiet coloured text.** Needs you keeps its trailing
   alignment without a pill around it, giving conversation titles more room. The
@@ -645,8 +651,7 @@ let go of their processes sooner.
   round on the desk until a person picked one. Now the latest local observation
   binds, a tie going to the later record; if the latest pull request is closed
   or merged, none is bound; a restored observation never binds; and a round
-  already prepared keeps its target. The Git context line and the Uncommitted
-  changes chip also read each conversation's own checkout.
+  already prepared keeps its target.
 
 - **A Flow can start from a fetched base without moving your checkout.** A Flow
   file can declare `base: { remote: origin, branch: main }` (the remote's
@@ -773,17 +778,16 @@ let go of their processes sooner.
   shell command outside a short read-only list (git status, diff, log, show,
   rev-parse and ls-files; ls, cat, head, tail, wc, rg, grep and find), one plain
   command at a time. It runs without the project's hooks, settings, `.mcp.json`
-  and `CLAUDE.md`, in default or plan mode only, and keeps the ceiling across
-  resume, load and fork. (Refs #1132)
+  and `CLAUDE.md`, in default or plan mode only. (Refs #1132)
 
 - **The Flow preview says why no Seat could review independently.** When a
   reviewer role must be independent of the writer, the preview lists each
-  candidate Seat it passed over with every reason, beside any ceiling refusal,
-  such as "Same provider as the writer", so Start shows them at once instead of
-  ending on "No seat could be opened". A provider the preview cannot read is
-  only a warning, saying that independence is checked when the step is reached,
-  and a known same-provider clash is refused. Which Seat reviews stays your
-  choice. (Refs #1132)
+  candidate Seat it passed over with every reason, a provider refusal such as
+  "Same provider as the writer" beside any ceiling refusal, so Start shows them
+  before the Run starts, where the Run used to stall at that step. A provider
+  the preview cannot read is only a warning, saying that independence is checked
+  when the step is reached, and a known same-provider clash is refused. Which
+  Seat reviews stays your choice. (Refs #1132)
 
 - **New session is one click.** It starts a draft in the current project with
   the default agent, like ⌘N. The ⌄ beside it opens More ways to start: New
@@ -791,8 +795,8 @@ let go of their processes sooner.
   Team…. A worktree choice points the draft at that checkout, and nothing is
   made on disk until its first message.
 
-- **The sidebar is one list of rows.** Agents, Dashboard and Plugins are full
-  rows under New session, laid out like a conversation row (icon, label,
+- **The sidebar is one list of rows.** Teams, Agents, Dashboard and Plugins are
+  full rows under New session, laid out like a conversation row (icon, label,
   trailing badge): Agents counts agents in force, Dashboard agents needing
   attention and Plugins live plugins. The magnifier beside the brand opens
   Search everything (⌘K) across sessions, files, agents and commands, and the
@@ -813,15 +817,16 @@ let go of their processes sooner.
   Escape returns focus to the row. Large project lists mount rows as focus
   reaches them and keep the focused row in view.
 
-- **A file the viewer cannot show as text no longer reads as missing.** Images
-  (PNG, JPEG, GIF, WebP and AVIF) up to 10 MiB preview, other binaries say
-  "Binary file — N KB", a text file over 2 MiB says "File too large — N MB", and
-  only a missing file offers Create this file. A save over a binary or oversized
-  file is refused ("This file is now binary. Your save was refused." or "This
-  file is now too large to edit. Your save was refused."), a save over a file
-  the host cannot read fails instead of creating it, a binary is never offered
-  Overwrite with mine, and a refused save keeps the edited text in the editor
-  with Save disabled.
+- **The file viewer says what a file is when it cannot show it as text.** A
+  binary used to open as garbled text you could edit and save over, and a text
+  file over 2 MiB opened cut short. Now images (PNG, JPEG, GIF, WebP and AVIF)
+  up to 10 MiB preview, other binaries say "Binary file — N KB", a text file
+  over 2 MiB says "File too large — N MB", and only a missing file offers Create
+  this file. A save over a binary or oversized file is refused ("This file is
+  now binary. Your save was refused." or "This file is now too large to edit.
+  Your save was refused."), a save over a file the host cannot read fails
+  instead of creating it, a binary is never offered Overwrite with mine, and a
+  refused save keeps the edited text in the editor with Save disabled.
 
 - **The right panel works from the keyboard.** Hiding, closing or collapsing it
   returns focus to where it was in the conversation, or to the pane's first
@@ -864,10 +869,11 @@ let go of their processes sooner.
   added), so Codex and ACP agents no longer show the raw wrapper. Where the time
   went is drawn against each turn's wall time, with the remainder named Model
   and waiting, or Not measured when a step carried no duration, so an ACP turn,
-  whose steps report no durations, now shows where its time went instead of no
-  breakdown. Empty reasoning folds into one row ("3 steps, no summary given")
-  instead of "Thinking · Thinking", and messages wrap to three lines with the
-  whole text on hover, while commands and paths stay on one line.
+  whose steps report no durations, now gets the band with its whole time marked
+  Not measured instead of no band at all. Empty reasoning folds into one row ("3
+  steps, no summary given") instead of "Thinking · Thinking", and messages wrap
+  to three lines with the whole text on hover, while commands and paths stay on
+  one line.
 
 - **A Flow role with seats but no Agent is refused by name.** "An Agent role
   needs uses: to name an Agent." replaces the count message "A round needs
@@ -896,14 +902,6 @@ let go of their processes sooner.
   ⌥⌘↵ expands or returns it (Settings › Keyboard shortcuts). A lone tile keeps
   its own composer; on a grid of two or more there is no composer, so expand a
   tile to write to it, and words typed in a tile stay with their conversation.
-
-- **An idle agent's helpers are stopped and started again on next use.** An
-  agent with no live conversation, running turn, pending approval, running task,
-  open Seat or waiting message, and no host call for ten minutes, has its helper
-  process stopped, whether it is an ACP agent's bridge or Codex's app-server. It
-  still shows as available (health idle); its models, options, account and
-  history keep being served from the last known state without waking it; and the
-  next use starts it again.
 
 - **The desk's tool server no longer runs as a second app or outlives its
   agent.** Gemini filters the environment it hands on, so the server lost
@@ -966,8 +964,8 @@ let go of their processes sooner.
   stays, greyed, and the line says why; if the Seat is busy or a trigger's hold
   or gate applies, pressing it is refused with the reason. An answer that
   arrives just as an unattended question's wait runs out now goes into the live
-  turn and the Run carries on, and the question-wait setting takes only its five
-  choices. (Refs #998)
+  turn and the Run carries on, and the When nobody is here setting for how long
+  an agent's question waits takes only its five choices. (Refs #998)
 
 - **A Team room opened through a symbolic link stays with its project.** After
   the folder it was opened from leaves the sidebar's list, the room no longer
@@ -990,9 +988,9 @@ let go of their processes sooner.
   characters. The "Assign a conversation" and "Seat an Agent in this Goal"
   dialogs draw their choices with the shared choice rows, where a refused Agent
   stays selectable with its "Can't seat here" reason at full ink. The Browser
-  pane's footer is the system's bar, with Idle or Being driven on the left and
-  its sentence on the right, wrapping to at most two lines and hidden when the
-  pane is narrower than 18rem.
+  pane's footer is the system's bar, with its state on the left and its sentence
+  on the right, wrapping to at most two lines and hidden when the pane is
+  narrower than 18rem.
 
 - **A tool step draws a result once.** When an agent sent a result both as text
   and as a raw record, the step showed the words twice, the text and then the
