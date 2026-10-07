@@ -93,10 +93,13 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
     else steps.at(-1)?.records.push(row)
   }
   const stepState = (row: typeof model.rows[number], records: typeof model.rows): TimelineState => {
-    if (records.some(one => ['Failed', 'Timed out', 'Did not finish', 'fail', 'failed'].includes(one.status ?? ''))) return 'danger'
+    if (records.some(one => one.kind !== 'attempt' && ['fail', 'failed', 'timed out', 'did not finish'].includes(one.status?.toLowerCase() ?? ''))) return 'danger'
     if (row.attention || records.some(one => one.attention) || (header.state === 'stalled' && row.kind === 'round' && row.round === round)) return 'warning'
+    if (records.some(one => one.status === 'Stopped' || one.status === 'Stopping')) return 'pending'
+    const recorded = execution?.rounds.find(one => one.n === row.round)
+    if (header.state === 'running' && recorded?.state === 'waiting-evidence') return needsYou ? 'warning' : 'active'
     if (row.working || records.some(one => one.working)) return 'active'
-    if (row.kind !== 'round' || execution?.rounds.find(one => one.n === row.round)?.state === 'closed' || row.durationMs !== null) return 'done'
+    if (row.kind !== 'round' || recorded?.state === 'closed' || row.durationMs !== null) return 'done'
     return 'pending'
   }
   const time = (row: typeof model.rows[number]) => {

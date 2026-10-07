@@ -1,6 +1,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
+import { sessionId, sessionKey, turnId, WAITING_FINDINGS, type Session } from '@harnessdesk/protocol'
 import { runTimeline } from '../lib/run-timeline'
 import { overviewRun } from '../preview/team-overview-fixture'
 import { StoreProvider } from '../state/context'
@@ -433,6 +434,63 @@ it.each(['stalled', 'person'] as const)('puts the %s attention state on the step
     const step = container.querySelector('[data-row="round-4"]')!.closest('[data-slot="timeline-item"]')!
     expect(step.getAttribute('data-state')).toBe('warning')
     expect(step.querySelector('[data-slot="timeline-indicator"]')!.getAttribute('aria-label')).toBe('Needs attention')
+  } finally { done() }
+})
+
+it('judges a retried check by its current result while keeping failed attempts visible', () => {
+  const fixture = runFixture('attempts')
+  const { container, done } = withFlow({ model: runTimeline(fixture), execution: fixture.execution })
+  try {
+    const step = container.querySelector('[data-row="round-2"]')!.closest('[data-slot="timeline-item"]')!
+    expect(step.querySelector('[data-kind="check"]')!.textContent).toContain('Passed')
+    expect(step.querySelector('[data-row="attempt-2-2-1"]')!.textContent).toContain('Failed')
+    expect(step.getAttribute('data-state')).toBe('done')
+    expect(step.querySelector('[data-slot="timeline-indicator"]')!.getAttribute('aria-label')).toBe('Finished')
+  } finally { done() }
+})
+
+it.each([false, true])('keeps a round stopped mid-work pending even though Stop closed it (live turn: %s)', busy => {
+  const fixture = runFixture('running')
+  const execution = { ...fixture.execution, state: 'stopped' as const, end: { kind: 'stopped' as const, by: 'person' as const },
+    currentEndedAt: fixture.execution.startedAt! + 900_000, rounds: fixture.execution.rounds.map(round => ({ ...round, state: 'closed' as const })) }
+  const claim = fixture.cards[3]!.claim!
+  const session: Session = { runtime: claim.runtime, id: sessionId(claim.sessionId), cwd: '/repo', createdAt: claim.at, updatedAt: claim.at,
+    itemsLoaded: true, status: { type: busy ? 'active' : 'idle' },
+    turns: [{ id: turnId('stopped-turn'), startedAt: claim.at, status: busy ? 'inProgress' : 'completed', items: [] }] }
+  const sessions = new Map([[sessionKey(claim.runtime, claim.sessionId), session]])
+  const { container, done } = withFlow({ model: runTimeline({ ...fixture, execution, sessions }), execution })
+  try {
+    const step = container.querySelector('[data-row="round-4"]')!.closest('[data-slot="timeline-item"]')!
+    expect(step.textContent).toContain('0 of 1 answered')
+    expect(step.querySelector('[data-kind="card"]')!.textContent).toContain(busy ? 'Stopping' : 'Stopped')
+    expect(step.getAttribute('data-state')).toBe('pending')
+    expect(step.querySelector('[data-slot="timeline-indicator"]')!.getAttribute('aria-label')).toBe('Pending')
+  } finally { done() }
+})
+
+it.each(['fail', 'failed', 'timed out', 'did not finish'])('tones an agent outcome %s as a failed step', outcome => {
+  const fixture = runFixture('running')
+  const cards = fixture.cards.map(card => card.id === 3 ? { ...card, outcome } : card)
+  const { container, done } = withFlow({ model: runTimeline({ ...fixture, cards }), execution: fixture.execution })
+  try {
+    const step = container.querySelector('[data-row="round-3"]')!.closest('[data-slot="timeline-item"]')!
+    expect(step.getAttribute('data-state')).toBe('danger')
+    expect(step.querySelector('[data-slot="timeline-indicator"]')!.getAttribute('aria-label')).toBe('Failed')
+  } finally { done() }
+})
+
+it.each([null, WAITING_FINDINGS(2)])('keeps a started evidence wait visible (%s)', reason => {
+  const fixture = runFixture('running')
+  const execution = { ...fixture.execution, reason, rounds: fixture.execution.rounds.map(round => round.n === 4 ? { ...round, state: 'waiting-evidence' as const } : round) }
+  const cards = fixture.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const, outcome: 'published' } : card)
+  const model = runTimeline({ ...fixture, execution, cards })
+  const { container, done } = withFlow({ model, execution })
+  try {
+    const step = container.querySelector('[data-row="round-4"]')!.closest('[data-slot="timeline-item"]')!
+    expect(step.textContent).toContain('1 of 1 answered')
+    expect(step.getAttribute('data-state')).toBe(reason ? 'warning' : 'active')
+    if (reason) expect(container.querySelector('[data-slot="run-need"]')!.textContent).toContain(reason)
+    else expect(container.querySelector('[data-slot="run-need"]')).toBeNull()
   } finally { done() }
 })
 

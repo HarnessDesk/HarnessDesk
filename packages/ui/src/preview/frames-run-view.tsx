@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FlowPreview, FlowRunOptions } from '@harnessdesk/protocol'
+import { WAITING_FINDINGS, type FlowPreview, type FlowRunOptions } from '@harnessdesk/protocol'
 import type { RunTimelineInput } from '../lib/run-timeline'
 import { Button, NativeSelect } from '../design'
 import { runTimeline } from '../lib/run-timeline'
@@ -47,8 +47,21 @@ export const RunViewBoard = () => <div className="flex flex-col gap-4">{RUN_VIEW
 export const RunViewFrames = () => {
   const store = useMemo(() => runTeamStore('settled'), [])
   const polish = useMemo(() => runTeamStore('live-polish'), [])
+  const stopped = useMemo(() => {
+    const fixture = runFixture('running')
+    return { ...fixture, execution: { ...fixture.execution, state: 'stopped' as const, end: { kind: 'stopped' as const, by: 'person' as const },
+      currentEndedAt: fixture.execution.startedAt! + 900_000, rounds: fixture.execution.rounds.map(round => ({ ...round, state: 'closed' as const })) } }
+  }, [])
+  const waiting = useMemo(() => {
+    const fixture = runFixture('running')
+    return { ...fixture, execution: { ...fixture.execution, reason: WAITING_FINDINGS(2),
+      rounds: fixture.execution.rounds.map(round => round.n === 4 ? { ...round, state: 'waiting-evidence' as const } : round) },
+      cards: fixture.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const, outcome: 'published' } : card) }
+  }, [])
   return <div className="flex flex-col gap-4 p-4">{RUN_VIEW_STATES.map(scene =>
     <section key={scene} id={`run-view-${scene}`} className={scene === 'narrow' ? 'flex h-144 max-w-sm flex-col' : 'flex h-144 flex-col'}><RunExample scene={scene} /></section>)}
+    <section id="run-view-stopped-mid-round" className="flex h-144 flex-col"><RunExample scene="stopped" input={stopped} /></section>
+    <section id="run-view-waiting-evidence" className="flex h-144 flex-col"><RunExample scene="running" input={waiting} /></section>
     <section id="run-view-live-polish-flow" className="flex h-224 flex-col"><RunWorkspaceExample scene="live-polish" view="flow" /></section>
     <section id="run-view-live-polish-team" className="h-144"><StoreProvider store={polish}><TeamRoomPane room="overview-team" /></StoreProvider></section>
     <section id="run-view-flow" className="flex h-144 flex-col"><RunWorkspaceExample view="flow" /></section>
