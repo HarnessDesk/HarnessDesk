@@ -281,8 +281,11 @@ export interface HostContext {
     assertDispatchable(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): void
     /** Hold new work against Wrap through reopening and runtime acceptance. */
     dispatch<T>(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }, work: (live: AgentSession) => Promise<T>): Promise<T>
-    /** The live handle for a conversation, reopening it when the agent restarted underneath. */
-    live(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<AgentSession>
+    /**
+     * The live handle for a conversation, reopening it when the agent restarted underneath.
+     * A reopen runs on the route a caller names, which is where the conversation runs, not a pick the person made.
+     */
+    live(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly route?: ResolvedModelRoute }): Promise<AgentSession>
     /** The host's record of a conversation, or a refusal. */
     record(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): SessionRecord
     /** A full read, enriched from the host's own transcript where the backend's is thin. */
@@ -296,6 +299,10 @@ export interface HostContext {
     busyElsewhere(runtime: AgentRuntime, id: SessionId, error: unknown): Promise<SessionBusyError>
     /** Why a conversation could not be reopened, in a sentence that names the agent. */
     cannotReopen(runtime: AgentRuntime, error: unknown): string
+    /** Lets go of a conversation's handle once nothing is happening in it, keeping its picks for the reopen. */
+    releaseQuiet(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<void>
+    /** Keeps the picks made in a conversation's live handle for the reopen, before a closed pane lets it go. */
+    holdPicks(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): void
   }
 
   /**

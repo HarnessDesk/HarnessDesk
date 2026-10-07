@@ -5,16 +5,18 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import {
+  isNoticeTurn,
   runtimeId,
   sessionId,
   type Page,
+  type Session,
   type SessionDeletion,
   type SessionSummary,
 } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore, serve, type RunningServer } from '../src/index.js'
 import { SessionArchive } from '../src/archive.js'
-import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 import { Client } from './fixtures/harness.js'
 
 /**
@@ -49,7 +51,7 @@ interface Rig {
   close(): Promise<void>
 }
 
-const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: boolean }, name?: string): Promise<Rig> => {
+const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: boolean; resume?: boolean }, name?: string): Promise<Rig> => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-archive-'))
   const runtime = new FakeRuntime({ ...(capabilities ? { capabilities } : {}), ...(name ? { name } : {}) })
   const host = new Host({
@@ -309,18 +311,42 @@ test('session/archive wire call rejects when host archive cannot be persisted', 
 
 
 
+const until = async (check: () => boolean): Promise<void> => {
+  const deadline = Date.now() + 3_000
+  while (!check()) {
+    assert.ok(Date.now() < deadline, 'the host did not settle')
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+}
+
+/** A conversation the agent has been prompted in, with that turn finished: quiet, and one a reopen can find. */
+const openWithATurn = async (rig: Rig) => {
+  const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+  const params = { runtime: 'fake', sessionId: opened.id }
+  await rig.client.call('turn/send', { ...params, input: [{ type: 'text', text: 'First' }] })
+  const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
+  const live = record.live as FakeSession
+  await until(() => record.session.turns.length > 0)
+  live.finish('Done')
+  await until(() => record.running.size === 0)
+  return { params, record, live }
+}
+
+const heldPicks = (options: Session['options']): Record<string, unknown> =>
+  Object.fromEntries((options ?? []).filter(option => ['model', 'tone'].includes(option.id))
+    .map(option => [option.id, option.currentValue]))
+
 test('archiving a resumable conversation releases its handle and leaves a sibling open', async () => {
   const rig = await start({ archiveHistory: false })
   try {
-    const first = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const { params, record } = await openWithATurn(rig)
     const sibling = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
-    await rig.client.call('session/archive', { runtime: 'fake', sessionId: first.id, archived: true })
-    const record = rig.host.registry.get(runtimeId('fake'), sessionId(first.id))!
+    await rig.client.call('session/archive', { ...params, archived: true })
     assert.equal(record.live, null)
     assert.equal(record.detached, false)
     assert.ok(rig.host.registry.get(runtimeId('fake'), sessionId(sibling.id))?.live)
-    await rig.client.call('session/archive', { runtime: 'fake', sessionId: first.id, archived: false })
-    await rig.client.call('session/resume', { runtime: 'fake', sessionId: first.id })
+    await rig.client.call('session/archive', { ...params, archived: false })
+    await rig.client.call('session/resume', params)
     assert.ok(record.live, 'opening after unarchive resumes the stored conversation')
   } finally { await rig.close() }
 })
@@ -328,12 +354,11 @@ test('archiving a resumable conversation releases its handle and leaves a siblin
 test('an archive that was stored succeeds even if its quiet handle refuses close', async () => {
   const rig = await start({ archiveHistory: false })
   try {
-    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
-    const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
+    const { params, record } = await openWithATurn(rig)
     record.live!.close = async () => { throw new Error('close refused') }
-    await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
+    await rig.client.call('session/archive', { ...params, archived: true })
     assert.equal(record.live, null)
-    assert.equal((await list(rig.client, 'only')).data[0]?.id, opened.id)
+    assert.equal((await list(rig.client, 'only')).data[0]?.id, params.sessionId)
   } finally { await rig.close() }
 })
 
@@ -341,18 +366,208 @@ test('archive preserves work, approvals, queued input and running tasks', async 
   const rig = await start({ archiveHistory: false })
   try {
     for (const busy of ['turn', 'approval', 'queue', 'task'] as const) {
-      const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
-      const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
-      const live = record.live
+      const { params, record, live } = await openWithATurn(rig)
       let closes = 0
-      record.live!.close = async () => { closes++ }
+      live.close = async () => { closes++ }
       if (busy === 'turn') record.running.add('working' as never)
       if (busy === 'approval') record.approvals.set('approval', {} as never)
       if (busy === 'queue') record.queue = { ...record.queue, messages: [{ id: 'queued' } as never] }
       if (busy === 'task') record.tasks = [{ id: 'task', state: 'running' } as never]
-      await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
+      await rig.client.call('session/archive', { ...params, archived: true })
       assert.equal(closes, 0, busy)
       assert.equal(record.live, live, busy)
     }
+  } finally { await rig.close() }
+})
+
+test('archive leaves a conversation the agent was never prompted in alone, which it could not reopen', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
+    const live = record.live
+    let closes = 0
+    live!.close = async () => { closes++ }
+    await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
+    assert.equal(closes, 0)
+    assert.equal(record.live, live)
+  } finally { await rig.close() }
+})
+
+test('archive leaves a conversation whose first prompt the agent rejected alone, which it could not reopen', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const params = { runtime: 'fake', sessionId: opened.id }
+    const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
+    const live = record.live as FakeSession
+    await rig.client.call('turn/send', { ...params, input: [{ type: 'text', text: 'First' }] })
+    await until(() => record.session.turns.length > 0)
+    // The turn is on the record, and the conversation is not on the agent: it refused the prompt.
+    live.fail('The model backend timed out.')
+    await until(() => record.running.size === 0)
+    assert.deepEqual(record.session.turns.map(turn => turn.status), ['failed'])
+    let closes = 0
+    live.close = async () => { closes++ }
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(closes, 0)
+    assert.equal(record.live, live)
+  } finally { await rig.close() }
+})
+
+test('archive leaves a conversation whose only turn is a warning alone, which the agent was never prompted in', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const id = sessionId(opened.id)
+    const record = rig.host.registry.get(runtimeId('fake'), id)!
+    const live = record.live
+    // A warning given while the conversation opens is the host's, not a prompt the agent took.
+    rig.runtime.emit({ type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+    await until(() => record.session.turns.length > 0)
+    assert.ok(record.session.turns.every(isNoticeTurn), 'the warning is all the record holds')
+    let closes = 0
+    live!.close = async () => { closes++ }
+    await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
+    assert.equal(closes, 0)
+    assert.equal(record.live, live)
+  } finally { await rig.close() }
+})
+
+test('archive keeps the picks a quiet conversation held, as the rest does', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(record.live, null)
+    // The agent forgets what it was told while the conversation rests, so the
+    // handle it hands back answers with its own defaults.
+    rig.runtime.sessions.delete(params.sessionId)
+    await rig.client.call('session/archive', { ...params, archived: false })
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.deepEqual(heldPicks(resumed.options), { model: 'fake-2', tone: 'cheerful' })
+  } finally { await rig.close() }
+})
+
+test('closing a pane keeps the picks a conversation held, as archive does', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+    await rig.client.call('session/close', params)
+    // Another window closing the same pane finds no handle, and must not lose what the first held.
+    await rig.client.call('session/close', params)
+    assert.equal(record.live, null)
+    // The agent forgets what it was told while the pane is closed, so the
+    // handle it hands back answers with its own defaults.
+    rig.runtime.sessions.delete(params.sessionId)
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.deepEqual(heldPicks(resumed.options), { model: 'fake-2', tone: 'cheerful' })
+  } finally { await rig.close() }
+})
+
+test('closing a pane holds no picks for an agent that cannot reopen the conversation', async () => {
+  const rig = await start({ archiveHistory: false, resume: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/close', params)
+    assert.equal(record.live, null)
+    assert.equal(record.restedOptions, undefined, 'there is no reopen to put them back')
+  } finally { await rig.close() }
+})
+
+test('archive does not release a conversation while a send is on its way to the agent', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record, live } = await openWithATurn(rig)
+    const send = live.send.bind(live)
+    let arrived!: () => void
+    const reached = new Promise<void>(resolve => { arrived = resolve })
+    let proceed!: () => void
+    const gate = new Promise<void>(resolve => { proceed = resolve })
+    live.send = async (input, options) => { arrived(); await gate; return send(input, options) }
+    const sending = rig.client.call('turn/send', { ...params, input: [{ type: 'text', text: 'Next' }] })
+    await reached
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(record.live, live, 'the handle the send is using is still the conversation\'s')
+    proceed()
+    await sending
+  } finally { await rig.close() }
+})
+
+const allPicks = (options: Session['options']): Record<string, unknown> =>
+  Object.fromEntries((options ?? []).map(option => [option.id, option.currentValue]))
+
+/** The agent forgot what it was told while the conversation rested, and hands back a fresh handle, shaped by `shape`. */
+const reopenAs = (rig: Rig, shape: (live: FakeSession) => void): void => {
+  const resume = rig.runtime.resumeSession.bind(rig.runtime)
+  rig.runtime.resumeSession = async (id, options) => {
+    const live = await resume(id, options) as FakeSession
+    shape(live)
+    return live
+  }
+}
+
+test('a held pick the agent now refuses is dropped, and the rest of the picks still come back', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    for (const [optionId, value] of [['model', 'fake-2'], ['tone', 'cheerful'], ['uppercase', true]] as const) {
+      await rig.client.call('session/options/set', { ...params, optionId, value })
+    }
+    await rig.client.call('session/archive', { ...params, archived: true })
+    rig.runtime.sessions.delete(params.sessionId)
+    reopenAs(rig, live => {
+      const options = live.options.bind(live)
+      live.options = () => options().map(option => option.id === 'tone' ? { ...option, disabled: 'Tone is unavailable.' } : option)
+    })
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.deepEqual(allPicks(resumed.options), { model: 'fake-2', tone: 'plain', uppercase: true })
+    assert.equal(record.restedOptions, undefined)
+    assert.ok(record.live)
+  } finally { await rig.close() }
+})
+
+test('a reopen that still fails lets go of the handle it resumed and spends the picks it tried', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/archive', { ...params, archived: true })
+    rig.runtime.sessions.delete(params.sessionId)
+    let closes = 0
+    let failing = true
+    reopenAs(rig, live => {
+      const close = live.close.bind(live)
+      // A handle the agent has let go of is one it no longer hands out.
+      live.close = async () => { closes++; rig.runtime.sessions.delete(live.id); await close() }
+      if (failing) live.setOption = async () => { throw new Error('the agent went away') }
+    })
+    await assert.rejects(rig.client.call('session/resume', params))
+    assert.equal(closes, 1, 'the handle the failed reopen resumed is closed')
+    assert.equal(record.live, null)
+    assert.equal(record.restedOptions, undefined, 'the picks it tried are spent')
+    failing = false
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.equal(allPicks(resumed.options)['model'], 'fake-1', 'a retry reopens on the agent\'s own picks')
+    assert.ok(record.live)
+  } finally { await rig.close() }
+})
+
+test('the resume of a released conversation that cannot be reopened gives its reason once', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params } = await openWithATurn(rig)
+    await rig.client.call('session/archive', { ...params, archived: true })
+    rig.runtime.resumeFailure = new Error('the agent is gone')
+    await assert.rejects(rig.client.call('session/resume', params), (error: Error) => {
+      assert.equal(error.message.match(/could not reopen this conversation/g)?.length, 1, error.message)
+      assert.ok(error.message.endsWith('the agent is gone'), error.message)
+      return true
+    })
   } finally { await rig.close() }
 })

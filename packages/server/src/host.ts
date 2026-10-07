@@ -1,6 +1,7 @@
 import { readProcessTable, resourcesFromProcessTable } from './runtime-resources.js'
 import { retainRuntimeNotice } from './runtime-notices.js'
 import { AccountReads } from './account-reads.js'
+import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
@@ -26,6 +27,8 @@ import {
   classifyNotice,
   runtimeNoticeKey,
   isFolderGone,
+  folderGoneOf,
+  SessionFolderGoneError,
   type CeilingLevel,
   type ApprovalDecision,
   type NoticeItem,
@@ -35,6 +38,7 @@ import {
   isNoticeTurn,
   isSessionBusy,
   isSessionGone,
+  refuseOptionValue,
   reopenRefusedByAgent,
   SessionGoneError,
   SessionBusyError,
@@ -2769,9 +2773,27 @@ export class Host {
     })
   }
 
+  /**
+   * Nothing is happening in a personal conversation, and the agent has taken a
+   * prompt in it.
+   *
+   * The second half is not idleness. An agent that stores a conversation at
+   * its first accepted message lists nothing for one that has none, so
+   * releasing the handle of a conversation it took no prompt in drops the only
+   * way back to it: the reopen is refused as unlisted, and so is every send
+   * after it.
+   *
+   * Only a turn the agent took counts. A first prompt it rejected leaves a
+   * failed turn and nothing stored, and a warning given while the conversation
+   * opened is the host's own (`#leaveAsItIs` makes the same call). The host
+   * cannot tell a prompt the agent rejected from one it took and then stopped
+   * on, so a failed turn is counted as not taken, which only keeps the handle
+   * until a later turn succeeds.
+   */
   #personalConversationQuiet(record: SessionRecord): boolean {
     const key = recordKey(record)
-    return Boolean(record.live) && record.running.size === 0 && record.approvals.size === 0 &&
+    return Boolean(record.live) && record.session.turns.some(turn => turn.status !== 'failed' && !isNoticeTurn(turn)) &&
+      record.running.size === 0 && record.approvals.size === 0 &&
       record.queue.messages.length === 0 && !record.tasks.some(task => task.state === 'running') &&
       (this.#sessionActivity.get(key) ?? 0) === 0 && !this.#queueBusy(record) &&
       !this.#draining.has(key) && !this.#reattaching.has(key)
@@ -2796,21 +2818,51 @@ export class Host {
         continue
       }
       if (Date.now() - prior.since < delay || this.#restingSessions.has(key)) continue
-      const live = record.live!
-      const resting = Promise.resolve().then(async () => {
-        if (!this.#personalConversationQuiet(record) || record.live !== live) return
-        record.restedOptions = Object.fromEntries(live.options().map(option => [option.id, option.currentValue]))
-        await live.close()
-        if (record.live === live) { record.live = null; record.detached = false }
-      })
-      this.#restingSessions.set(key, resting)
-      try { await resting } catch (error) {
-        this.#conversationQuietSince.delete(key)
-        this.#logger.warn('a quiet conversation could not release its handle', { runtime: runtime.info.id, error: String(error) })
-      } finally {
-        if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
-      }
+      await this.#releaseQuiet(record)
     }
+  }
+
+  /**
+   * Lets go of a personal conversation's handle once nothing is happening in
+   * it, and keeps the picks it holds so the reopen can put them back.
+   *
+   * The quiet sweep and archive both release through here. They once kept two
+   * copies of what "quiet" means, and archive's had forgotten a send on its way,
+   * a reopen in flight and the picks.
+   *
+   * The handle is dropped even when the agent fails the close: the adapter has
+   * let go of its own by then, and one kept here is one nobody is releasing.
+   */
+  async #releaseQuiet(record: SessionRecord): Promise<void> {
+    const key = recordKey(record)
+    if (this.#restingSessions.has(key) || !this.#personalConversationQuiet(record)) return
+    const live = record.live!
+    // Publish before close yields: sends and opens wait, then resume the same id.
+    const resting = Promise.resolve().then(async () => {
+      if (!this.#personalConversationQuiet(record) || record.live !== live) return
+      this.#holdPicks(record, live)
+      try {
+        await live.close()
+      } finally {
+        if (record.live === live) { record.live = null; record.detached = false }
+      }
+    })
+    this.#restingSessions.set(key, resting)
+    try { await resting } catch (error) {
+      this.#conversationQuietSince.delete(key)
+      this.#logger.warn('a quiet conversation could not release its handle', { runtime: record.runtime, error: String(error) })
+    } finally {
+      if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+    }
+  }
+
+  /**
+   * Keeps the picks made in a handle that is about to go, for the reopen to put
+   * back. A quiet release and a pane the person closes both hold them here, so
+   * what "the picks" means is written once.
+   */
+  #holdPicks(record: SessionRecord, live: AgentSession): void {
+    record.restedOptions = Object.fromEntries(live.options().map(option => [option.id, option.currentValue]))
   }
 
   async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
@@ -4058,6 +4110,15 @@ export class Host {
         applyArchive: (runtime, page, filter) => this.#applyArchive(runtime, page, filter),
         busyElsewhere: (runtime, id, error) => this.#busyElsewhere(runtime, id, error),
         cannotReopen: (runtime, error) => this.#cannotReopen(runtime, error),
+        releaseQuiet: async (params) => {
+          const record = this.registry.get(params.runtime, makeSessionId(params.sessionId))
+          if (record) await this.#releaseQuiet(record)
+        },
+        holdPicks: (params) => {
+          const record = this.registry.get(params.runtime, makeSessionId(params.sessionId))
+          // Only a conversation the agent can reopen has a use for them: the reopen is what puts them back.
+          if (record?.live && this.#runtimes.get(record.runtime)?.info.capabilities.resume) this.#holdPicks(record, record.live)
+        },
       },
       seats: {
         open: (seat, where) => this.#openSeat(seat, where),
@@ -5512,8 +5573,9 @@ export class Host {
   async #live(params: {
     readonly runtime: RuntimeId
     readonly sessionId: SessionId
+    readonly route?: ResolvedModelRoute
   }): Promise<AgentSession> {
-    return this.#liveFor(params.runtime, makeSessionId(params.sessionId))
+    return this.#liveFor(params.runtime, makeSessionId(params.sessionId), params.route)
   }
 
   /**
@@ -5531,8 +5593,11 @@ export class Host {
    * Resuming is free of tokens — it replays what the agent already stored —
    * and the agents that cannot do it say so, which is the one case where the
    * refusal is real and has to name what is actually lost.
+   *
+   * A caller that names a route has the reopen run on it. One that arrives
+   * while a reopen is already in flight shares that reopen, route and all.
    */
-  async #liveFor(runtime: RuntimeId, id: SessionId): Promise<AgentSession> {
+  async #liveFor(runtime: RuntimeId, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     const key = sessionKey(runtime, id)
     this.#seatQuietSince.delete(key)
     await this.#restingSessions.get(key)
@@ -5551,7 +5616,7 @@ export class Host {
         else this.#reopenWaiters.delete(key)
       }
     }
-    const attempt = this.#reattach(this.#runtime({ runtime }), id)
+    const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
     this.#reattaching.set(key, attempt)
     try {
       return await attempt
@@ -5749,7 +5814,39 @@ export class Host {
     return target.info.presentation.name
   }
 
-  async #reattach(runtime: AgentRuntime, id: SessionId): Promise<AgentSession> {
+  /**
+   * Puts back the picks a conversation held when it was released.
+   *
+   * A held pick is a preference rather than an order. One the reopened
+   * conversation has no place for (a control the agent now greys, or a value it
+   * no longer offers) is dropped and logged, the way `createSession` drops a
+   * stored pick it has no place for; it is not a reason the conversation cannot
+   * be opened. A pick whose write fails for any other reason fails the reopen,
+   * and the picks are spent either way, so one that fails once cannot fail
+   * every reopen after it.
+   */
+  async #restoreRestedPicks(runtime: AgentRuntime, live: AgentSession, id: SessionId): Promise<void> {
+    const held = this.registry.get(runtime.info.id, id)
+    if (!held?.restedOptions) return
+    try {
+      for (const [optionId, value] of Object.entries(held.restedOptions)) {
+        const option = live.options().find(one => one.id === optionId)
+        if (!option || option.currentValue === value) continue
+        const refusal = refuseOptionValue(option, value)
+        if (refusal) {
+          this.#logger.info('a held pick has no place in the reopened conversation', {
+            runtime: runtime.info.id, session: String(id), option: optionId, reason: refusal,
+          })
+          continue
+        }
+        await live.setOption(optionId, value)
+      }
+    } finally {
+      delete held.restedOptions
+    }
+  }
+
+  async #reattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     const name = runtime.info.presentation.name
     const health = runtime.health()
     if (health.state !== 'ready' && health.state !== 'idle') {
@@ -5764,7 +5861,7 @@ export class Host {
         `${name} cannot reopen a conversation after it restarts, so this one has ended. Start a new one — what you typed is still in the box.`,
       )
     }
-    let live: AgentSession
+    let live: AgentSession | undefined
     // A Seat that froze attachments reopens on that same filter, revalidated
     // — never on the runtime's own defaults, which would load every ambient
     // skill and server its approval was there to keep out.
@@ -5773,20 +5870,23 @@ export class Host {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
       const frozen = this.#evidence.seats.latestKeptOf(runtime.info.id, String(id))
       const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
-      live = await runtime.resumeSession(id, {
+      live = await resumeSeatSession(runtime, id, {
+        ...(route ? { route } : {}),
         ...(frozen?.runtimeServers !== undefined ? { runtimeServers: frozen.runtimeServers } : {}),
         ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
-      })
-      const held = this.registry.get(runtime.info.id, id)
-      for (const [optionId, value] of Object.entries(held?.restedOptions ?? {})) {
-        const option = live.options().find(one => one.id === optionId)
-        if (!option || option.currentValue === value) continue
-        await live.setOption(optionId, value)
-      }
-      if (held) delete held.restedOptions
+      }, this.#evidence.seats.latestOf(runtime.info.id, String(id))?.checkout.cwd)
+      await this.#restoreRestedPicks(runtime, live, id)
     } catch (error) {
+      // The adapter hands a handle it still holds to the next resume, picks and
+      // all, so one this reopen resumed and could not finish with must not
+      // outlive it: every later open would be handed the same stale handle.
+      if (live) {
+        await live.close().catch((closeError: unknown) => this.#logger.warn('a handle the reopen could not finish with did not close', {
+          runtime: runtime.info.id, session: String(id), error: String(closeError),
+        }))
+      }
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // These typed failures name the runtime process, not the conversation.
       // Keep the code so #teamLive can distinguish a stopped agent from a
@@ -5798,9 +5898,11 @@ export class Host {
       // caller can tell without reading English. Anything else is a reopen
       // that merely failed.
       const sentence = this.#cannotReopen(runtime, error)
-      throw isSessionGone(error) || reopenRefusedByAgent(error)
-        ? new SessionGoneError(sentence)
-        : new Error(sentence)
+      throw isFolderGone(error)
+        ? new SessionFolderGoneError(sentence, folderGoneOf(error))
+        : isSessionGone(error) || reopenRefusedByAgent(error)
+          ? new SessionGoneError(sentence)
+          : new Error(sentence)
     }
     // The same fold `session/resume` does: the transcript from the read, the
     // settings and options from the handle, which is the only place they are.

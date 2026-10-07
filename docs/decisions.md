@@ -2535,12 +2535,35 @@ explicit resume takes ownership and cancels that release. Draft picks
 and model/command declarations remain cached, and fresh option reads do not
 replace the composer's picks. The existing host release seam rests finished
 Seats; personal conversations also release after ten quiet minutes, with turns,
-approvals, queued input and running tasks protecting them. Archiving a quiet resumable
-conversation releases its handle. Archiving preserves working turns,
+approvals, queued input and running tasks protecting them, and so does a
+conversation the agent has taken no prompt in: an agent that stores a
+conversation at its first accepted message lists nothing for one that has none,
+so releasing its handle would drop the only way back. Only a turn the agent
+took counts. A first prompt it rejected leaves a failed turn on the record and
+nothing in the agent, and a warning given while the conversation opened is the
+host's own, so neither lets the handle go. The host cannot tell a prompt the
+agent rejected from one it took and then stopped on, a limit say, so a failed
+turn is counted as not taken: the cost is a handle kept until a later turn
+succeeds, never a conversation that cannot be reopened. Keeping it live has a
+second cost: an agent process stops for idleness only while no conversation
+holds a handle, archived or not, so one kept this way holds its agent process
+open until the agent takes a prompt in it or the person closes it. Releasing it
+as soon as the agent lists it would need a listing, which not every agent has,
+so it is not done. Archiving a quiet resumable
+conversation releases its handle through the same release and the same quiet
+test. Archiving preserves working turns,
 approvals, queued input and running tasks for the normal quiet sweep.
+Closing a pane lets go of its handle at once, whatever is happening in it, and,
+for an agent that can reopen the conversation, holds its picks the way a quiet
+release does.
 Reopening waits for close, then loads the same
-agent-owned history; personal quiet release holds the conversation's option
-values and reapplies changed picks before reopening it to a client or a send.
+agent-owned history; a quiet release, and a pane the person closes, hold the
+conversation's option values and reapply changed picks before reopening it to a
+client or a send.
+A held pick the reopened conversation has no place for, such as a control the
+agent now greys, is dropped and logged rather than refusing the reopen; the
+picks are spent once tried, and a reopen that still fails closes the handle it
+resumed.
 Transient history handles keep the stored row's status and timestamps and do
 not request a shared last-handle stop; the host owns that idle interval.
 A stale close cannot release its replacement. A shared

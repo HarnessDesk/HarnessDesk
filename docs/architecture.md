@@ -269,8 +269,10 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   return before teardown and share their temporary handle over the same interval.
   Their declarations and draft picks stay
   cached. Personal conversations rest after ten quiet minutes, protecting turns,
-  approvals, queued input and running tasks, and archiving a quiet resumable conversation
-  releases its handle. All use the same host close-and-resume seam
+  approvals, queued input, running tasks and a conversation the agent has taken
+  no prompt in (a first prompt it rejected, or only a warning, is none), and
+  archiving a quiet resumable conversation releases its handle the same way.
+  All use the same host close-and-resume seam
   ([ACP release lifecycle](decisions.md#acp-sessions-release-what-they-opened)).
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
