@@ -12,6 +12,8 @@ import type { RuntimeExtensionPrefix } from './runtime-extensions.js'
  * and reports the outcome as an event; the host only relays.
  */
 export const runtimeMethods = {
+  'runtime/resources': (ctx) => ctx.runtimes.resources(),
+  'runtime/recycle': async (ctx, params) => ({ recycled: await ctx.runtimes.recycle(ctx.runtimes.resolve(params)) }),
   'runtime/health': (ctx, params) => ctx.runtimes.resolve(params).health(),
 
   'runtime/refreshCatalog': async (ctx, params) => {

@@ -247,6 +247,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   process too; delegated threads stay with their root. The control process owns
   catalogue reads, file watches and standalone terminals. A conversation
   process failure detaches only its own handles for the normal resume path.
+  Native server selection is an optional capability: an Agent's
+  `runtime-servers` names only already configured servers. The host freezes
+  the list in the Seat record and reapplies it on resume; the adapter supplies
+  thread-local disabling overrides, leaving agent-owned files alone.
+  Resource observations use optional adapter process roots and one bounded
+  process-table read for the desk, including descendants and RSS. The renderer
+  polls only while the runtime page is mounted. Manual idle recycling shares
+  the reaper's stop/start barrier and refuses in-flight work and open handles.
   Process exit releases its thread helpers
   ([measurement and lifecycle](decisions.md#finished-conversations-recycle-their-own-processes)).
   Idle health preserves learned capabilities, models, account and cached history;

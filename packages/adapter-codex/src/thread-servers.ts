@@ -10,6 +10,7 @@ interface Worker {
   readonly threads: Set<string>
   readonly subscriptions: Unsubscribe[]
   opening: number
+  nativeServerSelection: boolean
   openingDone?: Promise<void>
   finishOpening?: () => void
   stopping?: Promise<void>
@@ -74,7 +75,7 @@ export class CodexThreadServers extends CodexAppServer {
     await super.stop()
   }
 
-  override async request<M extends CodexMethod>(method: M, params: CodexParams<M>, options?: { readonly timeoutMs?: number; readonly signal?: AbortSignal }): Promise<CodexResult<M>> {
+  override async request<M extends CodexMethod>(method: M, params: CodexParams<M>, options?: { readonly timeoutMs?: number; readonly signal?: AbortSignal; readonly nativeServerSelection?: boolean }): Promise<CodexResult<M>> {
     // These verbs update process-local tool/config state. Shared files alone
     // do not reload the servers or skill settings of already open threads.
     if (method === 'config/mcpServer/reload' || method === 'skills/config/write' ||
@@ -85,7 +86,7 @@ export class CodexThreadServers extends CodexAppServer {
         // Opening can still be initializing the process or registering its
         // root. Apply updates afterwards, unless it failed or stopped meanwhile.
         await worker.openingDone
-        if (!worker.stopping) await worker.server.request(method, params, options)
+        if (!worker.stopping && !(method === 'config/mcpServer/reload' && worker.nativeServerSelection)) await worker.server.request(method, params, options)
       }))
       return result
     }
@@ -97,6 +98,7 @@ export class CodexThreadServers extends CodexAppServer {
     if (this.#stopped || (opening && this.state.type !== 'ready')) throw new CodexError('notRunning', 'The runtime is not running.')
     // Every new root has a fresh owner; an existing root resumes on its owner.
     if (!worker) worker = this.#newWorker()
+    if (opening && options?.nativeServerSelection) worker.nativeServerSelection = true
     if (opening && worker.opening++ === 0) {
       worker.openingDone = new Promise<void>((resolve) => { worker.finishOpening = resolve })
     }
@@ -148,6 +150,10 @@ export class CodexThreadServers extends CodexAppServer {
     } }
   }
 
+  processIds(): readonly number[] {
+    return [this.processId, ...[...this.#workers].map((worker) => worker.server.processId)].filter((pid): pid is number => pid !== null)
+  }
+
   get busy(): boolean {
     return [...this.#workers].some((worker) => worker.roots.size > 0 || worker.opening > 0)
   }
@@ -162,7 +168,7 @@ export class CodexThreadServers extends CodexAppServer {
     const worker: Worker = {
       server: new CodexAppServer({ ...this.workerOptions, maxRestarts: 0,
         ...(Object.keys(env).length > 0 ? { env } : {}) }),
-      roots: new Set(), threads: new Set(), subscriptions: [], opening: 0,
+      roots: new Set(), threads: new Set(), subscriptions: [], opening: 0, nativeServerSelection: false,
     }
     this.#workers.add(worker)
     worker.subscriptions.push(

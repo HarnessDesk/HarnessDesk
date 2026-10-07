@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { sameCanonicalPath } from '../path-identity.js'
+import { isNativeServerName } from '@harnessdesk/protocol'
 
 import type {
   CheckRun,
@@ -146,6 +147,10 @@ export const seatOpeningOf = (value: unknown): SeatOpening | null => {
     (agent === null ||
       (isRecord(agent) && isId(agent['id']) && isText(agent['name']) && ORIGINS.has(agent['origin'] as string))) &&
     orNull(value['briefDigest'], isId) &&
+    (value['runtimeServers'] === undefined || (
+      isListOf(value['runtimeServers'], 64, isNativeServerName) &&
+      new Set(value['runtimeServers'] as string[]).size === (value['runtimeServers'] as string[]).length
+    )) &&
     isSeat(value['seat']) &&
     isText(value['seatLabel']) &&
     isListOf(value['passedOver'], PASSED_OVER_LIMIT, isCandidate) &&

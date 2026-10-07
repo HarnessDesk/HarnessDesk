@@ -244,3 +244,14 @@ it('a review with values shown only as set is approved only once the person says
   await settle()
   expect(approveAttachments).toHaveBeenCalledWith('t', true)
 })
+
+
+it('an explicit empty native selection is shown separately from attachment defaults', async () => {
+  const entry = { ...ENTRY, definition: { ...ENTRY.definition!, runtimeServers: [] } }
+  const store = storeFor(emptyView)
+  act(() => root.render(<StoreProvider store={store}><AgentAttachments entry={entry} /></StoreProvider>))
+  await settle()
+  expect(container.textContent).toContain('Native servers')
+  expect(container.textContent).toContain('None')
+  expect(container.textContent).toContain('Runtime defaults')
+})
