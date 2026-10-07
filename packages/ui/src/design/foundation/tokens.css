@@ -120,13 +120,13 @@ body {
   /* HarnessDesk brand: Blueprint cobalt, the ink of an engineer's drawing.
      Deep enough that white reads on it at 5.5:1 — the lighter blue it
      replaced managed 4.1:1, short of AA for a 13px label on the fill. */
-  --hd-accent: var(--hdp-static-accent-500); /* desk: blue 82,117,235 → cobalt 52,88,240, white on it 4.1 → 5.5:1 */
+  --hd-accent: var(--hdp-static-accent-500); /* White ink clears 5.5:1 on the cobalt. */
   /* Ink on the accent. One value, because every surface painted with the
      accent needs it and each one reaching for `white` is a literal that the
      next palette silently breaks. */
   --hd-accent-foreground: rgb(255, 255, 255);
-  --hd-accent-hover: var(--hdp-static-accent-600); /* desk: lighter 450 → darker 600 — a press darkens the drawing ink; it never washes it out */
-  --hd-accent-dim: rgba(52, 88, 240, 0.12); /* desk: the wash follows the cobalt */
+  --hd-accent-hover: var(--hdp-static-accent-600); /* A press darkens the drawing ink. */
+  --hd-accent-dim: rgba(52, 88, 240, 0.12);
 
   /* --- the heatmap -----------------------------------------------------
      "When it ran"'s calendar grid — `design/ui/heat-grid.tsx` — reads a
@@ -161,11 +161,11 @@ body {
     color-mix(in srgb, var(--hd-muted-foreground) 45%, var(--hd-card)) 2px 3px
   );
   --hd-danger: var(--hdp-static-red-500);
-  --hd-danger-dim: rgba(228, 68, 62, 0.12); /* desk: the palette was rebuilt; this is its value */
+  --hd-danger-dim: rgba(228, 68, 62, 0.12);
   --hd-success: var(--hdp-static-green-500);
-  --hd-success-dim: rgba(65, 189, 111, 0.14); /* desk: the palette was rebuilt; this is its value */
+  --hd-success-dim: rgba(65, 189, 111, 0.14);
   --hd-warning: var(--hdp-static-amber-500);
-  --hd-warning-dim: rgba(240, 165, 27, 0.14); /* desk: the palette was rebuilt; this is its value */
+  --hd-warning-dim: rgba(240, 165, 27, 0.14);
   /* --- state ink ----------------------------------------------------------
      A state colour used as *text on its own soft fill* is a different question
      from the same colour used as a fill, and it needs its own name.
@@ -182,10 +182,10 @@ body {
      So all four are named, and all four are a step away from their fill —
      darker here, lighter in the dark block at the foot of this file. Every
      value clears 4.6:1 against its own ground, measured rather than judged. */
-  --hd-warning-ink: rgb(150, 100, 0); /* desk: re-solved against the rebuilt palette */
-  --hd-danger-ink: rgb(196, 52, 48); /* desk: re-solved against the rebuilt palette */
-  --hd-success-ink: rgb(0, 126, 63); /* desk: re-solved against the rebuilt palette */
-  --hd-primary-ink: rgb(40, 72, 210); /* desk: re-solved for the cobalt, 6.0:1 on its own 12% wash */
+  --hd-warning-ink: rgb(150, 100, 0);
+  --hd-danger-ink: rgb(196, 52, 48);
+  --hd-success-ink: rgb(0, 126, 63);
+  --hd-primary-ink: rgb(40, 72, 210); /* 6.0:1 on its own 12% wash. */
 
   /* --- tints ---------------------------------------------------------------
      Five hues that identify a thing rather than judge it — which account,
@@ -203,33 +203,33 @@ body {
      black until it clears 4.6:1 on its own fill composited over the card, which
      keeps the hue recognisable — the blue is still this blue — and makes the
      text legible. Dark mode moves them the other way, at the foot of the file. */
-  --hd-tint-blue-fill: rgba(91, 126, 237, 0.14); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-blue-ink: rgb(69, 99, 198); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-blue-edge: rgba(91, 126, 237, 0.55); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-green-fill: rgba(79, 185, 101, 0.14); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-green-ink: rgb(18, 125, 52); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-green-edge: rgba(79, 185, 101, 0.55); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-amber-fill: rgba(228, 175, 41, 0.16); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-amber-ink: rgb(139, 103, 0); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-amber-edge: rgba(228, 175, 41, 0.6); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-violet-fill: rgba(155, 92, 215, 0.14); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-violet-ink: rgb(133, 77, 187); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-violet-edge: rgba(155, 92, 215, 0.55); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-rose-fill: rgba(226, 81, 110, 0.14); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-rose-ink: rgb(186, 56, 85); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-rose-edge: rgba(226, 81, 110, 0.55); /* desk: the identity hues are now the palette’s own */
+  --hd-tint-blue-fill: rgba(91, 126, 237, 0.14);
+  --hd-tint-blue-ink: rgb(69, 99, 198);
+  --hd-tint-blue-edge: rgba(91, 126, 237, 0.55);
+  --hd-tint-green-fill: rgba(79, 185, 101, 0.14);
+  --hd-tint-green-ink: rgb(18, 125, 52);
+  --hd-tint-green-edge: rgba(79, 185, 101, 0.55);
+  --hd-tint-amber-fill: rgba(228, 175, 41, 0.16);
+  --hd-tint-amber-ink: rgb(139, 103, 0);
+  --hd-tint-amber-edge: rgba(228, 175, 41, 0.6);
+  --hd-tint-violet-fill: rgba(155, 92, 215, 0.14);
+  --hd-tint-violet-ink: rgb(133, 77, 187);
+  --hd-tint-violet-edge: rgba(155, 92, 215, 0.55);
+  --hd-tint-rose-fill: rgba(226, 81, 110, 0.14);
+  --hd-tint-rose-ink: rgb(186, 56, 85);
+  --hd-tint-rose-edge: rgba(226, 81, 110, 0.55);
   /* Three more identities, added for the commit graph — eight branch lines
      before a hue repeats. They are full citizens: anything that identifies
      may use them. */
-  --hd-tint-teal-fill: rgba(0, 185, 170, 0.14); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-teal-ink: rgb(0, 120, 111); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-teal-edge: rgba(0, 185, 170, 0.55); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-orange-fill: rgba(233, 119, 41, 0.15); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-orange-ink: rgb(172, 79, 0); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-orange-edge: rgba(233, 119, 41, 0.55); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-sky-fill: rgba(0, 174, 225, 0.14); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-sky-ink: rgb(0, 115, 151); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-sky-edge: rgba(0, 174, 225, 0.55); /* desk: the identity hues are now the palette’s own */
+  --hd-tint-teal-fill: rgba(0, 185, 170, 0.14);
+  --hd-tint-teal-ink: rgb(0, 120, 111);
+  --hd-tint-teal-edge: rgba(0, 185, 170, 0.55);
+  --hd-tint-orange-fill: rgba(233, 119, 41, 0.15);
+  --hd-tint-orange-ink: rgb(172, 79, 0);
+  --hd-tint-orange-edge: rgba(233, 119, 41, 0.55);
+  --hd-tint-sky-fill: rgba(0, 174, 225, 0.14);
+  --hd-tint-sky-ink: rgb(0, 115, 151);
+  --hd-tint-sky-edge: rgba(0, 174, 225, 0.55);
 
   /* --- space ---------------------------------------------------------------
      Measured from the app rather than invented: a 4px base with half-steps,
@@ -347,8 +347,8 @@ body {
      a size and its line are one decision, so they are named together and a
      surface picks the pair. */
   --hd-line-xs: 16px;
-  --hd-line-sm: 20px; /* desk: 18 → 20, onto the 4px grid so a lead centres on a whole pixel */
-  --hd-line: 20px; /* desk: 21 → 20, onto the 4px grid; the 16px step above it already was */
+  --hd-line-sm: 20px; /* The 4px grid centres a lead on a whole pixel. */
+  --hd-line: 20px; /* The interface line follows the 4px grid. */
   --hd-line-lg: 24px;
   --hd-line-heading: 28px;
   --hd-line-title: 30px;
@@ -404,11 +404,11 @@ body {
   --hd-table-row-min: 56px;
   --hd-table-row-min-bare: 44px;
   --hd-table-cell-x: var(--hd-inset-row);
-  --hd-table-edge: var(--hd-inset-row); /* desk: table-family outer edge 16 → row tier 12 (#1363) */
+  --hd-table-edge: var(--hd-inset-row);
   /* Fixed reading tracks keep stacked usage meters aligned, including
      "100% left" and the compact "blocked 7d" countdown. */
   --hd-usage-meter-reading: 64px;
-  --hd-usage-meter-reset: 88px; /* desk: auto → 88px, compact blocked countdowns preserve names and 100% left */
+  --hd-usage-meter-reset: 88px; /* Compact blocked countdowns preserve names and 100% left. */
   --hd-table-face: 32px;
   --hd-table-face-radius: calc(var(--hd-face-radius) * 4 / 3);
   --hd-table-lead-gap: var(--hd-space-3);
@@ -477,7 +477,7 @@ body {
      two written as a literal so it followed nothing. A rail row and a menu
      item are the same row: one line of text with the same air above and
      below, and an interface that sets its rows taller moves both. */
-  --hd-row-h: var(--hd-nav-h); /* desk: 30px → var(--hd-nav-h) */
+  --hd-row-h: var(--hd-nav-h);
   /*
    * A target with a glyph in it and no words: an icon button, a ⋮, a ✕.
    *
@@ -495,7 +495,7 @@ body {
    */
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
-  --hd-bar-h: 46px; /* desk: 44 → 46, the window's own bar */
+  --hd-bar-h: 46px; /* The window's own bar. */
   /* What a bar holds its controls at, and how far they stand from its ends.
      One pair for every bar in the window, so a control in the title row and a
      control in a pane's header sit on the same rhythm. */
@@ -538,9 +538,9 @@ body {
      line rather than the prose one — a composer holds a sentence on its way
      out, not a paragraph being read. The radius is its own: the box is the
      largest soft shape on the screen and takes a corner to match. */
-  --hd-composer-min: 44px; /* desk: 52 → 44, one line and its room */
+  --hd-composer-min: 44px; /* One line and its room. */
   --hd-composer-max: 320px;
-  --hd-composer-line: 20px; /* desk: 22 → 20, the interface line */
+  --hd-composer-line: 20px; /* The interface line. */
   --hd-composer-radius: 28px;
   /* The composer toolbar's decisions keep their places across agent shapes.
      The wide tracks fit the useful labels; each control's folded track keeps
@@ -742,7 +742,7 @@ body {
   --hd-muted: var(--hdp-alias-bg-module-platform);
   /* Counts, times and keyboard hints use the platform palette's quiet ink,
      exposed here so product CSS never reaches into the private tier. */
-  --hd-tertiary-foreground: var(--hdp-static-grey-750); /* desk: 107 → 71, counts and times read too faint beside the words; one tier darker, still a step under secondary */
+  --hd-tertiary-foreground: var(--hdp-static-grey-750); /* Counts and times sit one ink tier under secondary. */
   --hd-muted-foreground: var(--hd-tertiary-foreground);
 
   /* A nested sheet, a loading placeholder, and the quietest legible label.
@@ -753,7 +753,7 @@ body {
   --hd-placeholder-foreground: var(--hdp-alias-label-quaternary, var(--hd-muted-foreground));
 
   /* Secondary text: present, readable, not the point of the sentence. */
-  --hd-secondary-foreground: var(--hdp-static-grey-800); /* desk: 71 → 49, one tier darker, still a step under the foreground */
+  --hd-secondary-foreground: var(--hdp-static-grey-800); /* Secondary ink sits one tier under the foreground. */
 
   /* The brand, and what reads on top of it. `--hd-accent` is the same colour
      under its older name; write `--hd-primary` in new work. */
@@ -857,7 +857,7 @@ body {
   --hd-hover: var(--hdp-alias-interactive-bg-hover);
   --hd-hover-solid: var(--hdp-alias-interactive-bg-hover-solid, var(--hd-muted));
   --hd-tooltip-fill: var(--hdp-alias-tooltip-bg);
-  --hd-tooltip-foreground: var(--hdp-static-grey-00); /* desk: label-primary-inverted → static white: the tooltip is a dark card in both themes, and the inverted label went near-black in dark, 1.3:1 on the card */
+  --hd-tooltip-foreground: var(--hdp-static-grey-00); /* The tooltip is a dark card in both themes, so its ink stays white. */
   --hd-active: var(--hdp-alias-interactive-bg-active);
   /*
    * The row you are *on*, which is a different question from the row you are
@@ -881,7 +881,7 @@ body {
      5%, which is two and a half times the wash and plainly a different state.
      A colour here would be the column's second code, and a navigation column
      that needs two codes needs neither. */
-  --hd-selected: color-mix(in srgb, var(--hd-foreground) 12%, transparent); /* desk: a 12% brand wash → the ink it sits on */
+  --hd-selected: color-mix(in srgb, var(--hd-foreground) 12%, transparent);
 
   /* =========================================================================
      COMPONENT — the third layer, and the reason a restyle is a diff in this
@@ -1007,27 +1007,27 @@ body {
    * Where the two sit in one row the button is the taller by 2, which is
    * the same relationship the reference draws — never the reverse.
    */
-  --hd-btn-h: 30px; /* desk: 26 → 30, solved for box/cap ≈ 3.2 */
-  --hd-btn-h-sm: 28px; /* desk: 24 → 28, solved for box/cap ≈ 3.2 */
-  --hd-btn-radius: var(--hd-radius-md); /* desk: 6 → 8 */
-  --hd-btn-padding: 0 12px; /* desk: 11 → 12, 1.29 × the cap */
-  --hd-btn-padding-sm: 0 10px; /* desk: 9 → 10, 1.17 × the cap */
+  --hd-btn-h: 30px; /* Solved for box/cap ≈ 3.2. */
+  --hd-btn-h-sm: 28px; /* Solved for box/cap ≈ 3.2. */
+  --hd-btn-radius: var(--hd-radius-md);
+  --hd-btn-padding: 0 12px; /* 1.29 × the cap. */
+  --hd-btn-padding-sm: 0 10px; /* 1.17 × the cap. */
   --hd-btn-text: var(--hd-text-sm);
   --hd-btn-text-sm: var(--hd-text-xs);
   --hd-btn-fill: var(--hd-muted);
   --hd-btn-border: var(--hd-border-strong);
   /* Studio sets the elevation and the press; the weight is now the same in
      both, for the reason above. */
-  --hd-btn-weight: var(--hd-weight-medium); /* desk: 400 → 500 */
+  --hd-btn-weight: var(--hd-weight-medium);
   --hd-btn-shadow: none;
   --hd-input-shadow: none;
   /* The loud one is ink, not the brand — see `--hd-solid`. This is the line
      that turns every filled button in the app black in the light theme and
      near-white in the dark one, and it is deliberately the only line that
      does: nothing downstream knows the colour changed. */
-  --hd-btn-primary-fill: var(--hd-solid); /* desk: brand → ink */
-  --hd-btn-primary-hover: var(--hd-solid-hover); /* desk: brand → ink */
-  --hd-btn-primary-foreground: var(--hd-solid-foreground); /* desk: brand → ink */
+  --hd-btn-primary-fill: var(--hd-solid);
+  --hd-btn-primary-hover: var(--hd-solid-hover);
+  --hd-btn-primary-foreground: var(--hd-solid-foreground);
   /* The destructive button is soft in this app and always has been: danger
      ink on nothing, filling on hover. Both spellings read these, so the
      loudest button cannot come to mean two different things. The ink is the
@@ -1130,14 +1130,14 @@ body {
    * purpose: on a 12% wash the page's own ink is correct, and every consumer
    * already falls back to it.
    */
-  --hd-sidebar-selected: var(--hd-selected); /* desk: three different greys → the selection token */
+  --hd-sidebar-selected: var(--hd-selected);
   --hd-sidebar-muted-foreground: var(--hd-tertiary-foreground);
   --hd-sidebar-border: var(--hd-border);
   --hd-sidebar-hover: var(--hdp-alias-interactive-bg-hover);
   /* 256px is the reference's `--sidebar-width: 16rem`, and 48px its icon
      rail. Named here rather than measured in a layout file, so the column and
      everything that reserves room for it move together. */
-  --hd-sidebar-width: 275px; /* desk: 256 → 275 */
+  --hd-sidebar-width: 275px;
   --hd-sidebar-width-icon: 48px;
 
   /* --- the nav row ---------------------------------------------------------
@@ -1151,11 +1151,11 @@ body {
      the sidebar and a menu one pixel taller than the settings rail beside
      them (#1073). Move the line or the density and every row in every
      column follows without a second edit. */
-  --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* desk: 31 → 30, solved from the row's box */
+  --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* Solved from the row's box. */
   /* Every row in a navigation column stands the same. */
-  --hd-nav-h-group: var(--hd-nav-h); /* desk: 29 → 30, one height for every row in the column */
-  --hd-nav-radius: var(--hd-radius); /* desk: 8 → 10, the row radius */
-  --hd-nav-gap: var(--hd-space-2); /* desk: 10 → 8 */
+  --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
+  --hd-nav-radius: var(--hd-radius); /* The row radius. */
+  --hd-nav-gap: var(--hd-space-2);
   /* How far a row's text sits from its own edge. Named separately from the
      shorthand because the session row states its vertical padding itself —
      it is a two-line row — and only wants the horizontal half. */
@@ -1240,7 +1240,7 @@ body {
    * a segmented control, a button and a field on one settings row finally
    * share a line. Studio already said this; Desk now agrees.
    */
-  --hd-seg-trim: calc(var(--hd-seg-pad) * 2); /* desk: one edge → two, the track meets the row */
+  --hd-seg-trim: calc(var(--hd-seg-pad) * 2); /* Both edges let the track meet the row. */
   /* The cell's label is the small rung's, with the small rung's box. */
   --hd-seg-text: var(--hd-btn-text-sm);
 
@@ -1284,9 +1284,9 @@ body {
      than anything `--hd-border-*` names: an off switch has to read as a
      control at rest rather than as a divider. */
   --hd-toggle-knob: rgb(255, 255, 255);
-  --hd-toggle-knob-on: var(--hd-primary-foreground); /* desk: the solid's ink → the accent's */
+  --hd-toggle-knob-on: var(--hd-primary-foreground);
   --hd-toggle-track: var(--hdp-alias-border-l3);
-  --hd-toggle-on: var(--hd-accent); /* desk: ink → the accent, so the dial reaches it */
+  --hd-toggle-on: var(--hd-accent); /* The dial reaches the accent. */
   --hd-toggle-width: 34px;
   --hd-toggle-width-sm: 30px;
   --hd-toggle-height-sm: 18px;
@@ -1333,7 +1333,7 @@ body[data-hd-dark-theme] {
      only asked of the light one. */
   --hd-secondary-foreground: var(--hdp-alias-label-secondary);
   --hd-tertiary-foreground: var(--hdp-alias-label-tertiary);
-  --hd-sidebar-plate: var(--hdp-static-grey-850); /* desk: black → a plate above the page, the direction the column reads in */
+  --hd-sidebar-plate: var(--hdp-static-grey-850); /* A plate above the page, the direction the column reads in. */
 
   /* A lighter grey needs a longer step to read as one: the same 8% on a dark
      chip moved it by as little as the light theme's does, and read as none. */
@@ -1344,31 +1344,31 @@ body[data-hd-dark-theme] {
   --hd-shadow-xs: 0 0 0 1px rgba(255, 255, 255, 0.04);
 
   /* Identity. Same eight hues, lifted until they read. */
-  --hd-tint-blue-ink: rgb(120, 154, 251); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-green-ink: rgb(95, 181, 110); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-amber-ink: rgb(222, 177, 75); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-violet-ink: rgb(184, 132, 240); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-rose-ink: rgb(242, 116, 136); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-teal-ink: rgb(60, 182, 169); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-orange-ink: rgb(234, 136, 76); /* desk: the identity hues are now the palette’s own */
-  --hd-tint-sky-ink: rgb(47, 173, 220); /* desk: the identity hues are now the palette’s own */
+  --hd-tint-blue-ink: rgb(120, 154, 251);
+  --hd-tint-green-ink: rgb(95, 181, 110);
+  --hd-tint-amber-ink: rgb(222, 177, 75);
+  --hd-tint-violet-ink: rgb(184, 132, 240);
+  --hd-tint-rose-ink: rgb(242, 116, 136);
+  --hd-tint-teal-ink: rgb(60, 182, 169);
+  --hd-tint-orange-ink: rgb(234, 136, 76);
+  --hd-tint-sky-ink: rgb(47, 173, 220);
 
   /* Judgement. Note these are not the fills inverted — a fill stays what it
      is in both themes, loud on purpose. It is only the *ink* that moves, and
      it moves because the ground moved. */
-  --hd-warning-ink: rgb(232, 168, 68); /* desk: re-solved against the rebuilt palette */
-  --hd-danger-ink: rgb(246, 109, 99); /* desk: re-solved against the rebuilt palette */
-  --hd-success-ink: rgb(86, 186, 119); /* desk: re-solved against the rebuilt palette */
-  --hd-primary-ink: rgb(115, 150, 253); /* desk: re-solved against the rebuilt palette */
+  --hd-warning-ink: rgb(232, 168, 68);
+  --hd-danger-ink: rgb(246, 109, 99);
+  --hd-success-ink: rgb(86, 186, 119);
+  --hd-primary-ink: rgb(115, 150, 253);
 
   /* The accent on a dark ground is the palette's lighter step, and so the ink
      on it inverts too: near-black reads 6.2:1 on it where white would manage
      3.0:1. The knob on a toggle stays white — it is a shape, not a word, and
      clears the 3:1 a shape needs. */
-  --hd-accent-dim: rgba(112, 142, 250, 0.12); /* desk: the wash follows the lifted accent */
-  --hd-accent-foreground: rgb(17, 17, 17); /* desk: white → near-black on the lifted accent */
-  --hd-primary-foreground: rgb(17, 17, 17); /* desk: white → near-black on the lifted accent */
-  --hd-toggle-knob-on: rgb(255, 255, 255); /* desk: the knob stays white on the lifted accent */
+  --hd-accent-dim: rgba(112, 142, 250, 0.12);
+  --hd-accent-foreground: rgb(17, 17, 17); /* Near-black ink on the lifted accent. */
+  --hd-primary-foreground: rgb(17, 17, 17); /* Near-black ink on the lifted accent. */
+  --hd-toggle-knob-on: rgb(255, 255, 255); /* the knob stays white on the lifted accent */
 }
 
 /*
@@ -1450,7 +1450,7 @@ body[data-hd-interface='studio'] {
   --hd-nav-h: 34px;
   /* One height for every row in a navigation column, as Desk has too since
      #1073 — only taller. */
-  --hd-nav-h-group: var(--hd-nav-h); /* desk: 29 → 30, one height for every row in the column */
+  --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
 
@@ -1610,7 +1610,7 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
   --hd-table-row-min: 56px;
   --hd-table-row-min-bare: 44px;
   --hd-table-cell-x: var(--hd-inset-row);
-  --hd-table-edge: var(--hd-inset-row); /* desk: comfortable table-family outer edge 16 → row tier 12 (#1363) */
+  --hd-table-edge: var(--hd-inset-row);
   --hd-table-face: 32px;
   --hd-table-face-radius: calc(var(--hd-face-radius) * 4 / 3);
   --hd-table-lead-gap: var(--hd-space-3);
