@@ -4,6 +4,7 @@ import { createServer } from 'node:net'
 import { join } from 'node:path'
 
 import { lanePreferences, type Lane, type LanePreferences } from '@harnessdesk/protocol'
+import { withCanonicalPaths } from '../path-identity.js'
 import { Serial } from './assignments.js'
 import { atomicJson } from './store.js'
 
@@ -100,8 +101,10 @@ export class LaneAllocator {
 
   release(id: string): Promise<Lane> { return this.#serial.run(async () => {
     const lane = this.#read(id); if (lane.state === 'released') return structuredClone(lane)
-    if (this.port.active(lane)) throw new Error('Release this lane’s active Seat before releasing its ports.')
-    if (this.port.busy(lane)) throw new Error('Wait for this conversation to finish its turn before releasing its ports.')
+    withCanonicalPaths(() => {
+      if (this.port.active(lane)) throw new Error('Release this lane’s active Seat before releasing its ports.')
+      if (this.port.busy(lane)) throw new Error('Wait for this conversation to finish its turn before releasing its ports.')
+    })
     if (!await this.port.available(lane.ports, this.now() + 5000)) throw new Error('A port in this lane is still in use. Stop its server before releasing the ports.')
     const released: Lane = { ...lane, state: 'released' }; await this.port.save(released); return structuredClone(released)
   }) }

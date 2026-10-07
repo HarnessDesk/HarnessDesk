@@ -207,8 +207,17 @@ test("a check's environment is built from a short list of names: nothing else of
   assert.deepEqual(checkEnvironment(desk), { TERM: 'dumb', PATH: '/usr/bin:/bin', HOME: '/home/alice', LANG: 'en_GB.UTF-8' })
 })
 
+for (const advisory of [true, false]) {
+  test(`a Flow command without a launch journal receives its advisory flag (${advisory})`, async () => {
+    const where = { cwd: tempDir('hd-run-advisory-'), timeoutSec: 5, flowAdvisory: advisory }
+    const result = await runCommand('printf "%s" "$HARNESSDESK_FLOW_ADVISORY"', where)
+    assert.equal(result.exit, 0)
+    assert.equal(result.tail, advisory ? '1' : '0')
+  })
+}
+
 test("the command itself sees only that environment: a secret in the desk's is not there", async (t) => {
-  const names = ['HARNESSDESK_HOME', 'HARNESSDESK_CORRELATION', 'GITHUB_TOKEN', 'ANTHROPIC_API_KEY', 'NODE_OPTIONS']
+  const names = ['HARNESSDESK_HOME', 'HARNESSDESK_CORRELATION', 'HARNESSDESK_FLOW_ADVISORY', 'GITHUB_TOKEN', 'ANTHROPIC_API_KEY', 'NODE_OPTIONS']
   const before = Object.fromEntries(names.map((name) => [name, process.env[name]]))
   t.after(() => {
     for (const [name, value] of Object.entries(before)) {

@@ -95,6 +95,7 @@ const rig = (
     // Not recorded — these fixtures never made any Agent declare an attachment.
     seatRecord: vi.fn(async () => null),
     readSeatAttachments: vi.fn(async () => null),
+    loadAccounts: vi.fn(),
     // The front door the ready empty pane opens, once its own project (this
     // session's folder) is known — an empty catalogue is enough to mount it.
     openFrontDoor: vi.fn(),
@@ -134,6 +135,7 @@ const expectNoticeBelowEmptyState = () => {
   const empty = transcript?.querySelector('[data-slot="conversation-empty-state"]')
   const notice = transcript?.querySelector('[data-turn^="notice:"]')
   expect(empty).not.toBeNull()
+  expect(empty?.getAttribute('data-height')).toBe('content')
   expect(notice).not.toBeNull()
   expect(empty!.compareDocumentPosition(notice!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 }
@@ -152,8 +154,10 @@ it('loads in the same column as every other empty state, clear of the composer',
   const empty = container.querySelector<HTMLElement>('[data-slot="conversation-empty-state"]')
   expect(empty?.textContent).toContain('Loading transcript')
   expect(empty?.dataset.direction).toBe('row')
+  expect(empty?.dataset.height).toBe('pane')
   // The loading row and the empty states it can give way to share one parent
-  // shape, so the word does not jump when loading ends in one of them.
+  // shape. Pane-filling empty states keep the word in place; notice-only
+  // restores move the explanation up beside their notice.
   const column = empty?.parentElement
   expect(column?.dataset.slot).toBe('pane-column')
   expect(column?.dataset.inset).toBe('reading')
@@ -189,6 +193,36 @@ it('keeps the restore explanation above a notice-only conversation', () => {
   expect(container.textContent).toContain('Nothing to show')
   expect(container.textContent).toContain('restore')
   expect(container.textContent).toContain('No tools declared')
+  expectNoticeBelowEmptyState()
+})
+
+it.each([
+  ['unavailable', 'Codex isn’t available', {
+    healthByRuntime: { codex: { state: 'unavailable', message: 'The agent could not start.' } },
+  }],
+  ['signed out', 'Sign in to Codex', {
+    accountsByRuntime: { codex: { accounts: [], signInMethods: [] } },
+  }],
+  ['blocked', 'Usage limit reached', {
+    limits: { reached: 'rate_limit_reached', windows: [] },
+  }],
+] as const)('keeps the %s explanation above a notice-only conversation', (_state, title, over) => {
+  const withNotice = reduceSession(session(), {
+    type: 'notice', sessionId: sessionId('s-1'), class: 'conversation',
+    level: 'warning', message: 'No tools declared', id: 'tools-1',
+  })
+  const { store } = rig(withNotice)
+  const base = store.getSnapshot()
+  render(rig(withNotice, new Map(), {
+    ...over,
+    activeRuntime: base.runtimes[0]!.id,
+    runtimes: [{
+      ...base.runtimes[0]!,
+      capabilities: { ...base.runtimes[0]!.capabilities, account: true, metered: true },
+    }],
+  } as Partial<AppSnapshot>).store)
+
+  expect(container.textContent).toContain(title)
   expectNoticeBelowEmptyState()
 })
 
