@@ -2057,6 +2057,7 @@ export class Host {
         runtime: id,
       })
       this.#invalidateDelegations(id)
+      this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
       this.#catalogs.forget(id)
@@ -2065,7 +2066,7 @@ export class Host {
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
     const surfaces = new WeakMap<object, object>()
-    const accountReads = new AccountReads()
+    const accountReads = new AccountReads(id, this.#logger)
     this.#accountReads.set(id, accountReads)
     const managed = new Proxy(runtime, {
       get: (target, key) => {
@@ -2163,6 +2164,7 @@ export class Host {
     this.#runtimeSubscriptions.delete(id)
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
+    this.#accountReads.get(id)?.dispose()
     this.#accountReads.delete(id)
     this.#idleSince.delete(String(id))
     this.#updates.delete(id)
@@ -2714,6 +2716,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    for (const reads of this.#accountReads.values()) reads.dispose()
+    this.#accountReads.clear()
     this.#seatActivities.dispose()
     if (this.#idleReaper !== null) clearInterval(this.#idleReaper)
     this.#idleReaper = null

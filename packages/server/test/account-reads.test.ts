@@ -12,11 +12,11 @@ import { tempDir } from './scratch.js'
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
 const status: AccountStatus = { accounts: [{ kind: 'apiKey', label: 'Demo account' }], signInMethods: [] }
 
-const makeHost = (t: TestContext, runtime: FakeRuntime) => {
+const makeHost = (t: TestContext, runtime: FakeRuntime, logger = new Logger('test', { level: 'error', console: false })) => {
   const directory = tempDir('hd-account-reads-')
   const host = new Host({
     state: new StateStore(join(directory, 'state.json')),
-    logger: new Logger('test', { level: 'error', console: false }),
+    logger,
     catalogRefreshMs: 0,
     idleStopMs: 0,
   })
@@ -149,7 +149,7 @@ test('a late rejection releases a timed-out registration for a fresh read', asyn
   assert.deepEqual(await host.call('runtime/account', { runtime: runtime.info.id }), status)
 })
 
-test('an account change refuses the older shared answer without starting an overlapping read', async (t) => {
+test('an account change lets fresh callers read before the older adapter answers', async (t) => {
   const runtime = new FakeRuntime()
   let calls = 0
   const releases: ((answer: AccountStatus) => void)[] = []
@@ -158,20 +158,138 @@ test('an account change refuses the older shared answer without starting an over
     return new Promise((resolve) => releases.push(resolve))
   }
   const host = makeHost(t, runtime)
+  t.after(() => { for (const release of releases) release(status) })
   const first = host.call('runtime/account', { runtime: runtime.info.id }).then(
     () => 'stale success', (error: Error) => error.message,
   )
   await flush()
   runtime.emit({ type: 'account/changed', runtime: runtime.info.id })
-  const second = host.call('runtime/account', { runtime: runtime.info.id }).then(
-    () => 'stale success', (error: Error) => error.message,
+  const second = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
+  const third = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
+  await flush()
+  assert.match(await first, /account changed during a read/i)
+  assert.equal(calls, 2, 'fresh callers share a new read while the old adapter is still pending')
+  const fresh: AccountStatus = { accounts: [], signInMethods: [] }
+  releases[1]!(fresh)
+  assert.deepEqual(await Promise.all([second, third]), [fresh, fresh])
+  releases[0]!(status)
+  await flush()
+})
+
+for (const late of ['success', 'failure'] as const) {
+  test(`an invalidated adapter's late ${late} cannot release a newer shared read`, async (t) => {
+    const runtime = new FakeRuntime()
+    const attempts: { resolve: (answer: AccountStatus) => void; reject: (error: Error) => void }[] = []
+    runtime.getAccount = () => new Promise((resolve, reject) => attempts.push({ resolve, reject }))
+    const host = makeHost(t, runtime)
+    t.after(() => { for (const attempt of attempts) attempt.resolve(status) })
+    const old = host.call('runtime/account', { runtime: runtime.info.id }).then(
+      () => 'stale success', (error: Error) => error.message,
+    )
+    await flush()
+    runtime.emit({ type: 'account/changed', runtime: runtime.info.id })
+    const fresh = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
+    await flush()
+    assert.match(await old, /account changed during a read/i)
+    if (late === 'success') attempts[0]!.resolve(status)
+    else attempts[0]!.reject(new Error('late fixture failure'))
+    await flush()
+    const joined = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
+    await flush()
+    assert.equal(attempts.length, 2, 'old settlement must leave the newer read shared')
+    const answer: AccountStatus = { accounts: [], signInMethods: [] }
+    attempts[1]!.resolve(answer)
+    assert.deepEqual(await Promise.all([fresh, joined]), [answer, answer])
+  })
+}
+
+for (const teardown of ['dispose', 'unregister', 'replace'] as const) {
+  test(`${teardown} clears a silent account read's deadline and refuses its callers`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const timers = t.mock.method(globalThis, 'setTimeout')
+    const cleared = t.mock.method(globalThis, 'clearTimeout')
+    const runtime = new FakeRuntime()
+    let release!: (answer: AccountStatus) => void
+    runtime.getAccount = () => new Promise((resolve) => { release = resolve })
+    const host = makeHost(t, runtime)
+    t.after(() => release(status))
+    let outcome: string | undefined
+    const read = host.call('runtime/account', { runtime: runtime.info.id }).then(
+      () => { outcome = 'stale success' }, (error: Error) => { outcome = error.message },
+    )
+    await flush()
+    const deadline = timers.mock.calls.find((call) => call.arguments[1] === 10_000)!.result
+    if (teardown === 'dispose') await host.dispose()
+    else if (teardown === 'unregister') await host.unregister(runtime.info.id)
+    else host.register(new FakeRuntime({ id: runtime.info.id }))
+    await flush()
+    assert.ok(cleared.mock.calls.some((call) => call.arguments[0] === deadline), 'teardown must clear the deadline timer')
+    assert.match(outcome ?? 'still pending', /account read.*closed/i)
+    await read
+  })
+}
+
+test('a silent account read warns once per deadline with its runtime named', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const logger = new Logger('test', { console: false })
+  const warnings = t.mock.method(Logger.prototype, 'warn')
+  const runtime = new FakeRuntime()
+  let release!: (answer: AccountStatus) => void
+  runtime.getAccount = () => new Promise((resolve) => { release = resolve })
+  const host = makeHost(t, runtime, logger)
+  t.after(() => release(status))
+  const first = assert.rejects(host.call('runtime/account', { runtime: runtime.info.id }), /timed out/)
+  await flush()
+  t.mock.timers.tick(10_000)
+  await first
+  await assert.rejects(host.call('runtime/account', { runtime: runtime.info.id }), /timed out/)
+  t.mock.timers.tick(10_000)
+  const deadlines = () => warnings.mock.calls.filter((call) => /account read.*timed out/i.test(call.arguments[0]))
+  assert.equal(deadlines().length, 1, 'retries must not repeat the warning')
+  assert.deepEqual(deadlines()[0]!.arguments[1], { runtime: runtime.info.id, afterMs: 10_000 })
+  release(status)
+  await flush()
+  const next = assert.rejects(host.call('runtime/account', { runtime: runtime.info.id }), /timed out/)
+  await flush()
+  t.mock.timers.tick(10_000)
+  await next
+  assert.equal(deadlines().length, 2, 'a new held read gets its own warning')
+})
+
+test('the account deadline includes waiting for a runtime start', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const runtime = new FakeRuntime()
+  let started!: () => void
+  const entered = new Promise<void>((resolve) => { started = resolve })
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  const host = makeHost(t, runtime)
+  await host.start()
+  runtime.setHealth({ state: 'idle' })
+  runtime.start = async () => {
+    started()
+    await barrier
+    runtime.setHealth({ state: 'ready' })
+  }
+  let calls = 0
+  runtime.getAccount = async () => { calls += 1; return status }
+  t.after(release)
+  const starting = host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } })
+  await entered
+  let outcome: string | undefined
+  const reading = host.call('runtime/account', { runtime: runtime.info.id }).then(
+    () => { outcome = 'stale success' }, (error: Error) => { outcome = error.message },
   )
   await flush()
-  for (const release of releases) release(status)
-  const outcomes = await Promise.all([first, second])
+  t.mock.timers.tick(9_999)
+  await flush()
+  assert.equal(outcome, undefined)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.match(outcome ?? 'still pending', /account read timed out after 10000ms/i)
+  assert.equal(calls, 0, 'the deadline fires before the adapter account call can start')
+  release()
+  await Promise.all([starting, reading])
   await flush()
   assert.equal(calls, 1)
-  assert.ok(outcomes.every((outcome) => /account changed during a read/i.test(outcome)), outcomes.join(', '))
-  runtime.getAccount = async () => ({ accounts: [], signInMethods: [] })
-  assert.deepEqual(await host.call('runtime/account', { runtime: runtime.info.id }), { accounts: [], signInMethods: [] })
 })
