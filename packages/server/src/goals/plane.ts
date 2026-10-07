@@ -11,6 +11,7 @@ import {
 
 import type { SeatOpening } from '../evidence/records.js'
 import { memoryPath } from '../memory/git.js'
+import { withCanonicalPaths } from '../path-identity.js'
 import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { STOP_HEAD_TIMEOUT_MS } from '../team.js'
 import { Assignments, Serial } from './assignments.js'
@@ -247,8 +248,8 @@ export class GoalPlane {
   }
 
   async list(root?: string): Promise<readonly GoalView[]> {
-    return Promise.all(this.store.list().filter((one) => root === undefined || one.goal.root === root)
-      .map((one) => this.view(one.goal.id)))
+    return withCanonicalPaths(() => Promise.all(this.store.list().filter((one) => root === undefined || one.goal.root === root)
+      .map((one) => this.view(one.goal.id))))
   }
 
   /**
