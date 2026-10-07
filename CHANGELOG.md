@@ -5,12 +5,304 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.4.0 — 2026-10-07
 
-- **Finished work releases its idle tools.** After a Team's Seats finish and
-  the agent is unused, the desk stops its helper process to release retained
-  tool servers. Working turns and terminals keep it running; conversations
-  and sign-in remain available, and new work starts it again. (Fixes #1397)
+Teams are now something you can read and steer: a Teams page that puts what
+needs you first, a Run you can follow on a timeline and on the Flow it started
+with, and can stop or run again, and a `harnessdesk` command line inside the
+app. Around them come a sidebar rebuilt on projects and one row grammar,
+Dashboard views of what a plan paid and when the work happens, and agents that
+let go of their processes sooner.
+
+- **"Not installed" is said only when there is no copy.** Finding Codex means
+  asking each copy for its version, and a copy that was there but did not answer
+  (a busy machine, a launcher that could not find its `node`, a spawn refused
+  under load) used to read as "Codex is not installed", with an install hint,
+  and stayed that way until the app restarted. Now only a machine with no copy
+  says so. A copy that is there and did not answer is reported by name with what
+  it did, and the desk asks again in the background, on a short schedule from
+  startup and whenever the login shell's PATH lands and changes anything,
+  without holding up the window.
+
+- **The conversation header gathers its readings on one chip.** The ceiling,
+  status, background tasks, branch or folder and plan usage share a chip, and
+  hovering it or moving keyboard focus to it opens one card, Conversation
+  status, that names every reading in words, including those folded away in a
+  narrow pane. Working and other agents' limits stay neutral; an approval, a
+  failure, or this conversation's low or spent allowance takes a tone while it
+  needs attention, and the other-agents count (for example "3 out") is no longer
+  red. Working has a square light that stays distinct from a resting one when
+  reduced motion stops the pulse, and a spent allowance names a reset only when
+  one is known.
+
+- **Quiet conversations let go of their agent.** For agents that can reopen a
+  conversation and be stopped when idle, a conversation releases its live
+  session when it is archived while quiet and after ten quiet minutes, and a
+  finished Seat does the same, while a settled Run keeps its Seats listed with
+  their conversations open for follow-ups. Closing a pane releases it too, and
+  cancels that conversation's running turn and pending approvals. A working
+  turn, an approval, a queued message or a running task keeps the session live,
+  and opening or messaging a released conversation restores it from the agent's
+  history with its picks. Claude Code and Cursor conversations also release
+  their own child processes, and Gemini frees its one shared process family with
+  its last conversation. In a measurement with eight Claude Code sessions, ten
+  processes and about 2 GB stayed after close; now one bridge at about 133 MB
+  does. Agents that cannot reopen a conversation, or cannot be stopped when
+  idle, are not released after ten quiet minutes or when a Seat finishes, and
+  keep their live sessions until their pane is closed.
+
+- **A finished Codex Seat's tool servers go while other Seats keep working.**
+  Every conversation of an account shares that account's one Codex process (two
+  accounts, two processes), each keeping its own folder, environment, model and
+  policies, and a finished Seat's tool servers go about a minute after the desk
+  releases its conversation, because Codex closes an idle unsubscribed
+  conversation itself. If ending the running turn fails when a pane is closed,
+  the conversation stays attached for a retry. A crash or restart detaches every
+  conversation of the account, and the desk reattaches them.
+
+- **Cursor's Max mode follows what Cursor saved.** The Max mode switch now
+  follows the flag Cursor saved after each turn, whatever context window the
+  turn ran at; it used to switch itself off when the window was not 1M. When
+  Cursor turns Max on by itself, an Auto Max chip appears beside the model name
+  in the model menu and in the control's hover text, your own choice for the
+  next turn is unchanged, and a choice made while a turn runs wins over that
+  turn's report. Reported statuses are left out of saved presets and of the
+  "Save current session" summary, and a turn finishes without waiting on a stray
+  child process that holds Cursor's output open.
+
+- **A Seat runs a check on request only when the Flow allows it.** A check must
+  set `onRequest: true` for a read-only Seat's `run_check` to run it; without
+  the field it stays off and `run_check` refuses, so a Flow that relied on the
+  old behaviour needs the field on the checks it wants Seats to run, and a
+  landing, publishing or deployment check stays out of a Seat's reach for as
+  long as its Flow leaves the field off. The built-in comparison and review-pr
+  Flows opt in. The host sets `HARNESSDESK_FLOW_ADVISORY` to 1 in a check a Seat
+  requested and to 0 in the Flow's own check cards, so a command can refuse to
+  act when it is only asked for.
+
+- **A Run reads as a timeline.** Start, the brief, each round with its cards,
+  checks and findings, and the reason the Run ended sit on one continuous rail,
+  oldest first: finished steps in full ink, active work spinning, pending steps
+  faint, and anything that failed or needs you in its own tone. Times and
+  durations sit above each title, and an unknown one is left out rather than
+  guessed. The header keeps the Run's state, start, elapsed time, round budget
+  and Seat cost, and says partial when a cost is incomplete. Earlier Runs are
+  restored and can be chosen beside the Run's name (a Team started by a trigger
+  lists them on its Runs tab instead), and an observed pull request opens from
+  the header.
+
+- **A Team started by a trigger keeps a Runs history.** Its Runs tab lists every
+  recorded start newest first, with subject, state, reviewer answers or
+  findings, duration and start time, searchable and filterable by All, Running,
+  Needs you, Settled and Stopped, and it keeps your search and filter when you
+  open a timeline and come back. The bar shows the trigger's source and whether
+  it is Armed, Off, Changed, Refused or Paused, and the header shows today's
+  starts and the spend against the machine's daily dollar cap. Pause every
+  trigger (Resume every trigger once paused) acts on one press, with a note on
+  the page saying that it holds all triggered work on this Mac and interrupts
+  its turns and checks, and Edit the trigger opens the project's declaration.
+
+- **Runtimes shows what each runtime costs to keep running.** Settings ›
+  Runtimes gains a Process cost section listing the runtimes that hold
+  processes, with process count and resident memory including descendants,
+  refreshed every five seconds while the page is open; a measurement that fails
+  or is unsupported says so. Recycle stops an unused running runtime, and open
+  conversations, work and in-flight reads prevent it. A runtime's own page
+  carries the same section, where an idle runtime says Not running, and looking
+  never starts one.
+
+- **An Agent can narrow a Seat to named tool servers.**
+  `runtime-servers: [docs]` in an Agent file selects servers already configured
+  in the Seat's runtime (names are case-sensitive); `[]` switches every native
+  server off, and omitting it keeps the defaults. It cannot enable a disabled
+  server, and an unknown name or an unsupported runtime refuses the Seat before
+  it opens. The choice is frozen in the Seat and shows on the Agent card as
+  Native servers, and Extensions › Reload and plugin installation are held while
+  such a Seat is open, each notice saying how many conversations hold it. Codex
+  0.160.0 or newer only.
+
+- **Warnings from a conversation that is still opening are kept.** A warning an
+  agent gives while a conversation is still opening, before the app has
+  registered it, shows once in that conversation's first turn instead of being
+  lost; the newest 20 per conversation are held, and any warnings still pending
+  for a conversation closed before it registered are discarded. An empty
+  conversation that holds only notices still shows its explanation beside them.
+
+- **The Board keeps its columns readable as the pane narrows.** Columns run
+  Needs you, Working, In review, To do and Ready (To do used to come first),
+  with Set aside only while it holds work, and open columns keep at least 220px.
+  As the pane narrows, Ready and then To do fold into named rails with their
+  counts that open in place; when the columns no longer fit, or under 760px,
+  they share two rows; and under 600px the pane switches to a compact list
+  grouped by state, with the Board choice disabled and saying why. The
+  thresholds measure the scroll body's content width, so a scrollbar appearing
+  cannot flip the layout.
+
+- **The Board has a List.** Board · List puts the same jobs in a framed table
+  with a Filter jobs box, state pills with counts and a view menu for sort
+  (Needs you first, Most recent, Job title) and columns (Assignee, State, Pull
+  request, Checks, Changes, Updated). A stale or unknown fact keeps its
+  qualification, and a finished job whose evidence is still being read says
+  Checking evidence. Rows keep their verbs: Put back in play on finished,
+  set-aside or stopped jobs, Answer… or Pick an attempt… on a person's step, the
+  rest in the row's menu. Empty evidence columns start hidden and secondary
+  columns yield to the pane's width, and the files a job owns appear under its
+  title and are searched.
+
+- **A sent message keeps what you typed, even a pasted wrapper.** The desk now
+  records where its own prefix ends when it sends, and only that prefix folds
+  beside the message as Context added; text you paste that looks like the desk's
+  context wrapper stays in your bubble. Wrappers an agent's own app adds still
+  fold as Sent with your message. When the first thing you type is a pasted
+  wrapper, its first line now names the conversation; before, it was read as the
+  desk's own and the conversation took its label or the words after it. Messages
+  sent before this release and agent-owned history keep the old layout rule.
+
+- **A read ceiling holds across resume, and an asked one refuses writes.** A
+  Claude Code Seat held at Read keeps that ceiling when its conversation is
+  resumed, loaded or forked, after a restart, while already open, or while a
+  read is loading it; a conversation busy with a turn refuses it until the turn
+  finishes. On an agent only asked to stay at Read, the desk refuses edit,
+  execute, mode-change and unknown-kind permission requests before a person or
+  an automatic approval policy can allow them, with a transcript notice that the
+  tool was refused by the Read only ceiling; read, search and think keep their
+  ordinary approval.
+
+- **`pr_create` no longer mistakes a pushed branch for an unpublished one.** A
+  branch pushed without an upstream, or one that inherited an upstream such as
+  origin/main when it was checked out, used to read as unpublished. The tool now
+  asks the remote (origin, or the first remote) for the branch's own copy: no
+  copy refuses with the usual "has not been pushed" message, a copy at HEAD
+  proceeds, and a copy that is ahead or behind refuses with the commit counts
+  and asks you to reconcile them. It never pushes or changes the upstream.
+
+- **A card's unfinished work survives a restart or hand-back.** The snapshot of
+  paths already dirty when a card was claimed is kept when the claim is released
+  and reused for the same conversation in the same checkout for up to 24 hours,
+  so `commit_work` and the finish check still count that work (another card
+  claiming the checkout discards it); when the work predates the new claim, the
+  commit answer names up to 20 committed paths and counts the rest. A Seat can
+  take back its own deliberate block (`release_claim` with `blocked: true`) with
+  `claim_work` by id, while a person's block stays held, and a Flow hands a
+  blocked card back without spending the unfinished-turn limit, at most three
+  times per Seat per hour, and then the Run stalls naming the card.
+
+- **A Team has one frame.** Overview, Run, Board, Chat and Findings are tabs
+  under a compact bar that carries the Team's title, state, member faces and
+  target revision; the faces open membership, narrow windows fold the tools into
+  More, and Wrap is offered on Overview only once the Team is ready. The Team no
+  longer has a left rail of its own, so the app's sidebar is the only left
+  column.
+
+- **A Seat's file tools stay in its own checkout.** The desk's `read_file` and
+  `list_directory` now read the calling Seat's checkout, and the editor and
+  context providers stay there too, so a Seat on a project's main checkout no
+  longer moves into the open linked worktree and a Seat started in the checkout
+  that holds the opened subfolder follows that subfolder. Before, a Seat's
+  relative read followed the folder the desk had opened last, so with several
+  Teams running it could land in the wrong checkout. A path outside the Seat's
+  checkout is refused ("the checkout this call runs in"), and a conversation in
+  the open project still reads the project as opened. A Seat whose lane is gone
+  falls back to the opened worktree, and a restarted desk re-admits a kept Seat
+  on the main checkout. Plugins' `ctx.fs`, `ctx.editor` and `ctx.workspace`
+  follow the call too; hooks and slash commands do not yet.
+
+- **Run details and Steps open in the dock.** The brief, Seats, recorded pull
+  request and Run facts, and the Flow's steps taken or not yet reached, sit in
+  the same right-hand dock as a conversation's inspectors, with the same tabs
+  and the same move, expand and hide controls. Selecting a timeline row shows
+  its recorded detail there without opening the transcript: a card's input,
+  handoff, findings, review and Seat cost; a check's command, folder, timeout,
+  exit mapping and latest output; a person's step with its declared outcomes.
+  Facts a Run did not record are left out and named together once, and leaving
+  the Run puts the dock back as it was.
+
+- **Accounts of one runtime tell themselves apart.** When two or more accounts
+  of a runtime are signed in, its face carries the account's initial in the
+  corner (two letters when initials collide) from 24px up, in Dashboard › Plans
+  as elsewhere; smaller faces keep the account tint and a title naming the
+  account, and a face that totals several accounts carries no initial.
+
+- **Agent-written pull request text is signed with the Team role and Seat.**
+  Descriptions, reviews and comments carry a signature such as Reviewer · round
+  2 · the agent, model and effort · via HarnessDesk; comments were unsigned
+  before. Settings › Plugins › Git has Description, Review and Comment signature
+  templates (placeholders include `{role}`, `{round}`, `{team}` and `{seat}`),
+  and a blank one turns that kind off. A description keeps the latest Seat for
+  each role and agent pair, up to eight (a ninth drops the earliest added), so a
+  fixer's edit keeps the writer's credit; text you write yourself is never
+  signed. Card commits also carry the running agent's own co-author line beside
+  the desk's, for agents that supply one.
+
+- **Glyphs keep one meaning each.** The robot marks a saved Agent in the
+  sidebar's Agents entry, the Agents window, the palette and Save as an Agent…,
+  where a book used to; the book now means only an Agent's written brief. A
+  sub-agent wears the robot with a ↳ badge at the bottom-right, and its hover
+  title names the parent conversation. Hand-off wears a forward arrow, a
+  conversation wears stacked bubbles, and a stale fact wears a clock with an
+  alert. Settings › Runtimes and the palette's Runtimes entry use a server
+  glyph.
+
+- **Tables, lists and Settings rows share one anatomy.** The face and the
+  control are centred on the whole row, however many lines the copy takes;
+  headers, labels and row heights come from one set of sizes; and numbers align
+  right in tabular figures. Git's history is one accessible table with resizable
+  columns: PageUp and PageDown scroll it without moving the selected commit,
+  long ref chips shrink to leave the subject room, group labels carry counts
+  ("Remotes · 3"), and merge commits read in secondary ink. The Library's List
+  view is a table of Skill (or Server), State and Loaded by; State reads Ready
+  or the one thing to fix, such as "Empty on disk", a refusal that names the
+  agent, or "2 copies differ", Loaded by shows faces only for the agents that
+  load the entry, or None, and below 600px wide the table becomes list rows.
+
+- **Dashboard › Plans shows one reading per row.** Account, Status (Ready, Low,
+  On overage, Out, Not reporting), Left and Resets, with a Details button,
+  replace the separate Shape, %, Amount and ≈ Turns columns. Left is a bar and
+  percent for a window or allowance, the prepaid amount with an approximate turn
+  count for a balance, the remaining budget for a metered key, and "No limit"
+  for a free tier; shape filters show "All · N" and only non-zero counts, and
+  meters read "N% left" with resets as "in 3 d" or "in 2 h 14 m". Project usage
+  is a table of Goals or Agents with Runs, Seats and Cost, labelled Last 30 days
+  or Last 24 hours. It reads each Team's Run history in batches of eight, keeps
+  what it read when you switch By Goal or By Agent, and offers Try again when
+  some Teams' Run counts cannot be read. Cost cells say "Estimate" or "At
+  least", with "Known subtotal" for partial figures, and an "Amounts are
+  incomplete for this range" banner offers Last 24 hours.
+
+- **The wide Teams page is a table.** It groups Teams by folder with Team,
+  State, Time, Turns and Cost columns (Cost drops out when every amount is
+  unknown); Working and Needs you are tinted chips and quiet states are plain
+  words, and below 600px the readings move into the list's second line. Row
+  menus flip to stay inside the window.
+
+- **Settings lists and project pages use compact rows.** Lists of runtimes,
+  accounts, Agents, workspaces and Archive follow the same anatomy: runtime,
+  Agent and gateway rows wear faces that follow the Faces setting (accounts keep
+  rings), an account row shows its plan and "N% left" with no status dot, and a
+  Limit reached chip only when its plan window is spent, and Remove, and
+  Archive's Delete…, live in each row's More menu, with Delete… disabled and a
+  note saying so where the agent keeps no way to delete one. On a project page,
+  Checks, Flows and Triggers become compact rows: a check reads Approved, Not
+  approved or a Changed chip, an empty list says "No checks", and a trigger's
+  armed state is its switch alone, with chips only for Changed, Refused and
+  Paused, a clock button for History, and its id and "once at a time" or "at
+  most N at once" under its sentence. Settings › Models lists a model's effort
+  levels as words after its description, and an unavailable endpoint carries a
+  Not available chip and its reason.
+
+- **The branch switcher keeps your place when its list finishes loading.** If
+  the branch list finishes loading while Create and checkout new branch… has
+  focus, the first arrow key now moves from that row's new position instead of
+  from where it used to be.
+
+- **Finished work releases its idle tools.** After a Team's Seats finish and the
+  agent is unused, the desk stops its helper process to release retained tool
+  servers, and so it does for any agent with no live conversation, running turn,
+  pending approval, running task, open Seat or waiting message and no host call
+  for ten minutes. Working turns and terminals keep it running. The agent still
+  shows as available (health idle), conversations and sign-in remain available,
+  its models, options, account and history keep being served from the last known
+  state without waking it, and new work starts it again. (Fixes #1397)
 
 - **A conversation that cannot open leaves a usable draft.** When its
   transcript cannot be read, the pane shows the error and returns to a fresh
@@ -18,6 +310,43 @@ move is real work and is not news to a person weighing an upgrade.
   entered while it was opening remain available to restore. Send waits for
   the conversation to load, and Restore keeps newer text and attachments
   available to swap back. (Fixes #800)
+
+- **A usage meter that stops reporting clears its old card.** After signing out
+  or removing the agent's CLI, the card and any error on it go without reloading
+  the app (ledger spend still earns a card), and a late refresh reply no longer
+  brings the old account back.
+
+- **A Run says where its review went.** The Run header, Overview strip and
+  Findings summary each show the publication once, and a review row carries its
+  own round as one chip: Posted to #n, Waiting to post, Partly posted, Not
+  confirmed, Not posted or Kept on the desk. A confirmed review that still needs
+  posting makes the Team and its Run Needs you. For a finished review with text,
+  the inspector keeps the host's reason whole and offers Copy review and Post to
+  pull request, asking you to confirm for an earlier round; a refusal stays
+  visible, and the inspector posts nothing without a press. When the intake gate
+  holds a post, each unsent posting records its reason, the Run and round stay
+  Waiting to post with it shown, and posting retries on its own when the gate
+  allows it, including after a restart; a readiness check that cannot finish
+  says so and waits for you to post again.
+
+- **A Seat option the agent cannot take is refused before anything starts.** A
+  Flow's start preview checks each Seat's chosen effort and thinking against the
+  controls the agent's session offers for its chosen model. An unsupported pick
+  names its reason on that Seat, for example that the model has no effort levels
+  or no thinking switch, and refuses Start, so no Run, Goal or lane is created.
+  If the agent cannot yet report its models or controls, or is idle, the preview
+  says so and has to be read again when the agent is ready.
+
+- **A message you typed is kept when a send fails.** The pencil on a waiting
+  message, Edit queued message, edits it in its row (Enter or Save keeps it,
+  Escape or Cancel leaves it), keeping its place and hold state instead of
+  pulling it back into the composer; if it is sent, removed or changed elsewhere
+  first, "Edit not saved." offers Restore. A refused send leaves "Message not
+  sent." with Restore, and if adding a message to a running turn fails (the turn
+  ended, the connection was lost or the agent timed out), its words and chips
+  wait in that conversation's Restore list with the failure reason beside them,
+  which survives reopening the view. Drafts and refused messages survive a
+  window reload; pasted images do not.
 
 - **Runtime information waits quietly in the Inbox.** Configuration warnings
   and retiring settings show their details, a file action and a mute option.
@@ -57,6 +386,51 @@ move is real work and is not news to a person weighing an upgrade.
   faces inside the filled strip; cards, content rows and modal questions use
   the system’s inset tiers, with equal padding above and below.
 
+- **The focus ring follows the keyboard.** Tab, arrow-key navigation and
+  keyboard activation show it, while focus handed back to a control you opened
+  with the pointer, when its menu or dialog closes (even by Escape), stays
+  quiet; one opened from the keyboard hands it back with the ring. Text fields
+  show focus by turning their border to the focus colour, for pointer and
+  keyboard alike, with no extra ring or shadow; the command palette's
+  always-focused search keeps its plain border and relies on its caret.
+
+- **A submodule's worktrees can be listed, opened and made beside its folder.**
+  A submodule, or a checkout made with a separate Git directory, opened on its
+  own now lists its worktrees, and a submodule's worktree can be brought home or
+  removed; before, these were refused with "… belongs to …, which is not a
+  project opened here. Open it first." The main checkout is its working folder,
+  not its Git directory under `.git/modules`, so the composer's Main checkout
+  row and the bring-home dialog start there, the Git pane's Worktrees list marks
+  it current, and a worktree made for the submodule lands beside the submodule
+  folder. A worktree of a separate-Git-directory checkout is still refused when
+  only that checkout is open.
+
+- **The Inbox bell sits in the sidebar's title row.** It moves from beside the
+  account seat in the footer to just before Search everything (⌘K); both are now
+  smaller icon buttons on the shared end rail. It keeps an unread dot and its
+  "Inbox, N unread" title, and the footer keeps the account seat menu.
+
+- **Seat ceilings read in plain words.** Wherever a Seat's ceiling shows, a held
+  ceiling says Read only, Edit, Publish or Merge, and one the runtime only asks
+  for adds "asked, not enforced", as in "Read only · asked, not enforced"; they
+  used to read "Read · held" and "Read · asked". Check commands in a Run's Flow
+  drawing, Steps list, Timeline and inspector show your home folder as ~, with
+  the full command in the hover title.
+
+- **Git actions are judged by the repository git resolves.** A folder inside an
+  open project whose `.git` file points at a different repository is now
+  refused, with a message saying that git there resolves to a repository that is
+  not open and asking you to open it; before, branch, worktree and other Git
+  actions there ran against that other repository. Linked worktrees, submodules
+  and `--separate-git-dir` checkouts opened on their own keep working.
+
+- **A wrapped Team's receipt reads as a page.** The reading column holds What
+  finished; Work, each card with its title and the Seat that finished it, frozen
+  when the Team is wrapped; Answers in each Seat's voice; a Record of findings
+  status and wrap date; and Cost, with its source and age and a Refresh. Older
+  receipts show a card's number and "Card title not recorded", and a Seat with
+  no kept conversation says "Conversation not kept" in its hover title.
+
 - **Read the same Run in a terminal and the window.** `run show` uses the
   shared timeline for rounds, cards, check results, findings and the ending,
   while keeping attendance and seat overrides. Its JSON remains the saved
@@ -70,6 +444,20 @@ move is real work and is not news to a person weighing an upgrade.
   ring follow live updates and stop under reduced motion; the narrow step list
   carries the same state.
 
+- **A Seat can finish a merge it resolved.** While a merge is in progress,
+  `commit_work` commits the resolved index with both parents and stages nothing
+  more, with the usual message, co-author credit and your identity. It refuses
+  before writing, naming the files, when any file still has conflicts or a
+  staged file was already dirty when the card was claimed, so your own edits
+  cannot enter the merge.
+
+- **A busy machine no longer fails a check while its checkout is written.**
+  Cutting the detached checkout a Flow check runs in has its own three-minute
+  limit, apart from Git's 30-second read limit, for a Seat's `run_check` and a
+  Flow's base check alike. A timeout says "Cutting the checkout took longer than
+  3 minutes."; pausing or stopping reaches the write; and a failed write removes
+  and prunes its partial checkout at once.
+
 - **Stop one Run from its header or Overview.** Stop run… ends the round,
   asks its Seats to stop and starts no further step. Its question says which
   Seats stop now and which finish their current turn, accepts an optional
@@ -82,26 +470,64 @@ move is real work and is not news to a person weighing an upgrade.
   finishing that card or selecting another cannot carry over a late refusal.
   (Fixes #1342)
 
-- **One repository is one sidebar project.** Team clones and linked worktrees
-  share its row. Gone folders leave the list while their conversations remain
-  searchable. Seats with no first message are named by their job and Team,
-  and an agent's compaction summary is never a conversation title. Capture
-  state lives in the project's menu.
+- **State stays on the sidebar row, and each Team is one row.** A running
+  conversation wears a small neutral spinner whose hover names the activity, and
+  a running Team wears the same spinner; both hold still under reduced motion,
+  and a waiting one says Needs you. The Needs you and Working bands are gone,
+  and no row says Working or Approval. Each active Team is one row in its
+  project with its Seats folded under it, a chevron revealing them. Wrapped
+  Teams leave the sidebar for the Teams page, and project headings lose the
+  folder icon.
 
-- **The command line now ships inside the app.** HarnessDesk › Install
-  command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
-  own, so a terminal or a script can list Teams and runs, start a flow, watch
-  it, stop it and answer the cards it addressed to you. It runs on the app's own
-  runtime, needs no separate Node install and no password, never replaces a
-  `harnessdesk` it did not put there, and keeps working when the app is updated
-  or moved; choosing the item again offers to remove it. `docs/cli.md` lists
-  every command, its `--json` shape and its exit codes.
+- **One repository is one sidebar project.** Clones of one repository (same
+  remote) and its linked worktrees share its row. Gone folders leave the list
+  while their conversations remain searchable, and a quiet line counts them and
+  offers to forget them. Seats with no first message are named by their job and
+  Team, and an agent's compaction summary is never a conversation title. Capture
+  trouble is in the project's menu, with Retry or Turn on, and a stopped capture
+  also shows a quiet Capture stopped label on its row.
+
+- **A finished or interrupted check can be run again from the Run.** While a Run
+  is running or stalled, the check's row in the timeline and its inspector offer
+  Run again…, and the Board offers Run this check again…. The question shows the
+  exact command, checkout and timeout; confirming reruns that one card, keeps
+  the earlier output and evidence, and leaves sibling checks alone. The
+  inspector lists every recorded attempt, newest first, with its exit, the
+  commit it ran at and its output behind Show output. A stopped or settled Run
+  says so and points to a new Run instead of offering a retry that could never
+  apply, and a question already open when its Run settles or is stopped stays
+  open and says why, with Run again off. Host-started checks are recorded by
+  process group, so a restart stops the checks it left running, and an
+  interrupted check waits for your consent instead of rerunning on its own.
+  (Fixes #1245)
+
+- **Provenance capture does bounded work.** A pass is skipped while the commits,
+  ref moves, facts and Seats it reads are unchanged; it reads at most 128 commit
+  ranges at a time and keeps what Git cannot contradict instead of asking again;
+  before, a desk could re-read an unchanged repository on every wake for hours.
+  A scan that finds nothing new writes nothing, so the capture journal stops
+  growing and health updates stop slowing, and the private view folders capture
+  makes are removed when it stops or the app exits, and any that a crash left
+  behind are swept at the next start.
+
+- **A `harnessdesk` command line comes with the app.** HarnessDesk › Install
+  command-line tool… puts a `harnessdesk` command in a folder you own
+  (`~/.local/bin` or `~/bin`) and, if that folder is not on your PATH, shows the
+  one line that adds it, so a terminal or a script can list Teams and runs,
+  start a flow, watch it, stop it and answer the cards it addressed to you;
+  answering stays off until you turn on Settings › Permissions › Let
+  command-line clients answer for me. It runs on the app's own runtime, needs no
+  separate Node install and no password, never replaces a `harnessdesk` it did
+  not put there, and keeps working when the app is updated or moved; choosing
+  the item again offers to remove it. `docs/cli.md` lists every command, its
+  `--json` shape and its exit codes.
 
 - **A wrapped Team stays readable** — it opens on its receipt, in a narrow
   window as in a wide one and whether or not it ever had a Run. The receipt
-  keeps every Seat's conversation, and its rail and the sidebar's Wrapped group
-  still open those conversations and the Run. A conversation seated more than
-  once is listed once; Run details still keep each Seat and its recorded usage,
+  keeps each Seat's conversation where one was retained, and its page tabs and
+  members popover still open those conversations and the Run. A conversation
+  seated more than once is listed once; Run details still keep each Seat and
+  its recorded usage,
   including a Seat whose conversation was not kept. Older receipts keep Seats without a retained conversation visible, even
   when that is every Seat, rather than saying no Agents were kept. Composers and
   work-dispatching controls say “This Team
@@ -128,11 +554,14 @@ move is real work and is not news to a person weighing an upgrade.
   about it: open the next round, end the Run, or wait for the round's other
   cards.
 
-- **An ended Run has a way on.** Its banner says why it ended and offers
-  Wrap, the board, a fresh Run, or consent to an interrupted check. Run again
-  prefills the saved inputs and brief, leaves seat preferences open to change,
-  and keeps both Runs on the same Team. The header’s Flow revision opens
-  the Flow that Run started with.
+- **An ended Run has a way on.** Its End row on the timeline says why it ended
+  and offers Wrap, or Run again after a stop. A Run that needs you, because it
+  ended without a next step, reached its round budget or stalled on an
+  interrupted check, says why on one card above the Timeline and the Flow, with
+  the Board, a fresh Run, or consent to the interrupted check. Run again
+  prefills the saved inputs and brief, leaves Seat preferences open to change,
+  and keeps both Runs on the same Team. The header's Flow revision opens the
+  Flow that Run started with.
 
 - **A Run shows the Flow it started with.** A Run's header switches between
   its Timeline and its Flow: the Flow it was started from, kept at the
@@ -142,6 +571,15 @@ move is real work and is not news to a person weighing an upgrade.
   drawing, and in a narrow pane the list is the view. Open the file reads the
   Flow's file as it is now; nothing can be edited there.
 
+- **Notices and approvals line up.** In a one-line notice the text, lead icon,
+  action and × share one vertical centre; when the copy wraps, the lead stays on
+  the first line while the action keeps the card's centre, and a banner folds
+  its actions under the copy when its card is under 400px wide, where it was
+  600px. Composer notices end their × on Send's column, approval questions hang
+  the warning mark in its own gutter so the title and the explanation share one
+  text column, and the notice pager is a keyboard toolbar: arrow keys and Home /
+  End move between Previous and Next.
+
 - **A Seat's commit stays yours.** The desk adds its co-author credit once
   when it commits a card's work, using your configured author and committer
   identity. An agent no longer has to remember the credit, and commits you
@@ -150,19 +588,455 @@ move is real work and is not news to a person weighing an upgrade.
   system Git configuration; Git older than 2.32 is refused before staging.
   (Fixes #1277, #1310)
 
+- **Names, small titles and meters settle on quieter weights and tones.** Names
+  beside faces (a chat's sender, an agent card's name, a Needs-you row, a member
+  named in a sentence) share one medium weight; the agent card's name was
+  semibold at the same size. Small row titles, such as the rows of the Team
+  members list, are regular weight, and a selected row shows in its fill instead
+  of a heavier weight. Empty-state headings and a notice's or the Inbox's title
+  are medium. A budget meter with plenty left is drawn in the neutral fill (it
+  was green); low reads as a warning and spent as danger, so the one card
+  running low stands out. (Fixes #1061, #1072, #1122)
+
 - **Teams have one page, with attention first.** Teams in the left menu lists
   work by project, its Seats and recorded usage. Active, Needs you and Settled
   have counts; quiet settled work folds into Ready to wrap and leaves the
   sidebar. Hide keeps it out of Active until it changes, without deleting it.
 
-- **Sidebar states read as quiet coloured text.** Working, Needs you and
-  Approval keep their trailing alignment without a pill around them, giving
-  conversation titles more room. Each label still folds to a dot for its row's
-  actions; counts yield first in the narrow sidebar.
+- **A Team with a Run opens on its Overview.** The Run's round and recorded
+  usage lead, then what needs you, then every Seat in attention order (Needs
+  you, Unread, Working, Idle) with its face, role, card, round, what it is
+  doing, time in state and cost: money for a metered account, turns otherwise, a
+  dash when unknown. Finished Seats fold under an N done disclosure and come
+  back when they need attention, and a Flow's Seats stay in the Team's list, the
+  Overview and the sidebar after their process rests. A done Seat's Time sums
+  its recorded turns' working durations, fixed when its last turn ended, and
+  reads unknown when a turn's timing is missing; Now and Cost drop out when
+  empty. A wait on findings, an unreadable ledger included, raises Needs you,
+  while a wait on other evidence reads Waiting. On the Findings page, a finding
+  raised in another Run or Goal says "Raised in round N · of another run" (or
+  Goal) beside its number. A Team with neither a Run nor a Goal ready to wrap
+  opens on Chat.
+
+- **Sidebar states read as quiet coloured text.** Needs you keeps its trailing
+  alignment without a pill around it, giving conversation titles more room. The
+  label still folds to a dot for its row's actions; counts yield first in the
+  narrow sidebar.
+
+- **Sidebar rows keep their marks clear of their actions.** Trailing marks share
+  the hover actions' end rail: a conversation's worktree glyph, gone-folder
+  glyph and activity mark (a spinner while it works), a Team's held-message
+  count and a project's Pinned mark sit in fixed slots, and hovering a row puts
+  its actions on the rail and steps the marks left, so an action never covers a
+  mark, a chip or a title. A Team and each of its Seats reveal their actions
+  independently, and a full state label ends at the session dot's right edge.
+
+- **Long briefs get their own field.** A Flow that declares an input named
+  `brief` shows a Brief text area in its start dialog, apart from the Team's
+  title. Paste paragraphs, or choose Attach a file… to load a .txt or .md file
+  up to 64 KiB into the field; Start waits while the file is read, and a refused
+  or unreadable file leaves your draft and choice intact. The area grows to
+  twelve lines, then scrolls. Use `{{brief}}` in an order to hand its text to a
+  Seat.
+
+- **Project usage opens quickly after the first read.** The desk keeps parsed
+  usage and a cursor per transcript while it runs, so repeat opens and timed
+  refreshes read no unchanged transcript bytes, appended transcripts resume
+  where they stopped, and files last modified before the range are skipped. A
+  scan that reaches the per-request limit of 64 MiB of source data or 10,000
+  files is marked partial.
+
+- **A Team's review rounds post to the latest pull request the desk saw.**
+  Before, a Goal whose evidence named more than one open pull request kept every
+  round on the desk until a person picked one. Now the latest local observation
+  binds, a tie going to the later record; if the latest pull request is closed
+  or merged, none is bound; a restored observation never binds; and a round
+  already prepared keeps its target.
+
+- **A Flow can start from a fetched base without moving your checkout.** A Flow
+  file can declare `base: { remote: origin, branch: main }` (the remote's
+  default branch when `branch` is omitted). Start fetches that remote once,
+  freezes the commit in the Run and cuts every Seat's lane from it, so a stale
+  checkout no longer makes a stale Team, and your branch, index and uncommitted
+  files stay as they are. The preview says Start will fetch, without touching
+  the network; a missing remote or branch, or a failed fetch, refuses the start
+  before any Seat opens, and a cached ref is never a fallback. (Fixes #1244)
+
+- **Agents follow a retargeted link.** When a link at the top of an Agents
+  folder, such as a dotfiles checkout linked into this machine's folder, is
+  retargeted, the desk reconciles link targets every second, so a dropped
+  file-system event no longer leaves the old target watched and the Agents lists
+  stale. Folders that have never held a link are not polled. (Fixes #1206)
+
+- **Undo says why Codex 0.160.0 cannot undo an older conversation.** On Codex
+  0.160.0 or newer, Undo on a conversation an older Codex started (before
+  0.151.0, the non-paginated kind) is refused with a message that begins "Codex
+  0.160.0 and later cannot undo legacy conversations", and a conversation
+  started on 0.151.0 or newer undoes as before. If Codex is upgraded in place
+  while HarnessDesk runs and its app-server then restarts by itself, the app
+  probes the binary again before it respawns, so that message appears instead of
+  a rollback request 0.160.0 removed. An image Codex stores as a file reference,
+  with no display URL, in a message or tool result now reads "[image attachment
+  unavailable]" as text. (Fixes #1256)
 
 - **An isolated seat can open its own pull request.** Git tools now run in
   the calling conversation's checkout, so status, branch context and forge
   commands see the lane's branch rather than the project's branch. (Fixes #1235)
+
+- **`pr_merge` refuses unless the checks that gate the merge are green.** It
+  reads the check-runs on the reviewed commit and takes the newest run of each
+  check the base branch requires, from its rules and protection; each must be
+  complete with success, skipped or neutral, so an advisory job no longer blocks
+  a merge, and a rerun that has not started counts as the newest run. If the
+  requirements are absent, unreadable or of a kind it does not recognise, every
+  check-run on the commit must be green. The refusal names the checks holding
+  the merge up, says that no CI has reported on the commit, or says that CI
+  state could not be read; `pr_checks` watches CI, and you retry once it is
+  green.
+
+- **Scrolls hold still under reduced motion.** With reduced motion on, the
+  interface's own scrolls no longer animate: Jump to latest, the Jump to a
+  message rail and the diff's Previous hunk and Next hunk go straight to their
+  target. With motion allowed they still scroll smoothly.
+
+- **Rows, panels and menus line up.** Every navigation row in the app stands at
+  30px, the settings and usage rails having grown from 29px. The last button in
+  a panel's header puts its glyph on the right inset, a Settings page title and
+  blurb above a card of rows start at the rows' text inset, and an Agent card's
+  mark sits on its title's first line. In Side by side a tile's agent name gets
+  its width before the model beside it, so a long name wraps inside its column
+  instead of squeezing short names onto two lines. The seat menu at the foot of
+  the sidebar is a fixed 320px wide instead of taking the sidebar's width, so
+  "Usage remaining" and a long account name each fit on one line.
+
+- **The window keeps a readable conversation.** A 400px reading column is
+  protected: the sidebar floats first, through its button, ⌘B or the palette,
+  when its column, the right panel and 400px do not fit; the panel covers the
+  conversation only when under 400px would remain beside it; and dragging its
+  seam never squeezes the conversation below 400px. In a window narrow enough
+  for the panel to cover the conversation, nothing behind it shows through any
+  more: the covered conversation is hidden as well as inert, which had let the
+  header's plan meters draw over the panel's tab on macOS. In the panel's menu,
+  Side by side and One above the other are greyed with their reason, such as
+  "Needs 440px; this panel is 280px", when a half would be under 220px wide or
+  160px tall, and the title bar gains a right-panel toggle that hides the panel
+  or shows it with a count badge for the views waiting there.
+
+- **Faces take one shape you choose.** Settings › Appearance › Faces (Square by
+  default, or Round) sets one shape for every agent mark and person picture:
+  chat senders, board-card holders, Side by side tiles, agent cards and notices,
+  and the Agent page's mark and a runtime's detail head follow it too. Account
+  rings and the tiles for things keep their own shape. Team composer notices
+  such as "Alpha is working — …" name members with their small face and share
+  one tinted strip with the live activity line. In the light theme, secondary
+  and muted text are one step darker, a chat message's delivery word moves to
+  the time's hover title, and long clamped messages fade on the last line.
+
+- **A Gemini Seat's prompts for the desk's board tools say what they name.**
+  When a Gemini CLI Seat asks to use one of the desk's board tools, the card
+  says the agent wants to use HarnessDesk's board to do what the tool does, and
+  that HarnessDesk can't confirm which server is asking, because Gemini names no
+  server and the desk never answers for it. The plain yes reads Allow once and
+  the one-tool session grant reads Allow for this session, beside Gemini's own
+  Allow all server tools for this session and Reject; any lasting grant sits
+  quiet and apart; with none, the card says to turn on permanent tool approval
+  in the agent's own settings to always allow it. The Flow preview warns that
+  the first time, the agent asks once for each HarnessDesk tool it uses. (Fixes
+  #1207)
+
+- **A standing notice is drawn once.** The desk draws it above the composer that
+  is on screen, the focused one when there are several, and in the notice strip
+  when none is, so a narrow window or a zoomed dock no longer shows the same
+  usage notice in both places.
+
+- **Only your own desk puts an item in the menu bar.** The macOS menu bar item
+  is created only when the app runs on the default `~/.harnessdesk` home,
+  compared after resolving links, so a second desk or rig started with its own
+  `HARNESSDESK_HOME` no longer adds a second item. `HARNESSDESK_MENU_BAR=on` (or
+  `1`) forces the item on and `off` (or `0`) forces it off, and a home that
+  cannot be read never stops a launch.
+
+- **The desk's tools are held to the Seat's ceiling.** Posting a pull-request
+  review or comment, or an issue comment, needs publish. Messaging another agent
+  or the person, adding a board intent, writing the todo list and driving the
+  browser or the iOS and Android simulators need edit; reading pages,
+  screenshots, logs and devices stays read. (Fixes #1198)
+
+- **The composer's controls stand in fixed slots.** A control's place no longer
+  depends on the agent: Add, Work in (new conversations only), Agent,
+  Permissions, Mode and Extension sit on the left; More, Context, Model and Send
+  on the right. A slot the agent does not offer is greyed with its reason, such
+  as "This agent has no permission setting", instead of vanishing; Extension and
+  an empty More are absent, and Context is always drawn, saying "No usage yet"
+  until the agent reports. As the toolbar narrows, labels fold to glyphs in a
+  fixed order: Agent, Work in, More, Mode, Permissions, Model. (Refs #979)
+
+- **Claude Code can be seated at a read ceiling.** The bridge enforces the
+  ceiling instead of a prompt, since Claude Code's allow rules skip prompts, so
+  a read-only reviewer role can seat Claude Code. A read Seat is denied every
+  write-class tool, every MCP server but the desk's read-only tools and any
+  shell command outside a short read-only list (git status, diff, log, show,
+  rev-parse and ls-files; ls, cat, head, tail, wc, rg, grep and find), one plain
+  command at a time. It runs without the project's hooks, settings, `.mcp.json`
+  and `CLAUDE.md`, in default or plan mode only. (Refs #1132)
+
+- **The Flow preview says why no Seat could review independently.** When a
+  reviewer role must be independent of the writer, the preview lists each
+  candidate Seat it passed over with every reason, a provider refusal such as
+  "Same provider as the writer" beside any ceiling refusal, so Start shows them
+  before the Run starts, where the Run used to stall at that step. A provider
+  the preview cannot read is only a warning, saying that independence is checked
+  when the step is reached, and a known same-provider clash is refused. Which
+  Seat reviews stays your choice. (Refs #1132)
+
+- **New session is one click.** It starts a draft in the current project with
+  the default agent, like ⌘N. The ⌄ beside it opens More ways to start: New
+  worktree…, the worktrees HarnessDesk made for this project, Goal…, Flow… and
+  Team…. A worktree choice points the draft at that checkout, and nothing is
+  made on disk until its first message.
+
+- **The sidebar is one list of rows.** Teams, Agents, Dashboard and Plugins are
+  full rows under New session, laid out like a conversation row (icon, label,
+  trailing badge): Agents counts agents in force, Dashboard agents needing
+  attention and Plugins live plugins. The magnifier beside the brand opens
+  Search everything (⌘K) across sessions, files, agents and commands, and the
+  filter and ⌘K search an ACP agent's whole listed history too. The funnel
+  beside Projects filters by title and leaves a Filtered chip until you clear
+  it, so a short list never reads as missing data. The Projects row's menus
+  offer Sort projects (Recency, Name), Density (Comfortable, Compact) and Show
+  agents (All agents, one row per agent); a project shows five conversations and
+  then N more reveals 25 at a time; and the sidebar's minimum width is 200px.
+
+- **The conversation list works from the keyboard.** It is one Tab stop, entered
+  at the active conversation; ↑ / ↓ move through every visible row, including
+  project headings, rooms, members and overflow rows, and Home and End go to the
+  first and last. → expands a project, room or Other projects row (or moves to
+  its first child) and ← collapses it (or returns to its parent); Enter or Space
+  opens a conversation or toggles a group; typing a title prefix jumps to a
+  matching row; Shift+F10 or the ContextMenu key opens the row's actions, and
+  Escape returns focus to the row. Large project lists mount rows as focus
+  reaches them and keep the focused row in view.
+
+- **The file viewer says what a file is when it cannot show it as text.** A
+  binary used to open as garbled text you could edit and save over, and a text
+  file over 2 MiB opened cut short. Now images (PNG, JPEG, GIF, WebP and AVIF)
+  up to 10 MiB preview, other binaries say "Binary file — N KB", a text file
+  over 2 MiB says "File too large — N MB", and only a missing file offers Create
+  this file. A save over a binary or oversized file is refused ("This file is
+  now binary. Your save was refused." or "This file is now too large to edit.
+  Your save was refused."), a save over a file the host cannot read fails
+  instead of creating it, a binary is never offered Overwrite with mine, and a
+  refused save keeps the edited text in the editor with Save disabled.
+
+- **The right panel works from the keyboard.** Hiding, closing or collapsing it
+  returns focus to where it was in the conversation, or to the pane's first
+  control, when focus is left in the panel or on the page; focus you put
+  somewhere else stays there. In the terminal, Tab stays with the shell: press
+  Escape, then Tab within 1.5 seconds to reach the panel's controls, and a lone
+  Escape still goes to the shell (the hint is in the terminal's title). Git's
+  commit list is one Tab stop moved with ↑ / ↓ and Home / End; Enter and Space
+  act like a click, the active commit is announced, and the active row follows
+  when a search or refresh removes it.
+
+- **A page that won't load says so.** In the Browser pane, a refused or failed
+  main-page navigation used to leave the previous page or a blank pane with the
+  footer reading Idle. The pane now shows over the page why it failed (the
+  connection was refused, the address was not found, loading timed out, the
+  certificate was rejected, or an error code), the address and Try again, which
+  reloads the page that failed; the footer reads "Page failed to load", and a
+  later successful load clears it.
+
+- **A Flow Seat's own board tools no longer stop for a person.** On Claude Code,
+  which asks before each MCP tool, one card used to stop a Seat four times,
+  three of them for the desk's own claim, commit and complete tools. When a
+  running Flow governs the conversation, the desk now answers that request
+  itself, once per call, only after the bridge proves it came from the desk's
+  own tool server. Every other server's tools, writes and `agent_message` still
+  reach you, and the answers are audited without a notice. (Fixes #1177)
+
+- **A Gemini Seat in an untrusted folder is named in the Flow preview.** Gemini
+  CLI starts the desk's tool server only in a folder it trusts, and a fresh Flow
+  checkout is not one, so the Seat had no board tools. The preview now refuses
+  such a Seat by name, with "Gemini doesn't trust this folder, so it can't use
+  the board. Open Gemini here, run /permissions trust, and start again.", or
+  says it cannot read Gemini's trusted-folders file. Opening or resuming a
+  Gemini conversation there leaves an Inbox notice, "Board tools are unavailable
+  in this folder", once per folder per desk run. The desk does not trust folders
+  for you. (Fixes #1176)
+
+- **Trajectory reads in plainer rows for every agent.** Your words show as You
+  without the desk's context wrapper (the conversation folds that as Context
+  added), so Codex and ACP agents no longer show the raw wrapper. Where the time
+  went is drawn against each turn's wall time, with the remainder named Model
+  and waiting, or Not measured when a step carried no duration, so an ACP turn,
+  whose steps report no durations, now gets the band with its whole time marked
+  Not measured instead of no band at all. Empty reasoning folds into one row ("3
+  steps, no summary given") instead of "Thinking · Thinking", and messages wrap
+  to three lines with the whole text on hover, while commands and paths stay on
+  one line.
+
+- **A Flow role with seats but no Agent is refused by name.** "An Agent role
+  needs uses: to name an Agent." replaces the count message "A round needs
+  between 1 and 32 Agents or seats." for a role that lists `seats:` and no
+  `uses:`. `docs/flows.md` now states that every Agent role needs `uses:`, that
+  `seats:` is optional, that each list holds at most 32 entries and that
+  `count:` is 1 to 32. (Fixes #1178)
+
+- **A card finished while its round is being written is never lost.** Its
+  completion used to match no Run, so the Run never settled; the same window let
+  a room member claim a just-created agent card before its Seat was bound and
+  let a card skip its outcome, review and dirty checks. Every card lookup now
+  resolves the card from the journal or its dispatch key. (Fixes #1160)
+
+- **The terminal's last strip takes the theme's background.** The strip under
+  its last row, up to about one row depending on the panel's height, showed
+  black, a bar under the prompt in either theme. It now takes the theme's
+  surface and follows theme and palette switches while the terminal is open, and
+  the input-method composition view takes the rows' colours too. (Fixes #1169)
+
+- **A Team's Seats can sit Side by side.** One to four Seat conversations show
+  as tiles from the Team bar's Side by side toggle, greyed until an Agent is
+  seated, and a member's Watch beside puts one in a tile. Each tile has one bar
+  with the member's mark, name and state, an Expand control and a menu (Open
+  conversation, Pin to the grid, Take off the grid). ⌥⌘1 to ⌥⌘4 focus a tile and
+  ⌥⌘↵ expands or returns it (Settings › Keyboard shortcuts). A lone tile keeps
+  its own composer; on a grid of two or more there is no composer, so expand a
+  tile to write to it, and words typed in a tile stay with their conversation.
+
+- **The desk's tool server no longer runs as a second app or outlives its
+  agent.** Gemini filters the environment it hands on, so the server lost
+  `ELECTRON_RUN_AS_NODE` and started as an Electron app with its own Dock icon
+  and a GPU and a shared-files helper process; the desk now points the server
+  config at a small launcher in its own run folder that sets the variable itself
+  (not on Windows). And the server now exits when its input closes, when its
+  parent disappears or it is reparented, or, on macOS, when it starts already
+  orphaned, where a dozen were once found still running 16 hours after their
+  sessions ended.
+
+- **A person can judge a comparison.** When a person holds the judge's step, its
+  Board card offers Pick an attempt… in place of Answer picked. The dialog lists
+  each attempt with its holder, branch, short head and check results (Pass,
+  Fail, Timed out), records the same pick an agent judge writes; the referee
+  step follows. Before, such a Flow could not finish. A second, different pick
+  for the same card and round is refused, and the judge's card reads Pick the
+  best attempt.
+
+- **The Balance row draws its history.** The host now records each account's
+  prepaid balance whenever the figure changes and otherwise at most hourly,
+  keeps readings for 400 days; the expanded row charts the last 30 local days.
+  Days before the first reading are unknown, never zero; the axis always
+  includes zero, and a balance below it is drawn below it. With fewer than two
+  readings the row says "Balance history starts with the next reading".
+
+- **A Plans row shows the account's own activity across machines.** Where an
+  agent's own service reports it, as Codex's does, an expanded row adds an All
+  machines band: the last 30 days' tokens, the current streak and the lifetime
+  total, counted across every machine the account is used on, so the 30-day
+  figure can exceed what this machine's transcripts show. A band the service
+  gives nothing for is left out.
+
+- **Activity shows when in the week the work happens.** By hour, a third view
+  beside Year and By agent in When it ran, draws a Monday-first 7 × 24 grid of
+  this year's tokens or calls by local weekday and hour, with the total, the
+  busiest hour and the busiest day. Hours carry no cost, so Cost is not offered
+  there. Until a full scan has recorded hours it says "No hours recorded yet",
+  and partial coverage names how many agents are known; the first launch after
+  updating rescans each agent's local history once to learn them. In the Year
+  heat grid, a first month clipped to a column or two is left unlabelled, so its
+  name no longer runs into the next month's. (Fixes #1114)
+
+- **A Plans row shows what it paid beside what the work was worth.** Under an
+  expanded Plans row the money line reads Paid · Value · N× paid · the fee as
+  set. Paid is the fee prorated over the window Value covers (30 days by
+  default) plus overage only when its cycle starts inside it, and an overage
+  billed in another currency stays beside it in its own. The N× chip is neutral
+  at 1× or more and amber below, and is drawn only in one currency. The Overview
+  strip's Value cell, its second, is now labelled Value, as it is everywhere
+  else, where it used to read List-price equivalent or Plan metered; how the
+  figure was priced is in its hover text.
+
+- **An answer a Seat would not take is kept, and the Run can go on with it.**
+  When a person answers, after its wait ran out, a question that stopped an
+  unattended Run, and the Seat refuses the answer, even asked twice, the Run
+  stops again with the answer kept, and a restart reads it back. The room's line
+  for that stop offers Continue with this answer, which hands the same answer to
+  the same Seat again. If the Seat is gone or the card is finished, the action
+  stays, greyed, and the line says why; if the Seat is busy or a trigger's hold
+  or gate applies, pressing it is refused with the reason. An answer that
+  arrives just as an unattended question's wait runs out now goes into the live
+  turn and the Run carries on, and the When nobody is here setting for how long
+  an agent's question waits takes only its five choices. (Refs #998)
+
+- **A Team room opened through a symbolic link stays with its project.** After
+  the folder it was opened from leaves the sidebar's list, the room no longer
+  sits under an empty second copy of its project; work still starts in the
+  folder it was opened in.
+
+- **The turn-files card closes.** The card under an answer that lists the files
+  a turn changed has a Close button that hides it in that conversation until the
+  app restarts; the files and the Changes panel are untouched. Close is greyed
+  while an Undo or Redo runs, and while the card offers Redo it says on hover
+  why: that card is the only way to write the edits back. A refused undo or redo
+  now changes nothing; only a failed take-back leaves the turn half changed, and
+  Close then stays greyed.
+
+- **Dialogs and panes share the system's heads and bars.** The image viewer's
+  head is the shared dialog head: the image's name as the title, its size and
+  dimensions beneath, one close button and a divider running edge to edge. A
+  dialog's title in the shared head stays on one line and truncates at its end,
+  with the whole title on hover, since a finding's title can reach 200
+  characters. The "Assign a conversation" and "Seat an Agent in this Goal"
+  dialogs draw their choices with the shared choice rows, where a refused Agent
+  stays selectable with its "Can't seat here" reason at full ink. The Browser
+  pane's footer is the system's bar, with its state on the left and its sentence
+  on the right, wrapping to at most two lines and hidden when the pane is
+  narrower than 18rem.
+
+- **A tool step draws a result once.** When an agent sent a result both as text
+  and as a raw record, the step showed the words twice, the text and then the
+  same words as JSON. The repeated record is now dropped when it only restates
+  the text, including a shell call's output, while a record that carries more,
+  such as an error or a path, still draws. (Fixes #1076)
+
+- **Sonnet 5.5 is offered in Claude Code's model list.** The bundled Claude
+  bridge now follows the official adapter release, whose Agent SDK knows it.
+
+- **The Flow start dialog no longer over-promises a worktree.** A Seat's chip
+  reads Own worktree only when every route into its role opens it in a worktree
+  of its own at the commit it is handed, and Sometimes own worktree when only
+  some routes do. Seating itself is unchanged. (Fixes #1059)
+
+- **A finding keeps deciding against the Run that raised it.** Opened from a
+  later page of a Goal's Findings list, it stays tied to its own Run even when a
+  refresh of the first page drops its row while the decision dialog is open.
+  (Fixes #1091)
+
+- **A check guard can name a check by its role.** `evidence: [{ check: gate }]`
+  resolves to that role's command. A name that is neither a check role's id or
+  command nor a command in the project's declared checks is refused at the dry
+  run and at start, with "Rule X waits for a check called Y, but no check in
+  this flow runs that"; before, the guarded round waited forever for a check
+  that could never run, saying only that it was waiting for a passing check.
+  Saved Runs still restore. After Authorise another round (or Authorise N more
+  rounds from here), the Findings round summary updates in place. (Fixes #1094)
+
+- **Seats that share a model are named by role.** Instead of "X · X 2", they
+  read "reviewer 1", "reviewer 2", or a lone role plainly, with the ordinals
+  running across the room. Seats that share an Agent name still carry their
+  label, and a Seat with no role keeps the label and a number. (Fixes #1115)
+
+- **A host that never answers no longer holds sign-in forever.** An account read
+  gives up after 10 seconds: the request is cancelled, a late reply is ignored,
+  sign-in discovery reports the failed read, and the read is asked again with
+  the usual backoff.
+
+- **Usage turn counts stay right across scans.** A Claude Code or Qwen Code
+  prompt whose reply is written after a scan boundary waits for the model that
+  answers it instead of counting under unknown, and the desk's own recorded
+  turns are recounted over the recent window on every scan, so a late overnight
+  turn lands on the right day. A missing or unreadable transcript store leaves
+  earlier counts as they were, and when a scan finishes the Usage cards restate
+  turns as well as spend.
 
 ## 0.3.1 — 2026-09-27
 
