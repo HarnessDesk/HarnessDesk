@@ -2330,6 +2330,11 @@ export interface HostMethods {
     result: GitCommitDetail
   }
   /** One file's patch at one commit; a merge is shown against its first parent. */
+  /** Bounded UTF-8 prose from a regular file at an immutable commit; null for missing, binary or oversized files. */
+  'git/fileAtRevision': {
+    params: { readonly root: string; readonly sha: string; readonly path: string }
+    result: { readonly text: string; readonly bytes: number } | null
+  }
   'git/commitDiff': {
     params: { readonly root: string; readonly sha: string; readonly path: string }
     result: { readonly diff: string }

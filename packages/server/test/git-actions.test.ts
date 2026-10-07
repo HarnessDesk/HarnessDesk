@@ -798,3 +798,18 @@ test('git remote parsing strips carriage returns from Windows git output (#468)'
     setGitRunnerForTest(null)
   }
 })
+
+test('diffRange reads recorded trees without text conversion or replacement objects', async () => {
+  const dir = await seedRepo(); const from = await sha(dir, 'HEAD')
+  await writeFile(join(dir, '.gitattributes'), '*.md diff=prose\n')
+  await writeFile(join(dir, 'answer.md'), 'raw committed answer\n')
+  await git(dir, 'add', '.'); await git(dir, 'commit', '-qm', 'Recorded answer'); const to = await sha(dir, 'HEAD')
+  await writeFile(join(dir, 'answer.md'), 'replacement answer\n')
+  await git(dir, 'add', '.'); await git(dir, 'commit', '-qm', 'Different answer'); const replacement = await sha(dir, 'HEAD')
+  await git(dir, 'replace', to, replacement)
+  await git(dir, 'config', 'diff.prose.textconv', 'echo converted')
+  const diff = await diffRange(dir, from, to)
+  assert.ok(diff.includes('+raw committed answer'))
+  assert.ok(!diff.includes('replacement answer'))
+  assert.ok(!diff.includes('converted'))
+})

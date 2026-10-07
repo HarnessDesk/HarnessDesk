@@ -65,7 +65,7 @@ describe('runTimeline · a round of several cards', () => {
   describe('blind', () => {
     const specialists = (patch: Partial<Extract<FlowPolicyRole, { kind: 'agent' }>> = {}, state: FlowRoundState['state'] = 'running', run: Partial<FlowExecution> = {}) => ({
       execution: execution([agent('build'), agent('specialists', { grant: 'read', uses: ['security', 'performance', 'api'], independentOf: ['build'], ...patch })],
-        [round(1, 'build', [1], 'closed'), round(2, 'specialists', [2, 3, 4], state)], run),
+        [round(1, 'build', [1], 'closed'), { ...round(2, 'specialists', [2, 3, 4], state), blind: patch.blind !== false }], run),
       cards: [card(1, 'build'), card(2, 'specialists'), card(3, 'specialists', { state: 'claimed', outcome: null }), card(4, 'specialists', { state: 'claimed', outcome: null })],
     })
     it('marks an open round of several read-only Seats on a live Run', () => {
@@ -79,9 +79,11 @@ describe('runTimeline · a round of several cards', () => {
       assert.equal(find(rowsOf(specialists({}, 'closed')), 'round-2').blind, false)
       for (const state of ['stopped', 'settled'] as const) assert.equal(find(rowsOf(specialists({}, 'running', { state })), 'round-2').blind, false)
     })
-    it('is not blind when its Flow lets the Seats see one another, or the Seats may edit', () => {
+    it('uses the host flag regardless of grant, and never guesses it for an older host', () => {
       assert.equal(find(rowsOf(specialists({ blind: false })), 'round-2').blind, false)
-      assert.equal(find(rowsOf(specialists({ grant: 'edit' })), 'round-2').blind, false)
+      assert.equal(find(rowsOf(specialists({ grant: 'edit' })), 'round-2').blind, true)
+      const older = specialists()
+      assert.equal(find(rowsOf({ ...older, execution: { ...older.execution, rounds: older.execution.rounds.map(one => { const { blind: _blind, ...rest } = one; return rest }) } }), 'round-2').blind, false)
       assert.equal(find(rowsOf(specialists({ grant: 'edit', blind: true })), 'round-2').blind, true)
     })
     it('is not blind for one card', () => {
@@ -258,4 +260,15 @@ describe('runTimeline · a committed answer', () => {
   it('says nothing of a Flow whose people read no committed change', () => {
     assert.equal(runTimeline(comparison()).header.answer, null)
   })
+})
+
+it('keeps only the selected checkout when competitors record the same revision', () => {
+  const facts = [view(1, 1, diff(REV.a, 10, 0), { cwd: '/work/a' }), view(2, 1, diff(REV.a, 10, 0), { cwd: '/work/b' }),
+    view(5, 3, { kind: 'review', verdict: 'picked', by: 'seat-5' as never, at: REV.a }, { cwd: '/work/a' })]
+  const rows = rowsOf(comparison({ facts }))
+  assert.equal(find(rows, 'card-1-1').keep, 'kept')
+  assert.equal(find(rows, 'card-1-2').keep, 'not-kept')
+  const ambiguous = rowsOf(comparison({ facts: facts.map(one => one.record.fact.kind === 'review' ? { ...one, record: { ...one.record, checkout: undefined } } : one) }))
+  assert.equal(find(ambiguous, 'card-1-1').keep, null)
+  assert.equal(find(ambiguous, 'card-1-2').keep, null)
 })

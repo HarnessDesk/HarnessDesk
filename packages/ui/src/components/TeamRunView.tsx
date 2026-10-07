@@ -85,7 +85,8 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
       const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
       view.onSelect(latest ?? `step:${id}`)
     }} faces={view.faces} faceTints={faceTints} doing={view.doing} /> : view.flow
-  return <RunWorkspace {...view} home={snapshot.home} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
+  return <RunWorkspace {...view} home={snapshot.home} seatNames={new Map(seats.map(seat => [seat.record.id, { name: seat.name,
+    detail: goal?.receipt?.members?.find(member => member.seat === seat.record.id)?.seatLabel ?? goal?.members.find(record => record.id === seat.record.id)?.seatLabel ?? null }]))} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     home: snapshot.home,
     teamState: goal?.goal.state,
     faces: view.faces,

@@ -127,3 +127,15 @@
   overflow-y: auto;
   overflow-wrap: anywhere;
 }
+
+.card[data-keep='kept']:not([data-selected]) {
+  background: var(--hd-accent-dim);
+}
+.card[data-keep='not-kept'] {
+  color: var(--hd-muted-foreground);
+  background: var(--hd-background);
+}
+
+.card[data-keep='not-kept'] [data-slot='text'] {
+  color: var(--hd-muted-foreground);
+}

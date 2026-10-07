@@ -41,6 +41,8 @@ export const gitMethods = {
 
   'git/commit': async (ctx, params) => gitHistory.commit(await ctx.workspaces.confineGitRoot(params.root), params.sha),
 
+  'git/fileAtRevision': async (ctx, params) => gitHistory.fileAtRevision(await ctx.workspaces.confineGitRoot(params.root), params.sha, params.path),
+
   'git/commitDiff': async (ctx, params) => ({
     diff: await gitHistory.commitDiff(await ctx.workspaces.confineGitRoot(params.root), params.sha, params.path),
   }),

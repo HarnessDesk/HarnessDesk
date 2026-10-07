@@ -127,6 +127,8 @@ export interface FlowRoundState {
   readonly evidence: readonly string[]
   readonly state: 'opening' | 'running' | 'waiting-evidence' | 'closed'
   readonly cause: string
+  /** Host projection: whether this live round currently seals its siblings’ work. Absent on older hosts. */
+  readonly blind?: boolean
 }
 
 /**

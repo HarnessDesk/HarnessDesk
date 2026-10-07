@@ -92,6 +92,8 @@ import { FlowOverlayFrames } from './frames-flow-overlay'
 import { FlowCanvasFrames } from './frames-flow-canvas'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { ShapeGraphFrames } from './frames-shape-graph'
+import { RunShapesFrame } from './frames-run-shapes'
+import { SHAPE_SCENES } from './run-shapes-fixture'
 import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { InapplicableActionsFrames } from './frames-inapplicable-actions'
 import { RunInspectorFrames } from './frames-run-inspector'
@@ -1157,6 +1159,7 @@ const Preview = () => {
 const RunPreview = () => {
   useTheme()
   const params = new URLSearchParams(window.location.search)
+  if (params.has('run-shapes')) return <RunShapesFrame scene={SHAPE_SCENES.find(one => one === params.get('run-shapes')) ?? 'comparison'} count={Number(params.get('count') ?? 3)} standalone={params.has('standalone')} />
   if (params.has('run-dock')) return <RunDockFrame older={params.has('older')} />
   if (params.has('run-again')) return <RunAgainExample opened scene={RUN_AGAIN_STATES.find(one => one === params.get('run-again')) ?? 'default'} />
   if (params.has('run-ending-rig')) return <RunEndingRigFrames />
@@ -1231,7 +1234,7 @@ createRoot(container).render(
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
-          : ['run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
+          : ['run-shapes', 'run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

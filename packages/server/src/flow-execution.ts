@@ -480,7 +480,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.currentEndedAt !== undefined ? { currentEndedAt: run.currentEndedAt } : {}),
   ...(run.end !== undefined ? { end: run.end } : {}),
   state: run.state,
-  rounds: run.rounds,
+  rounds: run.rounds.map(round => ({ ...round, blind: blindRound(run, round) })),
   operations: run.operations,
   legacyRun: run.legacyRun,
   reason: run.reason,
@@ -532,6 +532,13 @@ const policyOf = (run: StoredFlowExecution): FlowPolicy => {
 
 const bindingsFor = (run: StoredFlowExecution, role: string): FlowBinding[] =>
   run.compiled.bindings.filter((binding) => binding.role === role).sort((a, b) => a.index - b.index)
+
+/** The same live blindness fact is projected to clients and enforced at sibling reads. */
+const blindRound = (run: StoredFlowExecution, round: FlowRoundState): boolean => {
+  if (!run.findings || run.document.format !== 'agents' || !['running', 'stalled'].includes(run.state) || round.state === 'closed' || round.cards.length < 2) return false
+  const role = run.document.flow.roles.find(one => one.id === round.role)
+  return role?.kind === 'agent' && role.blind !== false && (role.blind === true || bindingsFor(run, role.id).some(reviewsIn))
+}
 
 /**
  * The files each card of a round owns, taken from the split the latest round
@@ -1212,16 +1219,13 @@ export class FlowExecutions {
         if (round.state === 'closed' || round.cards.length < 2) continue
         const role = run.document.flow.roles.find((one) => one.id === round.role)
         if (role?.kind !== 'agent') continue
-        /* A review round is blind unless its role says `blind: false`; a
-           plain round — a debate, a build — only when its role says
-           `blind: true` (#1014). */
         const reviews = bindingsFor(run, role.id).some(reviewsIn)
         if (!reviews && role.blind !== true) continue
         const holders = round.cards.flatMap((card) => {
           const seat = this.#seatForCard(run, card).seat
           return seat ? [{ card, runtime: seat.session.runtime, sessionId: seat.session.sessionId }] : []
         })
-        out.push({ run: run.id, round: round.n, blind: role.blind !== false, cards: round.cards, holders })
+        out.push({ run: run.id, round: round.n, blind: blindRound(run, round), cards: round.cards, holders })
       }
     }
     return out

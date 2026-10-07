@@ -1915,6 +1915,7 @@ const RELATIVE_ROOT_ASKS: {
   'git/log': {},
   'git/refs': {},
   'git/commit': { sha: 'deadbeef' },
+  'git/fileAtRevision': { sha: 'a'.repeat(40), path: 'answer.md' },
   'git/commitDiff': { sha: 'deadbeef', path: 'a.txt' },
   'git/createBranch': { name: 'made-relative', at: 'deadbeef' },
   'git/commitAll': { message: 'made relative' },

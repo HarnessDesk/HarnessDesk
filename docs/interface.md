@@ -1250,6 +1250,22 @@ by muted detail; unknown times are omitted. Cards, checks and findings are
 quiet rows in the content column, with actions at the right. End selects its
 recorded detail with a plain title. Narrow panes retain the reading inset.
 
+A round with several cards lays them side by side, two or three across when
+its column has room, and as a list beyond three or in a narrow column. Each
+comparison check names its attempt. A recorded pick names the kept revision:
+the kept attempt is lit, the others muted and marked **Not kept**, including
+their findings. Run details lists the attempts with the same pick states.
+An open blind round carries answered-of-asked progress in its title and one
+line below its cards, **Blind until the round closes**. Blindness comes from
+the host's enforced round policy, never a Seat's permission level.
+A person's step remains a card in the story alongside the need card above;
+the later rounds it holds back have faint rails. A single committed prose
+document shows inline with its path, revision and byte size. Updated documents
+read their complete content at that immutable revision; previews are bounded
+to 128 KiB and never read the working file. A Run that makes a committed answer
+instead of a pull request says so in its header and carries no earlier Run's
+pull-request link.
+
 Run details and Steps live in the app’s dock, with the same tabs, move,
 expand and hide controls as the conversation’s inspectors. The title-bar’s
 right-panel control puts them away and brings them back. Run details keeps

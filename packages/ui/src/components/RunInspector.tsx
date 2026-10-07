@@ -106,7 +106,7 @@ export const RunInspector = ({ home, teamState, input, selectedRow, seats, onAba
   // None is only said of a read that is whole: until then, say what is happening to it instead.
   const unread = findingsRead ?? (input.findings ? undefined : 'reading')
   const showFindings = <Section title="Findings">{findings.length ? findings.map(finding => <div key={finding.id} className="flex min-w-0 flex-col gap-1">
-    <Words>{finding.title}</Words><Text role="meta">{lifecycleWords(finding)}</Text><Words>{finding.body}</Words>{finding.problem && <Words>{finding.problem}</Words>}
+    <Words>{finding.title}</Words><Text role="meta">{lifecycleWords(finding)}{finding.inactiveReason ? ' · Not kept' : ''}</Text><Words>{finding.body}</Words>{finding.problem && <Words>{finding.problem}</Words>}
   </div>) : unread === 'reading' ? <Text role="meta" as="div">Reading findings…</Text>
     : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'
@@ -220,9 +220,10 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
           <CardHeader><CardTitle><Text role="section">{`Seats ${ids.length}`}</Text></CardTitle></CardHeader>
           <CardContent inset="none">
             {recorded.map(one => {
-              const state = [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
+              const keep = rows.find(row => row.seat === one.id && row.attempt)?.keep
+              const state = keep === 'kept' ? 'Picked' : keep === 'not-kept' ? 'Not kept' : [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
               return <PanelRow key={one.id} mark={<IconTile shape="face" tint={faceTints?.get(one.id) ?? 'violet'}>{faces?.get(one.id) ?? <AgentIcon />}</IconTile>}
-                title={sanitizeText(one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
+                title={sanitizeText(rows.find(row => row.seat === one.id && row.attempt)?.attempt ?? one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
                 trail={state ? <RunStateChip state={state} /> : undefined} onClick={one.onOpen} />
             })}
           </CardContent>

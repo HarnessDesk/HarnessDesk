@@ -589,7 +589,7 @@ export const diffRange = async (root: string, from: string, to: string): Promise
   const target = await resolveCommitish(root, to)
   try {
     // a/ and b/ whatever the repository's diff settings say, as in git.ts (#171).
-    return await git(root, ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', base, target])
+    return await git(root, ['--no-replace-objects', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', base, target])
   } catch (error) {
     return fail('Could not diff', error)
   }

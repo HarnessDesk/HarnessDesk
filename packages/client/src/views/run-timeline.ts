@@ -161,14 +161,6 @@ const endTitle = (execution: FlowExecution, publicationNeedsYou: boolean): strin
 type DeclaredRole = FlowExecution['document']['flow']['roles'][number]
 /** Competitors work apart, each in a checkout of its own: that is what makes several cards of one role attempts. */
 const isolates = (role: DeclaredRole | undefined): boolean => role?.kind === 'agent' && 'isolate' in role && role.isolate === true
-/**
- * What the Flow file declares of an agent role's siblings: blind to one another
- * until the round closes unless it says `blind: false`, and — as the engine
- * reads it — a round of readers is blind where a round of writers is only when
- * it says `blind: true`. Only the policy format says either.
- */
-const sealed = (role: DeclaredRole | undefined): boolean =>
-  role?.kind === 'agent' && 'grant' in role && role.blind !== false && (role.blind === true || role.grant === 'read')
 /** "Attempt A", "Attempt B": the order a round opened its competitors in. */
 const attemptLabel = (index: number): string => `Attempt ${'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[index] ?? index + 1}`
 /** A fact that still speaks for its revision: not one a backup brought, and not one the branch has since rewritten or never held. */
@@ -250,10 +242,12 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
   const kept = new Map<number, 'kept' | 'not-kept'>()
   for (const round of sorted) for (const id of round.cards) {
     const attempts = attemptsBefore(round.n)
-    const review = factsOf(input.evidence, id).filter(one => one.record.fact.kind === 'review' && one.record.fact.verdict === 'picked' && !one.record.restored).sort(newest)[0]?.record.fact
+    const reviewView = factsOf(input.evidence, id).filter(one => one.record.fact.kind === 'review' && one.record.fact.verdict === 'picked' && !one.record.restored).sort(newest)[0]
+    const review = reviewView?.record.fact
     if (!attempts.length || review?.kind !== 'review') continue
-    const chosen = attempts.some(one => one.revision === review.at)
-    const decided = attempts.map(({ cwd: _cwd, ...one }): RunAttempt => ({ ...one, keep: !chosen || one.revision === null ? null : one.revision === review.at ? 'kept' : 'not-kept' }))
+    const matching = attempts.filter(one => one.revision === review.at && (!reviewView?.record.checkout?.cwd || one.cwd === reviewView.record.checkout.cwd))
+    const chosen = matching.length === 1 ? matching[0]!.card : null
+    const decided = attempts.map(({ cwd: _cwd, ...one }): RunAttempt => ({ ...one, keep: chosen === null || one.revision === null ? null : one.card === chosen ? 'kept' : 'not-kept' }))
     picks.set(id, { revision: review.at, attempts: decided })
     for (const one of decided) if (one.keep) kept.set(one.card, one.keep)
   }
@@ -267,7 +261,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     rows.push(row(`round-${round.n}`, 'round', `Round ${round.n} · ${round.role}`, {
       round: round.n, detail: `${finished} of ${round.cards.length} answered`, complete: finished === round.cards.length, durationMs, since,
       working: execution.state === 'running' && round.state === 'running', asked: round.cards.length, answered: finished,
-      blind: round.cards.length > 1 && sealed(roleOf(round.role)) && round.state !== 'closed' && (execution.state === 'running' || execution.state === 'stalled'),
+      blind: round.cards.length > 1 && round.blind === true && round.state !== 'closed' && (execution.state === 'running' || execution.state === 'stalled'),
     }))
     const roundFindings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
     const recorded = findingRun?.rounds.find(one => one.round === round.n)
