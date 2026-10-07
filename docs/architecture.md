@@ -157,6 +157,13 @@ host-minted reviewed stamp and checks the seating file in its write queue.
 
 `packages/server` owns everything that must not live in a browser:
 
+- **Account reads** — all host calls through a registered runtime share one
+  in-flight account read, including its lifecycle waits. Callers receive an
+  error after ten seconds. A deadline cannot cancel the adapter, so retries
+  receive that same error until the underlying read settles, rather than
+  starting more work. Settlement releases the hold without caching the answer;
+  another account or a replacement registration has its own hold. Account-change
+  events reject an older shared read, so it cannot overwrite the new sign-in state.
 - **Sessions and events.** One registry, fanned out to every connected client;
   the host keeps its own copy of each session so a reload rebuilds without
   asking the backend to replay. An agent restarting under an open conversation
