@@ -2478,6 +2478,32 @@ export class Host {
   }
 
   /**
+   * Asks again every runtime that found its program missing.
+   *
+   * The PATH the person's shell builds lands in the background, after the
+   * runtimes were first asked (`installs/shell-path.ts`): an agent installed
+   * somewhere only that PATH names reads as not installed in those first
+   * moments, and nothing else would look again until the app restarted. This is
+   * the look. It waits for any ask still in flight — that one may have looked
+   * before the PATH landed and fail after it — and then asks only what a PATH
+   * could change, which is `notInstalled`. A program that was found and would
+   * not run, or was too old, is not a PATH's doing.
+   */
+  async retryNotInstalled(): Promise<void> {
+    await Promise.allSettled([...this.#startingRuntimes.values()])
+    if (this.#disposed) return
+    const missing = [...this.#runtimes.values()].filter((runtime) => {
+      const health = runtime.health()
+      return health.state === 'unavailable' && health.reason === 'notInstalled'
+    })
+    if (missing.length === 0) return
+    this.#logger.info('the PATH changed after these agents were first asked; asking again', {
+      runtimes: missing.map((runtime) => String(runtime.info.id)),
+    })
+    await Promise.all(missing.map((runtime) => this.#startOne(runtime)))
+  }
+
+  /**
    * Start one runtime, and give up *waiting* on it after a while.
    *
    * Giving up waiting is not giving up: the attempt runs on, so the only
@@ -7620,7 +7646,8 @@ const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, 
 
 const isRuntimeDown = (error: unknown): boolean => {
   if (typeof error !== 'object' || error === null || !('code' in error)) return false
-  return error.code === 'notRunning' || error.code === 'notInstalled'
+  // `spawnFailed` is a program that was found and would not run: down, like one that is missing.
+  return error.code === 'notRunning' || error.code === 'notInstalled' || error.code === 'spawnFailed'
 }
 
 const describeError = (error: unknown): string =>

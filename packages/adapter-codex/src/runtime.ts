@@ -131,6 +131,8 @@ export interface CodexRuntimeOptions {
   readonly clientName?: string
   readonly clientVersion?: string
   readonly binaryPath?: string | null
+  /** What discovery reads from the machine. Injected by tests; production passes nothing. */
+  readonly discovery?: CodexAppServerOptions['discovery']
   readonly codexHome?: string | null
   /** Maximum app-server restarts before reporting a failed runtime. */
   readonly maxRestarts?: number
@@ -334,6 +336,7 @@ export class CodexRuntime implements AgentRuntime {
         version: options.clientVersion ?? '0.1.0',
       },
       binaryPath: options.binaryPath ?? null,
+      ...(options.discovery ? { discovery: options.discovery } : {}),
       codexHome: options.codexHome ?? null,
       ...(options.maxRestarts !== undefined ? { maxRestarts: options.maxRestarts } : {}),
       configOverrides: options.configOverrides ?? [],
@@ -1974,6 +1977,16 @@ const healthFromError = (error: CodexError): RuntimeHealth => {
         reason: 'versionTooOld',
         message: error.message,
         remediation: 'Upgrade with `brew upgrade codex` or `npm i -g @openai/codex@latest`.',
+      }
+    case 'spawnFailed':
+      // Found, and would not run: the message names the copy and what it said.
+      // Not `notInstalled` — the install hint would send the person to
+      // install what is already there.
+      return {
+        state: 'unavailable',
+        reason: 'unknown',
+        message: error.message,
+        remediation: 'Run `codex --version` in a terminal to see why, then choose Codex again.',
       }
     case 'crashed':
       return {

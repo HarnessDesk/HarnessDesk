@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { once } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { requireCodex, type CodexInstallation } from './discovery.js'
+import { requireCodex, type CodexInstallation, type DiscoveryOptions } from './discovery.js'
 import { CodexError, CodexRpcError } from './errors.js'
 import { NdjsonDecoder, encodeLine } from './framing.js'
 import type { CodexMethod, CodexParams, CodexResult } from './methods.js'
@@ -56,6 +56,8 @@ export interface CodexAppServerOptions {
   readonly maxRestarts?: number
   readonly logger?: CodexLogger
   readonly env?: Readonly<Record<string, string>>
+  /** What discovery reads from the machine. Injected by tests; production passes nothing. */
+  readonly discovery?: Omit<DiscoveryOptions, 'signal'>
 }
 
 /** Responder handed to server-request listeners; exactly one call takes effect. */
@@ -96,6 +98,8 @@ export class CodexAppServer {
   /** Set while `stop()` is unwinding, so exit handling does not try to restart. */
   #shuttingDown = false
   #startPromise: Promise<void> | null = null
+  /** The wait inside discovery that `stop()` ends, while there is one. */
+  #waiting: AbortController | null = null
 
   constructor(private readonly options: CodexAppServerOptions) {
     this.#decoder = new NdjsonDecoder({
@@ -154,7 +158,7 @@ export class CodexAppServer {
     this.#shuttingDown = false
     this.#setState({ type: 'starting' })
     try {
-      const installation = await requireCodex(this.options.binaryPath ?? null)
+      const installation = await this.#findInstallation()
       this.#installation = installation
       await this.#spawnAndHandshake(installation)
       this.#restarts = 0
@@ -168,6 +172,21 @@ export class CodexAppServer {
       // somebody deliberately stopped as one that is broken.
       if (!this.#shuttingDown) this.#setState({ type: 'failed', error: wrapped })
       throw wrapped
+    }
+  }
+
+  /**
+   * Asks the machine which Codex to run. When a copy is there and will not
+   * answer yet, discovery waits and asks again; that wait ends the moment
+   * `stop()` is called, so a quit never sits out a retry.
+   */
+  async #findInstallation(): Promise<CodexInstallation> {
+    const waiting = new AbortController()
+    this.#waiting = waiting
+    try {
+      return await requireCodex(this.options.binaryPath ?? null, { ...this.options.discovery, signal: waiting.signal })
+    } finally {
+      if (this.#waiting === waiting) this.#waiting = null
     }
   }
 
@@ -262,6 +281,7 @@ export class CodexAppServer {
 
   async stop(): Promise<void> {
     this.#shuttingDown = true
+    this.#waiting?.abort()
     const child = this.#child
     this.#child = null
     this.#rejectAllPending(new CodexError('notRunning', 'app-server is shutting down'))
@@ -500,7 +520,7 @@ export class CodexAppServer {
     try {
       // An in-place CLI upgrade can leave the same path naming a new build.
       // Re-probe before spawning so version guards describe this process.
-      const installation = await requireCodex(this.options.binaryPath ?? null)
+      const installation = await this.#findInstallation()
       this.#installation = installation
       await this.#spawnAndHandshake(installation)
     } catch (error) {

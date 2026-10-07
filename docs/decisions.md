@@ -754,6 +754,32 @@ below still holds; *which* machine answers it does not have an answer yet.
 
 **The rule:** the row is a fallback, not an instruction.
 
+## "Not installed" is said of a machine with no copy, and of nothing else
+
+Finding Codex means asking each copy for its version. A copy that was there and
+did not answer used to count as no copy at all, so a machine that was busy, a
+launcher that could not find its `node`, a spawn refused under load — states
+that pass — read as "Codex is not installed", with an install hint for a program
+the person had installed. And nothing looked again: the runtime stayed failed
+until the app restarted.
+
+So the two are told apart. No copy anywhere is `notInstalled`, said at once. A
+copy that is there and silent is asked again over the first seconds — the
+longest wait outlasts the login shell's own deadline, because the PATH it
+builds arrives in the background after the desk has opened — and if it still
+will not answer, the error names the copy and what it did (`spawnFailed`). And
+when that PATH lands and changes anything, the runtimes that found their
+program missing are asked once more (`Host.retryNotInstalled`): the look
+`installs/shell-path.ts` always said would happen.
+
+*Open:* the install lookup that picks which copy of an ACP agent runs
+(`installs/locate.ts`) has the same shape — an unreadable copy is never chosen,
+so the agent reads "not installed" — and has only the second half of this, the
+re-ask on a PATH change.
+
+**The rule:** "not installed" is said of a machine with no copy of the program.
+A copy that exists is never called missing.
+
 ## A pull request is published through the desk, and the desk signs it
 
 A vendor's own client signs the pull requests its agent opens — "Generated

@@ -264,7 +264,18 @@ behavior of every agent's sandbox.
 **"Codex is not installed on this machine"** (or older than 0.145.0) — the
 binary was not found or is below the minimum supported version. The message
 carries the fix (`brew install codex` or `npm i -g @openai/codex`). HarnessDesk
-looks on `PATH` first, then Homebrew and the standard global locations.
+looks on `PATH` first, then Homebrew and the standard global locations, and
+looks again once the `PATH` your login shell builds has arrived, so a Codex
+your shell profile puts on `PATH` is found without a restart.
+
+**"Codex was found at … but would not report its version"** — a copy is there
+and running `codex --version` failed; the message says how (an exit code and
+what it printed, or that it did not answer). The usual cause with an npm or
+Homebrew-npm install is that `node`, which the `codex` script starts, is not on
+the `PATH` HarnessDesk was started with. Run `codex --version` in a terminal to
+see the same words. HarnessDesk asks again for several seconds while it opens,
+so a machine that was busy or a `PATH` still arriving clears by itself; choose
+Codex again to try once more.
 
 **"Usage limit reached"** — the agent is healthy and signed in, but a rolling
 usage window is spent, so turns will fail until it resets. Past sessions stay

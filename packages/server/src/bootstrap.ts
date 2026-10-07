@@ -248,6 +248,10 @@ export const createDefaultHost = (
     stateDir,
     log: (message, details) => logger.child('path').info(message, details),
   }).settled
+  // What the process has now, before any runtime has been asked anything: if the
+  // shell's answer changes it, the runtimes asked in the meantime looked at a
+  // different machine. See where `pathReady` is used at the end.
+  const pathAtStart = process.env['PATH']
 
   // The extension surface comes up first: runtimes are handed the registry at
   // construction, and a session started before plugins exist would carry an
@@ -595,6 +599,17 @@ export const createDefaultHost = (
     if (local) host.bindUsage(runtimeId(agent.id), local)
     host.register(buildAcpRuntime(agent))
   }
+
+  // The shell's PATH lands after the first ask, and an agent installed where
+  // only that PATH looks would stay "not installed" until the app restarted. So
+  // when it changes anything, the runtimes that found their program missing are
+  // asked once more. Nothing awaits this; `retryNotInstalled` says why it is safe
+  // to run whenever the PATH lands.
+  void pathReady.then(() => {
+    if (process.env['PATH'] !== pathAtStart) void host.retryNotInstalled().catch((error: unknown) => {
+      logger.child('path').warn('asking the missing agents again failed', { error: String(error) })
+    })
+  })
 
   // Nothing waits on this; it is returned so a test can, and so the shape of
   // the promise is visible to whoever reads the wiring. See `shell-path.ts`.
