@@ -413,7 +413,8 @@ Archiving leaves working turns, approvals, queued messages and running tasks
 live; their handles rest after the work becomes quiet.
 Reopening restores the conversation from the agent's history. Personal
 conversations also release after ten quiet minutes; working turns, approvals,
-queued messages and running tasks keep them live.
+queued messages and running tasks keep them live, and so does a conversation
+the agent was never prompted in, which it could not reopen.
 
 **Not every agent can delete, and the interface says which.** Deleting has to
 reach the agent's own store, so it is offered exactly where something can:

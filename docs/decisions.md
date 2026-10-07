@@ -2481,12 +2481,20 @@ explicit resume takes ownership and cancels that release. Draft picks
 and model/command declarations remain cached, and fresh option reads do not
 replace the composer's picks. The existing host release seam rests finished
 Seats; personal conversations also release after ten quiet minutes, with turns,
-approvals, queued input and running tasks protecting them. Archiving a quiet resumable
-conversation releases its handle. Archiving preserves working turns,
+approvals, queued input and running tasks protecting them, and so does a
+conversation the agent was never prompted in: an agent that stores a
+conversation at its first message lists nothing for one that has none, so
+releasing its handle would drop the only way back. Archiving a quiet resumable
+conversation releases its handle through the same release and the same quiet
+test. Archiving preserves working turns,
 approvals, queued input and running tasks for the normal quiet sweep.
 Reopening waits for close, then loads the same
-agent-owned history; personal quiet release holds the conversation's option
+agent-owned history; a quiet release holds the conversation's option
 values and reapplies changed picks before reopening it to a client or a send.
+A held pick the reopened conversation has no place for, such as a control the
+agent now greys, is dropped and logged rather than refusing the reopen; the
+picks are spent once tried, and a reopen that still fails closes the handle it
+resumed.
 Transient history handles keep the stored row's status and timestamps and do
 not request a shared last-handle stop; the host owns that idle interval.
 A stale close cannot release its replacement. A shared
