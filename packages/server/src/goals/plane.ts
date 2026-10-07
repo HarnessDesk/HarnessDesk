@@ -298,7 +298,7 @@ export class GoalPlane {
         runStopped: step?.stopped ?? false,
       })
     })
-    const dependencies = this.store.list().map((one) => one.goal)
+    const dependencies = document.goal.dependsOn.flatMap((id) => this.store.standing(id) ? [this.store.read(id).goal] : [])
     const activity = document.restored ? null : activityOf(document.goal, {
       needsYou: endingNeedsYou || this.port.held(id) || members.some((seat) => this.port.waits(seat.session)) ||
         placements.some((one) => one.column === 'needs'),
@@ -417,7 +417,7 @@ export class GoalPlane {
       }
       const sentence = input.sentence.trim()
       if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
-      const existing = this.store.list().find((one) => one.goal.id === request.id)
+      const existing = this.store.standing(request.id) ? this.store.read(request.id) : null
       if (existing) {
         const origin = existing.goal.origin
         const { root } = await this.port.confine(input)
@@ -511,10 +511,9 @@ export class GoalPlane {
   }
 
   dependenciesReady(id: string): boolean {
-    const documents = this.store.list()
     const document = this.store.read(id)
     return document.goal.dependsOn.every((dependency) => {
-      if (documents.find((one) => one.goal.id === dependency)?.goal.state === 'wrapped') return true
+      if (this.store.standing(dependency)?.state === 'wrapped') return true
       // Missing, or not yet wrapped: an ordinary dependency stays blocked.
       // Only the one edge a citation itself created — and only while its
       // retention is genuinely, locally verified, never merely restored —
@@ -731,7 +730,7 @@ export class GoalPlane {
    * locally to attach it to; the caller counts that as refused.
    */
   registerRestoredMemory(goal: string, index: GoalMemoryIndex): boolean {
-    if (!this.store.list().some((one) => one.goal.id === goal)) return false
+    if (!this.store.standing(goal)) return false
     this.memory.register(index, true)
     return true
   }

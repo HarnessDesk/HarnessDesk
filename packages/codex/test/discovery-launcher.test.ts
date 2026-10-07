@@ -209,3 +209,27 @@ test('a configured path that is not Codex is named, and is said once', { skip },
   assert.equal(error.code, 'spawnFailed')
   assert.ok(error.message.includes(cli), error.message)
 })
+
+test('a successful probe with empty output remains retryable', { skip }, async (t) => {
+  const bin = await folder(t)
+  const cli = await program(bin, 'codex', '#!/bin/sh\nexit 0\n')
+  const error = await failure(requireCodex(cli, { env: { PATH: bin }, locations: [] }))
+  assert.ok(error instanceof CodexError)
+  assert.equal(error.code, 'unreadable')
+  assert.deepEqual(copiesOf(error).map((copy) => copy.transient), [true])
+})
+
+for (const output of ['', 'hello', 'codex-cli 99.1.0']) {
+  test(`a successful probe past its deadline is retryable (${output || 'empty'})`, { skip }, async (t) => {
+    const bin = await folder(t)
+    const cli = await program(bin, 'codex', `#!/bin/sh\necho '${output}'\n`)
+    // Coalesced callbacks can report success after the timeout. Advance only
+    // the monotonic clock; no busy event loop or real agent is needed.
+    let now = 0
+    t.mock.method(performance, 'now', () => { const value = now; now += 10_001; return value })
+    const error = await failure(requireCodex(cli, { env: { PATH: bin }, locations: [], probeTimeoutMs: 10_000 }))
+    assert.ok(error instanceof CodexError)
+    assert.equal(error.code, 'unreadable')
+    assert.match(error.message, /did not answer within 10 seconds/)
+  })
+}

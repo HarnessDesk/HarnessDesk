@@ -309,6 +309,20 @@ export class GoalStore {
 
   list(): readonly GoalDocument[] { return [...this.#documents.values()].map((one) => structuredClone(one)) }
 
+  /** Enumerate identities without copying boards, channels or receipts. */
+  ids(): readonly GoalId[] { return [...this.#documents.keys()] }
+
+  /** Recovery needs only identities, including a continuation's reserved Run. */
+  forRun(run: string): readonly GoalId[] {
+    const ids: GoalId[] = []
+    for (const document of this.#documents.values()) {
+      if ((document.goal.origin.kind === 'flow' && document.goal.origin.run === run) || document.flowReservation?.run === run) {
+        ids.push(document.goal.id)
+      }
+    }
+    return ids
+  }
+
   read(id: GoalId): GoalDocument {
     const document = this.#documents.get(id)
     if (!document) throw new Error('That Goal is not on this desk.')

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
-import { runtimeId, type RuntimeHealth } from '@harnessdesk/protocol'
+import { CodexRuntime } from '@harnessdesk/adapter-codex'
+import { runtimeId, type AgentRuntime, type RuntimeHealth } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore, type HostOptions } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -63,7 +65,7 @@ const until = async (condition: () => boolean, what: string): Promise<void> => {
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** A desk that has made its first ask of every runtime, with no schedule unless the test names one. */
-const desk = async (t: TestContext, options: Partial<HostOptions>, ...runtimes: Program[]): Promise<Host> => {
+const desk = async (t: TestContext, options: Partial<HostOptions>, ...runtimes: AgentRuntime[]): Promise<Host> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-retry-lookup-'))
   const host = new Host({
     logger: silent,
@@ -245,4 +247,40 @@ test('a quit cancels what is left of the schedule', async (t) => {
 
   assert.ok(set.every((timer) => cleared.has(timer)), 'the quit cleared the schedule')
   assert.equal(one.starts, 1, 'and nothing is asked after the desk has closed')
+})
+
+test('an overdue empty successful version probe is retried by the host schedule', { skip: process.platform === 'win32' }, async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-empty-probe-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const cli = join(dir, 'fake-launcher')
+  const count = join(dir, 'probes')
+  const fixture = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url))
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+  await writeFile(cli, [
+    '#!/bin/sh',
+    'if [ "$1" = --version ]; then',
+    `  if [ ! -f ${quote(count)} ]; then echo probe > ${quote(count)}; exit 0; fi`,
+    `  echo probe >> ${quote(count)}`,
+    'fi',
+    `exec ${quote(process.execPath)} ${quote(fixture)} "$@"`,
+    '',
+  ].join('\n'))
+  await chmod(cli, 0o755)
+  const runtime = new CodexRuntime({ binaryPath: cli, codexHome: join(dir, 'agent-home'),
+    discovery: { env: { PATH: dir }, locations: [] } })
+  let now = 0
+  const clock = t.mock.method(performance, 'now', () => { const value = now; now += 10_001; return value })
+  const seen: RuntimeHealth[] = []
+  const unsubscribe = runtime.onHealthChange((health) => {
+    seen.push(health)
+    if (health.state === 'unavailable') clock.mock.restore()
+  })
+  t.after(unsubscribe)
+  await desk(t, { retryDelaysMs: [50, 50] }, runtime)
+  const first = seen.find((health) => health.state === 'unavailable')
+  assert.ok(first?.state === 'unavailable')
+  assert.equal(first.reason, 'unreadable')
+  assert.match(first.message, /did not answer within 10 seconds/)
+  await until(() => runtime.health().state === 'ready', 'the empty probe was never retried')
+  assert.equal((await readFile(count, 'utf8')).trim().split('\n').length, 2)
 })
