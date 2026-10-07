@@ -242,10 +242,20 @@ interface GitConfig {
 /** Keep role words identical across descriptions, reviews and comments. */
 const ROLE_CHARACTER_CLASS = 'a-z0-9-'
 const ROLE_LIMIT = 32
+const DESCRIPTION_LINK_FORM = /:\/\/|www\.|\bgh-\d+/i
+const DESCRIPTION_LINK_FORMS = new RegExp(DESCRIPTION_LINK_FORM, 'gi')
+const removeDescriptionLinkForms = (value: string, replacement: string): string => {
+  let previous: string
+  do {
+    previous = value
+    value = value.replace(DESCRIPTION_LINK_FORMS, replacement)
+  } while (value !== previous)
+  return value
+}
 const UNSUPPORTED_ROLE_CHARACTERS = new RegExp(`[^${ROLE_CHARACTER_CLASS}]+`, 'gi')
 const AUTHOR_ROLE = new RegExp(`^[a-z][${ROLE_CHARACTER_CLASS}]{0,${ROLE_LIMIT - 1}}$`, 'i')
 const normalizeRole = (value: string): string => {
-  let role = value.replace(UNSUPPORTED_ROLE_CHARACTERS, '-').replace(/^-+|-+$/g, '')
+  let role = removeDescriptionLinkForms(value.replace(UNSUPPORTED_ROLE_CHARACTERS, '-'), '-').replace(/^-+|-+$/g, '')
   if (!role) role = 'role'
   if (!/^[a-z]/i.test(role)) role = `role-${role}`
   return role.slice(0, ROLE_LIMIT).replace(/-+$/g, '') || 'role'
@@ -260,7 +270,7 @@ const normalizeRole = (value: string): string => {
 export const renderSignature = (template: string, seat: ForgeSeat): string => {
   const role = seat.role ? normalizeRole(seat.role) : ''
   const displayRole = ['writer', 'reviewer', 'fixer'].includes(role.toLowerCase())
-    ? role.charAt(0).toUpperCase() + role.slice(1)
+    ? role.charAt(0).toUpperCase() + role.slice(1).toLowerCase()
     : role
   const parts: Record<string, string> = {
     seat: seat.label,
@@ -334,18 +344,17 @@ interface DescriptionAuthor {
 }
 
 const DESCRIPTION_PART_LIMIT = 80
-const DESCRIPTION_CHARACTER_CLASS = String.raw`\p{L}\p{N} .,: '()+/·-`
+const DESCRIPTION_CHARACTER_CLASS = String.raw`\p{L}\p{M}\p{N} .,: '’()+/·-`
 const DESCRIPTION_TEXT = new RegExp(`^[${DESCRIPTION_CHARACTER_CLASS}]*$`, 'u')
 const UNSUPPORTED_DESCRIPTION_CHARACTERS = new RegExp(`[^${DESCRIPTION_CHARACTER_CLASS}]+`, 'gu')
-const DESCRIPTION_LINK_FORM = /:\/\/|www\.|gh-\d+/i
 const isDescriptionText = (value: unknown): value is string =>
   typeof value === 'string' && Array.from(value).length <= DESCRIPTION_PART_LIMIT &&
   DESCRIPTION_TEXT.test(value) && !DESCRIPTION_LINK_FORM.test(value)
 const isOptionalDescriptionText = (value: unknown): boolean =>
   value === undefined || value === null || isDescriptionText(value)
 const normalizeAuthorLabel = (value: string): string => {
-  const plain = value.replace(UNSUPPORTED_DESCRIPTION_CHARACTERS, ' ')
-    .replace(/:\/\/|www\.|gh-\d+/gi, ' ').replace(/ +/g, ' ').trim()
+  const plain = removeDescriptionLinkForms(value.replace(UNSUPPORTED_DESCRIPTION_CHARACTERS, ' '), ' ')
+    .replace(/ +/g, ' ').trim()
   const characters = Array.from(plain)
   return characters.length <= DESCRIPTION_PART_LIMIT
     ? plain
@@ -439,7 +448,7 @@ const forgeSeatFromAuthor = (author: DescriptionAuthor): ForgeSeat => ({
   team: author.team ?? null,
 })
 
-/** Render every earlier role/seat pair under today's template, sharing its prefix and suffix. */
+/** Render up to eight role/agent pairs under today's template, sharing its prefix and suffix. */
 export const signDescription = (body: string, template: string, seat: ForgeSeat | null, previousBody?: string | null): string => {
   const previous = previousSignature(previousBody)
   if (template.trim() === '') return signBody(body, null, previous)
@@ -751,7 +760,7 @@ export const gitPlugin: HarnessPlugin = {
           type: 'string',
           title: 'Description signature',
           description:
-            'Ends the description and keeps the latest seat for each role and agent pair.',
+            'Ends the description and keeps the latest seat for each role and agent pair, up to eight pairs. Adding a ninth drops the earliest-added pair, even if it was updated later.',
           default: DEFAULT_SIGNATURE,
         },
         reviewSignature: {
@@ -1118,7 +1127,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'pr_update',
         description:
-          'Change a pull request’s title, description or base branch, through HarnessDesk. A new description retains earlier role and seat credits and adds this conversation’s seat; do not write one yourself. Names the pull request by number, or takes the one open for the current branch.',
+          'Change a pull request’s title, description or base branch, through HarnessDesk. A new description keeps the latest seat for each role and agent pair, up to eight pairs. Adding a ninth drops the earliest-added pair, even if it was updated later. Do not write a signature yourself. Names the pull request by number, or takes the one open for the current branch.',
         inputSchema: {
           type: 'object',
           properties: {

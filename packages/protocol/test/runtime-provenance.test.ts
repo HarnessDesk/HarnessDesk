@@ -17,17 +17,23 @@ test('native commit credit docs name the adapter and retain provenance', () => {
   const pins: readonly [string, string][] = [
     [extending, 'other role ids use ASCII letters, digits and hyphens; other characters become `-`'],
     [extending, '32 characters at most; nothing usable reads `role`'],
-    [extending, 'Description updates retain the latest seat for each role and agent pair.'],
+    [extending, 'Description updates retain the latest seat for each role and agent pair, up to eight pairs.'],
+    [extending, 'Unicode letters, combining marks and numbers; spaces; periods, commas, colons, straight and typographic apostrophes, parentheses, plus signs, slashes, middle dots and hyphens.'],
     [extending, "The current template's contributor portion renders each distinct credit once"],
     [decisions, 'Other role ids use ASCII letters, digits and hyphens; other characters become `-`.'],
-    [decisions, 'description keeps the latest seat for each role and agent pair in its hidden signature marker.'],
-    [interfaceDoc, 'A description keeps the latest seat for each role and agent pair'],
+    [decisions, 'description keeps the latest seat for each role and agent pair, up to eight pairs, in its hidden signature marker.'],
+    [decisions, 'preserves the latest seat for each role and agent pair, up to eight pairs, across description edits.'],
+    [interfaceDoc, 'A description keeps the latest seat for each role and agent pair, up to eight pairs'],
   ]
   for (const [document, sentence] of pins) {
     const pattern = new RegExp(sentence.split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'))
     assert.match(document, pattern)
     assert.match(document.replace(/\s+/g, '\n'), pattern, 'layout does not change the contract')
   }
+  for (const document of [extending, decisions, interfaceDoc]) {
+    assert.match(document, /Adding a ninth drops the earliest-added pair,\s+even if it was updated later\./)
+  }
   assert.doesNotMatch(decisions, /other role words remain its own/)
+  assert.doesNotMatch(decisions, /preserves each\s+contributor's role and seat/)
   assert.doesNotMatch(interfaceDoc, /keeps each role and seat that wrote it/)
 })
