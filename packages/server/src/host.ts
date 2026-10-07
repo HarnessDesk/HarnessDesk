@@ -27,6 +27,8 @@ import {
   classifyNotice,
   runtimeNoticeKey,
   isFolderGone,
+  folderGoneOf,
+  SessionFolderGoneError,
   type CeilingLevel,
   type ApprovalDecision,
   type NoticeItem,
@@ -5897,9 +5899,11 @@ export class Host {
       // caller can tell without reading English. Anything else is a reopen
       // that merely failed.
       const sentence = this.#cannotReopen(runtime, error)
-      throw isSessionGone(error) || reopenRefusedByAgent(error)
-        ? new SessionGoneError(sentence)
-        : new Error(sentence)
+      throw isFolderGone(error)
+        ? new SessionFolderGoneError(sentence, folderGoneOf(error))
+        : isSessionGone(error) || reopenRefusedByAgent(error)
+          ? new SessionGoneError(sentence)
+          : new Error(sentence)
     }
     // The same fold `session/resume` does: the transcript from the read, the
     // settings and options from the handle, which is the only place they are.

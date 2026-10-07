@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
-import { type Session, type SessionOptions } from '@harnessdesk/protocol'
+import { SessionFolderGoneError, type Session, type SessionOptions } from '@harnessdesk/protocol'
 import { SeatBook } from '../src/evidence/seats.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { Host, Logger, StateStore } from '../src/index.js'
@@ -37,7 +37,7 @@ for (const seated of [true, false]) {
     const runtime = new AcpRuntime({ id: 'reader', name: 'Reader', command: process.execPath, args: [PEER],
       env: { FAKE_ACP_STORE: store, FAKE_ACP_UNLISTED: String(created.id) } })
     const host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
-      catalogRefreshMs: 0, idleStopMs: 0, sessionRestMs: 0 })
+      catalogRefreshMs: 0, idleStopMs: 0, sessionRestMs: 0, sendAcceptDeadlineMs: 100 })
     t.after(() => host.dispose())
     host.register(runtime)
     await host.start()
@@ -67,5 +67,50 @@ for (const seated of [true, false]) {
     assert.deepEqual(reopened.options?.filter(option => ['model', 'mode'].includes(option.id))
       .map(option => [option.id, option.currentValue]).sort(), [['mode', 'terse'], ['model', 'large']])
     assert.equal(host.registry.get(runtime.info.id, created.id)?.restedOptions, undefined)
+    // The same retry must preserve an actionable missing-folder refusal.
+    await host.call('session/close', params)
+    await rm(cwd, { recursive: true })
+    await assert.rejects(host.call('session/resume', params), (error: unknown) => {
+      assert.ok(error instanceof SessionFolderGoneError)
+      assert.equal(error.wireCode, 'sessionFolderGone')
+      assert.equal(error.folder, cwd)
+      return true
+    })
   })
 }
+
+test('pane reopen preserves the missing-folder contract and the stored transcript', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-pane-folder-gone-'))
+  const cwd = join(dir, 'work')
+  await mkdir(cwd)
+  const runtime = new AcpRuntime({ id: 'reader', name: 'Reader', command: process.execPath, args: [PEER],
+    env: { FAKE_ACP_STORE: join(dir, 'sessions.json') } })
+  const host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 0, sessionRestMs: 0, sendAcceptDeadlineMs: 100 })
+  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd } }) as Session
+  const params = { runtime: runtime.info.id, sessionId: session.id }
+  const completed = new Promise<void>(resolve => {
+    const off = runtime.subscribe(event => {
+      if (event.type === 'turn/completed' && event.sessionId === session.id) { off(); resolve() }
+    })
+  })
+  await host.call('turn/send', { ...params, input: [{ type: 'text', text: 'Keep this conversation readable' }] })
+  await completed
+  await host.call('session/close', params)
+  await rm(cwd, { recursive: true })
+  const transcript = await host.call('session/read', params) as Session
+  assert.ok(transcript.turns.some(turn => turn.items.some(item => item.type === 'userMessage')))
+  assert.equal(transcript.cwd, cwd)
+  await assert.rejects(host.call('session/resume', params), (error: unknown) => {
+    assert.ok(error instanceof SessionFolderGoneError)
+    assert.equal(error.wireCode, 'sessionFolderGone')
+    assert.equal(error.folder, cwd)
+    assert.equal(error.message.split('Reader').length - 1, 1, 'the refusal is worded once')
+    return true
+  })
+  assert.equal(host.registry.get(runtime.info.id, session.id)?.live, null)
+  assert.ok(host.registry.get(runtime.info.id, session.id)?.restedOptions, 'failed resume keeps the untried picks')
+})
