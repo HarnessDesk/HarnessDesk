@@ -113,22 +113,38 @@ it('keeps a long model name on the trigger and reports its status in the title a
   let snapshot: AppSnapshot = {
     ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id,
     draftOptions: [longModel, { id: 'wide-window', type: 'boolean', label: 'Wide window',
-      currentValue: true, modelStatus: 'Auto Max' }],
+      currentValue: true, modelStatus: 'Auto window' }],
   }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   const render = () => act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
   render()
   const trigger = () => container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
   expect(trigger().textContent).toContain('Spark Research 3')
-  expect(trigger().textContent).not.toContain('Auto Max')
-  expect(trigger().title).toContain('Auto Max')
+  expect(trigger().textContent).not.toContain('Auto window')
+  expect(trigger().title).toContain('Auto window')
   click(trigger())
-  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Auto Max')
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Auto window')
   click(trigger())
   snapshot = { ...snapshot, draftOptions: [longModel] }
   render()
-  expect(trigger().textContent).not.toContain('Auto Max')
-  expect(trigger().title).not.toContain('Auto Max')
+  expect(trigger().textContent).not.toContain('Auto window')
+  expect(trigger().title).not.toContain('Auto window')
   click(trigger())
-  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Auto Max')
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Auto window')
+})
+
+it.each(['claude-code', 'codex', 'other-agent'])('renders effort without an undeclared model status for %s', (id) => {
+  const runtime = { ...cursor, id, name: 'Test agent', presentation: { name: 'Test agent', tagline: 'Test agent.' } } as RuntimeInfo
+  const effort: ConfigOption = { id: 'effort', label: 'Effort', category: 'thought_level', type: 'select',
+    currentValue: 'max', choices: [{ value: 'max', label: 'Max' }] }
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [runtime], activeRuntime: runtime.id,
+    draftOptions: [model, effort] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
+  expect(trigger.textContent).toContain('Max')
+  expect(trigger.title).toBe('Model and reasoning')
+  click(trigger)
+  expect(document.querySelector('[role="menu"]')?.querySelector('[data-slot="chip"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Auto window')
 })

@@ -198,7 +198,7 @@ class SeatFake extends FakeRuntime {
       effort: 'medium',
       thinking: this.inherited.thinking,
       fast: this.inherited.fast,
-      'max-mode': false,
+      metered: true,
     })
     // The model first, because it decides what the other controls offer.
     const initial = Object.entries({
@@ -259,7 +259,7 @@ class SeatFake extends FakeRuntime {
   }
 }
 
-type SeatValues = { model: string; effort: string; thinking: boolean; fast: boolean; 'max-mode': boolean }
+type SeatValues = { model: string; effort: string; thinking: boolean; fast: boolean; metered: boolean }
 
 class SeatSession implements AgentSession {
   readonly runtime: RuntimeId
@@ -348,7 +348,13 @@ class SeatSession implements AgentSession {
         currentValue: this.#values.fast,
         ...(small ? { disabled: 'Small has no fast lane.' } : {}),
       },
-      { type: 'boolean', id: 'max-mode', label: 'Max mode', currentValue: this.#values['max-mode'] },
+      {
+        type: 'boolean',
+        id: 'metered',
+        label: 'Metered',
+        currentValue: this.#values.metered,
+        confirm: { title: 'Metered', body: 'Usage is charged per unit.', action: 'Enable metering' },
+      },
     ]
   }
 
@@ -497,8 +503,8 @@ test("a flow's seat is opened on its picks, the switches nobody asked for are tu
   )
   const opened = seats.opened[0]
   assert.ok(opened)
-  // Inherited on, turned off: nobody wrote `+thinking`, and fast was never a pick.
-  assert.deepEqual(opened.values(), { model: 'big', effort: 'high', thinking: false, fast: false, 'max-mode': false })
+  // Inherited switches are turned off, including the agent-declared metered control.
+  assert.deepEqual(opened.values(), { model: 'big', effort: 'high', thinking: false, fast: false, metered: false })
   assert.equal(opened.title, 'worker · Seat room · Seat check')
   assert.equal(opened.sent.length, 1, 'one standing order')
   assert.match(opened.sent[0] ?? '', /Do the one thing\./)
@@ -519,7 +525,7 @@ test('a pick the runtime drops is reported in the label and logged, and the flow
     effort: 'medium',
     thinking: false,
     fast: false,
-    'max-mode': false,
+    metered: false,
   })
   assert.equal(seats.opened[0]?.closed, false, 'a flow keeps the seat it opened')
   assert.deepEqual(
@@ -1722,7 +1728,7 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.equal(String(opened.id), String(session.id))
   assert.deepEqual(opened.sent, [orderFor('read', work)], 'the brief, once, and the rule it works under')
   // The same seating a flow's seat gets: the picks in, the inherited switches off.
-  assert.deepEqual(opened.values(), { model: 'big', effort: 'high', thinking: false, fast: false, 'max-mode': false })
+  assert.deepEqual(opened.values(), { model: 'big', effort: 'high', thinking: false, fast: false, metered: false })
   assert.equal(opened.title, 'Reviewer')
   assert.equal(opened.closed, false)
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'every window is told')
@@ -2117,7 +2123,7 @@ test('through the host: one seat at a time — each that fails is closed and let
   assert.ok(held(kept))
   assert.equal(String(kept.id), String(session.id))
   assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], [orderFor('read', work)]])
-  assert.deepEqual(kept.values(), { model: 'big', effort: 'low', thinking: false, fast: false, 'max-mode': false })
+  assert.deepEqual(kept.values(), { model: 'big', effort: 'low', thinking: false, fast: false, metered: false })
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
   // Discarded, not merely closed — the one lost part-way through opening too,

@@ -613,8 +613,8 @@ test('a record that cannot be read leaves the turn without usage rather than a g
 /**
  * A greyed control still has a value, and leaving it where it is must work.
  *
- * This cost two dead sessions to find. Cursor's Gemini and Codex families have
- * one context window, so their Max mode switch is disabled and reads `false` —
+ * An agent with one context window declares a disabled wide-window switch
+ * that reads `false` —
  * and setting it to `false` was refused, because the check looked at
  * `disabled` before it looked at whether anything was actually changing. The
  * refusal then rode into the agent's stored picks and every later
@@ -3308,5 +3308,18 @@ test('ACP presentation uses only a co-author supplied by the agent row', async (
     const unconfigured = new AcpRuntime({ id, name: 'Preview Agent', command: process.execPath, args: [FAKE] })
     t.after(() => unconfigured.dispose())
     assert.equal(unconfigured.info.presentation.coAuthor, null, `${id} does not identify what command the row runs`)
+  }
+})
+
+test('an agent without status metadata does not acquire a model report from its controls', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.ok(session.options().every((option) => option.modelStatus === undefined))
+    await session.setOption('ponder', 'long')
+    assert.ok(session.options().every((option) => option.modelStatus === undefined))
+  } finally {
+    await runtime.dispose()
   }
 })

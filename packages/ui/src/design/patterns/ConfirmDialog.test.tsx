@@ -186,8 +186,8 @@ it.each([
   // OptionConfirm: the ordinary tone, with a better verb for staying put.
   {
     shape: 'a default-tone confirm with its own verb for staying',
-    props: { tone: 'default', confirmLabel: 'Turn on Max mode', cancelLabel: 'Not now' },
-    proceed: 'Turn on Max mode',
+    props: { tone: 'default', confirmLabel: 'Enable metering', cancelLabel: 'Not now' },
+    proceed: 'Enable metering',
     stay: 'Not now',
   },
 ] as const)('paints the proceeding action rightmost: $shape', ({ props, proceed, stay }) => {

@@ -2554,7 +2554,7 @@ export class AcpRuntime implements AgentRuntime {
          * These values arrive from the picks stored against the *agent*, so a
          * dimension among them is a standing preference rather than an
          * argument to this call: `thinking` when the chosen family cannot
-         * think, Max mode when it has one context window. The option is
+         * think, a wider window when it has only one. The option is
          * absent or greyed, the preference simply has no place here, and the
          * next family that can honour it still will. Dropping it is what the
          * draft probe has always done; this path never learned the same

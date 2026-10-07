@@ -48,7 +48,7 @@ export interface OptionConfirm {
   readonly title: string
   /** What it does and what it costs, in the runtime's own words. */
   readonly body: string
-  /** The button that goes through with it — "Enable Max mode", not "OK". */
+  /** The button that goes through with it — "Enable metering", not "OK". */
   readonly action: string
   /** Where the full terms are, when the runtime publishes them. */
   readonly learnMore?: string
@@ -127,8 +127,8 @@ export const refuseOptionValue = (option: ConfigOption, value: OptionValue): str
    * nothing to refuse. This has to come first, before the disabled check.
    *
    * A greyed control still *has* a value, and the value it has is legitimate:
-   * Cursor's Gemini and Codex families offer one context window, so their Max
-   * mode switch is disabled and reads `false`. Refusing `false` there is
+   * An agent with one context window can declare a disabled wide-window
+   * switch that reads `false`. Refusing `false` there is
    * refusing to leave a switch where it already is — and the refusal did not
    * stay local. It rode into the agent's stored picks, and every later
    * `session/create` on that agent sent it again and died on it, which is an

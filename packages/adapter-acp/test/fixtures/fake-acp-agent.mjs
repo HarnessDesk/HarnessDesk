@@ -204,8 +204,8 @@ const configOptionsOf = (state) => [
   // A thought-level control the un-Codex way: the levels belong to whatever
   // model is current, which is all a conforming agent can declare.
   // A control the agent declares, shows the state of, and will not let you
-  // change. Real agents have these: Cursor greys Max mode on a family with one
-  // context window, and it reads `false` because that is what it is. Setting
+  // change. A family with one context window greys the wider-window control,
+  // which reads `false` because that is what it is. Setting
   // it to `false` is asking for what is already true, and must be allowed;
   // setting it to `true` is asking for something this agent cannot do.
   {

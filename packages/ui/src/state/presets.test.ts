@@ -58,11 +58,11 @@ describe('matchPreset', () => {
   })
 
   test('a reported model status does not detach the matching preference preset', () => {
-    const reported: ConfigOption = { type: 'boolean', id: 'max-mode', label: 'Max mode',
-      currentValue: true, modelStatus: 'Auto Max' }
-    const preset = { ...careful, values: { ...careful.values, 'max-mode': false } }
+    const reported: ConfigOption = { type: 'boolean', id: 'wide-window', label: 'Wide window',
+      currentValue: true, modelStatus: 'Auto window' }
+    const preset = { ...careful, values: { ...careful.values, 'wide-window': false } }
     expect(matchPreset('codex', [...options, reported], [preset])?.id).toBe('careful')
-    expect(matchPreset('codex', [reported], [{ ...careful, values: { 'max-mode': true } }])).toBeUndefined()
+    expect(matchPreset('codex', [reported], [{ ...careful, values: { 'wide-window': true } }])).toBeUndefined()
   })
 })
 
@@ -72,10 +72,10 @@ describe('snapshotValues', () => {
   })
 
   test('an automatic model report never becomes a preset preference', () => {
-    const reported: ConfigOption = { type: 'boolean', id: 'max-mode', label: 'Max mode',
-      currentValue: true, modelStatus: 'Auto Max' }
+    const reported: ConfigOption = { type: 'boolean', id: 'wide-window', label: 'Wide window',
+      currentValue: true, modelStatus: 'Auto window' }
     expect(snapshotValues([...options, reported])).toEqual({ permissions: ':workspace', shout: false })
-    expect(snapshotValues([{ ...reported, modelStatus: undefined }])).toEqual({ 'max-mode': true })
+    expect(snapshotValues([{ ...reported, modelStatus: undefined }])).toEqual({ 'wide-window': true })
   })
 })
 
