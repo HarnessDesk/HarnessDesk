@@ -12,7 +12,7 @@ const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): P
 test('real Workbench and Panes put each notice in one mounted outlet', async ({ page }) => {
   await page.goto('/preview.html?notice-placement')
   const room = layout(page, 'coverage-notice-room-board')
-  await room.getByRole('button', { name: /Board/ }).click()
+  await room.getByRole('tab', { name: /^Board/ }).click()
 
   const frameDir = process.env.NOTICE_FRAME_DIR
   if (frameDir) {
@@ -70,7 +70,7 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
 
 })
 
-test('a container-hidden room composer gives the notice to the fallback, then takes it back when widened', async ({ page }) => {
+test('a narrow room keeps its composer notice visible when widened', async ({ page }) => {
   await page.goto('/preview.html?notice-placement')
   const frame = layout(page, 'coverage-notice-room-container-query')
   await frame.scrollIntoViewIfNeeded()
@@ -79,10 +79,10 @@ test('a container-hidden room composer gives the notice to the fallback, then ta
     nodes.filter((node) => node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && node.getClientRects().length > 0).length,
   )
 
-  await expect(frame.getByRole('button', { name: /Board/ })).toBeVisible()
-  await expect(body).toBeHidden()
+  await expect(frame.getByRole('tab', { name: /^Board/ })).toBeVisible()
+  await expect(body).toBeVisible()
   await expect.poll(visibleNoticeCount).toBe(1)
-  await expect(frame.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toBeVisible()
+  await expect(frame.locator('[data-slot="composer-notices"] [data-slot="notice-strip"]')).toBeVisible()
 
   await frame.getByTestId('notice-layout-canvas').evaluate((canvas) => { (canvas as HTMLElement).style.width = '1400px' })
   await expect(body).toBeVisible()

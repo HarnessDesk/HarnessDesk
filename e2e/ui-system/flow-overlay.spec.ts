@@ -20,7 +20,7 @@ for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
       await page.goto(`/preview.html?flow-overlay&theme=${theme}`)
       const live = page.locator('#flow-overlay-live')
-      await live.getByRole('button', { name: /^Run/ }).first().click()
+      await live.getByRole('tab', { name: /^Run/ }).first().click()
       await tab(page, 'Flow').click()
     })
     test('live rounds and person answers redraw the open Flow without a reload or a tab switch', async ({ page }) => {

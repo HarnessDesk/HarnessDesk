@@ -106,22 +106,24 @@ const DropdownMenuCheckboxItem = ({
   className,
   children,
   checked,
+  indicator = true,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) => (
+}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem> & { indicator?: boolean }) => (
   <DropdownMenuPrimitive.CheckboxItem
     data-slot="dropdown-menu-checkbox-item"
     className={cn(
       'focus:bg-accent focus:text-accent-foreground relative flex min-h-(--hd-nav-h) cursor-default items-center gap-2 rounded-(--hd-nav-radius) py-1 pr-2 pl-8 text-(length:--hd-text-sm) leading-(--hd-line-sm) outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+      !indicator && 'pl-2',
       className,
     )}
     checked={checked ?? false}
     {...props}
   >
-    <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+    {indicator && <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
       <DropdownMenuPrimitive.CheckboxItemIndicator>
         <CheckIcon size={14} />
       </DropdownMenuPrimitive.CheckboxItemIndicator>
-    </span>
+    </span>}
     {children}
   </DropdownMenuPrimitive.CheckboxItem>
 )

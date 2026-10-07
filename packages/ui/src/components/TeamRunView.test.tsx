@@ -432,3 +432,18 @@ it('keeps a check count unknown when a failed refresh retains older results, and
     expect(view.container.querySelector('[data-step-row="verify"] [title="Run count unavailable"]')).toBeNull()
   } finally { view.close() }
 })
+
+
+it('omits check retry in a wrapped Team even while its Run still reads running', async () => {
+  const fixture = runFixture('running')
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get(fixture.execution.goal)!
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped' } }]]) }
+  })
+  const view = await mount(store, { execution: fixture.execution, model: runTimeline(fixture), selectedRow: 'check-2-2' })
+  try {
+    const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
+    expect(inspector.textContent).toContain('This Team is wrapped')
+    expect([...inspector.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(false)
+  } finally { view.close() }
+})

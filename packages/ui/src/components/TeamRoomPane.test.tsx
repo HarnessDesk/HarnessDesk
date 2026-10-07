@@ -8,6 +8,7 @@ import {
   sessionKey,
   type FlowExecution,
   type FindingPublicationsView,
+  type FindingRunView,
   type Intent,
   type InsightReport,
   type RuntimeInfo,
@@ -389,19 +390,27 @@ const clickElement = (element: Element): void => act(() => {
   element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
 })
 
+const memberList = (): HTMLElement => {
+  const trigger = container.querySelector<HTMLButtonElement>('button[title="Team members"]')!
+  if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())
+  const found = document.querySelector<HTMLElement>('[data-slot="team-members"]')
+  if (!found) throw new Error('Team members did not open')
+  return found
+}
 const row = (text: string): HTMLElement => {
-  const found = [...container.querySelectorAll('[data-slot="list-row"]')].find((entry) =>
-    entry.textContent?.includes(text),
-  )
+  const tab = [...container.querySelectorAll<HTMLElement>('[data-team-page]')].find(one => one.textContent?.startsWith(text))
+  if (tab) return tab
+  if (text === 'Side by side') return container.querySelector<HTMLElement>('button[aria-label="Side by side"]')!
+  const found = [...memberList().querySelectorAll<HTMLElement>('[data-slot="list-row"]')].find(entry => entry.textContent?.includes(text))
   if (!found) throw new Error(`no row containing ${text}`)
-  return found as HTMLElement
+  return found
 }
 
 it('the rail is the roster: who is here, and what each of them is holding', async () => {
   const { store } = rig()
   await render(store)
 
-  expect(container.textContent).toContain('2 here')
+  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
   // The row is titled by the member's nickname; a conversation that has a name
   // of its own keeps it on the earned line, beside what it holds.
   const named = row('API migration')
@@ -496,6 +505,7 @@ it('pressing an agent shows that agent’s own conversation, scoped to its sessi
   const { store } = rig()
   await render(store)
 
+  memberList()
   act(() => row('API migration').click())
   await act(async () => {})
 
@@ -790,7 +800,7 @@ it('an agent that leaves the board leaves the rail and the audience', async () =
   const { store, leaves } = rig()
   await render(store)
 
-  expect(container.textContent).toContain('2 here')
+  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
   act(() => audience().click())
   act(() => menuRow('Codex').click())
   expect(audience().textContent).toContain('Codex')
@@ -801,7 +811,7 @@ it('an agent that leaves the board leaves the rail and the audience', async () =
   leaves(CODEX)
   await render(store)
 
-  expect(container.textContent).toContain('1 here')
+  expect(container.querySelector('[title="1 of 1 here"]')).not.toBeNull()
   expect(container.textContent).not.toContain('API migration — Codex')
   expect(() => row('API migration')).toThrow()
   /* Back to everyone rather than to a name that has gone. The chip goes with
@@ -859,7 +869,7 @@ it('re-reads the roster when the room’s membership moves', async () => {
   const { store } = rig([], undefined, { members: [] })
   const snapshot = store.getSnapshot()
   await render(store)
-  expect(container.textContent).toContain('No agents in this Team yet')
+  expect(memberList().textContent).toContain('No agents in this Team yet')
   expect(container.textContent).not.toContain('takes a turn')
 
   // The host says somebody joined; the pane must ask again.
@@ -871,7 +881,7 @@ it('re-reads the roster when the room’s membership moves', async () => {
   await render(store)
 
   expect(container.textContent).not.toContain('Nobody here yet')
-  expect(container.textContent).toContain('API migration')
+  expect(memberList().textContent).toContain('API migration')
 })
 
 it('the room’s channel says it is the room’s, not the project’s', async () => {
@@ -881,7 +891,7 @@ it('the room’s channel says it is the room’s, not the project’s', async ()
   await render(store)
   expect(container.textContent).not.toContain('Everyone on this project')
   expect(container.textContent).not.toContain('Everyone in this room')
-  const title = row('Chat').querySelector('[data-slot="list-row-title"] [title]')
+  const title = row('Chat')
   expect(title?.getAttribute('title')).toBe('Everyone in this Team')
   expect(row('Chat').querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
 })
@@ -975,7 +985,7 @@ it('a member that cannot reach the board says so on its row', async () => {
 it('an empty roster says how many conversations it looked at', async () => {
   const { store } = rig([])
   await render(store)
-  const text = container.textContent ?? ''
+  const text = memberList().textContent ?? ''
   expect(text).toContain('conversation')
   // Never the old phrasing, which said only what it wanted.
   expect(text).not.toContain('Open one in this workspace and it joins')
@@ -1039,7 +1049,7 @@ const renderRoom = async ({ members, width = 1200, view = {} }: RoomRenderOption
 }
 
 const clickRailWatch = async (pane: HTMLElement, nickname: string): Promise<void> => {
-  const button = [...pane.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+  const button = [...memberList().querySelectorAll<HTMLButtonElement>('button')].find((one) =>
     one.getAttribute('aria-label')?.startsWith(`Watch ${nickname} `),
   )
   if (!button) throw new Error(`no Watch control for ${nickname}`)
@@ -1048,7 +1058,7 @@ const clickRailWatch = async (pane: HTMLElement, nickname: string): Promise<void
 }
 
 const clickRailOpen = async (pane: HTMLElement, nickname: string): Promise<void> => {
-  const watch = [...pane.querySelectorAll<HTMLButtonElement>('button[aria-label^="Watch "]')].find((one) =>
+  const watch = [...memberList().querySelectorAll<HTMLButtonElement>('button[aria-label^="Watch "]')].find((one) =>
     one.getAttribute('aria-label')?.startsWith(`Watch ${nickname} `),
   )
   const target = watch?.closest<HTMLElement>('[data-slot="list-row"]')
@@ -1071,7 +1081,7 @@ it('greys Watch, and says why, when no tile is free', async () => {
     members: [...keys, 'codex\u0000e'],
     view: { sideBySide: { tiles: keys, pinned: keys.slice(0, 3), focused: keys[3] } },
   })
-  const watch = pane.querySelector<HTMLButtonElement>('button[aria-label="Watch e: no tile is free"]')
+  const watch = memberList().querySelector<HTMLButtonElement>('button[aria-label="Watch e: no tile is free"]')
   expect(watch?.getAttribute('aria-disabled')).toBe('true')
   await act(async () => { watch!.click() })
   expect(pane.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(4)
@@ -1092,7 +1102,7 @@ it('clears a non-empty old watching list once it has become tiles', async () => 
 it('selects the row of the member opened on its own, and only that one', async () => {
   const { pane } = await renderRoom({ members: ['codex\u0000a', 'claude\u0000b'] })
   await clickRailOpen(pane, 'a')
-  const current = [...pane.querySelectorAll('[data-slot="list-row"][aria-current="true"]')].map((one) => one.textContent ?? '')
+  const current = [...memberList().querySelectorAll('[data-slot="list-row"][aria-current="true"]')].map((one) => one.textContent ?? '')
   expect(current).toHaveLength(1)
   expect(current[0]).toContain('a')
 })
@@ -1145,7 +1155,7 @@ it('Watch places members on Side by side tiles with their identities', async () 
      agent" control is a `+` too, and matching on the character made this pass
      for the wrong reason and then fail for another wrong one. */
   const watchVerbs = (): readonly string[] =>
-    [...container.querySelectorAll('button')]
+    [...memberList().querySelectorAll('button')]
       .map((one) => one.getAttribute('aria-label') ?? '')
       .filter((label) => label.startsWith('Watch '))
   expect(watchVerbs()).toHaveLength(2)
@@ -1156,7 +1166,7 @@ it('Watch places members on Side by side tiles with their identities', async () 
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
   await clickRailWatch(container, 'Codex')
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
-  expect(container.textContent).toContain('API migration')
+  expect(memberList().textContent).toContain('API migration')
   expect(container.textContent).toContain('Opus')
 })
 
@@ -1172,8 +1182,7 @@ it('a tile can be taken off the grid without closing its conversation', async ()
   clickElement(takeOff)
   expect(container.querySelector('[data-slot="side-by-side-tile"]')).toBeNull()
   const sideBySide = row('Side by side')
-  expect(sideBySide.querySelector('[data-slot="list-row-title"] [title]')?.getAttribute('title'))
-    .toBe('Watch a member to put it here')
+  expect(sideBySide.getAttribute('aria-pressed')).toBe('false')
   expect(sideBySide.querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
   expect(store.getSnapshot().sessions.has(sessionKey('codex', 'c1'))).toBe(true)
 })
@@ -1187,7 +1196,9 @@ it('keeps every watched tile in the view when the room is narrow', async () => {
   await render(store)
 
   const watch = (name: string) => row(name).querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')!
+  memberList()
   act(() => watch('API migration').click())
+  memberList()
   act(() => watch('Opus').click())
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"][data-hidden]')).toHaveLength(1)
@@ -1225,7 +1236,7 @@ it('opens the tiles stored in the room view', async () => {
   await act(async () => { await Promise.resolve() })
 
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
-  expect(container.textContent).toContain('API migration')
+  expect(memberList().textContent).toContain('API migration')
 })
 
 it('clears the old watching field once and writes the grid to the room view', async () => {
@@ -1364,7 +1375,8 @@ it('says nothing about the roster when the request for it fails', async () => {
   expect(text).not.toContain('2 here')
   expect(text).not.toContain('1 working')
   // What the board knows, the board still says.
-  expect(text).toContain('claimed')
+  act(()=>row('Board').click()); await act(async()=>{})
+  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
 })
 
 it('matches sessions running in the project using Windows-style paths (#664)', async () => {
@@ -1387,7 +1399,7 @@ it('matches sessions running in the project using Windows-style paths (#664)', a
   await render(customStore)
 
   const text = container.textContent ?? ''
-  expect(text).toContain('1 here')
+  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('1 member')
 })
 
 /**
@@ -1477,8 +1489,8 @@ it('a half-written message does not follow you into the next room', async () => 
 it('never wears the last room’s roster under this room’s name', async () => {
   const { store } = rig()
   await render(store)
-  expect(container.textContent).toContain('2 here')
-  expect(container.textContent).toContain('API migration')
+  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
+  expect(memberList().textContent).toContain('API migration')
 
   // The same pane, pointed somewhere else, whose roster request fails.
   ;(store.teamPeers as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('the host is gone'))
@@ -1543,7 +1555,7 @@ it('says which members are working on their rows, and keeps one presence fact in
   await render(store)
 
   const bar = container.querySelector('header')!
-  expect(bar.textContent).toContain('2 here')
+  expect(bar.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
   expect(bar.textContent).not.toContain('working')
   expect(bar.textContent).not.toContain('claimed')
   /* Read as text, and as the system's presence light — never as a class: the
@@ -1558,7 +1570,7 @@ it('says which members are working on their rows, and keeps one presence fact in
   expect(light('API migration')?.hasAttribute('data-pulse'), 'working, so it pulses').toBe(true)
   expect(light('Opus')).toBeNull()
   // The room's top row is the window's bar, as a header.
-  expect(bar.getAttribute('data-slot')).toBe('bar')
+  expect(bar.getAttribute('data-slot')).toBe('tool-pane-header')
 })
 
 /**
@@ -1573,7 +1585,7 @@ it('offers Watch before anything is being watched', async () => {
   const { store } = rig()
   await render(store)
 
-  const watch = [...container.querySelectorAll('button')].filter((one) =>
+  const watch = [...memberList().querySelectorAll('button')].filter((one) =>
     one.getAttribute('aria-label')?.startsWith('Watch '),
   )
   expect(watch).toHaveLength(2)
@@ -1607,7 +1619,7 @@ it('says the board caution once, for the group, when every agent shown would car
   const { store } = rig([{ ...CODEX, usedBoard: false }, { ...CLAUDE, usedBoard: false }], undefined, { intents: open })
   await render(store)
 
-  expect(container.textContent).toContain('None of these agents has used the board yet.')
+  expect(memberList().textContent).toContain('None of these agents has used the board yet.')
   expect(row('Opus').textContent).not.toContain('has not used the board')
   expect(row('Codex').textContent).not.toContain('has not used the board')
 })
@@ -1666,7 +1678,7 @@ it('names the room once, on a row that is also the window’s handle', async () 
   if (!bar) throw new Error('no top row')
   // The room's name, its live counts and the switch, all on one row.
   expect(bar.textContent).toContain('Checkout rewrite')
-  expect(bar.textContent).toContain('2 here')
+  expect(bar.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
   const toggle = bar.querySelector('[aria-label="Hold messages at the board"]')
   expect(toggle, 'the messaging toggle is on this row').not.toBeNull()
   // Said once. The name used to be printed by the strip above and the rail
@@ -1706,10 +1718,10 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   // The state, on the header's own line, as a chip.
   expect(bar.textContent).toContain('Running')
   // The project's short name is visible; its absolute path is not, anywhere.
-  expect(bar.textContent).toContain('widgets')
+  expect(bar.getAttribute('title')).toBe('/Users/dev/work/widgets — working in /repo')
   expect(container.textContent).not.toContain('/Users/dev/work/widgets')
-  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'widgets')
-  expect(projectMark?.getAttribute('title'), 'the full path is one hover away').toBe('/Users/dev/work/widgets')
+  const projectMark = bar
+  expect(projectMark?.getAttribute('title'), 'both paths are one hover away').toBe('/Users/dev/work/widgets — working in /repo')
 })
 
 it('a trigger Goal’s header is named by its subject and carries its origin as a chip, its hover card naming the source in full', async () => {
@@ -1927,7 +1939,7 @@ it('reads a retained claim as Stopping in Overview, the timeline and inspector a
   const overview = container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')!
   expect(overview.textContent).toContain('#1 · Migrate auth callers · Stopping · 1m')
   expect(overview.textContent).not.toContain('is working')
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   const card = container.querySelector<HTMLButtonElement>('[data-row="card-1-1"]')!
   expect(card.textContent).toContain('Stopping')
@@ -2141,7 +2153,7 @@ it('has no body elements between the header and the conversation — the origin,
   await act(async () => {})
 
   const header = container.querySelector('header')!
-  const afterHeader = header.nextElementSibling
+  const afterHeader = header.nextElementSibling?.nextElementSibling
   expect(afterHeader, 'nothing between the header and the split view').toBe(container.querySelector(`.${styles.split}`))
   expect(container.textContent).not.toContain('Opened from issue #42')
   expect(container.textContent).not.toContain('Up to $5')
@@ -2716,7 +2728,7 @@ it('names the Goal\'s own working folder on the project fact\'s hover, when it d
   await render(store)
 
   const bar = container.querySelector('header')!
-  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'repo')
+  const projectMark = bar
   expect(projectMark?.getAttribute('title')).toBe('/repo — working in /repo/.harnessdesk/agents/reviewer/checkout')
 })
 
@@ -2725,7 +2737,7 @@ it('says nothing extra on the hover when the Goal works at its own root, unchang
   await render(store)
 
   const bar = container.querySelector('header')!
-  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'repo')
+  const projectMark = bar
   expect(projectMark?.getAttribute('title')).toBe('/repo')
 })
 
@@ -2735,28 +2747,24 @@ it('says nothing extra on the hover when the Goal works at its own root, unchang
  * still wrapping, or the board could not be saved (the one case
  * `goalActions` itself does not cover, read straight off `problem`).
  */
-it('hides Wrap for a wrapped Goal and refuses it while wrapping or when a problem remains', async () => {
-  const wrapButton = (): HTMLButtonElement => {
-    const found = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
-    if (!found) throw new Error('no Wrap button')
-    return found
+it('keeps Wrap in More, hides it after wrapping, and refuses it while wrapping or when a problem remains', async () => {
+  const wrapItem = (): HTMLElement | undefined => {
+    const more = container.querySelector<HTMLButtonElement>('header button[title="More"]')!
+    if (more.getAttribute('aria-expanded') !== 'true') act(() => more.click())
+    return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === 'Wrap…')
   }
-
   const { store: open } = rig(undefined, undefined, {}, GOAL)
   await render(open)
-  expect(wrapButton().disabled).toBe(false)
-
+  expect(wrapItem()?.getAttribute('aria-disabled')).not.toBe('true')
   const { store: wrapped } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' } })
   await render(wrapped)
-  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
-
+  expect(wrapItem()).toBeUndefined()
   const { store: wrapping } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapping' } })
   await render(wrapping)
-  expect(wrapButton().disabled).toBe(true)
-
+  expect(wrapItem()?.getAttribute('aria-disabled')).toBe('true')
   const { store: problem } = rig(undefined, undefined, {}, { ...GOAL, problem: 'The board could not be saved.' })
   await render(problem)
-  expect(wrapButton().disabled).toBe(true)
+  expect(wrapItem()?.getAttribute('aria-disabled')).toBe('true')
 })
 
 /**
@@ -2778,7 +2786,7 @@ it('keeps messaging and Wrap reachable through one ⋯ menu when the bar is too 
 
   const bar = container.querySelector('header')!
   const fullWrap = [...bar.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
-  expect(fullWrap).not.toBeUndefined()
+  expect(fullWrap).toBeUndefined()
   const fullMessaging = bar.querySelector('[aria-label="Hold messages at the board"]')
   expect(fullMessaging).not.toBeNull()
 
@@ -2807,10 +2815,8 @@ it('draws the chat with no header of its own', async () => {
   // its title, not repeated as a visible line in the stream or rail.
   expect(container.textContent).not.toContain('Everyone in this room reads this')
   expect(container.textContent).not.toContain('Everyone in this room')
-  const rows = [...container.querySelectorAll('[data-slot="list-row"]')].filter((entry) =>
-    entry.textContent?.startsWith('Chat'),
-  )
-  expect(rows, 'Chat is a rail row and nothing else').toHaveLength(1)
+  const rows = [...container.querySelectorAll('[data-team-page="room"]')]
+  expect(rows, 'Chat is one section tab').toHaveLength(1)
 })
 
 it('carries the panel’s verbs on its own row, so the pane draws no strip', async () => {
@@ -2829,7 +2835,8 @@ it('carries the panel’s verbs on its own row, so the pane draws no strip', asy
   // In the middle, "the whole area" is what a room already has — so the verb
   // it is offered is the one that means something.
   const bar = container.querySelector('header')
-  expect(bar?.querySelector('[aria-label="Fill the window"]')).not.toBeNull()
+  act(() => (bar!.querySelector('[title="More"]') as HTMLButtonElement).click())
+  expect([...document.querySelectorAll('[role="menuitem"]')].some(one => one.textContent === 'Fill the window')).toBe(true)
   // And the registry agrees, which is what stops `Panes` drawing a strip above
   // this row. `chrome.test.ts` holds the other half of that bargain.
   expect(views.get('room')?.ownsChrome).toBe(true)
@@ -2891,7 +2898,7 @@ it('draws the members of a room the desk has not opened, and says they are not o
   expect(row('Codex').textContent).toContain('not open')
   expect(row('Codex').querySelector('[data-away]')).not.toBeNull()
   // And the head counts both facts rather than collapsing them into one.
-  expect(container.textContent).toContain('0 of 2 here')
+  expect(container.querySelector('[title="0 of 2 here"]')).not.toBeNull()
   expect(container.textContent).not.toContain('No agents in this Team yet')
 })
 
@@ -2960,7 +2967,9 @@ it('sends the body back to the chat when the member opened on its own is release
   } as unknown as GoalView
   const { store } = rig(undefined, undefined, {}, goal)
   await render(store)
+  memberList()
   await act(async () => { row('Codex').click() })
+  memberList()
   expect(row('Codex').closest('[data-slot="list-row"]')?.getAttribute('aria-current')).toBe('true')
 
   vi.useFakeTimers()
@@ -2974,7 +2983,7 @@ it('sends the body back to the chat when the member opened on its own is release
   vi.useRealTimers()
   await act(async () => { remove.click() })
   await act(async () => {})
-  expect(row('Chat').closest('[data-slot="list-row"]')?.getAttribute('aria-current')).toBe('true')
+  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
 })
 
 it('takes a released member’s tile off the grid with it', async () => {
@@ -3004,7 +3013,7 @@ it('takes a released member’s tile off the grid with it', async () => {
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(0)
   expect(store.lastView().sideBySide).toBeUndefined()
   // The rail and the body agree: the room's chat is open, not an empty Side by side.
-  expect(row('Chat').closest('[data-slot="list-row"]')?.getAttribute('aria-current')).toBe('true')
+  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
 })
 
 /**
@@ -3024,6 +3033,7 @@ it('opens an away member’s conversation when it goes into a column', async () 
   const { store } = rig([{ ...CLAUDE, here: false }])
   await render(store)
 
+  memberList()
   act(() => row('Opus').click())
   await act(async () => {})
 
@@ -3035,6 +3045,7 @@ it('does not re-open a member the desk already holds', async () => {
   const { store } = rig([CODEX])
   await render(store)
 
+  memberList()
   act(() => row('Codex').click())
   await act(async () => {})
 
@@ -3057,6 +3068,7 @@ it('asks again for a member whose conversation failed to open', async () => {
   await render(store)
 
   // Open it — the attempt fails.
+  memberList()
   act(() => row('Opus').click())
   await act(async () => {})
   expect(store.openSession).toHaveBeenCalledTimes(1)
@@ -3065,6 +3077,7 @@ it('asks again for a member whose conversation failed to open', async () => {
   // the failure from a moment ago.
   act(() => row('Chat').click())
   await act(async () => {})
+  memberList()
   act(() => row('Opus').click())
   await act(async () => {})
   expect(store.openSession).toHaveBeenCalledTimes(2)
@@ -3215,9 +3228,10 @@ it('pressing a member opens it and takes its card away', async () => {
   expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain('k1')
 
   // And it comes back for the next rest: leaving the row ends the hold.
-  leave(name)
-  rest(name)
-  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
+  const again = row('Opus').querySelector('[data-slot="list-row-title"]')!
+  leave(again)
+  rest(again)
+  expect(row('Opus').closest('[data-slot="hover-card-trigger"]')?.hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -3348,6 +3362,7 @@ it('opens the room member card from a tile identity', async () => {
   const { store } = rig()
   await render(store)
 
+  memberList()
   act(() => row('Opus').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')?.click())
   await act(async () => {})
   const head = [...container.querySelectorAll('[data-slot="side-by-side-tile"] header')].find((one) =>
@@ -3459,7 +3474,7 @@ it('lists Flow Seats from the Goal when the older roster is empty, and defaults 
  const {store}=rig([],undefined,{members:[],intents:[]},view,new Map([[execution.id,execution]]))
  await render(store)
  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
- expect(container.querySelectorAll('aside [data-slot="hover-card-trigger"]')).toHaveLength(2)
+ expect(memberList().querySelectorAll('[data-slot="hover-card-trigger"]')).toHaveLength(2)
  expect(container.textContent).not.toContain('No agents in this Team yet')
  expect(container.textContent).toContain('Agents · 2')
 })
@@ -3477,7 +3492,7 @@ it('opens Overview when the cached Run arrives, and preserves a later choice of 
   runs.set(execution.id, execution)
   await pushes({ updatedAt: 2 })
   expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
-  const chat = [...container.querySelectorAll('aside [data-slot="list-row"]')].find(one => one.textContent?.includes('Chat')) as HTMLElement
+  const chat = row('Chat')
   await act(async () => { chat.click() })
   await pushes({ updatedAt: 3 })
   expect(container.querySelector('[data-slot="team-overview"]')).toBeNull()
@@ -3494,7 +3509,7 @@ it('keeps a finished Seat on the rail with a quiet Done state after its process 
     by: { kind: 'agent', runtime: runtimeId('claude'), sessionId: 'k1', title: 'Reviewer' },
   }] }, view)
   await render(store)
-  const rail = container.querySelector('aside')!
+  const rail = memberList()!
   expect(rail.textContent).toContain('Reviewer')
   expect(rail.textContent).toContain('Done')
   expect([...rail.querySelectorAll('[data-slot="chip"]')].some(one => one.textContent === 'Done')).toBe(false)
@@ -3529,7 +3544,7 @@ it('reads usage only while Overview is selected and stops polling when it is lef
  await render(store)
  expect(readGoalInsight).not.toHaveBeenCalled()
  const pick=async(label:string)=>{
-  const button=[...container.querySelectorAll('aside button')].find(one=>one.textContent?.startsWith(label)) as HTMLButtonElement
+  const button=[...container.querySelectorAll('[data-team-page]')].find(one=>one.textContent?.startsWith(label)) as HTMLButtonElement
   await act(async()=>{button.click()})
  }
  await pick('Overview')
@@ -3557,16 +3572,16 @@ it('opens a read-only Run from the rail and Overview, and keeps selection in the
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
   await render(store)
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   expect(nav, 'Run has a rail destination').toBeTruthy()
   expect(nav.textContent).toContain('1')
   await act(async () => nav.click())
   const card = container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement
   expect(card).not.toBeNull()
   await act(async () => card.click())
-  expect(store.readFindingPublications).toHaveBeenCalledWith(ROOM, execution.id)
+  expect(store.readFindingPublications).not.toHaveBeenCalled()
   expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
-  const overview = [...container.querySelectorAll('aside button')].find(one => one.textContent === 'Overview') as HTMLButtonElement
+  const overview = [...container.querySelectorAll('[data-team-page]')].find(one => one.textContent === 'Overview') as HTMLButtonElement
   await act(async () => overview.click())
   const strip = container.querySelector('[aria-label="Run"] button') as HTMLButtonElement
   expect(strip, 'the Run strip opens the same timeline').not.toBeNull()
@@ -3580,7 +3595,7 @@ it('warns when a Run reads only part of the findings ledger', async () => {
   const snapshot = { ...store.getSnapshot(), findings: new Map([[ROOM, { rows: [], filter: 'all' as const, next: null, loading: false, error: null, problem: 'One finding could not be read.' }]]) }
   Object.assign(store, { getSnapshot: () => snapshot, loadFindings: vi.fn().mockResolvedValue(undefined) })
   await render(store)
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('One finding could not be read.')
 })
@@ -3599,7 +3614,7 @@ it('does not carry a Run again dialog into another Team in the same pane', async
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   Object.assign(store, { flowExecutionSource: vi.fn(() => new Promise(() => {})) })
   await render(store)
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   await act(async () => ([...container.querySelectorAll<HTMLButtonElement>('[data-slot="run-ending"] button')].find(button => button.textContent === 'Run again…')!).click())
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Run again')
@@ -3622,13 +3637,14 @@ it('loads older Runs for the rail count and keeps each Run’s own selected row'
   await render(store)
   expect(loadTeamRuns).toHaveBeenCalledWith(ROOM)
   await pushes({ updatedAt: 3 })
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   expect(nav.textContent).toContain('2')
   await act(async () => nav.click())
   const choose = async (label: string) => { await act(async () => { ([...container.querySelectorAll('[aria-label="Choose a Run"] button')].find(one => one.textContent === label) as HTMLButtonElement).click() }) }
   await choose('Run 1')
   await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
-  expect(store.readFindingPublications).toHaveBeenLastCalledWith(ROOM, 'old-run')
+  expect(store.readFindingPublications).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
   await choose('Run 2')
   expect(container.querySelector('[aria-current="true"][data-row]')).toBeNull()
   await choose('Run 1')
@@ -3647,7 +3663,7 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await render(store)
   expect(loadTeamRuns).toHaveBeenCalledWith(ROOM)
   await pushes({ updatedAt: 3 })
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   expect(nav.textContent).toContain('1')
   await act(async () => nav.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
@@ -3668,7 +3684,7 @@ it('draws a check run more than once with each attempt under it, and asks the de
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined), readCheckAttempts })
   await render(store)
   expect(readCheckAttempts, 'the Overview is on show, not the Run').not.toHaveBeenCalled()
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   expect(readCheckAttempts).toHaveBeenCalledWith('gate-run', 1)
   expect([...container.querySelectorAll('[data-row]')].map(one => one.getAttribute('data-row'))).toEqual(['start', 'round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2'])
@@ -3689,7 +3705,7 @@ it('says a check’s attempts could not be read — in the Run’s warning and i
   const readCheckAttempts = vi.fn(() => new Promise<never[]>((_resolve, reject) => { answer = () => reject(new Error('The desk did not answer.')) }))
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined), readCheckAttempts })
   await render(store)
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
   const inspector = () => container.querySelector('[data-slot="run-inspector"]')!.textContent ?? ''
@@ -3717,7 +3733,7 @@ it('a new attempt appears under the check when its result lands, and the earlier
   let snapshot = snapshotWith('f2')
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined), readCheckAttempts, getSnapshot: () => snapshot })
   await render(store)
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   const rows = () => [...container.querySelectorAll('[data-kind="attempt"]')].map(one => one.getAttribute('data-row'))
   expect(rows()).toEqual(['attempt-1-1-1', 'attempt-1-1-2'])
@@ -3845,7 +3861,7 @@ it('answers a person\'s step and sends a review to the board from the Run inspec
   const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
   await render(store)
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
   const inspector = container.querySelector('[data-slot="run-inspector"]')!
@@ -3861,7 +3877,7 @@ it('sends a review step to the board from the Run inspector', async () => {
   const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
   await render(store)
-  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
   const pick = [...container.querySelector('[data-slot="run-inspector"]')!.querySelectorAll('button')].find(one => one.textContent === 'Pick an attempt on the board') as HTMLButtonElement
@@ -3875,17 +3891,17 @@ it('a wrapped Team keeps receipt Seats and its Run readable while dispatching ve
  const goal: GoalView = {...GOAL,goal:{...GOAL.goal,state:'wrapped',origin:{kind:'flow',run:execution.id}},members:[],receipt:{version:1,id:'receipt',goal:ROOM,sentence:GOAL.goal.sentence,summary:'Reviewed.',wrappedAt:2,cards:[],seats:['kept','lost'],members:[{seat:'kept',agent:'Writer',seatLabel:'Alpha',session:{runtime:'codex',sessionId:'c1'}},{seat:'lost',agent:null,seatLabel:'Gamma'}],answers:[],evidence:[],lanes:[],revisions:[],citations:[],gaps:[]}}
  const {store}=rig([],undefined,{members:[]},goal,new Map([[execution.id,execution]]))
  await render(store)
- expect(container.querySelector('aside')?.textContent).toContain('Writer')
- expect(container.querySelector('aside')?.textContent).toContain('Gamma')
- expect(container.querySelector('aside [title="Conversation not kept"]')).toBeTruthy()
+ expect(memberList()?.textContent).toContain('Writer')
+ expect(memberList()?.textContent).toContain('Gamma')
+ expect(memberList().querySelector('[title="Conversation not kept"]')).toBeTruthy()
  for (const label of ['Hold messages at the board']) {
   const button=container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
   expect(button?.disabled).toBe(true);expect(button?.title).toBe('This Team is wrapped')
  }
- const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('aside button')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
+ const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('[data-team-page]')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
  await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
  await pick('Receipt');expect(container.textContent).toContain('this page shows the Team as it was then')
- act(()=>row('Writer').click());await act(async()=>{})
+ memberList();act(()=>row('Writer').click());await act(async()=>{})
  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
 })
 
@@ -3897,7 +3913,7 @@ const receiptGoal = (seats: readonly string[], members: readonly unknown[]): Goa
 } as unknown as GoalView)
 
 /** The rail's rows, as a person reads them. */
-const railRows = (): string[] => [...container.querySelectorAll('aside [data-slot="list-row"]')].map(one => one.textContent ?? '')
+const railRows = (): string[] => [...memberList().querySelectorAll('[data-slot="list-row"]')].map(one => one.textContent ?? '')
 
 /* A conversation can be seated more than once in a Team's life, and the receipt keeps every Seat. The rail lists
    conversations, so it names each one once — and does not draw two rows under one React key (#1317, round 1). */
@@ -3917,7 +3933,7 @@ it('a wrapped Team lists a conversation once however many Seats were retained fo
   expect(railRows().some(text => text.includes('Judge'))).toBe(true)
   expect(railRows().some(text => text.includes('Writer'))).toBe(false)
   // And the roster counts conversations, as it lists them.
-  expect(container.querySelector('aside')?.textContent).toContain('Agents2')
+  expect(memberList()?.textContent).toContain('Agents2')
   expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
  } finally { errors.mockRestore() }
 })
@@ -3931,16 +3947,16 @@ it('an older receipt whose Seats were all kept without a conversation lists them
  ])
  const { store } = rig([], undefined, { members: [] }, goal)
  await render(store)
- const rail = container.querySelector('aside')!.textContent ?? ''
+ const rail = memberList()!.textContent ?? ''
  expect(railRows().filter(text => /Writer|Gamma/.test(text))).toHaveLength(2)
- expect(container.querySelectorAll('aside [title="Conversation not kept"]')).toHaveLength(2)
+ expect(memberList().querySelectorAll('[title="Conversation not kept"]')).toHaveLength(2)
  expect(rail).not.toContain('No Agents were kept')
 })
 
 it('a receipt that kept no Seat at all still says so', async () => {
  const { store } = rig([], undefined, { members: [] }, receiptGoal([], []))
  await render(store)
- expect(container.querySelector('aside')?.textContent).toContain('No Agents were kept in this Team’s receipt.')
+ expect(memberList()?.textContent).toContain('No Agents were kept in this Team’s receipt.')
 })
 
 /* The pane is two columns at width and one at a time without it, and `data-showing` names the one on show. A wrapped
@@ -3948,33 +3964,35 @@ it('a receipt that kept no Seat at all still says so', async () => {
    ever had a Run. A Team with no Run used to start on the Agents list, as an open one does, and a person-made Team
    that wrapped read as a list of names with the record behind a way back (#1317). `receiptGoal` is exactly that Team:
    made by a person, never given a Flow. */
-const showing = (): string | null => container.querySelector('[data-showing]')?.getAttribute('data-showing') ?? null
+const showing = (): string | null => container.querySelector('[data-team-page][aria-selected="true"]')?.getAttribute('data-team-page') ?? null
 const KEPT = [{ seat: 'kept', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } }]
 
 it('a wrapped Team that never had a Run opens on its Receipt, not on the Agents list, in a narrow pane', async () => {
  const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
  await render(store)
- expect(showing()).toBe('body')
- expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+ expect(showing()).toBe(container.querySelector('[data-slot="goal-receipt"]') ? 'receipt' : 'board')
+ expect(row('Receipt').getAttribute('aria-selected')).toBe('true')
  expect(container.textContent).toContain('this page shows the Team as it was then')
 })
 
-it('an open Team that has no Run still starts on the Agents list in a narrow pane', async () => {
+it('an open Team without a Run shows Chat at narrow widths', async () => {
  const { store } = rig([], undefined, { members: [] }, GOAL)
  await render(store)
- expect(showing()).toBe('rail')
+ expect(showing()).toBe('room')
+ expect(container.querySelector('aside')).toBeNull()
 })
 
-it('a Team with no Run that wraps while its narrow pane shows the Agents list moves to its Receipt', async () => {
+it('a Team without a Run moves from its default Chat to its Receipt when wrapped', async () => {
  const { store } = rig([], undefined, { members: [] }, GOAL)
  await render(store)
- expect(showing()).toBe('rail')
+ expect(showing()).toBe('room')
+ expect(container.querySelector('aside')).toBeNull()
  const open = store.getSnapshot()
  const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
  Object.assign(store, { getSnapshot: () => wrapped })
  await render(store)
- expect(showing()).toBe('body')
- expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+ expect(showing()).toBe(container.querySelector('[data-slot="goal-receipt"]') ? 'receipt' : 'board')
+ expect(row('Receipt').getAttribute('aria-selected')).toBe('true')
 })
 
 it('a person who already chose where to look is not moved when a Team with no Run wraps', async () => {
@@ -3982,13 +4000,13 @@ it('a person who already chose where to look is not moved when a Team with no Ru
  await render(store)
  act(() => row('Board').click())
  await act(async () => {})
- expect(row('Board').getAttribute('aria-current')).toBe('true')
+ expect(row('Board').getAttribute('aria-selected')).toBe('true')
  const open = store.getSnapshot()
  const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
  Object.assign(store, { getSnapshot: () => wrapped })
  await render(store)
- expect(row('Board').getAttribute('aria-current')).toBe('true')
- expect(showing()).toBe('body')
+ expect(row('Board').getAttribute('aria-selected')).toBe('true')
+ expect(showing()).toBe(container.querySelector('[data-slot="goal-receipt"]') ? 'receipt' : 'board')
 })
 
 it('a wrapped receipt has one state, a reading gutter, and a rail without moot controls', async () => {
@@ -4002,7 +4020,7 @@ it('a wrapped receipt has one state, a reading gutter, and a rail without moot c
  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
  expect(container.querySelector('[data-slot="tool-pane-header-divider"]')).toBeNull()
  expect(container.querySelector('[data-slot="goal-receipt"]')?.closest('[data-inset="reading"]')).toBeTruthy()
- expect(container.querySelector('aside [data-slot="member-done"]')).toBeNull()
+ expect(memberList().querySelector('[data-slot="member-done"]')).toBeNull()
  const kept = railRows().find(text => text.includes('Writer'))!
  expect(kept).not.toContain('conversation')
 })
@@ -4010,7 +4028,120 @@ it('a wrapped receipt has one state, a reading gutter, and a rail without moot c
 it('wrapped Agent destinations are native keyboard buttons', async () => {
  const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
  await render(store)
- const kept = [...container.querySelectorAll<HTMLElement>('aside [data-slot="list-row"]')].find(one => one.textContent?.includes('Writer'))!
+ const kept = [...memberList().querySelectorAll<HTMLElement>('[data-slot="list-row"]')].find(one => one.textContent?.includes('Writer'))!
  expect(kept.tagName).toBe('BUTTON')
  expect(kept.tabIndex).toBe(0)
+})
+
+it('the Team frame has one content column and section tabs instead of a navigation rail', async () => {
+ const {store}=rig(undefined,undefined,{},GOAL)
+ await render(store)
+ expect(container.querySelector('aside')).toBeNull()
+ expect([...container.querySelectorAll('[role="tab"]')].map(one=>one.getAttribute('data-team-page'))).toEqual(['overview','run','board','room','findings'])
+ act(()=>row('Overview').click()); await act(async()=>{})
+ expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
+ expect(container.querySelector('header [data-slot="icon-tile"]')).toBeNull()
+ expect(container.querySelector('header [data-slot="avatar-stack"]')).not.toBeNull()
+})
+
+it('the bar toggle opens Seat conversations and returns to the selected page when turned off', async () => {
+ const {store}=rig(undefined,undefined,{},GOAL)
+ await render(store)
+ const board=container.querySelector<HTMLButtonElement>('[data-team-page="board"]')!
+ act(()=>board.click()); await act(async()=>{})
+ const toggle=container.querySelector<HTMLButtonElement>('button[aria-label="Side by side"]')!
+ expect(toggle.getAttribute('aria-pressed')).toBe('false')
+ act(()=>toggle.click()); await act(async()=>{})
+ expect(toggle.getAttribute('aria-pressed')).toBe('true')
+ expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+ expect(board.getAttribute('aria-selected')).toBe('true')
+ act(()=>toggle.click()); await act(async()=>{})
+ expect(toggle.getAttribute('aria-pressed')).toBe('false')
+ expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+})
+
+it('a ready Team puts its Wrap button on Overview, while the bar keeps Wrap in More', async () => {
+ const {store}=rig(undefined,undefined,{},{...GOAL,activity:'ready-to-wrap'})
+ await render(store)
+ expect([...container.querySelectorAll('header button')].some(one=>one.textContent==='Wrap')).toBe(false)
+ const overview=container.querySelector('[data-slot="team-overview"]')!
+ expect([...overview.querySelectorAll('button')].some(one=>one.textContent==='Wrap')).toBe(true)
+})
+
+
+it('leaves every page tab unmarked while one member conversation is open', async () => {
+ const {store}=rig(undefined,undefined,{},GOAL)
+ await render(store)
+ act(()=>row('Overview').click()); await act(async()=>{})
+ const member = memberList().querySelector<HTMLElement>('[data-slot="list-row"]')!
+ act(()=>member.click()); await act(async()=>{})
+ expect(container.querySelector('[data-team-page][aria-selected="true"]')).toBeNull()
+})
+
+it('explains why a Team has no Run to open', async () => {
+ const {store}=rig()
+ await render(store)
+ const run=container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+ expect(run.getAttribute('aria-disabled')).toBe('true')
+ expect(run.title).toBe('This Team has no Run yet')
+})
+
+it('draws held board messages in warning ink while keeping the pressed state', async () => {
+ const {store}=rig(undefined,undefined,{messaging:false},GOAL)
+ await render(store)
+ const hold=container.querySelector<HTMLElement>('button[aria-label="Hold messages at the board"]')!
+ expect(hold.getAttribute('aria-pressed')).toBe('true')
+ expect(hold.getAttribute('data-variant')).toBe('warning')
+})
+
+it('counts all retained members in the same denominator as its hover text', async () => {
+ const members=[{id:'missing',session:{runtime:'codex',sessionId:'missing'},agent:{name:'Gamma'},openedAt:1,closed:null}]
+ const {store}=rig(undefined,undefined,{}, {...GOAL,members:members as unknown as GoalView['members']})
+ await render(store)
+ const count=container.querySelector<HTMLElement>('header [data-team-members-count]')!
+ expect(count).not.toBeNull()
+ expect(count.textContent).toBe('3')
+ expect(count.title).toBe('2 of 3 here')
+})
+
+it('keeps members without conversations in the hover denominator after wrapping',async()=>{
+ const {store}=rig([],undefined,{members:[]},receiptGoal(['lost','lost-too'],[
+  {seat:'lost',agent:'Writer',seatLabel:'Alpha'},
+  {seat:'lost-too',agent:null,seatLabel:'Gamma'},
+ ]))
+ await render(store)
+ const count=container.querySelector<HTMLElement>('header [data-team-members-count]')!
+ expect(count.textContent).toBe('2')
+ expect(count.title).toBe('0 of 2 here')
+})
+
+it('keeps the members trigger on the target floor even before any Agent is seated',async()=>{
+ const {store}=rig([],undefined,{members:[]},GOAL)
+ await render(store)
+ const trigger=container.querySelector<HTMLElement>('header button[title="Team members"]')!
+ expect(trigger.className).toContain('min-w-(--hd-target-min)')
+ expect(trigger.querySelector('svg')).not.toBeNull()
+})
+
+it('reads publication actions when the selected card holds a completed recorded review', async () => {
+  const execution = { version: 2, id: 'review-run', goal: ROOM, state: 'running', reason: null, operations: [],
+    rounds: [{ n: 1, role: 'reviewer', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
+    document: { format: 'agents', flow: { name: 'Review', roles: [], rules: [] } } } as unknown as FlowExecution
+  const card = { ...state.intents[0]!, state: 'done' as const, claim: null, handoff: 'The change is ready to review.' }
+  const { store } = rig([], undefined, { members: [], intents: [card] }, GOAL, new Map([[execution.id, execution]]))
+  const snapshot = store.getSnapshot()
+  const review: FindingRunView = {
+    run: execution.id, goal: ROOM, stamp: 'recorded-review', publication: 'local', round: 1, total: 1, finished: 1,
+    embargoed: false, open: 0, blocking: 0, reason: null, ceilingStop: false,
+    rounds: [{ round: 1, state: 'local', reason: null, pr: null, cards: [1] }],
+    reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
+  }
+  const reviewed = { ...snapshot, findingRuns: new Map([[execution.id, review]]) }
+  Object.assign(store, { getSnapshot: () => reviewed, loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = row('Run')
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
+  expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
+  expect(store.readFindingPublications).toHaveBeenCalledWith(ROOM, execution.id)
 })

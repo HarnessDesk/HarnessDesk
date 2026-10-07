@@ -17,11 +17,9 @@ const plainFrame = (page: Page): Locator => page.locator('section', { has: page.
 const scene = async (page: Page, name: string): Promise<void> => {
   await page.locator('select', { has: page.locator('option', { hasText: 'held-message' }) }).first().selectOption(name)
 }
-/** The room's chat half, which a narrow room shows one at a time with its rail. */
+/** Chat remains reachable at every pane width. */
 const showChat = async (frame: Locator): Promise<void> => {
-  if (await frame.locator('[data-showing="rail"]').count()) {
-    await frame.locator('[data-slot="list-row"]', { hasText: 'Chat' }).first().click()
-  }
+ await frame.getByRole('tab', {name:/^Chat/}).click()
 }
 const stateChip = (frame: Locator): Locator => frame.locator('header [data-slot="chip"]').first()
 const liveLine = (frame: Locator): Locator => frame.locator('[data-slot="room-live-line"]')

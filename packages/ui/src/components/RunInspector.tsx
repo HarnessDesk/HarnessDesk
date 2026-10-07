@@ -1,6 +1,6 @@
 import { AgentIcon, PullRequestIcon } from './Icons'
 import { openExternal } from '../lib/desktop'
-import type { FindingRoundPublication, FlowCheckAttempt } from '@harnessdesk/protocol'
+import type { FindingRoundPublication, FlowCheckAttempt, GoalState } from '@harnessdesk/protocol'
 import { attemptWords, runTimeline, type RunTimelineInput } from '../lib/run-timeline'
 import type { SeatRow } from '../lib/team-overview'
 export interface InspectorSeat {
@@ -12,6 +12,7 @@ export interface InspectorSeat {
 }
 export interface RunInspectorProps {
   home?: string | null
+  teamState?: GoalState | undefined
   input: RunTimelineInput
   selectedRow: string | null
   seats: readonly InspectorSeat[]
@@ -50,6 +51,7 @@ import { ReviewPublicationActions, type ReviewActionsTarget } from './ReviewPubl
 import { commitDate } from '../lib/git-refs'
 import { useState, type ReactNode } from 'react'
 import { RunAgain } from './RetryCheck'
+import { isRecordState, RECORD_REASON } from '../lib/team-record'
 import { stepDoor } from '../lib/needs-you'
 import { AbandonCard } from './AbandonCard'
 import { StepAnswer } from './StepAnswer'
@@ -92,7 +94,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
+export const RunInspector = ({ home, teamState, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -134,7 +136,7 @@ export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onSto
       </Section> : !results && attemptsRead ? <Section title="Attempts">{attemptsRead === 'failed' ? <Words>Earlier attempts could not be read</Words>
         : <Text role="meta" as="div">Reading attempts…</Text>}</Section> : null}
       {abandon}
-      <RunAgain run={execution.id} card={card.id} refusal={selected.retryRefusal} />
+      <RunAgain run={execution.id} card={card.id} refusal={isRecordState(teamState) ? RECORD_REASON : selected.retryRefusal} terminal={isRecordState(teamState) || execution.state === 'settled' || execution.state === 'stopped'} />
     </>
   } else if (selected?.kind === 'person' && card) {
     // A card recorded without its role is still its round's: the round is what opened it.
@@ -157,7 +159,9 @@ export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onSto
     const chip = review ? reviewPublication({ state: review.state,
       pr: review.state === 'local' && runReview ? runReview.boundPr?.pr ?? null : review.pr,
       postingOn: input.publicationOn !== false, hasFindings: review.state !== 'none' }) : null
-    const reviewText = card.handoff ?? card.note ?? findings.map(one => `${one.title}\n${one.body}`).join('\n\n')
+    const reviewText = [card.handoff, card.note, findings.map(one => `${one.title}\n${one.body}`).join('\n\n')]
+      .find(one => one && sanitizeText(one).trim()) ?? ''
+    const completeReview = card.state === 'done' && review && review.state !== 'none' && sanitizeText(reviewText).trim() !== ''
     const reviewReason = review?.reason ?? runReview?.reason
     body = <>
       <Section title="Input"><Words>{detailWords(card.detail) ?? 'No input recorded'}</Words>{predecessors.map(one => <div key={one.id}><Text role="meta">From #{one.id}</Text><Words>{one.handoff!}</Words></div>)}</Section>
@@ -165,7 +169,7 @@ export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onSto
       {showFindings}
       <Section title="Review">{chip ? <span><Chip tone={chip.tone}>{chip.label}</Chip></span> : <Words>No review recorded</Words>}
         {reviewReason && <Words>{reviewReason}</Words>}
-        {reviewActions && round && <ReviewPublicationActions key={JSON.stringify([reviewActions.goal,reviewActions.run,round.n])} {...reviewActions} round={round.n} review={reviewText} alreadyShownReason={reviewReason} />}
+        {completeReview && reviewActions && round && <ReviewPublicationActions key={JSON.stringify([reviewActions.goal,reviewActions.run,round.n])} {...reviewActions} round={round.n} review={reviewText} alreadyShownReason={reviewReason} />}
       </Section>
       <Section title="Cost"><Words>{costWords(seat?.cost)}</Words><Text role="meta">Recorded for this Seat</Text></Section>
       {abandon}

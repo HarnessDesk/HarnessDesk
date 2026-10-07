@@ -10,6 +10,8 @@ interface Worker {
   readonly threads: Set<string>
   readonly subscriptions: Unsubscribe[]
   opening: number
+  openingDone?: Promise<void>
+  finishOpening?: () => void
   stopping?: Promise<void>
 }
 
@@ -76,10 +78,13 @@ export class CodexThreadServers extends CodexAppServer {
     // These verbs update process-local tool/config state. Shared files alone
     // do not reload the servers or skill settings of already open threads.
     if (method === 'config/mcpServer/reload' || method === 'skills/config/write' ||
-      method === 'plugin/install' || method === 'plugin/uninstall' || method === 'mcpServer/oauth/login') {
-      const workers = [...this.#workers].filter((worker) => worker.roots.size > 0 && !worker.stopping)
+      method === 'plugin/install' || method === 'plugin/uninstall') {
       const result = await super.request(method, params, options)
+      const workers = [...this.#workers].filter((worker) => worker.roots.size > 0 || worker.opening > 0)
       await Promise.all(workers.map(async (worker) => {
+        // Opening can still be initializing the process or registering its
+        // root. Apply updates afterwards, unless it failed or stopped meanwhile.
+        await worker.openingDone
         if (!worker.stopping) await worker.server.request(method, params, options)
       }))
       return result
@@ -92,7 +97,9 @@ export class CodexThreadServers extends CodexAppServer {
     if (this.#stopped || (opening && this.state.type !== 'ready')) throw new CodexError('notRunning', 'The runtime is not running.')
     // Every new root has a fresh owner; an existing root resumes on its owner.
     if (!worker) worker = this.#newWorker()
-    if (opening) worker.opening++
+    if (opening && worker.opening++ === 0) {
+      worker.openingDone = new Promise<void>((resolve) => { worker.finishOpening = resolve })
+    }
     const epoch = this.#epoch
     try {
       await worker.server.start()
@@ -118,6 +125,11 @@ export class CodexThreadServers extends CodexAppServer {
       if (opening) {
         const wasBusy = this.busy
         worker.opening--
+        if (worker.opening === 0) {
+          worker.finishOpening?.()
+          delete worker.openingDone
+          delete worker.finishOpening
+        }
         this.#notifyBusyChange(wasBusy)
         if (worker.roots.size === 0 && worker.opening === 0) await this.#stopWorker(worker)
       }

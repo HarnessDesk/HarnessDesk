@@ -115,7 +115,7 @@ test('a Section owns its rhythm: 8px from label to card, 32px between sections a
   expect(readings.rowsMargin).toBe('0px')
   expect(readings.noteMargin).toBe('0px 0px')
   expect(readings.buttonWidth).toBeLessThan(readings.sectionWidth / 2)
-  expect(readings.label).toEqual({ size: '13px', weight: '400', transform: 'none' })
+  expect(readings.label).toEqual({ size: '13px', weight: '500', transform: 'none' })
   await page.getByTestId('grammar').screenshot({ path: test.info().outputPath('page-grammar.png') })
 })
 

@@ -46,6 +46,7 @@ import {
   PlusIcon,
   SearchIcon,
   ShieldAlertIcon,
+  SideBySideIcon,
   TeamIcon,
   TerminalIcon,
   UsageIcon,
@@ -270,7 +271,7 @@ const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'
 const BADGE_CATALOG_SIZES = ['default'] as const
 const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
 
-const TABS_CATALOG_VARIANTS = ['default', 'line'] as const
+const TABS_CATALOG_VARIANTS = ['default', 'line', 'section'] as const
 const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
@@ -994,6 +995,7 @@ const sideBySideState = (count: 2 | 4): SideBySideState => {
 }
 
 const SideBySideBoard = () => {
+  const [barSideBySide,setBarSideBySide]=useState(true)
   const [two, setTwo] = useState(() => sideBySideState(2))
   const [four, setFour] = useState(() => sideBySideState(4))
   const [narrow, setNarrow] = useState(() => sideBySideState(4))
@@ -1045,19 +1047,11 @@ const SideBySideBoard = () => {
   return (
     <>
       <div className={styles.matrix}>
-        <Case label="room rail — Side by side · disabled with its reason">
-          <div className="w-full max-w-80">
-            <ListRows>
-              <ListRow
-                as="button"
-                size="sm"
-                nav
-                aria-disabled="true"
-                title={<span title="Watch a member to put it here">Side by side</span>}
-                lead={<IconTile size="sm" tint="violet"><TeamIcon /></IconTile>}
-              />
-            </ListRows>
-          </div>
+        <Case label="Team bar — Side by side · pressed">
+          <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={barSideBySide} onClick={()=>setBarSideBySide(value=>!value)}><SideBySideIcon size={14} /></Button>
+        </Case>
+        <Case label="Team bar — Side by side · disabled with its reason">
+          <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={false} disabled title="Seat an Agent to show conversations side by side"><SideBySideIcon size={14} /></Button>
         </Case>
         <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore)}</Case>
         <Case className="col-span-full" label="room — Side by side · two members, waiting for you">{grid(waiting, setWaiting, 'catalog-side-by-side-waiting', waitingStore)}</Case>

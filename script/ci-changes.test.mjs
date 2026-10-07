@@ -102,3 +102,43 @@ for (const [name, source] of [
     })
   })
 }
+
+for (const [imported, helper] of [
+  ['./helper.mts', 'helper.mts'], ['./helper.cts', 'helper.cts'],
+  ['./helper.mjs', 'helper.mts'], ['./helper.cjs', 'helper.cts'],
+  ['./helper', 'helper.mts'], ['./helper', 'helper.cts'],
+  ['./helper', 'helper/index.mts'], ['./helper', 'helper/index.cts'],
+  ['./helper.config', 'helper.config.ts'],
+  ['./fixtures.shared', 'fixtures.shared.ts'],
+  ['./frames.v2', 'frames.v2.ts'],
+]) {
+  test(`import scan follows ${imported} to ${helper}`, async () => {
+    const { serverSpecs, uiPackages } = await import('./ci-changes.mjs')
+    await fixture((root, put) => {
+      put('e2e/ui-system/added.spec.ts', `import { rig } from '${imported}'`)
+      put(`e2e/ui-system/${helper}`, "export { rig } from '@harnessdesk/server/testing'")
+      assert.deepEqual(serverSpecs(root, uiPackages(root)), ['e2e/ui-system/added.spec.ts'])
+    })
+  })
+}
+
+for (const asset of ['fixture.json', 'frame.png', 'styles.css']) {
+  test(`import scan skips the non-source asset ${asset} and keeps following helpers`, async () => {
+    const { serverSpecs, uiPackages } = await import('./ci-changes.mjs')
+    await fixture((root, put) => {
+      put('e2e/ui-system/added.spec.ts', `import asset from './${asset}'\nimport { rig } from './helper'`)
+      put('e2e/ui-system/ui.spec.ts', `import asset from './${asset}'`)
+      put(`e2e/ui-system/${asset}`, 'fixture bytes')
+      put('e2e/ui-system/helper.ts', "export { rig } from '@harnessdesk/server/testing'")
+      assert.deepEqual(serverSpecs(root, uiPackages(root)), ['e2e/ui-system/added.spec.ts'])
+    })
+  })
+}
+
+test('import scan still refuses an unresolved source helper', async () => {
+  const { serverSpecs, uiPackages } = await import('./ci-changes.mjs')
+  await fixture((root, put) => {
+    put('e2e/ui-system/added.spec.ts', "import { rig } from './missing.mts'")
+    assert.throws(() => serverSpecs(root, uiPackages(root)), /Cannot resolve suite import/)
+  })
+})

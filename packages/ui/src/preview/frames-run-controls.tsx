@@ -17,7 +17,7 @@ export type RunControlScene = typeof RUN_CONTROL_STATES[number]
 export const ABANDON_VARIANTS = ['opens', 'ends', 'waits', 'refused'] as const
 export type AbandonVariant = typeof ABANDON_VARIANTS[number]
 
-const REFUSAL = 'There is no card #4 on this board.'
+const REFUSAL = 'This card was already answered.'
 const reviewer = { id: 'review', on: 'writer', then: { role: 'reviewer', title: 'Review the change' } }
 
 type Press = (frame: HTMLElement) => HTMLElement | undefined
@@ -88,7 +88,7 @@ export const AbandonDialogExample = ({ variant }: { variant: AbandonVariant }) =
     rounds: source.execution.rounds.map(round => waits && round.n === 4 ? { ...round, cards: [4, 5] } : round),
     document: { ...source.execution.document, flow: { ...flow, rules } } } as unknown as FlowExecution
   const card = { ...cards.find(one => one.id === 4)!, role: 'writer' }
-  const onAbandon = variant === 'refused' ? async () => { throw new Error(REFUSAL) } : async () => {}
+  const onAbandon = variant === 'refused' ? async () => { throw Object.assign(new Error(REFUSAL), { code: 'alreadyAnswered' }) } : async () => {}
   return (
     <Pressed steps={variant === 'refused' ? REFUSED_QUESTION : OPEN_QUESTION}>
       <AbandonCard execution={execution} cards={cards} card={card} holder="Alpha" onAbandon={onAbandon} />

@@ -82,7 +82,7 @@ export const GoalReceipt = ({ receipt, insight, faces, onOpenFinding }: GoalRece
         const member = receipt.members?.find((one) => one.seat === card.seat)
         return <Row
           key={card.id}
-          title={<span className="inline-flex flex-wrap items-baseline gap-2"><Text role="meta">#{card.id}</Text>{card.title && <Text role="prose">{card.title}</Text>}</span>}
+          title={<span className="inline-flex flex-wrap items-baseline gap-2"><Text role="meta">#{card.id}</Text><Text role="prose">{card.title?.trim() || 'Card title not recorded'}</Text></span>}
           {...(card.reason ? { desc: card.reason } : {})}
           control={<span className="inline-flex flex-wrap items-center justify-end gap-2">
             {member && <SeatFace name={member.agent ?? member.seatLabel} {...faces?.get(member.seat)} />}
