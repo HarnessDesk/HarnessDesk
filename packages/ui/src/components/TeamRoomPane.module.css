@@ -81,7 +81,7 @@
      spends the whole deficit here before it touches which room this is. */
   flex: 0 100 auto;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible; /* desk: the header clips at its edge; this inner box must leave the members focus ring whole. */
   white-space: nowrap;
   text-overflow: ellipsis; /* desk: it now carries the project and origin too, and a bare clip mid-word read as broken. */
 }

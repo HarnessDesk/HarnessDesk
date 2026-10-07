@@ -1515,6 +1515,11 @@ export class AcpRuntime implements AgentRuntime {
     return 'restarted'
   }
 
+  resourceProcessIds(): readonly number[] {
+    const pid = this.#connection.processId
+    return pid === null ? [] : [pid]
+  }
+
   health(): RuntimeHealth {
     return this.#health
   }
@@ -2554,7 +2559,7 @@ export class AcpRuntime implements AgentRuntime {
          * These values arrive from the picks stored against the *agent*, so a
          * dimension among them is a standing preference rather than an
          * argument to this call: `thinking` when the chosen family cannot
-         * think, Max mode when it has one context window. The option is
+         * think, a wider window when it has only one. The option is
          * absent or greyed, the preference simply has no place here, and the
          * next family that can honour it still will. Dropping it is what the
          * draft probe has always done; this path never learned the same
@@ -3686,11 +3691,14 @@ class AcpSession implements AgentSession {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
       const category = acpCategory(option.id, option.category)
+      const modelStatus = (option._meta?.['harnessdesk'] as { modelStatus?: unknown } | undefined)?.modelStatus
+      const report = typeof modelStatus === 'string' && modelStatus ? { modelStatus } : {}
       if (option.type === 'toggle' || option.type === 'boolean') {
         options.push({
           type: 'boolean',
           id: option.id,
           category,
+          ...report,
           label: option.name,
           ...(option.description ? { description: option.description } : {}),
           ...(option.disabled ? { disabled: option.disabled } : {}),
@@ -3702,6 +3710,7 @@ class AcpSession implements AgentSession {
           type: 'select',
           id: option.id,
           category,
+          ...report,
           label: option.name,
           ...(option.description ? { description: option.description } : {}),
           ...(option.disabled ? { disabled: option.disabled } : {}),

@@ -19,6 +19,12 @@
  */
 export const SECTIONS = [
   [
+    'priorityOverride',
+    'Priority overrides',
+    'A system edit silently loses to a local priority declaration or utility.',
+    'Resolve the cascade at the owning component or token; only the global reduced-motion reset may override priority.',
+  ],
+  [
     'rawType',
     'Type sizes written out rather than named',
     'The one axis of the scale with no gate: a token edit moves the controls and leaves these behind.',

@@ -11,8 +11,8 @@
     "./views": { "types": "./dist/src/views/index.d.ts", "default": "./dist/src/views/index.js" },
     "./node": { "types": "./dist/src/node.d.ts", "default": "./dist/src/node.js" }
   },
-  "dependencies": { "@harnessdesk/protocol": "workspace:*", "ws": "^8.18.0" },
-  "devDependencies": { "@types/ws": "^8.5.13" },
+  "dependencies": { "@harnessdesk/protocol": "workspace:*", "ws": "^8.22.0" },
+  "devDependencies": { "@types/ws": "^8.18.2" },
   "files": ["dist"],
   "license": "MIT"
 }

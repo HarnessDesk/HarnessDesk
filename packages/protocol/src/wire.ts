@@ -97,6 +97,7 @@ import type {
   RuntimeCatalog,
   RuntimePlugin,
   RuntimeHealth,
+  RuntimeResources,
   RuntimeInfo,
   InstallationCheck,
   SecretReload,
@@ -860,6 +861,8 @@ export interface HostMethods {
     }
   }
 
+  'runtime/resources': { params: Record<string, never>; result: readonly RuntimeResources[] }
+  'runtime/recycle': { params: { readonly runtime: RuntimeId }; result: { readonly recycled: boolean } }
   'runtime/health': { params: { readonly runtime: RuntimeId }; result: RuntimeHealth }
   /**
    * Everything support needs and nothing they should not have: versions,

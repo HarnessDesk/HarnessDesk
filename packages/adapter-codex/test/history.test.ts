@@ -276,7 +276,7 @@ test('Codex 0.160.0 refuses legacy undo without sending the removed rollback met
   assert.deepEqual(requests, [])
 })
 
-test('Undo uses the upgraded version after an in-place CLI upgrade and conversation-process replacement (#1256)', { timeout: 15_000 }, async (t) => {
+test('Undo uses the upgraded version after an in-place CLI upgrade and process replacement (#1256)', { timeout: 15_000 }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-codex-upgrade-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const version = join(dir, 'version')
@@ -300,9 +300,8 @@ test('Undo uses the upgraded version after an in-place CLI upgrade and conversat
   assert.deepEqual(turnIds(await runtime.readSession(legacyId)), ['turn-l1'], 'the old build supports legacy Undo')
 
   await writeFile(version, '0.160.0')
-  const pids = (await readFile(generations, 'utf8')).trim().split('\n').map(Number)
-  const pid = pids[1]
-  assert.ok(pid, 'the conversation process recorded its pid separately from control')
+  const pid = (await readFile(generations, 'utf8')).trim().split('\n').map(Number)[0]
+  assert.ok(pid, 'the process recorded its pid')
   const detached = new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('the conversation did not detach')), 10_000)
     const off = runtime.subscribe((event) => {
@@ -310,15 +309,17 @@ test('Undo uses the upgraded version after an in-place CLI upgrade and conversat
     })
     t.after(() => { clearTimeout(timer); off() })
   })
-  // Kill the conversation's actual child. Its replacement must probe the
-  // installed build instead of reusing the control process's installation.
+  // Kill the process. Its replacement must probe the installed build instead
+  // of reusing the old installation.
   process.kill(pid, 'SIGKILL')
   await detached
+  for (let waited = 0; runtime.health().state !== 'ready' && waited < 100; waited++) await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(runtime.health().state, 'ready', 'the runtime started its process again')
   const resumed = await runtime.resumeSession(legacyId)
   await assert.rejects(resumed.rollback!(1), /Codex 0\.160\.0 and later cannot undo legacy conversations/)
   assert.equal(runtime.info.version, 'codex-cli 0.160.0')
   assert.deepEqual(turnIds(await runtime.readSession(legacyId)), ['turn-l1'], 'the refused Undo preserves the history stored before replacement')
-  assert.equal((await readFile(generations, 'utf8')).trim().split('\n').length, 3, 'one control process and two conversation generations really spawned')
+  assert.equal((await readFile(generations, 'utf8')).trim().split('\n').length, 2, 'the first process and its replacement really spawned')
 
   const paged = await runtime.resumeSession(sessionId('thread-paged'))
   await paged.rollback!(1)

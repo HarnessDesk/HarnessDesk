@@ -1,4 +1,6 @@
+import { readProcessTable, resourcesFromProcessTable } from './runtime-resources.js'
 import { retainRuntimeNotice } from './runtime-notices.js'
+import { AccountReads } from './account-reads.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
@@ -631,6 +633,7 @@ export class Host {
     send: (activity) => this.#push({ method: 'seat/activity', params: activity }),
   })
   readonly #runtimes = new Map<string, AgentRuntime>()
+  readonly #accountReads = new Map<string, AccountReads>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
@@ -850,6 +853,7 @@ export class Host {
   }
 
   async #announceAccount(runtime: RuntimeId): Promise<void> {
+    this.#accountReads.get(runtime)?.invalidate()
     this.#push({ method: 'event', params: { runtime, event: { type: 'account/changed', runtime } } })
   }
 
@@ -1701,6 +1705,7 @@ export class Host {
           id,
           agent: previous?.agent ?? null,
           briefDigest: previous?.briefDigest ?? null,
+          ...(previous?.runtimeServers !== undefined ? { runtimeServers: previous.runtimeServers } : {}),
           seat: previous?.seat ?? { runtime: session.runtime },
           seatLabel: previous?.seatLabel ?? session.runtime,
           passedOver: previous?.passedOver ?? [],
@@ -2054,6 +2059,7 @@ export class Host {
         runtime: id,
       })
       this.#invalidateDelegations(id)
+      this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
       this.#catalogs.forget(id)
@@ -2062,6 +2068,8 @@ export class Host {
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
     const surfaces = new WeakMap<object, object>()
+    const accountReads = new AccountReads(id, this.#logger)
+    this.#accountReads.set(id, accountReads)
     const managed = new Proxy(runtime, {
       get: (target, key) => {
         const member = Reflect.get(target, key, target) as unknown
@@ -2096,7 +2104,7 @@ export class Host {
           })
         }
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
-          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
+          const read = (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
             const starting = this.#startingRuntimes.get(String(target.info.id))
             if (starting) await starting
@@ -2107,6 +2115,9 @@ export class Host {
             }
             return Reflect.apply(member, target, args)
           })
+          return key === 'getAccount'
+            ? () => accountReads.read(() => read() as ReturnType<AgentRuntime['getAccount']>)
+            : read
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
@@ -2155,6 +2166,8 @@ export class Host {
     this.#runtimeSubscriptions.delete(id)
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
+    this.#accountReads.get(id)?.dispose()
+    this.#accountReads.delete(id)
     this.#idleSince.delete(String(id))
     this.#updates.delete(id)
     this.#meters.delete(id)
@@ -2680,6 +2693,12 @@ export class Host {
     // A poll spanning the deadline defers stop, but preserves the deadline.
     if ((this.#runtimeReads.get(id) ?? 0) > 0) return
     if (Date.now() - since < delay || this.#stoppingRuntimes.has(id)) return
+    await this.#recycleRuntime(runtime).catch(() => false)
+  }
+
+  async #recycleRuntime(runtime: AgentRuntime): Promise<boolean> {
+    const id = String(runtime.info.id)
+    if (!runtime.stopForIdle || runtime.canStopForIdle?.() === false || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id) || this.#stoppingRuntimes.has(id)) return false
     // Publish the barrier before the process stop can yield. A live operation
     // arriving now waits for this reap, then shares the next start.
     const stopping = Promise.resolve().then(async () => {
@@ -2688,9 +2707,10 @@ export class Host {
     })
     this.#stoppingRuntimes.set(id, stopping)
     try {
-      await stopping
+      return await stopping
     } catch (error) {
       this.#logger.warn('an idle runtime did not stop cleanly', { runtime: runtime.info.id, error: String(error) })
+      throw error
     } finally {
       if (this.#stoppingRuntimes.get(id) === stopping) this.#stoppingRuntimes.delete(id)
       this.#idleSince.delete(id)
@@ -2705,6 +2725,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    for (const reads of this.#accountReads.values()) reads.dispose()
+    this.#accountReads.clear()
     this.#seatActivities.dispose()
     if (this.#idleReaper !== null) clearInterval(this.#idleReaper)
     this.#idleReaper = null
@@ -3875,6 +3897,18 @@ export class Host {
         inventory: () => this.#inventoryAgents(),
         register: (runtime) => this.register(runtime),
         unregister: (id) => this.unregister(id),
+        resources: async () => {
+          const table = await readProcessTable().catch(() => null)
+          const observedAt = Date.now()
+          return [...this.#runtimes.values()].map((runtime) => {
+            const roots = runtime.resourceProcessIds?.()
+            const cost = table !== null && roots !== undefined ? resourcesFromProcessTable(table, roots) : null
+            const canRecycle = Boolean(runtime.stopForIdle) && runtime.canStopForIdle?.() !== false && runtime.health().state === 'ready' && this.#runtimeIsIdle(runtime.info.id) && !this.#stoppingRuntimes.has(String(runtime.info.id))
+            return { runtime: runtime.info.id, observedAt, processes: cost?.processes ?? null, residentBytes: cost?.residentBytes ?? null,
+              canRecycle, reason: canRecycle ? null : !runtime.stopForIdle ? 'This runtime cannot recycle while idle.' : runtime.health().state !== 'ready' ? 'This runtime is not running.' : 'Close its conversations and let its work finish before recycling.' }
+          })
+        },
+        recycle: (runtime) => this.#recycleRuntime(runtime),
         start: (runtime) => this.#startOne(runtime),
         bindUsage: (runtime, binding) => this.bindUsage(runtime, binding),
       },
@@ -5603,8 +5637,10 @@ export class Host {
     const reopened = await this.#reopenAttachments(runtime, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      const frozen = this.#evidence.seats.latestKeptOf(runtime.info.id, String(id))
       const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await runtime.resumeSession(id, {
+        ...(frozen?.runtimeServers !== undefined ? { runtimeServers: frozen.runtimeServers } : {}),
         ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
@@ -5907,6 +5943,7 @@ export class Host {
       readonly title: string
       readonly environment?: Readonly<Record<string, string>>
       readonly ceiling?: CeilingLevel
+      readonly runtimeServers?: readonly string[]
       readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
@@ -5944,9 +5981,11 @@ export class Host {
     )
     let live: Awaited<ReturnType<typeof runtime.createSession>>
     try {
+      if (where.runtimeServers !== undefined && !runtime.info.capabilities.nativeServerSelection) throw new Error(`${runtime.info.presentation.name} cannot select native servers independently for a conversation.`)
       live = await runtime.createSession({
         cwd,
         ...(where.ceiling ? { requestedCeiling: where.ceiling } : {}),
+        ...(where.runtimeServers !== undefined ? { runtimeServers: where.runtimeServers } : {}),
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         ...(where.attachments ? { attachments: where.attachments } : {}),
@@ -6308,14 +6347,16 @@ export class Host {
         })
       })
     }
-    for (const id of ['thinking', 'fast', 'max-mode']) {
-      if (id === 'thinking' && seat.thinking !== undefined) continue
-      const option = live.options().find((one) => one.id === id)
-      if (!option || option.disabled || option.currentValue !== true) continue
-      await live.setOption(id, false).catch((error: unknown) => {
+    for (const option of live.options()) {
+      if (option.id === 'thinking' && seat.thinking !== undefined) continue
+      // A confirmation declares a switch that needs an explicit decision;
+      // an inherited value is not the new seat's consent.
+      if (option.type !== 'boolean' || !(option.confirm || ['thinking', 'fast'].includes(option.id))) continue
+      if (option.disabled || option.currentValue !== true) continue
+      await live.setOption(option.id, false).catch((error: unknown) => {
         this.#logger.warn('a flow seat inherited a switch it could not turn off', {
           runtime: seat.runtime,
-          option: id,
+          option: option.id,
           error: describeError(error),
         })
       })
@@ -6414,6 +6455,7 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     withCanonicalPaths(() => this.#foldEvent(runtime, event))
   }
 

@@ -1168,6 +1168,8 @@ separately, and the answers drifted:
 
 The rule is in one file, so the eleventh confirm cannot get it wrong by
 copying the tenth.
+A live update that removes the opener or disables confirmation can request
+`focusCancel`, moving focus to the keeping verb while the question stays open.
 
 ### `CopyButton`
 
@@ -1441,6 +1443,26 @@ A recorded step or Seat state, toned once for the Flow list and Run dock. Unknow
 `packages/ui/src/design/patterns/FlowStepRow.tsx`
 
 A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
+
+### `useHeaderStatusGroup`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+Controls inside the group keep their accessible names, without a second tooltip.
+
+### `HeaderStatusGroup`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+A pane head's facts, on one chip ground with one labelled hover/focus card.
+Readings register where their source is owned, so conditional controls and
+minute-by-minute countdowns cannot leave the card holding an older fact.
+
+### `HeaderStatusReading`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+Works outside a group too; only grouped readings contribute to its card.
 
 ### `Lightbox`
 
@@ -1762,7 +1784,8 @@ facts keep those meanings distinct in both ink and their accessible names.
 
 - **One line, always.** It never wraps: it stops at its box (at most 240px,
   less when its container is narrower), ellipsises, and says itself whole
-  in `title` while it is cut. A fact that needs two lines is a row's
+  in `title` while it is cut. A surrounding labelled hover card can own
+  that reading instead, with `autoTitle={false}`. A fact that needs two lines is a row's
   description, not a chip.
 - **Stale is marked, never struck.** A stale fact leads with a history
   glyph, and the word "stale" is there for a screen reader. A stale *pass*
@@ -1789,6 +1812,8 @@ two never disagree about what they report. The one exception is a live
 indicator sitting on a pill that must stay calm while the mark itself
 keeps moving — a running turn, say — and `dotTone` is that dot's own
 colour, apart from `tone`.
+**`dotShape`.** Square activity remains distinct from a round resting light
+when reduced motion stops the pulse. Shape does not change the chip's tone.
 
 ### `Search`
 
@@ -2097,6 +2122,7 @@ list only goes down, except when the audit learns to see something it was blind 
 
 | finding | count | what it costs |
 | --- | --- | --- |
+| `priorityOverride` | 0 | A system edit silently loses to a local priority declaration or utility. |
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |

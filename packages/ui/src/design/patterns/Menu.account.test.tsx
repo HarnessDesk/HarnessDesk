@@ -77,3 +77,11 @@ it('keeps a group without its heading: no name, no step, the same parent for its
   expect(document.querySelector('[data-heading]')).toBeNull()
   expect(document.querySelector('[role="menuitem"]')?.textContent).toBe('One')
 })
+
+it('keeps an embedded menu in flow through the positioner style contract', () => {
+  act(() => root.render(<Menu close={() => {}}><MenuItem onSelect={() => {}}>Profile</MenuItem></Menu>))
+  const positioner = document.querySelector<HTMLElement>('[data-slot="dropdown-menu-positioner"]')!
+  expect(positioner.style.position).toBe('static')
+  expect(positioner.style.inset).toBe('auto')
+  expect(positioner.style.transform).toBe('none')
+})

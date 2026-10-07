@@ -212,6 +212,29 @@ test('restarts stop after the configured limit', async (t) => {
   assert.equal(server.state.type, 'failed')
 })
 
+test('a minute ready refills the crash budget but short-lived restarts exhaust it', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 })
+  const server = make('crash-on-request', { maxRestarts: 1 })
+  t.after(() => server.stop())
+  await server.start()
+  const crash = () => assert.rejects(
+    () => server.request('thread/start', { cwd: '/tmp' } as never),
+    (error: unknown) => error instanceof CodexError && error.code === 'crashed',
+  )
+  await crash()
+  await waitForState(server, (state) => state.type === 'ready')
+  t.mock.timers.tick(60_000)
+  await crash()
+  const next = await waitForState(server, (state) => state.type === 'restarting' || state.type === 'failed')
+  assert.equal(next.type, 'restarting', 'healthy time refills the exhausted budget')
+  assert.equal(next.type === 'restarting' ? next.attempt : null, 1)
+  await waitForState(server, (state) => state.type === 'ready')
+  t.mock.timers.tick(59_999)
+  await crash()
+  const failed = await waitForState(server, (state) => state.type === 'failed')
+  assert.match(failed.type === 'failed' ? failed.error.message : '', /giving up after 1 restarts/)
+})
+
 test('an unavailable binary fails start with notInstalled', async () => {
   const server = new CodexAppServer({
     clientInfo: CLIENT_INFO,

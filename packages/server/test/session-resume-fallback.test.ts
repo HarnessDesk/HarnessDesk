@@ -78,6 +78,7 @@ const contextFor = (options: {
     laneEnvironment: { forSession: async () => undefined },
     evidence: {
       seats: {
+        latestKeptOf: () => null,
         latestOf: (_runtime: string, _id: string) =>
           options.seatCwd ? { checkout: { cwd: options.seatCwd }, standing: options.ceiling ? { kind: 'ceiling', level: options.ceiling } : { kind: 'unknown' } } : null,
       },

@@ -1,11 +1,12 @@
 import { constants, type Stats } from 'node:fs'
-import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
 import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
 import type { CeilingLevel, FlowSeat } from '@harnessdesk/protocol'
 
+import { openAgentFile as openNoFollow } from './agent-file-open.js'
 import {
   AGENT_FILE_LIMIT,
   AGENT_TEMP_PREFIX,
@@ -131,61 +132,6 @@ const identityOf = (info: Stats): Identity => ({ dev: info.dev, ino: info.ino })
 const sameIdentity = (left: Identity, right: Stats): boolean => left.dev === right.dev && left.ino === right.ino
 const errnoOf = (error: unknown): string => String((error as { code?: unknown } | null)?.code ?? '')
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
-/**
- * macOS's own `O_NOFOLLOW_ANY` — `0x20000000`, no named export in Node,
- * passed through unchanged because libuv's `open()` forwards whatever
- * numeric flags it is given. Plain `O_NOFOLLOW` refuses a link only at a
- * path's *last* component; an ancestor swapped for one after a directory it
- * contains was classified — round 2's own finding — is followed like any
- * other lookup, the same as `readdir` follows one. `O_NOFOLLOW_ANY` refuses a
- * link at *any* component instead, last one included — measured directly:
- * it alone refuses both a same-name last-component link and an ancestor
- * swapped for one, and opens a real file on a canonical path clean. Measured
- * the other way too: OR'd together with `O_NOFOLLOW`, the two refuse every
- * open with `EINVAL` rather than adding up, which is why `openNoFollow`
- * below chooses one or the other, never both. Given that, every path this is
- * used on must already be free of a *legitimate* link to begin with: the
- * walk's own canonical root (`realpath`'d once, per `copyAgentFolder` and
- * `exportAgentFolders`) plus plain joins from there, never a second
- * `realpath` this close to the open — measured on this Mac to happily follow
- * `/var` itself (a link to `/private/var`), which would refuse a perfectly
- * real file the same way a genuine swap should be refused. Elsewhere than
- * macOS this is `0`: the last-step `O_NOFOLLOW` plus the
- * `fstat`-against-classification identity check below still hold there, and
- * the checked ancestor walk in `openNoFollow` still refuses planted links.
- */
-const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
-
-/**
- * Every content open in this file goes through here: `NOFOLLOW_ANY` where it
- * exists, since it already refuses the last component too; plain `O_NOFOLLOW`
- * where it does not (`NOFOLLOW_ANY` reads `0` there, so `||` falls through).
- * `ELOOP` is what a live link answers with; each caller maps it to the same
- * "was replaced … nothing was used" wording its own `fstat`-identity
- * mismatch already gives, since both mean the same thing found at a
- * different moment — one while a link was still there to refuse, the other
- * once it was gone again.
- */
-const openNoFollow = async (path: string, flags: number, mode?: number) => {
-  if (!NOFOLLOW_ANY) {
-    // Callers supply canonical-root-plus-joins paths. Inspect every ancestor
-    // again at the content open, including one swapped after classification.
-    // This enforces the static-tree boundary; Node cannot close a same-user
-    // path-swap race between this walk and open on Linux.
-    const ancestors: string[] = []
-    for (let at = dirname(path); ; at = dirname(at)) {
-      ancestors.push(at)
-      if (dirname(at) === at) break
-    }
-    for (const ancestor of ancestors.reverse()) {
-      const info = await lstat(ancestor)
-      if (info.isSymbolicLink()) throw Object.assign(new Error(`${ancestor} was replaced by a link.`), { code: 'ELOOP' })
-      if (!info.isDirectory()) throw Object.assign(new Error(`${ancestor} is not a folder.`), { code: 'ENOTDIR' })
-    }
-  }
-  return open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW), mode)
-}
 
 /**
  * Creates text under `writeAgentFolder`'s canonical temporary path, with
@@ -419,11 +365,11 @@ const regularEntries = async (dir: string, expected?: Identity): Promise<Regular
  * path. The read side's invariant: every byte copied is read from a
  * descriptor opened with `openNoFollow` on a path built from the walk's
  * canonical root plus plain joins, and `fstat`-checked against
- * `regularEntries`' own classification. `NOFOLLOW_ANY` refuses a link at any
- * component the path still has at the moment of this open — an ancestor
- * swapped for one since classification included — so whatever a `readdir` or
- * an `lstat` upstream saw through such a swap, nothing outside is read here:
- * a link still in place answers `ELOOP`; one already put back answers a
+ * `regularEntries`' own classification. The macOS flag or Linux's
+ * descriptor-relative traversal covers every component, including an ancestor
+ * swapped since classification. A link encountered during traversal answers
+ * `ELOOP`; an already-open Linux parent keeps its original directory if its
+ * name is replaced, so nothing outside is read here. A different file answers a
  * `fstat` that does not match what was classified, since that identity was
  * only ever the outside one the swap exposed. Read from the descriptor this
  * already opened rather than a fresh look at the path, which a second swap
@@ -433,10 +379,10 @@ const regularEntries = async (dir: string, expected?: Identity): Promise<Regular
  * from `writeAgentFolder`'s own canonical `temporary`, and created the same
  * `openNoFollow`'d way — exclusively, like `copyFile`'s own `COPYFILE_EXCL`
  * before it, so nothing this call writes ever lands outside that canonical
- * destination either. An ancestor of `destination` swapped for a link after
- * `writeAgentFolder` captured it (a project's own folder, mid-copy, most of
- * all) answers this open with the same `ELOOP` the source side already
- * refuses. `mkdir`, used elsewhere for a nested destination directory, has
+ * destination either. An ancestor link encountered while opening
+ * `destination` answers with the same `ELOOP` the source side already refuses;
+ * an already-open Linux parent keeps writes in that directory even if its
+ * name is replaced. `mkdir`, used elsewhere for a nested destination directory, has
  * no such flag to give it — the one thing a live swap can still make land
  * outside is an empty directory a `mkdir` created through it before this
  * open ever ran, never a byte of file content, since every content write
@@ -620,9 +566,9 @@ export const exportAgentFolders = async (
         // the same libuv threadpool with it. `openNoFollow`, not a plain
         // `O_NOFOLLOW`, for the link: an ancestor swapped for one after a
         // directory containing this file was classified is followed by a
-        // plain open exactly as `readdir` follows it — `NOFOLLOW_ANY`
-        // refuses a link at any component the path still has, not only the
-        // last one, which is the gap round 2 found here.
+        // plain open exactly as `readdir` follows it. The macOS flag or
+        // Linux descriptor walk covers every component; an already-open
+        // Linux parent keeps its own directory if its name is replaced.
         handle = await openNoFollow(entry.source, constants.O_RDONLY | constants.O_NONBLOCK)
       } catch (error) {
         if (errnoOf(error) === 'ELOOP') {

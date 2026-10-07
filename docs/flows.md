@@ -175,6 +175,21 @@ the committed change the card was handed in a fresh checkout, and records
 advisory evidence that no rule counts. The field does not change when the Flow
 runs its own check cards or when you confirm a check retry.
 
+The host sets `HARNESSDESK_FLOW_ADVISORY=1` in a check requested by a Seat and
+`0` in the Flow's own check cards, including retries. A command can refuse an
+advisory run before it acts:
+
+```sh
+if [ "$HARNESSDESK_FLOW_ADVISORY" = 1 ]; then
+  echo "This command runs only as a Flow check card." >&2
+  exit 1
+fi
+```
+
+This flag comes from the host's launch mode, never an inherited environment
+value. It complements `onRequest`; a landing, publishing or deployment check
+still leaves that field off.
+
 **Run a check again.** A finished or interrupted check card on a running or
 stalled run offers *Run this check again…*. A stopped or settled run refuses
 the retry; start a new run instead. Reopening a check from the board uses the

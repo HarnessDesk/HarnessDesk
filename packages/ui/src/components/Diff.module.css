@@ -37,14 +37,14 @@
   width: calc(4ch + 16px);
 }
 
-.row td {
+.row :where(td) {
   padding: 0;
   vertical-align: top;
 }
 
 .gutter {
   width: 1%;
-  padding: 0 8px !important;
+  padding: 0 8px; /* desk: the cell class wins over the zero-specificity element reset (#954) */
   text-align: right;
   color: var(--hd-muted-foreground);
   background: color-mix(in srgb, var(--hd-foreground) 4%, transparent); /* desk: var(--hd-muted) → a quiet register inside the code plate */
@@ -53,7 +53,7 @@
 }
 
 .code {
-  padding: 0 10px !important;
+  padding: 0 10px; /* desk: the cell class owns its spacing (#954) */
   width: 100%;
 }
 
@@ -79,8 +79,8 @@
 }
 
 .hunk .code {
-  padding-top: var(--hd-space-2) !important;
-  padding-bottom: var(--hd-space-0-5) !important;
+  padding-top: var(--hd-space-2); /* desk: the hunk state wins over the cell class (#954) */
+  padding-bottom: var(--hd-space-0-5); /* desk: the hunk state owns its spacing (#954) */
   font-family: var(--hd-font-family);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-xs);

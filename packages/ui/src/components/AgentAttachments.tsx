@@ -94,6 +94,9 @@ export const AgentAttachments = ({
       >
         {view.mcpMode === 'runtime-defaults' ? 'Runtime defaults' : mcpNames.join(', ')}
       </SummaryItem>
+      {entry.definition?.runtimeServers !== undefined && <SummaryItem label="Native servers">
+        {entry.definition.runtimeServers.length === 0 ? 'None' : entry.definition.runtimeServers.join(', ')}
+      </SummaryItem>}
       {editing && (
         <AttachmentEditDialog
           entry={entry}

@@ -176,7 +176,7 @@ test('a Codex runtime the host has finished with will not start again', async (t
   assert.equal(running(born[0]!), false)
 })
 
-test('a conversation opening when the runtime quits cannot leave a new process behind', async (t) => {
+test('a conversation opening when the runtime quits leaves no process behind', async (t) => {
   if (process.platform === 'win32') return
   const desks = await desk(t)
   const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv() })
@@ -189,8 +189,8 @@ test('a conversation opening when the runtime quits cannot leave a new process b
   await new Promise<void>((resolve) => setImmediate(resolve))
   await runtime.dispose()
   await desks.release()
-  assert.match(await outcome, /stopped|not running|shut down/)
+  assert.match(await outcome, /stopped|not running|shut down|shutting down/)
   const born = await desks.generations()
-  assert.equal(born.length, 1, 'only the original control process started')
+  assert.equal(born.length, 1, 'only the one process ever started')
   assert.ok(born.every((pid) => !running(pid)), 'all started processes exited')
 })
