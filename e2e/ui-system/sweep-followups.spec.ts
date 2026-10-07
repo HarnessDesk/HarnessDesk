@@ -63,31 +63,37 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
-  test(`consent stays open with an explanation when its Run ends in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?theme=${theme}`)
-    await page.evaluate(async () => {
-      const root = document.getElementById('root')!
-      root.remove()
-      const container = document.createElement('section')
-      document.body.appendChild(container)
-      // Vite loads the fixture from this checkout, using the production dialog.
-      const url = '/src/preview/frames-retry-lifecycle.tsx'
-      const { mountRetryLifecycle } = await import(url)
-      mountRetryLifecycle(container)
+  for (const surface of ['timeline', 'inspector'] as const) for (const focused of ['opener', 'confirm'] as const) {
+    test(`${surface} consent moves focus from ${focused} to Keep when its Run ends in ${theme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme })
+      await page.goto(`/preview.html?theme=${theme}`)
+      await page.evaluate(async surface => {
+        const root = document.getElementById('root')!
+        root.remove()
+        const container = document.createElement('section')
+        document.body.appendChild(container)
+        // Vite loads the fixture from this checkout, using the production dialog.
+        const url = '/src/preview/frames-retry-lifecycle.tsx'
+        const { mountRetryLifecycle } = await import(url)
+        mountRetryLifecycle(container, surface)
+      }, surface)
+      const opener = page.getByRole('button', { name: 'Run again…', exact: true, includeHidden: true })
+      await opener.focus()
+      await page.keyboard.press('Enter')
+      const dialog = page.getByRole('alertdialog', { name: 'Run this check again?' })
+      await expect(dialog.getByRole('button', { name: 'Run again', exact: true })).toBeEnabled()
+      if (focused === 'confirm') await dialog.getByRole('button', { name: 'Run again', exact: true }).focus()
+      else await expect(opener).toBeFocused()
+      // The lifecycle update comes from outside the modal, as the host's event does.
+      await page.getByRole('button', { name: 'End Run', exact: true, includeHidden: true }).evaluate((node: HTMLButtonElement) => node.click())
+      if (focused === 'opener') await frame(page, `consent-${surface}-${theme}`)
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toContainText('This run is settled. Start a new run to run this check again.')
+      await expect(dialog.getByRole('button', { name: 'Run again', exact: true })).toBeDisabled()
+      await expect(dialog.getByRole('button', { name: 'Keep', exact: true })).toBeFocused()
+      if (focused === 'opener') await page.keyboard.press('Escape')
+      else await page.keyboard.press('Enter')
+      await expect(dialog).toBeHidden()
     })
-    await page.getByRole('button', { name: 'Run again…', exact: true }).click()
-    const dialog = page.getByRole('alertdialog', { name: 'Run this check again?' })
-    await expect(dialog.getByRole('button', { name: 'Run again', exact: true })).toBeEnabled()
-    await dialog.getByRole('button', { name: 'Keep', exact: true }).focus()
-    // The lifecycle update comes from outside the modal, as the host's event does.
-    await page.getByRole('button', { name: 'End Run', exact: true, includeHidden: true }).evaluate((node: HTMLButtonElement) => node.click())
-    await frame(page, `consent-${theme}`)
-    await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText('This run is settled. Start a new run to run this check again.')
-    await expect(dialog.getByRole('button', { name: 'Run again', exact: true })).toBeDisabled()
-    expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true)
-    await page.keyboard.press('Escape')
-    await expect(dialog).toBeHidden()
-  })
+  }
 }

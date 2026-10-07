@@ -16,7 +16,7 @@ import { useSnapshotSelector, useStore } from '../state/context'
  * never pressed through.
  *
  * Every place that offers a check again opens this one dialog: the Run view's
- * timeline row and inspector (`RunAgain`), the board's *Run this check again…*,
+ * timeline row and inspector, the board's *Run this check again…*,
  * and the stalled Run's *Review and run again…*.
  */
 export const RetryCheck = ({ run, card, onClose, refusal = null }: { readonly run: string; readonly card: number; readonly onClose: () => void; readonly refusal?: string | null }) => {
@@ -59,6 +59,7 @@ export const RetryCheck = ({ run, card, onClose, refusal = null }: { readonly ru
       tone="default"
       busy={busy}
       pending={record || refusal !== null || !preview?.token}
+      focusCancel={record || refusal !== null}
       onConfirm={() => void confirm()}
       onCancel={onClose}
     >
