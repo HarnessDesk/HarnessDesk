@@ -38,7 +38,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('#run-view-stopped [data-slot="run-header"]')).toContainText('Stopped')
     await expect(page.locator('#run-view-stopped [data-slot="run-ending"]')).toContainText('By you')
     await expect(page.locator('#run-view-stalled')).toContainText('The desk stopped while the check ran')
-    await expect(page.locator('#run-view-person')).toContainText('Needs you')
+    await expect(page.locator('#run-view-person [data-slot="run-need"]')).toContainText('Answer the review')
     await expect(page.locator('#run-view-pending')).toContainText('Reading checks and findings')
     await expect(page.locator('#run-view-failed')).toContainText('Some Run details could not be read')
     await expect(page.locator('#run-view-empty')).toContainText('No rounds have opened yet')
@@ -50,7 +50,7 @@ for (const theme of ['light', 'dark'] as const) {
     const rig = page.locator('#run-view-team')
     await rig.getByRole('tab', { name: 'Run 1', exact: true }).click()
     await expect(rig.locator('[data-slot="run-view"]')).toBeVisible()
-    await expect(rig.locator('[data-slot="run-ending"]')).toContainText('Ended without a next step')
+    await expect(rig.locator('[data-slot="run-need"]')).toContainText('Ended without a next step')
   })
 
   test(`Run findings keep damaged history visible at narrow width in ${theme}`, async ({ page }) => {
@@ -110,6 +110,65 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`Run reading measure, state rail and stable page header in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const running = page.locator('#run-view-running')
+    const measure = await running.locator('[data-slot="run-reading"]').evaluate(el => {
+      const box = el.getBoundingClientRect()
+      const scroll = el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect()
+      const rowElement = el.querySelector('[data-kind="round"]')!
+      const row = rowElement.getBoundingClientRect()
+      const meta = rowElement.querySelector('[data-slot="timeline-meta"]')!.getBoundingClientRect()
+      const title = rowElement.querySelector('[data-slot="timeline-heading"]')!.getBoundingClientRect()
+      return { width: box.width, column: Number.parseFloat(getComputedStyle(el).getPropertyValue('--hd-column')),
+        gutter: row.left - box.left, centre: (box.left + box.right - scroll.left - scroll.right) / 2,
+        metaAboveTitle: meta.bottom <= title.top }
+    })
+    expect(measure.width).toBe(measure.column)
+    expect(measure.gutter).toBe(32)
+    expect(Math.abs(measure.centre)).toBeLessThan(1)
+    expect(measure.metaAboveTitle).toBe(true)
+    await expect(running.locator('[data-row="round-4"] [data-slot="timeline-meta"]')).toContainText('so far')
+    await expect(running.locator('[data-row="round-2"] [data-slot="timeline-meta"]')).toHaveCount(0)
+    const stalled = page.locator('#run-view-stalled')
+    const needBox = await stalled.locator('[data-slot="run-need"]').boundingBox()
+    const readingBox = await stalled.locator('[data-slot="run-reading"]').boundingBox()
+    expect(needBox!.x).toBe(readingBox!.x)
+    expect(needBox!.width).toBe(readingBox!.width)
+    await expect(stalled.locator('[data-slot="run-need"] button')).toHaveCount(1)
+    await expect(stalled.locator('[data-slot="run-ending"]')).not.toContainText('The desk stopped')
+    const workspace = page.locator('#run-view-flow')
+    await workspace.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    const header = workspace.locator('[data-slot="run-header"]')
+    const actions = workspace.locator('[data-slot="run-actions"]')
+    const before = { header: await header.boundingBox(), actions: await actions.boundingBox() }
+    await workspace.getByRole('radio', { name: 'Flow', exact: true }).click()
+    expect(await header.boundingBox()).toEqual(before.header)
+    expect(await actions.boundingBox()).toEqual(before.actions)
+    for (const width of [848, 768, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      const geometry = await running.locator('[data-slot="run-scroll"]').evaluate(el => {
+        const bounds = el.getBoundingClientRect()
+        const reading = el.querySelector('[data-slot="run-reading"]')!.getBoundingClientRect()
+        return { overflow: el.scrollWidth > el.clientWidth + 1, left: reading.left - bounds.left,
+          right: bounds.right - reading.right, rowOverflow: [...el.querySelectorAll('[data-row]')].some(row => row.scrollWidth > row.clientWidth + 1),
+          timeInset: [...el.querySelectorAll('[data-slot="run-time"]')].every(time => {
+            const range = document.createRange()
+            range.selectNodeContents(time)
+            return !time.textContent || range.getBoundingClientRect().left >= reading.left
+          }) }
+      })
+      expect(geometry.overflow).toBe(false)
+      expect(geometry.rowOverflow).toBe(false)
+      expect(geometry.left).toBeGreaterThanOrEqual(24)
+      expect(geometry.right).toBeCloseTo(geometry.left, 1)
+      expect(geometry.timeInset).toBe(true)
+    }
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`Run commands shorten home paths across Flow, Steps, Timeline and inspector in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const flow = page.locator('#run-view-live-polish-flow')
@@ -146,5 +205,47 @@ for (const theme of ['light', 'dark'] as const) {
     const members = page.locator('[data-slot="team-members"]:visible')
     await expect(members.locator('[data-ceiling="edit"]')).toHaveText('Edit · asked, not enforced')
     await expect(members.locator('[data-ceiling="read"]')).toHaveText('Read only')
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Timeline rings align with the first title line and motion respects the person in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const timeline = page.locator('#run-view-running [data-slot="timeline"]')
+    await expect(timeline.locator(':scope > li')).toHaveCount(6)
+    const alignment = await timeline.locator('[data-slot="timeline-item"]').evaluateAll(items => items.map(item => {
+      const ring = item.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
+      const title = item.querySelector('[data-slot="timeline-heading"] button [data-slot="text"]')!
+      const line = document.createRange()
+      line.selectNodeContents(title)
+      const first = line.getClientRects()[0]!
+      return Math.abs((ring.top + ring.bottom - first.top - first.bottom) / 2)
+    }))
+    expect(alignment.every(delta => delta < 2)).toBe(true)
+    const rails = await timeline.locator('[data-slot="timeline-item"]').evaluateAll(items => items.slice(0, -1).map((item, index) => {
+      const rail = item.querySelector('[data-slot="timeline-rail"]')!.getBoundingClientRect()
+      const next = items[index + 1]!.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
+      return Math.abs(rail.bottom - (next.top + next.bottom) / 2)
+    }))
+    expect(rails.every(delta => delta < 1)).toBe(true)
+    const active = timeline.locator('[data-state="active"] > [data-slot="timeline-indicator"]')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    expect(await active.evaluate(el => getComputedStyle(el).animationName)).not.toBe('none')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    expect(await active.evaluate(el => getComputedStyle(el).animationName)).toBe('none')
+    await expect(page.locator('#run-view-stalled [data-row="round-4"]').locator('..').locator('..')).toHaveAttribute('data-state', 'warning')
+    await expect(page.locator('#run-view-failed-check [data-row="round-4"]').locator('..').locator('..')).toHaveAttribute('data-state', 'danger')
+    const retried = page.locator('#run-view-attempts [data-row="round-2"]').locator('..').locator('..')
+    await expect(retried).toHaveAttribute('data-state', 'done')
+    await expect(retried.locator('[data-kind="check"]')).toContainText('Passed')
+    await expect(retried.locator('[data-row="attempt-2-2-1"]')).toContainText('Failed')
+    const stopped = page.locator('#run-view-stopped-mid-round [data-row="round-4"]').locator('..').locator('..')
+    await expect(stopped).toHaveAttribute('data-state', 'pending')
+    await expect(stopped.locator('[data-kind="card"]')).toContainText('Stopped')
+    const waiting = page.locator('#run-view-waiting-evidence [data-row="round-4"]').locator('..').locator('..')
+    await expect(waiting).toHaveAttribute('data-state', 'warning')
+    await expect(page.locator('#run-view-waiting-evidence [data-slot="run-need"]')).toContainText('Waiting for 2 open blocking findings')
+    const borders = await timeline.locator(':scope > li').evaluateAll(items => items.map(item => getComputedStyle(item).borderTopWidth))
+    expect(borders.every(width => width === '0px')).toBe(true)
   })
 }

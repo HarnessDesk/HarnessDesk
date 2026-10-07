@@ -122,7 +122,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`at a narrow pane a person's step is a pushed detail with its controls and no sideways scroll in ${theme}`, async ({ page }) => {
     await open(page, theme)
     const narrow = page.locator('#run-controls-narrow')
-    await expect(narrow.locator('[data-slot="run-view"]')).toBeHidden()
+    await expect(narrow.locator('[data-slot="run-scroll"]')).toBeHidden()
     const inspector = narrow.locator('[data-slot="run-inspector"]')
     await expect(inspector).toBeVisible()
     await expect(inspector).toContainText('Your answer')

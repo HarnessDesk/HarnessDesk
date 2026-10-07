@@ -121,7 +121,8 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     const durationMs = round.state === 'closed' && since !== null && cards.every(Boolean)
       ? Math.max(0, Math.min(Math.max(...cards.map(one => one!.updatedAt)), endedAt ?? Infinity) - since) : null
     rows.push(row(`round-${round.n}`, 'round', `Round ${round.n} · ${round.role}`, {
-      round: round.n, detail: `${finished} of ${round.cards.length} answered`, durationMs,
+      round: round.n, detail: `${finished} of ${round.cards.length} answered`, durationMs, since,
+      working: execution.state === 'running' && round.state === 'running',
     }))
     const roundFindings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
     const recorded = findingRun?.rounds.find(one => one.round === round.n)

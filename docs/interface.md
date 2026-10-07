@@ -617,7 +617,11 @@ in [extending.md](extending.md).
 - **Model, effort, permissions and mode** are controls, not chips: they shape
   *how* the message is read, not what it says. Beside the model sits the
   context ring — how full the window is for whichever agent this pane talks to
-  ([context-usage.md](context-usage.md)).
+  ([context-usage.md](context-usage.md)). When an agent enables a model setting
+  itself, its reported state appears in the model control’s hover text and as
+  a chip beside the model name in its menu. This status comes only from the
+  agent’s report; an effort level or model name never supplies it. Reports
+  are observations and are left out of saved preset preferences.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
 - **A conversation that cannot be read returns its pane to a fresh draft.**
@@ -666,6 +670,14 @@ the rest of a queue into a rate limit, a crashed agent, or a turn the user just
 stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
 session that is no longer live could not deliver it anyway.
+
+### Cursor model controls
+
+Cursor Agent’s Max mode reflects the flag saved after the turn. **Auto Max**
+says Cursor enabled it, without changing your choice for the next turn. A
+choice made while the turn runs takes precedence over that turn’s report.
+Max mode belongs to Cursor Agent; another agent’s “max” effort is a reasoning
+level and does not declare this status.
 
 ## Settings
 
@@ -1179,6 +1191,19 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+The page-wide header keeps the Run's state and recorded start, elapsed time,
+round budget and Seat cost, with Stop and Timeline · Flow on the right.
+Missing times and costs stay explicit; an incomplete cost says partial.
+The timeline shares the conversation's centred reading measure with the need
+card. One continuous rail joins Start, the brief, recorded rounds and End;
+spacing separates steps. A ring centres on each title's first line: finished
+steps and their incoming rail use full ink, active work spins, pending work
+stays faint, and attention or failure carries its tone. Reduced motion keeps
+the active ring still. Known times and durations sit above the title, followed
+by muted detail; unknown times are omitted. Cards, checks and findings are
+quiet rows in the content column, with actions at the right. End selects its
+recorded detail with a plain title. Narrow panes retain the reading inset.
+
 Run details and Steps live in the app’s dock, with the same tabs, move,
 expand and hide controls as the conversation’s inspectors. The title-bar’s
 right-panel control puts them away and brings them back. Run details keeps
@@ -1204,9 +1229,11 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
-An ended Run keeps its reason, time and next actions together in one End summary.
-Status and aggregate publication stay in the Run header; the ending uses a warning
-only when a consequence needs attention. Finished work offers **Wrap**;
+When a Run needs the person, one need card above Timeline and Flow keeps its
+reason and at most two existing next actions. The End row stays selectable
+without repeating that reason or its actions. Other ended Runs keep their
+reason, time and next actions together in one End summary. Status and aggregate
+publication stay in the Run header. Finished work offers **Wrap**;
 an answer no rule follows offers **Run again…** and **Board**; a person or desk
 stop offers **Run again…**. An interrupted check keeps **Review and run again…**
 and its recorded reason. A spent budget names the limit and how many rounds

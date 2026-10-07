@@ -23,7 +23,7 @@
  *
  *   COMPOSITIONS are ours: Bar, Stat, Section, ListRow, the sortable item, Board, EmptyState, Field,
  *   Delta, IconTile, AvatarStack, KeyValue and SummaryList, GroupLabel,
- *   Progress, Stepper, Sparkline, and the chart kit. They answer the question one step up — "what does a figure
+ *   Progress, Stepper, Timeline, Sparkline, and the chart kit. They answer the question one step up — "what does a figure
  *   on a dashboard look like", "what does a titled region of a page look
  *   like" — which is the question every screen used to answer for itself,
  *   slightly differently, in a `<div className="flex flex-col gap-1">` that
@@ -129,6 +129,7 @@ export * from './spark'
 export * from './stat'
 export * from './stepper'
 export * from './switch'
+export * from './timeline'
 export * from './table'
 export * from './tabs'
 export * from './textarea'

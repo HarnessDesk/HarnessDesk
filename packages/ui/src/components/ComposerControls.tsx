@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, CodeText, Dialog, RowChoice, Search, Text } from '../design'
+import { Button, Chip, CodeText, Dialog, RowChoice, Search, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -606,6 +606,7 @@ export const ModelControl = () => {
   // and how hard it thinks.
   const name = !session && activeRoute ? activeRoute.name : model.type === 'select' ? currentLabel(model) : model.label
   const effort = firstLevel && !activeRoute ? currentLabel(firstLevel) : null
+  const statuses = [...new Set((all ?? []).flatMap((option) => option.modelStatus ? [option.modelStatus] : []))]
 
   // The short list: the first few the runtime offers, plus the current one.
   const featured: OptionChoice[] = []
@@ -631,7 +632,8 @@ export const ModelControl = () => {
           /* Narrow, the words go to the hover text — and so, with nothing else
              to name the trigger, to its accessible name. */
           title={
-            folded ? `${[name, effort].filter(Boolean).join(' · ')} — model and reasoning` : 'Model and reasoning'
+            folded ? `${[name, effort, ...statuses].filter(Boolean).join(' · ')} — model and reasoning`
+              : ['Model and reasoning', ...statuses].join(' · ')
           }
           drop="up"
           label={
@@ -656,6 +658,8 @@ export const ModelControl = () => {
         >
           {(close) => (
             <Menu close={close}>
+              {statuses.length > 0 && <MenuLabel>{name} {statuses.map((status) =>
+                <Chip key={status} tone="neutral">{status}</Chip>)}</MenuLabel>}
               {model.type === 'select' ? (
                 <>
                   {model.disabled && <MenuNote>{model.disabled}</MenuNote>}

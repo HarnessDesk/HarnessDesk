@@ -90,7 +90,9 @@ for (const theme of ['light', 'dark'] as const) {
       // An ended Run may offer a fresh Run; only that ending door remains, never a check retry.
       const fresh = id === 'run-view-complete' ? 0 : 1
       await expect(view.getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
-      await expect(view.locator('[data-slot="run-ending"]').getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
+      const door = view.locator(id === 'run-view-settled' ? '[data-slot="run-need"]' : '[data-slot="run-ending"]')
+      await expect(door.getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
+      if (id === 'run-view-settled') await expect(view.locator('[data-slot="run-ending"] button')).toHaveCount(1)
     }
     for (const [scene, state] of [['check-refused', 'settled'], ['check-stopped', 'stopped']] as const) {
       const refused = page.locator(`#run-inspector-${scene} [data-slot="run-inspector"]`)
