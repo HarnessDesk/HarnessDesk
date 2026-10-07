@@ -109,6 +109,8 @@ test('a pointer-opened menu returns quietly after Escape', async ({ page }) => {
   const trigger = page.locator('header button[aria-label*=" — "]').first()
   await trigger.click()
   await expect(page.getByRole('menu')).toBeVisible()
+  // Test returned focus with the pointer away, without a pending trigger hover.
+  await page.mouse.move(0, 0)
   await page.keyboard.press('Escape')
   await expect(trigger).toBeFocused()
   await page.clock.runFor(650)
