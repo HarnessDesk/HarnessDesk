@@ -1,0 +1,7 @@
+{
+  "before": "a7b610a25379af753a84b61a175a8293c2fad750",
+  "renderer": "packages/ui/src/components/RunView.tsx",
+  "fixtures": "Matching synthetic stopped Run with a closed round and released open card",
+  "clock": "2026-10-06T19:00:00Z",
+  "after": "6860e80b07ff9b601ca20eea7c875bc8f8a33bb4"
+}
