@@ -4409,13 +4409,19 @@ export class AppStore {
   #findingsRefreshers = new Map<string, () => void>()
   #findingRunLoads = new Map<string, number>()
   #findingRunReading = new Map<string, { goal: GoalId; run: string; generation: number }>()
+  #findingRunPinned = new Map<string, { goal: GoalId; run: string }>()
+  #findingRunVisible = new Map<string, { goal: GoalId; run: string }>()
 
-  /** Pending first reads count as interested too: invalidation must not disappear before the cache exists. */
+  /** Only active readers and Run rows on screen follow reviewer-result changes. */
   #findingRunReads(goal: GoalId): readonly string[] {
     return [...new Set([
-      ...[...this.#snapshot.findingRuns.values()].filter(view => view.goal === goal).map(view => view.run),
-      ...[...this.#findingRunReading.values()].filter(read => read.goal === goal).map(read => read.run),
+      ...[...this.#findingRunPinned.values(), ...this.#findingRunVisible.values()]
+        .filter(read => read.goal === goal).map(read => read.run),
     ])]
+  }
+
+  #refreshFindingRun(goal: GoalId, run: string): Promise<void> {
+    return this.#readFindingRun(goal, run, JSON.stringify([goal, run]))
   }
 
   #findingsRefresh(goal: GoalId): void {
@@ -4424,7 +4430,7 @@ export class AppStore {
       trigger = coalesce(() => {
         const current = this.#snapshot.findings.get(goal)
         if (current) void this.loadFindings(goal, current.filter)
-        for (const run of this.#findingRunReads(goal)) void this.loadFindingRun(goal, run).catch(() => {})
+        for (const run of this.#findingRunReads(goal)) void this.#refreshFindingRun(goal, run).catch(() => {})
       })
       this.#findingsRefreshers.set(goal, trigger)
     }
@@ -4438,7 +4444,7 @@ export class AppStore {
     let trigger = this.#findingRunsRefreshers.get(goal)
     if (!trigger) {
       trigger = coalesce(() => {
-        for (const run of this.#findingRunReads(goal)) void this.loadFindingRun(goal, run).catch(() => {})
+        for (const run of this.#findingRunReads(goal)) void this.#refreshFindingRun(goal, run).catch(() => {})
       })
       this.#findingRunsRefreshers.set(goal, trigger)
     }
@@ -4515,6 +4521,25 @@ export class AppStore {
   /** A run's findings, as a person reads and decides them. */
   async loadFindingRun(goal: GoalId, run: string): Promise<void> {
     const key = JSON.stringify([goal, run])
+    this.#findingRunPinned.set(key, { goal, run })
+    return this.#readFindingRun(goal, run, key)
+  }
+
+  /** A Runs row follows reviewer changes only while it is in the visible list. */
+  async loadVisibleFindingRun(goal: GoalId, run: string): Promise<void> {
+    const key = JSON.stringify([goal, run])
+    this.#findingRunVisible.set(key, { goal, run })
+    if (this.#findingRunReading.has(key)) return
+    return this.#readFindingRun(goal, run, key)
+  }
+
+  /** Stop refreshing a Runs row after it scrolls out of view. */
+  releaseVisibleFindingRun(goal: GoalId, run: string): void {
+    const key = JSON.stringify([goal, run])
+    if (this.#findingRunVisible.get(key)?.goal === goal) this.#findingRunVisible.delete(key)
+  }
+
+  async #readFindingRun(goal: GoalId, run: string, key: string): Promise<void> {
     const generation = (this.#findingRunLoads.get(key) ?? 0) + 1
     this.#findingRunLoads.set(key, generation)
     this.#findingRunReading.set(key, { goal, run, generation })
@@ -4531,6 +4556,7 @@ export class AppStore {
 
   async decideFindingRun(input: HostParams<'finding/decide'>): Promise<FindingRunView> {
     const view = await this.transport.request('finding/decide', input)
+    this.#findingRunPinned.set(JSON.stringify([input.goal, input.run]), { goal: input.goal, run: input.run })
     const findingRuns = new Map(this.#snapshot.findingRuns)
     findingRuns.set(input.run, view)
     this.#patch({ findingRuns })

@@ -295,6 +295,13 @@
   margin-inline: auto;
 }
 
+@container hd-header (max-width: 56rem) {
+  .barFacts [data-team-trigger-source],
+  .barFacts [data-team-pinned-at] {
+    display: none;
+  }
+}
+
 @container hd-header (max-width: 38rem) {
   /* Consent and Run state stay whole; the source uses its short label. */
   .barFacts [data-team-trigger-label='full'] {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FindingRunView, FlowExecution, TriggerGoalStatus, TriggerPreferences, TriggerView } from '@harnessdesk/protocol'
 import { ActionError, Button, Chip, EmptyState, PageHead, PanelFilter, PanelFooter, PanelPill, PaneColumn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { elapsedSince } from '../lib/clock'
@@ -50,7 +50,7 @@ export const useTeamTrigger = (root: string, id: string | null) => {
   const pushed = snapshot.triggerPreferences
   const prefs = pushed && current?.prefs && pushed.revision > current.prefs.revision ? pushed : current?.prefs ?? null
   return {
-    view: current?.view ?? null, prefs, busy,
+    view: current?.view ?? null, ready: current !== null, prefs, busy,
     problem: problem?.root === root && problem.id === id ? problem.text : null,
     pause: async () => {
       if (!prefs || !id || busy) return
@@ -81,7 +81,7 @@ const stateOf = (run: FlowExecution) => run.state === 'stalled' || run.end?.kind
   ? 'Needs you' : run.state === 'settled' ? 'Settled' : run.state === 'stopped' ? 'Stopped' : 'Running'
 
 /** The Team's recorded Runs; opening one retains this page and its filters. */
-export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onOpen, onEdit }: {
+export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onOpen, onEdit, onRunVisibility, active }: {
   runs: readonly FlowExecution[]
   findings: ReadonlyMap<string, FindingRunView>
   ledger: FindingsListState | undefined
@@ -90,10 +90,13 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
   problem: string | null
   onOpen: (run: string) => void
   onEdit: () => void
+  onRunVisibility: (run: string, visible: boolean) => void
+  active: boolean
 }) => {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   const [now, setNow] = useState(Date.now)
+  const viewport = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(timer)
@@ -133,13 +136,35 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
     return elapsed === null ? '—' : formatAge(run.startedAt!, now)
   }
   const shown = ordered.filter(run => (filter === 'All' || stateOf(run) === filter)
-    && `${title(run)} ${detail(run)} ${stateOf(run)} ${reviewers(run)}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    && `${title(run)} ${detail(run)} ${stateOf(run)}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+  const shownRuns = JSON.stringify(shown.map(run => run.id))
+  useEffect(() => {
+    if (!active || !viewport.current || typeof IntersectionObserver === 'undefined') return
+    const visible = new Set<string>()
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const run = (entry.target as HTMLElement).dataset.run
+        if (!run) continue
+        if (entry.isIntersecting && !visible.has(run)) {
+          visible.add(run)
+          onRunVisibility(run, true)
+        } else if (!entry.isIntersecting && visible.delete(run)) {
+          onRunVisibility(run, false)
+        }
+      }
+    }, { root: viewport.current })
+    viewport.current.querySelectorAll<HTMLElement>('[data-run]').forEach(row => observer.observe(row))
+    return () => {
+      observer.disconnect()
+      for (const run of visible) onRunVisibility(run, false)
+    }
+  }, [active, onRunVisibility, shownRuns])
   const today = new Date(now).toISOString().slice(0, 10)
   const todayCount = runs.filter(run => run.startedAt != null && new Date(run.startedAt).toISOString().slice(0, 10) === today).length
   const prefs = trigger.prefs
   const daily = prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
   const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC) · ${daily}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
-  return <PaneColumn inset="reading" page data-slot="team-runs" className="@container/runs flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+  return <PaneColumn ref={viewport} inset="reading" page data-slot="team-runs" className="@container/runs flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
     <PageHead title="Runs" blurb={facts} actions={<>
       <Button variant="outline" disabled={!prefs || trigger.busy}
         onClick={() => void trigger.pause()}>{prefs?.paused ? 'Resume every trigger' : 'Pause every trigger'}</Button>

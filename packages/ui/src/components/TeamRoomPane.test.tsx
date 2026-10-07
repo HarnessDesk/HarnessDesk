@@ -3698,6 +3698,47 @@ it('lists a trigger Team’s Runs newest first, filters them, and returns from a
   expect(container.querySelectorAll('[data-run]')).toHaveLength(1)
 })
 
+it('loads reviewer details only for Runs in view and releases them when they leave view', async () => {
+  const runs = new Map(['newest', 'middle', 'oldest'].map((id, index) => [id, {
+    version: 2, id, goal: ROOM, state: 'settled', startedAt: 3 - index,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT,
+  } as FlowExecution]))
+  const observers: Array<{ fire: (target: Element, visible: boolean) => void; targets: Element[] }> = []
+  vi.stubGlobal('IntersectionObserver', class {
+    readonly targets: Element[] = []
+    constructor(private readonly callback: IntersectionObserverCallback) {
+      observers.push({ targets: this.targets, fire: (target, visible) => this.callback([
+        { target, isIntersecting: visible, intersectionRatio: visible ? 1 : 0 },
+      ] as IntersectionObserverEntry[], this as unknown as IntersectionObserver) })
+    }
+    observe(target: Element) { this.targets.push(target) }
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return [] }
+  })
+  try {
+    const { store } = triggerRig([], {}, [], runs)
+    const loadFindingRun = vi.fn().mockResolvedValue(undefined)
+    const loadVisibleFindingRun = vi.fn().mockResolvedValue(undefined)
+    const releaseVisibleFindingRun = vi.fn()
+    Object.assign(store, { loadFindingRun, loadVisibleFindingRun, releaseVisibleFindingRun })
+    await render(store)
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+
+    expect(loadFindingRun).toHaveBeenCalledTimes(1) // The current Run is also shown on Overview.
+    expect(loadFindingRun.mock.calls.map(([, run]) => run)).not.toEqual(expect.arrayContaining(['newest', 'middle', 'oldest']))
+    const observed = observers[0]!
+    expect(observed.targets).toHaveLength(3)
+    const row = observed.targets.find(target => (target as HTMLElement).dataset.run === 'newest')!
+    act(() => observed.fire(row, true))
+    expect(loadVisibleFindingRun).toHaveBeenCalledWith(ROOM, 'newest')
+    act(() => observed.fire(row, false))
+    expect(releaseVisibleFindingRun).toHaveBeenCalledWith(ROOM, 'newest')
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
 it('opens the empty Runs page and pauses using the recorded machine revision and cap', async () => {
   const { store } = triggerRig([])
   const prefs = triggerPreferences({ revision: 8, paused: false, dailyUsd: 25, chargedUsd: null })
@@ -3831,6 +3872,31 @@ it('uses the recorded trigger subject when an unattended Run has no front-door t
   expect(subject.textContent).toContain('1d ago')
   const cells = subject.querySelectorAll('td')
   expect(cells[3]?.textContent).toBe('—')
+})
+
+it('uses the completed trigger read reason in the source chip instead of a loading tooltip', async () => {
+  const { store } = triggerRig([])
+  const reason = 'The committed trigger needs review.'
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({
+      id: 'triage-issue', definition: null, reason,
+    })] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const source = container.querySelector('[data-team-trigger-label="full"]')!
+  expect(source.closest('[data-slot="chip"]')?.getAttribute('title')).toBe(reason)
+})
+
+it('does not keep a loading tooltip when the completed trigger read has no declaration', async () => {
+  const { store } = triggerRig([])
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const source = container.querySelector('[data-team-trigger-label="full"]')!
+  expect(source.closest('[data-slot="chip"]')?.getAttribute('title')).toBeNull()
 })
 
 it('draws a check run more than once with each attempt under it, and asks the desk for them only while the Run is on show', async () => {

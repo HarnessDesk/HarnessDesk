@@ -41,6 +41,8 @@ export const triggerRunsStore = () => {
   Object.assign(store, {
     loadFindings: async () => {},
     loadFindingRun: async () => {},
+    loadVisibleFindingRun: async () => {},
+    releaseVisibleFindingRun: () => {},
     triggerGoal: async () => triggerGoalStatus({ goal: goal.goal.id, url: 'https://github.com/acme/storefront/pull/7', budget: null, waits: [] }),
     projectTriggers: async () => triggerProjectView({ project: goal.goal.root, triggers: [triggerView({ armed: true, state: prefs.paused ? 'paused' : 'armed' })] }),
     triggerPreferences: async () => prefs,

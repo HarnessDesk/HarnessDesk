@@ -377,17 +377,19 @@ export const TeamRoomPane = ({
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
   const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)), [snapshot.flowExecutions, room])
-  const runsSignal = runs.map(one => `${one.id}:${one.state}:${one.rounds.map(round => `${round.n}:${round.state}`).join(',')}`).join('|')
   const [runsReviewProblem, setRunsReviewProblem] = useState<{ room: string; text: string } | null>(null)
   useEffect(() => {
-    if (!triggerKind || open !== 'run') return
-    let live = true
-    setRunsReviewProblem(null)
-    void Promise.all(runs.map(one => store.loadFindingRun(room, one.id))).catch(() => {
-      if (live) setRunsReviewProblem({ room, text: 'Some reviewer results could not be read.' })
+    if (open === 'run' && chosenRun === null) setRunsReviewProblem(null)
+  }, [open, room, chosenRun])
+  const onRunReviewVisibility = useCallback((run: string, visible: boolean) => {
+    if (!visible) {
+      store.releaseVisibleFindingRun(room, run)
+      return
+    }
+    void store.loadVisibleFindingRun(room, run).catch(() => {
+      setRunsReviewProblem({ room, text: 'Some reviewer results could not be read.' })
     })
-    return () => { live = false }
-  }, [store, room, triggerKind, open, runsSignal])
+  }, [store, room])
   const timelineRun = runs.find(one => one.id === chosenRun) ?? flowExecution
   const timelineCards = timelineRun?.rounds.flatMap(one => one.cards).join(',') ?? ''
   const [timelinePending, setTimelinePending] = useState(false)
@@ -975,6 +977,9 @@ export const TeamRoomPane = ({
     if (grid.tiles.length === 0) setGrid(roster.slice(0, MAX_TILES).reduce((state, member) => placeTile(state, member.key), grid))
     show('side-by-side')
   }
+  const triggerSourceTitle = triggerControl.view?.definition
+    ? teamTriggerLabel(originStatus, triggerControl.view)
+    : triggerControl.view?.reason ?? (triggerControl.ready ? undefined : triggerControl.problem ?? 'Trigger declaration is being read')
 
   return (
     <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
@@ -1001,10 +1006,10 @@ export const TeamRoomPane = ({
         actions={<div className={`${styles.barVerbs} hd-no-drag`}>
           <div className={styles.barFacts}>
             {runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
-            {triggerKind && <Chip tint="amber" title={triggerControl.view?.definition ? teamTriggerLabel(originStatus, triggerControl.view) : 'Trigger declaration is being read'}>
+            {triggerKind && <span data-team-trigger-source=""><Chip tint="amber" title={triggerSourceTitle}>
               <span data-team-trigger-label="full">{teamTriggerLabel(originStatus, triggerControl.view)}</span>
               <span data-team-trigger-label="short">{teamTriggerLabel(originStatus, triggerControl.view, true)}</span>
-            </Chip>}
+            </Chip></span>}
             {triggerKind && triggerControl.view && !record && <Chip tone={triggerControl.view.state === 'armed' && !triggerControl.prefs?.paused ? 'success' : 'neutral'}>
               {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}
             </Chip>}
@@ -1138,9 +1143,9 @@ export const TeamRoomPane = ({
 
               </div>}
             </Popover>
-            {pinnedAt && <Text role="meta" className="truncate" title={pinnedAt.sha ?? undefined}>
+            {pinnedAt && <span data-team-pinned-at=""><Text role="meta" className="truncate" title={pinnedAt.sha ?? undefined}>
               {pinnedAt.sha ? (pinnedAt.label ? `at ${shortSha(pinnedAt.sha)} on ${pinnedAt.label}` : `at ${shortSha(pinnedAt.sha)}`) : pinnedAt.label}
-            </Text>}
+            </Text></span>}
           </div>
           {!record && <ToolPaneHeaderDivider />}
           <span className={styles.barWrapFull} hidden={headerLayout.narrow === true}>
@@ -1199,7 +1204,8 @@ export const TeamRoomPane = ({
           {open === 'run' && triggerKind && <div hidden={chosenRun !== null} className={chosenRun !== null ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
             <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} trigger={triggerControl}
               problem={runHistoryProblem?.room === room ? runHistoryProblem.message : runsReviewProblem?.room === room ? runsReviewProblem.text : timelineReadError ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? null}
-              onOpen={setChosenRun} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)} />
+              onOpen={setChosenRun} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)}
+              onRunVisibility={onRunReviewVisibility} active={chosenRun === null} />
           </div>}
           {open === 'receipt' ? (
             <PaneColumn inset="reading" page className="min-h-0 flex-1 overflow-y-auto">

@@ -1183,8 +1183,9 @@ A Team opened by a project trigger calls this tab **Runs**:
 its recorded starts appear newest first, with their subject, state, reviewer
 answers or findings, duration and start time. Search and state filters keep
 their place when a row opens its timeline and the person returns to Runs.
-The bar keeps the Run's state and shows the trigger and its current consent
-state beside it; a trigger being Off or Armed does not hide Needs you. The page
+The bar keeps the Run's state beside the trigger's current consent; the source
+label and pinned revision fold away before they take width from the Team name
+and tools. A trigger being Off or Armed does not hide Needs you. The page
 header shows today's Run count and the machine's dollar cap. **Pause every
 trigger** applies to every trigger on this Mac, with its consequence stated
 in view: it holds all work started by triggers, interrupting its turns and
