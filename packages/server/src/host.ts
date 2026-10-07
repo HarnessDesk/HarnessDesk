@@ -139,7 +139,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { canonicalPath } from './path-identity.js'
+import { canonicalPath, withCanonicalPaths } from './path-identity.js'
 import { dropFlowBase, fetchFlowBase } from './flow-base.js'
 import { samePath, shellCheckoutIdentity, Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
@@ -884,16 +884,16 @@ export class Host {
         if (matches.length !== 1 || !matches[0]?.branch) return null
         return { cwd: matches[0].path, branch: matches[0].branch }
       },
-      active: (lane) => {
+      active: (lane) => withCanonicalPaths(() => {
         const cwd = lane.cwd ? canonicalPath(lane.cwd) : null
         return this.#evidence.seats.all().some((seat) => !seat.closed && !seat.restored && (
           seat.id === lane.seat || seat.board === lane.goal && cwd !== null && samePath(canonicalPath(seat.checkout.cwd), cwd)
         ))
-      },
-      busy: (lane) => {
+      }),
+      busy: (lane) => withCanonicalPaths(() => {
         const cwd = lane.cwd ? canonicalPath(lane.cwd) : null
         return cwd !== null && this.registry.all().some((record) => isBusy(record.session) && samePath(canonicalPath(record.session.cwd), cwd))
-      },
+      }),
     })
     this.#credentials = new CredentialBroker(
       join(this.#state.directory, 'credentials.json'),
@@ -1879,7 +1879,7 @@ export class Host {
     })
     this.#extensions = options.extensions ?? null
     this.#extensions?.setShellWorkspaceResolver((scope) => this.#shellWorkspace(scope))
-    this.#extensions?.setBrowserResolver?.((scope) => {
+    this.#extensions?.setBrowserResolver?.((scope) => withCanonicalPaths(() => {
       if (!scope.runtime || !scope.sessionId) return undefined
       const record = this.registry.get(scope.runtime, scope.sessionId)
       if (!record) return undefined
@@ -1893,7 +1893,7 @@ export class Host {
         throw new Error('This lane was released. Open a new isolated Seat.')
       }
       return lane?.browserProfile ?? 'default'
-    })
+    }))
     if (this.#extensions) {
       this.#subscriptions.push(
         this.#extensions.subscribe((event) => this.#onExtensionEvent(event)),
@@ -2646,25 +2646,27 @@ export class Host {
   }
 
   #withHostHistory(id: RuntimeId, page: Page<SessionSummary>, query?: ListSessionsQuery): Page<SessionSummary> {
-    if (query?.cursor) return page
-    const rows = new Map(page.data.map((row) => [String(row.id), row]))
-    const cwd = query?.cwd ? canonicalPath(query.cwd) : null
-    for (const record of this.registry.all()) {
-      const session = record.session
-      if (record.runtime !== id || rows.has(String(session.id)) || (cwd !== null && !samePath(cwd, canonicalPath(session.cwd)))) continue
-      rows.set(String(session.id), {
-        id: session.id,
-        runtime: id,
-        title: session.title,
-        preview: session.preview,
-        cwd: session.cwd,
-        status: record.live ? { type: 'active' } : { type: 'notLoaded' },
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        git: session.git,
-      })
-    }
-    return { ...page, data: [...rows.values()].sort((a, b) => b.updatedAt - a.updatedAt) }
+    return withCanonicalPaths(() => {
+      if (query?.cursor) return page
+      const rows = new Map(page.data.map((row) => [String(row.id), row]))
+      const cwd = query?.cwd ? canonicalPath(query.cwd) : null
+      for (const record of this.registry.all()) {
+        const session = record.session
+        if (record.runtime !== id || rows.has(String(session.id)) || (cwd !== null && !samePath(cwd, canonicalPath(session.cwd)))) continue
+        rows.set(String(session.id), {
+          id: session.id,
+          runtime: id,
+          title: session.title,
+          preview: session.preview,
+          cwd: session.cwd,
+          status: record.live ? { type: 'active' } : { type: 'notLoaded' },
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+          git: session.git,
+        })
+      }
+      return { ...page, data: [...rows.values()].sort((a, b) => b.updatedAt - a.updatedAt) }
+    })
   }
 
   async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
@@ -6437,6 +6439,10 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    withCanonicalPaths(() => this.#foldEvent(runtime, event))
+  }
+
+  #foldEvent(runtime: RuntimeId, event: AgentEvent): void {
     if (event.type === 'notice') {
       event = { ...event, id: event.id ?? `notice-${randomBytes(8).toString('hex')}`, at: event.at ?? Date.now() }
       const rawCounts = this.#state.state.preferences['runtimeNoticeCounts']

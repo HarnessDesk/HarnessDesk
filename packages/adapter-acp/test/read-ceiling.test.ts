@@ -272,6 +272,8 @@ test('asked read seats select a reject option and keep question and provenance b
       _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__git_status' } } }, expected: reject },
     { name: 'fetch', toolCall: { toolCallId: 'fetch', kind: 'fetch' }, expected: reject },
     { name: 'think question', toolCall: { toolCallId: 'question', kind: 'think', rawInput: { questions: [question] } }, expected: { outcome: 'selected', optionId: 'yes' } },
+    { name: 'kind-less question', toolCall: { toolCallId: 'kind-less-question', rawInput: { questions: [question] } },
+      _meta: { harnessdesk: { question } }, expected: { outcome: 'selected', optionId: 'yes' } },
     ...['edit', 'delete', 'move', 'execute', 'switch_mode'].map(kind => ({
       name: `${kind} question`, toolCall: { toolCallId: `${kind}-question`, kind, rawInput: { questions: [question] } }, expected: reject,
     })),
@@ -289,7 +291,7 @@ test('asked read seats select a reject option and keep question and provenance b
       assert.deepEqual(JSON.parse(item.text), expected)
     })
   }
-  assert.equal(approvals.length, 1, 'only the non-mutating question reaches the person')
+  assert.equal(approvals.length, 2, 'both non-mutating questions reach the person')
 })
 
 test('a held peer receives the remembered ceiling on load, and non-read loads stay unchanged', { timeout: 10_000 }, async (t) => {

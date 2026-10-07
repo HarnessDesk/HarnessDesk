@@ -128,8 +128,10 @@ progress, then an idle one whose managed spawn starts it through the host's
 stop/start barrier. Among multiple ready providers, account reads run in order
 and each is bounded to two seconds; a late or failed read counts as signed
 out. The first provider with a signed-in account or no sign-in method hosts.
-If all are signed out, the first ready provider still hosts, so sign-in never
-prevents a terminal.
+If all are signed out, the first ready provider whose account read answered
+still hosts; only when every read failed or was late does the first ready
+provider stand in. The two-second deadline is per provider, and a failed or
+late read leaves a warning in the host log. Sign-in never prevents a terminal.
 Unavailable providers are skipped; when none is available, the terminal is
 refused in the requested agent's name.
 
@@ -183,6 +185,15 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   `turn/completed` for all of them. A turn that ended badly holds the queue
   rather than firing it. Like approvals, it sits beside the session rather than
   inside it, so an adapter re-emitting a whole `Session` cannot erase it.
+- **Folder identity reads** (`path-identity.ts`) — Goal and room lists,
+  subscription filters, session-history merging, lane scans and event folding
+  share native-resolved folder identities within one computation. The cache
+  ends when the synchronous read returns or the asynchronous list settles;
+  concurrent reads have separate snapshots, and detached work cannot retain a
+  finished cache. A new computation resolves renamed, removed or retargeted
+  folders again. Missing historical folders retain their lexical identity.
+  Admission checks for an unchanged canonical location still read realpath
+  directly.
 - **Git and worktrees** — status, diffs, hunk staging, and the managed
   worktrees a conversation can run in (`worktrees/`). Main-checkout folders
   resolved through Git's metadata are checked again from inside the folder:
