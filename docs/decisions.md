@@ -754,6 +754,45 @@ below still holds; *which* machine answers it does not have an answer yet.
 
 **The rule:** the row is a fallback, not an instruction.
 
+## "Not installed" is said of a machine with no copy, and of nothing else
+
+Finding Codex means asking each copy for its version. A copy that was there and
+did not answer used to count as no copy at all, so a machine that was busy, a
+launcher that could not find its `node`, a spawn refused under load — states
+that pass — read as "Codex is not installed", with an install hint for a program
+the person had installed. And nothing looked again: the runtime stayed failed
+until the app restarted.
+
+So the two are told apart, and the second is told apart again. No copy anywhere
+is `notInstalled`. A copy that is there and would not answer is `unreadable`
+when a later ask could differ — it timed out, was ended by a signal, exited
+non-zero (a launcher whose `node` is in a folder the PATH it was run with does
+not name exits 127), or the machine refused the spawn for want of a resource —
+and `spawnFailed` when it could not: it printed no version, it is not
+executable, it is not Codex. Either names the copy and what it did.
+
+**Discovery asks once, and the desk never waits on a second ask.** The window
+opens after the runtimes are started, so a retry inside the start is a blank
+screen for as long as it lasts, on every launch, for a machine that is genuinely
+broken. Asking again is the host's, in the background: when the PATH the login
+shell builds lands and changes anything, the runtimes that read `notInstalled`
+or `unreadable` are asked once more (`Host.retryProgramLookup`, the look
+`installs/shell-path.ts` always said would happen); and an `unreadable` runtime
+is asked again on a short schedule from the moment the desk starts
+(`retryDelaysMs`), which a quit ends. Each runtime is judged after its own start
+only, up to the deadline every start has, because one agent that never answers
+`initialize` must not turn the look off for the others. A missing program is not
+on the schedule: what it waits for is a PATH.
+
+*Open:* the install lookup that picks which copy of an ACP agent runs
+(`installs/locate.ts`) has the same shape — an unreadable copy is never chosen,
+so the agent reads "not installed" — and has only the second half of this, the
+re-ask on a PATH change.
+
+**The rule:** "not installed" is said of a machine with no copy of the program.
+A copy that exists is never called missing, and the window never waits on the
+asking again.
+
 ## A pull request is published through the desk, and the desk signs it
 
 A vendor's own client signs the pull requests its agent opens — "Generated
@@ -2175,8 +2214,10 @@ differs between seats is a parameter of their own thread, never of the process:
   read in the same chunk as the answer — and does not announce that close
   or its `notLoaded` status back to the desk, which asked for it. The
   sub-agent threads it left loaded are found among the loaded threads by their
-  parent and unsubscribed with it, which a process of its own used to do by
-  exiting; a thread a session here holds, or another seat's, is left alone. A
+  parent; an in-progress child turn is interrupted before its thread is
+  unsubscribed, with each read and stop bounded to two seconds and errors
+  ignored. This replaces what a process of its own used to do by exiting;
+  a thread a session here holds, or another seat's, is left alone. A
   seat opened again inside the minute subscribes the same loaded thread; one
   opened while Codex is closing it waits for `thread/closed` and asks again. A
   reopened active thread recovers its in-progress turn from `thread/turns/list`,
@@ -2198,18 +2239,28 @@ seat's helpers live for Codex's minute rather than ending with a process, which
 bounds them to the seats released in the last minute and not to every seat since
 launch. A close the process never answers (the unsubscribe times out after two
 seconds) leaves that thread's helpers until the process rests or restarts.
-Closing a pane interrupts its running turn before unsubscribing, so a Flow
-Stop or a budget stop never leaves work running behind a closed handle.
-If interruption fails, closing fails and keeps the handle subscribed for retry.
+Closing a pane asks its running turn to end before unsubscribing; a Flow
+Stop or a budget stop uses the same close path.
+Closing reuses an interrupt already sent for that turn and accepts the process's
+"no active turn to interrupt" refusal as completion. Turn notices heard during
+the start request take precedence over its reply. An interrupt request and
+the subsequent wait for its completion notice each have a two-second bound;
+a missing notice after an acknowledged stop does not prevent unsubscribe.
+Other interruption failures keep the handle subscribed for retry.
 
 **Reload and a frozen native-server selection.** A Seat keeps the tool servers
 it opened with across a Reload. The choice is (a): hold the account's reload
 while any open conversation has a frozen selection, including an empty one.
-Extensions › Reload reports "Reload is held. Close conversations with selected
-tool servers, then try Reload again." The person retries after the last
-filtered handle closes; no deferred reload runs unexpectedly. Conversations
-opening also hold Reload, and an opening that follows an in-flight Reload
-waits for it before reading configuration. Closing and resuming a filtered
+Extensions › Reload reports how many conversations hold it and asks the person
+to close them, then try Reload again. Plugin installation has the same hold:
+installing can start new tool servers on existing threads, so the install is
+refused before it changes configuration while filtered handles remain open.
+The person retries after the last filtered handle closes; no deferred reload runs unexpectedly. Conversations
+opening hold both operations. Tool changes are serialized, and an opening
+that follows an in-flight Reload or installation waits for the admitted
+changes to finish before reading configuration. A change that fails reports
+its failure to whoever asked for it; the changes and openings queued behind
+it go on. Closing and resuming a filtered
 Seat rereads native configuration and reapplies its frozen list.
 
 **Where a separate process is still called for.** A frozen selection uses the

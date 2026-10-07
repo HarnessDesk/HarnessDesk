@@ -110,7 +110,7 @@ export const mapThrown = (error: unknown): AgentError => {
   }
   if (error instanceof CodexError) {
     const code: AgentError['code'] =
-      error.code === 'notInstalled' || error.code === 'versionTooOld'
+      error.code === 'notInstalled' || error.code === 'unreadable' || error.code === 'versionTooOld'
         ? 'runtimeUnavailable'
         : error.code === 'crashed' || error.code === 'notRunning' || error.code === 'spawnFailed'
           ? 'runtimeUnavailable'
