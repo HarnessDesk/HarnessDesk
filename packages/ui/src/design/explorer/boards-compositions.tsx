@@ -1,5 +1,5 @@
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
-import { TimelineCard, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
+import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
 import { previewStore } from '../../preview/harness'
 import { PluginPanelTableExample } from '../../preview/plugin-panel-table'
@@ -3074,9 +3074,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
       </div>
       <div data-catalog-state="selected">
         <TimelineCards count={1}>
-          <TimelineCard name="Reviewer" meta="Seat label · High" selected onSelect={() => {}} lead={<IconTile shape="face" size="sm" tint="violet"><AgentIcon /></IconTile>}
-            footer={<Chip tone="success">Approved</Chip>}>
-            <TimelineCardWords>No findings. The change is ready.</TimelineCardWords>
+          <TimelineCard name="Judge" meta="Seat label · High" selected onSelect={() => {}} lead={<IconTile shape="face" size="sm" tint="violet"><AgentIcon /></IconTile>}
+            rows={<>
+              <TimelineCardRow trail={<Chip tone="success">Picked</Chip>}>Attempt A at 4be21c0</TimelineCardRow>
+              <TimelineCardRow dim trail={<Chip tone="neutral">Not kept</Chip>}>Attempt B at 91d3a7e</TimelineCardRow>
+            </>}>
+            <TimelineCardWords>A keeps the old ordering and meets the budget in every run.</TimelineCardWords>
           </TimelineCard>
         </TimelineCards>
       </div>

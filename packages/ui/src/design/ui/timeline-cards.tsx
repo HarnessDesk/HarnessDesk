@@ -29,11 +29,13 @@ export const TimelineCards = ({ count, children, className, ...props }: HTMLAttr
  * and keep their own clicks. Nothing here is an agent's name: the caller passes
  * words the host recorded.
  */
-export const TimelineCard = ({ lead, name, meta, actions, footer, selected, onSelect, className, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'onSelect'> & {
+export const TimelineCard = ({ lead, name, meta, actions, rows, footer, selected, onSelect, className, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'onSelect'> & {
   lead?: ReactNode
   name: ReactNode
   meta?: ReactNode
   actions?: ReactNode
+  /** What the card lists, a `TimelineCardRow` each, edge to edge under its words. */
+  rows?: ReactNode
   footer?: ReactNode
   selected?: boolean
   onSelect?: () => void
@@ -50,8 +52,23 @@ export const TimelineCard = ({ lead, name, meta, actions, footer, selected, onSe
     {actions != null && <div data-slot="timeline-card-actions" className={styles.actions}>{actions}</div>}
   </div>
   {children != null && <div data-slot="timeline-card-body" className={styles.body}>{children}</div>}
+  {rows != null && <div data-slot="timeline-card-rows">{rows}</div>}
   {footer != null && <div data-slot="timeline-card-footer" className={styles.footer}>{footer}</div>}
 </Card>
+
+/**
+ * One thing a card lists at its foot, a line each: a mark, its words, and how it
+ * ended. `dim` steps a line back (a row that did not count) without hiding it.
+ */
+export const TimelineCardRow = ({ lead, trail, dim, children, className, ...props }: HTMLAttributes<HTMLDivElement> & {
+  lead?: ReactNode
+  trail?: ReactNode
+  dim?: boolean
+}) => <div data-slot="timeline-card-row" data-dim={dim || undefined} className={cn(styles.row, className)} {...props}>
+  {lead}
+  <Text role="row" ink={dim ? 'muted' : 'primary'} className={styles.rowWords}>{children}</Text>
+  {trail}
+</div>
 
 /** The words a card says in its own prose, kept to a few lines. */
 export const TimelineCardWords = ({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) =>

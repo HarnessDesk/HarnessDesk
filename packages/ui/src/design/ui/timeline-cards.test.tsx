@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 
 import css from './timeline-cards.module.css?raw'
-import { TimelineCard, TimelineCards, TimelineCardWords, TimelineDocument } from './timeline-cards'
+import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from './timeline-cards'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -123,5 +123,26 @@ it('draws a document with no words yet as its head alone', () => {
   try {
     expect(container.querySelector('[data-slot="timeline-document-body"]')).toBeNull()
     expect(container.textContent).toContain('docs/plans/session-store.md')
+  } finally { done() }
+})
+
+it('lists what a card holds a line each, with a mark, its words and how it ended, and steps a line back without hiding it', () => {
+  const { container, done } = mount(<TimelineCard name="Judge" rows={<>
+    <TimelineCardRow lead={<i data-mark />} trail={<b>Picked</b>}>Attempt A at 4be21c0</TimelineCardRow>
+    <TimelineCardRow dim trail={<b>Not kept</b>}>Attempt B at 91d3a7e</TimelineCardRow>
+  </>} />)
+  try {
+    const [kept, lost] = [...container.querySelectorAll('[data-slot="timeline-card-row"]')]
+    expect(kept!.textContent).toBe('Attempt A at 4be21c0Picked')
+    expect(kept!.querySelector('[data-mark]')).not.toBeNull()
+    expect(kept!.hasAttribute('data-dim')).toBe(false)
+    expect(lost!.hasAttribute('data-dim')).toBe(true)
+    expect(lost!.textContent).toBe('Attempt B at 91d3a7e' + 'Not kept')
+    // A dimmed line is the muted ink, not a faded box: its words stay as readable as any muted line.
+    expect(lost!.querySelector('[data-slot="text"], span')!.className).toContain('text-(--hd-muted-foreground)')
+    expect(kept!.querySelector('span')!.className).toContain('text-(--hd-foreground)')
+    expect(blockAfter('.rowWords')).toContain('min-width: 0')
+    // The rows are the card's own, edge to edge: they sit beside its body, never inside its padding.
+    expect(container.querySelector('[data-slot="timeline-card-rows"]')!.parentElement!.getAttribute('data-slot')).toBe('timeline-card')
   } finally { done() }
 })
