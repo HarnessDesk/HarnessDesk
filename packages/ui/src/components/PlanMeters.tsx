@@ -1,4 +1,4 @@
-import { Button, Chip, Progress, UsageMeterRow, Separator, Text, type Tone } from '../design'
+import { useHeaderStatusGroup, HeaderStatusReading, Button, Progress, UsageMeterRow, Separator, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -36,6 +36,7 @@ export const PlanMeters = ({
   /** The one thing that stops a session from starting at all, offered here. */
   onSignIn: (runtime: RuntimeId) => void
 }) => {
+  const grouped = useHeaderStatusGroup()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const [now, setNow] = useState(() => Date.now())
@@ -85,15 +86,18 @@ export const PlanMeters = ({
         <Meter view={anchor.meter} now={now} onOpen={() => onOpen(anchor.meter.runtime)} />
       )}
       {anchor?.kind === 'signIn' && (
-        <Button
-          type="button"
-          variant="primary" size="chip" className={`${styles.signInChip} truncate`}
-          onClick={() => onSignIn(anchor.info.id)}
-          title={`${anchor.info.presentation.name} has no account here — sign in to use it`}
-        >
-          <SignInIcon size={12} />
-          {anchor.info.presentation.name}
-        </Button>
+        <HeaderStatusReading label="Account" detail={`${anchor.info.presentation.name} needs sign-in`}>
+          <Button
+            type="button"
+            variant="primary" size="chip" className={`${styles.signInChip} truncate`}
+            onClick={() => onSignIn(anchor.info.id)}
+            aria-label={`Sign in to ${anchor.info.presentation.name}`}
+            title={grouped ? undefined : `${anchor.info.presentation.name} has no account here — sign in to use it`}
+          >
+            <SignInIcon size={12} />
+            {anchor.info.presentation.name}
+          </Button>
+        </HeaderStatusReading>
       )}
       {/* An agent that is out and is not this conversation's is the one piece
           of roster news worth its own space: the token can say how many are
@@ -125,83 +129,85 @@ const Meter = ({
   promoted?: boolean
   onOpen: () => void
 }) => (
-  <Popover
-    title={view.title}
-    drop="down"
-    align="right"
-    label={
-      <span
-        data-slot="plan-meter"
-        className={styles.meter}
-        data-tone={toneOf(view.tone)}
-        {...(view.low ? { 'data-low': '' } : {})}
-        {...(promoted ? { 'data-promoted': '' } : {})}
-      >
-        <RuntimeMark runtime={view.info} size={14} />
-        {/* A promoted chip's whole content is the countdown, so a full red
-            track beside it would only say the same thing twice. */}
-        {!promoted && (
-          <Progress
-            className={styles.stripProgress}
-            value={view.lane.remainingPercent}
-            measure="remaining"
-            label={false}
-            size="sm"
-            aria-label={`${view.lane.title} — what is left`}
-          />
-        )}
-        {promoted ? (
-          <Chip tone="danger">{view.figure}</Chip>
-        ) : (
-          <Text className={styles.figure} role="meta" tone={toneOf(view.tone)} numeric>{view.figure}</Text>
-        )}
-      </span>
-    }
-  >
-    {(close) => (
-      <Menu close={close}>
-        <div className={styles.panel}>
-          <Button
-            type="button"
-            variant="row" size="row" className={styles.panelHead}
-            onClick={() => {
-              close()
-              onOpen()
-            }}
-          >
-            <RuntimeMark runtime={view.info} size={14} />
-            <Text role="subject" truncate className={styles.panelName}>{view.name}</Text>
-            <Text role="subject" tone="brand">Open</Text>
-          </Button>
-          {(view.report.plan || view.report.account) && (
-            <Text as="p" role="muted" className={styles.identity}>
-              {[view.report.plan, view.report.account].filter(Boolean).join(' · ')}
-            </Text>
+  <HeaderStatusReading label={promoted ? "Other agent limit" : "Plan usage"} detail={`${view.title}${view.out ? ` · available in ${view.figure}` : ''}`}>
+    <Popover
+      title={view.title}
+      drop="down"
+      align="right"
+      label={
+        <span
+          data-slot="plan-meter"
+          className={styles.meter}
+          data-tone={promoted ? 'neutral' : toneOf(view.tone)}
+          {...(view.low ? { 'data-low': '' } : {})}
+          {...(promoted ? { 'data-promoted': '' } : {})}
+        >
+          <RuntimeMark runtime={view.info} size={14} />
+          {/* A promoted chip's whole content is the countdown, so a full red
+              track beside it would only say the same thing twice. */}
+          {!promoted && (
+            <Progress
+              className={styles.stripProgress}
+              value={view.lane.remainingPercent}
+              measure="remaining"
+              label={false}
+              size="sm"
+              aria-label={`${view.lane.title} — what is left`}
+            />
           )}
-          <div className={styles.lanes}>
-            {view.report.lanes.map((raw) => {
-              const lane = describeLane(raw, now, view.report.lanes)
-              return (
-                <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} countdownTitle={lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={toneOf(lane.tone)} standalone />
-              )
-            })}
-          </div>
-          <Separator />
-          <Text as="p" role="meta" className={styles.foot}>
-            {view.report.spend?.todayCost !== undefined && view.report.spend?.todayCost !== null && (
-              <>
-                <span>{formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today</span>
-                <span>·</span>
-              </>
+          {promoted ? (
+            <Text role="meta" numeric>{view.figure}</Text>
+          ) : (
+            <Text className={styles.figure} role="meta" tone={toneOf(view.tone)} numeric>{view.figure}</Text>
+          )}
+        </span>
+      }
+    >
+      {(close) => (
+        <Menu close={close}>
+          <div className={styles.panel}>
+            <Button
+              type="button"
+              variant="row" size="row" className={styles.panelHead}
+              onClick={() => {
+                close()
+                onOpen()
+              }}
+            >
+              <RuntimeMark runtime={view.info} size={14} />
+              <Text role="subject" truncate className={styles.panelName}>{view.name}</Text>
+              <Text role="subject" tone="brand">Open</Text>
+            </Button>
+            {(view.report.plan || view.report.account) && (
+              <Text as="p" role="muted" className={styles.identity}>
+                {[view.report.plan, view.report.account].filter(Boolean).join(' · ')}
+              </Text>
             )}
-            <span>{view.report.source.label}</span>
-            <span>·</span>
-            <span>{formatAge(view.report.fetchedAt, now)}</span>
-          </Text>
-        </div>
-      </Menu>
-    )}
-  </Popover>
+            <div className={styles.lanes}>
+              {view.report.lanes.map((raw) => {
+                const lane = describeLane(raw, now, view.report.lanes)
+                return (
+                  <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} countdownTitle={lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={toneOf(lane.tone)} standalone />
+                )
+              })}
+            </div>
+            <Separator />
+            <Text as="p" role="meta" className={styles.foot}>
+              {view.report.spend?.todayCost !== undefined && view.report.spend?.todayCost !== null && (
+                <>
+                  <span>{formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today</span>
+                  <span>·</span>
+                </>
+              )}
+              <span>{view.report.source.label}</span>
+              <span>·</span>
+              <span>{formatAge(view.report.fetchedAt, now)}</span>
+            </Text>
+          </div>
+        </Menu>
+      )}
+    </Popover>
+  </HeaderStatusReading>
 )
 
 /**
@@ -221,67 +227,69 @@ const Rest = ({
   now: number
   onOpen: (runtime: RuntimeId) => void
 }) => (
-  <Popover
-    title={rest.title}
-    drop="down"
-    align="right"
-    tone={rest.tone === 'bad' ? 'alert' : rest.tone === 'warn' ? 'warn' : 'calm'}
-    label={
-      <span data-slot="plan-meter" className={styles.rest} data-tone={toneOf(rest.tone)} aria-label={rest.title}>
-        <Text role="meta" tone={toneOf(rest.tone)}><RosterIcon size={13} /></Text>
-        <Text role="meta" tone={toneOf(rest.tone)} numeric className={styles.figure}>{rest.figure}</Text>
-      </span>
-    }
-  >
-    {(close) => (
-      <Menu close={close}>
-        <div className={styles.panel}>
-          <Text as="p" role="muted">{rest.title}</Text>
-          <div className={styles.roster}>
-            {rest.meters.map((meter) => (
-              <Button
-                key={`${meter.runtime}:${meter.report.account ?? ''}`}
-                type="button"
-                variant="row" size="row" className="w-full"
-                data-tone={meter.tone}
-                onClick={() => {
-                  close()
-                  onOpen(meter.runtime)
-                }}
-              >
-                <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><span className="truncate">{meter.name}</span>{meter.account && <Text role="meta" truncate>{meter.account}</Text>}</span></span>} label={`${meter.name}${meter.account ? ` · ${meter.account}` : ''} — what is left`} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} countdownTitle={meter.lane.resetClock ? `resets ${meter.lane.resetClock}` : undefined} tone={toneOf(meter.tone)} standalone />
-              </Button>
-            ))}
-            {/* The agents with no bar. They are why the count and the bars can
-                disagree, so the panel has to hold them or the count looks wrong. */}
-            {rest.asides.map((aside) => (
-              <Button
-                key={aside.runtime}
-                type="button"
-                variant="row" size="row" className={styles.rosterRow}
-                data-quiet=""
-                onClick={() => {
-                  close()
-                  onOpen(aside.runtime)
-                }}
-              >
-                <RuntimeMark runtime={aside.info} size={14} />
-                <Text role="muted" truncate className={styles.rosterName}>{aside.info.presentation.name}</Text>
-                <Text role="muted" truncate className={styles.rosterDetail}>{aside.detail}</Text>
-              </Button>
-            ))}
+  <HeaderStatusReading label="Other agents" detail={rest.title}>
+    <Popover
+      title={rest.title}
+      drop="down"
+      align="right"
+      tone="calm"
+      label={
+        <span data-slot="plan-meter" className={styles.rest} data-tone="neutral" aria-label={rest.title}>
+          <Text role="meta" tone="neutral"><RosterIcon size={13} /></Text>
+          <Text role="meta" tone="neutral" numeric className={styles.figure}>{rest.figure}</Text>
+        </span>
+      }
+    >
+      {(close) => (
+        <Menu close={close}>
+          <div className={styles.panel}>
+            <Text as="p" role="muted">{rest.title}</Text>
+            <div className={styles.roster}>
+              {rest.meters.map((meter) => (
+                <Button
+                  key={`${meter.runtime}:${meter.report.account ?? ''}`}
+                  type="button"
+                  variant="row" size="row" className="w-full"
+                  data-tone={meter.tone}
+                  onClick={() => {
+                    close()
+                    onOpen(meter.runtime)
+                  }}
+                >
+                  <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><span className="truncate">{meter.name}</span>{meter.account && <Text role="meta" truncate>{meter.account}</Text>}</span></span>} label={`${meter.name}${meter.account ? ` · ${meter.account}` : ''} — what is left`} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} countdownTitle={meter.lane.resetClock ? `resets ${meter.lane.resetClock}` : undefined} tone={toneOf(meter.tone)} standalone />
+                </Button>
+              ))}
+              {/* The agents with no bar. They are why the count and the bars can
+                  disagree, so the panel has to hold them or the count looks wrong. */}
+              {rest.asides.map((aside) => (
+                <Button
+                  key={aside.runtime}
+                  type="button"
+                  variant="row" size="row" className={styles.rosterRow}
+                  data-quiet=""
+                  onClick={() => {
+                    close()
+                    onOpen(aside.runtime)
+                  }}
+                >
+                  <RuntimeMark runtime={aside.info} size={14} />
+                  <Text role="muted" truncate className={styles.rosterName}>{aside.info.presentation.name}</Text>
+                  <Text role="muted" truncate className={styles.rosterDetail}>{aside.detail}</Text>
+                </Button>
+              ))}
+            </div>
+            <Separator />
+            <Text as="p" role="meta" className={styles.foot}>
+              <UsageIcon size={12} />
+              <span>Every plan, and what it cost — ⌘U</span>
+              <span>·</span>
+              <span>{formatAge(oldest(rest, now), now)}</span>
+            </Text>
           </div>
-          <Separator />
-          <Text as="p" role="meta" className={styles.foot}>
-            <UsageIcon size={12} />
-            <span>Every plan, and what it cost — ⌘U</span>
-            <span>·</span>
-            <span>{formatAge(oldest(rest, now), now)}</span>
-          </Text>
-        </div>
-      </Menu>
-    )}
-  </Popover>
+        </Menu>
+      )}
+    </Popover>
+  </HeaderStatusReading>
 )
 
 /** The stalest reading behind the token, which is what its age is worth. */

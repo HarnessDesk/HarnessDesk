@@ -1444,6 +1444,26 @@ A recorded step or Seat state, toned once for the Flow list and Run dock. Unknow
 
 A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
 
+### `useHeaderStatusGroup`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+Controls inside the group keep their accessible names, without a second tooltip.
+
+### `HeaderStatusGroup`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+A pane head's facts, on one chip ground with one labelled hover/focus card.
+Readings register where their source is owned, so conditional controls and
+minute-by-minute countdowns cannot leave the card holding an older fact.
+
+### `HeaderStatusReading`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+Works outside a group too; only grouped readings contribute to its card.
+
 ### `Lightbox`
 
 `packages/ui/src/design/patterns/Lightbox.tsx`

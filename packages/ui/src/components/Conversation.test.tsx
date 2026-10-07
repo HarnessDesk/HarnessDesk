@@ -334,23 +334,19 @@ it('marks a door to fold into ⋯ only where there is a ⋯ to fold it into', ()
   expect(container.querySelector('header button[aria-label="Open terminal"]')?.hasAttribute('data-folds')).toBe(true)
 })
 
-it('the chips a narrow header folds still say their words on hover', () => {
+it('the chips a narrow header folds still say their words in the shared card', () => {
   const { store } = rig(session())
   const snapshot = {
     ...store.getSnapshot(),
     tasks: new Map([[KEY, [{ id: 't1', label: 'npm run dev', kind: 'command', state: 'running' }]]]),
   } as unknown as AppSnapshot
   render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
-
-  // The branch chip: the name it shows (here the folder, there being no
-  // branch), then where it is — the path alone was not the word that folded.
-  const git = [...container.querySelectorAll<HTMLButtonElement>('header button')].find((button) =>
-    button.title.endsWith('/repo'),
-  )
-  expect(git?.title).toBe('repo — /repo')
-  // The tasks chip leads with its own words.
-  const tasks = container.querySelector<HTMLButtonElement>('[data-testid="tasks-chip"]')
-  expect(tasks?.title.startsWith('1 running in the background. ')).toBe(true)
+  act(() => container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!.focus())
+  const card = document.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('Folderrepo — /repo')
+  expect(card.textContent).toContain('Background tasks1 running in the background')
+  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('aria-label')).toBe('1 running in the background')
+  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('title')).toBeNull()
 })
 
 it('the empty pane’s Sign in names this pane’s agent, not the default', () => {
@@ -449,7 +445,8 @@ it('a conversation seated as an Agent carries its ceiling beside its title — h
   )
   const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
   expect(chip?.textContent).toBe('Read only')
-  expect(chip?.title).toMatch(/Held: Read-only sandbox/)
+  act(() => container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!.focus())
+  expect(document.querySelector('[data-slot="hover-card-content"]')?.textContent).toMatch(/Ceiling.*Held: Read-only sandbox/)
 
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
   expect(container.querySelector('header [data-ceiling]')?.getAttribute('data-hold')).toBe('asked')
@@ -735,4 +732,14 @@ it('heads a recorded typed lookalike with its pasted first line', () => {
     { id: itemId('typed'), type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] },
   ] }] })).store)
   expect(container.querySelector('header')?.textContent).toContain('<context source="Git"')
+})
+
+it('groups and names the header facts for keyboard readers', () => {
+  render(rig(session({ git: { branch: 'main' } as Session['git'] })).store)
+  const group = container.querySelector<HTMLElement>('header [role="group"][aria-label="Conversation status"]')
+  expect(group).not.toBeNull()
+  act(() => group!.focus())
+  const card = document.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('StatusIdle')
+  expect(card.textContent).toContain('Branchmain')
 })

@@ -193,13 +193,13 @@ it('says in the token whether anything else is in the way, without being opened'
   })
   const token = bars()[bars().length - 1]
   expect(token?.textContent).toBe('3 out')
-  expect(token?.getAttribute('data-tone')).toBe('danger')
+  expect(token?.getAttribute('data-tone')).toBe('neutral')
   expect(titles()[titles().length - 1]).toBe(
     '5 other agents — 3 out of quota, least left 44%, 1 needs sign-in',
   )
 })
 
-it('lets meter triggers fit their contents and gives the roster icon its warning tone', () => {
+it('keeps other agents neutral when they do not block this conversation', () => {
   mount({
     runtimes: six,
     usage: [at('a', 78), spent('b', HOUR)],
@@ -211,7 +211,9 @@ it('lets meter triggers fit their contents and gives the roster icon its warning
   const rosterTrigger = roster.closest('button')!
   expect(meterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
   expect(rosterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
-  expect(rosterTrigger.dataset['tone']).toBe('alert')
+  expect(rosterTrigger.dataset['tone']).toBe('calm')
+  expect(bars().find((bar) => bar.hasAttribute('data-promoted'))?.getAttribute('data-tone')).toBe('neutral')
+  expect(container.querySelector('[data-slot="chip"][data-tone="danger"]')).toBeNull()
 })
 
 it('gives an out-of-quota agent a chip, because the token cannot say who', () => {

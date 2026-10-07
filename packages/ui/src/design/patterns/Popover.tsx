@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { buttonEdge, buttonVariants } from '../ui/button'
 
 import styles from './Popover.module.css'
+import { useHeaderStatusGroup } from './HeaderStatusGroup'
 
 /* The contract itself is in `lib/overlays.ts`, free of React so that anything
    can take part in it; it is re-exported here because this is the module the
@@ -151,6 +152,7 @@ export const Popover = ({
   sideOffset?: number
   children: (close: () => void) => ReactNode
 }) => {
+  const grouped = useHeaderStatusGroup()
   const [open, setOpenState] = useState(false)
   // What the caller was last told, kept beside the state rather than read out
   // of an updater: an updater runs during render (twice, in StrictMode), and a
@@ -223,7 +225,7 @@ export const Popover = ({
           style={edge?.style}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
-          title={title}
+          title={grouped ? undefined : title}
         /* A glyph is not a name. When the trigger's content is an icon rather
            than words, the hover text becomes the accessible name — otherwise
            the control is announced as "button" and a screen reader user has no
@@ -239,7 +241,7 @@ export const Popover = ({
            replaced by a path. That is WCAG 2.5.3 — "click feat/worktrees"
            matches nothing — and it fails in the direction that matters,
            because the visible text is what a person says out loud. */
-          {...(title === undefined || hasText(label) ? {} : { 'aria-label': title })}
+          {...(title === undefined || (!grouped && hasText(label)) ? {} : { 'aria-label': title })}
         >
           {label}
         </PopoverTrigger>
