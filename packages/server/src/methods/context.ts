@@ -270,6 +270,8 @@ export interface HostContext {
     inventory(): InventoryAgent[]
     register(runtime: AgentRuntime): void
     unregister(id: RuntimeId): Promise<void>
+    resources(): Promise<readonly import('@harnessdesk/protocol').RuntimeResources[]>
+    recycle(runtime: AgentRuntime): Promise<boolean>
     start(runtime: AgentRuntime): Promise<void>
     bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean }): void
   }
@@ -330,6 +332,7 @@ export interface HostContext {
         readonly environment?: Readonly<Record<string, string>>
         /** The role's frozen ceiling, applied before the runtime opens the conversation. */
         readonly ceiling?: CeilingLevel
+        readonly runtimeServers?: readonly string[]
         /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
         readonly attachments?: SessionAttachments
       },

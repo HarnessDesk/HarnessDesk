@@ -208,3 +208,19 @@ children after app-server exit: 0
 
 The retained child belongs to the runtime process, so idle recycling is the
 release path ([decision](../../docs/decisions.md#finished-seats-release-handles-and-idle-runtimes-release-retained-tools)).
+
+## `mcp-selection.mjs`
+
+Starts synthetic native servers in an isolated agent home without a model turn.
+It checks selected, default and empty server lists, create/resume/fork overrides,
+reload, independent conversation release, and passive process roots.
+
+```bash
+pnpm build:node
+node script/probe/mcp-selection.mjs
+```
+
+Measured on 0.160.0. Expect only the selected helper on create, resume and fork,
+both configured helpers on an unrestricted concurrent thread, and zero owned
+roots after closing the conversations and stopping the idle runtime. The probe
+writes only synthetic configuration and rollout records and removes its own home.

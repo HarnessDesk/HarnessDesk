@@ -926,6 +926,8 @@ export class AcpConnection {
     this.#options = options
   }
 
+  get processId(): number | null { return this.#child?.pid ?? null }
+
   get alive(): boolean {
     return this.#child !== null && this.#child.exitCode === null
   }
@@ -1047,14 +1049,22 @@ export class AcpConnection {
     return true
   }
 
-  async request<T = unknown>(method: string, params: unknown): Promise<T> {
+  async request<T = unknown>(method: string, params: unknown, timeoutMs?: number): Promise<T> {
     if (!this.alive) throw new AcpError('The agent is not running.')
     const id = ++this.#nextId
     const promise = new Promise<T>((resolve, reject) => {
       this.#pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
     })
     this.#child!.stdin!.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
-    return promise
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    if (timeoutMs !== undefined) {
+      timeout = setTimeout(() => {
+        const pending = this.#pending.get(id)
+        this.#pending.delete(id)
+        pending?.reject(new AcpError(`${method} timed out.`))
+      }, timeoutMs)
+    }
+    try { return await promise } finally { clearTimeout(timeout) }
   }
 
   notify(method: string, params: unknown): void {

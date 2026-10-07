@@ -8,6 +8,13 @@ import { AcpRuntime } from '../src/index.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
 const alive = (pid: number): boolean => { try { process.kill(pid, 0); return true } catch { return false } }
+const until = async (check: () => Promise<boolean>): Promise<void> => {
+  const deadline = Date.now() + 2_000
+  while (!await check()) {
+    if (Date.now() > deadline) throw new Error('read resources did not rest')
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+}
 
 for (const close of [true, false]) {
   test(`${close ? 'shared close-capable' : 'isolated no-close'} sessions release helpers and resume without touching a sibling`, async (t) => {
@@ -20,7 +27,11 @@ for (const close of [true, false]) {
     const rows = async (): Promise<{ type: string; pid: number; sessionId?: string; helper?: number }[]> =>
       (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
     await runtime.start()
+    t.mock.timers.enable({ apis: ['setTimeout'] })
     await runtime.defaultSessionOptions(dir)
+    t.mock.timers.tick(5_000)
+    t.mock.timers.reset()
+    await until(async () => (await rows()).filter(r => r.helper && alive(r.helper)).length === 0)
     assert.equal((await rows()).filter(r => r.helper && alive(r.helper)).length, 0, 'the option probe releases its helper')
     const sessions = []
     for (let n = 1; n <= 8; n++) {
@@ -56,16 +67,18 @@ for (const close of [true, false]) {
   })
 }
 
-test('a refused native close remains owned and can be retried', async (t) => {
+test('a refused native close drops the handle and can reopen the durable conversation', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-acp-close-refusal-'))
   const runtime = new AcpRuntime({ id: 'refusal', name: 'Refusal', command: process.execPath, args: [FAKE],
-    env: { FAKE_ACP_STORE: join(dir, 'store.json'), FAKE_ACP_CLOSE_FAIL: '1' } })
+    env: { FAKE_ACP_STORE: join(dir, 'store.json'), FAKE_ACP_STORE_DRAFTS: '1', FAKE_ACP_CLOSE_FAIL: '1' } })
   t.after(async () => { await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
   await runtime.start()
   const session = await runtime.createSession({ cwd: dir })
   await assert.rejects(session.close(), /close refused/)
-  assert.equal(await runtime.stopForIdle(), false)
-  assert.equal(await runtime.resumeSession(session.id), session)
+  const reopened = await runtime.resumeSession(session.id)
+  assert.notEqual(reopened, session)
+  await assert.rejects(reopened.close(), /close refused/)
+  assert.equal(await runtime.stopForIdle(), true)
 })
 
 test('a no-close peer loses only the failed session and routes task controls to its replacement', async (t) => {

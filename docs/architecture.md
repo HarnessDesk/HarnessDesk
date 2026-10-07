@@ -247,6 +247,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   process too; delegated threads stay with their root. The control process owns
   catalogue reads, file watches and standalone terminals. A conversation
   process failure detaches only its own handles for the normal resume path.
+  Native server selection is an optional capability: an Agent's
+  `runtime-servers` names only already configured servers. The host freezes
+  the list in the Seat record and reapplies it on resume; the adapter supplies
+  thread-local disabling overrides, leaving agent-owned files alone.
+  Resource observations use optional adapter process roots and one bounded
+  process-table read for the desk, including descendants and RSS. The renderer
+  polls only while the runtime page is mounted. Manual idle recycling shares
+  the reaper's stop/start barrier and refuses in-flight work and open handles.
   Process exit releases its thread helpers
   ([measurement and lifecycle](decisions.md#finished-conversations-recycle-their-own-processes)).
   ACP peers that declare session close share the account connection and release
@@ -256,9 +264,11 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   session, and the last live handle releases the family once opens, resumes and
   catalogue reads settle. Without a close verb, its closed-session state stays
   in the peer while siblings remain open. Catalogue probes
-  release their adapter handles after their readers finish; their declarations and draft picks stay
+  release their adapter handles after five quiet seconds; stored-history reads
+  return before teardown and share their temporary handle over the same interval.
+  Their declarations and draft picks stay
   cached. Personal conversations rest after ten quiet minutes, protecting turns,
-  approvals, queued input and running tasks, and archiving a resumable conversation
+  approvals, queued input and running tasks, and archiving a quiet resumable conversation
   releases its handle. All use the same host close-and-resume seam
   ([ACP release lifecycle](decisions.md#acp-sessions-release-what-they-opened)).
   Idle health preserves learned capabilities, models, account and cached history;

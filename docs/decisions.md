@@ -2076,7 +2076,7 @@ the reload and settings requests;
 this is not a claim about unmeasured cross-process propagation in the real agent.
 MCP login opens one interactive authorization flow on the control process only.
 The agent owns its stored credentials; Reload in Extensions sends the existing
-reload verb to conversation processes. Whether a running real agent process
+reload verb to unfiltered conversation processes. Whether a running real agent process
 re-reads a newly stored credential on reload remains unmeasured.
 
 A conversation process that fails reports `session/detached` for its own roots,
@@ -2091,8 +2091,8 @@ The regression starts and closes three conversations while another turn stays
 active throughout, checks the closed helpers exit, and then interrupts the
 working turn deliberately. The production-host fake rig also checks the Seat
 rest boundary with another Seat still working, plus reopen and idle reads.
-Role-based tool selection and displaying process and memory cost remain for
-later parts of #1418.
+The remaining parts of #1418 are implemented by native server narrowing and
+passive process observations below.
 
 ## One family of tables
 
@@ -2313,12 +2313,14 @@ session and its children until the whole account process stopped. A catalogue
 probe was another retained session. Measured without prompts on 2026-10-06,
 eight sessions through the bundled Claude bridge left ten processes and about
 2 GB resident after close; the adapter now leaves the one bridge at about
-115 MB. The measurement uses an isolated home and synthetic keys, never a turn:
+133 MB. The measurement uses an isolated home and synthetic keys, never a turn:
 [`acp-session-processes.mjs`](../script/probe/acp-session-processes.mjs).
 
 The negotiated `sessionCapabilities.close` chooses the lifecycle. A peer that
 declares it serves every conversation of its account on the same connection;
-closing a handle asks `session/close` and forgets it only after the reply.
+closing a handle asks `session/close` with a three-second deadline. A refusal
+or timeout is logged and drops the local handle; a failed opening keeps its
+original error, and a stored archive mark remains successful.
 The bundled Claude bridge already tears down its query and attachments there.
 The Cursor bridge now cancels and waits for that session's turn, removes its
 transient tool/config folders, and keeps its durable chat and the shared start
@@ -2342,13 +2344,21 @@ keep their handles. Without a release verb, its closed sessions and probes
 remain in the peer until the last handle closes. This is a deliberate limit,
 not a claim that a shared peer can release one session while another works.
 
-Catalogue readers share a probe while reading it, then release it. Draft picks
+Catalogue readers and nearby draft picks share a probe for five quiet seconds,
+then release it. Stored-history reads also retain their temporary handle for
+five quiet seconds and return the transcript before resource teardown; an
+explicit resume takes ownership and cancels that release. Draft picks
 and model/command declarations remain cached, and fresh option reads do not
 replace the composer's picks. The existing host release seam rests finished
 Seats; personal conversations also release after ten quiet minutes, with turns,
-approvals, queued input and running tasks protecting them. Archiving a resumable
-conversation releases its handle. Reopening waits for close, then loads the same
-agent-owned history; a stale close cannot release its replacement.
+approvals, queued input and running tasks protecting them. Archiving a quiet resumable
+conversation releases its handle. Archiving preserves working turns,
+approvals, queued input and running tasks for the normal quiet sweep.
+Reopening waits for close, then loads the same
+agent-owned history; a stale close cannot release its replacement. A shared
+last-handle stop publishes idle state and its cleanup barrier before awaiting
+exit, so host callers wait for restart. Passive process counts include both the
+control connection and every live session worker.
 
 **The rule:** share an account process when the peer can release a session;
 otherwise bound processes to live handles and reap their groups when released,
@@ -2356,6 +2366,54 @@ except where measured process cost requires the shared, last-handle policy.
 Scripted ACP and bundled bridge tests prove release, resume, sibling isolation,
 probe cleanup and worker failure. The installed-agent measurements cover opening
 and closing only; they do not claim anything about real prompted turns.
+
+## Native server narrowing is separate from approved attachments
+
+Measured on 2026-10-06 with 0.160.0 by
+[`script/probe/mcp-selection.mjs`](../script/probe/mcp-selection.mjs): two
+synthetic configured servers, an isolated agent home and no model turn.
+Thread `config` overrides of the existing native server table, setting an
+unselected server's `enabled` to false, started only the selected child on
+create, resume and fork, including a server name containing dots. The readback's
+null defaults are omitted because the override is converted to TOML; quoted
+dotted override keys are rejected by this build. An unrestricted
+concurrent thread still started both. Empty threads have no durable rollout;
+the probe supplies a synthetic metadata/message rollout for resume and fork.
+The production adapter also opens selected, default and empty selections
+together, releases only the closed conversation's helpers, and reports zero
+owned roots after an idle stop.
+No real conversation or account is recorded.
+
+An Agent's `runtime-servers` narrows only the agent's existing native
+configuration. It cannot enable a disabled server or install a new one.
+Omission keeps defaults; an explicit empty list suppresses them. This is not
+phase 12's `mcp` attachment contract: approval, staging and exact attachment
+readback retain their existing rules. Unsupported builds and adapters refuse
+native selection. The measured capability starts at 0.160.0, rather than
+claiming it on older supported builds by inference.
+
+The list is frozen in the durable Seat record, not reread from an edited
+Agent file on resume. Native configuration is reread on opening so new
+unselected servers are disabled too. A filtered worker skips tool-server
+reload fan-out, preserving its opening selection; close and resume applies
+configuration updates. Side reviews inherit the selection. A person's fork
+of a filtered Seat is refused like a fork of a Seat with approved attachments.
+Scripted helper-child tests cover concurrent defaults, release, resume, fork,
+an empty selection, reload and passive process-root observation.
+
+## Runtime cost is a passive snapshot
+
+Adapters may report the process roots they own. The host reads PID, parent PID
+and RSS only, once for the whole desk, with a two-second bound; it deduplicates
+roots and descendants. This is resident memory, not unique physical memory;
+shared pages may count more than once. Missing measurement is unknown, not
+zero. An idle runtime reports zero owned processes without restarting.
+
+The Runtimes page and its detail page poll while mounted. Recycling is an
+explicit idle stop, using the same host barrier as the reaper, so new work
+waits for exit before starting and no active conversation is interrupted.
+An open handle, operation, read, terminal or watch prevents recycling; cached
+catalogue and history remain available through the existing idle lifecycle.
 
 ## Max mode reports the saved flag rather than inferring it from a window
 

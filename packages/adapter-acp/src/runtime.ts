@@ -922,6 +922,25 @@ export class AcpRuntime implements AgentRuntime {
   readonly #sessionConnections = new Map<SessionId, AcpConnection>()
   readonly #closing = new Map<SessionId, Promise<void>>()
   #sharedReleasePending = false
+  #idleStopping: Promise<void> | null = null
+  readonly #readRest = new Map<SessionId, ReturnType<typeof setTimeout>>()
+
+  #cancelReadRest(id: SessionId): void {
+    clearTimeout(this.#readRest.get(id))
+    this.#readRest.delete(id)
+  }
+
+  #restReadLater(session: AcpSession): void {
+    this.#cancelReadRest(session.id)
+    const timer = setTimeout(() => {
+      this.#readRest.delete(session.id)
+      void session.close().catch(error => this.#config.logger?.warn?.('a read handle could not close', {
+        agent: this.#config.id, error: describeAcp(error),
+      }))
+    }, 5_000)
+    timer.unref()
+    this.#readRest.set(session.id, timer)
+  }
 
   async #restSharedIfUnused(): Promise<void> {
     if (this.#sharedReleasePending && await this.stopForIdle()) this.#sharedReleasePending = false
@@ -944,6 +963,7 @@ export class AcpRuntime implements AgentRuntime {
   #stoppingConnections: Promise<void> | null = null
 
   async #stopConnections(): Promise<void> {
+    for (const id of this.#readRest.keys()) this.#cancelReadRest(id)
     this.#stoppingConnections ??= (async () => {
       await Promise.all([this.#connection, ...this.#workers].map(connection => connection.stop()))
       this.#workers.clear()
@@ -1122,6 +1142,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async start(): Promise<void> {
+    await this.#idleStopping
     // A new process refreshes the observations cached for an idle runtime.
     this.#idleInfo = null
     this.#probeOptions = null
@@ -1269,7 +1290,7 @@ export class AcpRuntime implements AgentRuntime {
   async #observeToolReach(): Promise<void> {
     if (!this.#config.toolServer || this.#toolServerRefused) return
     try {
-      await this.#useProbe(undefined, async () => { await this.#firstCommands() })
+      await this.#useProbe(undefined, async () => {})
     } catch (error) {
       this.#config.logger?.debug?.('the agent would not open a probe session', {
         agent: this.#config.id,
@@ -1374,17 +1395,27 @@ export class AcpRuntime implements AgentRuntime {
   /** Stop only the helper process; the host keeps the session and catalogue records. */
   async stopForIdle(): Promise<boolean> {
     if (this.#health.state !== 'ready' || this.#opening !== null || this.#optionReads > 0 || this.#sessionOpens > 0 || this.#resuming.size > 0 || this.#closing.size > 0) return false
-    const live = [...this.#sessions.values()].filter((session) => !this.#isProbe(session.id))
+    const live = [...this.#sessions.values()].filter((session) => !this.#isProbe(session.id) && !this.#transientReads.has(session.id))
     if (live.length > 0 || live.some((session) => session.busy)) return false
     this.#probeOptions = this.#probe?.options() ?? this.#probeOptions
     this.#idleInfo = this.info
-    await this.#stopConnections()
-    this.#sessions.clear()
-    this.#resuming.clear()
-    this.#probe = null
-    this.#probeId = null
-    this.#optionProbeIds.clear()
+    // Publish both the state and the entire cleanup barrier before yielding.
+    // Host callers then join start(), which waits for this stop to finish.
+    const stopping = Promise.resolve().then(async () => {
+      await this.#stopConnections()
+      for (const session of this.#sessions.values()) session.released()
+      this.#sessions.clear()
+      this.#transientReads.clear()
+      this.#resuming.clear()
+      this.#probe = null
+      this.#probeId = null
+      this.#optionProbeIds.clear()
+    })
+    this.#idleStopping = stopping
     this.#setHealth({ state: 'idle' })
+    try { await stopping } finally {
+      if (this.#idleStopping === stopping) this.#idleStopping = null
+    }
     return true
   }
 
@@ -1572,6 +1603,11 @@ export class AcpRuntime implements AgentRuntime {
     return 'restarted'
   }
 
+  resourceProcessIds(): readonly number[] {
+    return [this.#connection, ...this.#workers].flatMap(connection =>
+      connection.processId === null ? [] : [connection.processId])
+  }
+
   health(): RuntimeHealth {
     return this.#health
   }
@@ -1615,7 +1651,7 @@ export class AcpRuntime implements AgentRuntime {
   async knownModels(): Promise<readonly ModelInfo[] | null> {
     if (!this.#catalogKnown && this.#health.state === 'ready') {
       try {
-        await this.#useProbe(undefined, async () => { await this.#firstCommands() })
+        await this.#useProbe(undefined, async () => {})
       } catch (error) {
         this.#config.logger?.debug?.('the agent would not open a probe session', {
           agent: this.#config.id,
@@ -2067,7 +2103,10 @@ export class AcpRuntime implements AgentRuntime {
     const resuming = this.#resuming.get(id)
     if (resuming) return (await resuming as AcpSession).snapshot()
     const live = this.#sessions.get(id)
-    if (live && !this.#isProbe(id)) return live.snapshot()
+    if (live && !this.#isProbe(id)) {
+      if (this.#transientReads.has(id)) this.#restReadLater(live)
+      return live.snapshot()
+    }
     // ACP has no read-only fetch; loading replays without prompting. A read
     // owns its temporary handle until an explicit resume takes ownership.
     this.#transientReads.add(id)
@@ -2076,7 +2115,11 @@ export class AcpRuntime implements AgentRuntime {
         const loaded = await this.#resumeSession(id)
         return (loaded as AcpSession).snapshot()
       } finally {
-        if (this.#transientReads.delete(id)) await this.#sessions.get(id)?.close()
+        if (this.#transientReads.has(id)) {
+          const loaded = this.#sessions.get(id)
+          if (loaded) this.#restReadLater(loaded)
+          else this.#transientReads.delete(id)
+        }
       }
     })()
     this.#reads.set(id, read)
@@ -2091,22 +2134,32 @@ export class AcpRuntime implements AgentRuntime {
     const pending = this.#closing.get(session.id)
     if (pending) return pending
     const closing = Promise.resolve().then(async () => {
+      this.#cancelReadRest(session.id)
       const connection = this.connectionFor(session.id)
-      if (connection === this.#connection) {
-        if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
-          await connection.request('session/close', { sessionId: session.id })
+      let refusal: unknown
+      try {
+        if (connection === this.#connection) {
+          if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
+            await connection.request('session/close', { sessionId: session.id }, 3_000)
+          } else {
+            // The peer has no release verb. Cancel only this conversation;
+            // keep working siblings on their shared process until all handles rest.
+            await session.interrupt()
+            if (!this.#isProbe(session.id)) this.#sharedReleasePending = true
+          }
         } else {
-          // The peer has no release verb. Cancel only this conversation;
-          // keep working siblings on their shared process until all handles rest.
-          await session.interrupt()
-          if (!this.#isProbe(session.id)) this.#sharedReleasePending = true
+          await connection.stop()
+          this.#workers.delete(connection)
         }
-      } else {
-        await connection.stop()
-        this.#workers.delete(connection)
+      } catch (error) {
+        refusal = error
+        this.#config.logger?.warn?.('the agent refused to close a session', {
+          agent: this.#config.id, error: describeAcp(error),
+        })
       }
       if (this.#sessions.get(session.id) !== session) return
       this.#sessions.delete(session.id)
+      this.#transientReads.delete(session.id)
       session.released()
       this.#sessionConnections.delete(session.id)
       this.#tasks?.forget(session.id)
@@ -2118,6 +2171,7 @@ export class AcpRuntime implements AgentRuntime {
         this.#probe = null
         this.#probeId = null
       }
+      if (refusal !== undefined) throw refusal
     })
     this.#closing.set(session.id, closing)
     try { await closing } finally {
@@ -2199,7 +2253,7 @@ export class AcpRuntime implements AgentRuntime {
         this.#sessions.set(probe.id, probe)
         return await this.#draftOptions(probe, values)
       } finally {
-        try { if (probe) await probe.close() } finally {
+        try { if (probe) this.#restReadLater(probe) } finally {
           this.#optionReads--
           await this.#restSharedIfUnused()
         }
@@ -2281,15 +2335,16 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /**
-   * In-flight catalogue readers share one silent draft session. Its
-   * declarations stay cached after the last reader releases its resources.
+   * Catalogue readers and nearby picks share one silent draft session.
+   * A short quiet interval reaps it; declarations remain cached.
    */
   async #useProbe<T>(cwd: string | undefined, read: (probe: AcpSession) => Promise<T>): Promise<T> {
     while (this.#probe && this.#closing.has(this.#probe.id)) await this.#closing.get(this.#probe.id)
+    if (this.#probe) this.#cancelReadRest(this.#probe.id)
     this.#optionReads++
     try { return await read(await this.#openProbe(cwd)) } finally {
       this.#optionReads--
-      if (this.#optionReads === 0 && this.#probe) await this.#probe.close()
+      if (this.#optionReads === 0 && this.#probe) this.#restReadLater(this.#probe)
       await this.#restSharedIfUnused()
     }
   }
@@ -2752,7 +2807,7 @@ export class AcpRuntime implements AgentRuntime {
       // "Untitled session" with no turns, for the life of the process — the
       // Codex adapter has always closed it; this one kept it.
       this.#environments.delete(session.id)
-      await session.close()
+      await session.close().catch(() => {})
       throw error
     }
     if (isAbsolute(options.cwd)) this.#openedIn.set(session.id, options.cwd)
@@ -2761,6 +2816,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    this.#cancelReadRest(id)
     this.#transientReads.delete(id)
     return this.#resumeSession(id, options)
   }

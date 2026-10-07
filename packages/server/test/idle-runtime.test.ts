@@ -537,7 +537,7 @@ const until = async (condition: () => boolean): Promise<void> => {
   }
 }
 
-const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 25) => {
+const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 25, runtimeServers?: readonly string[]) => {
   const { host, stateDir } = await makeHost(runtime, 25, seatRestMs)
   const repo = await makeRepo('hd-rest-seat-')
   const hostsToDispose = [host]
@@ -550,12 +550,63 @@ const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 
   await host.call('workspace/open', { path: repo.dir })
   const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Finish the work' }) as GoalView
   const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect' }) as { id: number }
-  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: repo.dir } }) as { id: string }
-  const seat = await host.call('goal/assign', { goal: goal.goal.id, card: card.id,
-    session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
-  const record = host.registry.get(runtime.info.id, session.id as never)!
+  if (runtimeServers !== undefined) {
+    await mkdir(join(stateDir, 'agents', 'native-reviewer'), { recursive: true })
+    await writeFile(join(stateDir, 'agents', 'native-reviewer', 'AGENT.md'), `---\nname: Native reviewer\nceiling: read\nprefer: [fake]\nruntime-servers: [${runtimeServers.join(', ')}]\n---\nInspect.\n`)
+  }
+  let seat: SeatRecord
+  if (runtimeServers !== undefined) {
+    seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'native-reviewer' }) as SeatRecord
+    runtime.sessions.get(seat.session.sessionId as never)!.finish()
+    await until(() => host.registry.get(runtime.info.id, seat.session.sessionId as never)!.running.size === 0)
+  } else {
+    const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: repo.dir } }) as { id: string }
+    seat = await host.call('goal/assign', { goal: goal.goal.id, card: card.id,
+      session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
+  }
+  const record = host.registry.get(runtime.info.id, seat.session.sessionId as never)!
   const finish = () => host.call('team/intent', { room: goal.goal.id, id: card.id, action: 'done' })
   return { host, stateDir, runtime, goal: goal.goal, card, seat, record, finish, repo, hostsToDispose }
+}
+
+for (const selection of [['docs'], []]) {
+  test(`assigning an Agent Seat preserves its frozen native selection ${JSON.stringify(selection)} across restart`, async (t) => {
+    const runtime = new IdleRuntime({ capabilities: { nativeServerSelection: true } })
+    const { host, stateDir } = await makeHost(runtime, 60_000, 60_000)
+    const repo = await makeRepo('hd-assign-native-')
+    const hosts = [host]
+    t.after(async () => {
+      for (const current of hosts.reverse()) await current.dispose()
+      await rm(stateDir, { recursive: true, force: true })
+      await rm(repo.dir, { recursive: true, force: true })
+    })
+    await mkdir(join(stateDir, 'agents', 'native-reviewer'), { recursive: true })
+    await writeFile(join(stateDir, 'agents', 'native-reviewer', 'AGENT.md'), `---\nname: Native reviewer\nceiling: read\nprefer: [fake]\nruntime-servers: [${selection.join(', ')}]\n---\nInspect.\n`)
+    await host.start()
+    await host.call('workspace/open', { path: repo.dir })
+    const session = await host.call('agent/seat', { id: 'native-reviewer', cwd: repo.dir })
+    runtime.sessions.get(session.id)!.finish()
+    await until(() => host.registry.get(runtime.info.id, session.id as never)!.running.size === 0)
+    const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Assign the reviewer' }) as GoalView
+    const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect' }) as { id: number }
+    const assigned = await host.call('goal/assign', { goal: goal.goal.id, card: card.id,
+      session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
+    assert.deepEqual(assigned.runtimeServers, selection)
+    await host.call('session/close', { runtime: runtime.info.id, sessionId: session.id })
+    await host.dispose()
+    hosts.shift()
+    const restarted = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')),
+      catalogRefreshMs: 0, idleStopMs: 60_000, seatRestMs: 60_000 })
+    hosts.push(restarted)
+    // The fake owns its history; the new host must recover the durable Seat policy.
+    restarted.register(runtime)
+    await restarted.start()
+    await restarted.call('session/resume', { runtime: runtime.info.id, sessionId: session.id })
+    assert.deepEqual(runtime.lastResumeOptions?.runtimeServers, selection)
+    const view = await restarted.call('goal/read', { goal: goal.goal.id }) as GoalView
+    assert.deepEqual(view.members.find(one => one.id === assigned.id)?.runtimeServers, selection)
+    await assert.rejects(restarted.call('session/fork', { runtime: runtime.info.id, sessionId: session.id }), /frozen native server selection/)
+  })
 }
 
 test('a finished Seat releases its handle, idle-stops, and remains a Goal member', async (t) => {
@@ -566,6 +617,18 @@ test('a finished Seat releases its handle, idle-stops, and remains a Goal member
   const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
   assert.equal(membersOf(view.goal, view.members).length, 1)
   assert.equal(view.members[0]?.closed, null)
+})
+
+test('a queued message reopens an idle-stopped Seat with its frozen native server selection', async (t) => {
+  const runtime = new IdleRuntime({ capabilities: { nativeServerSelection: true } })
+  const d = await seated(t, runtime, 25, ['docs'])
+  await d.finish()
+  await until(() => d.record.live === null && runtime.health().state === 'idle')
+  await writeFile(join(d.stateDir, 'agents', 'native-reviewer', 'AGENT.md'), '---\nname: Native reviewer\nceiling: read\nprefer: [fake]\nruntime-servers: []\n---\nInspect.\n')
+  await d.host.call('team/post', { room: d.goal.id, text: 'Follow up.' })
+  assert.equal(runtime.resumes, 1)
+  assert.deepEqual(runtime.lastResumeOptions?.runtimeServers, ['docs'])
+  assert.ok(d.record.session.turns.some(turn => turn.items.some(item => item.type === 'userMessage')))
 })
 
 test('a settled Flow keeps its finished Seats while their runtime rests', async (t) => {
@@ -1066,4 +1129,40 @@ test('a quiet personal conversation rests and its next message resumes it while 
     input: [{ type: 'text', text: 'Continue' }] })
   assert.ok(quiet.live)
   assert.equal(runtime.resumes, before + 1)
+})
+
+
+test('manual recycling refuses a live conversation and shares the stop barrier with new work', async (t) => {
+  const runtime = new IdleRuntime({ id: 'idle-test' as never, name: 'Idle Test' })
+  const { host, stateDir } = await makeHost(runtime, 0, 0)
+  t.after(async () => { runtime.continueStop(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  await host.start()
+  const params = { runtime: runtime.info.id }
+  const first = await host.call('session/create', { ...params, options: { cwd: '/w' } }) as { id: string }
+  assert.deepEqual(await host.call('runtime/recycle', params), { recycled: false })
+  assert.equal(runtime.stops, 0)
+  await host.call('session/close', { ...params, sessionId: first.id as never })
+  runtime.holdNextStop()
+  const stopping = host.call('runtime/recycle', params)
+  await until(() => runtime.stops === 1)
+  const starting = host.call('session/create', { ...params, options: { cwd: '/w' } })
+  assert.deepEqual(await host.call('runtime/recycle', params), { recycled: false })
+  assert.equal(runtime.starts, 1)
+  runtime.continueStop()
+  assert.deepEqual(await stopping, { recycled: true })
+  await starting
+  assert.equal(runtime.starts, 2)
+})
+
+test('resource polling reports unsupported measurement and never wakes an idle runtime', async (t) => {
+  const runtime = new IdleRuntime({ id: 'idle-test' as never, name: 'Idle Test' })
+  const { host, stateDir } = await makeHost(runtime, 0, 0)
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  await host.start()
+  assert.deepEqual(await host.call('runtime/recycle', { runtime: runtime.info.id }), { recycled: true })
+  const costs = await host.call('runtime/resources', {}) as readonly { processes: number | null; residentBytes: number | null; canRecycle: boolean }[]
+  assert.equal(costs[0]?.processes, null)
+  assert.equal(costs[0]?.residentBytes, null)
+  assert.equal(costs[0]?.canRecycle, false)
+  assert.equal(runtime.starts, 1)
 })

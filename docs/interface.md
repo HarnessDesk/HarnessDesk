@@ -407,8 +407,10 @@ agents connected via the Agent Client Protocol (ACP), which provides no archive
 operation, HarnessDesk records the archived mark in its own local store.
 HarnessDesk holds what the agent does not, and never shadows what it does: where
 an agent maintains its own archive history, HarnessDesk defers to it, because
-two archives disagreeing is worse than one that is only ours. An archived
+two archives disagreeing is worse than one that is only ours. A quiet archived
 conversation releases its live agent handle when the agent can resume it.
+Archiving leaves working turns, approvals, queued messages and running tasks
+live; their handles rest after the work becomes quiet.
 Reopening restores the conversation from the agent's history. Personal
 conversations also release after ten quiet minutes; working turns, approvals,
 queued messages and running tasks keep them live.
@@ -771,8 +773,16 @@ For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
 regardless of the stored switch. The switch shows and changes the stored
 preference; disabling it does not remove that environment override.
 
-**Runtimes** is every registered runtime with its accounts beneath it, and a
-page per runtime (health, update, the runtime's own options) or per account;
+**Runtimes** lists every registered runtime with its accounts beneath it.
+Its Process cost section lists runtimes holding processes, with process count and
+resident memory, including descendants, refreshed every five seconds while the
+page is open. A failed or unsupported measurement says so. Shared pages may
+count more than once. **Recycle** stops only an unused running
+runtime; open conversations, work and in-flight reads prevent it. The same
+section appears on a runtime's detail page, where an idle runtime says **Not running**;
+observing it never starts one. Shared recycling refusals are stated once below the table.
+
+It has a page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* is where a registry entry or a custom one is added. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
 means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP

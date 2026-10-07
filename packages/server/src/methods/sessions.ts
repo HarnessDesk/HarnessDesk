@@ -116,7 +116,7 @@ export const sessionMethods = {
     // gateway address reaches the adapter.
     // `attachments` is the host's own, like `route`: a Seat's approved filter
     // is set by `agent/seat` alone, never by whoever calls this.
-    const { route: _clientRoute, attachments: _clientAttachments, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
       routeId?: string
     }
     let options = rest as typeof params.options
@@ -135,7 +135,7 @@ export const sessionMethods = {
   'session/resume': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, attachments: _clientAttachments, knownCwd: _clientKnownCwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
@@ -152,7 +152,9 @@ export const sessionMethods = {
     // two that race — the second would drop the session under the first's
     // running turn. A conversation already live here kept its filter.
     const sessionId = makeSessionId(params.sessionId)
+    const frozenSeat = ctx.evidence.seats.latestKeptOf(runtime.info.id, params.sessionId)
     const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
+    if (frozenSeat?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozenSeat.runtimeServers }
     if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
     const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
     const resolve = async (): Promise<AgentSession> => {
@@ -241,7 +243,7 @@ export const sessionMethods = {
   'session/fork': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, attachments: _clientAttachments, knownCwd: _clientKnownCwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
@@ -250,6 +252,7 @@ export const sessionMethods = {
     }
     // A fork is a new conversation, not the Seat: it would run with none of
     // the Seat's approved filter, on the runtime's own defaults. Refused.
+    if (ctx.evidence.seats.latestKeptOf(runtime.info.id, params.sessionId)?.runtimeServers !== undefined) throw new Error('This Seat has a frozen native server selection; start a new Seat to choose its servers.')
     const refusal = await ctx.attachments?.forkRefusal(runtime.info.id, makeSessionId(params.sessionId))
     if (refusal) throw new Error(refusal)
     const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
@@ -273,8 +276,12 @@ export const sessionMethods = {
     if (params.archived && runtime.info.capabilities.resume) {
       const record = ctx.registry.get(runtime.info.id, id)
       const live = record?.live
-      await live?.close()
-      if (record && record.live === live) {
+      const quiet = record && record.running.size === 0 && record.approvals.size === 0 &&
+        record.queue.messages.length === 0 && !record.tasks.some(task => task.state === 'running')
+      if (quiet) await live?.close().catch(error => ctx.logger.warn('an archived conversation could not close', {
+        runtime: runtime.info.id, error: String(error),
+      }))
+      if (quiet && record.live === live) {
         record.live = null
         record.detached = false
       }

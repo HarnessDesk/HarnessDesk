@@ -1074,6 +1074,7 @@ const handlers = {
   },
   'session/close': async (id, params) => {
     if (process.env.FAKE_ACP_NO_CLOSE) return fail(id, 'close is unsupported')
+    if (process.env.FAKE_ACP_CLOSE_SILENT) return
     if (process.env.FAKE_ACP_CLOSE_FAIL) return fail(id, 'close refused')
     const helper = helpers.get(params.sessionId)
     if (helper) {

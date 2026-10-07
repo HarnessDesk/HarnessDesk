@@ -34,6 +34,7 @@ You review a change somebody else wrote. …
 | `produces` | What it leaves behind. |
 | `skills` | The skills it expects, by name. Omitted or empty means the runtime's own defaults, never "none". |
 | `mcp` | The MCP servers it expects, by name. Same empty-means-default rule as `skills`. |
+| `runtime-servers` | Native configured server names, case-sensitive. Omitted keeps defaults; `[]` means none. A blank value is refused. |
 | `prefer` | The seats it asks for, in order — at most eight. |
 | the body | The brief, handed to the seat once as its standing order. |
 
@@ -90,6 +91,26 @@ notes — read and cleared from its page, never treated as an instruction or as
 evidence of anything. This release does not load them onto a Seat: that would
 need an approval of their own, which notes do not have yet. A project Agent's notes are visible in its checkout's
 Git history like the rest of the file; nothing here is secret.
+
+### Native server selection
+
+`runtime-servers: [docs]` narrows a Seat to named servers already configured
+in its runtime, without declaring a new command or changing the runtime's files.
+Omitting the field keeps native defaults; a blank or null value is refused.
+Names use 1–128 ASCII letters, digits, `_`, `:`, `@`, `/`, `.` or `-`.
+`runtime-servers: []` suppresses all native configured servers. A disabled server stays disabled, and an unknown
+name or unsupported runtime refuses the Seat before it opens.
+
+This is independent of `mcp:`, which selects reviewed Library attachments;
+its approval and readback contract still applies. Native selection is frozen
+in the Seat record and reapplied on resume. A Seat's fork is refused; start a
+new Seat to choose its servers. Internal side reviews inherit the selection.
+If a selected server is removed or renamed in the runtime's configuration,
+the Seat cannot reopen: restore the server or start a new Seat with a new selection.
+Tool-server reloads apply to unfiltered conversations; a filtered conversation
+keeps its opening selection until reopened. Currently the native override is
+measured on runtime builds starting at 0.160.0; other adapters do not declare
+this capability.
 
 ## Three places, one roster
 
