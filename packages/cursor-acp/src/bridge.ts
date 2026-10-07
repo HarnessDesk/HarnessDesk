@@ -849,6 +849,8 @@ interface Session {
   briefing: string | null
   briefed: boolean
   busy: boolean
+  closing: boolean
+  turnDone?: Promise<void> | undefined
   child: ChildProcess | null
   cancelled: boolean
   /**
@@ -943,7 +945,7 @@ export class CursorAcpBridge {
           protocolVersion: PROTOCOL_VERSION,
           agentCapabilities: {
             loadSession: true,
-            sessionCapabilities: { list: {}, resume: {} },
+            sessionCapabilities: { list: {}, resume: {}, close: {} },
             // Images: cursor-agent has no image flag, but it reads an image
             // file the prompt names with `@path` — so each image block is
             // written to disk and referenced. See #textOf.
@@ -978,6 +980,8 @@ export class CursorAcpBridge {
       }
       case 'session/load':
         return this.#loadSession(params)
+      case 'session/close':
+        return this.#closeSession(params)
       case SESSION_DELETE:
         return this.#deleteSession(params)
       default:
@@ -1250,6 +1254,7 @@ export class CursorAcpBridge {
       briefing,
       briefed: false,
       busy: false,
+      closing: false,
       child: null,
       cancelled: false,
     }
@@ -1379,6 +1384,28 @@ export class CursorAcpBridge {
     ]
   }
 
+  /** Release transient session state while its stored chat remains resumable. */
+  async #closeSession(params: Record<string, unknown>): Promise<object> {
+    const id = String(params['sessionId'] ?? '')
+    if (!CHAT_ID.test(id)) throw new Error('A valid session id is required.')
+    const session = this.#sessions.get(id)
+    if (!session) return {}
+    session.closing = true
+    this.#cancel(params)
+    // Includes turns still waiting at the shared start gate or retry pause.
+    await session.turnDone
+    if (this.#sessions.get(id) !== session) return {}
+    this.#sessions.delete(id)
+    const root = resolve(tmpdir(), 'harnessdesk-cursor-acp')
+    const scratchDir = resolve(root, id)
+    if (scratchDir.startsWith(root + '/') || scratchDir.startsWith(root + '\\')) {
+      rmSync(scratchDir, { recursive: true, force: true })
+    }
+    rmSync(configDir(id), { recursive: true, force: true })
+    return {}
+  }
+
+
   /**
    * The session list: Cursor's store first, this bridge's index second.
    *
@@ -1394,6 +1421,7 @@ export class CursorAcpBridge {
    * or whose store this bridge cannot read — it is a fallback now, not the
    * source of truth it used to be.
    */
+
   /**
    * Removes a chat from Cursor's store and from this bridge's index.
    *
@@ -1515,7 +1543,7 @@ export class CursorAcpBridge {
   #session(params: Record<string, unknown>): Session {
     const id = String(params['sessionId'] ?? '')
     const session = this.#sessions.get(id)
-    if (!session) throw new Error(`unknown session: ${id}`)
+    if (!session || session.closing) throw new Error(`unknown session: ${id}`)
     return session
   }
 
@@ -1600,6 +1628,8 @@ export class CursorAcpBridge {
     const session = this.#session(params)
     if (session.busy || session.child) throw new Error('a turn is already running in this session')
     session.busy = true
+    let finish!: () => void
+    session.turnDone = new Promise<void>(resolve => { finish = resolve })
     try {
       const text = this.#textOf(params['prompt'], session)
       if (text.trim() === '') throw new Error('the prompt contains no text')
@@ -1684,6 +1714,8 @@ export class CursorAcpBridge {
       }
     } finally {
       session.busy = false
+      finish()
+      session.turnDone = undefined
     }
   }
 

@@ -52,10 +52,14 @@ export class AcpTasks implements RuntimeTasks {
   readonly #lists = new Map<string, readonly BackgroundTask[]>()
 
   constructor(
-    private readonly connection: AcpConnection,
+    private readonly connection: AcpConnection | ((session: SessionId) => AcpConnection),
     /** Announces a changed list; the runtime turns it into `session/tasks`. */
     private readonly publish: (session: SessionId, tasks: readonly BackgroundTask[]) => void,
   ) {}
+
+  #connectionFor(session: SessionId): AcpConnection {
+    return typeof this.connection === 'function' ? this.connection(session) : this.connection
+  }
 
   async list(session: SessionId): Promise<readonly BackgroundTask[]> {
     const held = this.#lists.get(session)
@@ -64,7 +68,7 @@ export class AcpTasks implements RuntimeTasks {
     // has had no reason to say anything about. Ask once; the answer is held
     // and every later change arrives unasked.
     try {
-      const response = await this.connection.request<{ tasks?: readonly AcpBackgroundTask[] }>(
+      const response = await this.#connectionFor(session).request<{ tasks?: readonly AcpBackgroundTask[] }>(
         ACP_TASKS_LIST,
         { sessionId: session },
       )
@@ -80,7 +84,7 @@ export class AcpTasks implements RuntimeTasks {
 
   async stop(session: SessionId, taskId: string): Promise<boolean> {
     try {
-      const response = await this.connection.request<{ stopped?: boolean }>(ACP_TASKS_STOP, {
+      const response = await this.#connectionFor(session).request<{ stopped?: boolean }>(ACP_TASKS_STOP, {
         sessionId: session,
         taskId,
       })
@@ -92,7 +96,7 @@ export class AcpTasks implements RuntimeTasks {
 
   async clear(session: SessionId): Promise<void> {
     try {
-      await this.connection.request(ACP_TASKS_CLEAR, { sessionId: session })
+      await this.#connectionFor(session).request(ACP_TASKS_CLEAR, { sessionId: session })
     } catch {
       // The host drops its own copy either way; an agent that cannot forget
       // will simply push its list again and the finished rows come back,

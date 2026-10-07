@@ -18,6 +18,8 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 const REFUSES_AT_START = process.env.FAKE_ACP_REFUSE_TOOLS_WHILE ? existsSync(process.env.FAKE_ACP_REFUSE_TOOLS_WHILE) : false
 
@@ -104,6 +106,11 @@ const request = (method, params) =>
 
 let sessionCounter = 0
 const sessions = new Map()
+const helpers = new Map()
+const lifetime = (event) => {
+  if (process.env.FAKE_ACP_LIFETIME) appendFileSync(process.env.FAKE_ACP_LIFETIME, JSON.stringify({ pid: process.pid, ...event }) + '\n')
+}
+lifetime({ type: 'bridge' })
 const cancelled = new Set()
 
 const newSession = (id0, cwd) => {
@@ -126,6 +133,11 @@ const newSession = (id0, cwd) => {
     },
   }
   sessions.set(id, state)
+  if (process.env.FAKE_ACP_LIFETIME) {
+    const helper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+    helpers.set(id, helper)
+    lifetime({ type: 'open', sessionId: id, helper: helper.pid })
+  }
   return state
 }
 
@@ -984,7 +996,8 @@ const handlers = {
         loadSession: Boolean(STORE) && !RESUME_ONLY,
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
-        ...(STORE && !NO_LIST ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
+        sessionCapabilities: { ...(STORE && !NO_LIST ? { list: {}, resume: {} } : {}),
+          ...(process.env.FAKE_ACP_NO_CLOSE ? {} : { close: {} }) },
         /* `{}` is the only yes; `null` is a no that is spelled out rather
            than omitted, and both are on the wire. */
         ...(LOGS_OUT ? { auth: { logout: {} } } : LOGOUT_NULL ? { auth: { logout: null } } : {}),
@@ -1051,6 +1064,20 @@ const handlers = {
     if (!LOGS_OUT) return fail(id, 'Method not found: logout')
     if (process.env.FAKE_ACP_LOGOUT_FAILS === '1') return fail(id, 'the keychain refused to give up the token')
     signedOut = true
+    reply(id, {})
+  },
+  'session/close': async (id, params) => {
+    if (process.env.FAKE_ACP_NO_CLOSE) return fail(id, 'close is unsupported')
+    if (process.env.FAKE_ACP_CLOSE_FAIL) return fail(id, 'close refused')
+    const helper = helpers.get(params.sessionId)
+    if (helper) {
+      const exited = once(helper, 'exit')
+      helper.kill('SIGTERM')
+      await exited
+      helpers.delete(params.sessionId)
+    }
+    sessions.delete(params.sessionId)
+    lifetime({ type: 'close', sessionId: params.sessionId })
     reply(id, {})
   },
   'session/new': (id, params) => {

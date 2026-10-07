@@ -2305,3 +2305,44 @@ shrink, never enlarge it.
 Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
+
+## ACP sessions release what they opened
+
+An ACP handle used to disappear only from the adapter's map. The peer kept its
+session and its children until the whole account process stopped. A catalogue
+probe was another retained session. Measured without prompts on 2026-10-06,
+eight sessions through the bundled Claude bridge left ten processes and about
+2 GB resident after close; the adapter now leaves the one bridge at about
+115 MB. The measurement uses an isolated home and synthetic keys, never a turn:
+[`acp-session-processes.mjs`](../script/probe/acp-session-processes.mjs).
+
+The negotiated `sessionCapabilities.close` chooses the lifecycle. A peer that
+declares it serves every conversation of its account on the same connection;
+closing a handle asks `session/close` and forgets it only after the reply.
+The bundled Claude bridge already tears down its query and attachments there.
+The Cursor bridge now cancels and waits for that session's turn, removes its
+transient tool/config folders, and keeps its durable chat and the shared start
+gate. Neither close names a sibling.
+
+A peer with no close method gets a connection per live session, beside the
+account's session-free control connection. Close reaps that connection's process
+group. A failed worker detaches only its session; restarting or disposing the
+account reaps all workers. This costs memory: the installed Gemini peer serves
+eight sessions in about 0.5 GB on one process family but has no close method;
+isolating them costs about 4.1 GB while all eight are open. Closing them returns
+to the control family's roughly 0.5 GB. A shared process without a release verb
+cannot promise to release one session while another works.
+
+Catalogue readers share a probe while reading it, then release it. Draft picks
+and model/command declarations remain cached, and fresh option reads do not
+replace the composer's picks. The existing host release seam rests finished
+Seats; personal conversations also release after ten quiet minutes, with turns,
+approvals, queued input and running tasks protecting them. Archiving a resumable
+conversation releases its handle. Reopening waits for close, then loads the same
+agent-owned history; a stale close cannot release its replacement.
+
+**The rule:** share an account process when the peer can release a session;
+otherwise bound processes to live handles and reap their groups when released.
+Scripted ACP and bundled bridge tests prove release, resume, sibling isolation,
+probe cleanup and worker failure. The installed-agent measurements cover opening
+and closing only; they do not claim anything about real prompted turns.

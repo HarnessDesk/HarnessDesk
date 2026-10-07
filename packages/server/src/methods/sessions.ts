@@ -270,6 +270,15 @@ export const sessionMethods = {
     } else {
       await ctx.archive.set(runtime.info.id, id, params.archived)
     }
+    if (params.archived && runtime.info.capabilities.resume) {
+      const record = ctx.registry.get(runtime.info.id, id)
+      const live = record?.live
+      await live?.close()
+      if (record && record.live === live) {
+        record.live = null
+        record.detached = false
+      }
+    }
     return null
   },
 

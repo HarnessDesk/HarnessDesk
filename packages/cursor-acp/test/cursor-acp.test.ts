@@ -1669,3 +1669,34 @@ test('writeToolPlugin refuses invalid sessionId with directory traversal (#413)'
     /Invalid session id: \.\.\/outside/,
   )
 })
+
+test('session close releases its bridge state, keeps a sibling, and reloads the same chat', async (t) => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const first = await runtime.createSession({ cwd: WORKDIR })
+  const sibling = await runtime.createSession({ cwd: WORKDIR })
+  const connection = runtime.connection
+  // Test the bridge's protocol itself: fallback process retirement cannot make this pass.
+  await connection.request('session/close', { sessionId: first.id })
+  await assert.rejects(connection.request('session/set_mode', { sessionId: first.id, modeId: 'plan' }), /unknown session/i)
+  await connection.request('session/set_mode', { sessionId: sibling.id, modeId: 'plan' })
+  await connection.request('session/load', { sessionId: first.id, cwd: WORKDIR, mcpServers: [] })
+  await connection.request('session/set_mode', { sessionId: first.id, modeId: 'plan' })
+})
+
+test('closing a running session cancels only its turn and keeps the shared bridge', async (t) => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const first = await runtime.createSession({ cwd: WORKDIR })
+  const sibling = await runtime.createSession({ cwd: WORKDIR })
+  assert.equal(runtime.connectionFor(first.id), runtime.connection)
+  const tape = record(runtime)
+  const turn = await first.send([{ type: 'text', text: 'slow' }])
+  await first.close()
+  const completed = await tape.until(event => event.type === 'turn/completed' && event.turn.id === turn)
+  assert.equal(completed.type, 'turn/completed')
+  assert.equal(runtime.health().state, 'ready')
+  assert.equal(await runtime.resumeSession(sibling.id), sibling)
+})

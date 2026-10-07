@@ -308,3 +308,19 @@ test('session/archive wire call rejects when host archive cannot be persisted', 
 })
 
 
+
+test('archiving a resumable conversation releases its handle and leaves a sibling open', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const first = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const sibling = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    await rig.client.call('session/archive', { runtime: 'fake', sessionId: first.id, archived: true })
+    const record = rig.host.registry.get(runtimeId('fake'), sessionId(first.id))!
+    assert.equal(record.live, null)
+    assert.equal(record.detached, false)
+    assert.ok(rig.host.registry.get(runtimeId('fake'), sessionId(sibling.id))?.live)
+    await rig.client.call('session/archive', { runtime: 'fake', sessionId: first.id, archived: false })
+    await rig.client.call('session/resume', { runtime: 'fake', sessionId: first.id })
+    assert.ok(record.live, 'opening after unarchive resumes the stored conversation')
+  } finally { await rig.close() }
+})

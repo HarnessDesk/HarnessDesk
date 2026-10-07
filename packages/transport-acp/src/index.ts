@@ -41,6 +41,7 @@ export interface AcpAgentCapabilities {
    * of these is a `Boolean(…)` or a `!…`, which answers `null` correctly.
    */
   readonly sessionCapabilities?: {
+    readonly close?: object | null
     readonly list?: object | null
     readonly resume?: object | null
     readonly fork?: object | null

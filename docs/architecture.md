@@ -239,6 +239,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   process failure detaches only its own handles for the normal resume path.
   Process exit releases its thread helpers
   ([measurement and lifecycle](decisions.md#finished-conversations-recycle-their-own-processes)).
+  ACP peers that declare session close share the account connection and release
+  a session through that method. Peers without close use one reapable connection
+  per live session, beside a session-free control connection. Catalogue probes
+  release after their readers finish; their declarations and draft picks stay
+  cached. Personal conversations rest after ten quiet minutes, protecting turns,
+  approvals, queued input and running tasks, and archiving a resumable conversation
+  releases its handle. All use the same host close-and-resume seam
+  ([ACP release lifecycle](decisions.md#acp-sessions-release-what-they-opened)).
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening

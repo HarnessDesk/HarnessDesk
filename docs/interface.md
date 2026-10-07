@@ -407,7 +407,11 @@ agents connected via the Agent Client Protocol (ACP), which provides no archive
 operation, HarnessDesk records the archived mark in its own local store.
 HarnessDesk holds what the agent does not, and never shadows what it does: where
 an agent maintains its own archive history, HarnessDesk defers to it, because
-two archives disagreeing is worse than one that is only ours.
+two archives disagreeing is worse than one that is only ours. An archived
+conversation releases its live agent handle when the agent can resume it.
+Reopening restores the conversation from the agent's history. Personal
+conversations also release after ten quiet minutes; working turns, approvals,
+queued messages and running tasks keep them live.
 
 **Not every agent can delete, and the interface says which.** Deleting has to
 reach the agent's own store, so it is offered exactly where something can:

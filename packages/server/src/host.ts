@@ -476,6 +476,8 @@ export interface HostOptions {
   readonly idleStopMs?: number
   /** How long a finished Seat stays quiet before its live handle is released. */
   readonly seatRestMs?: number
+  /** How long a personal conversation stays quiet before its live handle is released. */
+  readonly sessionRestMs?: number
   /**
    * How long a direct send counts the conversation as busy while the agent
    * has not yet accepted it. See `SEND_ACCEPT_DEADLINE_MS`.
@@ -637,6 +639,7 @@ export class Host {
   readonly #runtimeReads = new Map<string, number>()
   readonly #sessionActivity = new Map<string, number>()
   readonly #idleSince = new Map<string, number>()
+  readonly #conversationQuietSince = new Map<string, { since: number; changedAt: number }>()
   readonly #seatQuietSince = new Map<string, { since: number; changedAt: number }>()
   readonly #restingSessions = new Map<string, Promise<void>>()
   readonly #seatHeldCards: SeatHeldCards
@@ -2541,6 +2544,7 @@ export class Host {
     const key = session === undefined ? null : sessionKey(id, session)
     if (key !== null) {
       this.#seatQuietSince.delete(key)
+      this.#conversationQuietSince.delete(key)
       this.#sessionActivity.set(key, (this.#sessionActivity.get(key) ?? 0) + 1)
     }
     try {
@@ -2562,7 +2566,7 @@ export class Host {
   #startIdleReaper(): void {
     const delay = this.options.idleStopMs ?? IDLE_STOP_MS
     if (delay <= 0 || this.#idleReaper !== null) return
-    const cadence = Math.max(10, Math.min(1_000, delay, this.options.seatRestMs ?? SEAT_REST_MS))
+    const cadence = Math.max(10, Math.min(1_000, delay, this.options.seatRestMs ?? SEAT_REST_MS, this.options.sessionRestMs ?? SEAT_REST_MS))
     this.#idleReaper = setInterval(() => {
       for (const runtime of this.#runtimes.values()) void this.#reapIdleRuntime(runtime, delay)
     }, cadence)
@@ -2668,8 +2672,52 @@ export class Host {
     })
   }
 
+  #personalConversationQuiet(record: SessionRecord): boolean {
+    const key = recordKey(record)
+    return Boolean(record.live) && record.running.size === 0 && record.approvals.size === 0 &&
+      record.queue.messages.length === 0 && !record.tasks.some(task => task.state === 'running') &&
+      (this.#sessionActivity.get(key) ?? 0) === 0 && !this.#queueBusy(record) &&
+      !this.#draining.has(key) && !this.#reattaching.has(key)
+  }
+
+  async #restPersonalConversations(runtime: AgentRuntime): Promise<void> {
+    const delay = this.options.sessionRestMs ?? SEAT_REST_MS
+    if (this.#disposed || delay <= 0 || runtime.health().state !== 'ready' ||
+      !runtime.info.capabilities.resume || !runtime.stopForIdle) return
+    const seats = new Set<string>(this.#evidence.seats.all().map(seat => sessionKey(seat.session.runtime, seat.session.sessionId)))
+    for (const record of this.registry.all()) {
+      if (record.runtime !== runtime.info.id) continue
+      const key = recordKey(record)
+      if (seats.has(key) || !this.#personalConversationQuiet(record)) {
+        this.#conversationQuietSince.delete(key)
+        continue
+      }
+      const changedAt = record.session.updatedAt
+      const prior = this.#conversationQuietSince.get(key)
+      if (!prior || prior.changedAt !== changedAt) {
+        this.#conversationQuietSince.set(key, { since: Date.now(), changedAt })
+        continue
+      }
+      if (Date.now() - prior.since < delay || this.#restingSessions.has(key)) continue
+      const live = record.live!
+      const resting = Promise.resolve().then(async () => {
+        if (!this.#personalConversationQuiet(record) || record.live !== live) return
+        await live.close()
+        if (record.live === live) { record.live = null; record.detached = false }
+      })
+      this.#restingSessions.set(key, resting)
+      try { await resting } catch (error) {
+        this.#conversationQuietSince.delete(key)
+        this.#logger.warn('a quiet conversation could not release its handle', { runtime: runtime.info.id, error: String(error) })
+      } finally {
+        if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+      }
+    }
+  }
+
   async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
     await this.#restSeats(runtime)
+    await this.#restPersonalConversations(runtime)
     const id = String(runtime.info.id)
     if (!runtime.stopForIdle || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id, false)) {
       this.#idleSince.delete(id)
@@ -6529,6 +6577,7 @@ export class Host {
     if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
       (event.type === 'session/tasks' && event.tasks.some((task) => task.state === 'running')))) {
       this.#seatQuietSince.delete(recordKey(record))
+      this.#conversationQuietSince.delete(recordKey(record))
     }
     // A trigger Goal's Seat started or ended a turn: its meter reads usage with it.
     if ((event.type === 'turn/started' || event.type === 'turn/completed') && record) {
