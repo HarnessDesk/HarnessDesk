@@ -1,6 +1,7 @@
 import {
   ceilingOfPermission,
   isCeilingLevel,
+  isNativeServerName,
   SEAT_PREFERENCE_LIMIT,
   type AgentDefinition,
   type AgentProblem,
@@ -55,13 +56,26 @@ const asWords = (value: unknown): string[] =>
  * answers to (`parseNames`, phase 12). A violation is one error naming the
  * field, never a partial list quietly missing the entry that broke it.
  */
-const namesField = (raw: unknown[], at: 'skills' | 'mcp' | 'runtime-servers', problems: AgentProblem[]): string[] => {
+const namesField = (raw: unknown[], at: 'skills' | 'mcp', problems: AgentProblem[]): string[] => {
   try {
     return [...parseNames(raw)]
   } catch (error) {
     problems.push(problem('error', at, error instanceof Error ? error.message : String(error)))
     return []
   }
+}
+
+const nativeNamesField = (value: unknown, problems: AgentProblem[]): string[] => {
+  const raw = oneOrMore(value)
+  const error = value === undefined || value === null || value === ''
+    ? 'A blank native selection is refused; write [] to suppress all native servers, or omit the field to keep defaults.'
+    : raw.length > 64 || new Set(raw).size !== raw.length
+      ? 'Choose at most 64 distinct native server names.'
+      : !raw.every(isNativeServerName)
+        ? 'Native server names use 1–128 ASCII letters, digits, underscores, colons, @, slashes, dots or hyphens.'
+        : null
+  if (error) { problems.push(problem('error', 'runtime-servers', error)); return [] }
+  return raw as string[]
 }
 
 /**
@@ -197,7 +211,7 @@ export const parseAgentDefinition = (
      command or a credential a repository must never get to hand a runtime. */
   const skills = namesField(asWords(field('skills')), 'skills', problems)
   const mcp = namesField(oneOrMore(field('mcp')), 'mcp', problems)
-  const runtimeServers = Object.hasOwn(head, 'runtime-servers') ? namesField(oneOrMore(field('runtime-servers')), 'runtime-servers', problems) : undefined
+  const runtimeServers = Object.hasOwn(head, 'runtime-servers') ? nativeNamesField(field('runtime-servers'), problems) : undefined
 
   for (const key of Object.keys(head)) {
     if (!(FIELDS as readonly string[]).includes(key)) {

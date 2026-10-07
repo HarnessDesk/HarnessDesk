@@ -1899,13 +1899,13 @@ export class AppStore {
     return this.transport.request('runtime/models', { runtime }).catch(() => [])
   }
 
+  runtimeResources() { return this.transport.request('runtime/resources', {}) }
+  recycleRuntime(runtime: RuntimeId) { return this.transport.request('runtime/recycle', { runtime }) }
+
   /**
    * Re-asks the active runtime what it offers, now. The new list arrives by
    * `catalog/changed`; the returned check says whether the binary changed.
    */
-  runtimeResources() { return this.transport.request('runtime/resources', {}) }
-  recycleRuntime(runtime: RuntimeId) { return this.transport.request('runtime/recycle', { runtime }) }
-
   async refreshCatalog(): Promise<InstallationCheck | null> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return null

@@ -14,6 +14,7 @@ import {
 } from '@harnessdesk/codex'
 import {
   laneEnvironmentOf,
+  isNativeServerName,
   sessionId as makeSessionId,
   type AccountStatus,
   findOption,
@@ -1145,6 +1146,7 @@ export class CodexRuntime implements AgentRuntime {
     if (held && !options.environment) options = { ...options, environment: held }
     const existing = this.#sessions.get(id)
     if (existing) return existing
+    options = await this.#nativeSelectionFolder(id, options)
     const { start, after } = await this.#startParamsFor(options)
     let response: CodexProtocol.v2.ThreadResumeResponse
     try {
@@ -1212,6 +1214,7 @@ export class CodexRuntime implements AgentRuntime {
     if (runtimeServers !== undefined) options = { ...options, runtimeServers }
     const environment = options.environment ?? this.#environments.get(id)
     if (environment) options = { ...options, environment }
+    options = await this.#nativeSelectionFolder(id, options)
     const { start, after } = await this.#startParamsFor(options)
     const response = await this.#server.request('thread/fork', {
       threadId: id,
@@ -1253,6 +1256,13 @@ export class CodexRuntime implements AgentRuntime {
     }
   }
 
+  /** Project configuration must be read in the source thread's folder on reopening. */
+  async #nativeSelectionFolder(id: SessionId, options: Partial<SessionOptions>): Promise<Partial<SessionOptions>> {
+    if (options.runtimeServers === undefined || options.cwd) return options
+    const { thread } = await this.#server.request('thread/read', { threadId: id, includeTurns: false })
+    return { ...options, cwd: thread.cwd }
+  }
+
   /** Resolves the one start-only option into bounded thread config overrides. */
   async #startParamsFor(options: Partial<SessionOptions>): Promise<ReturnType<typeof startParamsFor>> {
     const selected = profileSelection(options.options)
@@ -1271,7 +1281,8 @@ export class CodexRuntime implements AgentRuntime {
     if (options.runtimeServers !== undefined) {
       if (!this.#nativeServerSelection()) throw new Error('This build cannot select native servers independently for a conversation.')
       const selected = options.runtimeServers
-      if (selected.length > 64 || new Set(selected).size !== selected.length || selected.some(name => !/^[a-z0-9][a-z0-9._:-]{0,127}$/.test(name))) throw new Error('Choose at most 64 distinct native server names.')
+      if (selected.length > 64 || new Set(selected).size !== selected.length) throw new Error('Choose at most 64 distinct native server names.')
+      if (!selected.every(isNativeServerName)) throw new Error('Native server names use 1–128 ASCII letters, digits, underscores, colons, @, slashes, dots or hyphens.')
       const { config } = await this.#server.request('config/read', options.cwd ? { cwd: options.cwd } : {})
       const servers = config['mcp_servers']
       if (servers !== undefined && servers !== null && (typeof servers !== 'object' || Array.isArray(servers))) throw new Error('The runtime did not report its native server configuration.')

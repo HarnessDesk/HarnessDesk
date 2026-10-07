@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RuntimeId, RuntimeResources as Cost } from '@harnessdesk/protocol'
 import { accountKey, accountName, agentKey } from '../lib/accounts'
-import { Button, Note, SectionHead, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { Button, Chip, Note, SectionHead, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 
 export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) => {
@@ -53,19 +53,23 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
     const account = snapshot.accountsByRuntime[id]?.accounts[0]
     return siblings.length > 1 && account ? `${info.presentation.name} · ${accountName(account, snapshot.accountPrefs[accountKey(id, account)], info.presentation.name)}` : info.presentation.name
   }
-  const shown = costs.filter((cost) => runtime === undefined || cost.runtime === runtime)
+  const shown = costs.filter((cost) => runtime === undefined ? cost.processes !== 0 : cost.runtime === runtime)
+  const rows = shown.filter(cost => cost.processes !== 0)
+  const reasons = [...new Set(rows.map(cost => cost.reason).filter((reason): reason is string => reason !== null))]
   if (shown.length === 0 && !problem) return null
   return <>
     <SectionHead name="Process cost" />
-    <Table density="compact" inset="row">
+    {shown.some(cost => cost.processes === 0) && <Chip tone="neutral">Not running</Chip>}
+    {rows.length > 0 && <Table density="compact" inset="row">
       <TableHeader><TableRow><TableHead>Runtime</TableHead><TableHead numeric>Processes</TableHead><TableHead numeric>Resident memory</TableHead><TableHead align="end">Idle runtime</TableHead></TableRow></TableHeader>
-      <TableBody>{shown.map((cost) => <TableRow key={cost.runtime}>
-        <TableHead variant="row" className="whitespace-normal break-words">{nameFor(cost.runtime)}{cost.reason && <Text as="span" role="muted" ink="secondary" weight="normal" className="block">{cost.reason}</Text>}</TableHead>
+      <TableBody>{rows.map((cost) => <TableRow key={cost.runtime}>
+        <TableHead variant="row" className="whitespace-normal break-words">{nameFor(cost.runtime)}</TableHead>
         <TableCell numeric>{cost.processes === null ? 'Unavailable' : `${cost.processes} ${cost.processes === 1 ? 'process' : 'processes'}`}</TableCell>
         <TableCell numeric>{cost.residentBytes === null ? 'Unavailable' : `${Math.round(cost.residentBytes / 1024 / 1024)} MiB`}</TableCell>
-        <TableCell align="end"><Button size="sm" variant="outline" aria-label={`Recycle idle ${nameFor(cost.runtime)}`} disabled={!cost.canRecycle || busy !== null} onClick={() => { void recycle(cost.runtime) }}>Recycle</Button></TableCell>
+        <TableCell align="end"><Button size="sm" variant="outline" title={cost.reason ?? undefined} aria-label={`Recycle idle ${nameFor(cost.runtime)}`} disabled={!cost.canRecycle || busy !== null} onClick={() => { void recycle(cost.runtime) }}>Recycle</Button></TableCell>
       </TableRow>)}</TableBody>
-    </Table>
+    </Table>}
+    {reasons.map(reason => <Note key={reason}>{reason}</Note>)}
     <Note>Includes child processes. Resident memory can count shared pages more than once. Updates every five seconds.</Note>
     {problem && <Note tone="bad">{problem}</Note>}
   </>

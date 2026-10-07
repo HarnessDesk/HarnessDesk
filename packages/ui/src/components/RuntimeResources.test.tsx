@@ -31,8 +31,30 @@ it('shows process cost, keeps a refused recycle disabled, and refreshes after re
     expect(box.querySelector('button')!.disabled).toBe(false)
     await act(async () => box.querySelector('button')!.click())
     expect(recycle).toHaveBeenCalledWith(id)
-    expect(box.textContent).toContain('0 processes')
+    expect(box.textContent).toContain('Not running')
+    expect(box.querySelector('button')).toBeNull()
   } finally { vi.useRealTimers(); act(() => root.unmount()); box.remove() }
+})
+
+it('lists only process holders and states a shared recycle refusal once', async () => {
+  const cost = (id: string, processes: number | null, reason: string): Cost => ({ runtime: runtimeId(id), observedAt: Date.now(), processes, residentBytes: processes === null ? null : 0, canRecycle: false, reason })
+  const refusal = 'Close its conversations and let its work finish before recycling.'
+  const costs = [cost('first', 2, refusal), cost('second', 3, refusal), cost('stopped', 0, 'This runtime is not running.'), cost('unmeasured', null, 'Process measurement is unavailable.')]
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, runtimeResources: async () => costs } as unknown as AppStore
+  const box = document.createElement('div')
+  document.body.append(box)
+  const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><RuntimeResources /></StoreProvider>))
+    expect(box.querySelectorAll('tbody tr')).toHaveLength(3)
+    expect(box.textContent?.split(refusal)).toHaveLength(2)
+    expect(box.textContent).not.toContain('This runtime is not running.')
+    expect(box.textContent).toContain('Process measurement is unavailable.')
+    await act(async () => root.render(<StoreProvider store={store}><RuntimeResources runtime={runtimeId('stopped')} /></StoreProvider>))
+    expect(box.textContent).toContain('Not running')
+    expect(box.querySelector('table')).toBeNull()
+  } finally { act(() => root.unmount()); box.remove() }
 })
 
 it('a recycle completion from the previous page cannot invalidate the new page observation', async () => {

@@ -19,3 +19,25 @@ test('tool updates guard stopping and native selection after openings settle wit
   assert.ok(/await worker\.openingDone\s+if \(!worker\.stopping && !\(method === 'config\/mcpServer\/reload' && worker\.nativeServerSelection\)\)/.test(source),
     'the post-opening update skips stopping workers and frozen native selections')
 })
+
+test('native selection docs explain the explicit empty rule in the field table', () => {
+  const doc = readFileSync(new URL('../docs/agents.md', import.meta.url), 'utf8')
+  const table = doc.split('| Key | What it says |')[1]?.split('\n\n')[0]
+  assert.match(table ?? '', /\| `runtime-servers` \|.*Omitted.*defaults.*`\[\]`.*none.*blank.*refused/i)
+  assert.ok(doc.indexOf('### Native server selection') < doc.indexOf('## Three places, one roster'), 'selection belongs beside the other server contracts')
+})
+
+test('runtime process documentation and method comments remain attached to their subjects', () => {
+  const doc = readFileSync(new URL('../docs/interface.md', import.meta.url), 'utf8')
+  assert.ok(!/section appears on a runtime's detail page[^]*?\n\nIt is every registered runtime/.test(doc), 'the runtime roster has an explicit subject')
+})
+
+test('refreshCatalog keeps its own doc comment', () => {
+  const source = readFileSync(new URL('../packages/ui/src/state/store.ts', import.meta.url), 'utf8')
+  assert.ok(/Re-asks the active runtime[^]*?\*\/\s+async refreshCatalog\(/.test(source), 'the refresh documentation describes the next method')
+})
+
+test('native selection probe has a runnable README entry', () => {
+  const readme = readFileSync(new URL('../script/probe/README.md', import.meta.url), 'utf8')
+  assert.match(readme, /## `mcp-selection\.mjs`/)
+})

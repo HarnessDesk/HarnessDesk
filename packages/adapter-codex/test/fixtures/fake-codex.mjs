@@ -79,10 +79,12 @@ if (process.env['FAKE_CODEX_PROCESS_ENV']) {
 // Reading a pipe keeps the tiny stand-in alive; the parent's exit closes it.
 const mcpChildren = new Map()
 const nativeServers = process.env.FAKE_CODEX_NATIVE_SERVERS ? JSON.parse(process.env.FAKE_CODEX_NATIVE_SERVERS) : null
+const projectNativeServers = process.env.FAKE_CODEX_PROJECT_NATIVE_SERVERS ? JSON.parse(process.env.FAKE_CODEX_PROJECT_NATIVE_SERVERS) : {}
+const nativeServersFor = (cwd) => [...(nativeServers ?? ['default']), ...(projectNativeServers[cwd] ?? [])]
 const loadMcpChild = (threadId, config = {}) => {
   const ledger = process.env['FAKE_CODEX_MCP_CHILDREN']
   if (!ledger) return
-  for (const name of nativeServers ?? ['default']) {
+  for (const name of nativeServersFor(cwdByThread.get(threadId))) {
     if (config.mcp_servers?.[name]?.enabled === false) continue
     const key = `${threadId}:${name}`
     if (mcpChildren.has(key)) continue
@@ -2223,7 +2225,7 @@ rl.on('line', (line) => {
     case 'config/read':
       send({
         id,
-        result: { config: { forced_login_method: forcedLoginMethod, ...(nativeServers ? { mcp_servers: Object.fromEntries(nativeServers.map(name => [name, { command: 'synthetic', enabled: true }])) } : {}) }, origins: {}, layers: null },
+        result: { config: { forced_login_method: forcedLoginMethod, ...(nativeServers ? { mcp_servers: Object.fromEntries(nativeServersFor(params?.cwd).map(name => [name, { command: 'synthetic', enabled: true }])) } : {}) }, origins: {}, layers: null },
       })
       return
 

@@ -437,7 +437,24 @@ test('runtime-servers distinguishes omitted native defaults from an empty allowl
   assert.equal((read('').agent as unknown as Record<string, unknown>)?.['runtimeServers'], undefined)
   assert.deepEqual((read('runtime-servers: []').agent as unknown as Record<string, unknown>)?.['runtimeServers'], [])
   assert.deepEqual((read('runtime-servers: [docs]').agent as unknown as Record<string, unknown>)?.['runtimeServers'], ['docs'])
-  for (const field of ['runtime-servers: [../outside]', 'runtime-servers: [docs, docs]', 'runtime-servers: [{command: execute}]']) {
+  for (const field of ['runtime-servers: [bad name]', 'runtime-servers: [docs, docs]', 'runtime-servers: [{command: execute}]']) {
     assert.equal(read(field).agent, null)
   }
+})
+
+test('runtime-servers requires an explicit value rather than treating blanks as none', () => {
+  for (const value of ['', '~', 'null', '""']) {
+    const result = parseAgentDefinition(`---\nname: Reviewer\nceiling: read\nruntime-servers: ${value}\n---\nInspect.`, 'reviewer')
+    assert.equal(result.agent, null, `blank spelling ${value} must be refused`)
+    assert.match(result.problems.find(one => one.at === 'runtime-servers')?.text ?? '', /write \[\]/i)
+  }
+})
+
+test('runtime-servers accepts native names without applying the Library catalogue grammar', () => {
+  const names = ['GitHub', 'my_db', '_local', 'plugin@acme/docs.v2:read-only']
+  const result = parseAgentDefinition(`---\nname: Reviewer\nceiling: read\nruntime-servers: [${names.join(', ')}]\n---\nInspect.`, 'reviewer')
+  assert.deepEqual(result.problems, [])
+  assert.deepEqual(result.agent?.runtimeServers, names)
+  const bad = parseAgentDefinition('---\nname: Reviewer\nceiling: read\nruntime-servers: [bad$name]\n---\nInspect.', 'reviewer')
+  assert.match(bad.problems[0]?.text ?? '', /native server names.*letters.*digits/i)
 })

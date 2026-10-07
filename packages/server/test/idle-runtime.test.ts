@@ -537,7 +537,7 @@ const until = async (condition: () => boolean): Promise<void> => {
   }
 }
 
-const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 25) => {
+const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 25, runtimeServers?: readonly string[]) => {
   const { host, stateDir } = await makeHost(runtime, 25, seatRestMs)
   const repo = await makeRepo('hd-rest-seat-')
   const hostsToDispose = [host]
@@ -550,10 +550,21 @@ const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 
   await host.call('workspace/open', { path: repo.dir })
   const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Finish the work' }) as GoalView
   const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect' }) as { id: number }
-  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: repo.dir } }) as { id: string }
-  const seat = await host.call('goal/assign', { goal: goal.goal.id, card: card.id,
-    session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
-  const record = host.registry.get(runtime.info.id, session.id as never)!
+  if (runtimeServers !== undefined) {
+    await mkdir(join(stateDir, 'agents', 'native-reviewer'), { recursive: true })
+    await writeFile(join(stateDir, 'agents', 'native-reviewer', 'AGENT.md'), `---\nname: Native reviewer\nceiling: read\nprefer: [fake]\nruntime-servers: [${runtimeServers.join(', ')}]\n---\nInspect.\n`)
+  }
+  let seat: SeatRecord
+  if (runtimeServers !== undefined) {
+    seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'native-reviewer' }) as SeatRecord
+    runtime.sessions.get(seat.session.sessionId as never)!.finish()
+    await until(() => host.registry.get(runtime.info.id, seat.session.sessionId as never)!.running.size === 0)
+  } else {
+    const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: repo.dir } }) as { id: string }
+    seat = await host.call('goal/assign', { goal: goal.goal.id, card: card.id,
+      session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
+  }
+  const record = host.registry.get(runtime.info.id, seat.session.sessionId as never)!
   const finish = () => host.call('team/intent', { room: goal.goal.id, id: card.id, action: 'done' })
   return { host, stateDir, runtime, goal: goal.goal, card, seat, record, finish, repo, hostsToDispose }
 }
@@ -566,6 +577,18 @@ test('a finished Seat releases its handle, idle-stops, and remains a Goal member
   const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
   assert.equal(membersOf(view.goal, view.members).length, 1)
   assert.equal(view.members[0]?.closed, null)
+})
+
+test('a queued message reopens an idle-stopped Seat with its frozen native server selection', async (t) => {
+  const runtime = new IdleRuntime({ capabilities: { nativeServerSelection: true } })
+  const d = await seated(t, runtime, 25, ['docs'])
+  await d.finish()
+  await until(() => d.record.live === null && runtime.health().state === 'idle')
+  await writeFile(join(d.stateDir, 'agents', 'native-reviewer', 'AGENT.md'), '---\nname: Native reviewer\nceiling: read\nprefer: [fake]\nruntime-servers: []\n---\nInspect.\n')
+  await d.host.call('team/post', { room: d.goal.id, text: 'Follow up.' })
+  assert.equal(runtime.resumes, 1)
+  assert.deepEqual(runtime.lastResumeOptions?.runtimeServers, ['docs'])
+  assert.ok(d.record.session.turns.some(turn => turn.items.some(item => item.type === 'userMessage')))
 })
 
 test('a settled Flow keeps its finished Seats while their runtime rests', async (t) => {

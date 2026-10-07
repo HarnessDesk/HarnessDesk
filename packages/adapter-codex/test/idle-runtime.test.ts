@@ -793,6 +793,38 @@ test('tool reload does not widen a native server selection on an open worker', a
   assert.deepEqual(reloads.map(one => one.generation), ['0'])
 })
 
+test('no-cwd resume and fork reread native configuration in the source thread folder', async (t) => {
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["user"]', FAKE_CODEX_PROJECT_NATIVE_SERVERS: '{"/tmp/native-project":["projonly"]}' })
+  const childrenOf = async (id: string) => (await d.children()).filter(one => one.threadId === id && running(one.pid)) as (Awaited<ReturnType<typeof d.children>>[number] & { name: string })[]
+  for (const name of ['user', 'projonly']) {
+    const source = await d.runtime.createSession({ cwd: '/tmp/native-project', runtimeServers: [name] })
+    assert.deepEqual((await childrenOf(source.id)).map(one => one.name), [name])
+    await source.close()
+    await d.stop()
+    await d.runtime.start()
+    const resumed = await d.runtime.resumeSession(source.id)
+    assert.deepEqual((await childrenOf(resumed.id)).map(one => one.name), [name])
+    const fork = await d.runtime.forkSession(source.id)
+    assert.deepEqual((await childrenOf(fork.id)).map(one => one.name), [name])
+    await resumed.close()
+    await fork.close()
+  }
+})
+
+test('native selection accepts runtime server characters and diagnoses bad characters separately', async (t) => {
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const names = ['GitHub', '_local', 'plugin@acme/docs.v2:read-only']
+  const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: JSON.stringify(names) })
+  const source = await d.runtime.createSession({ cwd: d.dir, runtimeServers: names })
+  assert.deepEqual((await d.children()).filter(one => one.threadId === source.id).map(one => (one as typeof one & { name: string }).name), names)
+  await assert.rejects(d.runtime.createSession({ cwd: d.dir, runtimeServers: ['bad$name'] }), /native server names.*letters.*digits/i)
+})
+
 test('resource observations track only live control and conversation roots without restarting', async (t) => {
   const d = await rig(t)
   const opened = await d.runtime.createSession({ cwd: d.dir })

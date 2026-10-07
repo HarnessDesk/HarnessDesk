@@ -569,6 +569,10 @@ export interface RuntimeInfo {
   }
 }
 
+/** Bounded native identifiers, independent of the Library's catalogue names. */
+export const isNativeServerName = (value: unknown): value is string =>
+  typeof value === 'string' && /^[a-zA-Z0-9_:@/.-]{1,128}$/.test(value)
+
 export interface RuntimeResources {
   readonly runtime: RuntimeId
   readonly observedAt: number
