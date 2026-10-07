@@ -209,6 +209,8 @@ export interface AcpAgentConfig {
   readonly command: string
   readonly args?: readonly string[]
   readonly env?: Readonly<Record<string, string>>
+  /** Keep a no-close peer shared; its retained state is reaped after the last handle closes. */
+  readonly sharedSessionProcess?: boolean
   /**
    * Where to start the process. A bridge that must run from its own checkout
    * — a repo-adjacent agent, a workspace runner — needs this; without it the
@@ -919,6 +921,11 @@ export class AcpRuntime implements AgentRuntime {
   readonly #workers = new Set<AcpConnection>()
   readonly #sessionConnections = new Map<SessionId, AcpConnection>()
   readonly #closing = new Map<SessionId, Promise<void>>()
+  #sharedReleasePending = false
+
+  async #restSharedIfUnused(): Promise<void> {
+    if (this.#sharedReleasePending && await this.stopForIdle()) this.#sharedReleasePending = false
+  }
 
   #workerExited(connection: AcpConnection, _code: number | null): void {
     for (const [id, owned] of this.#sessionConnections) {
@@ -1366,7 +1373,7 @@ export class AcpRuntime implements AgentRuntime {
 
   /** Stop only the helper process; the host keeps the session and catalogue records. */
   async stopForIdle(): Promise<boolean> {
-    if (this.#health.state !== 'ready' || this.#opening !== null || this.#optionReads > 0 || this.#sessionOpens > 0 || this.#closing.size > 0) return false
+    if (this.#health.state !== 'ready' || this.#opening !== null || this.#optionReads > 0 || this.#sessionOpens > 0 || this.#resuming.size > 0 || this.#closing.size > 0) return false
     const live = [...this.#sessions.values()].filter((session) => !this.#isProbe(session.id))
     if (live.length > 0 || live.some((session) => session.busy)) return false
     this.#probeOptions = this.#probe?.options() ?? this.#probeOptions
@@ -2086,7 +2093,14 @@ export class AcpRuntime implements AgentRuntime {
     const closing = Promise.resolve().then(async () => {
       const connection = this.connectionFor(session.id)
       if (connection === this.#connection) {
-        await connection.request('session/close', { sessionId: session.id })
+        if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
+          await connection.request('session/close', { sessionId: session.id })
+        } else {
+          // The peer has no release verb. Cancel only this conversation;
+          // keep working siblings on their shared process until all handles rest.
+          await session.interrupt()
+          if (!this.#isProbe(session.id)) this.#sharedReleasePending = true
+        }
       } else {
         await connection.stop()
         this.#workers.delete(connection)
@@ -2108,6 +2122,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#closing.set(session.id, closing)
     try { await closing } finally {
       if (this.#closing.get(session.id) === closing) this.#closing.delete(session.id)
+      await this.#restSharedIfUnused()
     }
   }
 
@@ -2184,7 +2199,10 @@ export class AcpRuntime implements AgentRuntime {
         this.#sessions.set(probe.id, probe)
         return await this.#draftOptions(probe, values)
       } finally {
-        try { if (probe) await probe.close() } finally { this.#optionReads-- }
+        try { if (probe) await probe.close() } finally {
+          this.#optionReads--
+          await this.#restSharedIfUnused()
+        }
       }
     }
     if (this.#health.state === 'idle') {
@@ -2272,6 +2290,7 @@ export class AcpRuntime implements AgentRuntime {
     try { return await read(await this.#openProbe(cwd)) } finally {
       this.#optionReads--
       if (this.#optionReads === 0 && this.#probe) await this.#probe.close()
+      await this.#restSharedIfUnused()
     }
   }
 
@@ -2437,7 +2456,7 @@ export class AcpRuntime implements AgentRuntime {
     attachments?: SessionAttachments,
   ): Promise<T> {
     let connection = this.#connection
-    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
+    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess) {
       if (this.#disposed) throw shutDown(this.#config.name)
       connection = this.#makeConnection(true)
       if (this.#launch && !('blocked' in this.#launch)) {
@@ -2629,6 +2648,14 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async createSession(options: SessionOptions): Promise<AgentSession> {
+    this.#sessionOpens++
+    try { return await this.#createSession(options) } finally {
+      this.#sessionOpens--
+      await this.#restSharedIfUnused()
+    }
+  }
+
+  async #createSession(options: SessionOptions): Promise<AgentSession> {
     /* `SessionOptions` is `Partial<SessionSettings> & …`, so `model` is legal
        to write — and it used to be read by nobody here, which made "start this
        conversation on that model" a request that was accepted and dropped. It
@@ -2856,6 +2883,7 @@ export class AcpRuntime implements AgentRuntime {
       return await run
     } finally {
       this.#resuming.delete(id)
+      await this.#restSharedIfUnused()
     }
   }
 

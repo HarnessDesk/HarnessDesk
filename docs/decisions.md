@@ -2324,14 +2324,23 @@ The Cursor bridge now cancels and waits for that session's turn, removes its
 transient tool/config folders, and keeps its durable chat and the shared start
 gate. Neither close names a sibling.
 
-A peer with no close method gets a connection per live session, beside the
+A peer with no close method normally gets a connection per live session, beside the
 account's session-free control connection. Close reaps that connection's process
 group. A failed worker detaches only its session; restarting or disposing the
-account reaps all workers. This costs memory: the installed Gemini peer serves
-eight sessions in about 0.5 GB on one process family but has no close method;
-isolating them costs about 4.1 GB while all eight are open. Closing them returns
-to the control family's roughly 0.5 GB. A shared process without a release verb
-cannot promise to release one session while another works.
+account reaps all workers.
+
+Gemini CLI is the measured exception, declared by the known-agent table's
+`sharedSessionProcess` policy and applied through the same overlay to existing
+and newly registered rows. The first implementation multiplied its process
+families, taking eight unprompted sessions from about 0.5 GB to 4.1 GB. The
+repair keeps one shared family: measured on 2026-10-06, one, three and eight
+open sessions have two processes at 464, 474 and 485 MB. Closing the last
+handle reaps the whole family, leaving zero processes. Concurrent session
+opens, resumes and catalogue reads hold that release until they settle.
+Closing one session cancels only its turn and abandons its approvals; siblings
+keep their handles. Without a release verb, its closed sessions and probes
+remain in the peer until the last handle closes. This is a deliberate limit,
+not a claim that a shared peer can release one session while another works.
 
 Catalogue readers share a probe while reading it, then release it. Draft picks
 and model/command declarations remain cached, and fresh option reads do not
@@ -2342,7 +2351,8 @@ conversation releases its handle. Reopening waits for close, then loads the same
 agent-owned history; a stale close cannot release its replacement.
 
 **The rule:** share an account process when the peer can release a session;
-otherwise bound processes to live handles and reap their groups when released.
+otherwise bound processes to live handles and reap their groups when released,
+except where measured process cost requires the shared, last-handle policy.
 Scripted ACP and bundled bridge tests prove release, resume, sibling isolation,
 probe cleanup and worker failure. The installed-agent measurements cover opening
 and closing only; they do not claim anything about real prompted turns.

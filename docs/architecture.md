@@ -250,9 +250,13 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   Process exit releases its thread helpers
   ([measurement and lifecycle](decisions.md#finished-conversations-recycle-their-own-processes)).
   ACP peers that declare session close share the account connection and release
-  a session through that method. Peers without close use one reapable connection
-  per live session, beside a session-free control connection. Catalogue probes
-  release after their readers finish; their declarations and draft picks stay
+  a session through that method. Peers without close normally use one reapable
+  connection per live session, beside a session-free control connection. The
+  known Gemini CLI instead shares one process family: close cancels only that
+  session, and the last live handle releases the family once opens, resumes and
+  catalogue reads settle. Without a close verb, its closed-session state stays
+  in the peer while siblings remain open. Catalogue probes
+  release their adapter handles after their readers finish; their declarations and draft picks stay
   cached. Personal conversations rest after ten quiet minutes, protecting turns,
   approvals, queued input and running tasks, and archiving a resumable conversation
   releases its handle. All use the same host close-and-resume seam
