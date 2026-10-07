@@ -296,6 +296,8 @@ export interface HostContext {
     busyElsewhere(runtime: AgentRuntime, id: SessionId, error: unknown): Promise<SessionBusyError>
     /** Why a conversation could not be reopened, in a sentence that names the agent. */
     cannotReopen(runtime: AgentRuntime, error: unknown): string
+    /** Lets go of a conversation's handle once nothing is happening in it, keeping its picks for the reopen. */
+    releaseQuiet(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<void>
   }
 
   /**

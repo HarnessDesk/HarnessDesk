@@ -2712,20 +2712,41 @@ export class Host {
         continue
       }
       if (Date.now() - prior.since < delay || this.#restingSessions.has(key)) continue
-      const live = record.live!
-      const resting = Promise.resolve().then(async () => {
-        if (!this.#personalConversationQuiet(record) || record.live !== live) return
-        record.restedOptions = Object.fromEntries(live.options().map(option => [option.id, option.currentValue]))
+      await this.#releaseQuiet(record)
+    }
+  }
+
+  /**
+   * Lets go of a personal conversation's handle once nothing is happening in
+   * it, and keeps the picks it holds so the reopen can put them back.
+   *
+   * The quiet sweep and archive both release through here. They once kept two
+   * copies of what "quiet" means, and archive's had forgotten a send on its way,
+   * a reopen in flight and the picks.
+   *
+   * The handle is dropped even when the agent fails the close: the adapter has
+   * let go of its own by then, and one kept here is one nobody is releasing.
+   */
+  async #releaseQuiet(record: SessionRecord): Promise<void> {
+    const key = recordKey(record)
+    if (this.#restingSessions.has(key) || !this.#personalConversationQuiet(record)) return
+    const live = record.live!
+    // Publish before close yields: sends and opens wait, then resume the same id.
+    const resting = Promise.resolve().then(async () => {
+      if (!this.#personalConversationQuiet(record) || record.live !== live) return
+      record.restedOptions = Object.fromEntries(live.options().map(option => [option.id, option.currentValue]))
+      try {
         await live.close()
-        if (record.live === live) { record.live = null; record.detached = false }
-      })
-      this.#restingSessions.set(key, resting)
-      try { await resting } catch (error) {
-        this.#conversationQuietSince.delete(key)
-        this.#logger.warn('a quiet conversation could not release its handle', { runtime: runtime.info.id, error: String(error) })
       } finally {
-        if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+        if (record.live === live) { record.live = null; record.detached = false }
       }
+    })
+    this.#restingSessions.set(key, resting)
+    try { await resting } catch (error) {
+      this.#conversationQuietSince.delete(key)
+      this.#logger.warn('a quiet conversation could not release its handle', { runtime: record.runtime, error: String(error) })
+    } finally {
+      if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
     }
   }
 
@@ -3973,6 +3994,10 @@ export class Host {
         applyArchive: (runtime, page, filter) => this.#applyArchive(runtime, page, filter),
         busyElsewhere: (runtime, id, error) => this.#busyElsewhere(runtime, id, error),
         cannotReopen: (runtime, error) => this.#cannotReopen(runtime, error),
+        releaseQuiet: async (params) => {
+          const record = this.registry.get(params.runtime, makeSessionId(params.sessionId))
+          if (record) await this.#releaseQuiet(record)
+        },
       },
       seats: {
         open: (seat, where) => this.#openSeat(seat, where),

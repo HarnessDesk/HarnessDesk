@@ -274,18 +274,10 @@ export const sessionMethods = {
     } else {
       await ctx.archive.set(runtime.info.id, id, params.archived)
     }
+    // The release the quiet sweep makes, so unarchiving reopens the
+    // conversation with the picks it was left with.
     if (params.archived && runtime.info.capabilities.resume) {
-      const record = ctx.registry.get(runtime.info.id, id)
-      const live = record?.live
-      const quiet = record && record.running.size === 0 && record.approvals.size === 0 &&
-        record.queue.messages.length === 0 && !record.tasks.some(task => task.state === 'running')
-      if (quiet) await live?.close().catch(error => ctx.logger.warn('an archived conversation could not close', {
-        runtime: runtime.info.id, error: String(error),
-      }))
-      if (quiet && record.live === live) {
-        record.live = null
-        record.detached = false
-      }
+      await ctx.sessions.releaseQuiet({ runtime: runtime.info.id, sessionId: id })
     }
     return null
   },

@@ -8,13 +8,14 @@ import {
   runtimeId,
   sessionId,
   type Page,
+  type Session,
   type SessionDeletion,
   type SessionSummary,
 } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore, serve, type RunningServer } from '../src/index.js'
 import { SessionArchive } from '../src/archive.js'
-import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 import { Client } from './fixtures/harness.js'
 
 /**
@@ -354,5 +355,66 @@ test('archive preserves work, approvals, queued input and running tasks', async 
       assert.equal(closes, 0, busy)
       assert.equal(record.live, live, busy)
     }
+  } finally { await rig.close() }
+})
+
+const until = async (check: () => boolean): Promise<void> => {
+  const deadline = Date.now() + 3_000
+  while (!check()) {
+    assert.ok(Date.now() < deadline, 'the host did not settle')
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+}
+
+/** A conversation the agent has been prompted in, with that turn finished: quiet, and one a reopen can find. */
+const openWithATurn = async (rig: Rig) => {
+  const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+  const params = { runtime: 'fake', sessionId: opened.id }
+  await rig.client.call('turn/send', { ...params, input: [{ type: 'text', text: 'First' }] })
+  const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
+  const live = record.live as FakeSession
+  await until(() => record.session.turns.length > 0)
+  live.finish('Done')
+  await until(() => record.running.size === 0)
+  return { params, record, live }
+}
+
+const heldPicks = (options: Session['options']): Record<string, unknown> =>
+  Object.fromEntries((options ?? []).filter(option => ['model', 'tone'].includes(option.id))
+    .map(option => [option.id, option.currentValue]))
+
+test('archive keeps the picks a quiet conversation held, as the rest does', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(record.live, null)
+    // The agent forgets what it was told while the conversation rests, so the
+    // handle it hands back answers with its own defaults.
+    rig.runtime.sessions.delete(params.sessionId)
+    await rig.client.call('session/archive', { ...params, archived: false })
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.deepEqual(heldPicks(resumed.options), { model: 'fake-2', tone: 'cheerful' })
+  } finally { await rig.close() }
+})
+
+test('archive does not release a conversation while a send is on its way to the agent', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record, live } = await openWithATurn(rig)
+    const send = live.send.bind(live)
+    let arrived!: () => void
+    const reached = new Promise<void>(resolve => { arrived = resolve })
+    let proceed!: () => void
+    const gate = new Promise<void>(resolve => { proceed = resolve })
+    live.send = async (input, options) => { arrived(); await gate; return send(input, options) }
+    const sending = rig.client.call('turn/send', { ...params, input: [{ type: 'text', text: 'Next' }] })
+    await reached
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(record.live, live, 'the handle the send is using is still the conversation\'s')
+    proceed()
+    await sending
   } finally { await rig.close() }
 })
