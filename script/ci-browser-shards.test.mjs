@@ -17,7 +17,12 @@ test('browser CI spreads the suite across six shards with time for setup and rep
   assert.match(browser, /^    name: UI system browser integration shard \$\{\{ matrix.shard \}\}\/6$/m)
   assert.match(browser, /^        shard: \[1, 2, 3, 4, 5, 6\]$/m)
   assert.match(browser, /^    timeout-minutes: 30$/m)
-  assert.match(browser, /^      - run: pnpm test:ui-system --shard=\$\{\{ matrix.shard \}\}\/6$/m)
+  // Dealt by measured time, not by Playwright's count of tests (script/ci-browser-shards.mjs):
+  // the deal and the matrix have to agree on six, and an empty deal must never run the whole suite.
+  assert.match(browser, /^          mapfile -t specs < <\(node script\/ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/6\)$/m)
+  assert.match(browser, /^          test "\$\{#specs\[@\]\}" -gt 0$/m)
+  assert.match(browser, /^          pnpm test:ui-system "\$\{specs\[@\]\}"$/m)
+  assert.doesNotMatch(browser, /--shard=/)
   assert.match(browser, /^      fail-fast: false$/m)
 })
 
@@ -148,9 +153,39 @@ test('only heavy UI jobs are conditional; required check names stay conclusive',
   }
   assert.match(job('ui-system-native'), /^    name: UI system native smoke$/m)
   assert.match(job('ui-system-native'), /^    runs-on: macos-14$/m)
-  assert.doesNotMatch(job('verify'), /^    (?:if|needs):/m)
+  // The gate check is the one that waits for the rest, so it must conclude
+  // whatever they do: `always()`, and no other condition that could skip it.
+  assert.match(job('verify'), /^    if: always\(\)$/m)
+  assert.doesNotMatch(job('verify'), /^    if: (?!always\(\)$)/m)
   for (const name of REQUIRED_CHECKS) {
     assert.equal(workflow.split('\n').filter(line => line === `    name: ${name}`).length, 1, name)
+  }
+})
+
+const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['node-e2e', 'NODE_E2E_RESULT'], ['ui-tests', 'UI_TESTS_RESULT'], ['gates', 'GATES_RESULT']]
+
+test('the gate check waits for every part of the gate and packaging waits for it', () => {
+  const gate = job('verify')
+  assert.match(gate, /^    name: Build, typecheck, test$/m)
+  assert.match(gate, /^    needs: \[node-tests, node-e2e, ui-tests, gates\]$/m)
+  assert.match(gate, /^    runs-on: ubuntu-latest$/m)
+  for (const [part, key] of GATE_PARTS) {
+    assert.ok(gate.includes(`${key}: \${{ needs.${part}.result }}`), key)
+    // Each part builds what it runs against: none of them borrows another's checkout.
+    assert.match(job(part), /^      - name: Build\n        run: pnpm run build$/m, `${part} builds`)
+  }
+  assert.match(job('package'), /^    needs: verify$/m)
+})
+
+test('the gate check passes only when every part succeeded', () => {
+  const all = Object.fromEntries(GATE_PARTS.map(([, key]) => [key, 'success']))
+  assert.equal(runAggregate('verify', all).status, 0)
+  for (const [part, key] of GATE_PARTS) {
+    for (const result of ['failure', 'cancelled', 'skipped', '']) {
+      const output = runAggregate('verify', { ...all, [key]: result })
+      assert.equal(output.status, 1, `${part} ${result || 'missing'}: ${output.stdout} ${output.stderr}`)
+      assert.match(output.stdout, new RegExp(`${part} did not succeed`))
+    }
   }
 })
 

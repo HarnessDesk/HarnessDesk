@@ -51,15 +51,20 @@ jobs:
           fi
           node script/ci-changes.mjs "$list" >> "$GITHUB_OUTPUT"
 
-  verify:
-    name: Build, typecheck, test
-    # The portable gate runs on Linux; packaging and native UI stay on macOS.
+  # One job ran every step below in turn, and took as long as all of them added
+  # together: the longest wait on every push, and the one that kept `package`
+  # from starting. It is the same steps now, with the same commands, split by
+  # what each needs into four jobs that run side by side. Each repeats the
+  # checkout, install and build — about a minute each, in parallel — and
+  # `verify` at the end keeps the name branch protection and
+  # `script/land-safe.mjs` read, so it stays one check that is green only when
+  # every part is.
+  node-tests:
+    name: Node tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
-      # Full history: `check-interface-drift` diffs CSS against `origin/main`,
-      # and a depth-1 clone has no merge base to diff from.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -93,7 +98,7 @@ jobs:
       # A per-test option can only ever narrow the file-cumulative ceiling
       # here, never widen it. The four flow-host-evidence end-to-end files,
       # the server's intake test files and the command line's end-to-end file
-      # legitimately need more than this, so they run in their own steps below
+      # legitimately need more than this, so they run in their own job below
       # instead of sharing this one; everything else fits inside it.
       #
       # The exclusion is a `find`, not a second glob, because node's own
@@ -105,6 +110,30 @@ jobs:
       # cover, so a package that gains tests is covered here the day it does.
       - name: Node tests
         run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js')"
+
+  node-e2e:
+    name: Node end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
 
       # The worst of these four files, flow-host-evidence-review.test.ts,
       # has 7 end-to-end cases and took 33s measured with nothing else
@@ -141,6 +170,30 @@ jobs:
       - name: CLI end-to-end tests
         run: node --test --test-timeout=600000 "packages/cli/dist/test/e2e*.test.js"
 
+  ui-tests:
+    name: UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
       - name: UI typecheck
         run: pnpm --filter @harnessdesk/ui run typecheck
 
@@ -149,6 +202,32 @@ jobs:
 
       - name: Desktop tests
         run: pnpm --filter @harnessdesk/desktop run test
+
+  gates:
+    name: Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      # Full history: `check-interface-drift` diffs CSS against `origin/main`,
+      # and a depth-1 clone has no merge base to diff from.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
 
       # Codex is not installed on the runner, so the protocol-drift and layering
       # checks are split out: layering is pure source analysis and always runs,
@@ -229,6 +308,30 @@ jobs:
       - name: Steps are documented
         run: node script/check-verify-steps.mjs
 
+  verify:
+    name: Build, typecheck, test
+    runs-on: ubuntu-latest
+    needs: [node-tests, node-e2e, ui-tests, gates]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every part of the gate
+        env:
+          NODE_TESTS_RESULT: ${{ needs.node-tests.result }}
+          NODE_E2E_RESULT: ${{ needs.node-e2e.result }}
+          UI_TESTS_RESULT: ${{ needs.ui-tests.result }}
+          GATES_RESULT: ${{ needs.gates.result }}
+        run: |
+          failed=0
+          for part in "node-tests:$NODE_TESTS_RESULT" "node-e2e:$NODE_E2E_RESULT" "ui-tests:$UI_TESTS_RESULT" "gates:$GATES_RESULT"; do
+            if [ "${part#*:}" != "success" ]; then
+              echo "${part%%:*} did not succeed (${part#*:})."
+              failed=1
+            fi
+          done
+          exit "$failed"
+
   package:
     name: Package (unsigned)
     runs-on: macos-14
@@ -269,6 +372,13 @@ jobs:
     # Four shards took 14–17 minutes and a loaded runner reached the 20-minute
     # job limit (#1140). Spread the suite further and leave room for setup,
     # runner variation and the report upload after tests finish.
+    #
+    # Six shards dealt by Playwright's `--shard` took from 10 to 20 minutes,
+    # because it deals by the number of tests and they take two seconds to three
+    # minutes each. `script/ci-browser-shards.mjs` deals the spec files by the
+    # time they took instead, so the six finish together, and each shard runs
+    # its specs on three workers (`playwright.ui-system.config.ts`) rather than
+    # one on a four-core runner.
     timeout-minutes: 30
 
     steps:
@@ -288,7 +398,12 @@ jobs:
       # A clean runner has none until the Node build creates them.
       - run: pnpm run build:node
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:ui-system --shard=${{ matrix.shard }}/6
+      - name: Run this shard's specs
+        run: |
+          mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/6)
+          # An empty deal must never accidentally run the entire suite.
+          test "${#specs[@]}" -gt 0
+          pnpm test:ui-system "${specs[@]}"
 
       # Keep diagnostics briefly after failures or cancellation (including partial runs).
       # Successful shards need no stored report.

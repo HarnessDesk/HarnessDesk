@@ -1075,7 +1075,7 @@ test('only design/patterns/ is a pattern module; design/ui/ primitives are not c
 test('the browser integration job builds workspace package entries before Vite', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8')
   const browserJob = workflow.match(/^  ui-system-browser:[\s\S]*?(?=^  [a-z][a-z-]+:|\Z)/m)?.[0] ?? ''
-  assert.match(browserJob, /run: pnpm run build:node[\s\S]*run: pnpm test:ui-system/)
+  assert.match(browserJob, /run: pnpm run build:node[\s\S]*pnpm test:ui-system/)
 })
 
 test('UI system gates do not depend on an external ripgrep binary', () => {
@@ -3014,8 +3014,8 @@ const runsInStep = (source, stepName) => {
   return runs
 }
 
-/** Read named steps only from the verification job's direct `steps` list. */
-const ciStepsInVerifyJob = (source) => {
+/** Read named steps only from the named job's direct `steps` list. */
+const ciStepsInJob = (source, job) => {
   const steps = []
   let inVerifyJob = false
   let inSteps = false
@@ -3050,7 +3050,7 @@ const ciStepsInVerifyJob = (source) => {
       }
       if (scalar) continue
     }
-    if (line === '  verify:') {
+    if (line === `  ${job}:`) {
       inVerifyJob = true
       continue
     }
@@ -3095,8 +3095,8 @@ const hasExactBashScript = (runs, expectedScript) => runs.some(({ command, args 
   command === 'bash' && args.length === 2 && args[0] === '-c' && args[1] === expectedScript,
 )
 
-const hasActiveCIStepRun = (source, stepName, expectedCommand) =>
-  ciStepsInVerifyJob(source).some((step) =>
+const hasActiveCIStepRun = (source, stepName, expectedCommand, job = 'verify') =>
+  ciStepsInJob(source, job).some((step) =>
     step.name === stepName && step.run === expectedCommand && step.condition === undefined && step.jobIf === undefined,
   )
 
@@ -3142,10 +3142,10 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
           `${file} passes the exact main test invocation as bash -c's script argument`)
       } else {
         const dedicatedCommand = `node --test --test-timeout=600000 "${carveOut}"`
-        assert.ok(hasActiveCIStepRun(text, ciStepName, dedicatedCommand),
+        assert.ok(hasActiveCIStepRun(text, ciStepName, dedicatedCommand, 'node-e2e'),
           `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
         const expectedCICommand = `bash -c "${expectedMainScript.replaceAll('$', '\\$')}"`
-        assert.ok(hasActiveCIStepRun(text, 'Node tests', expectedCICommand),
+        assert.ok(hasActiveCIStepRun(text, 'Node tests', expectedCICommand, 'node-tests'),
           `${file} uses the exact main test invocation in the active Node tests step`)
       }
     }

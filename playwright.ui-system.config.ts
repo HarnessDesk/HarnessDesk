@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,12 +30,40 @@ const envPort = Number(process.env.PLAYWRIGHT_UI_SYSTEM_PORT)
 const port = Number.isInteger(envPort) && envPort > 0 ? envPort : derivedPort(repoRoot)
 const origin = `http://127.0.0.1:${port}`
 
+/**
+ * How many browsers run at once. One anywhere but CI: a Mac that other work
+ * shares should not have three started on it, and a re-record of a baseline
+ * (`UPDATE_METRICS`, `UPDATE_ALIGNMENT`) must stay a run of one file at a time.
+ * A CI runner has four cores, and a shard of this suite on one of them used a
+ * quarter of the machine for as long as ten to twenty minutes; three browsers
+ * leave the dev server the fourth.
+ *
+ * `PLAYWRIGHT_UI_SYSTEM_WORKERS` overrides it. If a shard ever starts to flake
+ * under contention, lowering it there is the first thing to try.
+ */
+const envWorkers = Number(process.env.PLAYWRIGHT_UI_SYSTEM_WORKERS)
+const workers =
+  Number.isInteger(envWorkers) && envWorkers > 0
+    ? envWorkers
+    : process.env.CI
+      ? Math.max(1, Math.min(3, os.availableParallelism() - 1))
+      : 1
+
 export default defineConfig({
   testDir: './e2e/ui-system',
   outputDir: './output/playwright/ui-system/results',
-  fullyParallel: false,
-  workers: 1,
+  // Every test starts from its own page, and none reads what another left
+  // behind, so with several workers they are dealt out one by one rather than
+  // a file at a time: a file of sixty tests then keeps all of them busy
+  // instead of holding one.
+  fullyParallel: workers > 1,
+  workers,
   retries: 0,
+  // The defaults (30s a test, 5s an assertion) are sized for a browser that has
+  // the machine to itself. Beside two more, and the dev server, a test that
+  // takes twenty seconds alone takes longer; the limit is for a test that is
+  // stuck, not for one that is slow because its neighbours are busy.
+  ...(workers > 1 ? { timeout: 60_000, expect: { timeout: 10_000 } } : {}),
   reporter: [['list'], ['html', { outputFolder: './output/playwright/ui-system/report', open: 'never' }]],
   use: {
     baseURL: origin,

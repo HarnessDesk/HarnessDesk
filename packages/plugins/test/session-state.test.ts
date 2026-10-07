@@ -114,9 +114,12 @@ test('a turn beginning in one conversation does not clear another′s counters',
 test('the last test run is the one this conversation started', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-tests-'))
   // A workspace the detector recognises, whose suite fails fast and cheaply.
+  // `vitest` among its dependencies would make that `npx vitest run`, which
+  // fetches vitest from the registry before it can fail; without it the
+  // detector reads `scripts.test` and runs `npm test`, which is `exit 1`.
   await writeFile(
     join(dir, 'package.json'),
-    JSON.stringify({ name: 'x', devDependencies: { vitest: '1' }, scripts: { test: 'exit 1' } }),
+    JSON.stringify({ name: 'x', scripts: { test: 'exit 1' } }),
     'utf8',
   )
 

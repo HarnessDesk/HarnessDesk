@@ -168,6 +168,36 @@ test('a send the agent never accepts stops counting as busy after the deadline, 
   assert.deepEqual(await first, { queuedId: null, sent: true })
 })
 
+test('the deadline on a send never holds the process open once the agent has taken the message', async (t) => {
+  // The deadline is a backstop for a silent agent, not work. A pending timer
+  // that is still referenced keeps a Node process alive until it fires, so
+  // every process that had sent one message took the whole deadline (30s) to
+  // exit after its last test, and a host being shut down waited as long.
+  const deadline = 12_345
+  const timers: NodeJS.Timeout[] = []
+  const real = globalThis.setTimeout
+  t.mock.method(globalThis, 'setTimeout', ((...args: unknown[]) => {
+    const timer = Reflect.apply(real, globalThis, args) as NodeJS.Timeout
+    if (args[1] === deadline) timers.push(timer)
+    return timer
+  }) as unknown as typeof setTimeout)
+  const harness = await start({ sendAcceptDeadlineMs: deadline })
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const session = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: '/w' },
+  })) as Session
+  const sent = await client.call('turn/queue', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: say('one') })
+  assert.deepEqual(sent, { queuedId: null, sent: true })
+  await client.until(() => client.events.some((event) => event.type === 'turn/started'))
+
+  assert.equal(timers.length, 1, 'the send set its deadline')
+  assert.equal(timers[0]?.hasRef(), false, 'and the deadline does not keep the process alive')
+})
+
 test('wrapped or restored Goal cannot dispatch', async (t) => {
   const work = tempDir('hd-flow-wrap-barrier-')
   const harness = await start()
