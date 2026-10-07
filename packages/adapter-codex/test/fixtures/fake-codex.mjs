@@ -2076,12 +2076,21 @@ rl.on('line', (line) => {
       return
 
     case 'plugin/install':
-      pluginState[params.pluginName] = true
-      if (process.env.FAKE_CODEX_INSTALL_MCP && nativeServers) {
-        if (!nativeServers.includes(process.env.FAKE_CODEX_INSTALL_MCP)) nativeServers.push(process.env.FAKE_CODEX_INSTALL_MCP)
-        for (const [threadId, held] of loadedThreads) if (held.subscribed) loadMcpChild(threadId)
-      }
-      send({ id, result: { authPolicy: 'ON_USE', appsNeedingAuth: [] } })
+      // FAKE_CODEX_HOLD_PLUGIN_INSTALL=<file> leaves the install unanswered while
+      // the file exists, and FAKE_CODEX_FAIL_PLUGIN_INSTALL=1 refuses it when it is
+      // finally answered: a download that takes a while and then fails.
+      afterHold(process.env.FAKE_CODEX_HOLD_PLUGIN_INSTALL, () => {
+        if (process.env.FAKE_CODEX_FAIL_PLUGIN_INSTALL === '1') {
+          send({ id, error: { code: -32603, message: 'the plugin could not be downloaded' } })
+          return
+        }
+        pluginState[params.pluginName] = true
+        if (process.env.FAKE_CODEX_INSTALL_MCP && nativeServers) {
+          if (!nativeServers.includes(process.env.FAKE_CODEX_INSTALL_MCP)) nativeServers.push(process.env.FAKE_CODEX_INSTALL_MCP)
+          for (const [threadId, held] of loadedThreads) if (held.subscribed) loadMcpChild(threadId)
+        }
+        send({ id, result: { authPolicy: 'ON_USE', appsNeedingAuth: [] } })
+      }, 'PLUGIN_INSTALL_HELD')
       return
 
     case 'plugin/uninstall':

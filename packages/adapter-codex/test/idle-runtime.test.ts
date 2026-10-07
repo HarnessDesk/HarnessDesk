@@ -590,6 +590,36 @@ test('plugin installation cannot start a new helper on an open filtered Seat', a
   assert.deepEqual(helpers.map(child => child.name), ['docs'])
 })
 
+/** How a request ended, read rather than left unhandled: the refusal, or nothing when it went through. */
+const failure = (pending: Promise<unknown>): Promise<unknown> => pending.then(() => undefined, (error: unknown) => error)
+
+/** A rig whose Codex holds one tool change until `hold` is removed, and writes down each request it reads. */
+const heldChange = async (t: TestContext, change: 'FAKE_CODEX_HOLD_MCP_RELOAD' | 'FAKE_CODEX_HOLD_PLUGIN_INSTALL',
+  env: Readonly<Record<string, string>> = {}) => {
+  const hold = join(tmpdir(), `hd-tool-change-${randomUUID()}.hold`)
+  const calls = `${hold}.log`
+  await writeFile(calls, '')
+  await writeFile(hold, '')
+  t.after(async () => { await rm(hold, { force: true }); await rm(calls, { force: true }) })
+  const d = await rig(t, 'hold', { [change]: hold, FAKE_CODEX_PROCESS_CALLS: calls, ...env })
+  const sent = async () => (await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean)
+    .map(line => (JSON.parse(line) as { method: string }).method)
+  const isHeld = (message: string) => until(() => d.events.some(event => event.type === 'notice' && event.message === message))
+  return { d, hold, sent, isHeld }
+}
+
+test('a conversation that opened behind a failed tool change still opens', async (t) => {
+  const { d, hold, isHeld } = await heldChange(t, 'FAKE_CODEX_HOLD_PLUGIN_INSTALL', { FAKE_CODEX_FAIL_PLUGIN_INSTALL: '1' })
+  const install = failure(d.runtime.extensions.install('official', 'helper'))
+  await isHeld('PLUGIN_INSTALL_HELD')
+  const opening = d.runtime.createSession({ cwd: d.dir }).then((live) => ({ live }), (error: unknown) => ({ error }))
+  await rm(hold)
+  assert.match(String(await install), /could not be downloaded/, 'the Install reports its own failure')
+  const result = await opening
+  assert.ok('live' in result, 'error' in result ? String(result.error) : '')
+  await result.live.close()
+})
+
 test('no-cwd resume and fork reread native configuration in the source thread folder', async (t) => {
   const previousVersion = process.env['FAKE_CODEX_VERSION']
   process.env['FAKE_CODEX_VERSION'] = '0.160.0'

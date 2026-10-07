@@ -1632,8 +1632,10 @@ export class CodexRuntime implements AgentRuntime {
   async #opened<T>(open: () => Promise<T>): Promise<T> {
     this.#opening++
     try {
-      // A thread opened after Reload begins must see the updated configuration.
-      await this.#reloadingMcp
+      // A thread opened after a tool change begins must see the updated
+      // configuration. That the change failed is for whoever asked for it to
+      // hear; it is no reason for a conversation waiting behind it not to open.
+      await this.#reloadingMcp?.catch(() => {})
       return await open()
     } finally {
       this.#opening--

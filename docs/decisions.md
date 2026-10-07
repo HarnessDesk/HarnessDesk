@@ -2219,7 +2219,9 @@ refused before it changes configuration while filtered handles remain open.
 The person retries after the last filtered handle closes; no deferred reload runs unexpectedly. Conversations
 opening hold both operations. Tool changes are serialized, and an opening
 that follows an in-flight Reload or installation waits for the admitted
-changes before reading configuration. Closing and resuming a filtered
+changes to finish before reading configuration. A change that fails reports
+its failure to whoever asked for it; the changes and openings queued behind
+it go on. Closing and resuming a filtered
 Seat rereads native configuration and reapplies its frozen list.
 
 **Where a separate process is still called for.** A frozen selection uses the
