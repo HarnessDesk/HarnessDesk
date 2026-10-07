@@ -334,8 +334,15 @@ partial checkout immediately; a timeout names the limit rather than showing
 Git's progress. Retained Flow base-check snapshots use the same write limit
 and cancellation — so a writer's uncommitted edits in a shared checkout
 are never what runs. The agent names a declared check and never writes a
-command. It gets three runs a turn and ten a card, one at a time, and none
-while the run is paused or not live.
+command. Only a check explicitly marked `onRequest: true` is offered; omission
+or `false` leaves it off. Landing, publishing and deployment checks leave it
+off and wait for the Flow's rules. It gets three runs a turn and ten a card,
+one at a time, and none while the run is paused or not live.
+
+The command receives `HARNESSDESK_FLOW_ADVISORY=1` for that request
+and `0` for a Flow check card or its retry, so it can refuse an advisory run
+before acting. The host derives the flag from the same card metadata that
+marks the evidence; an inherited value cannot select the mode.
 
 Its result is recorded on the card as advisory (`advisory: true`, `counted:
 false`): the board shows it apart, and no rule's check guard reads it, for or
@@ -963,6 +970,17 @@ the same way, can replay.
 **The rule:** no fs call on a project path bypasses the confined tree, and no
 write there happens without checking every component for links, with the
 macOS kernel flag or the Linux component walk.
+
+Agent-folder copy, export, Save and restore have a narrower content-open
+boundary in `agent-file-open.ts`: macOS uses `O_NOFOLLOW_ANY`; Linux holds a
+directory descriptor and opens each next name through `/proc/self/fd` with
+`O_NOFOLLOW`. A linked ancestor is refused before it is opened, and replacing
+an already-open directory's name cannot redirect a later content read or
+write. Every directory descriptor is closed before the content handle is
+returned or an error escapes. Linux without procfs, and other platforms,
+refuse these opens rather than falling back to path-only checks. Directory
+creation, publication and cleanup still use paths and identity checks; this
+does not turn the whole operation into a descriptor-relative transaction.
 
 ## An evidence guard judges revisions, found by card and revision, never by round
 
@@ -2287,3 +2305,27 @@ shrink, never enlarge it.
 Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
+
+## Max mode reports the saved flag rather than inferring it from a window
+
+*Measured 2026-10-06 for #1311, cursor-agent 2026.10.01-e373342.* Three
+one-word live turns used separate temporary configuration directories and
+`--print --output-format stream-json --trust --mode ask`; each returned
+`pong`, exited 0 and wrote back the selection shown below. No tools ran.
+
+| Request | Saved selection | Saved `maxMode` | Saved `maxModeAutoEnabled` |
+| --- | --- | --- | --- |
+| GPT-5.2, Max on, `context=1m,effort=low,fast=false` | GPT-5.2 Medium; parameters `reasoning=medium,fast=false`, no context | `true` | `false` |
+| Grok 4.7, Max off, `context=200k,effort=low,fast=false` | Grok 4.7 256K High Fast; `context=256k,reasoning_effort=high,fast=true` | `false` | `false` |
+| Max off, `--model claude-sonnet-5-5-high` | Claude Sonnet 5.5 300K High; `context=300k,reasoning_effort=high` | `false` | `false` |
+
+The first turn dropped the requested parameters but retained the saved Max
+flag. Therefore a non-1M selection does not establish that the saved flag is
+off. The other turns did not reproduce a 200K automatic enablement: those
+requests resolved to 256K and 300K on this CLI and catalogue. That case
+remains synthetic regression coverage, not live evidence. No billing read
+was made; a saved flag reports configuration, not a measured charge.
+
+The bridge reflects that flag after a turn while preserving a newer manual
+choice. Automatic provenance stays an observation: it is shown in the model
+menu and hover text and is excluded from saved preset preferences.

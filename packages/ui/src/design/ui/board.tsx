@@ -233,7 +233,7 @@ const BoardColumn = ({
           <PlusIcon />
         </button>
       )}
-      {onCollapsedChange && <Button ref={foldRef} variant="ghost" size="icon-xs" className="-my-0.5" aria-label={`Fold ${title}`} title={`Fold ${title}`} aria-expanded={true} aria-controls={contentId} onClick={() => toggle(true)}><ArrowLeftIcon /></Button>}
+      {onCollapsedChange && <Button ref={foldRef} variant="ghost" size="icon-xs" className="my-[calc((var(--hd-line)-var(--hd-icon-target))/2)]" aria-label={`Fold ${title}`} title={`Fold ${title}`} aria-expanded={true} aria-controls={contentId} onClick={() => toggle(true)}><ArrowLeftIcon /></Button>}
       {actions}
     </header>
     <div id={contentId} data-slot="board-column-content" hidden={collapsed} className={cn(collapsed ? 'hidden' : 'flex', 'min-w-0 flex-col gap-2')}>{children}</div>

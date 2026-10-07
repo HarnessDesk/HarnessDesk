@@ -56,11 +56,26 @@ describe('matchPreset', () => {
   test('no options means no match', () => {
     expect(matchPreset('codex', undefined, [careful])).toBeUndefined()
   })
+
+  test('a reported model status does not detach the matching preference preset', () => {
+    const reported: ConfigOption = { type: 'boolean', id: 'wide-window', label: 'Wide window',
+      currentValue: true, modelStatus: 'Auto window' }
+    const preset = { ...careful, values: { ...careful.values, 'wide-window': false } }
+    expect(matchPreset('codex', [...options, reported], [preset])?.id).toBe('careful')
+    expect(matchPreset('codex', [reported], [{ ...careful, values: { 'wide-window': true } }])).toBeUndefined()
+  })
 })
 
 describe('snapshotValues', () => {
   test('records every option by id', () => {
     expect(snapshotValues(options)).toEqual({ permissions: ':workspace', shout: false })
+  })
+
+  test('an automatic model report never becomes a preset preference', () => {
+    const reported: ConfigOption = { type: 'boolean', id: 'wide-window', label: 'Wide window',
+      currentValue: true, modelStatus: 'Auto window' }
+    expect(snapshotValues([...options, reported])).toEqual({ permissions: ':workspace', shout: false })
+    expect(snapshotValues([{ ...reported, modelStatus: undefined }])).toEqual({ 'wide-window': true })
   })
 })
 

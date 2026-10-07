@@ -1168,6 +1168,8 @@ separately, and the answers drifted:
 
 The rule is in one file, so the eleventh confirm cannot get it wrong by
 copying the tenth.
+A live update that removes the opener or disables confirmation can request
+`focusCancel`, moving focus to the keeping verb while the question stays open.
 
 ### `CopyButton`
 
