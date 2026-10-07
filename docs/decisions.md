@@ -2346,3 +2346,27 @@ otherwise bound processes to live handles and reap their groups when released.
 Scripted ACP and bundled bridge tests prove release, resume, sibling isolation,
 probe cleanup and worker failure. The installed-agent measurements cover opening
 and closing only; they do not claim anything about real prompted turns.
+
+## Max mode reports the saved flag rather than inferring it from a window
+
+*Measured 2026-10-06 for #1311, cursor-agent 2026.10.01-e373342.* Three
+one-word live turns used separate temporary configuration directories and
+`--print --output-format stream-json --trust --mode ask`; each returned
+`pong`, exited 0 and wrote back the selection shown below. No tools ran.
+
+| Request | Saved selection | Saved `maxMode` | Saved `maxModeAutoEnabled` |
+| --- | --- | --- | --- |
+| GPT-5.2, Max on, `context=1m,effort=low,fast=false` | GPT-5.2 Medium; parameters `reasoning=medium,fast=false`, no context | `true` | `false` |
+| Grok 4.7, Max off, `context=200k,effort=low,fast=false` | Grok 4.7 256K High Fast; `context=256k,reasoning_effort=high,fast=true` | `false` | `false` |
+| Max off, `--model claude-sonnet-5-5-high` | Claude Sonnet 5.5 300K High; `context=300k,reasoning_effort=high` | `false` | `false` |
+
+The first turn dropped the requested parameters but retained the saved Max
+flag. Therefore a non-1M selection does not establish that the saved flag is
+off. The other turns did not reproduce a 200K automatic enablement: those
+requests resolved to 256K and 300K on this CLI and catalogue. That case
+remains synthetic regression coverage, not live evidence. No billing read
+was made; a saved flag reports configuration, not a measured charge.
+
+The bridge reflects that flag after a turn while preserving a newer manual
+choice. Automatic provenance stays an observation: it is shown in the model
+menu and hover text and is excluded from saved preset preferences.

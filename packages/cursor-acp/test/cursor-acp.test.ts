@@ -1700,3 +1700,160 @@ test('closing a running session cancels only its turn and keeps the shared bridg
   assert.equal(runtime.health().state, 'ready')
   assert.equal(await runtime.resumeSession(sibling.id), sibling)
 })
+
+test('the session reports CLI-enabled Max mode without widening the next turn (#1311)', async () => {
+  const state = tempDir('cursor-max-state-')
+  const patch = join(tempDir('cursor-max-result-'), 'result.json')
+  const runtime = isolatedRuntime({
+    id: 'cursor', name: 'Cursor Agent', command: process.execPath, args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: state, FAKE_CURSOR_CONFIG_RESULT: patch, FAKE_CURSOR_SYSTEM_MODEL: 'Brain 9 200K' },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.setOption('model', 'brain-9')
+    const run = async (config: Record<string, unknown>, prompt = 'pong') => {
+      writeFileSync(patch, JSON.stringify(config))
+      const tape = record(runtime)
+      await session.send([{ type: 'text', text: prompt }])
+      if (prompt === 'slow') {
+        await tape.until((event) => event.type === 'item/delta')
+        await session.interrupt()
+      }
+      await tape.until((event) => event.type === 'turn/completed')
+      return session.options().find((option) => option.id === 'max-mode')
+    }
+    assert.equal(session.options().find((option) => option.id === 'max-mode')?.currentValue, false)
+    const auto = await run({ maxMode: true, maxModeAutoEnabled: true,
+      selectedModel: { modelId: 'brain-9', parameters: [{ id: 'context', value: '200k' }] } })
+    assert.equal(auto?.currentValue, true, 'a 200k turn can still run in Max mode')
+    assert.equal(auto?.modelStatus, 'Auto Max')
+    const off = await run({ maxMode: false, maxModeAutoEnabled: false })
+    const written = JSON.parse(readFileSync(join(state, 'cli-config', String(session.id), 'cli-config.json'), 'utf8'))
+    assert.equal(written.selectedModel, undefined, 'reporting auto-enablement must not request 1M next time')
+    assert.equal(off?.currentValue, false)
+    assert.equal(off?.modelStatus, undefined)
+    await run({ maxMode: true, maxModeAutoEnabled: true })
+    await session.setOption('model', 'fast-1')
+    assert.equal(session.options().find((option) => option.id === 'max-mode')?.modelStatus, undefined)
+    await session.setOption('model', 'brain-9')
+
+    await session.setOption('max-mode', true)
+    const manual = await run({ maxMode: true, maxModeAutoEnabled: false,
+      selectedModel: { modelId: 'brain-9', parameters: [{ id: 'context', value: '200k' }] } })
+    assert.equal(manual?.currentValue, true, 'the saved flag outranks the window heuristic')
+    assert.equal(manual?.modelStatus, undefined)
+    for (const prompt of ['explode', 'slow']) {
+      const stopped = await run({ maxMode: true, maxModeAutoEnabled: true }, prompt)
+      assert.equal(stopped?.currentValue, true, 'failed and cancelled turns still report the saved flag')
+      assert.equal(stopped?.modelStatus, 'Auto Max')
+    }
+    const invalid = await run({ maxMode: 'unknown', maxModeAutoEnabled: true })
+    assert.equal(invalid?.modelStatus, undefined, 'malformed flags confer no provenance')
+    await session.setOption('model', 'fast-1')
+    assert.equal(session.options().find((option) => option.id === 'max-mode')?.modelStatus, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a Max-mode choice during a turn survives its saved report (#1311)', async () => {
+  const state = tempDir('cursor-max-choice-')
+  const patch = join(state, 'result.json')
+  const runtime = isolatedRuntime({
+    id: 'cursor', name: 'Cursor Agent', command: process.execPath, args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: state, FAKE_CURSOR_CONFIG_RESULT: patch },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.setOption('model', 'brain-9')
+    // Learn the parameterised form so the next requested Max can be written.
+    writeFileSync(patch, JSON.stringify({ selectedModel: { modelId: 'brain-9', parameters: [{ id: 'context', value: '200k' }] } }))
+    const warm = record(runtime)
+    await session.send([{ type: 'text', text: 'pong' }])
+    await warm.until((event) => event.type === 'turn/completed')
+    for (const wanted of [true, false]) {
+      await session.setOption('max-mode', !wanted)
+      writeFileSync(patch, JSON.stringify({ maxMode: !wanted, maxModeAutoEnabled: true }))
+      const tape = record(runtime)
+      await session.send([{ type: 'text', text: 'slow' }])
+      await tape.until((event) => event.type === 'item/delta')
+      await session.setOption('max-mode', wanted)
+      await session.interrupt()
+      await tape.until((event) => event.type === 'turn/completed')
+      const option = session.options().find((entry) => entry.id === 'max-mode')
+      assert.equal(option?.currentValue, wanted, 'the mid-turn choice outranks the older report')
+      assert.equal(option?.modelStatus, undefined)
+      writeFileSync(patch, '{}')
+      const next = record(runtime)
+      await session.send([{ type: 'text', text: 'pong' }])
+      await next.until((event) => event.type === 'turn/completed')
+      const written = JSON.parse(readFileSync(join(state, 'cli-config', String(session.id), 'cli-config.json'), 'utf8'))
+      assert.equal(written.maxMode, wanted, 'the next turn agrees with the switch')
+    }
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('completion and Stop are bounded when a child keeps CLI pipes open (#1311)', async () => {
+  const state = tempDir('cursor-pipe-holder-')
+  const gate = join(state, 'release')
+  const runtime = isolatedRuntime({
+    id: 'cursor', name: 'Cursor Agent', command: process.execPath, args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: state, FAKE_CURSOR_PIPE_GATE: gate },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    for (const prompt of ['pong', 'slow']) {
+      const tape = record(runtime)
+      await session.send([{ type: 'text', text: prompt }])
+      if (prompt === 'slow') {
+        await tape.until((event) => event.type === 'item/delta')
+        await session.interrupt()
+      }
+      const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed', 1500))
+      assert.equal(turn.status, prompt === 'slow' ? 'interrupted' : 'completed')
+      assert.equal(existsSync(gate), false, 'completion did not need the holder to release its pipes')
+    }
+  } finally {
+    writeFileSync(gate, 'release')
+    await runtime.dispose()
+  }
+})
+
+test('turn completion reports options without refreshing an expired catalogue (#1311)', async () => {
+  const state = tempDir('cursor-models-completion-')
+  const gate = join(state, 'hold-models')
+  const log = join(state, 'models.log')
+  const patch = join(state, 'result.json')
+  const runtime = isolatedRuntime({
+    id: 'cursor', name: 'Cursor Agent', command: process.execPath, args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: state, CURSOR_ACP_MODELS_TTL_MS: '0',
+      FAKE_CURSOR_MODELS_GATE: gate, FAKE_CURSOR_MODELS_LOG: log, FAKE_CURSOR_CONFIG_RESULT: patch },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.setOption('model', 'brain-9')
+    const before = readFileSync(log, 'utf8')
+    writeFileSync(gate, 'hold')
+    writeFileSync(patch, JSON.stringify({ maxMode: true, maxModeAutoEnabled: true }))
+    const tape = record(runtime)
+    await session.send([{ type: 'text', text: 'pong' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed', 1500)
+    assert.equal(completedTurn(completed).status, 'completed')
+    assert.equal(readFileSync(log, 'utf8'), before, 'settling a turn never spawns a catalogue process')
+    const corrected = tape.events.findIndex((event) => event.type === 'session/options' &&
+      event.options.some((option) => option.modelStatus === 'Auto Max'))
+    assert.ok(corrected >= 0 && corrected < tape.events.indexOf(completed), 'cached options arrive before completion')
+    rmSync(gate)
+    await session.setOption('effort', 'low')
+    assert.notEqual(readFileSync(log, 'utf8'), before, 'the next catalogue request still refreshes it')
+  } finally {
+    rmSync(gate, { force: true })
+    await runtime.dispose()
+  }
+})

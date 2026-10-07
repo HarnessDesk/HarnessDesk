@@ -621,7 +621,11 @@ in [extending.md](extending.md).
 - **Model, effort, permissions and mode** are controls, not chips: they shape
   *how* the message is read, not what it says. Beside the model sits the
   context ring — how full the window is for whichever agent this pane talks to
-  ([context-usage.md](context-usage.md)).
+  ([context-usage.md](context-usage.md)). When an agent enables a model setting
+  itself, its reported state appears in the model control’s hover text and as
+  a chip beside the model name in its menu. This status comes only from the
+  agent’s report; an effort level or model name never supplies it. Reports
+  are observations and are left out of saved preset preferences.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
 - **A conversation that cannot be read returns its pane to a fresh draft.**
@@ -670,6 +674,14 @@ the rest of a queue into a rate limit, a crashed agent, or a turn the user just
 stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
 session that is no longer live could not deliver it anyway.
+
+### Cursor model controls
+
+Cursor Agent’s Max mode reflects the flag saved after the turn. **Auto Max**
+says Cursor enabled it, without changing your choice for the next turn. A
+choice made while the turn runs takes precedence over that turn’s report.
+Max mode belongs to Cursor Agent; another agent’s “max” effort is a reasoning
+level and does not declare this status.
 
 ## Settings
 

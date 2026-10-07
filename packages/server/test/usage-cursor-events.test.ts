@@ -232,19 +232,19 @@ test('unpriced events stay unpriced, never $0, and never share a row with priced
   assert.equal(withoutCost?.requests, 1)
 })
 
-test('a max-mode call still counts as one request, its quota weight never stored', () => {
+test('a high-cost call still counts as one request, its quota weight never stored', () => {
   // By the time an event reaches `aggregateCursorEvents` it is already one
   // request each — `requestsCosts` is read only to decide whether a
   // tokenless event is worth keeping, never summed into `requests` (that
   // sum is the meter's own figure, #999's `numRequests`).
   const cheap: CursorEvent = { at: 1_000, model: 'gpt-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, requests: 1, cents: 1 }
-  const maxMode: CursorEvent = { at: 1_000, model: 'gpt-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, requests: 1, cents: 900 }
-  const rows = aggregateCursorEvents([cheap, maxMode], 'cursor', 'cursor-events:abc')
+  const expensive: CursorEvent = { at: 1_000, model: 'gpt-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, requests: 1, cents: 900 }
+  const rows = aggregateCursorEvents([cheap, expensive], 'cursor', 'cursor-events:abc')
   assert.equal(rows.length, 1)
   assert.equal(rows[0]?.requests, 2, 'two kept events, two requests, whatever either one\'s quota weight was')
 })
 
-test('parseEvent (through fetchCursorEvents) counts a max-mode event as one request, never its requestsCosts weight', async () => {
+test('parseEvent (through fetchCursorEvents) counts a high-cost event as one request, never its requestsCosts weight', async () => {
   const raw = event({ requestsCosts: 300 })
   const events = await fetchCursorEvents({
     cookie: 'c',

@@ -190,6 +190,9 @@ const configOptionsOf = (state) => [
     description: 'How the fake answers.',
     type: 'select',
     currentValue: state.options.voice,
+    ...(process.env.FAKE_MODEL_STATUS ? { _meta: { harnessdesk: {
+      modelStatus: state.options.voice === 'plain' ? JSON.parse(process.env.FAKE_MODEL_STATUS) : '',
+    } } } : {}),
     options: [
       { value: 'plain', name: 'Plain' },
       { value: 'pirate', name: 'Pirate', description: 'Yarr.' },
@@ -200,6 +203,9 @@ const configOptionsOf = (state) => [
     name: 'Verbose',
     type: 'toggle',
     currentValue: state.options.verbose,
+    ...(process.env.FAKE_MODEL_STATUS ? { _meta: { harnessdesk: {
+      modelStatus: !state.options.verbose ? JSON.parse(process.env.FAKE_MODEL_STATUS) : '',
+    } } } : {}),
   },
   {
     id: 'auto_approve',
@@ -213,8 +219,8 @@ const configOptionsOf = (state) => [
   // A thought-level control the un-Codex way: the levels belong to whatever
   // model is current, which is all a conforming agent can declare.
   // A control the agent declares, shows the state of, and will not let you
-  // change. Real agents have these: Cursor greys Max mode on a family with one
-  // context window, and it reads `false` because that is what it is. Setting
+  // change. A family with one context window greys the wider-window control,
+  // which reads `false` because that is what it is. Setting
   // it to `false` is asking for what is already true, and must be allowed;
   // setting it to `true` is asking for something this agent cannot do.
   {

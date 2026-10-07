@@ -41,6 +41,7 @@ test("the editor's Max mode is not inherited: an ordinary turn runs with maxMode
   prepareConfig(null)
   const written = read()
   assert.equal(written['maxMode'], false)
+  assert.equal(written['maxModeAutoEnabled'], false)
   assert.equal(written['model'], undefined)
   assert.equal(written['selectedModel'], undefined)
   /* The rest of the editor's settings still travel: that is what the mirror is for. */
