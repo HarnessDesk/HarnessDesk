@@ -334,8 +334,15 @@ partial checkout immediately; a timeout names the limit rather than showing
 Git's progress. Retained Flow base-check snapshots use the same write limit
 and cancellation — so a writer's uncommitted edits in a shared checkout
 are never what runs. The agent names a declared check and never writes a
-command. It gets three runs a turn and ten a card, one at a time, and none
-while the run is paused or not live.
+command. Only a check explicitly marked `onRequest: true` is offered; omission
+or `false` leaves it off. Landing, publishing and deployment checks leave it
+off and wait for the Flow's rules. It gets three runs a turn and ten a card,
+one at a time, and none while the run is paused or not live.
+
+The command receives `HARNESSDESK_FLOW_ADVISORY=1` for that request
+and `0` for a Flow check card or its retry, so it can refuse an advisory run
+before acting. The host derives the flag from the same card metadata that
+marks the evidence; an inherited value cannot select the mode.
 
 Its result is recorded on the card as advisory (`advisory: true`, `counted:
 false`): the board shows it apart, and no rule's check guard reads it, for or
