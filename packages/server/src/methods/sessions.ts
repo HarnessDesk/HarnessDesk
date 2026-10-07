@@ -156,7 +156,8 @@ export const sessionMethods = {
     const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
     if (frozenSeat?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozenSeat.runtimeServers }
     if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
-    const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
+    const record = ctx.registry.get(runtime.info.id, sessionId)
+    const scoped = !record?.live && (record?.restedOptions !== undefined || ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false))
     const resolve = async (): Promise<AgentSession> => {
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId })
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
@@ -272,6 +273,19 @@ export const sessionMethods = {
       await runtime.archiveSession(id, params.archived)
     } else {
       await ctx.archive.set(runtime.info.id, id, params.archived)
+    }
+    if (params.archived && runtime.info.capabilities.resume) {
+      const record = ctx.registry.get(runtime.info.id, id)
+      const live = record?.live
+      const quiet = record && record.running.size === 0 && record.approvals.size === 0 &&
+        record.queue.messages.length === 0 && !record.tasks.some(task => task.state === 'running')
+      if (quiet) await live?.close().catch(error => ctx.logger.warn('an archived conversation could not close', {
+        runtime: runtime.info.id, error: String(error),
+      }))
+      if (quiet && record.live === live) {
+        record.live = null
+        record.detached = false
+      }
     }
     return null
   },

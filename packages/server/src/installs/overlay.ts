@@ -17,14 +17,14 @@ import { commandName } from './service.js'
  */
 export const knowledgeOverlay = (
   agent: AcpAgentConfig,
-  known: Pick<KnownAgent, 'id' | 'name' | 'formerNames' | 'auth'> | undefined,
+  known: (Pick<KnownAgent, 'id' | 'name' | 'formerNames' | 'auth'> & Partial<Pick<KnownAgent, 'acp'>>) | undefined,
   options: {
     /** The environment the agent is started with. Defaults to the host's, under the row's own. */
     readonly env?: Readonly<Record<string, string | undefined>>
     /** Where a changed vendor format is reported; see `AntigravityStoreOptions.warn`. */
     readonly warn?: (message: string, details?: unknown) => void
   } = {},
-): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account'> => {
+): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess'> => {
   const env = options.env ?? { ...process.env, ...agent.env }
   const resolveIdentity = identityReaderFor(known, {
     ...(agent.args ? { args: agent.args } : {}),
@@ -46,6 +46,7 @@ export const knowledgeOverlay = (
   return {
     name: currentNameOf(known, agent.name),
     coAuthor: knownAgentByCommand(commandName(agent.executable?.command ?? agent.command))?.coAuthor ?? null,
+    ...(known?.acp?.sharedSessionProcess ? { sharedSessionProcess: true } : {}),
     ...(resolveIdentity ? { resolveIdentity } : {}),
     ...(resolveProvider ? { resolveProvider } : {}),
     ...(usageRecord ? { usageRecord } : {}),

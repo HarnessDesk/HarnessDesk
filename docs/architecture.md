@@ -255,6 +255,20 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   process-table read for the desk, including descendants and RSS. The renderer
   polls only while the runtime page is mounted. Manual idle recycling shares
   the reaper's stop/start barrier and refuses in-flight work and open handles.
+  ACP peers that declare session close share the account connection and release
+  a session through that method. Peers without close normally use one reapable
+  connection per live session, beside a session-free control connection. The
+  known Gemini CLI instead shares one process family: close cancels only that
+  session, and the last live handle releases the family once opens, resumes and
+  catalogue reads settle. Without a close verb, its closed-session state stays
+  in the peer while siblings remain open. Catalogue probes
+  release their adapter handles after five quiet seconds; stored-history reads
+  return before teardown and share their temporary handle over the same interval.
+  Their declarations and draft picks stay
+  cached. Personal conversations rest after ten quiet minutes, protecting turns,
+  approvals, queued input and running tasks, and archiving a quiet resumable conversation
+  releases its handle. All use the same host close-and-resume seam
+  ([ACP release lifecycle](decisions.md#acp-sessions-release-what-they-opened)).
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening

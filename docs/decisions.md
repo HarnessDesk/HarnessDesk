@@ -2433,6 +2433,71 @@ Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
 
+## ACP sessions release what they opened
+
+An ACP handle used to disappear only from the adapter's map. The peer kept its
+session and its children until the whole account process stopped. A catalogue
+probe was another retained session. Measured without prompts on 2026-10-06,
+eight sessions through the bundled Claude bridge left ten processes and about
+2 GB resident after close; the adapter now leaves the one bridge at about
+133 MB. The measurement uses an isolated home and synthetic keys, never a turn:
+[`acp-session-processes.mjs`](../script/probe/acp-session-processes.mjs).
+
+The negotiated `sessionCapabilities.close` chooses the lifecycle. A peer that
+declares it serves every conversation of its account on the same connection;
+closing a handle asks `session/close` with a three-second deadline. A refusal
+or timeout is logged and drops the local handle; a failed opening keeps its
+original error, and a stored archive mark remains successful.
+The bundled Claude bridge already tears down its query and attachments there.
+The Cursor bridge now cancels and waits for that session's turn, removes its
+transient tool/config folders, and keeps its durable chat and the shared start
+gate. Neither close names a sibling.
+
+A peer with no close method normally gets a connection per live session, beside the
+account's session-free control connection. Close reaps that connection's process
+group. A failed worker detaches only its session; restarting or disposing the
+account reaps all workers.
+
+Gemini CLI is the measured exception, declared by the known-agent table's
+`sharedSessionProcess` policy and applied through the same overlay to existing
+and newly registered rows. The first implementation multiplied its process
+families, taking eight unprompted sessions from about 0.5 GB to 4.1 GB. The
+repair keeps one shared family: measured on 2026-10-06, one, three and eight
+open sessions have two processes at 464, 474 and 485 MB. Closing the last
+handle reaps the whole family, leaving zero processes. Concurrent session
+opens, resumes and catalogue reads hold that release until they settle.
+Closing one session cancels only its turn and abandons its approvals; siblings
+keep their handles. Without a release verb, its closed sessions and probes
+remain in the peer until the last handle closes. This is a deliberate limit,
+not a claim that a shared peer can release one session while another works.
+
+Catalogue readers and nearby draft picks share a probe for five quiet seconds,
+then release it. Stored-history reads also retain their temporary handle for
+five quiet seconds and return the transcript before resource teardown; an
+explicit resume takes ownership and cancels that release. Draft picks
+and model/command declarations remain cached, and fresh option reads do not
+replace the composer's picks. The existing host release seam rests finished
+Seats; personal conversations also release after ten quiet minutes, with turns,
+approvals, queued input and running tasks protecting them. Archiving a quiet resumable
+conversation releases its handle. Archiving preserves working turns,
+approvals, queued input and running tasks for the normal quiet sweep.
+Reopening waits for close, then loads the same
+agent-owned history; personal quiet release holds the conversation's option
+values and reapplies changed picks before reopening it to a client or a send.
+Transient history handles keep the stored row's status and timestamps and do
+not request a shared last-handle stop; the host owns that idle interval.
+A stale close cannot release its replacement. A shared
+last-handle stop publishes idle state and its cleanup barrier before awaiting
+exit, so host callers wait for restart. Passive process counts include both the
+control connection and every live session worker.
+
+**The rule:** share an account process when the peer can release a session;
+otherwise bound processes to live handles and reap their groups when released,
+except where measured process cost requires the shared, last-handle policy.
+Scripted ACP and bundled bridge tests prove release, resume, sibling isolation,
+probe cleanup and worker failure. The installed-agent measurements cover opening
+and closing only; they do not claim anything about real prompted turns.
+
 ## Native server narrowing is separate from approved attachments
 
 Measured on 2026-10-06 with 0.160.0 by

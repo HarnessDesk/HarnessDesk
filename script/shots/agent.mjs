@@ -513,7 +513,7 @@ const handlers = {
       agentCapabilities: {
         loadSession: Boolean(STORE),
         promptCapabilities: { image: true },
-        ...(STORE ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
+        sessionCapabilities: { close: {}, ...(STORE ? { list: {}, resume: {} } : {}) },
       },
       authMethods: [],
     })
@@ -631,6 +631,12 @@ const handlers = {
 
   'session/cancel': (_id, params) => {
     cancelled.add(params.sessionId)
+  },
+
+  'session/close': (id, params) => {
+    cancelled.add(params.sessionId)
+    sessions.delete(params.sessionId)
+    reply(id, {})
   },
 }
 
