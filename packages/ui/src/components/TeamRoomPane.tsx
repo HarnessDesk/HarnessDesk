@@ -1000,10 +1000,14 @@ export const TeamRoomPane = ({
         </>}
         actions={<div className={`${styles.barVerbs} hd-no-drag`}>
           <div className={styles.barFacts}>
-            {triggerKind && <Chip tint="amber" title={triggerControl.view?.definition ? undefined : 'Trigger declaration is being read'}>{teamTriggerLabel(originStatus, triggerControl.view)}</Chip>}
-            {triggerKind && triggerControl.view && !record ? <Chip tone={triggerControl.view.state === 'armed' && !triggerControl.prefs?.paused ? 'success' : 'neutral'}>
+            {runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
+            {triggerKind && <Chip tint="amber" title={triggerControl.view?.definition ? teamTriggerLabel(originStatus, triggerControl.view) : 'Trigger declaration is being read'}>
+              <span data-team-trigger-label="full">{teamTriggerLabel(originStatus, triggerControl.view)}</span>
+              <span data-team-trigger-label="short">{teamTriggerLabel(originStatus, triggerControl.view, true)}</span>
+            </Chip>}
+            {triggerKind && triggerControl.view && !record && <Chip tone={triggerControl.view.state === 'armed' && !triggerControl.prefs?.paused ? 'success' : 'neutral'}>
               {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}
-            </Chip> : runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
+            </Chip>}
             {originStatus && <OriginChip status={originStatus} name={title} />}
             <Popover title="Team members" align="right" triggerVariant={{variant:'ghost',size:'content-min',className:'min-w-(--hd-target-min)'}}
               label={<><span aria-hidden className="flex items-center gap-(--hd-space-1)">{allSeats.length === 0 ? <AgentIcon size={14} /> : <AvatarStack size="sm" members={allSeats.map(seat => {
@@ -1212,7 +1216,7 @@ export const TeamRoomPane = ({
               </div>
             </PaneColumn>
           ) : open === 'overview' ? (
-            <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onWrap={!record && goal?.activity === 'ready-to-wrap' && !wrapDisabled ? () => setWrapping(true) : undefined} onRun={() => show('run')}
+            <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onWrap={!record && goal?.activity === 'ready-to-wrap' && !wrapDisabled ? () => setWrapping(true) : undefined} onRun={() => { if (triggerKind && flowExecution) setChosenRun(flowExecution.id); show('run') }}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null

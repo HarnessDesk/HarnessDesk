@@ -3713,12 +3713,75 @@ it('opens the empty Runs page and pauses using the recorded machine revision and
   await act(async () => tab.click())
   expect(container.textContent).toContain('No Runs yet')
   expect(container.textContent).toContain('Unknown spend of $25.00 daily cap')
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Pause all triggers"]')!.click())
+  expect(container.querySelector('[data-slot="team-runs"]')!.textContent).toContain('interrupting its turns and checks')
+  expect([...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-head"] button')].find(one => one.textContent === 'Pause every trigger')!.textContent).toBe('Pause every trigger')
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-head"] button')].find(one => one.textContent === 'Pause every trigger')!.click())
   expect(setTriggerPreferences).toHaveBeenCalledWith(8, true, 25)
   expect(container.textContent).toContain('The revision changed; read again.')
   expect(container.querySelector('header')?.textContent).toContain('Armed')
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Edit the trigger')!.click())
   expect(openFile).toHaveBeenCalledWith(`${GOAL.goal.root}/.harnessdesk/triggers.yml`)
+})
+
+it.each([
+  ['running', 'Running'], ['stalled', 'Needs you'], ['settled', 'Done'], ['stopped', 'Stopped'],
+] as const)('keeps the %s Run state beside trigger consent after the declaration loads', async (state, label) => {
+  const execution = { version: 2, id: 'consent-run', goal: ROOM, state, startedAt: 1,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT } as FlowExecution
+  const { store } = triggerRig([], {}, [], new Map([[execution.id, execution]]))
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({ id: 'triage-issue', armed: true, state: 'armed' })] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const header = container.querySelector('header')!
+  expect(header.textContent).toContain('Armed')
+  expect([...header.querySelectorAll('[data-slot="chip"]')].filter(one => one.textContent === label)).toHaveLength(1)
+})
+
+it.each(['message', 'approval', 'question', 'budget'] as const)('keeps Needs you beside an Off trigger for a %s wait', async kind => {
+  const { store } = triggerRig([], kind === 'budget' ? { stop: { reason: 'out of budget', detail: 'Round limit reached.', at: 1 } } : {}, [wait({ kind })])
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({ id: 'triage-issue', armed: false, state: 'off' })] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const header = container.querySelector('header')!
+  expect(header.textContent).toContain('Off')
+  expect(header.textContent).toContain('Needs you')
+})
+
+it('opens the current trigger Run directly from Overview even after choosing another timeline', async () => {
+  const execution = { version: 2, id: 'current-trigger-run', goal: ROOM, state: 'running', startedAt: 2,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT } as FlowExecution
+  const old = { ...execution, id: 'old-trigger-run', startedAt: 1, state: 'settled' as const }
+  const { store } = triggerRig([], {}, [], new Map([[old.id, old], [execution.id, execution]]))
+  await render(store)
+  const openOverviewRun = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Run"] button')!.click())
+    expect(container.querySelector('[data-slot="run-view"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="run-view"]')!.textContent).toContain('Run 2')
+  }
+  await openOverviewRun()
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="Open Run 1:"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="overview"]')!.click())
+  await openOverviewRun()
+})
+
+it.each([1, 2])('uses singular Run counts with %s recorded Runs, including a filtered result', async count => {
+  const execution = { version: 2, id: 'single-run', goal: ROOM, state: 'settled', startedAt: 1,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT } as FlowExecution
+  const runs = new Map([[execution.id, execution]])
+  if (count === 2) runs.set('running-run', { ...execution, id: 'running-run', state: 'running', startedAt: 2 })
+  const { store } = triggerRig([], {}, [], runs)
+  await render(store)
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  const page = container.querySelector('[data-slot="team-runs"]')!
+  expect(page.textContent).toContain(`${count} ${count === 1 ? 'Run' : 'Runs'} ·`)
+  await act(async () => [...page.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Settled'))!.click())
+  expect(page.querySelector('[data-slot="inspector-footer"]')!.textContent).toContain(count === 1 ? '1 Run' : '1 Run of 2')
+  expect(page.textContent).not.toContain('1 Runs')
 })
 
 it('attributes findings to the Run that raised them instead of repeating the Goal total on every Run', async () => {

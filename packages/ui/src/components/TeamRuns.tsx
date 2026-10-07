@@ -65,15 +65,16 @@ export const useTeamTrigger = (root: string, id: string | null) => {
   }
 }
 
-export const teamTriggerLabel = (status: TriggerGoalStatus | null, view: TriggerView | null): string => {
+export const teamTriggerLabel = (status: TriggerGoalStatus | null, view: TriggerView | null, compact = false): string => {
   const source = view?.definition?.on.kind ?? status?.source
-  if (source === 'pull-request') return 'Every pull request'
+  if (source === 'pull-request') return compact ? 'Every PR' : 'Every pull request'
   if (source === 'issue') return 'Every issue'
   if (source === 'schedule') {
+    if (compact) return 'Schedule'
     const on = view?.definition?.on
     return on?.kind === 'schedule' ? `Every ${on.everyMinutes} minutes` : 'On a schedule'
   }
-  return 'Project trigger'
+  return compact ? 'Trigger' : 'Project trigger'
 }
 
 const stateOf = (run: FlowExecution) => run.state === 'stalled' || run.end?.kind === 'budget' || run.end?.kind === 'unrouted'
@@ -137,14 +138,14 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
   const todayCount = runs.filter(run => run.startedAt != null && new Date(run.startedAt).toISOString().slice(0, 10) === today).length
   const prefs = trigger.prefs
   const daily = prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
-  const facts = `${runs.length} Runs · ${todayCount} today (UTC) · ${daily}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
+  const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC) · ${daily}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
   return <PaneColumn inset="reading" page data-slot="team-runs" className="@container/runs flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
     <PageHead title="Runs" blurb={facts} actions={<>
-      <Button variant="outline" size="sm" aria-label={prefs?.paused ? 'Resume all triggers' : 'Pause all triggers'}
-        title="Applies to every trigger on this Mac" disabled={!prefs || trigger.busy}
-        onClick={() => void trigger.pause()}>{prefs?.paused ? 'Resume' : 'Pause'}</Button>
-      <Button variant="outline" size="sm" onClick={onEdit}>Edit the trigger</Button>
+      <Button variant="outline" disabled={!prefs || trigger.busy}
+        onClick={() => void trigger.pause()}>{prefs?.paused ? 'Resume every trigger' : 'Pause every trigger'}</Button>
+      <Button variant="outline" onClick={onEdit}>Edit the trigger</Button>
     </>} />
+    <Text role="meta" as="p">Pausing stops watching every source and holds all work started by triggers on this Mac, interrupting its turns and checks. Resuming continues that work and reads what arrived meanwhile; interrupted checks wait for you to run them again.</Text>
     {(problem || trigger.problem) && <ActionError>{problem ?? trigger.problem}</ActionError>}
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter Runs" onChange={setQuery} /></div>
@@ -184,7 +185,7 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
         </TableRow>)}</TableBody>
       </Table>
       {shown.length === 0 && <EmptyState variant="inline" title={runs.length ? 'No Runs match' : 'No Runs yet'} />}
-      <PanelFooter left={`${shown.length} Runs${shown.length === runs.length ? '' : ` of ${runs.length}`}`}
+      <PanelFooter left={`${shown.length} ${shown.length === 1 ? 'Run' : 'Runs'}${shown.length === runs.length ? '' : ` of ${runs.length}`}`}
         right={trigger.view?.definition ? triggerGroupingWords(trigger.view.definition.goal) : 'Newest first'} />
     </div>
   </PaneColumn>

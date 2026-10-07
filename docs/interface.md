@@ -1183,9 +1183,14 @@ A Team opened by a project trigger calls this tab **Runs**:
 its recorded starts appear newest first, with their subject, state, reviewer
 answers or findings, duration and start time. Search and state filters keep
 their place when a row opens its timeline and the person returns to Runs.
-The bar shows the trigger and its current consent state; the page header
-shows today's Run count and the machine's dollar cap. Pause applies to every
-trigger on this Mac, and Edit the trigger opens the project's declaration.
+The bar keeps the Run's state and shows the trigger and its current consent
+state beside it; a trigger being Off or Armed does not hide Needs you. The page
+header shows today's Run count and the machine's dollar cap. **Pause every
+trigger** applies to every trigger on this Mac, with its consequence stated
+in view: it holds all work started by triggers, interrupting its turns and
+checks. Resuming continues that work; interrupted checks wait to be run again.
+Edit the trigger opens the project's declaration. The Overview's Run link
+opens that Run's timeline directly.
 The list follows the existing Goal grouping: it does not combine other Teams
 opened by the same trigger.
 

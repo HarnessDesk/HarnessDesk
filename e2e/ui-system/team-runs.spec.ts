@@ -17,6 +17,15 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(runs).toContainText('2 of 3 answered')
       await expect(runs).toContainText('2 findings')
       await expect(runs).toContainText('$6.00 of $20.00 daily cap')
+      for (const button of await runs.locator('[data-slot="page-head"] button').all()) {
+        const height = await button.evaluate(el => ({
+          actual: el.getBoundingClientRect().height,
+          full: parseFloat(getComputedStyle(el).getPropertyValue('--hd-btn-h')),
+        }))
+        expect(height.actual).toBeGreaterThanOrEqual(height.full)
+      }
+      await expect(team.locator('header').first()).toContainText('Running')
+      await expect(runs).toContainText('interrupting its turns and checks')
       const geometry = await runs.evaluate(el => {
         const table = el.querySelector('table')!.getBoundingClientRect()
         const bounds = el.getBoundingClientRect()
@@ -32,9 +41,10 @@ for (const theme of ['light', 'dark'] as const) {
         await page.evaluate(async () => { await document.fonts.ready })
         await page.screenshot({ path: `${directory}/after-runs-${width}-${theme}.png` })
       }
-      await runs.getByRole('button', { name: 'Pause all triggers' }).click()
+      await runs.getByRole('button', { name: 'Pause every trigger' }).click()
       await expect(team.locator('header').first()).toContainText('Paused')
-      await runs.getByRole('button', { name: 'Resume all triggers' }).click()
+      await expect(team.locator('header').first()).toContainText('Running')
+      await runs.getByRole('button', { name: 'Resume every trigger' }).click()
       await expect(team.locator('header').first()).toContainText('Armed')
       await runs.getByRole('searchbox', { name: 'Filter Runs' }).fill('Run 2')
       await expect(runs.locator('[data-run]')).toHaveCount(1)

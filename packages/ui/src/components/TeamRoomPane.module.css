@@ -96,6 +96,10 @@
   margin-left: auto;
 }
 
+.barFacts [data-team-trigger-label='short'] {
+  display: none;
+}
+
 /* Narrow headers put their tools in the existing overflow menu. */
 .barWrapFull {
   display: inline-flex;
@@ -292,6 +296,15 @@
 }
 
 @container hd-header (max-width: 38rem) {
+  /* Consent and Run state stay whole; the source uses its short label. */
+  .barFacts [data-team-trigger-label='full'] {
+    display: none;
+  }
+
+  .barFacts [data-team-trigger-label='short'] {
+    display: inline;
+  }
+
   .barFacts > [data-role='meta'] {
     display: none;
   }
