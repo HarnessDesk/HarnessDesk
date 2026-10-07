@@ -554,16 +554,99 @@ test('a Seat keeps the tool servers it opened with across a Reload on the shared
   const empty = await d.runtime.createSession({ cwd: d.dir, runtimeServers: [] })
   const reloads = async () => (await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean)
     .map(line => JSON.parse(line) as { method: string }).filter(one => one.method === 'config/mcpServer/reload')
-  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held.*Close.*selected tool servers/i)
+  await assert.rejects(d.runtime.extensions.reloadMcp(), { message: 'Reload is held by 2 conversations with selected tool servers. Close those conversations, then try Reload again.' })
   assert.equal((await reloads()).length, 0)
   await selected.close()
-  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held/)
+  await assert.rejects(d.runtime.extensions.reloadMcp(), { message: 'Reload is held by 1 conversation with selected tool servers. Close that conversation, then try Reload again.' })
   assert.equal((await reloads()).length, 0, 'an empty selection also holds Reload')
   await empty.close()
   await d.runtime.extensions.reloadMcp()
   assert.equal((await reloads()).length, 1, 'the last filtered close allows Reload with other conversations open')
   assert.equal(d.runtime.session(unfiltered.id), unfiltered)
   assert.equal(d.runtime.resourceProcessIds().length, 1)
+})
+
+test('plugin installation cannot start a new helper on an open filtered Seat', async (t) => {
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["docs"]', FAKE_CODEX_INSTALL_MCP: 'plugin-tools' })
+  const selected = await d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  const empty = await d.runtime.createSession({ cwd: d.dir, runtimeServers: [] })
+  const before = await d.children()
+  await assert.rejects(d.runtime.extensions.install('openai-curated', 'spreadsheets'),
+    /Install is held by 2 conversations with selected tool servers/)
+  assert.deepEqual(await d.children(), before, 'installation never starts a helper on either filtered Seat')
+  assert.equal((await d.runtime.extensions.catalog()).plugins.find(plugin => plugin.id === 'spreadsheets@openai-curated')?.installed, false)
+  await selected.close()
+  await assert.rejects(d.runtime.extensions.install('openai-curated', 'spreadsheets'), /Install is held by 1 conversation/)
+  await empty.close()
+  await d.runtime.extensions.install('openai-curated', 'spreadsheets')
+  assert.equal((await d.runtime.extensions.catalog()).plugins.find(plugin => plugin.id === 'spreadsheets@openai-curated')?.installed, true)
+  const resumed = await d.runtime.resumeSession(selected.id, { cwd: d.dir })
+  const helpers = (await d.children()).filter(child => child.threadId === resumed.id && running(child.pid)) as (Awaited<ReturnType<typeof d.children>>[number] & { name: string })[]
+  // The fake applies installs only to subscribed handles; a reopened filtered
+  // Seat must still apply its saved selection against the new configuration.
+  assert.deepEqual(helpers.map(child => child.name), ['docs'])
+})
+
+/** How a request ended, read rather than left unhandled: the refusal, or nothing when it went through. */
+const failure = (pending: Promise<unknown>): Promise<unknown> => pending.then(() => undefined, (error: unknown) => error)
+
+/** A rig whose Codex holds one tool change until `hold` is removed, and writes down each request it reads. */
+const heldChange = async (t: TestContext, change: 'FAKE_CODEX_HOLD_MCP_RELOAD' | 'FAKE_CODEX_HOLD_PLUGIN_INSTALL',
+  env: Readonly<Record<string, string>> = {}) => {
+  const hold = join(tmpdir(), `hd-tool-change-${randomUUID()}.hold`)
+  const calls = `${hold}.log`
+  await writeFile(calls, '')
+  await writeFile(hold, '')
+  t.after(async () => { await rm(hold, { force: true }); await rm(calls, { force: true }) })
+  const d = await rig(t, 'hold', { [change]: hold, FAKE_CODEX_PROCESS_CALLS: calls, ...env })
+  const sent = async () => (await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean)
+    .map(line => (JSON.parse(line) as { method: string }).method)
+  const isHeld = (message: string) => until(() => d.events.some(event => event.type === 'notice' && event.message === message))
+  return { d, hold, sent, isHeld }
+}
+
+test('an Install asked for while a Reload is held goes out only after the Reload is answered', async (t) => {
+  const { d, hold, sent, isHeld } = await heldChange(t, 'FAKE_CODEX_HOLD_MCP_RELOAD')
+  const reload = d.runtime.extensions.reloadMcp()
+  await isHeld('MCP_RELOAD_HELD')
+  const install = d.runtime.extensions.install('official', 'helper')
+  // One turn of the loop lets an Install that was not held behind the Reload go
+  // out, and the scripted Codex reads in order, so its answer to this read comes
+  // after anything sent before it.
+  await new Promise(resolve => setImmediate(resolve))
+  await d.runtime.extensions.catalog()
+  assert.ok(!(await sent()).includes('plugin/install'), 'the Install waits for the Reload in flight')
+  await rm(hold)
+  await Promise.all([reload, install])
+  const order = await sent()
+  const answered = order.indexOf('MCP_RELOAD_HELD_REPLIED')
+  assert.ok(answered >= 0 && order.indexOf('plugin/install') > answered, 'and goes out after the Reload was answered')
+})
+
+test('a tool change that fails does not stop the change queued behind it', async (t) => {
+  const { d, hold, sent, isHeld } = await heldChange(t, 'FAKE_CODEX_HOLD_PLUGIN_INSTALL', { FAKE_CODEX_FAIL_PLUGIN_INSTALL: '1' })
+  const install = failure(d.runtime.extensions.install('official', 'helper'))
+  await isHeld('PLUGIN_INSTALL_HELD')
+  const reload = failure(d.runtime.extensions.reloadMcp())
+  await rm(hold)
+  assert.match(String(await install), /could not be downloaded/, 'the one who asked for the Install is told it failed')
+  assert.equal(await reload, undefined, 'the Reload queued behind it still runs')
+  assert.ok((await sent()).includes('config/mcpServer/reload'))
+})
+
+test('a conversation that opened behind a failed tool change still opens', async (t) => {
+  const { d, hold, isHeld } = await heldChange(t, 'FAKE_CODEX_HOLD_PLUGIN_INSTALL', { FAKE_CODEX_FAIL_PLUGIN_INSTALL: '1' })
+  const install = failure(d.runtime.extensions.install('official', 'helper'))
+  await isHeld('PLUGIN_INSTALL_HELD')
+  const opening = d.runtime.createSession({ cwd: d.dir }).then((live) => ({ live }), (error: unknown) => ({ error }))
+  await rm(hold)
+  assert.match(String(await install), /could not be downloaded/, 'the Install reports its own failure')
+  const result = await opening
+  assert.ok('live' in result, 'error' in result ? String(result.error) : '')
+  await result.live.close()
 })
 
 test('no-cwd resume and fork reread native configuration in the source thread folder', async (t) => {
