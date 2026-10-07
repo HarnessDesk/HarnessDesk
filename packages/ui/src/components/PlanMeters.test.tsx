@@ -13,6 +13,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { HeaderStatusGroup } from '../design'
 import { PlanMeters } from './PlanMeters'
 import { formatReset } from '../lib/limits'
 
@@ -193,13 +194,13 @@ it('says in the token whether anything else is in the way, without being opened'
   })
   const token = bars()[bars().length - 1]
   expect(token?.textContent).toBe('3 out')
-  expect(token?.getAttribute('data-tone')).toBe('danger')
+  expect(token?.getAttribute('data-tone')).toBe('neutral')
   expect(titles()[titles().length - 1]).toBe(
     '5 other agents — 3 out of quota, least left 44%, 1 needs sign-in',
   )
 })
 
-it('lets meter triggers fit their contents and gives the roster icon its warning tone', () => {
+it('keeps other agents neutral when they do not block this conversation', () => {
   mount({
     runtimes: six,
     usage: [at('a', 78), spent('b', HOUR)],
@@ -211,7 +212,9 @@ it('lets meter triggers fit their contents and gives the roster icon its warning
   const rosterTrigger = roster.closest('button')!
   expect(meterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
   expect(rosterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
-  expect(rosterTrigger.dataset['tone']).toBe('alert')
+  expect(rosterTrigger.dataset['tone']).toBe('calm')
+  expect(bars().find((bar) => bar.hasAttribute('data-promoted'))?.getAttribute('data-tone')).toBe('neutral')
+  expect(container.querySelector('[data-slot="chip"][data-tone="danger"]')).toBeNull()
 })
 
 it('gives an out-of-quota agent a chip, because the token cannot say who', () => {
@@ -313,4 +316,25 @@ it('leaves another agent sign-in to the token, which is where a count belongs', 
   })
   expect(bars().map((bar) => bar.textContent)).toEqual(['55%', '2'])
   expect(titles()[1]).toBe('2 other agents — 2 needs sign-in')
+})
+
+it('names a spent allowance honestly when its reset time is unknown', () => {
+  const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A')], usage: [at('a', 0)], ...conversationWith('a') }
+  act(() => root.render(
+    <StoreProvider store={storeOf(snapshot)}>
+      <HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup>
+    </StoreProvider>,
+  ))
+  const card = document.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('out of quota')
+  expect(card.textContent).not.toContain('available in out')
+})
+
+it('includes a promoted chip countdown in its grouped accessible name', () => {
+  const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')], usage: [at('a', 78), spent('b', 6 * HOUR)], ...conversationWith('a') }
+  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup></StoreProvider>))
+  const promoted = container.querySelector('[data-promoted]')!
+  const name = promoted.closest('button')!.getAttribute('aria-label')!
+  expect(name).toContain(`resets in ${promoted.textContent}`)
+  expect(document.querySelector('[data-slot="hover-card-content"]')!.textContent).toContain(name)
 })

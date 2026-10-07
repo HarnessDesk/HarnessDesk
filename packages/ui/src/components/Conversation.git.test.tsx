@@ -18,6 +18,7 @@ import {
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitControl } from './Conversation'
+import { HeaderStatusGroup } from '../design'
 
 /**
  * The header's git chip: where a conversation runs, said in the header.
@@ -66,7 +67,7 @@ const worktrees = (managed: boolean): Worktree[] => [
 const conversation = (cwd: string): Session =>
   ({ id: sessionId('s-1'), runtime: 'fake', cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true }) as unknown as Session
 
-const rig = (over: Partial<AppSnapshot>): void => {
+const rig = (over: Partial<AppSnapshot>, grouped = false): void => {
   const snapshot = { ...emptySnapshot(), status: 'open', workspace: MAIN, workspaces: [MAIN], ...over } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -78,11 +79,19 @@ const rig = (over: Partial<AppSnapshot>): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />
+        {grouped ? <HeaderStatusGroup open><GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} /></HeaderStatusGroup> : <GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />}
       </StoreProvider>,
     )
   })
 }
+
+it('names an armed draft in the card as a new worktree off its source folder', () => {
+  rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) }, true)
+  const trigger = container.querySelector('[data-slot="popover-trigger"]')!
+  const detail = document.querySelector('[data-slot="hover-card-content"] dd')!
+  expect(detail.textContent).toBe(`harnessdesk/checkout-retry · new worktree off ${ROOT}`)
+  expect(trigger.getAttribute('aria-label')).toBe(detail.textContent)
+})
 
 const chip = (): HTMLButtonElement | null =>
   document.querySelector<HTMLButtonElement>('button[title*=" — "], button[title*=" · new worktree off "]')

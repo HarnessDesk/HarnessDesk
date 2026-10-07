@@ -39,6 +39,13 @@ afterEach(() => {
   container.remove()
 })
 
+// jsdom does not track keyboard/pointer modality across these rendered rigs.
+const keyboardFocus = (element: HTMLElement) => {
+  const matches = element.matches.bind(element)
+  vi.spyOn(element, 'matches').mockImplementation((selector) => selector === ':focus-visible' ? true : matches(selector))
+  act(() => element.focus())
+}
+
 const KEY = sessionKey('codex', sessionId('s-1'))
 
 const session = (over: Partial<Session> = {}): Session =>
@@ -334,23 +341,19 @@ it('marks a door to fold into ⋯ only where there is a ⋯ to fold it into', ()
   expect(container.querySelector('header button[aria-label="Open terminal"]')?.hasAttribute('data-folds')).toBe(true)
 })
 
-it('the chips a narrow header folds still say their words on hover', () => {
+it('the chips a narrow header folds still say their words in the shared card', () => {
   const { store } = rig(session())
   const snapshot = {
     ...store.getSnapshot(),
     tasks: new Map([[KEY, [{ id: 't1', label: 'npm run dev', kind: 'command', state: 'running' }]]]),
   } as unknown as AppSnapshot
   render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
-
-  // The branch chip: the name it shows (here the folder, there being no
-  // branch), then where it is — the path alone was not the word that folded.
-  const git = [...container.querySelectorAll<HTMLButtonElement>('header button')].find((button) =>
-    button.title.endsWith('/repo'),
-  )
-  expect(git?.title).toBe('repo — /repo')
-  // The tasks chip leads with its own words.
-  const tasks = container.querySelector<HTMLButtonElement>('[data-testid="tasks-chip"]')
-  expect(tasks?.title.startsWith('1 running in the background. ')).toBe(true)
+  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
+  const card = document.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('Folderrepo — /repo')
+  expect(card.textContent).toContain('Background tasks1 running in the background')
+  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('aria-label')).toBe('1 running in the background')
+  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('title')).toBeNull()
 })
 
 it('the empty pane’s Sign in names this pane’s agent, not the default', () => {
@@ -449,7 +452,8 @@ it('a conversation seated as an Agent carries its ceiling beside its title — h
   )
   const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
   expect(chip?.textContent).toBe('Read only')
-  expect(chip?.title).toMatch(/Held: Read-only sandbox/)
+  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
+  expect(document.querySelector('[data-slot="hover-card-content"]')?.textContent).toMatch(/Ceiling.*Held: Read-only sandbox/)
 
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
   expect(container.querySelector('header [data-ceiling]')?.getAttribute('data-hold')).toBe('asked')
@@ -735,4 +739,32 @@ it('heads a recorded typed lookalike with its pasted first line', () => {
     { id: itemId('typed'), type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] },
   ] }] })).store)
   expect(container.querySelector('header')?.textContent).toContain('<context source="Git"')
+})
+
+it('groups and names the header facts for keyboard readers', () => {
+  render(rig(session({ git: { branch: 'main' } as Session['git'] })).store)
+  const group = container.querySelector<HTMLElement>('header [role="group"][aria-label="Conversation status"]')
+  expect(group).not.toBeNull()
+  keyboardFocus(group!)
+  const card = document.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('StatusIdle')
+  expect(card.textContent).toContain('Branchmain')
+})
+
+it('marks a running status for its stationary shape as well as its pulse', () => {
+  render(rig(session({ turns: [{ id: turnId('running'), status: 'inProgress', items: [] }] })).store)
+  const dot = container.querySelector('header [data-slot="dot"][data-pulse]')!
+  expect(dot.getAttribute('data-shape')).toBe('square')
+})
+
+it('leaves no ceiling wrapper on the plain conversation path', () => {
+  render(rig(session()).store)
+  expect(container.querySelector('header [data-slot="ceiling-wrap"]')).toBeNull()
+})
+
+it('allocates no empty git slot when a draft has no folder', () => {
+  render(rig(null, new Map(), { workspace: null }).store, null)
+  const emptySlots = [...container.querySelectorAll('header [data-slot="chip-words"] > div:empty')]
+  // The extension slot already has an :empty fold; git must not leave another.
+  expect(emptySlots.every((node) => node.classList.contains(styles.headerSlot!))).toBe(true)
 })

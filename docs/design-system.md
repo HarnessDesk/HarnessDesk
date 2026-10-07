@@ -1444,6 +1444,26 @@ A recorded step or Seat state, toned once for the Flow list and Run dock. Unknow
 
 A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
 
+### `useHeaderStatusGroup`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+Controls inside the group keep their accessible names, without a second tooltip.
+
+### `HeaderStatusGroup`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+A pane head's facts, on one chip ground with one labelled hover/focus card.
+Readings register where their source is owned, so conditional controls and
+minute-by-minute countdowns cannot leave the card holding an older fact.
+
+### `HeaderStatusReading`
+
+`packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
+
+Works outside a group too; only grouped readings contribute to its card.
+
 ### `Lightbox`
 
 `packages/ui/src/design/patterns/Lightbox.tsx`
@@ -1764,7 +1784,8 @@ facts keep those meanings distinct in both ink and their accessible names.
 
 - **One line, always.** It never wraps: it stops at its box (at most 240px,
   less when its container is narrower), ellipsises, and says itself whole
-  in `title` while it is cut. A fact that needs two lines is a row's
+  in `title` while it is cut. A surrounding labelled hover card can own
+  that reading instead, with `autoTitle={false}`. A fact that needs two lines is a row's
   description, not a chip.
 - **Stale is marked, never struck.** A stale fact leads with a history
   glyph, and the word "stale" is there for a screen reader. A stale *pass*
@@ -1791,6 +1812,8 @@ two never disagree about what they report. The one exception is a live
 indicator sitting on a pill that must stay calm while the mark itself
 keeps moving — a running turn, say — and `dotTone` is that dot's own
 colour, apart from `tone`.
+**`dotShape`.** Square activity remains distinct from a round resting light
+when reduced motion stops the pulse. Shape does not change the chip's tone.
 
 ### `Search`
 

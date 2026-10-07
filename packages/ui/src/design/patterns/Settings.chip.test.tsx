@@ -44,6 +44,11 @@ it('keeps the readiness form and its dot', () => {
   expect(chip.querySelector('[data-state="ready"]')).not.toBeNull()
 })
 
+it('keeps its activity dot shape separate from tone and motion', () => {
+  const chip = draw(<Chip tone="neutral" dotTone="neutral" dotShape="square" dotPulse>Working</Chip>)
+  expect(chip.querySelector('[data-slot="dot"]')?.getAttribute('data-shape')).toBe('square')
+})
+
 it('gives its dot a tone apart from the pill, on purpose', () => {
   const chip = draw(
     <Chip tone="neutral" dotTone="brand" dotPulse>
@@ -148,6 +153,15 @@ it('says itself whole in title while it is cut, and keeps a title the caller gav
   const named = draw(<Chip tone="neutral" title="Whole story">Short</Chip>)
   act(() => { named.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
   expect(named.getAttribute('title')).toBe('Whole story')
+})
+
+it('can leave truncated words to the caller\'s hover card', () => {
+  const chip = draw(<Chip tone="neutral" autoTitle={false}>Branch reading</Chip>)
+  const words = chip.querySelector<HTMLElement>('[data-slot="chip-words"]')!
+  Object.defineProperty(words, 'scrollWidth', { configurable: true, value: 300 })
+  Object.defineProperty(words, 'clientWidth', { configurable: true, value: 120 })
+  act(() => { chip.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(chip.hasAttribute('title')).toBe(false)
 })
 
 it('marks stale with a history glyph, never a strikethrough, and mutes only a stale pass', () => {

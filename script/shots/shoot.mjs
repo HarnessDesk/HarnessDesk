@@ -2107,7 +2107,7 @@ rules:
     return true
   }
   const openGitMenu = async () => {
-    if (!(await press({ selector: 'header button[title*=" — "]' }))) throw new Error('no git control in the conversation header')
+    if (!(await press({ selector: 'header button[aria-label*=" — "]' }))) throw new Error('no git control in the conversation header')
   }
   /**
    * What the store holds once the item is chosen, checked beside the frame:
