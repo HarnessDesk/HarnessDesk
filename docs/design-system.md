@@ -2099,6 +2099,7 @@ list only goes down, except when the audit learns to see something it was blind 
 
 | finding | count | what it costs |
 | --- | --- | --- |
+| `priorityOverride` | 0 | A system edit silently loses to a local priority declaration. |
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |

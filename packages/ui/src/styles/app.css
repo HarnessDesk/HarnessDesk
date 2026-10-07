@@ -312,6 +312,7 @@ a:hover {
  * A seam is being dragged. See lib/resizing.ts for why each of these has to
  * stop, and why the flag is an attribute on the root rather than React state.
  *
+ * The root interaction state outranks component classes and their states.
  * The universal selectors are deliberate and are the cheapest thing that
  * works. `cursor` and `transition` are both set by the very things a drag
  * passes over — a button's pointer, the sidebar's width animation — so
@@ -320,28 +321,28 @@ a:hover {
  * style recalculations, at the start and end of a gesture, buy a drag that
  * tracks the pointer exactly.
  */
-[data-hd-resizing] * {
-  transition: none !important;
+:root[data-hd-resizing] body * {
+  transition: none; /* desk: root interaction state owns resize suppression (#954) */
 }
 
-[data-hd-resizing],
-[data-hd-resizing] body {
+:root[data-hd-resizing],
+:root[data-hd-resizing] body {
   user-select: none;
   -webkit-user-select: none;
 }
 
-[data-hd-resizing='vertical'] * {
-  cursor: col-resize !important;
+:root[data-hd-resizing='vertical'] body * {
+  cursor: col-resize; /* desk: root interaction state owns the drag cursor (#954) */
 }
 
-[data-hd-resizing='horizontal'] * {
-  cursor: row-resize !important;
+:root[data-hd-resizing='horizontal'] body * {
+  cursor: row-resize; /* desk: root interaction state owns the drag cursor (#954) */
 }
 
 /* A guest frame hit-tests in its own process, where pointer capture does not
    reach. Making it inert for the length of the drag is what keeps a seam
    dragged across the browser pane receiving its own moves. */
-[data-hd-resizing] iframe,
-[data-hd-resizing] webview {
-  pointer-events: none !important;
+:root[data-hd-resizing] body iframe,
+:root[data-hd-resizing] body webview {
+  pointer-events: none; /* desk: root interaction state disables guest hit testing (#954) */
 }

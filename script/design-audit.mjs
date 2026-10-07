@@ -131,6 +131,8 @@ const read = (file) => {
   if (source === null) throw new Error(`Missing source file: ${file}`)
   return source
 }
+/** Priority is a sheet-wide contract, including the global and foundation layers. */
+const allCssFiles = [...tracked].filter((file) => file.startsWith(`${UI_SRC}${path.sep}`) && file.endsWith('.css'))
 /** Where a finding is, said the way a person would look for it. */
 const label = (file) => path.relative(path.join(root, 'packages/ui/src'), file)
 const filesIn = (suffix, reject = () => false) =>
@@ -1759,7 +1761,26 @@ export const codeOf = (file) => {
   return parsed.get(file)
 }
 
+/**
+ * The accessibility reset is the only priority override: it must beat even
+ * inline motion. Match its file, full rule ancestry, selector and values so
+ * another declaration in that block cannot borrow the exemption.
+ */
+export const priorityOverrides = (file, css) => declarationsIn(css).declarations
+  .filter(({ important, rule, property, value }) => {
+    if (!important) return false
+    const reset = file === 'styles/app.css'
+      && rule.parent?.prelude === '@media (prefers-reduced-motion: reduce)'
+      && rule.parent.parent?.parent === null
+      && rule.prelude === '*, *::before, *::after'
+      && ((property === 'animation-duration' || property === 'transition-duration') && value === '0s'
+        || property === 'animation-iteration-count' && value === '1')
+    return !reset
+  })
+  .map(({ property, value }) => ({ property, value }))
+
 const findings = {
+  priorityOverride: [],
   wrongVariant: [],
   missingClass: [],
   forkedToken: [],
@@ -3212,6 +3233,12 @@ const RADIUS = new Set(
     .map(([, value]) => Number.parseInt(value, 10))
     .filter((n) => Number.isFinite(n)),
 )
+
+for (const file of allCssFiles) {
+  for (const { property, value } of priorityOverrides(label(file), read(file))) {
+    findings.priorityOverride.push(`${label(file)}: ${property}: ${value}`)
+  }
+}
 
 for (const file of cssFiles()) {
   const name = label(file)

@@ -64,6 +64,9 @@ const renderCodeBlocks = (html: string, dark: boolean): string => {
       wrapper.innerHTML = highlighted
       const shiki = wrapper.content.firstElementChild
       if (shiki instanceof HTMLElement && pre) {
+        // The plate owns its ground; keep Shiki's foreground and token colours.
+        shiki.style.removeProperty('background')
+        shiki.style.removeProperty('background-color')
         pre.replaceWith(shiki)
         pre = shiki
       }

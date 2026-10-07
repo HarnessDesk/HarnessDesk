@@ -180,7 +180,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
           <DropdownMenuPortal container={host}>
             <DropdownMenuPositioner
               anchor={host}
-              className={styles.embeddedPositioner}
+              style={{ position: 'static', inset: 'auto', transform: 'none' }}
               onFocus={(event) => {
                 // From a flyout too: Base UI hands Tab on out of it to here.
                 if (!restsPastLevel(event, level.current) || !host.current) return
