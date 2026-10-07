@@ -1105,6 +1105,33 @@ for (const surface of ['hooks', 'files', 'extensions', 'processes'] as const) {
   })
 }
 
+test('a quiet personal conversation rests and its next message resumes it while a sibling works', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-personal-rest-'))
+  const runtime = new IdleRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 25, sessionRestMs: 25 })
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  host.register(runtime)
+  await host.start()
+  const first = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } }) as { id: string }
+  const second = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } }) as { id: string }
+  const quiet = host.registry.get(runtime.info.id, first.id as never)!
+  const busy = host.registry.get(runtime.info.id, second.id as never)!
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: second.id as never,
+    input: [{ type: 'text', text: 'Keep working' }] })
+  const sibling = busy.live
+  await until(() => quiet.live === null)
+  assert.equal(quiet.detached, false)
+  assert.equal(busy.live, sibling)
+  assert.equal(runtime.stops, 0)
+  const before = runtime.resumes
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: first.id as never,
+    input: [{ type: 'text', text: 'Continue' }] })
+  assert.ok(quiet.live)
+  assert.equal(runtime.resumes, before + 1)
+})
+
+
 test('manual recycling refuses a live conversation and shares the stop barrier with new work', async (t) => {
   const runtime = new IdleRuntime({ id: 'idle-test' as never, name: 'Idle Test' })
   const { host, stateDir } = await makeHost(runtime, 0, 0)

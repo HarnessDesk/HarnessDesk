@@ -1,3 +1,4 @@
+import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { LibrarySection } from '../../components/Library'
 import { previewStore } from '../../preview/harness'
 import { PluginPanelTableExample } from '../../preview/plugin-panel-table'
@@ -34,7 +35,7 @@ import { FindingDecision } from '../../components/FindingDecision'
 import { WindowControls } from '../../components/WindowControls'
 import { splitRefusal } from '../../panels/PanelActions'
 import { SideBySide, sideBySideTileEntry } from '../../components/SideBySide'
-import { Menu, MenuItem } from '..'
+import { Chip, HeaderStatusGroup, HeaderStatusReading, Menu, MenuItem } from '..'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -2891,7 +2892,26 @@ const LibraryBoard = () => {
   return <StoreProvider store={store}><LibrarySection /></StoreProvider>
 }
 
+const HeaderStatusBoard = () => (
+  <div className="flex flex-col items-start gap-6" data-catalog="header-status">
+    <Text role="subject">At rest</Text>
+    <HeaderStatusGroup>
+      <HeaderStatusReading label="Status" detail="Working"><Chip tone="neutral" variant="quiet" dotTone="neutral" dotPulse dotShape="square">Working</Chip></HeaderStatusReading>
+      <HeaderStatusReading label="Ceiling" detail="Read only · Held by the runtime"><Text role="meta">Read only</Text></HeaderStatusReading>
+      <HeaderStatusReading label="Branch" detail="main"><Button variant="ghost" size="chip"><BranchIcon size={13} />main</Button></HeaderStatusReading>
+      <HeaderStatusReading label="Plan usage" detail="Weekly allowance · 78% left"><Text role="meta" numeric>78%</Text></HeaderStatusReading>
+      <HeaderStatusReading label="Other agents" detail="1 other agent · out of quota for 6h"><Text role="meta">1 out</Text></HeaderStatusReading>
+    </HeaderStatusGroup>
+    <Text role="subject">Needs you</Text>
+    <HeaderStatusGroup>
+      <HeaderStatusReading label="Status" detail="Waiting for you to answer an approval"><Chip tone="warning" variant="quiet" dotTone="warning">Waiting for you</Chip></HeaderStatusReading>
+      <HeaderStatusReading label="Branch" detail="main"><Button variant="ghost" size="chip"><BranchIcon size={13} />main</Button></HeaderStatusReading>
+    </HeaderStatusGroup>
+  </div>
+)
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
   { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
     id: 'tables',
@@ -3022,6 +3042,21 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Stop a Run',
     about: 'The Run and Overview doors, each Seat’s ability to stop, an optional note, cleanup failure and the stopped record.',
     render: StopRunBoard,
+  },
+  {
+    id: 'timeline',
+    title: 'Timeline',
+    about: 'One continuous rail with finished, active, pending, attention and failed rings. Known times precede the title; child records keep its content edge.',
+    render: () => <div data-catalog-state="default" className="max-w-xl">
+      <Timeline aria-label="Recorded progress">
+        {(['done', 'active', 'warning', 'danger', 'pending'] as const).map((state: TimelineState, index) =>
+          <TimelineItem key={state} state={state} data-catalog-state={state === 'done' ? 'success' : state === 'pending' ? 'inactive' : state === 'danger' ? 'error' : state}
+            meta={state === 'pending' ? undefined : `12:0${index} · 2m`} title={['Start', 'Build the change', 'Review the result', 'Check failed', 'End'][index]}
+            detail={state === 'pending' ? undefined : 'Recorded detail stays in the title’s content column.'}>
+            {state === 'active' ? <Text role="muted">Editing the retry</Text> : undefined}
+          </TimelineItem>)}
+      </Timeline>
+    </div>,
   },
   {
     id: 'run-view',

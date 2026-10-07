@@ -148,6 +148,29 @@ it('refreshes a first finding/run read invalidated before it answered, and rejec
  expect(store.getSnapshot().findingRuns.get('run-1')?.publication).toBe('posted')
 })
 
+it('refreshes reviewer results only for Run rows that remain visible', async () => {
+  const reads: string[] = []
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { goal: string; run: string }) => {
+    if (method === 'finding/run') {
+      reads.push(params.run)
+      return { goal: params.goal, run: params.run, publication: 'local', rounds: [], stamp: params.run }
+    }
+    throw new Error(`unexpected ${method}`)
+  }) as never)
+
+  await store.loadVisibleFindingRun('g1', 'in-view')
+  await store.loadVisibleFindingRun('g1', 'scrolled-away')
+  store.releaseVisibleFindingRun('g1', 'scrolled-away')
+  notify(store, { method: 'finding/changed', params: { goal: 'g1', revision: 1 } })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  expect(reads).toEqual(['in-view', 'scrolled-away', 'in-view'])
+
+  store.releaseVisibleFindingRun('g1', 'in-view')
+  notify(store, { method: 'finding/changed', params: { goal: 'g1', revision: 2 } })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  expect(reads).toEqual(['in-view', 'scrolled-away', 'in-view'])
+})
+
 it('accepted route evidence refreshes cached findings once, while routine Run pushes preserve paging', async () => {
   const execution: FlowExecution = {
     version: 2, id: 'run-1', goal: 'g1', state: 'running', reason: null, operations: [], legacyRun: null,

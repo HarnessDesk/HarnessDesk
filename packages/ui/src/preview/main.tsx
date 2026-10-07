@@ -101,6 +101,7 @@ import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
+import { HeaderStatusFrames } from './frames-header-status'
 import { ReadCeilingFrames } from './frames-read-ceiling'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -1195,6 +1196,8 @@ createRoot(container).render(
       <AppWindowMode.Provider value="embedded">
         {new URLSearchParams(window.location.search).has('shape-graph')
           ? <ShapeGraphFrames />
+          : new URLSearchParams(window.location.search).has('header-status')
+          ? <HeaderStatusFrames />
           : new URLSearchParams(window.location.search).has('runtime-cost')
           ? <RuntimeCostPreview />
           : new URLSearchParams(window.location.search).has('native-servers')

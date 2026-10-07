@@ -541,8 +541,7 @@ test('a pick the runtime drops is reported in the label and logged, and the flow
  * The flow's one use of the retire it shares with an Agent: a start that cannot
  * seat every role closes the seats it had opened. They are let go by the host as
  * well as closed — a closed handle the host kept holding was a conversation it
- * would still route turns to, and over ACP, where closing is no call at all, a
- * seat that was never really put down.
+ * would still route turns to, even after ACP released its session resources.
  */
 test('a flow that cannot seat every role closes the seats it opened, and the host lets them go', async (t) => {
   const { harness, seats, client, work } = await desk(t)

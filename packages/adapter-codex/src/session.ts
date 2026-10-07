@@ -78,6 +78,8 @@ export interface CodexSessionDeps {
   /** Maps Codex's tool callbacks back to the contributions that produced them. */
   readonly projection: ToolProjection
   readonly capabilities?: CapabilityRegistry
+  /** Codex is about to be asked to unsubscribe the thread: a notice of the thread closing from here on is the close this asked for. */
+  readonly onReleasing?: (id: string) => void
   /** The handle was closed; `status` is Codex's answer to the unsubscribe, and nothing when it gave none. */
   readonly onReleased?: (id: string, status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined) => void
   readonly onClosed: (id: string, closing: Promise<void>) => void
@@ -804,6 +806,7 @@ export class CodexSession implements AgentSession {
     // Closing a pane ends its work before dropping the subscription that
     // carries completion and approvals back to the host. Other threads stay live.
     if (this.#currentTurnId !== null) await this.interrupt()
+    this.deps.onReleasing?.(this.id)
     let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
     try {
       status = (await this.deps.server.request('thread/unsubscribe', { threadId: this.id }, { timeoutMs: 2_000 })).status

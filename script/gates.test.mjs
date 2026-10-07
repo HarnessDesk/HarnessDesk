@@ -1639,6 +1639,7 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
+    ['design/ui/timeline.tsx', ['Timeline', 'TimelineItem']],
     ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowDoingLine']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
@@ -1646,12 +1647,12 @@ test('single-area exemptions (data geometry, native boundaries) name only the li
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 22)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 24)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
       assert.match(entry.module, /^design\/ui\//)
-      assert.equal(entry.area, entry.module === 'design/ui/flow-step.tsx' ? 'room' : 'usage')
+      assert.equal(entry.area, ['design/ui/flow-step.tsx', 'design/ui/timeline.tsx'].includes(entry.module) ? 'room' : 'usage')
     } else {
       assert.equal(entry.kind, 'native-boundary', `${entry.module} is one of the two recorded kinds`)
       assert.match(entry.module, /^design\/adapters\//)
@@ -4487,4 +4488,15 @@ test('an arbitrary Tailwind property or an inline style object that writes its o
   assert.deepEqual(rawDurationUtilities("style={{ transition: 'opacity 200ms ease' }}"), ["transition: 'opacity 200ms ease'"])
   assert.deepEqual(rawDurationUtilities("style={{ animationDuration: '160ms' }}"), ["animationDuration: '160ms'"])
   assert.deepEqual(rawDurationUtilities("style={{ transition: 'opacity var(--hd-duration-fast)' }}"), [])
+})
+
+
+test('timeline geometry exemption is confined to its two data-view exports and current consumer area', () => {
+  const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline.tsx')
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineAction', 'room'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'settings'), false)
+  const other = path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx')
+  assert.equal(isSingleAreaPrimitiveExempt(other, 'Timeline', 'room'), false)
 })

@@ -280,6 +280,15 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     }
 
+    // A trigger Team mounts its history only after the Runs tab opens.
+    await page.goto('/preview.html?team-frame=trigger-runs')
+    const triggerTeam = page.locator('[data-slot="team-room"]')
+    await triggerTeam.getByRole('tab', { name: /^Runs/ }).click()
+    await expect(triggerTeam.locator('[data-slot="team-runs"]')).toBeVisible()
+    const triggerCoverage = await collectCoverage(page)
+    expect(triggerCoverage.covered).toContain('components/TeamRuns.tsx#TeamRuns')
+    for (const component of triggerCoverage.covered) covered.add(component)
+
     // The Run supplies its sibling inspectors only after its real Team view mounts.
     await page.goto('/preview.html?run-dock')
     await page.locator('#run-dock-frame [data-team-page="run"]').click()

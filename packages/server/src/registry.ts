@@ -11,6 +11,7 @@ import {
   type Approval,
   type ApprovalId,
   type BackgroundTask,
+  type OptionValue,
   type QueuedMessage,
   type RuntimeId,
   type SeatCandidate,
@@ -46,6 +47,8 @@ export interface SessionRecord {
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */
   live: AgentSession | null
+  /** Picks held across a host-initiated quiet release, until reopen succeeds. */
+  restedOptions?: Readonly<Record<string, OptionValue>>
   /**
    * The handle was lost to the agent restarting under it, not to anybody
    * closing the conversation — so it can be remade on the next use, the way

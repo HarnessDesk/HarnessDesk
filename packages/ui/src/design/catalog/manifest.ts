@@ -56,6 +56,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
+  timeline: 'packages/ui/src/components/RunView.tsx',
   'flow-step': 'packages/ui/src/components/RunFlow.tsx',
   'heat-grid': 'packages/ui/src/components/UsageActivity.tsx',
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
@@ -110,6 +111,7 @@ const KEY_VALUE_CONSUMERS = [
 ] as const
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  timeline: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'flow-step': 'packages/ui/src/preview/frames-flow-overlay.tsx',
   sidebar: 'packages/ui/src/design/explorer/boards.tsx',
   'heat-grid': 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -148,12 +150,12 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field', 'group-label',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator', 'sortable-list',
-  'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
+  'spark', 'stepper', 'timeline', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
   'heat-grid', 'PlanCard', 'SidebarMenuState',
-  'SettingsRowMenu',
+  'SettingsRowMenu', 'HeaderStatusGroup',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -162,6 +164,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  HeaderStatusGroup: ['default'],
   'flow-step': ['default'],
   alert: ['default', 'soft'],
   'alert-dialog': ['default'],
@@ -244,6 +247,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   TurnWork: ['default'],
   Notices: ['default'],
   Checklist: ['default'],
+  timeline: ['default'],
   FlowGraph: ['default'],
   FlowCanvas: ['light', 'dark'],
   FlowStepRow: ['default'],
@@ -256,6 +260,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  HeaderStatusGroup: ['default', 'warning'],
   'flow-step': ['default', 'working', 'needs-you', 'loading', 'error', 'empty'],
   alert: ['default', 'success', 'warning', 'error'],
   'alert-dialog': ['closed', 'open'],
@@ -337,6 +342,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   TurnWork: ['default', 'expanded'],
   Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
+  timeline: ['default', 'active', 'inactive', 'success', 'warning', 'error'],
   FlowGraph: ['default', 'empty', 'working', 'needs-you', 'loading', 'error'],
   FlowCanvas: ['editing', 'disabled', 'running', 'selected'],
   FlowStepRow: ['default', 'working', 'needs-you', 'success', 'inactive'],
@@ -376,6 +382,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  HeaderStatusGroup: 'packages/ui/src/components/Conversation.tsx',
   Settings: 'packages/ui/src/components/Settings.tsx',
   ModalDialog: 'packages/ui/src/components/Settings.tsx',
   DialogForm: 'packages/ui/src/components/SaveAsAgent.tsx',
@@ -410,6 +417,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  HeaderStatusGroup: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SidebarMenuState: 'packages/ui/src/design/explorer/boards.tsx',
   /* The workbench is the example: it is what docks, seams and expands, and the
      Panels surface mounts exactly this file. The old example was the
@@ -491,6 +499,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
 })
 
 export const CANONICAL_UI_MODULES = [
+  ['timeline', 'timeline', 'A recorded story: continuous state rail, meta above titles and quiet child records'],
   ['flow-step', 'flow-overlay', 'Run-state marks on Flow node boxes and curves'],
   ['alert', 'banner', 'Status and notification anatomy'],
   ['alert-dialog', 'dialog', 'Consequential question semantics'],
@@ -551,6 +560,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['HeaderStatusGroup', 'header-status', 'One neutral header chip with a labelled hover and focus card for every reading'],
   ['SidebarMenuState', 'sidebar', 'A conversation or room state chip folding onto the action rail'],
   ['Settings', 'row', 'Settings pages, sections, rows and form layouts'],
   ['SettingsRowMenu', 'row', 'A Settings record’s actions: its name and distinguishing location, with destructive removal'],

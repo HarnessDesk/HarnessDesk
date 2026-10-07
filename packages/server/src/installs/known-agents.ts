@@ -63,6 +63,8 @@ export interface KnownAgent {
   readonly acp: {
     readonly args: readonly string[]
     readonly env?: Readonly<Record<string, string>>
+    /** Avoid one heavyweight peer per conversation when session close is unavailable. */
+    readonly sharedSessionProcess?: boolean
     readonly bridge?: {
       readonly command: string
       readonly args: readonly string[]
@@ -156,7 +158,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       minVersion: '0.58.0',
       minVersionReason: '`--acp` replaced `--experimental-acp` in 0.58; older builds are started with the old flag.',
     },
-    acp: { args: ['--acp'] },
+    acp: { args: ['--acp'], sharedSessionProcess: true },
     publish: {
       npm: '@google/gemini-cli',
       brew: 'gemini-cli',

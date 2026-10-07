@@ -149,7 +149,15 @@ test('a late rejection releases a timed-out registration for a fresh read', asyn
   assert.deepEqual(await host.call('runtime/account', { runtime: runtime.info.id }), status)
 })
 
-test('an account change lets fresh callers read before the older adapter answers', async (t) => {
+/*
+ * A change notice says the account is different from what a read begun before
+ * it may report, so a caller the notice finds mid-read is owed an answer from a
+ * read that begins after it — not the older adapter's, and not an error. The
+ * error it used to get ("Account changed during a read. Try again.") reached
+ * every caller as `unavailable`, and a signed-in Codex says `account/updated`
+ * about 0.6 s after it is up: the first seat resolved in that window was refused.
+ */
+test('an account change hands a read in flight to a fresh read, not to an error or the older adapter', async (t) => {
   const runtime = new FakeRuntime()
   let calls = 0
   const releases: ((answer: AccountStatus) => void)[] = []
@@ -159,38 +167,46 @@ test('an account change lets fresh callers read before the older adapter answers
   }
   const host = makeHost(t, runtime)
   t.after(() => { for (const release of releases) release(status) })
-  const first = host.call('runtime/account', { runtime: runtime.info.id }).then(
-    () => 'stale success', (error: Error) => error.message,
-  )
+  const first = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
   await flush()
   runtime.emit({ type: 'account/changed', runtime: runtime.info.id })
   const second = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
   const third = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
   await flush()
-  assert.match(await first, /account changed during a read/i)
-  assert.equal(calls, 2, 'fresh callers share a new read while the old adapter is still pending')
+  assert.equal(calls, 2, 'the change starts one fresh read, shared by everybody who asks after it, while the old adapter is still pending')
   const fresh: AccountStatus = { accounts: [], signInMethods: [] }
   releases[1]!(fresh)
-  assert.deepEqual(await Promise.all([second, third]), [fresh, fresh])
+  assert.deepEqual(await Promise.all([first, second, third]), [fresh, fresh, fresh])
   releases[0]!(status)
   await flush()
 })
 
+test('an account change with no read in flight starts none', async (t) => {
+  const runtime = new FakeRuntime()
+  let calls = 0
+  runtime.getAccount = async () => { calls += 1; return status }
+  const host = makeHost(t, runtime)
+  runtime.emit({ type: 'account/changed', runtime: runtime.info.id })
+  await flush()
+  assert.equal(calls, 0)
+  assert.deepEqual(await host.call('runtime/account', { runtime: runtime.info.id }), status)
+  runtime.emit({ type: 'account/changed', runtime: runtime.info.id })
+  await flush()
+  assert.equal(calls, 1, 'a completed read is not repeated by a later change')
+})
+
 for (const late of ['success', 'failure'] as const) {
-  test(`an invalidated adapter's late ${late} cannot release a newer shared read`, async (t) => {
+  test(`an invalidated adapter's late ${late} cannot release a newer shared read or change what its callers were told`, async (t) => {
     const runtime = new FakeRuntime()
     const attempts: { resolve: (answer: AccountStatus) => void; reject: (error: Error) => void }[] = []
     runtime.getAccount = () => new Promise((resolve, reject) => attempts.push({ resolve, reject }))
     const host = makeHost(t, runtime)
     t.after(() => { for (const attempt of attempts) attempt.resolve(status) })
-    const old = host.call('runtime/account', { runtime: runtime.info.id }).then(
-      () => 'stale success', (error: Error) => error.message,
-    )
+    const old = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
     await flush()
     runtime.emit({ type: 'account/changed', runtime: runtime.info.id })
     const fresh = host.call('runtime/account', { runtime: runtime.info.id }).catch((error: Error) => error.message)
     await flush()
-    assert.match(await old, /account changed during a read/i)
     if (late === 'success') attempts[0]!.resolve(status)
     else attempts[0]!.reject(new Error('late fixture failure'))
     await flush()
@@ -199,7 +215,8 @@ for (const late of ['success', 'failure'] as const) {
     assert.equal(attempts.length, 2, 'old settlement must leave the newer read shared')
     const answer: AccountStatus = { accounts: [], signInMethods: [] }
     attempts[1]!.resolve(answer)
-    assert.deepEqual(await Promise.all([fresh, joined]), [answer, answer])
+    assert.deepEqual(await Promise.all([old, fresh, joined]), [answer, answer, answer],
+      'the caller the change found mid-read gets the fresh answer, whatever the older adapter said later')
   })
 }
 
