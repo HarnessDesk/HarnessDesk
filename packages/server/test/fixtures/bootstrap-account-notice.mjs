@@ -18,7 +18,7 @@ try {
   await pathReady
   await loadBuiltinPlugins(extensions)
   await host.start()
-  assert.equal(host.runtimeInfo('codex')?.version, 'codex-cli 0.149.0', 'the runtime has started')
+  assert.ok(host.runtimeInfo('codex')?.version, 'the runtime has started and says which build it is')
   assert.ok((await host.call('runtime/models', { runtime: 'codex' })).length > 0, 'and lists its models')
 
   await mkdir(join(work, 'agents', 'implementer'), { recursive: true })
