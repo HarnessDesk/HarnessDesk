@@ -257,12 +257,6 @@ jobs:
           ./node_modules/.bin/electron-builder --mac dir
           -c.mac.identity=- -c.mac.notarize=false -c.mac.hardenedRuntime=false
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: HarnessDesk-unsigned
-          path: packages/desktop/release/mac-*/HarnessDesk.app
-          retention-days: 7
-
   ui-system-browser:
     needs: changes
     if: needs.changes.outputs.browser == 'all'
@@ -296,12 +290,14 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:ui-system --shard=${{ matrix.shard }}/6
 
+      # Keep diagnostics briefly after failures or cancellation (including partial runs).
+      # Successful shards need no stored report.
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure() || cancelled()
         with:
           name: ui-system-browser-report-${{ matrix.shard }}
           path: output/playwright/ui-system/
-          retention-days: 7
+          retention-days: 3
 
   ui-system-server:
     needs: changes
@@ -334,12 +330,14 @@ jobs:
           test "${#specs[@]}" -gt 0
           pnpm test:ui-system "${specs[@]}"
 
+      # Keep diagnostics briefly after failures or cancellation (including partial runs).
+      # Successful specs need no stored report.
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure() || cancelled()
         with:
           name: ui-system-server-report
           path: output/playwright/ui-system/
-          retention-days: 7
+          retention-days: 3
 
   ui-system-browser-integration:
     name: UI system browser integration
@@ -391,12 +389,14 @@ jobs:
       - run: pnpm run build
       - run: pnpm test:ui-system:native
 
+      # Keep diagnostics briefly after failures or cancellation (including partial runs).
+      # Successful smoke runs need no stored report.
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure() || cancelled()
         with:
           name: ui-system-native-report
           path: output/native-ui-system/
-          retention-days: 7
+          retention-days: 3
 
   ui-system-native-integration:
     name: UI system native integration

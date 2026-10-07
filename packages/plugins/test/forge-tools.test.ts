@@ -1938,7 +1938,7 @@ for (const refused of ['@example', '#1', 'GH-1', 'gh-12', 'https://example.com',
       assert.deepEqual(authorsFrom(edited), [], field!)
     }
     const first = signDescription('First.', '{role}', { ...SEAT, role: 'writer' })
-    const altered = bodyWithAuthors(first, [{ ...authorsFrom(first)[0]!, role: `qa${refused}x` }])
+    const altered = bodyWithAuthors(first, [{ ...authorsFrom(first)[0]!, role: `qa-${refused}x` }])
     assert.equal(unmarked(signDescription('Edited.', '{role}', null, altered)), 'Edited.')
   })
 }
@@ -1954,7 +1954,7 @@ test('description markers retain the plain alphabet in every rendered text field
 })
 
 test('description labels remove link forms and keep exactly 80 characters without truncation', () => {
-  for (const [label, expected] of [['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['x'.repeat(80), 'x'.repeat(80)]]) {
+  for (const [label, expected] of [['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['Preview gh-12gh-12 Model', 'Preview Model'], ['x'.repeat(80), 'x'.repeat(80)]]) {
     const seat = { ...SEAT, label: label!, role: 'writer' }
     const first = signDescription('First.', '{role}: {seat}', seat)
     assert.equal(authorsFrom(first)[0]?.label, expected)
@@ -1992,5 +1992,100 @@ for (const field of ['model', 'effort', 'version', 'team'] as const) {
 
 test('description signature setting explains which contributor seat is retained', () => {
   const schema = gitPlugin.manifest.configSchema as { properties: { signature: { description: string } } }
-  assert.equal(schema.properties.signature.description, 'Ends the description and keeps the latest seat for each role and agent pair.')
+  assert.equal(schema.properties.signature.description, 'Ends the description and keeps the latest seat for each role and agent pair, up to eight pairs. Adding a ninth drops the earliest-added pair, even if it was updated later.')
+})
+
+test('description short-reference cleanup preserves ordinary hyphenated words', () => {
+  const seat = { ...SEAT, label: 'Preview high-1m', team: 'High-5 · Though-2 Team', role: 'high-5' }
+  const template = '{role}: {seat} · {team}'
+  const expected = 'high-5: Preview high-1m · High-5 · Though-2 Team'
+  const first = signDescription('First.', template, seat)
+  assert.equal(unmarked(first), `First.\n\n${expected}`)
+  assert.equal(unmarked(signDescription('Edited.', template, null, first)), `Edited.\n\n${expected}`)
+  assert.equal(renderSignature(template, seat), expected)
+  const seatOnly = signDescription('First.', '{seat}', seat)
+  assert.equal(unmarked(seatOnly), 'First.\n\nPreview high-1m')
+  const encoded = bodyWithAuthors(first, [{ ...authorsFrom(first)[0]!, label: 'Preview GH-12' }])
+  assert.equal(unmarked(signDescription('Edited.', template, null, encoded)), 'Edited.', 'standalone references in stored labels are still refused')
+})
+
+test('role cleanup removes standalone short references before storing a description', () => {
+  for (const [role, expected] of [['gh-12', 'role'], ['GH-12-qa', 'qa'], ['qa-gh-12', 'qa'], ['qa_gh-12', 'qa'], ['gh-1gh-12', 'role'], ['gh-12gh-12', 'role'], ['gh-1gh-1gh-1', 'role'], ['high-5', 'high-5'], ['xgh-12', 'xgh-12']]) {
+    const seat = { ...SEAT, role: role! }
+    const first = signDescription('First.', '{role}: {seat}', seat)
+    assert.equal(renderSignature('{role}', seat), expected)
+    assert.equal(authorsFrom(first)[0]?.role, expected)
+    assert.equal(unmarked(signDescription('Edited.', '{role}: {seat}', null, first)), `Edited.\n\n${expected}: ${SEAT.label}`)
+  }
+})
+
+for (const value of ['Dev’s Team', 'Cafe\u0301 Team', 'ทีมพัฒนา', 'विकास टीम']) {
+  test(`description credits preserve combining marks and apostrophes in ${value}`, () => {
+    const template = '{seat} · {model} · {effort} · {version} · {team}'
+    const seat = { ...SEAT, label: value, model: value, effort: value, version: value, team: value, role: 'writer' }
+    const first = signDescription('First.', template, seat)
+    const expected = Array(5).fill(value).join(' · ')
+    assert.equal(unmarked(first), `First.\n\n${expected}`)
+    assert.equal(unmarked(signDescription('Edited.', template, null, first)), `Edited.\n\n${expected}`)
+    assert.equal(renderSignature(template, seat), expected)
+    for (const field of ['label', 'model', 'effort', 'version', 'team'] as const) assert.equal(authorsFrom(first)[0]?.[field], value)
+  })
+}
+
+test('description update tool states the bounded role and agent retention rule', async (t) => {
+  const forge = await rig(t)
+  const tool = forge.kernel.list('tool').find((tool) => tool.name === 'pr_update')!
+  assert.match(tool.description, /keeps the latest seat for each role and agent pair, up to eight pairs/)
+  assert.match(tool.description, /Adding a ninth drops the earliest-added pair, even if it was updated later\./)
+  assert.doesNotMatch(tool.description, /retains earlier role and seat credits/)
+})
+
+test('description edits retain up to eight role and agent pairs', () => {
+  let body = ''
+  for (let index = 1; index <= 9; index += 1) {
+    body = signDescription('Edited.', '{role}: {seat}', { ...SEAT, role: `qa-${index}`, label: `Preview ${index}` }, body)
+    if (index === 8) {
+      body = signDescription('Updated at the limit.', '{role}: {seat}', { ...SEAT, role: 'qa-1', label: 'Preview 1 Mini' }, body)
+      assert.equal(authorsFrom(body)[0]?.role, 'qa-1', 'updating a pair keeps its original slot')
+      assert.equal(authorsFrom(body)[0]?.label, 'Preview 1 Mini')
+    }
+  }
+  const roles = Array.from({ length: 8 }, (_, index) => `qa-${index + 2}`)
+  assert.deepEqual(authorsFrom(body).map(({ role }) => role), roles)
+  const overLimit = bodyWithAuthors(body, [
+    { role: 'qa-1', agent: SEAT.agent, label: 'Preview 1' }, ...authorsFrom(body),
+  ])
+  const edited = signDescription('Seatless.', '{role}: {seat}', null, overLimit)
+  assert.deepEqual(authorsFrom(edited).map(({ role }) => role), roles)
+  assert.doesNotMatch(unmarked(edited), /qa-1:/)
+  const updated = signDescription('Updated.', '{role}: {seat}', { ...SEAT, role: 'qa-1', label: 'Preview 1 Mini' }, overLimit)
+  assert.deepEqual(authorsFrom(updated).map(({ role }) => role), [...roles.slice(1), 'qa-1'])
+  assert.match(unmarked(updated), /qa-1: Preview 1 Mini/)
+})
+
+test('known role words use canonical case in all publication signatures', () => {
+  for (const [role, expected] of [['wRITER', 'Writer'], ['rEVIEWER', 'Reviewer'], ['fIXER', 'Fixer']]) {
+    const seat = { ...SEAT, role: role! }
+    const first = signDescription('First.', '{role}: {seat}', seat)
+    assert.equal(renderSignature('{role}', seat), expected)
+    assert.equal(unmarked(first), `First.\n\n${expected}: ${SEAT.label}`)
+    assert.equal(unmarked(signDescription('Edited.', '{role}: {seat}', null, first)), `Edited.\n\n${expected}: ${SEAT.label}`)
+  }
+})
+
+test('two agents with the same role retain separate latest seats', () => {
+  const writer = { ...SEAT, agent: 'Writer Agent', label: 'Writer Model', role: 'writer' }
+  const second = { ...SEAT, agent: 'Preview Agent', label: 'Preview Model', role: 'writer' }
+  const first = signDescription('First.', '{role}: {seat}', writer)
+  const both = signDescription('Second.', '{role}: {seat}', second, first)
+  assert.deepEqual(authorsFrom(both).map(({ agent, label }) => ({ agent, label })), [
+    { agent: 'Writer Agent', label: 'Writer Model' },
+    { agent: 'Preview Agent', label: 'Preview Model' },
+  ])
+  const edited = signDescription('Edited.', '{role}: {seat}', { ...writer, label: 'Writer Model Mini' }, both)
+  assert.deepEqual(authorsFrom(edited).map(({ agent, label }) => ({ agent, label })), [
+    { agent: 'Writer Agent', label: 'Writer Model Mini' },
+    { agent: 'Preview Agent', label: 'Preview Model' },
+  ])
+  assert.equal(unmarked(signDescription('Seatless.', '{role}: {seat}', null, edited)), 'Seatless.\n\nWriter: Writer Model Mini · Writer: Preview Model')
 })

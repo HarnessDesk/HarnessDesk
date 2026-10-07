@@ -564,7 +564,8 @@ The default signature names the Team role and the agent's own model and effort
 labels. The first review round in a Run is 1; later reviews count only earlier
 review rounds in that Run, and the signature omits round 1. Outside a Team the
 role and round drop out. A description keeps the latest seat for each role and
-agent pair, so a fixer's update preserves the writer's credit. Comments carry their
+agent pair, up to eight pairs, so a fixer's update preserves the writer's credit.
+Adding a ninth drops the earliest-added pair, even if it was updated later. Comments carry their
 signature on the first visible line, descriptions on the last. Nothing about it
 rides in the conversation: the agent is told, through its own instruction
 layer, to use the tools; the desk does the rest. Text a person writes
