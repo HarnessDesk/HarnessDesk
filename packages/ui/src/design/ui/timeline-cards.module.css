@@ -1,0 +1,116 @@
+/* One round's cards. The group is the size container, so the layout answers the
+   width of the column it sits in, not the window: two or three across while each
+   card keeps room to read, a list beyond three or when the column is narrow. */
+.cards {
+  container-type: inline-size;
+  min-width: 0;
+  margin-block-start: var(--hd-space-2);
+}
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hd-space-2);
+}
+@container (min-width: 29rem) {
+  .grid[data-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 43rem) {
+  .grid[data-count="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.card {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+}
+.card[data-selected] {
+  background: var(--hd-selected);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2-5);
+  padding: var(--hd-inset-dense) var(--hd-inset-dense) var(--hd-inset-dense) var(--hd-inset-row);
+  background: var(--hd-hover);
+}
+.head:not(:last-child) {
+  box-shadow: inset 0 calc(var(--hd-border-width) * -1) 0 var(--hd-border);
+}
+.who {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--hd-space-2);
+  min-width: 0;
+}
+.name {
+  min-width: 0;
+  justify-content: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-0-5);
+  margin-inline-start: auto;
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  padding: var(--hd-inset-row);
+  overflow-wrap: anywhere;
+}
+.lines {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-1-5) var(--hd-space-3);
+  padding: var(--hd-space-2) var(--hd-inset-row);
+  box-shadow: inset 0 var(--hd-border-width) 0 var(--hd-border);
+}
+
+/* A document a card committed, shown where it was committed: its path, what the
+   commit was, and its words. It reads in the card's own prose, never in a code face. */
+.document {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  min-width: 0;
+  padding: var(--hd-inset-row);
+  border-radius: var(--hd-radius-md);
+  background: var(--hd-background);
+  box-shadow: inset 0 0 0 var(--hd-border-width) var(--hd-border);
+}
+.documentHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-1-5) var(--hd-space-2);
+  min-width: 0;
+}
+.documentPath {
+  flex: 1;
+  min-width: 0;
+}
+.documentBody {
+  max-height: calc(var(--hd-line) * 10);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}

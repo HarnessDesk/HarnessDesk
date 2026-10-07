@@ -1,4 +1,5 @@
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
+import { TimelineCard, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
 import { previewStore } from '../../preview/harness'
 import { PluginPanelTableExample } from '../../preview/plugin-panel-table'
@@ -34,7 +35,7 @@ import { FindingDecision } from '../../components/FindingDecision'
 import { WindowControls } from '../../components/WindowControls'
 import { splitRefusal } from '../../panels/PanelActions'
 import { SideBySide, sideBySideTileEntry } from '../../components/SideBySide'
-import { Chip, HeaderStatusGroup, HeaderStatusReading, Menu, MenuItem } from '..'
+import { ChangeStats, Chip, HeaderStatusGroup, HeaderStatusReading, Menu, MenuItem } from '..'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -3055,6 +3056,40 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
             {state === 'active' ? <Text role="muted">Editing the retry</Text> : undefined}
           </TimelineItem>)}
       </Timeline>
+    </div>,
+  },
+  {
+    id: 'timeline-cards',
+    title: 'Timeline cards',
+    about: 'One round as cards. Two or three sit side by side while each keeps room to read; a round of more than three, or a narrow column, is a list. A card names who, says what they said, and lists what they left; a document it committed shows inline.',
+    render: () => <div className="flex max-w-3xl flex-col gap-4">
+      <div data-catalog-state="default" className="flex flex-col gap-2">
+        <TimelineCards count={2} aria-label="Two attempts">
+          {['Attempt A', 'Attempt B'].map((name, index) => <TimelineCard key={name} name={name} meta="Seat label · High"
+            lead={<IconTile shape="face" size="sm" tint="violet"><AgentIcon /></IconTile>}
+            footer={<><ChangeStats added={index ? 97 : 142} removed={index ? 41 : 60} /><Text role="meta" numeric>{index ? '22m' : '18m'}</Text></>}>
+            <TimelineCardWords>{index ? 'Moves the ranking into one SQL query.' : 'Caches the ranked results per query for 30 seconds.'}</TimelineCardWords>
+          </TimelineCard>)}
+        </TimelineCards>
+      </div>
+      <div data-catalog-state="selected">
+        <TimelineCards count={1}>
+          <TimelineCard name="Reviewer" meta="Seat label · High" selected onSelect={() => {}} lead={<IconTile shape="face" size="sm" tint="violet"><AgentIcon /></IconTile>}
+            footer={<Chip tone="success">Approved</Chip>}>
+            <TimelineCardWords>No findings. The change is ready.</TimelineCardWords>
+          </TimelineCard>
+        </TimelineCards>
+      </div>
+      <div data-catalog-state="populated">
+        <TimelineCards count={1}>
+          <TimelineCard name="Researcher" meta="Seat label · High" lead={<IconTile shape="face" size="sm" tint="violet"><AgentIcon /></IconTile>}>
+            <TimelineCardWords>Friday’s batch export holds a lock that checkout waits on.</TimelineCardWords>
+            <TimelineDocument path="docs/findings/checkout-fridays.md" meta="committed at 9e1f2aa · +84">
+              <Text role="prose">The export runs at 02:00 UTC on Fridays and holds a lock on the orders table for about 40 seconds.</Text>
+            </TimelineDocument>
+          </TimelineCard>
+        </TimelineCards>
+      </div>
     </div>,
   },
   {
