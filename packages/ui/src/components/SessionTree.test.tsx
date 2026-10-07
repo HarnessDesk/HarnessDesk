@@ -2228,6 +2228,24 @@ it('indents Pinned conversations by the shared project child step', () => {
   expect(view.container.querySelector('[data-sidebar-band="pinned"] [data-slot="sidebar-group-content"]')?.getAttribute('data-sidebar-indent')).toBe('true')
 })
 
+it('shows no spinner for an opened completed conversation and shows one when its next turn starts', () => {
+  const one = summary({ id: 'finished-conversation', status: { type: 'idle' } })
+  const live = { ...one, turns: [{ id: 'finished-turn', status: 'completed', items: [] }] } as unknown as Session
+  const view = treeWith([], [one], [live], {}, undefined, sessionKey(one.runtime, one.id))
+  expect(view.container.textContent).toContain(one.title)
+  expect(view.container.querySelector('[data-slot="spinner"]')).toBeNull()
+
+  const active = { ...one, status: { type: 'active' as const } }
+  view.update({
+    history: [active],
+    sessions: new Map([[sessionKey(one.runtime, one.id), {
+      ...live, status: active.status,
+      turns: [...live.turns, { id: 'next-turn', status: 'inProgress', items: [] }],
+    } as Session]]),
+  })
+  expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1)
+})
+
 it('uses a quiet spinner for running conversations and Teams without a Working word', () => {
   const one = summary({ id: 'session-spin', status: { type: 'active' } })
   const live = { ...one, turns: [{ id: 'spin-turn', status: 'inProgress', items: [] }] } as unknown as Session
