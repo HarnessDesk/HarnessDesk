@@ -42,6 +42,8 @@ const storeWith = (change: (snapshot: AppSnapshot) => Partial<AppSnapshot> = () 
   } })
 }
 const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamRunView>> = {}) => {
+  // Drawing assertions start after the lazy engine has loaded, independent of suite order.
+  if (props.drawFlow) await import('../design/patterns/FlowCanvas/Engine')
   const fixture = runFixture('complete')
   const container = document.createElement('div')
   const root = createRoot(container)

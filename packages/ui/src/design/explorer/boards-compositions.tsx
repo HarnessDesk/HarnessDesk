@@ -11,6 +11,7 @@ import { FlowOverlayBoard } from '../../preview/frames-flow-overlay'
 import { ReviewPublicationBoard } from '../../preview/frames-review-publication'
 import { FlowCanvasBoard } from '../../preview/frames-flow-canvas'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
+import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
@@ -3067,12 +3068,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     id: 'flow-canvas',
     title: 'FlowCanvas',
     about: 'Five steps, six rules and one attachment: editable and read-only, followed by a Run with auto-layout positions and state slots.',
-    render: FlowCanvasBoard,
+    render: () => <><FlowCanvasBoard /><ShapeGraphBoard /></>,
   },
   {
     id: 'flow-graph',
     title: 'FlowGraph',
-    about: 'A Flow’s steps and rules, drawn read-only: cards on a dot grid, edges with the outcome word above them, loops under the line, and the list that says the same.',
+    about: 'The frozen Flow on FlowCanvas: pan, zoom and fit, recorded state and rule words, with an accessible Steps list.',
     render: () => <><FlowGraphBoard /><FlowOverlayBoard /></>,
   },
   {

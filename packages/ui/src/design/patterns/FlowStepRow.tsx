@@ -39,13 +39,14 @@ const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ?
   : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 
 /** A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */
-export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, now = Date.now(), onSelect }: {
+export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, now = Date.now(), onSelect, tabIndex }: {
   step: FlowStep
   run?: FlowStepRun
   subtitle?: ReactNode
   selected?: boolean
   faces?: ReadonlyMap<string, ReactNode>
   faceTints?: ReadonlyMap<string, Tint>
+  tabIndex?: number
   now?: number
   onSelect?: (step: string) => void
 }) => {
@@ -53,6 +54,7 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
   const elapsed = run?.since != null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0
   const duration = run?.durationMs == null ? null : formatDuration(run.durationMs + elapsed)
   return <ListRow data-step-row={step.id} data-state={run?.state} data-selected={selected || undefined}
+    tabIndex={tabIndex}
     as={onSelect ? 'button' : 'div'} interactive={Boolean(onSelect)} selected={selected}
     onClick={onSelect ? () => onSelect(step.id) : undefined}
     lead={<FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints}

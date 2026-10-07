@@ -533,7 +533,8 @@ for (const theme of ['light', 'dark'] as const) {
         }
       }
       await page.goto('/design.html?view=flow-canvas')
-      await expect(page.locator('[data-slot="flow-canvas"]')).toHaveCount(3)
+      await expect(page.locator('[data-slot="flow-canvas"]')).toHaveCount(4)
+      await expect(page.locator('#shape-graph .react-flow__node')).toHaveCount(6)
       await expect(page.locator('#flow-canvas-run')).toContainText('Running')
     })
   })

@@ -6,7 +6,7 @@ const advance = (page: Page, scene: string) => page.evaluate(scene => window.dis
 const graph = (page: Page) => page.locator('#flow-overlay-live [data-slot="flow-graph"]')
 const state = (page: Page, step: string) => graph(page).locator(`[data-slot="flow-step"][data-step="${step}"]`)
 const tab = (page: Page, name: string) => page.locator('#flow-overlay-live').getByRole('radio', { name, exact: true })
-const frame = async (page: Page, name: string, selector = '#flow-overlay-live [data-slot="flow-stage"]') => {
+const frame = async (page: Page, name: string, selector = '#flow-overlay-live [data-slot="flow-canvas"]') => {
   const folder = process.env.RUN_FLOW_OVERLAY_FRAMES_DIR
   if (!folder) return
   expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
@@ -41,7 +41,7 @@ for (const theme of ['light', 'dark']) {
       }
       await expect(state(page, 'land').locator('.lucide-square-terminal')).toHaveCount(1)
       await expect(state(page, 'land').locator('.lucide-check')).toHaveCount(0)
-      await frame(page, `before-${theme}`, '#flow-overlay-blueprint [data-slot="flow-stage"]')
+      await frame(page, `before-${theme}`, '#flow-overlay-blueprint [data-slot="flow-canvas"]')
       await frame(page, `fix-${theme}`)
       await frame(page, `pane-${theme}`, '#flow-overlay-live')
       for (const [scene, step, expected] of [['check-again', 'check', 'working'], ['review', 'review', 'working'], ['you', 'you', 'waiting'], ['answered', 'you', 'done'], ['evidence-wait', 'you', 'blocked'], ['settled', 'you', 'done'], ['stopped', 'fix', 'stopped']]) {
@@ -104,7 +104,7 @@ for (const theme of ['light', 'dark']) {
 
     test('annotations stay on the canvas and Working does not cover a current name', async ({ page }) => {
       const fits = async () => graph(page).evaluate(root => {
-        const stage = root.querySelector('[data-slot="flow-stage"]')!.getBoundingClientRect()
+        const stage = root.querySelector('[data-slot="flow-canvas"]')!.getBoundingClientRect()
         return [...root.querySelectorAll('[data-slot="flow-doing"], [data-slot="flow-duration"], [data-slot="flow-word"]')].map(el => ({ name: el.textContent, box: el.getBoundingClientRect() }))
           .filter(({ box }) => box.left < stage.left || box.right > stage.right || box.top < stage.top || box.bottom > stage.bottom)
           .map(({ name }) => name)
@@ -189,7 +189,7 @@ for (const theme of ['light', 'dark']) {
 
     test('the accessible step list retains the live state and fits in a narrow pane', async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 900 })
-      await expect(graph(page).locator('[data-slot="flow-drawing"]')).toBeHidden()
+      await expect(graph(page).locator('[data-slot="flow-drawing"]')).toBeVisible()
       const fix = graph(page).locator('[data-step-row="fix"]')
       await expect(fix).toContainText('Working')
       await expect(fix).toContainText('Edited src/checkout/retry.ts')
@@ -202,7 +202,8 @@ for (const theme of ['light', 'dark']) {
       expect(await graph(page).evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true)
       await advance(page, 'you')
       await expect(graph(page).locator('[data-step-row="you"]')).toContainText('Needs you')
-      await graph(page).locator('[data-step-row="you"]').click()
+      await graph(page).locator('[data-step-row="you"]').focus()
+      await page.keyboard.press('Enter')
       await tab(page, 'Timeline').click()
       await expect(page.locator('#flow-overlay-live [data-row="round-8"]')).toHaveAttribute('aria-current', 'true')
     })
