@@ -13,7 +13,9 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?side-by-side&theme=${theme}`)
     const frame = page.locator('[data-frame-id="side-by-side-two"]')
-    await expect(frame.locator('aside [data-slot="list-row"] button[aria-label^="Watch"]')).toHaveCount(4)
+    await frame.getByRole('button', { name: 'Team members', exact: true }).click()
+    const members = page.locator('[data-slot="team-members"]:visible')
+    await expect(members.locator('[data-slot="list-row"] button[aria-label^="Watch"]')).toHaveCount(4)
     await page.evaluate(async () => { await document.fonts.ready })
 
     // Optional local evidence, from the same production pane and synthetic roster.
@@ -33,7 +35,7 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [1440, 1000]) {
       await page.setViewportSize({ width, height: 1000 })
       for (const [nickname, title] of MEMBERS) {
-        const row = frame.locator('aside [data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Watch ${nickname} beside the others`, exact: true }) })
+        const row = members.locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Watch ${nickname} beside the others`, exact: true }) })
         const name = row.locator('[data-slot="list-row-title"]')
         await expect(name).not.toContainText(title)
         const subtitle = row.locator('[data-slot="list-row-subtitle"]')
@@ -42,7 +44,6 @@ for (const theme of ['light', 'dark'] as const) {
         const geometry = await subtitle.evaluate(node => {
           const box = node.getBoundingClientRect()
           const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
-          const lines: number[] = []
           let contained = true
           while (walker.nextNode()) {
             if (!walker.currentNode.textContent?.trim()) continue
@@ -50,14 +51,12 @@ for (const theme of ['light', 'dark'] as const) {
             range.selectNodeContents(walker.currentNode)
             for (const rect of range.getClientRects()) {
               contained &&= rect.left >= box.left - 1 && rect.right <= box.right + 1 && rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1
-              lines.push(Math.round(rect.top))
             }
           }
           const style = getComputedStyle(node)
-          return { contained, lines: new Set(lines).size, whitespace: style.whiteSpace, overflowWrap: style.overflowWrap, ellipsis: style.textOverflow }
+          return { contained, whitespace: style.whiteSpace, overflowWrap: style.overflowWrap, ellipsis: style.textOverflow }
         })
         expect(geometry.contained).toBe(true)
-        expect(geometry.lines).toBeGreaterThan(1)
         expect(geometry.whitespace).toBe('normal')
         expect(geometry.overflowWrap).toBe('normal')
         expect(geometry.ellipsis).not.toBe('ellipsis')

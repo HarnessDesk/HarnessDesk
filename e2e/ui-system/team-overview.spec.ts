@@ -43,15 +43,18 @@ for (const theme of ['light','dark'] as const) {
   const rig=page.locator('#team-overview-team')
   await expect(rig.locator('[data-slot="team-overview"]')).toBeVisible()
   await expect(rig.getByText('2 done',{exact:true})).toBeVisible()
-  expect(await rig.locator('aside').textContent()).toMatch(/Agents2/)
-  await expect(rig.locator('aside [data-slot="member-done"]')).toHaveCount(2)
-  for (const state of await rig.locator('aside [data-slot="member-done"]').all()) {
+  await rig.getByRole('button',{name:'Team members',exact:true}).click()
+  const members=page.locator('[data-slot="team-members"]:visible')
+  expect(await members.textContent()).toMatch(/Agents2/)
+  await expect(members.locator('[data-slot="member-done"]')).toHaveCount(2)
+  for (const state of await members.locator('[data-slot="member-done"]').all()) {
    expect(await state.evaluate(e => {
     const label = e.getBoundingClientRect()
     const row = e.closest('[data-slot="list-row"]')!.getBoundingClientRect()
     return label.left >= row.left && label.right <= row.right
    })).toBe(true)
   }
+  await page.keyboard.press('Escape')
   const tree=page.locator('#team-overview-sidebar')
   expect(await tree.locator('[data-slot="sidebar-menu"]').evaluateAll(lists=>[...new Set(lists.map(list=>getComputedStyle(list).listStyleType))])).toEqual(['none'])
   const spinner=tree.locator('[data-slot="spinner"]')

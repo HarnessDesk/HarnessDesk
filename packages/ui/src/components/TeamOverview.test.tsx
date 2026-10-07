@@ -231,3 +231,32 @@ it('explains unavailable Run usage',()=>{
  act(()=>root.render(<TeamOverview runRules={[{id:'after-review'},{id:'to-referee'}]} model={{...summary,run:{...summary.run!,total:{money:null,turns:null}}}}/>))
  expect(box.querySelector('[aria-label="Run"] [title="Recorded usage is unavailable"]')).not.toBeNull()
 })
+
+it('keeps the ready Team Wrap action outlined',()=>{
+ act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats:[]}} onWrap={()=>{}} />))
+ expect(box.querySelector('[data-slot="overview-header"] button')?.getAttribute('data-variant')).toBe('outline')
+})
+
+it('wraps the Agent work sentence in compact rows while names still truncate',()=>{
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({width:320} as DOMRect)
+ render([row('Alpha',{state:'working',doing:'Edited the checkout error message and checked the retry budget before sending the review.'})])
+ const work=box.querySelector('[data-slot="seat-doing"]')!
+ expect(work.classList.contains('truncate')).toBe(false)
+ expect(work.closest('[data-slot="list-row-subtitle"]')?.hasAttribute('data-wrap-subtitle')).toBe(true)
+ expect(box.querySelector('[data-role="subject"]')?.classList.contains('truncate')).toBe(true)
+})
+
+it('wraps a compact Agent role line as well as its work sentence',()=>{
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({width:320} as DOMRect)
+ render([row('Beta',{role:'Reviewer'})])
+ const subtitle=box.querySelector('[data-slot="list-row-subtitle"]')!
+ expect(subtitle.textContent).toBe('Reviewer')
+ expect(subtitle.hasAttribute('data-wrap-subtitle')).toBe(true)
+})
+
+it('puts compact Agent facts on the name line so its second line has room to read',()=>{
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({width:320} as DOMRect)
+ render([row('Alpha',{state:'working',doing:'Edited the retry message.'})])
+ expect(box.querySelector('[data-slot="list-row-title"]')?.textContent).toContain('Working')
+ expect(box.querySelector('[data-slot="list-row-trail"]')?.textContent??'').not.toContain('Working')
+})

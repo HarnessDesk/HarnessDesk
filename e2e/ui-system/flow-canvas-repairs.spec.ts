@@ -5,7 +5,7 @@ import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 const run = async (page: Page, theme: string) => {
   await page.goto(`/preview.html?flow-overlay&theme=${theme}`)
   const pane = page.locator('#flow-overlay-live')
-  await pane.getByRole('button', { name: /^Run/ }).first().click()
+  await pane.getByRole('tab', { name: /^Run/ }).first().click()
   await pane.getByRole('radio', { name: 'Flow', exact: true }).click()
   await expect(pane.locator('.react-flow__node')).toHaveCount(6)
   await expect.poll(() => page.locator('body').evaluate(el => el.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')

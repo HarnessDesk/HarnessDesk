@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * The findings ledger, in the Goal rail.
+ * The findings ledger, in the Goal Team page.
  *
  * Mounted from the existing preview's own Goal frame — real production
  * modules, the real `PreviewStore` findings fixture — rather than a synthetic
  * render, because the thing worth proving here is that the whole path from
- * the rail's row to the detail dialog is one continuous keyboard journey with
+ * the page tab to the detail dialog is one continuous keyboard journey with
  * nothing off-screen at the widths the app actually runs at.
  */
 
@@ -14,7 +14,7 @@ test('keyboard reaches the findings filters, a row’s detail, and back', async 
   await page.goto('/preview.html')
 
   const goal = page.locator('[data-frame-id="goal-roster"]')
-  const findingsRow = goal.locator('aside').getByRole('button', { name: 'Findings', exact: true })
+  const findingsRow = goal.getByRole('tab', { name: /^Findings/ })
   await findingsRow.click()
 
   const openTab = page.getByRole('tab', { name: 'Open' })
@@ -53,7 +53,7 @@ test('desktop and narrow layouts keep every sentence inside the pane', async ({ 
       await page.goto('/preview.html')
 
       const goal = page.locator('[data-frame-id="goal-roster"]')
-  const findingsRow = goal.locator('aside').getByRole('button', { name: 'Findings', exact: true })
+      const findingsRow = goal.getByRole('tab', { name: /^Findings/ })
       await findingsRow.click()
 
       const pane = page.locator('[aria-label="Findings"]').first()
@@ -90,7 +90,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 720, height: 1000 })
     await page.goto(`/preview.html?theme=${theme}`)
     const goal = page.locator('[data-frame-id="goal-roster"]')
-    await goal.locator('aside').getByRole('button', { name: 'Findings', exact: true }).click()
+    await goal.getByRole('tab', { name: /^Findings/ }).click()
     for (const id of ['finding-claim-1', 'finding-confirmed-1']) {
       const row = goal.getByRole('button', { name: new RegExp(id) })
       const geometry = await row.evaluate(el => {
@@ -98,9 +98,13 @@ for (const theme of ['light', 'dark'] as const) {
         const identifier = [...el.querySelectorAll('[data-slot="code-text"]')][0]!
         const state = el.querySelector('[data-slot="chip"]')!
         const t = title.getBoundingClientRect(), i = identifier.getBoundingClientRect(), s = state.getBoundingClientRect()
-        return { width: t.width, idBelow: i.top >= t.bottom - 1, stateBelow: s.top >= t.bottom - 1, fits: title.scrollWidth <= title.clientWidth }
+        const titleRange = document.createRange()
+        titleRange.selectNodeContents(title)
+        const textRects = [...titleRange.getClientRects()]
+        const stateOverlapsTitle = textRects.some(rect => s.left < rect.right && s.right > rect.left && s.top < rect.bottom && s.bottom > rect.top)
+        return { width: t.width, idBelow: i.top >= t.bottom - 1, stateClear: !stateOverlapsTitle, fits: title.scrollWidth <= title.clientWidth }
       })
-      expect(geometry).toMatchObject({ idBelow: true, stateBelow: true, fits: true })
+      expect(geometry).toMatchObject({ idBelow: true, stateClear: true, fits: true })
       expect(geometry.width).toBeGreaterThan(300)
       await expect(row).toContainText(id)
       await expect(row).toContainText(id.includes('claim') ? 'Repair claimed · awaiting review' : 'Repair accepted by reviewer')

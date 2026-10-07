@@ -1,3 +1,4 @@
+import { TeamFrame } from './frames-team-frame'
 import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
@@ -1180,6 +1181,8 @@ createRoot(container).render(
       <AppWindowMode.Provider value="embedded">
         {new URLSearchParams(window.location.search).has('shape-graph')
           ? <ShapeGraphFrames />
+          : new URLSearchParams(window.location.search).has('team-frame')
+          ? <TeamFrame />
           : new URLSearchParams(window.location.search).has('inapplicable-actions')
           ? <InapplicableActionsFrames />
           : new URLSearchParams(window.location.search).has('flow-canvas')
