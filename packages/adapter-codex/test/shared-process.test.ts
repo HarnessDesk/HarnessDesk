@@ -37,13 +37,14 @@ const environment = (start: number) => ({
 const account = async (
   t: TestContext,
   env: Readonly<Record<string, string>> = {},
-  gates: readonly ('unload' | 'close')[] = [],
+  gates: readonly ('unload' | 'close' | 'delegate-list' | 'delegate-read')[] = [],
 ) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-shared-'))
   const helpers = join(dir, 'helpers.ndjson')
   const claims = join(dir, 'servers.ndjson')
   const opened = join(dir, 'threads.ndjson')
-  await Promise.all([helpers, claims, opened].map((file) => writeFile(file, '')))
+  const calls = join(dir, 'calls.ndjson')
+  await Promise.all([helpers, claims, opened, calls].map((file) => writeFile(file, '')))
   // A gate holds a step of Codex's close open for as long as its file exists.
   const gateFile = (name: string) => join(dir, `${name}.gate`)
   await Promise.all(gates.map((name) => writeFile(gateFile(name), '')))
@@ -51,7 +52,8 @@ const account = async (
     binaryPath: FAKE, codexHome: dir, clientName: 'harnessdesk-test',
     env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', FAKE_CODEX_MODE: 'hold',
       FAKE_CODEX_MCP_CHILDREN: helpers, FAKE_CODEX_CLAIMS: claims, FAKE_CODEX_THREADS: opened,
-      ...Object.fromEntries(gates.map((name) => [`FAKE_CODEX_${name.toUpperCase()}_GATE`, gateFile(name)])), ...env },
+      FAKE_CODEX_PROCESS_CALLS: calls,
+      ...Object.fromEntries(gates.map((name) => [`FAKE_CODEX_${name.toUpperCase().replaceAll('-', '_')}_GATE`, gateFile(name)])), ...env },
   })
   t.after(async () => { await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
   const events: AgentEvent[] = []
@@ -62,6 +64,7 @@ const account = async (
     servers: async () => (await readFile(claims, 'utf8')).trim().split('\n').filter(Boolean).map(Number),
     helpers: () => lines<{ threadId: string; pid: number; parent: number }>(helpers),
     opened: () => lines<{ method: string; threadId: string; pid: number; cwd: string | null; model: string | null; environment: Record<string, string> | null }>(opened),
+    calls: () => lines<{ method: string; threadId?: string }>(calls),
     seat: async (name: string, options: { model?: string; environment?: Readonly<Record<string, string>> } = {}): Promise<AgentSession> => {
       const cwd = join(dir, name)
       await mkdir(cwd, { recursive: true })
@@ -73,7 +76,7 @@ const account = async (
     },
     ended: (session: AgentSession) =>
       events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
-    release: (name: 'unload' | 'close') => rm(gateFile(name), { force: true }),
+    release: (name: 'unload' | 'close' | 'delegate-list' | 'delegate-read') => rm(gateFile(name), { force: true }),
   }
 }
 
@@ -152,6 +155,35 @@ test('stopping one seat leaves the other seats’ turns running', async (t) => {
   await working.interrupt()
   await until(() => d.ended(working), 'the working seat can still be stopped by its own call')
   assert.ok(!d.ended(other), 'and stopping it does not stop the next one either')
+})
+
+test('a seat closed mid-turn can steer and stop that same turn after reopening', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  const other = await d.seat('other')
+  await d.turn(seat)
+  await d.turn(other)
+  await seat.close()
+  assert.ok(!d.ended(seat), 'closing the pane leaves its turn running')
+
+  const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
+  await again.steer([{ type: 'text', text: 'Continue here' }])
+  await again.interrupt()
+  await until(() => d.ended(seat), 'the reopened handle stops its turn')
+  await assert.rejects(() => again.steer([{ type: 'text', text: 'Too late' }]), /no turn is currently running/)
+  assert.ok(!d.ended(other), 'the other seat keeps working')
+  assert.equal((await d.servers()).length, 1)
+})
+
+test('a completion heard while recovering a resumed turn beats the older turn snapshot', async (t) => {
+  const d = await account(t, { FAKE_CODEX_COMPLETE_ON_TURNS_LIST: '1' })
+  const seat = await d.seat('seat')
+  await d.turn(seat)
+  await seat.close()
+  const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
+  assert.ok(d.ended(seat), 'completion arrived with the in-progress history snapshot')
+  await assert.rejects(() => again.steer([{ type: 'text', text: 'Too late' }]), /no turn is currently running/)
+  await assert.rejects(() => again.interrupt(), /no turn is currently running/)
 })
 
 test('a crashed process is restarted and every seat re-attached', async (t) => {
@@ -269,3 +301,34 @@ test('closing a seat gives back the sub-agent threads it left loaded, and only i
   await until(() => theirs.every((helper) => !running(helper.pid)), 'closing the other seat gives back its own')
   assert.equal((await d.servers()).length, 1)
 })
+
+for (const gate of ['delegate-list', 'delegate-read'] as const) {
+  test(`reopening a root during ${gate} abandons its old sub-agent release sweep`, async (t) => {
+    const d = await account(t, { FAKE_CODEX_UNLOAD_MS: '1' }, [gate, 'unload'])
+    const seat = await d.seat('seat')
+    const other = await d.seat('other')
+    await seat.send([{ type: 'text', text: 'spawn' }])
+    await other.send([{ type: 'text', text: 'spawn' }])
+    await until(() => d.ended(seat) && d.ended(other), 'both spawning turns finished')
+    const helpers = await d.helpers()
+    const own = helpers.filter((helper) => helper.threadId.startsWith(String(seat.id)))
+    const theirs = helpers.filter((helper) => helper.threadId.startsWith(String(other.id)))
+    await seat.close()
+    const method = gate === 'delegate-list' ? 'thread/loaded/list' : 'thread/read'
+    await until(async () => (await d.calls()).some((call) => call.method === method), 'the sweep reached its held request')
+    const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
+    assert.equal(d.runtime.session(seat.id), again)
+    await d.release(gate)
+    const reply = gate === 'delegate-list' ? 'DELEGATE_LIST_HELD_REPLIED' : 'DELEGATE_READ_HELD_REPLIED'
+    await until(async () => (await d.calls()).filter((call) => call.method === reply).length >= (gate === 'delegate-list' ? 1 : 2),
+      'the old sweep’s held replies were delivered')
+    await d.release('unload')
+    // Completing a later sweep is the barrier for the older, released request.
+    await other.close()
+    await until(() => theirs.every((helper) => !running(helper.pid)), 'the later sweep completed')
+    assert.ok(own.every((helper) => running(helper.pid)), 'the reopened root keeps its sub-agent subscribed')
+    const calls = await d.calls()
+    assert.ok(!calls.some((call) => call.method === 'thread/unsubscribe' && call.threadId === own[1]!.threadId),
+      'the abandoned sweep never unsubscribed its descendant')
+  })
+}

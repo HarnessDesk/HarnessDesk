@@ -128,6 +128,7 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  #turnRevision = 0
   readonly #pendingInputs: (readonly UserContent[])[] = []
   readonly #recordedInputs = new Map<string, readonly UserContent[]>()
 
@@ -467,6 +468,7 @@ export class CodexSession implements AgentSession {
 
   /** Called by the runtime as turns open and close on this thread. */
   noteTurnStarted(turnId: string): void {
+    this.#turnRevision++
     this.#currentTurnId = turnId
     if (this.#pendingSilentOrder) {
       this.#silentTurnIds.set(turnId, this.#pendingNoticeKind)
@@ -476,6 +478,7 @@ export class CodexSession implements AgentSession {
   }
 
   noteTurnEnded(turnId: string): void {
+    this.#turnRevision++
     if (this.#currentTurnId === turnId) {
       this.#currentTurnId = null
       this.#pendingInputs.length = 0
@@ -485,6 +488,18 @@ export class CodexSession implements AgentSession {
 
   get activeTurnId(): TurnId | null {
     return this.#currentTurnId ? makeTurnId(this.#currentTurnId) : null
+  }
+
+  /** A resume subscribes to a running thread without repeating its turn/started. */
+  async recoverActiveTurn(): Promise<void> {
+    const revision = this.#turnRevision
+    const turns = await this.deps.server.request('thread/turns/list', {
+      threadId: this.id, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded',
+    })
+    // A notification heard during the read is newer than its snapshot.
+    if (this.#closing || this.#turnRevision !== revision) return
+    const active = turns.data.find((turn) => turn.status === 'inProgress')
+    if (active) this.noteTurnStarted(active.id)
   }
 
   /** Whether `turnId`'s opening item is a standing order, not a person's turn — see `#silentTurnIds`. */

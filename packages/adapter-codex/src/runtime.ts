@@ -265,6 +265,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
   readonly #closingSessions = new Map<string, Promise<void>>()
+  readonly #delegateSweeps = new Map<string, symbol>()
   /** Closed handles Codex has not yet closed the threads of; see `ThreadReleases`. */
   readonly #releases = new ThreadReleases()
   /** Conversations being started, resumed or forked right now; the process cannot rest under one. */
@@ -1153,6 +1154,8 @@ export class CodexRuntime implements AgentRuntime {
     }
     // Subscribed again: a thread that was waiting out its minute stays loaded.
     this.#releases.cancel(id)
+    // An older close no longer owns this root's descendants, even while registering.
+    this.#delegateSweeps.delete(id)
     // `dynamicTools` is only accepted on thread/start, so a resumed thread keeps
     // whatever tool set it was created with. The session reports that as stale
     // rather than pretending newly loaded plugins are available.
@@ -1160,6 +1163,10 @@ export class CodexRuntime implements AgentRuntime {
       route: options.route ?? null,
       environment: options.environment,
     })
+    if (response.thread.status.type === 'active') {
+      try { await session.recoverActiveTurn() }
+      catch (error) { await session.close(); throw error }
+    }
     return this.#applyAfterStart(session, after)
   }
 
@@ -1583,14 +1590,19 @@ export class CodexRuntime implements AgentRuntime {
    * holds, or that belongs to another conversation, is left alone.
    */
   async #letGoOfDelegates(root: string): Promise<void> {
+    const sweep = Symbol()
+    this.#delegateSweeps.set(root, sweep)
+    const abandoned = () => this.#sessions.has(root) || this.#delegateSweeps.get(root) !== sweep
     try {
       const loaded: string[] = []
       for (let cursor: string | null = null, page = 0; page < 10; page++) {
+        if (abandoned()) return
         const response: CodexProtocol.v2.ThreadLoadedListResponse = await this.#server.request(
           'thread/loaded/list', { cursor }, { timeoutMs: 2_000 })
         loaded.push(...response.data)
         if (!(cursor = response.nextCursor)) break
       }
+      if (abandoned()) return
       const strangers = loaded.filter((id) => id !== root && !this.#sessions.has(id) && !this.#releases.closed(id))
       if (strangers.length === 0) return
       const parents = new Map<string, string | null>()
@@ -1601,6 +1613,7 @@ export class CodexRuntime implements AgentRuntime {
           // Closed since the listing, or not readable: not ours to give back.
         }
       }))
+      if (abandoned()) return
       const descendants = new Set([root])
       for (let grew = true; grew;) {
         grew = false
@@ -1610,6 +1623,7 @@ export class CodexRuntime implements AgentRuntime {
       }
       descendants.delete(root)
       await Promise.all([...descendants].map(async (id) => {
+        if (abandoned() || this.#sessions.has(id) || this.#releases.closed(id)) return
         try {
           this.#released(id, (await this.#server.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 2_000 })).status)
         } catch {
@@ -1618,6 +1632,8 @@ export class CodexRuntime implements AgentRuntime {
       }))
     } catch {
       // A process that is gone has nothing left to give back.
+    } finally {
+      if (this.#delegateSweeps.get(root) === sweep) this.#delegateSweeps.delete(root)
     }
   }
 
@@ -1800,6 +1816,7 @@ export class CodexRuntime implements AgentRuntime {
       const lost = [...this.#sessions.keys()]
       this.#sessions.clear()
       this.#releases.clear()
+      this.#delegateSweeps.clear()
       // A child id can be reused by the next app-server. Its parent came from
       // the old process, so it is not evidence that this epoch delegated it.
       this.#parents.clear()

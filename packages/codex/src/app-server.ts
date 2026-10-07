@@ -75,6 +75,8 @@ const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_MAX_RESTARTS = 5
 const RESTART_BASE_DELAY_MS = 500
 const RESTART_MAX_DELAY_MS = 15_000
+/** Only consecutive failures consume the budget; a minute ready starts a new streak. */
+const RESTART_HEALTHY_MS = 60_000
 
 export class CodexAppServer {
   #child: ChildProcessWithoutNullStreams | null = null
@@ -90,6 +92,7 @@ export class CodexAppServer {
   #stateListeners = new Set<(state: ConnectionState) => void>()
   #logListeners = new Set<(line: string) => void>()
   #restarts = 0
+  #readyAt: number | null = null
   /** Set while `stop()` is unwinding, so exit handling does not try to restart. */
   #shuttingDown = false
   #startPromise: Promise<void> | null = null
@@ -467,6 +470,7 @@ export class CodexAppServer {
     }
 
     const maxRestarts = this.options.maxRestarts ?? DEFAULT_MAX_RESTARTS
+    if (this.#readyAt !== null && Date.now() - this.#readyAt >= RESTART_HEALTHY_MS) this.#restarts = 0
     if (this.#restarts >= maxRestarts) {
       this.#setState({
         type: 'failed',
@@ -518,6 +522,7 @@ export class CodexAppServer {
 
   #setState(state: ConnectionState): void {
     this.#state = state
+    this.#readyAt = state.type === 'ready' ? Date.now() : null
     for (const listener of this.#stateListeners) {
       try {
         listener(state)

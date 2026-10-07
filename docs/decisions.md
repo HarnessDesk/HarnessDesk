@@ -2174,12 +2174,18 @@ differs between seats is a parameter of their own thread, never of the process:
   exiting; a thread a session here holds, or another seat's, is left alone. A
   seat opened again inside the minute subscribes the same loaded thread; one
   opened while Codex is closing it waits for `thread/closed` and asks again. A
-  thread started for a conversation that never registered is unsubscribed the
-  same way.
+  reopened active thread recovers its in-progress turn from `thread/turns/list`,
+  so it can be steered and interrupted without another `turn/started`. A turn
+  notification arriving during that read takes precedence over the snapshot.
+  Reopening the root abandons its old descendant sweep, including reads already
+  in flight; each unsubscribe also checks that the descendant has no live handle.
+  A thread started for a conversation that never registered is unsubscribed
+  the same way.
 - *The process failing.* A crash or a restart for a new build is the account's
   event: every conversation it held is detached with `session/detached`, the
   restarted process starts empty, and the host reattaches each seat through the
-  resume path it uses after the desk itself restarts.
+  resume path it uses after the desk itself restarts. Five consecutive restarts
+  exhaust the crash budget; a process that stays ready for a minute refills it.
 
 **What it costs.** One process failing now takes every seat of that account's
 running turns with it, where a seat's own process took only its own. A finished
@@ -2187,6 +2193,8 @@ seat's helpers live for Codex's minute rather than ending with a process, which
 bounds them to the seats released in the last minute and not to every seat since
 launch. A close the process never answers (the unsubscribe times out after two
 seconds) leaves that thread's helpers until the process rests or restarts.
+Closing a pane does not interrupt its running turn: it runs on without the
+pane's subscription until it finishes, or until the reopened pane stops it.
 
 **Where a separate process is still called for.** Nowhere a seat needs one:
 nothing a seat carries is process-wide. What still ends the process is the

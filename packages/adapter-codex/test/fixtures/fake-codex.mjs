@@ -107,6 +107,7 @@ const gated = (name) => {
 const loadedThreads = new Map()
 /** The threads with a turn in flight, which Codex never closes. */
 const workingThreads = new Set()
+const activeTurns = new Map()
 /**
  * Sub-agent threads, by parent. Measured on 0.160.0: Codex loads one with its
  * own tool helpers, subscribes the parent's client to it without announcing it,
@@ -175,7 +176,11 @@ let output = []
 let outputScheduled = false
 const send = (value) => {
   saveSharedThread(value)
-  if (value.method === 'turn/completed') workingThreads.delete(value.params?.threadId)
+  if (value.method === 'turn/started') activeTurns.set(value.params.threadId, value.params.turn)
+  if (value.method === 'turn/completed') {
+    workingThreads.delete(value.params?.threadId)
+    activeTurns.delete(value.params?.threadId)
+  }
   output.push(`${JSON.stringify(value)}\n`)
   if (outputScheduled) return
   outputScheduled = true
@@ -198,7 +203,12 @@ const afterHold = (hold, action, message) => {
   }, 10)
 }
 const replyAfterHold = (hold, id, result, message) =>
-  afterHold(hold, () => send({ id, result }), message)
+  afterHold(hold, () => {
+    if (hold && process.env.FAKE_CODEX_PROCESS_CALLS) {
+      appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method: `${message}_REPLIED` })}\n`)
+    }
+    send({ id, result })
+  }, message)
 // Only screenshot scenes opt in; adapter tests retain their existing turns.
 const flowWorker = scriptedFlow(process.env['FAKE_CODEX_FLOW'], { send, notify })
 const flowTools = new Map()
@@ -269,7 +279,7 @@ const thread = (overrides = {}) => {
     modelProvider: 'openai',
     createdAt: 1_700_000_000,
     updatedAt: 1_700_000_100,
-    status: { type: 'idle' },
+    status: workingThreads.has(overrides.id ?? THREAD) ? { type: 'active', activeFlags: [] } : { type: 'idle' },
     path: '/tmp/rollout.jsonl',
     cwd: cwdByThread.get(describedId) ?? settingsState.cwd,
     cliVersion: version,
@@ -642,7 +652,7 @@ const saveSharedThread = (message) => {
   if (described) sharedSummaries.set(described.id, described)
   const id = message.params?.threadId ?? described?.id ?? currentRequest?.params?.threadId
   if (!id || !histories.has(id)) return
-  const summary = sharedSummaries.get(id) ?? thread({ id })
+  const summary = sharedSummaries.get(id) ?? thread({ id, parentThreadId: childParents.get(id) ?? null })
   if (id === THREAD) {
     sharedSettings.set(id, { ...settingsState })
     sharedTools.set(id, declaredTools)
@@ -1467,7 +1477,7 @@ rl.on('line', (line) => {
   }
 
   if (process.env.FAKE_CODEX_PROCESS_CALLS) {
-    appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method, generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
+    appendFileSync(process.env.FAKE_CODEX_PROCESS_CALLS, `${JSON.stringify({ method, threadId: params?.threadId, generation: process.env.HARNESSDESK_CODEX_GENERATION })}\n`)
   }
 
   switch (method) {
@@ -2182,7 +2192,8 @@ rl.on('line', (line) => {
       const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread({ id: params.threadId, sessionId: params.threadId, parentThreadId: childParents.get(params.threadId) ?? null })
       const history = historyOf(params.threadId)
       if (!params.includeTurns) {
-        send({ id, result: { thread: { ...stored, turns: [] } } })
+        replyAfterHold(childParents.has(params.threadId) ? process.env.FAKE_CODEX_DELEGATE_READ_GATE : null,
+          id, { thread: { ...stored, turns: [] } }, 'DELEGATE_READ_HELD')
         return
       }
       if (!history.stored) {
@@ -2205,17 +2216,24 @@ rl.on('line', (line) => {
       // without items, with a summary of them — the ask and the last answer —
       // or with all of them.
       const history = historyOf(params.threadId)
+      const active = activeTurns.get(params.threadId)
+      if (active) {
+        if (process.env.FAKE_CODEX_COMPLETE_ON_TURNS_LIST === '1') {
+          notify('turn/completed', { threadId: params.threadId, turn: { ...active, status: 'completed' } })
+        }
+      }
       if (turnListingsFailed < Number(process.env['FAKE_CODEX_FAIL_TURNS_LISTS'] ?? 0)) {
         turnListingsFailed += 1
         send({ id, error: { code: -32603, message: 'failed to list thread history: database is locked' } })
         return
       }
-      if (!history.stored) {
+      if (!history.stored && !active) {
         send({ id, error: unmaterialized(params.threadId, 'thread/turns/list') })
         return
       }
       const view = params.itemsView ?? 'summary'
-      const page = pageOf(history.turns, params, 'desc', 'turns')
+      const turns = active ? [...history.turns.filter((turn) => turn.id !== active.id), active] : history.turns
+      const page = pageOf(turns, params, 'desc', 'turns')
       const shown = (turn) =>
         view === 'full'
           ? turn.items
@@ -2524,7 +2542,7 @@ rl.on('line', (line) => {
 
     case 'turn/steer':
       // Mirror Codex's precondition so a wrong turn id is a visible failure.
-      if (params.expectedTurnId !== TURN) {
+      if (params.expectedTurnId !== (activeTurns.get(params.threadId)?.id ?? TURN)) {
         send({ id, error: { code: -32000, message: 'active turn does not match expectedTurnId' } })
         return
       }
@@ -2545,7 +2563,8 @@ rl.on('line', (line) => {
     }
 
     case 'thread/loaded/list':
-      send({ id, result: { data: [...loadedThreads.keys()], nextCursor: null } })
+      replyAfterHold(process.env.FAKE_CODEX_DELEGATE_LIST_GATE,
+        id, { data: [...loadedThreads.keys()], nextCursor: null }, 'DELEGATE_LIST_HELD')
       return
 
     case 'thread/delete':
