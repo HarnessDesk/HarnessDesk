@@ -517,6 +517,28 @@ const askedBy = new Map()
  * cancelled — the browser arm really does wait on another application.
  */
 let signedIn = (process.env['FAKE_CODEX_ACCOUNT'] ?? 'signedIn') !== 'signedOut'
+
+/**
+ * The account notice. A signed-in Codex says `account/updated` once, on its
+ * own, between 0.36 and 0.90 s after it is up — measured on 0.160.0 against a
+ * signed-in home (`script/probe/account-notice.mjs`); reads do not cause it and
+ * it did not repeat. A signed-out one says nothing. It is not played unless
+ * asked: most tests count what this process says and would have to wait for it.
+ *
+ * FAKE_CODEX_ACCOUNT_NOTICE=startup says it FAKE_CODEX_ACCOUNT_NOTICE_MS (640
+ * unless given, the middle of that range) after `initialized`. `first-read` says it
+ * as the first `account/read` arrives, so a test that holds that read
+ * (FAKE_CODEX_HOLD_ACCOUNT) has the notice land while the read is in flight,
+ * which is where the real one lands when the host reads the account the moment
+ * Codex is up.
+ */
+const accountNotice = process.env['FAKE_CODEX_ACCOUNT_NOTICE'] ?? null
+let accountNoticeSaid = false
+const sayAccountNotice = () => {
+  if (accountNoticeSaid || !signedIn) return
+  accountNoticeSaid = true
+  notify('account/updated', { authMode: 'chatgpt', planType: 'team' })
+}
 const loginOutcome = process.env['FAKE_CODEX_LOGIN'] ?? 'hang'
 const forcedLoginMethod = process.env['FAKE_CODEX_FORCED_LOGIN'] ?? null
 let activeLogin = null
@@ -1413,7 +1435,10 @@ rl.on('line', (line) => {
     return
   }
 
-  if (message.method === 'initialized') return
+  if (message.method === 'initialized') {
+    if (accountNotice === 'startup') setTimeout(sayAccountNotice, Number(process.env['FAKE_CODEX_ACCOUNT_NOTICE_MS'] ?? 640))
+    return
+  }
 
   // Client answering one of our server-initiated requests.
   if (message.id !== undefined && message.method === undefined) {
@@ -2358,6 +2383,7 @@ rl.on('line', (line) => {
       return
 
     case 'account/read':
+      if (accountNotice === 'first-read') sayAccountNotice()
       replyAfterHold(process.env.FAKE_CODEX_HOLD_ACCOUNT, id, {
         account: signedIn ? { type: 'chatgpt', email: 'dev@example.com', planType: 'team' } : null,
         requiresOpenaiAuth: true,
