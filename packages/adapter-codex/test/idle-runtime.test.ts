@@ -608,6 +608,35 @@ const heldChange = async (t: TestContext, change: 'FAKE_CODEX_HOLD_MCP_RELOAD' |
   return { d, hold, sent, isHeld }
 }
 
+test('an Install asked for while a Reload is held goes out only after the Reload is answered', async (t) => {
+  const { d, hold, sent, isHeld } = await heldChange(t, 'FAKE_CODEX_HOLD_MCP_RELOAD')
+  const reload = d.runtime.extensions.reloadMcp()
+  await isHeld('MCP_RELOAD_HELD')
+  const install = d.runtime.extensions.install('official', 'helper')
+  // One turn of the loop lets an Install that was not held behind the Reload go
+  // out, and the scripted Codex reads in order, so its answer to this read comes
+  // after anything sent before it.
+  await new Promise(resolve => setImmediate(resolve))
+  await d.runtime.extensions.catalog()
+  assert.ok(!(await sent()).includes('plugin/install'), 'the Install waits for the Reload in flight')
+  await rm(hold)
+  await Promise.all([reload, install])
+  const order = await sent()
+  const answered = order.indexOf('MCP_RELOAD_HELD_REPLIED')
+  assert.ok(answered >= 0 && order.indexOf('plugin/install') > answered, 'and goes out after the Reload was answered')
+})
+
+test('a tool change that fails does not stop the change queued behind it', async (t) => {
+  const { d, hold, sent, isHeld } = await heldChange(t, 'FAKE_CODEX_HOLD_PLUGIN_INSTALL', { FAKE_CODEX_FAIL_PLUGIN_INSTALL: '1' })
+  const install = failure(d.runtime.extensions.install('official', 'helper'))
+  await isHeld('PLUGIN_INSTALL_HELD')
+  const reload = failure(d.runtime.extensions.reloadMcp())
+  await rm(hold)
+  assert.match(String(await install), /could not be downloaded/, 'the one who asked for the Install is told it failed')
+  assert.equal(await reload, undefined, 'the Reload queued behind it still runs')
+  assert.ok((await sent()).includes('config/mcpServer/reload'))
+})
+
 test('a conversation that opened behind a failed tool change still opens', async (t) => {
   const { d, hold, isHeld } = await heldChange(t, 'FAKE_CODEX_HOLD_PLUGIN_INSTALL', { FAKE_CODEX_FAIL_PLUGIN_INSTALL: '1' })
   const install = failure(d.runtime.extensions.install('official', 'helper'))
