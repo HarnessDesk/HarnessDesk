@@ -527,3 +527,21 @@ export const createBranch = async (root: string, name: string, at: string): Prom
   await git(root, ['check-ref-format', '--branch', name])
   await git(root, ['branch', name, at])
 }
+
+/** Read at most 128 KiB from a regular committed file, without textconv, replacements or worktree reads. */
+export const fileAtRevision = async (root: string, sha: string, path: string): Promise<{ text: string; bytes: number } | null> => {
+  if (!isSha(sha)) throw new Error('A document needs a commit id.')
+  if (!path || path.startsWith('/') || path.includes('\\') || path.includes('\0') || path.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('A document needs a repository-relative path.')
+  const tree = await git(root, ['--literal-pathspecs', 'ls-tree', '-z', sha, '--', path])
+  const entry = tree.split('\0').find(line => line.slice(line.indexOf('\t') + 1) === path)
+  if (!entry) return null
+  const [mode, kind, object] = entry.slice(0, entry.indexOf('\t')).split(' ')
+  if (!['100644', '100755'].includes(mode!) || kind !== 'blob' || !object || !isSha(object)) return null
+  const bytes = Number((await git(root, ['cat-file', '-s', object])).trim())
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > 128 * 1024) return null
+  const { stdout } = await run('git', ['-C', root, ...HARDENED_GIT_CONFIG, 'cat-file', 'blob', object], {
+    timeout: 20_000, maxBuffer: 128 * 1024, encoding: 'buffer', env: { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' },
+  })
+  if (stdout.includes(0)) return null
+  try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(stdout), bytes } } catch { return null }
+}

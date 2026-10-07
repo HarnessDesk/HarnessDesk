@@ -35,6 +35,7 @@ import { TeamRuns, teamTriggerLabel, useTeamTrigger } from './TeamRuns'
 import { StopRunDialog, StopRunFailure } from './StopRunDialog'
 import { useCheckAttempts } from '../state/check-attempts'
 import { runTimelineOf } from '@harnessdesk/client/views'
+import { runPullRequest } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
@@ -965,11 +966,7 @@ export const TeamRoomPane = ({
   const headerLayout = useNarrowLayout<HTMLElement>(608)
   // The bar uses PR evidence on every page, including the initial Overview.
   useEffect(() => { void store.loadBoardEvidence(room).catch(() => undefined) }, [store, room])
-  const pullRequestFact = snapshot.boardEvidence.get(room)?.cards.flatMap(one => one.facts)
-    .filter(one => !one.record.restored && one.record.fact.kind === 'pr')
-    .sort((a,b) => b.record.observedAt - a.record.observedAt)[0]?.record.fact
-  const pullRequest = pullRequestFact?.kind === 'pr' && pullRequestFact.url
-    ? {number:pullRequestFact.number,url:pullRequestFact.url} : null
+  const pullRequest = runPullRequest(open === 'run' ? timelineRun : flowExecution, snapshot.boardEvidence.get(room))
   const findingCount = snapshot.findingRuns.get(flowExecution?.id ?? '')?.open
   const toggleSideBySide = () => {
     if (open === 'side-by-side') return show(selectedPage.current)
@@ -1285,12 +1282,7 @@ export const TeamRoomPane = ({
                   const brand = runtime ? brandForRuntime(runtime) : null
                   return [seat.record.id, brand ? <BrandMark brand={brand} size={13} /> : <AgentIcon />]
                 }))}
-                pullRequest={(() => {
-                  const fact = snapshot.boardEvidence.get(room)?.cards.flatMap(one => one.facts)
-                    .filter(one => !one.record.restored && one.record.fact.kind === 'pr')
-                    .sort((a, b) => b.record.observedAt - a.record.observedAt)[0]?.record.fact
-                  return fact?.kind === 'pr' && fact.url ? { number: fact.number, url: fact.url } : null
-                })()} />
+                pullRequest={runPullRequest(timelineRun, snapshot.boardEvidence.get(room))} />
             </div>
           ) : open === 'board' ? (
             <TeamBoardPane room={room} />

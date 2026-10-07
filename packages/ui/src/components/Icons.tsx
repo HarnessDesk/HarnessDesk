@@ -13,6 +13,7 @@ import {
   BookText,
   CloudDownload,
   Eraser,
+  EyeOff,
   FolderGit2,
   FolderInput,
   FolderX,
@@ -282,6 +283,8 @@ export const ForkIcon = icon(GitFork, 'ForkIcon')
 export const CommitIcon = icon(GitCommitHorizontal, 'CommitIcon')
 /** A review pass over the working tree. */
 export const ReviewIcon = icon(ScanSearch, 'ReviewIcon')
+/** A round whose Seats cannot read one another until it closes. */
+export const BlindIcon = icon(EyeOff, 'BlindIcon')
 /** Bringing the tracked branch's commits down into the checkout. */
 export const PullIcon = icon(ArrowDownToLine, 'PullIcon')
 /** Sending the branch's commits up to its remote. */

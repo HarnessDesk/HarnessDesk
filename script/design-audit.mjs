@@ -4312,6 +4312,13 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
     reason: 'An ordered execution data view: title-centred rings and incoming rail segments encode recorded progress. Existing Button and Text own selection and typography; the timeline introduces no independent control.',
   },
   {
+    module: 'design/ui/timeline-cards.tsx',
+    kind: 'data-geometry',
+    exports: ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument'],
+    area: 'room',
+    reason: 'The timeline round data view places recorded attempts by their count and column width, with handoff, result and committed-document slots. Card, Button, Text and CodeText own surfaces, selection and typography; these slots introduce no independent control.',
+  },
+  {
     module: 'design/ui/flow-step.tsx',
     kind: 'data-geometry',
     exports: ['FlowStepSurface', 'FlowDoingLine'],

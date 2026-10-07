@@ -231,7 +231,9 @@ test('a plain round with several cards is blind only when its role says blind: t
     const { rig, run } = await debate(t, blind)
     await rig.team.complete(1, { outcome: 'disagree', note: 'SECRET-NOTE' }, holderOf(rig, run.goal, 1))
     await rig.flows.flush()
-    return { blind: rig.flows.blindRounds(run.goal).length, board: await rig.team.board(holderOf(rig, run.goal, 2)) }
+    const embargoed = rig.flows.blindRounds(run.goal).length
+    assert.equal(rig.flows.executionsFor(run.goal)[0]!.rounds[0]!.blind, embargoed > 0, 'the public Run reports the same blindness the engine enforces')
+    return { blind: embargoed, board: await rig.team.board(holderOf(rig, run.goal, 2)) }
   }
   const blind = await secret(', blind: true')
   assert.equal(blind.blind, 1, 'blind: true embargoes a plain round')

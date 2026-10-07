@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Banner, Button, Chip, EmptyState, IconTile, ListRow, PaneColumn, Segmented, Separator, Text, Timeline, TimelineItem, type TimelineState } from '../design'
+import { Banner, Button, Chip, CodeText, EmptyState, IconTile, ListRow, PaneColumn, Progress, Segmented, Separator, Text, Timeline, TimelineItem, type TimelineState } from '../design'
 import { commandShown } from '../lib/projects'
 import { openExternal } from '../lib/desktop'
 import { commitDate } from '../lib/git-refs'
-import { currentRunEnd, type RunTimelineInput, type runTimeline } from '../lib/run-timeline'
+import { currentRunEnd, type RunTimelineInput, type RunTimelineRow, type runTimeline } from '../lib/run-timeline'
 import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
-import { AgentIcon, CheckIcon, ReviewIcon } from './Icons'
+import { AgentIcon, BlindIcon, CheckIcon, ReviewIcon } from './Icons'
 import { RetryCheck } from './RetryCheck'
+import { RunRoundCards, type SeatName } from './RunRoundCards'
+import { mayBeDocument } from '../state/committed-document'
 import { formatDuration } from './TurnTail'
 import styles from './RunView.module.css'
 
@@ -23,7 +25,7 @@ export type RunViewTab = 'timeline' | 'flow'
 const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ home, model, execution, cost, timelineDetail, number, selectedRow, selectedRows, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber, onDetails }: {
+export const RunView = ({ home, model, execution, cost, timelineDetail, number, selectedRow, selectedRows, onSelect, faces, seatNames, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber, onDetails }: {
   home?: string | null
   model: ReturnType<typeof runTimeline>
   execution?: RunTimelineInput['execution']
@@ -36,6 +38,8 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
   selectedRows?: readonly string[]
   onSelect: (id: string) => void
   faces?: ReadonlyMap<string, ReactNode>
+  /** What each Seat is called, and the model it ran: the headers of the cards a round of several cards draws. */
+  seatNames?: ReadonlyMap<string, SeatName>
   doing?: ReadonlyMap<string, string | null>
   pullRequest?: { number: number; url: string } | null
   pending?: boolean
@@ -89,10 +93,11 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
   const round = Math.max(0, ...model.rows.flatMap(row => row.kind === 'round' && row.round !== null ? [row.round] : []))
   const steps: { row: typeof model.rows[number]; records: typeof model.rows }[] = []
   for (const row of model.rows) {
-    if (['start', 'brief', 'round', 'end'].includes(row.kind)) steps.push({ row, records: [] })
+    if (['start', 'brief', 'round', 'ahead', 'end'].includes(row.kind)) steps.push({ row, records: [] })
     else steps.at(-1)?.records.push(row)
   }
   const stepState = (row: typeof model.rows[number], records: typeof model.rows): TimelineState => {
+    if (row.kind === 'ahead') return 'pending'
     if (records.some(one => one.kind !== 'attempt' && ['fail', 'failed', 'timed out', 'did not finish'].includes(one.status?.toLowerCase() ?? ''))) return 'danger'
     if (row.attention || records.some(one => one.attention) || (header.state === 'stalled' && row.kind === 'round' && row.round === round)) return 'warning'
     const recorded = execution?.rounds.find(one => one.n === row.round)
@@ -102,6 +107,15 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
     if (row.kind !== 'round' || recorded?.state === 'closed' || row.durationMs !== null) return 'done'
     return 'pending'
   }
+  // What a working card's Seat is doing now, held while it is between lines (a card and its row say it the same).
+  const doingOf = (row: RunTimelineRow): { line: string | null } => {
+    const previous = held.current.get(row.id) ?? null
+    const next = row.working && row.seat ? doing?.get(row.seat) ?? null : null
+    const line = doingLine(previous, next, now)
+    held.current.set(row.id, line)
+    return line
+  }
+  const seatOfCard = (card: number): string | null => model.rows.find(one => one.card === card && one.seat !== null)?.seat ?? null
   const time = (row: typeof model.rows[number]) => {
     const duration = row.durationMs ?? (row.working && row.since !== null ? Math.max(0, now - row.since) : null)
     const facts = [row.since === null ? null : commitDate(row.since, now), duration === null ? null : `${formatDuration(duration)}${row.working ? ' so far' : ''}`].filter(Boolean)
@@ -114,7 +128,8 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
       <Text role="subject">Run {number}</Text>
       {runChooser}
       <Chip tone={needsYou ? 'warning' : 'neutral'}>{states[header.state]}</Chip>
-      {header.publication && <Chip tone={header.publication.tone}>{header.publication.label}</Chip>}
+      {header.answer && !pullRequest && <Text role="meta">Answer committed at <CodeText>{header.answer.revision.slice(0, 7)}</CodeText></Text>}
+          {header.publication && <Chip tone={header.publication.tone}>{header.publication.label}</Chip>}
       </div>
       <div data-slot="run-facts" className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
         <Text role="meta" numeric>{started === null ? 'Start not recorded' : `Started ${commitDate(started, now)}`}</Text>
@@ -150,15 +165,24 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
         <Timeline aria-label="Run timeline">
           {steps.map(({ row, records }) => {
             const isEnd = row.kind === 'end'
+            const cards = records.filter(one => ['card', 'check', 'person'].includes(one.kind))
+            const asCards = cards.length > 1 || cards.some(one => one.kind === 'person' || one.pick || mayBeDocument(one.change))
             const reason = needsYou || ['Settled', 'Stopped', 'Needs you', 'Stopped by you', 'Stopped by the desk'].includes(row.title) ? null : words(row.title)
             const detail = isEnd ? !needsYou && (reason || row.detail) ? [reason, row.detail ? words(row.detail) : null].filter(Boolean).join('\n') : undefined : row.detail ? words(row.detail) : undefined
             const actions = isEnd && !needsYou ? endActions() : undefined
             const meta = [time(row), isEnd && header.end?.kind === 'stopped' ? header.end.by === 'person' ? 'By you' : 'By the desk' : null].filter(Boolean).join(' · ') || undefined
             return <TimelineItem key={row.id} state={stepState(row, records)} data-row={row.id} data-kind={row.kind}
               {...(isEnd ? { 'data-slot': 'run-ending' } : {})}
-              meta={meta} title={isEnd ? 'End' : words(row.title)} detail={detail}
+              meta={meta} title={<span className="flex flex-wrap items-center gap-2">{isEnd ? 'End' : words(row.title)}
+                {row.kind === 'round' && row.asked !== null && row.asked > 1 && <Progress as="span" className="w-40" size="sm" value={row.answered} max={row.asked} label={`${row.answered} of ${row.asked} answered`} aria-label={`${row.title} answers`} />}
+              </span>} detail={row.kind === 'round' && row.asked !== null && row.asked > 1 ? undefined : detail}
               selected={selectedRow === row.id || selectedRows?.includes(row.id)} onSelect={() => onSelect(row.id)} actions={actions}>
-              {records.length ? records.map(row => {
+              {asCards ? <RunRoundCards
+                rows={cards} attempts={records.filter(one => one.kind === 'attempt')}
+                context={{ home, now, needsYou, faces, seatNames, seatOfCard, selectedRow, selectedRows, onSelect,
+                  onAgain: one => setRetry({ run: header.run, card: one.card! }), doingOf: one => doingOf(one).line }} /> : undefined}
+              {row.blind && <Text as="div" role="meta" className="flex items-center gap-2 mt-2"><BlindIcon size={14} aria-hidden />Blind until the round closes</Text>}
+              {records.length ? records.filter(one => !asCards || one.kind === 'findings').map(row => {
                 if (row.kind === 'attempt') return <ListRow key={row.id} density="compact" data-row={row.id} data-kind="attempt" wrapTitle selected={selectedRows?.includes(row.id)}
                   lead={<IconTile size="sm" aria-hidden className="invisible" />}
                   title={<span className="flex min-w-0 flex-wrap items-center gap-2">

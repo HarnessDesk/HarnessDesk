@@ -1650,6 +1650,15 @@ state, a check with two attempts, empty and failed reads, a long timeline, and
 the narrow pane. The header's `Segmented` switch offers the Flow beside the
 timeline; the Flow drawing below is its other half.
 
+The `timeline-cards` board extends that execution data view with a round's
+recorded cards: two or three across when the column fits, a list beyond three
+or in a narrow column. `TimelineCards`, `TimelineCard`, `TimelineCardRow`,
+`TimelineCardWords` and `TimelineDocument` are its named data-geometry slots,
+confined to the room area in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS`. They compose
+`Card`, `Button`, `Text` and `CodeText` for surfaces, selection and typography;
+they introduce no control foundation. The exact module, exports and consumer
+area are gated, and a removed or moved slot makes the exemption stale.
+
 ### The Run inspector
 
 A selected timeline row opens recorded detail in `PanelFrame`, `PanelTools`

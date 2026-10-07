@@ -1377,6 +1377,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'git/refs': shape({ root: isString }),
   'git/commit': shape({ root: isString, sha: isString }),
+  'git/fileAtRevision': shape({ root: isString, sha: isString, path: isString }),
   'git/commitDiff': shape({ root: isString, sha: isString, path: isString }),
   'git/createBranch': shape({ root: isString, name: isString, at: isString, checkout: optional(isBoolean) }),
   'git/commitAll': shape({ root: isString, message: isString, paths: optional(arrayOf(isString)) }),
