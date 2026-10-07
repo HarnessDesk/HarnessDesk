@@ -31,6 +31,7 @@ import { clientSnapshot } from '../lib/client-snapshot'
 import { runReasonWords } from '../lib/run-reason'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
+import { TeamRuns, teamTriggerLabel, useTeamTrigger } from './TeamRuns'
 import { StopRunDialog, StopRunFailure } from './StopRunDialog'
 import { useCheckAttempts } from '../state/check-attempts'
 import { runTimelineOf } from '@harnessdesk/client/views'
@@ -269,6 +270,7 @@ export const TeamRoomPane = ({
    * asks Intake a second time.
    */
   const triggerKind = goal?.goal.origin.kind === 'trigger'
+  const triggerControl = useTeamTrigger(goal?.goal.root ?? '', goal?.goal.origin.kind === 'trigger' ? goal.goal.origin.trigger : null)
   const goalId = goal?.goal.id ?? null
   const [triggerStatus, setTriggerStatus] = useState<TriggerGoalStatus | null>(null)
   /**
@@ -371,10 +373,21 @@ export const TeamRoomPane = ({
   const [chosenRun, setChosenRun] = useState<string | null>(null)
   const [again, setAgain] = useState<FlowExecution | null>(null)
   const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
-  useEffect(() => { setAgain(null); setRetryCheck(null) }, [room])
+  useEffect(() => { setAgain(null); setRetryCheck(null); setChosenRun(null) }, [room])
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
   const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)), [snapshot.flowExecutions, room])
+  const runsSignal = runs.map(one => `${one.id}:${one.state}:${one.rounds.map(round => `${round.n}:${round.state}`).join(',')}`).join('|')
+  const [runsReviewProblem, setRunsReviewProblem] = useState<{ room: string; text: string } | null>(null)
+  useEffect(() => {
+    if (!triggerKind || open !== 'run') return
+    let live = true
+    setRunsReviewProblem(null)
+    void Promise.all(runs.map(one => store.loadFindingRun(room, one.id))).catch(() => {
+      if (live) setRunsReviewProblem({ room, text: 'Some reviewer results could not be read.' })
+    })
+    return () => { live = false }
+  }, [store, room, triggerKind, open, runsSignal])
   const timelineRun = runs.find(one => one.id === chosenRun) ?? flowExecution
   const timelineCards = timelineRun?.rounds.flatMap(one => one.cards).join(',') ?? ''
   const [timelinePending, setTimelinePending] = useState(false)
@@ -987,7 +1000,10 @@ export const TeamRoomPane = ({
         </>}
         actions={<div className={`${styles.barVerbs} hd-no-drag`}>
           <div className={styles.barFacts}>
-            {runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
+            {triggerKind && <Chip tint="amber" title={triggerControl.view?.definition ? undefined : 'Trigger declaration is being read'}>{teamTriggerLabel(originStatus, triggerControl.view)}</Chip>}
+            {triggerKind && triggerControl.view && !record ? <Chip tone={triggerControl.view.state === 'armed' && !triggerControl.prefs?.paused ? 'success' : 'neutral'}>
+              {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}
+            </Chip> : runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
             {originStatus && <OriginChip status={originStatus} name={title} />}
             <Popover title="Team members" align="right" triggerVariant={{variant:'ghost',size:'content-min',className:'min-w-(--hd-target-min)'}}
               label={<><span aria-hidden className="flex items-center gap-(--hd-space-1)">{allSeats.length === 0 ? <AgentIcon size={14} /> : <AvatarStack size="sm" members={allSeats.map(seat => {
@@ -1147,7 +1163,7 @@ export const TeamRoomPane = ({
         <TabsList variant="section" contentInset={open === 'receipt' && sidebarPlacement(snapshot) === 'column' ? 'reading' : undefined} aria-label="Team pages">
           <TabsTrigger value="overview" onClick={() => show('overview')} data-team-page="overview">Overview{overview.needsYou.length > 0 && <Text role="meta" numeric tone="warning">{overview.needsYou.length}</Text>}</TabsTrigger>
           {goal?.receipt && <TabsTrigger value="receipt" onClick={() => show('receipt')} data-team-page="receipt">Receipt</TabsTrigger>}
-          <TabsTrigger value="run" onClick={() => show('run')} data-team-page="run" disabled={runs.length === 0} title={runs.length === 0 ? 'This Team has no Run yet' : undefined}>Run{runs.length > 0 && <Text role="meta" numeric>{runs.length}</Text>}</TabsTrigger>
+          <TabsTrigger value="run" onClick={() => { if (triggerKind) setChosenRun(null); show('run') }} data-team-page="run" disabled={!triggerKind && runs.length === 0} title={!triggerKind && runs.length === 0 ? 'This Team has no Run yet' : undefined}>{triggerKind ? 'Runs' : 'Run'}{runs.length > 0 && <Text role="meta" numeric>{runs.length}</Text>}</TabsTrigger>
           <TabsTrigger value="board" onClick={() => show('board')} data-team-page="board">Board<Text role="meta" numeric>{intents.length}</Text></TabsTrigger>
           <TabsTrigger value="room" onClick={() => show('room')} data-team-page="room" title="Everyone in this Team">Chat{held > 0 && <Text role="meta" numeric>{held} held</Text>}</TabsTrigger>
           {goal && <TabsTrigger value="findings" onClick={() => show('findings')} data-team-page="findings">Findings{findingCount !== undefined && <Text role="meta" numeric>{findingCount}</Text>}</TabsTrigger>}
@@ -1176,6 +1192,11 @@ export const TeamRoomPane = ({
           split has to make room for one. */}
       <div className={styles.split}>
         <div className={styles.body} data-slot="room-body">
+          {open === 'run' && triggerKind && <div hidden={chosenRun !== null} className={chosenRun !== null ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
+            <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} trigger={triggerControl}
+              problem={runHistoryProblem?.room === room ? runHistoryProblem.message : runsReviewProblem?.room === room ? runsReviewProblem.text : timelineReadError ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? null}
+              onOpen={setChosenRun} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)} />
+          </div>}
           {open === 'receipt' ? (
             <PaneColumn inset="reading" page className="min-h-0 flex-1 overflow-y-auto">
               <div className="w-full max-w-(--hd-column)">
@@ -1212,11 +1233,12 @@ export const TeamRoomPane = ({
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
               statusLine={(now, includeRunReason) => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason={includeRunReason} stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
-          ) : open === 'run' && timelineRun ? (
+          ) : open === 'run' && triggerKind && chosenRun === null ? null : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {triggerKind && <PaneColumn inset="reading" page><Button variant="link" size="inline" aria-label="Back to Runs" onClick={() => setChosenRun(null)}>Back to Runs</Button></PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun}
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
-                runChooser={runs.length > 1 && <span aria-label="Choose a Run" className="flex flex-wrap gap-2">
+                runChooser={!triggerKind && runs.length > 1 && <span aria-label="Choose a Run" className="flex flex-wrap gap-2">
                   {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
                     onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
                 </span>}

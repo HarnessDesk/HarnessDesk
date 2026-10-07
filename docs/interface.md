@@ -1178,6 +1178,16 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+A Team opened by a project trigger calls this tab **Runs**:
+its recorded starts appear newest first, with their subject, state, reviewer
+answers or findings, duration and start time. Search and state filters keep
+their place when a row opens its timeline and the person returns to Runs.
+The bar shows the trigger and its current consent state; the page header
+shows today's Run count and the machine's dollar cap. Pause applies to every
+trigger on this Mac, and Edit the trigger opens the project's declaration.
+The list follows the existing Goal grouping: it does not combine other Teams
+opened by the same trigger.
+
 Run details and Steps live in the app’s dock, with the same tabs, move,
 expand and hide controls as the conversation’s inspectors. The title-bar’s
 right-panel control puts them away and brings them back. Run details keeps
