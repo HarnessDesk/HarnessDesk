@@ -1287,7 +1287,7 @@ export class CodexRuntime implements AgentRuntime {
       const servers = config['mcp_servers']
       if (servers !== undefined && servers !== null && (typeof servers !== 'object' || Array.isArray(servers))) throw new Error('The runtime did not report its native server configuration.')
       const names = Object.keys(servers ?? {})
-      for (const name of selected) if (!names.includes(name)) throw new Error(`No native server named ${name} is configured here.`)
+      for (const name of selected) if (!names.includes(name)) throw new Error(`No native server named ${name} is configured here. Restore the server or start a new Seat.`)
       const narrowed = Object.fromEntries(Object.entries(servers ?? {}).map(([name, spec]) => {
         if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) throw new Error('The runtime did not report a native server definition.')
         return [name, withoutConfigNulls({ ...spec, ...(!selected.includes(name) ? { enabled: false } : {}) })]

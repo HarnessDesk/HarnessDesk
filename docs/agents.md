@@ -105,6 +105,8 @@ This is independent of `mcp:`, which selects reviewed Library attachments;
 its approval and readback contract still applies. Native selection is frozen
 in the Seat record and reapplied on resume. A Seat's fork is refused; start a
 new Seat to choose its servers. Internal side reviews inherit the selection.
+If a selected server is removed or renamed in the runtime's configuration,
+the Seat cannot reopen: restore the server or start a new Seat with a new selection.
 Tool-server reloads apply to unfiltered conversations; a filtered conversation
 keeps its opening selection until reopened. Currently the native override is
 measured on runtime builds starting at 0.160.0; other adapters do not declare

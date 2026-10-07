@@ -70,7 +70,7 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
       </TableRow>)}</TableBody>
     </Table>}
     {reasons.map(reason => <Note key={reason}>{reason}</Note>)}
-    <Note>Includes child processes. Resident memory can count shared pages more than once. Updates every five seconds.</Note>
+    {rows.length > 0 && <Note>Includes child processes. Resident memory can count shared pages more than once. Updates every five seconds.</Note>}
     {problem && <Note tone="bad">{problem}</Note>}
   </>
 }

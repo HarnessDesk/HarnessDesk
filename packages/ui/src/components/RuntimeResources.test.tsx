@@ -54,6 +54,8 @@ it('lists only process holders and states a shared recycle refusal once', async 
     await act(async () => root.render(<StoreProvider store={store}><RuntimeResources runtime={runtimeId('stopped')} /></StoreProvider>))
     expect(box.textContent).toContain('Not running')
     expect(box.querySelector('table')).toBeNull()
+    expect(box.textContent).not.toContain('Includes child processes.')
+    expect(box.textContent).not.toContain('Updates every five seconds.')
   } finally { act(() => root.unmount()); box.remove() }
 })
 

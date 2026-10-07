@@ -825,6 +825,33 @@ test('native selection accepts runtime server characters and diagnoses bad chara
   await assert.rejects(d.runtime.createSession({ cwd: d.dir, runtimeServers: ['bad$name'] }), /native server names.*letters.*digits/i)
 })
 
+test('a detached side review starts only the source Seat native servers', async (t) => {
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["docs","simulator"]' })
+  const source = await d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  const side = await source.review!({ type: 'uncommitted', delivery: 'detached' })
+  assert.ok(side)
+  assert.notEqual(side.id, source.id)
+  const children = (await d.children()).filter(one => one.threadId === side.id)
+  assert.deepEqual(children.map(one => (one as typeof one & { name: string }).name), ['docs'])
+})
+
+test('a removed native server refuses reopen with recovery guidance', async (t) => {
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["docs","simulator"]' })
+  const source = await d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  await source.close()
+  // A fresh process has no remembered selection; the host supplies the frozen list.
+  const changed = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["simulator"]' })
+  await assert.rejects(changed.runtime.resumeSession(source.id, { cwd: d.dir, runtimeServers: ['docs'] }),
+    /No native server named docs is configured here\. Restore the server or start a new Seat\./)
+  assert.equal((await changed.children()).length, 0, 'a failed reopen never starts default helpers')
+})
+
 test('resource observations track only live control and conversation roots without restarting', async (t) => {
   const d = await rig(t)
   const opened = await d.runtime.createSession({ cwd: d.dir })

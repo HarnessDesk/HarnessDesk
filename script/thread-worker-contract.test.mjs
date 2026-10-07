@@ -41,3 +41,9 @@ test('native selection probe has a runnable README entry', () => {
   const readme = readFileSync(new URL('../script/probe/README.md', import.meta.url), 'utf8')
   assert.match(readme, /## `mcp-selection\.mjs`/)
 })
+
+test('native selection documents recovery when a frozen server leaves the configuration', () => {
+  const doc = readFileSync(new URL('../docs/agents.md', import.meta.url), 'utf8')
+  const section = doc.split('### Native server selection')[1]?.split('\n## ')[0] ?? ''
+  assert.match(section, /removed or renamed[\s\S]*reopen[\s\S]*restore the server or start a new Seat/i)
+})

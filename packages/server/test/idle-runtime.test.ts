@@ -569,6 +569,46 @@ const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 
   return { host, stateDir, runtime, goal: goal.goal, card, seat, record, finish, repo, hostsToDispose }
 }
 
+for (const selection of [['docs'], []]) {
+  test(`assigning an Agent Seat preserves its frozen native selection ${JSON.stringify(selection)} across restart`, async (t) => {
+    const runtime = new IdleRuntime({ capabilities: { nativeServerSelection: true } })
+    const { host, stateDir } = await makeHost(runtime, 60_000, 60_000)
+    const repo = await makeRepo('hd-assign-native-')
+    const hosts = [host]
+    t.after(async () => {
+      for (const current of hosts.reverse()) await current.dispose()
+      await rm(stateDir, { recursive: true, force: true })
+      await rm(repo.dir, { recursive: true, force: true })
+    })
+    await mkdir(join(stateDir, 'agents', 'native-reviewer'), { recursive: true })
+    await writeFile(join(stateDir, 'agents', 'native-reviewer', 'AGENT.md'), `---\nname: Native reviewer\nceiling: read\nprefer: [fake]\nruntime-servers: [${selection.join(', ')}]\n---\nInspect.\n`)
+    await host.start()
+    await host.call('workspace/open', { path: repo.dir })
+    const session = await host.call('agent/seat', { id: 'native-reviewer', cwd: repo.dir })
+    runtime.sessions.get(session.id)!.finish()
+    await until(() => host.registry.get(runtime.info.id, session.id as never)!.running.size === 0)
+    const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Assign the reviewer' }) as GoalView
+    const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect' }) as { id: number }
+    const assigned = await host.call('goal/assign', { goal: goal.goal.id, card: card.id,
+      session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
+    assert.deepEqual(assigned.runtimeServers, selection)
+    await host.call('session/close', { runtime: runtime.info.id, sessionId: session.id })
+    await host.dispose()
+    hosts.shift()
+    const restarted = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')),
+      catalogRefreshMs: 0, idleStopMs: 60_000, seatRestMs: 60_000 })
+    hosts.push(restarted)
+    // The fake owns its history; the new host must recover the durable Seat policy.
+    restarted.register(runtime)
+    await restarted.start()
+    await restarted.call('session/resume', { runtime: runtime.info.id, sessionId: session.id })
+    assert.deepEqual(runtime.lastResumeOptions?.runtimeServers, selection)
+    const view = await restarted.call('goal/read', { goal: goal.goal.id }) as GoalView
+    assert.deepEqual(view.members.find(one => one.id === assigned.id)?.runtimeServers, selection)
+    await assert.rejects(restarted.call('session/fork', { runtime: runtime.info.id, sessionId: session.id }), /frozen native server selection/)
+  })
+}
+
 test('a finished Seat releases its handle, idle-stops, and remains a Goal member', async (t) => {
   const d = await seated(t)
   await d.finish()

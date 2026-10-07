@@ -1702,6 +1702,7 @@ export class Host {
           id,
           agent: previous?.agent ?? null,
           briefDigest: previous?.briefDigest ?? null,
+          ...(previous?.runtimeServers !== undefined ? { runtimeServers: previous.runtimeServers } : {}),
           seat: previous?.seat ?? { runtime: session.runtime },
           seatLabel: previous?.seatLabel ?? session.runtime,
           passedOver: previous?.passedOver ?? [],
