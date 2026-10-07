@@ -20,7 +20,7 @@ export const StepCard = ({ node, selected }: FlowCanvasNodeProps) => {
   const state = node.state ? states[node.state] : undefined
   return (
     <div className={styles.card} data-slot="flow-canvas-step" data-kind={node.data.kind} data-state={node.state} data-selected={selected || undefined}>
-      <Row title={node.data.name} desc={node.data.roleLine} truncateDesc mark={<IconTile {...(tint ? { tint } : { tone: 'neutral' })}><Mark /></IconTile>} />
+      <Row title={node.data.name} desc={node.data.roleLine} truncateDesc mark={<IconTile shape={node.data.kind === 'agent' ? 'face' : 'square'} {...(tint ? { tint } : { tone: 'neutral' })}><Mark /></IconTile>} />
       {node.data.seatLine && <div className={styles.seats}><Text role="meta">{node.data.seatLine}</Text></div>}
       {(node.stateSlot !== undefined || state) && <div className={styles.state} data-slot="flow-canvas-state">{node.stateSlot ?? (state && <Chip tone={state[1]}>{state[0]}</Chip>)}</div>}
     </div>

@@ -7,7 +7,10 @@ import { flowOverlay, type OverlayCheckHistory } from '../lib/flow-overlay'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import type { Intent } from '@harnessdesk/protocol'
 import { ceilingsOfRun, flowModel } from '../lib/flow-model'
-import { useSnapshot, useStore } from '../state/context'
+import { FileIcon } from './Icons'
+import { useRunDock } from '../panels/run-dock'
+import { usePane, useSnapshot, useSnapshotSelector, useStore } from '../state/context'
+import { drawnInDock } from '../state/workbench'
 
 const PLACE: Readonly<Record<FlowOrigin, string>> = {
   project: 'In the project',
@@ -48,9 +51,15 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   doing?: ReadonlyMap<string, string | null>
 }) => {
   const { home } = useSnapshot()
+  // The Team's Steps dock lists the Steps beside the pane at every width, but only while it is drawing them for this Run.
+  // Put away, showing something else, off the screen or following another pane, a Run lists them itself once narrow, as one outside the dock does.
+  const dock = useRunDock()
+  const owner = usePane()?.paneId ?? ''
+  const stepsDocked = useSnapshotSelector(snapshot => dock !== null && (!owner || snapshot.workbench.main.focused === owner) && drawnInDock(snapshot, 'run-steps'))
   const flow = execution.document.flow
   const model = useMemo(() => flowModel(flow, { home, ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats, home])
   const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions }), [execution, model, cards, attempts, sessions])
+  const [problem, setProblem] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
   useEffect(() => {
@@ -64,44 +73,44 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   }))
 
   return (
-    <div data-slot="run-flow" className="flex min-w-0 flex-col gap-4">
-      <div data-slot="run-flow-head" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+    <div data-slot="run-flow" className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+      <div data-slot="run-flow-head" className="sr-only">
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
           <Text role="subject" className="min-w-0 break-words">{flow.name}</Text>
           <Text role="meta">{execution.revision ? `revision ${execution.revision} · ` : ''}frozen when this Run started</Text>
         </span>
-        <RunFlowFile root={root} name={flow.name} />
       </div>
-      <FlowGraph model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
-
+      {problem && <ActionError>{problem}</ActionError>}
+      <FlowGraph title="The path this Run took" listPlacement={stepsDocked ? 'dock' : 'responsive'} actions={<RunFlowFile root={root} name={flow.name} icon onProblem={setProblem} />} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
     </div>
   )
 }
 
 /** The same catalogue read from the graph and the Run's inspector. Never guesses between copies. */
-export const RunFlowFile = ({ root, name, compact = false }: { root: string | null; name: string; compact?: boolean }) => {
+export const RunFlowFile = ({ root, name, compact = false, icon = false, onProblem }: { root: string | null; name: string; compact?: boolean; icon?: boolean; onProblem?: (problem: string | null) => void }) => {
   const store = useStore()
   const [reading, setReading] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [opened, setOpened] = useState<{ readonly entry: FlowEntry; readonly text: string } | null>(null)
 
+  const reportProblem = (next: string | null) => { setProblem(next); onProblem?.(next) }
   const open = async (): Promise<void> => {
     if (!root || reading) return
     setReading(true)
-    setProblem(null)
+    reportProblem(null)
     try {
       const [entry, ...others] = entriesNamed(await store.flowCatalog(root), name)
       if (!entry) {
-        setProblem(`No flow called “${name}” is in the catalogue any more.`)
+        reportProblem(`No flow called “${name}” is in the catalogue any more.`)
         return
       }
       if (others.length > 0) {
-        setProblem(`More than one flow in the catalogue is called “${name}”, so which file this Run started from cannot be told here.`)
+        reportProblem(`More than one flow in the catalogue is called “${name}”, so which file this Run started from cannot be told here.`)
         return
       }
       setOpened({ entry, text: await store.flowSource(root, entry.id, entry.origin) })
     } catch (error) {
-      setProblem(`The file could not be read: ${error instanceof Error ? error.message : String(error)}`)
+      reportProblem(`The file could not be read: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setReading(false)
     }
@@ -109,9 +118,10 @@ export const RunFlowFile = ({ root, name, compact = false }: { root: string | nu
 
   return <>
     <RefusedAction reason={root ? undefined : 'This Run’s project is not known here, so its file cannot be found.'}>
-      <Button size={compact ? 'inline-link' : 'sm'} variant={compact ? 'link' : 'outline'} disabled={reading} onClick={() => void open()}>{compact ? 'Flow file' : 'Open the file'}</Button>
+      {icon ? <Button size="icon" variant="ghost" aria-label="Open the file" title="Open the flow file" disabled={reading} onClick={() => void open()}><FileIcon /></Button>
+        : <Button size={compact ? 'inline-link' : 'sm'} variant={compact ? 'link' : 'outline'} disabled={reading} onClick={() => void open()}>{compact ? 'Flow file' : 'Open the file'}</Button>}
     </RefusedAction>
-    {problem && <ActionError>{problem}</ActionError>}
+    {!onProblem && problem && <ActionError>{problem}</ActionError>}
       {opened && (
         <Dialog title={opened.entry.name} size="xl" tall onClose={() => setOpened(null)}>
           <Text role="meta" className="break-words">{PLACE[opened.entry.origin]} · {opened.entry.path}</Text>

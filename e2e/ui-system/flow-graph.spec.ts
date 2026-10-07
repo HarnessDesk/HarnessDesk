@@ -7,7 +7,7 @@ interface Rect { readonly id: string; readonly x: number; readonly y: number; re
 /** Every step, outcome word and arrowhead tip of one drawing, in the stage's own coordinates. */
 const measure = (page: Page, scene: string) => page.evaluate((scene) => {
   const root = document.querySelector(`#flow-graph-${scene}`)!
-  const stage = root.querySelector('[data-slot="flow-stage"]')!
+  const stage = root.querySelector('[data-slot="flow-canvas"]')!
   const origin = stage.getBoundingClientRect()
   const rect = (id: string, el: Element): Rect => {
     const box = el.getBoundingClientRect()
@@ -18,9 +18,10 @@ const measure = (page: Page, scene: string) => page.evaluate((scene) => {
     steps: [...root.querySelectorAll('[data-slot="flow-step"]')].map((el) => rect(el.getAttribute('data-step')!, el)),
     words: [...root.querySelectorAll('[data-slot="flow-word"]')].map((el) => rect(el.textContent ?? '', el)),
     tips: [...root.querySelectorAll('[data-slot="flow-edge"]')].map((edge) => {
-      const [tip] = (edge.querySelector('polygon')!.getAttribute('points') ?? '').trim().split(/\s+/).map((pair) => pair.split(',').map(Number))
+      const path = edge.querySelector('path')! as SVGPathElement
+      const tip = path.getPointAtLength(path.getTotalLength()).matrixTransform(path.getScreenCTM()!)
       const [from, to] = (edge.getAttribute('data-edge') ?? '').split('>')
-      return { edge: edge.getAttribute('data-edge')!, from: from!, to: to!, x: tip![0]!, y: tip![1]! }
+      return { edge: edge.getAttribute('data-edge')!, from: from!, to: to!, x: tip.x - origin.left, y: tip.y - origin.top }
     }),
   }
 }, scene)
@@ -32,12 +33,14 @@ for (const theme of ['light', 'dark'] as const) {
     test.beforeEach(async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto(`/preview.html?flow-graph&theme=${theme}`)
+      for (const scene of SCENES) await expect(page.locator(`#flow-graph-${scene} .react-flow__node`).first()).toBeVisible()
       if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
       else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     })
 
     test('no label sits on a card or on another label, and no card on another, in any Flow', async ({ page }) => {
       for (const scene of SCENES) {
+        await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
         expect(drawn.steps.length, scene).toBeGreaterThan(1)
         const clashes: string[] = []
@@ -52,6 +55,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     test('every arrowhead lands on the card its rule goes to', async ({ page }) => {
       for (const scene of SCENES) {
+        await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
         const card = new Map(drawn.steps.map((step) => [step.id, step]))
         for (const tip of drawn.tips) {
@@ -82,9 +86,12 @@ for (const theme of ['light', 'dark'] as const) {
       const at = new Map(steps.map((step) => [step.id, step]))
       const from = at.get('write')!
       const offset = (id: string) => [at.get(id)!.x - from.x, at.get(id)!.y - from.y]
-      expect(offset('check')).toEqual([260, 90])
-      expect(offset('review')).toEqual([520, 0])
-      expect(offset('you')).toEqual([780, 90])
+      expect(offset('check')[0]).toBeCloseTo(260 * 296 / 240)
+      expect(offset('check')[1]).toBeCloseTo(90 * 218 / 156)
+      expect(offset('review')[0]).toBeCloseTo(520 * 296 / 240)
+      expect(offset('review')[1]).toBeCloseTo(0)
+      expect(offset('you')[0]).toBeCloseTo(780 * 296 / 240)
+      expect(offset('you')[1]).toBeCloseTo(90 * 218 / 156)
     })
 
     test('a step that opens several seats is a fanned stack, and one seat is a single card', async ({ page }) => {
@@ -117,7 +124,7 @@ for (const theme of ['light', 'dark'] as const) {
         }
         const luminance = (rgb: number[]) => rgb.map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0)
         const contrast = (a: number[], b: number[]) => { const hi = Math.max(luminance(a), luminance(b)); const lo = Math.min(luminance(a), luminance(b)); return (hi + 0.05) / (lo + 0.05) }
-        const stage = root.querySelector('[data-slot="flow-stage"]')!
+        const stage = root.querySelector('[data-slot="flow-canvas"]')!
         const base = ground(stage)
         const line = getComputedStyle(stage.querySelector('[data-slot="flow-edge"] path')!)
         const stroke = rgba(line.stroke)
@@ -148,7 +155,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(held.join('|')).toContain('Read only')
     })
 
-    test('the list is under the drawing at a wide width, and is the view at a narrow one', async ({ page }) => {
+    test('the canvas and accessible lists remain available at wide and narrow widths', async ({ page }) => {
       const wide = page.locator('#flow-graph-blueprint')
       await expect(wide.locator('[data-slot="flow-drawing"]')).toBeVisible()
       await expect(wide.locator('section[aria-label="Steps"] [data-slot="list-row"]')).toHaveCount(6)
@@ -156,24 +163,53 @@ for (const theme of ['light', 'dark'] as const) {
 
       // The container decides, not the window: a narrow column in a wide window.
       const narrow = page.locator('#flow-graph-narrow')
-      await expect(narrow.locator('[data-slot="flow-drawing"]')).toBeHidden()
+      await expect(narrow.locator('[data-slot="flow-drawing"]')).toBeVisible()
       await expect(narrow.locator('section[aria-label="Steps"] [data-slot="list-row"]')).toHaveCount(6)
       await expect(narrow.locator('section[aria-label="Rules"] [data-slot="row"]')).toHaveCount(6)
       const fits = await narrow.locator('[data-slot="flow-graph"]').evaluate((el) => el.scrollWidth <= el.clientWidth + 1)
       expect(fits).toBe(true)
     })
 
-    test('a window as narrow as a phone shows lists only and does not scroll sideways', async ({ page }) => {
+    test('a window as narrow as a phone keeps the canvas navigable without page overflow', async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 900 })
       for (const scene of SCENES) {
         const graph = page.locator(`#flow-graph-${scene} [data-slot="flow-graph"]`)
-        await expect(graph.locator('[data-slot="flow-drawing"]'), scene).toBeHidden()
+        await expect(graph.locator('[data-slot="flow-drawing"]'), scene).toBeVisible()
         await expect(graph.locator('section[aria-label="Steps"]'), scene).toBeVisible()
         expect(await graph.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `${scene} fits`).toBe(true)
       }
       const run = page.locator('#flow-graph-run-narrow [data-slot="run-view"]')
       await expect(run.locator('[data-slot="run-flow"]')).toBeVisible()
       expect(await run.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    })
+
+    test('opens centred at 100%, Fit never enlarges, and the Run refuses node edits', async ({ page }) => {
+      const canvas = page.locator('#flow-graph-straight [data-slot="flow-canvas"]')
+      const viewport = () => canvas.locator('.react-flow__viewport').evaluate(el => {
+        const matrix = new DOMMatrix(getComputedStyle(el).transform)
+        return { x: matrix.m41, y: matrix.m42, zoom: matrix.a }
+      })
+      await expect.poll(async () => (await viewport()).zoom).toBe(1)
+      const centre = await canvas.evaluate(root => {
+        const surface = root.getBoundingClientRect()
+        const boxes = [...root.querySelectorAll('.react-flow__node')].map(el => el.getBoundingClientRect())
+        return { x: (Math.min(...boxes.map(box => box.left)) + Math.max(...boxes.map(box => box.right))) / 2 - (surface.left + surface.width / 2),
+          y: (Math.min(...boxes.map(box => box.top)) + Math.max(...boxes.map(box => box.bottom))) / 2 - (surface.top + surface.height / 2) }
+      })
+      expect(Math.abs(centre.x)).toBeLessThan(1)
+      expect(Math.abs(centre.y)).toBeLessThan(1)
+      await canvas.getByRole('button', { name: 'Zoom out' }).click()
+      await expect.poll(async () => (await viewport()).zoom).toBeLessThan(1)
+      const smaller = (await viewport()).zoom
+      await canvas.getByRole('button', { name: 'Fit plan' }).click()
+      expect((await viewport()).zoom).toBeLessThanOrEqual(smaller)
+      const step = canvas.locator('.react-flow__node').first()
+      const before = await step.getAttribute('style')
+      await step.focus()
+      await page.keyboard.press('ArrowRight')
+      await page.keyboard.press('Delete')
+      await expect(step).toHaveAttribute('style', before!)
+      await expect(canvas.locator('.react-flow__node.draggable, .react-flow__handle.connectable')).toHaveCount(0)
     })
 
     test('the Run’s header offers the Flow beside the timeline, and opens its file to read', async ({ page }) => {

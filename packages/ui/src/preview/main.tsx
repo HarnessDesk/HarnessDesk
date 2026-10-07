@@ -91,6 +91,7 @@ import { LibraryOptionFrames } from './frames-library-options'
 import { FlowOverlayFrames } from './frames-flow-overlay'
 import { FlowCanvasFrames } from './frames-flow-canvas'
 import { FlowGraphFrames } from './frames-flow-graph'
+import { ShapeGraphFrames } from './frames-shape-graph'
 import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { InapplicableActionsFrames } from './frames-inapplicable-actions'
 import { RunInspectorFrames } from './frames-run-inspector'
@@ -1193,7 +1194,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('header-status')
+        {new URLSearchParams(window.location.search).has('shape-graph')
+          ? <ShapeGraphFrames />
+          : new URLSearchParams(window.location.search).has('header-status')
           ? <HeaderStatusFrames />
           : new URLSearchParams(window.location.search).has('runtime-cost')
           ? <RuntimeCostPreview />
