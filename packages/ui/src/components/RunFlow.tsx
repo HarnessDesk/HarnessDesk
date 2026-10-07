@@ -9,7 +9,8 @@ import type { Intent } from '@harnessdesk/protocol'
 import { ceilingsOfRun, flowModel } from '../lib/flow-model'
 import { FileIcon } from './Icons'
 import { useRunDock } from '../panels/run-dock'
-import { useSnapshot, useStore } from '../state/context'
+import { usePane, useSnapshot, useSnapshotSelector, useStore } from '../state/context'
+import { drawnInDock } from '../state/workbench'
 
 const PLACE: Readonly<Record<FlowOrigin, string>> = {
   project: 'In the project',
@@ -50,8 +51,11 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   doing?: ReadonlyMap<string, string | null>
 }) => {
   const { home } = useSnapshot()
-  // The Team's Steps dock lists the Steps beside the pane at every width; a Run outside it lists them itself once narrow.
+  // The Team's Steps dock lists the Steps beside the pane at every width, but only while it is drawing them for this Run.
+  // Put away, showing something else, off the screen or following another pane, a Run lists them itself once narrow, as one outside the dock does.
   const dock = useRunDock()
+  const owner = usePane()?.paneId ?? ''
+  const stepsDocked = useSnapshotSelector(snapshot => dock !== null && (!owner || snapshot.workbench.main.focused === owner) && drawnInDock(snapshot, 'run-steps'))
   const flow = execution.document.flow
   const model = useMemo(() => flowModel(flow, { home, ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats, home])
   const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions }), [execution, model, cards, attempts, sessions])
@@ -77,7 +81,7 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
         </span>
       </div>
       {problem && <ActionError>{problem}</ActionError>}
-      <FlowGraph title="The path this Run took" listPlacement={dock ? 'dock' : 'responsive'} actions={<RunFlowFile root={root} name={flow.name} icon onProblem={setProblem} />} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+      <FlowGraph title="The path this Run took" listPlacement={stepsDocked ? 'dock' : 'responsive'} actions={<RunFlowFile root={root} name={flow.name} icon onProblem={setProblem} />} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
     </div>
   )
 }

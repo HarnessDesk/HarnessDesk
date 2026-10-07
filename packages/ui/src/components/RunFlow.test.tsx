@@ -6,8 +6,9 @@ import type { FlowEntry, FlowExecution } from '@harnessdesk/protocol'
 
 import { RunDockProvider } from '../panels/run-dock'
 import { flowGraphDocument } from '../preview/flow-graph-fixture'
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
+import { collapseDock, dock, emptyWorkbench, zoomArea, type Workbench } from '../state/workbench'
 import { RunFlow } from './RunFlow'
 import { canvasDOM } from '../test/flow-canvas-dom'
 
@@ -35,8 +36,8 @@ const entry = (over: Partial<FlowEntry> = {}): FlowEntry => ({
   description: null, format: 'agents', problem: null, shadows: [], ...over,
 })
 
-const fakeStore = (entries: readonly FlowEntry[], source: () => Promise<string> = async () => 'version: 2\nname: Write, review, land\n') => {
-  const snapshot = emptySnapshot()
+const fakeStore = (entries: readonly FlowEntry[], source: () => Promise<string> = async () => 'version: 2\nname: Write, review, land\n', workbench?: Workbench) => {
+  const snapshot = workbench ? { ...emptySnapshot(), workbench } : emptySnapshot()
   return {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -244,19 +245,46 @@ it('shortens the check in both drawing and Steps, retaining its raw hover title'
 })
 
 // The graph's own container decides, not the window: 500px is a narrow pane.
-const listInNarrowPane = async (docked: boolean) => {
+// A Run is left to the Team dock only while the dock is drawing its Steps, so each case says what the window shows.
+const listInNarrowPane = async (docked: boolean, workbench?: Workbench, pane?: string) => {
   vi.restoreAllMocks(); vi.unstubAllGlobals()
   canvasDOM({ graphWidth: 500 })
-  const view = <StoreProvider store={fakeStore([])}><RunFlow execution={run()} root="/repo" seats={[]} /></StoreProvider>
+  const flow = <RunFlow execution={run()} root="/repo" seats={[]} />
+  const view = <StoreProvider store={fakeStore([], undefined, workbench)}>
+    {pane ? <PaneProvider scope={{ paneId: pane, view: { kind: 'room', room: pane }, sessionKey: null }}>{flow}</PaneProvider> : flow}
+  </StoreProvider>
   await act(async () => { root.render(docked ? <RunDockProvider>{view}</RunDockProvider> : view) })
   await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
   return container.querySelector<HTMLElement>('[data-slot="flow-list"]')!
 }
+const stepsDocked = dock(emptyWorkbench(), 'right', { kind: 'run-steps' })
 
-it('leaves the Steps to the Team dock in a narrow pane, instead of listing them a second time', async () => {
-  expect((await listInNarrowPane(true)).dataset.placement).toBe('dock')
+it('leaves the Steps to the Team dock in a narrow pane while the dock is drawing them', async () => {
+  expect((await listInNarrowPane(true, stepsDocked)).dataset.placement).toBe('dock')
 })
 
 it('lists the Steps under the drawing in a narrow pane that has no dock', async () => {
   expect((await listInNarrowPane(false)).dataset.placement).toBe('below')
+})
+
+it('lists the Steps itself when the Run has no dock to publish to, whatever the window has mounted', async () => {
+  expect((await listInNarrowPane(false, stepsDocked)).dataset.placement).toBe('below')
+})
+
+it('lists the Steps itself while the Team dock is put away, so a narrow window still has them', async () => {
+  expect((await listInNarrowPane(true, collapseDock(stepsDocked, 'right', true))).dataset.placement).toBe('below')
+})
+
+it('lists the Steps itself while the Team dock shows the Run details instead', async () => {
+  expect((await listInNarrowPane(true, dock(stepsDocked, 'right', { kind: 'run-details' }))).dataset.placement).toBe('below')
+})
+
+it('lists the Steps itself while a zoom has taken the Team dock off the screen', async () => {
+  expect((await listInNarrowPane(true, zoomArea(stepsDocked, 'main', 'content'))).dataset.placement).toBe('below')
+})
+
+it('lists the Steps itself when the dock is following another pane’s Run', async () => {
+  const focused = (id: string): Workbench => ({ ...stepsDocked, main: { ...stepsDocked.main, focused: id } })
+  expect((await listInNarrowPane(true, focused('other'), 'this')).dataset.placement).toBe('below')
+  expect((await listInNarrowPane(true, focused('this'), 'this')).dataset.placement).toBe('dock')
 })

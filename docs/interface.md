@@ -1310,12 +1310,13 @@ it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
 Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
 **The path this Run took** sits at the top left, and the minimap, where a clear
 spot is left, never covers it. Nodes cannot be moved or edited. The accessible
-Steps and Rules list retains state and selection. In the Team’s Steps dock the
-list lives in the dock at every width, so the drawing keeps the whole pane;
-outside it, narrow panes scroll the fitted drawing and the list together, and
-wide panes retain the text alternative without adding invisible keyboard stops.
-A Run that needs you keeps its banner above the drawing, on the drawing's left
-edge, and the drawing keeps the rest of the pane.
+Steps and Rules list retains state and selection. While the Team’s Steps dock
+is open on its Steps tab, the list lives in the dock at every width, so the
+drawing keeps the whole pane. Outside the dock, and while it is put away,
+showing another tab or off the screen, narrow panes scroll the fitted drawing
+and the list together, and wide panes retain the text alternative without adding
+invisible keyboard stops. A Run that needs you keeps its banner above the
+drawing, on the drawing's left edge, and the drawing keeps the rest of the pane.
 **Open the file** reads the Flow's file as it is now, in a window you can only
 read; the Run keeps the revision it started with.
 

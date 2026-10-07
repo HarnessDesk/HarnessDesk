@@ -70,6 +70,59 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
+  test(`a docked Run lists its own Steps and Rules when the dock is put away in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    // With the sidebar open, a 720 to 840px window has no room for the dock beside the Run, so the dock is put away.
+    for (const width of [720, 780, 840]) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.goto(`/preview.html?run-dock&theme=${theme}`)
+      const frame = page.locator('#run-dock-frame')
+      await frame.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+      await frame.locator('[data-team-page="run"]').click()
+      await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+      const main = frame.locator('[data-slot="workbench-main"]')
+      const canvas = main.locator('[data-slot="flow-canvas"]')
+      const scroll = main.locator('[data-slot="run-scroll"]')
+      const list = main.locator('[data-slot="flow-list"]')
+      await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
+      await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]'), `dock at ${width}px`).toHaveCount(0)
+      if (process.env.FLOW_DOCK_FRAMES_DIR) {
+        await page.evaluate(async () => { await document.fonts.ready })
+        expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+        await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round6-run-put-away-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
+      }
+      // Nothing else lists the Steps, so the pane does: under the drawing, in rows as wide as the pane.
+      await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'below')
+      const rows = list.locator('[data-step-row]')
+      expect.soft(await rows.count(), `step rows at ${width}px`).toBeGreaterThan(0)
+      expect.soft(await rows.first().evaluate(el => el.getBoundingClientRect().width), `step row at ${width}px`).toBeGreaterThan(200)
+      // The pane scrolls to them, and on to the Rules, by wheel.
+      const area = (await scroll.boundingBox())!
+      await page.mouse.move(area.x + area.width / 2, area.y + area.height - 30)
+      await page.mouse.wheel(0, 2000)
+      await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1), `end of the pane at ${width}px`).toBe(true)
+      await expect.soft(list.locator('section[aria-label="Rules"]'), `rules at ${width}px`).toBeInViewport()
+    }
+  })
+
+  test(`a docked Run lists its own Steps while the dock shows something else in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    // A 1000px window leaves the Run 540px wide beside the open dock.
+    await page.setViewportSize({ width: 1000, height: 800 })
+    await page.goto(`/preview.html?run-dock&theme=${theme}`)
+    const frame = page.locator('#run-dock-frame')
+    await frame.locator('[data-team-page="run"]').click()
+    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+    const dock = frame.locator('[data-slot="dock-panel"][data-edge="left"]')
+    const list = frame.locator('[data-slot="workbench-main"] [data-slot="flow-list"]')
+    await expect(dock.getByRole('tab', { name: 'Steps', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(list, 'the dock draws the Steps').toHaveAttribute('data-placement', 'dock')
+    await dock.getByRole('tab', { name: 'Run details', exact: true }).click()
+    await expect(list, 'the dock shows the Run details').toHaveAttribute('data-placement', 'below')
+    await dock.getByRole('tab', { name: 'Steps', exact: true }).click()
+    await expect(list, 'the dock draws the Steps again').toHaveAttribute('data-placement', 'dock')
+  })
+
   test(`Run details and Steps use the workbench dock in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
