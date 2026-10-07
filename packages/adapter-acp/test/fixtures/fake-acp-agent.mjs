@@ -54,6 +54,15 @@ const STORE = process.env.FAKE_ACP_STORE ?? null
 const UNLISTED = new Set((process.env.FAKE_ACP_UNLISTED ?? '').split(',').filter(Boolean))
 const LIST_PAGE = Number(process.env.FAKE_ACP_LIST_PAGE ?? 0)
 const NO_LIST = process.env.FAKE_ACP_NO_LIST === '1'
+/**
+ * FAKE_ACP_GREY_ON_LOAD=<option id>,<option id>… is the peer that cannot
+ * honour a control once a stored conversation is opened again, such as a
+ * bridge that has lost what a turn taught it. The controls it names are
+ * declared and greyed on `session/load` and `session/resume`, never on
+ * `session/new`, so a pick made while the conversation was open has no place
+ * when it comes back.
+ */
+const GREY_ON_LOAD = new Set((process.env.FAKE_ACP_GREY_ON_LOAD ?? '').split(',').filter(Boolean))
 const recordOpen = (method, sessionId, cwd, meta) => {
   if (process.env.FAKE_ACP_OPENS) {
     // With the attachment extension on, each line also says whether the open
@@ -141,7 +150,7 @@ const newSession = (id0, cwd) => {
   return state
 }
 
-const configOptionsOf = (state) => [
+const declaredOptionsOf = (state) => [
   ...(GROUPED_MODELS ? [{
     id: 'model',
     name: 'Model',
@@ -244,6 +253,11 @@ const configOptionsOf = (state) => [
     ],
   },
 ]
+
+// What the session declares: a control the peer cannot honour on this open is greyed, with its reason.
+const configOptionsOf = (state) => declaredOptionsOf(state).map((option) => state.greyed?.has(option.id)
+  ? { ...option, disabled: 'The fake cannot honour this control until a turn has taught it.' }
+  : option)
 
 const update = (sessionId, body) => notify('session/update', { sessionId, update: body })
 
@@ -1298,6 +1312,7 @@ const handlers = {
     const entry = readStore()[params.sessionId]
     if (!entry) return fail(id, `no stored session ${params.sessionId}`)
     const state = newSession(entry.sessionId, entry.cwd)
+    state.greyed = GREY_ON_LOAD
     if (process.env.FAKE_ACP_DUMP_SERVERS) {
       try {
         writeFileSync(process.env.FAKE_ACP_DUMP_SERVERS, JSON.stringify(params?.mcpServers ?? []))
@@ -1326,6 +1341,7 @@ const handlers = {
       return fail(id, 'Internal error', { details: 'the transcript could not be read' })
     }
     const state = newSession(entry.sessionId, entry.cwd)
+    state.greyed = GREY_ON_LOAD
     // A load is handed the servers a session/new is: dumped the same way.
     if (process.env.FAKE_ACP_DUMP_SERVERS) {
       try {

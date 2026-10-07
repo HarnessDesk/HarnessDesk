@@ -104,6 +104,30 @@ test('the rest keeps a conversation the agent was never prompted in, which it co
   await completed
 })
 
+for (const door of ['session/resume', 'turn/send'] as const) {
+  test(`a held pick the agent now greys does not make the conversation unopenable through ${door}`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-acp-rest-greyed-'))
+    // Cannot honour the voice control once a stored conversation is opened again.
+    const runtime = new AcpRuntime({ id: 'greyed', name: 'Greyed', command: process.execPath, args: [FAKE],
+      env: { FAKE_ACP_STORE: join(dir, 'store.json'), FAKE_ACP_GREY_ON_LOAD: 'voice' } })
+    const host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
+      catalogRefreshMs: 0, idleStopMs: 25, sessionRestMs: 25 })
+    t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+    host.register(runtime)
+    await host.start()
+    const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as { id: string }
+    const params = { runtime: runtime.info.id, sessionId: session.id as never }
+    await host.call('session/options/set', { ...params, optionId: 'voice', value: 'pirate' })
+    await host.call('turn/send', { ...params, input: hello() })
+    const record = host.registry.get(runtime.info.id, params.sessionId)!
+    await waitFor(() => record.live === null)
+    await host.call(door, { ...params, ...(door === 'turn/send' ? { input: hello() } : {}) })
+    assert.equal(record.live!.options().find(option => option.id === 'voice')?.currentValue, 'plain',
+      'the pick had no place in the reopened conversation and was dropped')
+    assert.equal(record.restedOptions, undefined, 'the held picks are spent')
+  })
+}
+
 test('host close of a refused handle clears it and the following send streams a reply', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-acp-refused-host-'))
   const runtime = new AcpRuntime({ id: 'refusal', name: 'Refusal', command: process.execPath, args: [FAKE],

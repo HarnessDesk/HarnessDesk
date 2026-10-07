@@ -35,6 +35,7 @@ import {
   isNoticeTurn,
   isSessionBusy,
   isSessionGone,
+  refuseOptionValue,
   reopenRefusedByAgent,
   SessionGoneError,
   SessionBusyError,
@@ -5698,6 +5699,38 @@ export class Host {
     return target.info.presentation.name
   }
 
+  /**
+   * Puts back the picks a conversation held when it was released.
+   *
+   * A held pick is a preference rather than an order. One the reopened
+   * conversation has no place for (a control the agent now greys, or a value it
+   * no longer offers) is dropped and logged, the way `createSession` drops a
+   * stored pick it has no place for; it is not a reason the conversation cannot
+   * be opened. A pick whose write fails for any other reason fails the reopen,
+   * and the picks are spent either way, so one that fails once cannot fail
+   * every reopen after it.
+   */
+  async #restoreRestedPicks(runtime: AgentRuntime, live: AgentSession, id: SessionId): Promise<void> {
+    const held = this.registry.get(runtime.info.id, id)
+    if (!held?.restedOptions) return
+    try {
+      for (const [optionId, value] of Object.entries(held.restedOptions)) {
+        const option = live.options().find(one => one.id === optionId)
+        if (!option || option.currentValue === value) continue
+        const refusal = refuseOptionValue(option, value)
+        if (refusal) {
+          this.#logger.info('a held pick has no place in the reopened conversation', {
+            runtime: runtime.info.id, session: String(id), option: optionId, reason: refusal,
+          })
+          continue
+        }
+        await live.setOption(optionId, value)
+      }
+    } finally {
+      delete held.restedOptions
+    }
+  }
+
   async #reattach(runtime: AgentRuntime, id: SessionId): Promise<AgentSession> {
     const name = runtime.info.presentation.name
     const health = runtime.health()
@@ -5713,7 +5746,7 @@ export class Host {
         `${name} cannot reopen a conversation after it restarts, so this one has ended. Start a new one — what you typed is still in the box.`,
       )
     }
-    let live: AgentSession
+    let live: AgentSession | undefined
     // A Seat that froze attachments reopens on that same filter, revalidated
     // — never on the runtime's own defaults, which would load every ambient
     // skill and server its approval was there to keep out.
@@ -5728,14 +5761,16 @@ export class Host {
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
       })
-      const held = this.registry.get(runtime.info.id, id)
-      for (const [optionId, value] of Object.entries(held?.restedOptions ?? {})) {
-        const option = live.options().find(one => one.id === optionId)
-        if (!option || option.currentValue === value) continue
-        await live.setOption(optionId, value)
-      }
-      if (held) delete held.restedOptions
+      await this.#restoreRestedPicks(runtime, live, id)
     } catch (error) {
+      // The adapter hands a handle it still holds to the next resume, picks and
+      // all, so one this reopen resumed and could not finish with must not
+      // outlive it: every later open would be handed the same stale handle.
+      if (live) {
+        await live.close().catch((closeError: unknown) => this.#logger.warn('a handle the reopen could not finish with did not close', {
+          runtime: runtime.info.id, session: String(id), error: String(closeError),
+        }))
+      }
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // These typed failures name the runtime process, not the conversation.
       // Keep the code so #teamLive can distinguish a stopped agent from a

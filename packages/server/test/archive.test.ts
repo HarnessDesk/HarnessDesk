@@ -428,3 +428,62 @@ test('archive does not release a conversation while a send is on its way to the 
     await sending
   } finally { await rig.close() }
 })
+
+const allPicks = (options: Session['options']): Record<string, unknown> =>
+  Object.fromEntries((options ?? []).map(option => [option.id, option.currentValue]))
+
+/** The agent forgot what it was told while the conversation rested, and hands back a fresh handle, shaped by `shape`. */
+const reopenAs = (rig: Rig, shape: (live: FakeSession) => void): void => {
+  const resume = rig.runtime.resumeSession.bind(rig.runtime)
+  rig.runtime.resumeSession = async (id, options) => {
+    const live = await resume(id, options) as FakeSession
+    shape(live)
+    return live
+  }
+}
+
+test('a held pick the agent now refuses is dropped, and the rest of the picks still come back', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    for (const [optionId, value] of [['model', 'fake-2'], ['tone', 'cheerful'], ['uppercase', true]] as const) {
+      await rig.client.call('session/options/set', { ...params, optionId, value })
+    }
+    await rig.client.call('session/archive', { ...params, archived: true })
+    rig.runtime.sessions.delete(params.sessionId)
+    reopenAs(rig, live => {
+      const options = live.options.bind(live)
+      live.options = () => options().map(option => option.id === 'tone' ? { ...option, disabled: 'Tone is unavailable.' } : option)
+    })
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.deepEqual(allPicks(resumed.options), { model: 'fake-2', tone: 'plain', uppercase: true })
+    assert.equal(record.restedOptions, undefined)
+    assert.ok(record.live)
+  } finally { await rig.close() }
+})
+
+test('a reopen that still fails lets go of the handle it resumed and spends the picks it tried', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    await rig.client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+    await rig.client.call('session/archive', { ...params, archived: true })
+    rig.runtime.sessions.delete(params.sessionId)
+    let closes = 0
+    let failing = true
+    reopenAs(rig, live => {
+      const close = live.close.bind(live)
+      // A handle the agent has let go of is one it no longer hands out.
+      live.close = async () => { closes++; rig.runtime.sessions.delete(live.id); await close() }
+      if (failing) live.setOption = async () => { throw new Error('the agent went away') }
+    })
+    await assert.rejects(rig.client.call('session/resume', params))
+    assert.equal(closes, 1, 'the handle the failed reopen resumed is closed')
+    assert.equal(record.live, null)
+    assert.equal(record.restedOptions, undefined, 'the picks it tried are spent')
+    failing = false
+    const resumed = await rig.client.call('session/resume', params) as Session
+    assert.equal(allPicks(resumed.options)['model'], 'fake-1', 'a retry reopens on the agent\'s own picks')
+    assert.ok(record.live)
+  } finally { await rig.close() }
+})
