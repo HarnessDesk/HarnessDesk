@@ -101,6 +101,15 @@ const loadMcpChild = (threadId, config = {}) => {
 /** How long an unsubscribed idle thread stays loaded: Codex's minute, unless a test shortens it. */
 const UNLOAD_MS = Number(process.env['FAKE_CODEX_UNLOAD_MS'] ?? 60_000)
 /**
+ * `FAKE_CODEX_UNLOAD_WITH_REPLY=1` closes an unsubscribed idle thread in the
+ * same breath as the reply to its unsubscribe, so the reply and the notices of
+ * the close are one write and arrive as one chunk. That is what a client reads
+ * when it was not scheduled for the few milliseconds a shortened
+ * `FAKE_CODEX_UNLOAD_MS` puts between them. Whether that happens is the
+ * machine's to decide, so the test decides it instead.
+ */
+const UNLOAD_WITH_REPLY = process.env['FAKE_CODEX_UNLOAD_WITH_REPLY'] === '1'
+/**
  * A test holds the close of a thread open, the way the `FAKE_CODEX_HOLD_*`
  * files hold the other steps: while `FAKE_CODEX_UNLOAD_GATE` names a file that
  * exists, a thread due to close stays loaded; while `FAKE_CODEX_CLOSE_GATE`
@@ -149,7 +158,7 @@ const logThread = (method, params) => {
     environment: params?.config?.['shell_environment_policy.set'] ?? null,
   })}\n`)
 }
-const closeIfIdle = (threadId) => {
+const closeIfIdle = (threadId, together = false) => {
   const held = loadedThreads.get(threadId)
   if (!held || held.subscribed || held.closing) return
   if (workingThreads.has(threadId) || gated('FAKE_CODEX_UNLOAD_GATE')) {
@@ -172,14 +181,17 @@ const closeIfIdle = (threadId) => {
     notify('thread/status/changed', { threadId, status: { type: 'notLoaded' } })
     notify('thread/closed', { threadId })
   }
-  setTimeout(finish, 0)
+  if (together) finish()
+  else setTimeout(finish, 0)
 }
 const unsubscribeThread = (threadId) => {
   const held = loadedThreads.get(threadId)
   if (!held) return 'notLoaded'
   if (!held.subscribed) return 'notSubscribed'
   held.subscribed = false
-  held.timer = setTimeout(() => closeIfIdle(threadId), UNLOAD_MS)
+  // After the caller has queued its reply, ahead of the next write: the notices share it.
+  if (UNLOAD_WITH_REPLY) queueMicrotask(() => closeIfIdle(threadId, true))
+  else held.timer = setTimeout(() => closeIfIdle(threadId), UNLOAD_MS)
   return 'unsubscribed'
 }
 

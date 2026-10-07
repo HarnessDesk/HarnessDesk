@@ -1396,6 +1396,7 @@ export class CodexRuntime implements AgentRuntime {
       interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
+      onReleasing: (id) => this.#releasing(id),
       onReleased: (id, status) => {
         this.#released(id, status)
         if (status !== undefined) void (this.#closingSessions.get(id) ?? Promise.resolve()).then(() => this.#letGoOfDelegates(id), () => {})
@@ -1651,10 +1652,34 @@ export class CodexRuntime implements AgentRuntime {
     return reloading
   }
 
-  /** A handle was closed; unless nothing was loaded or Codex never answered, the thread now waits out Codex's minute. */
+  /**
+   * Codex is about to be asked to let go of a thread, and from then on it owes
+   * the thread a close. That is written down before the question goes out, not
+   * after the answer comes in: a close Codex makes at once is said straight
+   * after its answer, and a notice read in the same chunk is heard before the
+   * code waiting on the answer has run.
+   */
+  #releasing(id: string): void {
+    if (!this.#disposed) this.#releases.expect(id)
+  }
+
+  /** Codex answered the unsubscribe, or never did: unless nothing was loaded, the thread now waits out Codex's minute. */
   #released(id: string, status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined): void {
-    if (status === undefined || status === 'notLoaded' || this.#disposed) return
-    this.#releases.expect(id)
+    if (status === undefined || status === 'notLoaded' || this.#disposed) this.#releases.cancel(id)
+  }
+
+  /** Asks Codex to stop the events of a thread this runtime holds no handle on; its answer, or nothing when it gave none. */
+  async #unsubscribe(id: string): Promise<CodexProtocol.v2.ThreadUnsubscribeStatus | undefined> {
+    this.#releasing(id)
+    let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
+    try {
+      status = (await this.#server.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 2_000 })).status
+    } catch {
+      // A process that is gone has nothing left to give back; a thread it did
+      // not answer for stays with it until it rests.
+    }
+    this.#released(id, status)
+    return status
   }
 
   /**
@@ -1703,11 +1728,7 @@ export class CodexRuntime implements AgentRuntime {
       descendants.delete(root)
       await Promise.all([...descendants].map(async (id) => {
         if (abandoned() || this.#sessions.has(id) || this.#releases.closed(id)) return
-        try {
-          this.#released(id, (await this.#server.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 2_000 })).status)
-        } catch {
-          // The thread stays with the process until it rests.
-        }
+        await this.#unsubscribe(id)
       }))
     } catch {
       // A process that is gone has nothing left to give back.
@@ -1718,13 +1739,7 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Gives back a thread that was started but never became a session here. */
   async #letGo(id: string): Promise<void> {
-    let status: CodexProtocol.v2.ThreadUnsubscribeStatus | undefined
-    try {
-      status = (await this.#server.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 2_000 })).status
-    } catch {
-      // A process that is gone has nothing left to give back.
-    }
-    this.#released(id, status)
+    await this.#unsubscribe(id)
   }
 
   /**
