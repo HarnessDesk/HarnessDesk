@@ -272,6 +272,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly #releases = new ThreadReleases()
   /** Conversations being started, resumed or forked right now; the process cannot rest under one. */
   #opening = 0
+  /** Reloads and plugin installs can both replace the open threads’ tool servers. */
   #reloadingMcp: Promise<void> | null = null
   readonly #runtimeServers = new Map<string, readonly string[]>()
   readonly #environments = new Map<string, Readonly<Record<string, string>>>()
@@ -348,7 +349,7 @@ export class CodexRuntime implements AgentRuntime {
     this.processes = new CodexProcesses(this.#server, (session) =>
       this.#sessions.get(session)?.permissionProfile(),
     )
-    this.extensions = new CodexExtensions(this.#server, () => this.#reloadMcp())
+    this.extensions = new CodexExtensions(this.#server, (action, apply) => this.#changeToolServers(action, apply))
     this.tasks = new CodexTasks(this.#server, (sessionId, tasks) =>
       this.#emit({ type: 'session/tasks', sessionId, tasks }),
     )
@@ -1638,17 +1639,21 @@ export class CodexRuntime implements AgentRuntime {
     }
   }
 
-  #reloadMcp(): Promise<void> {
-    if (this.#opening > 0) return Promise.reject(new Error('Reload is held while a conversation opens. Try Reload again after it opens.'))
-    if ([...this.#sessions.keys()].some(id => this.#runtimeServers.has(id))) {
-      return Promise.reject(new Error('Reload is held. Close conversations with selected tool servers, then try Reload again.'))
+  #changeToolServers(action: 'Reload' | 'Install', apply: () => Promise<void>): Promise<void> {
+    if (this.#opening > 0) return Promise.reject(new Error(`${action} is held while a conversation opens. Try ${action} again after it opens.`))
+    const count = [...this.#sessions.keys()].filter(id => this.#runtimeServers.has(id)).length
+    if (count > 0) {
+      const conversations = count === 1 ? 'conversation' : 'conversations'
+      const close = count === 1 ? 'that conversation' : 'those conversations'
+      return Promise.reject(new Error(`${action} is held by ${count} ${conversations} with selected tool servers. Close ${close}, then try ${action} again.`))
     }
-    if (this.#reloadingMcp) return this.#reloadingMcp
-    const reloading = this.#server.request('config/mcpServer/reload', undefined).then(() => {}).finally(() => {
-      if (this.#reloadingMcp === reloading) this.#reloadingMcp = null
+    // Serialize tool changes and hold new opens until all admitted changes
+    // finish; an install must not be mistaken for an already-running Reload.
+    const changing = (this.#reloadingMcp ?? Promise.resolve()).catch(() => {}).then(apply).finally(() => {
+      if (this.#reloadingMcp === changing) this.#reloadingMcp = null
     })
-    this.#reloadingMcp = reloading
-    return reloading
+    this.#reloadingMcp = changing
+    return changing
   }
 
   /** A handle was closed; unless nothing was loaded or Codex never answered, the thread now waits out Codex's minute. */
@@ -1702,7 +1707,19 @@ export class CodexRuntime implements AgentRuntime {
       }
       descendants.delete(root)
       await Promise.all([...descendants].map(async (id) => {
-        if (abandoned() || this.#sessions.has(id) || this.#releases.closed(id)) return
+        const held = () => abandoned() || this.#sessions.has(id) || this.#releases.closed(id)
+        if (held()) return
+        try {
+          const turns = await this.#server.request('thread/turns/list',
+            { threadId: id, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded' }, { timeoutMs: 2_000 })
+          if (held()) return
+          const active = turns.data.find(turn => turn.status === 'inProgress')
+          if (active) await this.#server.request('turn/interrupt', { threadId: id, turnId: active.id }, { timeoutMs: 2_000 })
+        } catch {
+          // It may have ended or become unreadable since the snapshot. Release
+          // remains best-effort; an unanswered stop must not block the sweep.
+        }
+        if (held()) return
         try {
           this.#released(id, (await this.#server.request('thread/unsubscribe', { threadId: id }, { timeoutMs: 2_000 })).status)
         } catch {

@@ -26,7 +26,10 @@ import type {
 const isSessionImport = (kind: string): boolean => kind.toUpperCase() === 'SESSIONS'
 
 export class CodexExtensions implements RuntimeExtensions {
-  constructor(private readonly server: CodexAppServer, private readonly reload?: () => Promise<void>) {}
+  constructor(
+    private readonly server: CodexAppServer,
+    private readonly changeToolServers?: (action: 'Reload' | 'Install', apply: () => Promise<void>) => Promise<void>,
+  ) {}
 
   /**
    * The plugin marketplaces — the curated, on-disk plugins a Codex user
@@ -64,7 +67,9 @@ export class CodexExtensions implements RuntimeExtensions {
   }
 
   async install(marketplace: string, pluginName: string): Promise<void> {
-    await this.server.request('plugin/install', { remoteMarketplaceName: marketplace, pluginName })
+    const apply = async () => { await this.server.request('plugin/install', { remoteMarketplaceName: marketplace, pluginName }) }
+    if (this.changeToolServers) await this.changeToolServers('Install', apply)
+    else await apply()
   }
 
   async uninstall(pluginId: string): Promise<void> {
@@ -134,8 +139,9 @@ export class CodexExtensions implements RuntimeExtensions {
   }
 
   async reloadMcp(): Promise<void> {
-    if (this.reload) await this.reload()
-    else await this.server.request('config/mcpServer/reload', undefined)
+    const apply = async () => { await this.server.request('config/mcpServer/reload', undefined) }
+    if (this.changeToolServers) await this.changeToolServers('Reload', apply)
+    else await apply()
   }
 }
 

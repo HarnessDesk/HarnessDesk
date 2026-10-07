@@ -2172,8 +2172,10 @@ differs between seats is a parameter of their own thread, never of the process:
   closed handle until `thread/closed` arrives and does not announce that close
   or its `notLoaded` status back to the desk, which asked for it. The
   sub-agent threads it left loaded are found among the loaded threads by their
-  parent and unsubscribed with it, which a process of its own used to do by
-  exiting; a thread a session here holds, or another seat's, is left alone. A
+  parent; an in-progress child turn is interrupted before its thread is
+  unsubscribed, with each read and stop bounded to two seconds and errors
+  ignored. This replaces what a process of its own used to do by exiting;
+  a thread a session here holds, or another seat's, is left alone. A
   seat opened again inside the minute subscribes the same loaded thread; one
   opened while Codex is closing it waits for `thread/closed` and asks again. A
   reopened active thread recovers its in-progress turn from `thread/turns/list`,
@@ -2195,18 +2197,26 @@ seat's helpers live for Codex's minute rather than ending with a process, which
 bounds them to the seats released in the last minute and not to every seat since
 launch. A close the process never answers (the unsubscribe times out after two
 seconds) leaves that thread's helpers until the process rests or restarts.
-Closing a pane interrupts its running turn before unsubscribing, so a Flow
-Stop or a budget stop never leaves work running behind a closed handle.
-If interruption fails, closing fails and keeps the handle subscribed for retry.
+Closing a pane asks its running turn to end before unsubscribing; a Flow
+Stop or a budget stop uses the same close path.
+Closing reuses an interrupt already sent for that turn and accepts the process's
+"no active turn to interrupt" refusal as completion. Turn notices heard during
+the start request take precedence over its reply. An interrupt request and
+the subsequent wait for its completion notice each have a two-second bound;
+a missing notice after an acknowledged stop does not prevent unsubscribe.
+Other interruption failures keep the handle subscribed for retry.
 
 **Reload and a frozen native-server selection.** A Seat keeps the tool servers
 it opened with across a Reload. The choice is (a): hold the account's reload
 while any open conversation has a frozen selection, including an empty one.
-Extensions › Reload reports "Reload is held. Close conversations with selected
-tool servers, then try Reload again." The person retries after the last
-filtered handle closes; no deferred reload runs unexpectedly. Conversations
-opening also hold Reload, and an opening that follows an in-flight Reload
-waits for it before reading configuration. Closing and resuming a filtered
+Extensions › Reload reports how many conversations hold it and asks the person
+to close them, then try Reload again. Plugin installation has the same hold:
+installing can start new tool servers on existing threads, so the install is
+refused before it changes configuration while filtered handles remain open.
+The person retries after the last filtered handle closes; no deferred reload runs unexpectedly. Conversations
+opening hold both operations. Tool changes are serialized, and an opening
+that follows an in-flight Reload or installation waits for the admitted
+changes before reading configuration. Closing and resuming a filtered
 Seat rereads native configuration and reapplies its frozen list.
 
 **Where a separate process is still called for.** A frozen selection uses the

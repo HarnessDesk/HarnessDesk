@@ -116,6 +116,7 @@ const loadedThreads = new Map()
 /** The threads with a turn in flight, which Codex never closes. */
 const workingThreads = new Set()
 const activeTurns = new Map()
+const interruptedTurns = new Set()
 /**
  * Sub-agent threads, by parent. Measured on 0.160.0: Codex loads one with its
  * own tool helpers, subscribes the parent's client to it without announcing it,
@@ -2039,6 +2040,10 @@ rl.on('line', (line) => {
 
     case 'plugin/install':
       pluginState[params.pluginName] = true
+      if (process.env.FAKE_CODEX_INSTALL_MCP && nativeServers) {
+        if (!nativeServers.includes(process.env.FAKE_CODEX_INSTALL_MCP)) nativeServers.push(process.env.FAKE_CODEX_INSTALL_MCP)
+        for (const [threadId, held] of loadedThreads) if (held.subscribed) loadMcpChild(threadId)
+      }
       send({ id, result: { authPolicy: 'ON_USE', appsNeedingAuth: [] } })
       return
 
@@ -2450,9 +2455,13 @@ rl.on('line', (line) => {
         setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: said }))
         return
       }
-      // A turn in which the agent spawns a sub-agent, and ends: `spawn`.
-      if (said === 'spawn') {
-        spawnChild(THREAD)
+      // A child can keep working after its parent finishes.
+      if (said === 'spawn' || said === 'spawn-working') {
+        const child = spawnChild(THREAD)
+        if (said === 'spawn-working') {
+          workingThreads.add(child)
+          notify('turn/started', { threadId: child, turn: { id: `turn-${child}`, items: [], itemsView: 'full', status: 'inProgress', error: null } })
+        }
         send(response)
         setImmediate(() => notify('turn/completed', { threadId: THREAD, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } }))
         return
@@ -2496,6 +2505,12 @@ rl.on('line', (line) => {
       if (mode === 'turn' && !background && !verify && process.env['FAKE_CODEX_TURN_START_ORDER'] === 'one-chunk') {
         process.stdout.write(`${[response, ...turnOpening()].map((message) => JSON.stringify(message)).join('\n')}\n`)
         setImmediate(() => playTurn(true))
+        return
+      }
+      if (process.env.FAKE_CODEX_COMPLETE_ON_START === '1') {
+        send(response)
+        notify('turn/started', { threadId: THREAD, turn: response.result.turn })
+        notify('turn/completed', { threadId: THREAD, turn: { ...response.result.turn, status: 'completed' } })
         return
       }
       send(response)
@@ -2544,11 +2559,24 @@ rl.on('line', (line) => {
         stopReview(id, params)
         return
       }
+      // Repeated interruption on 0.160.0 does not answer; an already ended
+      // turn refuses. Opt in so unrelated older fixtures keep their contract.
+      if (process.env.FAKE_CODEX_STRICT_INTERRUPTS === '1') {
+        if (interruptedTurns.has(params.turnId)) return
+        if (!activeTurns.has(params.threadId) || process.env.FAKE_CODEX_NO_ACTIVE_ON_INTERRUPT === '1') {
+          activeTurns.delete(params.threadId)
+          workingThreads.delete(params.threadId)
+          send({ id, error: { code: -32600, message: 'no active turn to interrupt' } })
+          return
+        }
+        interruptedTurns.add(params.turnId)
+      }
+      if (process.env.FAKE_CODEX_HOLD_INTERRUPT === '1') return
       send({ id, result: {} })
-      notify('turn/completed', {
+      afterHold(process.env.FAKE_CODEX_INTERRUPT_GATE, () => notify('turn/completed', {
         threadId: params.threadId ?? THREAD,
         turn: { id: params.turnId, items: [], itemsView: 'summary', status: 'interrupted', error: null },
-      })
+      }), 'INTERRUPT_COMPLETION_HELD')
       return
 
     case 'turn/steer':

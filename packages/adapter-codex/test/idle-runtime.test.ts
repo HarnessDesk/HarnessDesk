@@ -554,16 +554,40 @@ test('a Seat keeps the tool servers it opened with across a Reload on the shared
   const empty = await d.runtime.createSession({ cwd: d.dir, runtimeServers: [] })
   const reloads = async () => (await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean)
     .map(line => JSON.parse(line) as { method: string }).filter(one => one.method === 'config/mcpServer/reload')
-  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held.*Close.*selected tool servers/i)
+  await assert.rejects(d.runtime.extensions.reloadMcp(), { message: 'Reload is held by 2 conversations with selected tool servers. Close those conversations, then try Reload again.' })
   assert.equal((await reloads()).length, 0)
   await selected.close()
-  await assert.rejects(d.runtime.extensions.reloadMcp(), /Reload is held/)
+  await assert.rejects(d.runtime.extensions.reloadMcp(), { message: 'Reload is held by 1 conversation with selected tool servers. Close that conversation, then try Reload again.' })
   assert.equal((await reloads()).length, 0, 'an empty selection also holds Reload')
   await empty.close()
   await d.runtime.extensions.reloadMcp()
   assert.equal((await reloads()).length, 1, 'the last filtered close allows Reload with other conversations open')
   assert.equal(d.runtime.session(unfiltered.id), unfiltered)
   assert.equal(d.runtime.resourceProcessIds().length, 1)
+})
+
+test('plugin installation cannot start a new helper on an open filtered Seat', async (t) => {
+  const previousVersion = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previousVersion === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previousVersion })
+  const d = await rig(t, 'hold', { FAKE_CODEX_NATIVE_SERVERS: '["docs"]', FAKE_CODEX_INSTALL_MCP: 'plugin-tools' })
+  const selected = await d.runtime.createSession({ cwd: d.dir, runtimeServers: ['docs'] })
+  const empty = await d.runtime.createSession({ cwd: d.dir, runtimeServers: [] })
+  const before = await d.children()
+  await assert.rejects(d.runtime.extensions.install('openai-curated', 'spreadsheets'),
+    /Install is held by 2 conversations with selected tool servers/)
+  assert.deepEqual(await d.children(), before, 'installation never starts a helper on either filtered Seat')
+  assert.equal((await d.runtime.extensions.catalog()).plugins.find(plugin => plugin.id === 'spreadsheets@openai-curated')?.installed, false)
+  await selected.close()
+  await assert.rejects(d.runtime.extensions.install('openai-curated', 'spreadsheets'), /Install is held by 1 conversation/)
+  await empty.close()
+  await d.runtime.extensions.install('openai-curated', 'spreadsheets')
+  assert.equal((await d.runtime.extensions.catalog()).plugins.find(plugin => plugin.id === 'spreadsheets@openai-curated')?.installed, true)
+  const resumed = await d.runtime.resumeSession(selected.id, { cwd: d.dir })
+  const helpers = (await d.children()).filter(child => child.threadId === resumed.id && running(child.pid)) as (Awaited<ReturnType<typeof d.children>>[number] & { name: string })[]
+  // The fake applies installs only to subscribed handles; a reopened filtered
+  // Seat must still apply its saved selection against the new configuration.
+  assert.deepEqual(helpers.map(child => child.name), ['docs'])
 })
 
 test('no-cwd resume and fork reread native configuration in the source thread folder', async (t) => {
