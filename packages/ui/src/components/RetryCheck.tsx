@@ -16,10 +16,10 @@ import { useSnapshotSelector, useStore } from '../state/context'
  * never pressed through.
  *
  * Every place that offers a check again opens this one dialog: the Run view's
- * timeline row and inspector (`RunAgain`), the board's *Run this check again…*,
+ * timeline row and inspector, the board's *Run this check again…*,
  * and the stalled Run's *Review and run again…*.
  */
-export const RetryCheck = ({ run, card, onClose }: { readonly run: string; readonly card: number; readonly onClose: () => void }) => {
+export const RetryCheck = ({ run, card, onClose, refusal = null }: { readonly run: string; readonly card: number; readonly onClose: () => void; readonly refusal?: string | null }) => {
   const store = useStore()
   const record = useSnapshotSelector(snapshot => isRecord(snapshot.goals.get(snapshot.flowExecutions.get(run)?.goal ?? '')))
   const [preview, setPreview] = useState<FlowPreview | null>(null)
@@ -41,7 +41,7 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
 
   const confirm = async (): Promise<void> => {
     const snapshot = store.getSnapshot()
-    if (!preview?.token || busy || isRecord(snapshot.goals.get(snapshot.flowExecutions.get(run)?.goal ?? ''))) return
+    if (!preview?.token || busy || refusal !== null || isRecord(snapshot.goals.get(snapshot.flowExecutions.get(run)?.goal ?? ''))) return
     setBusy(true)
     try {
       await store.retryFlowCheck(run, card, preview.token)
@@ -58,11 +58,12 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
       confirmLabel="Run again"
       tone="default"
       busy={busy}
-      pending={record || !preview?.token}
+      pending={record || refusal !== null || !preview?.token}
+      focusCancel={record || refusal !== null}
       onConfirm={() => void confirm()}
       onCancel={onClose}
     >
-      {record && <Note>{RECORD_REASON}</Note>}
+      {(record || refusal !== null) && <Note>{record ? RECORD_REASON : refusal}</Note>}
       <Note>
         This runs the same command in the card’s checkout as it is now. Its previous output is kept;
         running it again is your explicit consent.
@@ -80,41 +81,36 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
 }
 
 /**
- * *Run again…* for one check card, on a timeline row or in its inspector.
+ * *Run again…* for one check card in its inspector.
  *
  * `refusal` is what the Run and the check already say (`checkRetryRefusal`,
  * the host's own sentence), and anything else the host refuses is said in the
  * dialog this opens. For an actionable refusal the inspector keeps the control,
  * disabled, with the reason on screen. An ended Run or wrapped Team keeps
- * only the reason; a timeline row shows nothing, so a
- * settled Run does not repeat one sentence down every check row — the reason
- * is a click away in the inspector.
+ * only the reason. The timeline offers its own control; a settled Run does
+ * not repeat one sentence down every check row — the reason is in the inspector.
  */
-export const RunAgain = ({ run, card, refusal, onRow = false, terminal = false }: {
+export const RunAgain = ({ run, card, refusal, terminal = false }: {
   readonly run: string
   readonly card: number
   readonly refusal: string | null
   /** The Run has ended or its Team is wrapped; this check can never run here again. */
   readonly terminal?: boolean
-  /** On a timeline row: a quiet link, and absent while refused. */
-  readonly onRow?: boolean
 }) => {
   const [asking, setAsking] = useState(false)
-  if ((refusal !== null || terminal) && onRow) return null
-  if (terminal) return refusal === null ? null : <Text role="meta" as="div" className="break-words [overflow-wrap:anywhere]">{refusal}</Text>
+  const showAction = !terminal
   const ask = () => setAsking(true)
-  const again = onRow
-    ? <Button variant="link" size="xs" onClick={ask}>Run again…</Button>
-    : <Button variant="outline" size="sm" className="self-start" onClick={ask}>Run again…</Button>
+  const again = <Button variant="outline" size="sm" className="self-start" onClick={ask}>Run again…</Button>
   return (
     <>
-      {refusal === null ? again : (
+      {terminal && refusal !== null && <Text role="meta" as="div" className="break-words [overflow-wrap:anywhere]">{refusal}</Text>}
+      {showAction && (refusal === null ? again : (
         <div className="flex min-w-0 flex-col items-start gap-(--hd-space-1)">
           <RefusedAction reason={refusal}>{again}</RefusedAction>
           <Text role="meta" as="div" className="break-words [overflow-wrap:anywhere]">{refusal}</Text>
         </div>
-      )}
-      {asking && <RetryCheck run={run} card={card} onClose={() => setAsking(false)} />}
+      ))}
+      {asking && <RetryCheck run={run} card={card} refusal={terminal ? refusal ?? 'This run has ended. Start a new run to run this check again.' : refusal} onClose={() => setAsking(false)} />}
     </>
   )
 }

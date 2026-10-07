@@ -1954,12 +1954,30 @@ test('description markers retain the plain alphabet in every rendered text field
 })
 
 test('description labels remove link forms and keep exactly 80 characters without truncation', () => {
-  for (const [label, expected] of [['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['Preview gh-12gh-12 Model', 'Preview Model'], ['x'.repeat(80), 'x'.repeat(80)]]) {
+  for (const [label, expected] of [[`${'a'.repeat(73)} www${'b'.repeat(8)}`, `${'a'.repeat(73)} ..`], ['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['Preview gh-12gh-12 Model', 'Preview Model'], ['x'.repeat(80), 'x'.repeat(80)], [`${'a'.repeat(74)}www${'b'.repeat(8)}`, `${'a'.repeat(74)} ..`]]) {
     const seat = { ...SEAT, label: label!, role: 'writer' }
     const first = signDescription('First.', '{role}: {seat}', seat)
     assert.equal(authorsFrom(first)[0]?.label, expected)
     assert.equal(unmarked(signDescription('Edited.', '{role}: {seat}', null, first)), `Edited.\n\nWriter: ${expected}`)
   }
+})
+
+test('truncated description labels keep their credit in publication cards and later edits', async (t) => {
+  const forge = await rig(t, { signature: '{role}: {seat}' })
+  const label = `${'a'.repeat(74)}www${'b'.repeat(8)}`
+  const expected = `${'a'.repeat(74)} ..`
+  forge.seat.current = { ...SEAT, label, role: 'writer' }
+  assert.doesNotMatch(await forge.run('pr_create', { title: 'Signatures', body: 'First.' }), /Description credit not kept/)
+  let body = readFileSync(join(forge.home, 'body.md'), 'utf8')
+  assert.equal(unmarked(body), `First.\n\nWriter: ${expected}`)
+  assert.equal(forge.published.at(-1)?.signature, `Writer: ${expected}`)
+  assert.equal(authorsFrom(body)[0]?.label, expected)
+  forge.seat.current = { ...forge.seat.current, role: 'fixer' }
+  assert.doesNotMatch(await forge.run('pr_update', { body: 'Fixed.' }), /Description credit not kept/)
+  body = readFileSync(join(forge.home, 'body.md'), 'utf8')
+  assert.equal(unmarked(body), `Fixed.\n\nWriter: ${expected} · Fixer: ${expected}`)
+  assert.equal(forge.published.at(-1)?.signature, previousSignature(body))
+  assert.equal(unmarked(signDescription('Edited.', '{role}: {seat}', null, body)), `Edited.\n\nWriter: ${expected} · Fixer: ${expected}`)
 })
 
 test('description writes remove short references from rendered parts', () => {

@@ -322,6 +322,8 @@ export const prepareConfig = (selection: Parameterised | null, chatId?: string):
   // chose, and the mirrored `model` block goes too: it is the editor's last
   // pick with the editor's Max-mode bit inside it, and the flag rebuilds it.
   config['maxMode'] = selection !== null
+  // Provenance is per turn; neither the editor nor an earlier turn owns it.
+  config['maxModeAutoEnabled'] = false
   delete config['model']
   if (selection) {
     config['selectedModel'] = selection
@@ -823,11 +825,14 @@ interface Session {
   thinking: boolean
   fast: boolean
   /**
-   * Cursor's Max mode for this session: the widest context window the model
-   * offers, billed at the model's API rate plus 20%. Off unless the person
-   * turned it on and was told what it costs.
+   * Cursor's Max mode for this session. After a turn it reflects the CLI's
+   * saved flag independently of its context window, including a
+   * mode the CLI enabled on its own.
    */
   maxMode: boolean
+  /** The person's choice, independent of what the last turn reported. */
+  wantedMaxMode: boolean
+  maxModeAutoEnabled: boolean
   /** The window the last turn actually ran with, as cursor-agent named it. */
   context: string | null
   /**
@@ -1058,7 +1063,10 @@ export class CursorAcpBridge {
 
   /** The full catalog, grouped into families by the id grammar. */
   async #families(): Promise<readonly ModelFamily[]> {
-    const rows = await this.#listModels()
+    return this.#familiesFrom(await this.#listModels())
+  }
+
+  #familiesFrom(rows: readonly ModelRow[]): readonly ModelFamily[] {
     const grouped = new Map<string, { labels: string[]; variants: CatalogVariant[] }>()
     for (const row of rows) {
       const { family, variant } = parseVariant(row.modelId)
@@ -1177,6 +1185,9 @@ export class CursorAcpBridge {
         : 'Maxes out the context window and tool calls — billed at API pricing.',
       type: 'toggle',
       currentValue: session.maxMode,
+      ...(session.maxModeAutoEnabled
+        ? { _meta: { harnessdesk: { modelStatus: 'Auto Max' } } }
+        : {}),
       // Cursor puts this behind a card of its own rather than a switch, and
       // so does HarnessDesk: it is the one control here that changes the bill.
       confirm: {
@@ -1199,6 +1210,7 @@ export class CursorAcpBridge {
   /** Applies (possibly adjusted) dimensions; returns the family for announcing. */
   async #applyDimensions(session: Session, familyId: string): Promise<ModelFamily | undefined> {
     if (familyId === 'auto') {
+      if (session.familyId !== familyId) this.#clearMaxReport(session)
       session.familyId = 'auto'
       session.modelId = 'auto'
       return undefined
@@ -1206,13 +1218,20 @@ export class CursorAcpBridge {
     const families = await this.#families()
     const family = families.find((entry) => entry.id === familyId)
     if (!family) throw new Error(`model ${JSON.stringify(familyId)} is not offered by this Cursor account`)
-    session.familyId = familyId
     const resolved = this.#resolve(session, family)
+    if (session.familyId !== familyId || session.modelId !== resolved.modelId) this.#clearMaxReport(session)
+    session.familyId = familyId
     session.modelId = resolved.modelId
     session.effort = resolved.effort
     session.thinking = resolved.thinking
     session.fast = resolved.fast
     return family
+  }
+
+  #clearMaxReport(session: Session): void {
+    session.maxMode = session.wantedMaxMode
+    session.maxModeAutoEnabled = false
+    session.context = null
   }
 
   #announceOptions(session: Session, family: ModelFamily | undefined): void {
@@ -1243,6 +1262,8 @@ export class CursorAcpBridge {
       fast: false,
       wanted: { effort: 'high', thinking: false, fast: false },
       maxMode: false,
+      wantedMaxMode: false,
+      maxModeAutoEnabled: false,
       context: null,
       sandbox: 'default',
       pluginDir,
@@ -1567,7 +1588,9 @@ export class CursorAcpBridge {
       session.sandbox = value
     } else if (optionId === 'max-mode') {
       if (typeof value !== 'boolean') throw new Error('max-mode is a toggle; it takes true or false')
+      session.wantedMaxMode = value
       session.maxMode = value
+      session.maxModeAutoEnabled = false
     } else {
       throw new Error(`no option ${JSON.stringify(optionId)}`)
     }
@@ -1603,6 +1626,7 @@ export class CursorAcpBridge {
     try {
       const text = this.#textOf(params['prompt'], session)
       if (text.trim() === '') throw new Error('the prompt contains no text')
+      const wantedMaxMode = session.wantedMaxMode
 
       // Two ways to name a model, and only one of them can widen a window.
       // `--model <slug>` names a fixed variant of the flat catalogue, context
@@ -1611,7 +1635,7 @@ export class CursorAcpBridge {
       // instead, which lives in the config rather than on the command line, so
       // the flag comes off and the config carries the choice.
       const wide =
-        session.maxMode && session.familyId !== 'auto'
+        wantedMaxMode && session.familyId !== 'auto'
           ? (() => {
               const known = this.#parameterisedFor(session.familyId)
               return known ? withContext(known, MAX_CONTEXT) : null
@@ -1661,7 +1685,7 @@ export class CursorAcpBridge {
           return { stopReason: 'cancelled' }
         }
         try {
-          const outcome = await this.#runTurn(session, args, configHome, spoke, leave)
+          const outcome = await this.#runTurn(session, args, configHome, wantedMaxMode, spoke, leave)
           // The agent has read the prompt — briefing included — whatever the
           // turn's outcome; the chat remembers it under `--resume`.
           session.briefed = true
@@ -1730,9 +1754,12 @@ export class CursorAcpBridge {
     session: Session,
     args: readonly string[],
     configHome: string,
+    wantedMaxMode: boolean,
     spoke: { yet: boolean },
     leave: () => void,
   ): Promise<TurnOutcome> {
+    const familyId = session.familyId
+    const modelId = session.modelId
     const child = spawn(this.#command, [...args], {
       cwd: session.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -1741,7 +1768,7 @@ export class CursorAcpBridge {
     session.child = child
 
     const stderrTail: string[] = []
-    createInterface({ input: child.stderr! }).on('line', (line) => {
+    const stderr = createInterface({ input: child.stderr! }).on('line', (line) => {
       stderrTail.push(line)
       if (stderrTail.length > 20) stderrTail.shift()
       this.#log(`cursor-agent: ${line}`)
@@ -1757,7 +1784,7 @@ export class CursorAcpBridge {
     let outcome: TurnOutcome | Error | null = null
 
     const capture = process.env['CURSOR_ACP_CAPTURE']
-    createInterface({ input: child.stdout! }).on('line', (line) => {
+    const stdout = createInterface({ input: child.stdout! }).on('line', (line) => {
       if (line.trim() === '') return
       if (capture) {
         // Debugging aid: the raw stream-json tape, appended verbatim. The
@@ -1796,31 +1823,46 @@ export class CursorAcpBridge {
     })
 
     return new Promise((resolve, reject) => {
-      child.once('error', (error) => {
+      let settled = false
+      let grace: ReturnType<typeof setTimeout> | undefined
+      const cleanup = () => {
+        settled = true
+        clearTimeout(grace)
+        stdout.close()
+        stderr.close()
+        child.stdout?.destroy()
+        child.stderr?.destroy()
         session.child = null
         leave()
+      }
+      child.once('error', (error) => {
+        if (settled) return
+        cleanup()
         reject(
           error.message.includes('ENOENT')
             ? new Error(`${this.#command} was not found — is the Cursor CLI installed and on PATH?`)
             : error,
         )
       })
-      child.once('exit', (code) => {
-        session.child = null
-        leave()
-        this.#learn(session.familyId, session.chatId)
-        if (session.maxMode && session.context !== null && !/^1M$/i.test(session.context)) {
-          // The CLI drops a parameter combination it dislikes and runs the
-          // model's default instead, saying so only in its debug log. The
-          // window it named is the evidence; the switch goes back off rather
-          // than sitting on claiming something that did not happen.
-          session.maxMode = false
-          this.#log(`cursor-acp: Max mode is not offered for ${session.familyId}; ran at ${session.context}`)
+      const finish = (code: number | null) => {
+        if (settled) return
+        cleanup()
+        // The CLI has exited and its pipes have drained, or their short
+        // grace expired. A grandchild must not keep the turn open forever.
+        if (session.familyId === familyId && session.modelId === modelId) {
+          this.#learn(familyId, session.chatId)
+          // A choice made since this config was prepared belongs to the
+          // next turn; the older report must not overwrite that choice.
+          if (session.wantedMaxMode === wantedMaxMode) {
+            const config = readJson(join(configHome, 'cli-config.json'))
+            session.maxMode = typeof config?.['maxMode'] === 'boolean' ? config['maxMode'] : session.wantedMaxMode
+            session.maxModeAutoEnabled = config?.['maxMode'] === true && config['maxModeAutoEnabled'] === true
+          }
+          // Completion carries corrected controls without starting a models
+          // process. The next catalogue request can refresh the aged rows.
+          const family = this.#familiesFrom(this.#models ?? []).find((entry) => entry.id === familyId)
+          this.#announceOptions(session, family)
         }
-        void this.#families()
-          .then((families) => families.find((entry) => entry.id === session.familyId))
-          .then((family) => this.#announceOptions(session, family))
-          .catch(() => {})
         if (session.cancelled) {
           resolve({ stopReason: 'cancelled' })
         } else if (outcome instanceof Error) {
@@ -1835,7 +1877,14 @@ export class CursorAcpBridge {
             ),
           )
         }
+      }
+      child.once('exit', (code) => {
+        if (!settled) {
+          grace = setTimeout(() => finish(code), 250)
+          grace.unref()
+        }
       })
+      child.once('close', finish)
     })
   }
 

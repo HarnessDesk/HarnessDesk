@@ -203,3 +203,9 @@ test('any other error is printed the same way: its first line as it is, every la
   assert.equal(errorText(new Error('one\ntwo\n\nfour')), 'one\n  | two\n  | \n  | four')
   assert.equal(errorText('a string\nthrown'), 'a string\n  | thrown')
 })
+
+
+test('card answer documents a missing card as an exit-4 refusal', () => {
+  const command = COMMANDS.find(command => command.name === 'card answer')!
+  assert.match(command.exits[4]!, /missing.*`cardMissing`/)
+})

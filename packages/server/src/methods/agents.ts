@@ -124,6 +124,7 @@ export const agentMethods = {
         id,
         list: candidatesFor(entry.definition, machine),
         prefer: entry.definition.prefer,
+        definition: entry.definition,
         need: { level: ceilingWithin(entry.definition.ceiling, grantOf(undefined)), unheld },
       }
     })
@@ -135,12 +136,13 @@ export const agentMethods = {
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
     return weighed.map((one): SeatPlan => {
       if ('plan' in one) return one.plan
-      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer', one.need).candidates
+      const offers = nativeServerOffers(ctx, one.definition, desk.offers)
+      const own = () => planSeats(one.id, one.prefer, offers, words, 'prefer', one.need).candidates
       if ('refused' in one.list) return { ...blockedPlan(one.id, one.list.refused, 'machine'), own: own() }
       if (one.list.from === 'machine') {
-        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine', one.need), own: own() }
+        return { ...planSeats(one.id, one.list.seats, offers, words, 'machine', one.need), own: own() }
       }
-      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer', one.need)
+      return planSeats(one.id, one.list.seats, offers, words, 'prefer', one.need)
     })
   },
 
@@ -516,7 +518,7 @@ export async function defaultSeatRuntime(ctx: HostContext, definition: AgentDefi
   if ('refused' in list) return null
   const desk = await readDesk(ctx, list.seats)
   const need: CeilingNeed = { level: ceilingWithin(definition.ceiling, grantOf(undefined)), unheld: unheldPolicy(ctx.state.state.preferences) }
-  return chooseSeat(list.seats, desk.offers, need).seat?.runtime ?? null
+  return chooseSeat(list.seats, nativeServerOffers(ctx, definition, desk.offers), need).seat?.runtime ?? null
 }
 
 /** The one seating operation used by a plain Agent and by Goal staffing. */
@@ -552,7 +554,7 @@ export async function seatAgent(
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
   const desk = await readDesk(ctx, candidates)
-  const offers = desk.offers
+  const offers = nativeServerOffers(ctx, definition, desk.offers)
   const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
   const said = (values: readonly PassedOver[]) => values.map((one) => candidateOf(one, words))
   const passed: PassedOver[] = []
@@ -586,6 +588,7 @@ export async function seatAgent(
     const opened = await openAsAsked(ctx, selected, {
       cwd: params.cwd, project, title: definition.name,
       ceiling: level,
+      ...(definition.runtimeServers !== undefined ? { runtimeServers: definition.runtimeServers } : {}),
       ...(context.environment ? { environment: context.environment } : {}),
       ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
     }, words)
@@ -612,6 +615,7 @@ export async function seatAgent(
       agent: definition.id,
       name: definition.name,
       briefDigest: digest,
+      ...(definition.runtimeServers !== undefined ? { runtimeServers: definition.runtimeServers } : {}),
       standing: standingOf(definition.ceilingFrom, level),
       seatLabel: opened.label,
       passedOver: said(passed),
@@ -626,6 +630,7 @@ export async function seatAgent(
       record = await ctx.evidence.seats.opened({
         agent: { id: definition.id, name: definition.name, origin: entry.origin },
         briefDigest: digest,
+        ...(definition.runtimeServers !== undefined ? { runtimeServers: definition.runtimeServers } : {}),
         seat: selected,
         seatLabel: seated.seatLabel,
         passedOver: seated.passedOver,
@@ -915,6 +920,7 @@ type Weighed =
       readonly id: AgentId
       readonly list: CandidateList | { readonly refused: string }
       readonly prefer: readonly FlowSeat[]
+      readonly definition: AgentDefinition
       readonly need: CeilingNeed
     }
 
@@ -1031,6 +1037,7 @@ const openAsAsked = async (
     readonly title: string
     readonly environment?: Readonly<Record<string, string>>
     readonly ceiling?: CeilingLevel
+    readonly runtimeServers?: readonly string[]
     readonly attachments?: SessionAttachments
   },
   words: SeatWords,
@@ -1337,6 +1344,16 @@ const catalogueOf = async (runtime: AgentRuntime, deadline: number): Promise<rea
   return read.settled === 'value' ? (read.value ?? null) : null
 }
 
+const nativeServerOffers = (ctx: HostContext, definition: AgentDefinition, offers: readonly SeatOffer[]): readonly SeatOffer[] => {
+  if (definition.runtimeServers === undefined) return offers
+  return offers.map(offer => {
+    if (offer.unknownRuntime || offer.notInstalled || offer.unavailable || offer.silent != null) return offer
+    return ctx.runtimes.resolve({ runtime: offer.runtime }).info.capabilities.nativeServerSelection
+      ? offer
+      : { ...offer, unavailable: 'This runtime cannot select native servers independently for a conversation.' }
+  })
+}
+
 /**
  * One Agent's seat plan, for a flow's dry run: the same reads and the same
  * chooser `agent/seat/dry` uses for the whole roster, narrowed to one Agent
@@ -1374,7 +1391,7 @@ export const previewAgent = async (
   // A role's own explicit `seats:` reads like `prefer` here: `SeatPlan.from` tells
   // a person "the machine" or "the Agent" chose this list, and a role's own list is
   // the flow author's choice, presented the way an Agent's own `prefer` is.
-  return planSeats(agent, list.seats, desk.offers, words, list.from === 'seats' ? 'prefer' : list.from, need, {
+  return planSeats(agent, list.seats, nativeServerOffers(ctx, entry.definition, desk.offers), words, list.from === 'seats' ? 'prefer' : list.from, need, {
     includeCandidateCeilings: options.includeCandidateCeilings,
   })
 }

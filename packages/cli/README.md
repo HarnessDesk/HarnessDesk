@@ -200,10 +200,10 @@ there is no positional context argument and no confirmation. The card must
 belong to a person role and the outcome must be one that role declares. The
 desk must grant answer through the Permissions setting “Let command-line clients answer for me”
 or `HARNESSDESK_CLIENTS_MAY_ANSWER=1` in the host environment. It is off by
-default. A denied tier, an agent card, an undeclared outcome or a repeated
-answer exits 4 with the desk's refusal code on stderr (`tierNotGranted`,
-`refused` or `alreadyAnswered`). The channel attributes an accepted answer
-to the command line. JSON is `{team: string, card: number, outcome: string}`.
+default. A denied tier, a missing card, an agent card, an undeclared outcome or
+a repeated answer exits 4 with the desk's refusal code on stderr (`tierNotGranted`,
+`cardMissing`, `refused` or `alreadyAnswered`). The channel attributes an
+accepted answer to the command line. JSON is `{team: string, card: number, outcome: string}`.
 
 `card abandon <team> <card> --reason TEXT [--yes]` uses the run tier. Before
 confirmation, including with `--yes`, stderr warns that the rule after the

@@ -457,3 +457,14 @@ test('trigger observation reuses immutable fact identity', async () => {
   }
   assert.equal(lineOf({ v: 1, type: 'evidence', record: { ...checkFact(), intake: record.intake } }, FACTS), null, 'no intake metadata on a check fact')
 })
+
+test('native server selections survive Seat folding and malformed selections are refused whole', () => {
+  const names = ['GitHub', '_local', 'plugin@acme/docs.v2:read-only']
+  const valid = { v: 1, type: 'seat', record: opening({ runtimeServers: names }) }
+  const read = lineOf(valid, SEATS)
+  assert.ok(read)
+  assert.deepEqual(foldSeats([read])[0]?.runtimeServers, names)
+  for (const runtimeServers of [['docs', 'docs'], ['bad name'], ['bad$name'], ['a'.repeat(129)], Array(65).fill('docs'), null]) {
+    assert.equal(lineOf({ ...valid, record: { ...valid.record, runtimeServers } }, SEATS), null)
+  }
+})

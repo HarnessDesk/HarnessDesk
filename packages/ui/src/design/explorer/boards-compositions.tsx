@@ -33,7 +33,7 @@ import { FindingDecision } from '../../components/FindingDecision'
 import { WindowControls } from '../../components/WindowControls'
 import { splitRefusal } from '../../panels/PanelActions'
 import { SideBySide, sideBySideTileEntry } from '../../components/SideBySide'
-import { Menu, MenuItem } from '..'
+import { Chip, HeaderStatusGroup, HeaderStatusReading, Menu, MenuItem } from '..'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -2890,7 +2890,26 @@ const LibraryBoard = () => {
   return <StoreProvider store={store}><LibrarySection /></StoreProvider>
 }
 
+const HeaderStatusBoard = () => (
+  <div className="flex flex-col items-start gap-6" data-catalog="header-status">
+    <Text role="subject">At rest</Text>
+    <HeaderStatusGroup>
+      <HeaderStatusReading label="Status" detail="Working"><Chip tone="neutral" variant="quiet" dotTone="neutral" dotPulse dotShape="square">Working</Chip></HeaderStatusReading>
+      <HeaderStatusReading label="Ceiling" detail="Read only · Held by the runtime"><Text role="meta">Read only</Text></HeaderStatusReading>
+      <HeaderStatusReading label="Branch" detail="main"><Button variant="ghost" size="chip"><BranchIcon size={13} />main</Button></HeaderStatusReading>
+      <HeaderStatusReading label="Plan usage" detail="Weekly allowance · 78% left"><Text role="meta" numeric>78%</Text></HeaderStatusReading>
+      <HeaderStatusReading label="Other agents" detail="1 other agent · out of quota for 6h"><Text role="meta">1 out</Text></HeaderStatusReading>
+    </HeaderStatusGroup>
+    <Text role="subject">Needs you</Text>
+    <HeaderStatusGroup>
+      <HeaderStatusReading label="Status" detail="Waiting for you to answer an approval"><Chip tone="warning" variant="quiet" dotTone="warning">Waiting for you</Chip></HeaderStatusReading>
+      <HeaderStatusReading label="Branch" detail="main"><Button variant="ghost" size="chip"><BranchIcon size={13} />main</Button></HeaderStatusReading>
+    </HeaderStatusGroup>
+  </div>
+)
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
   { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
     id: 'tables',

@@ -1,3 +1,5 @@
+import { AgentPage } from '../components/AgentPage'
+import { PREVIEW_AGENTS } from './harness'
 import { TeamFrame } from './frames-team-frame'
 import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
@@ -98,6 +100,7 @@ import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
+import { HeaderStatusFrames } from './frames-header-status'
 import { ReadCeilingFrames } from './frames-read-ceiling'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -456,6 +459,18 @@ const RuntimesPreview = () => {
       </div>
     </StoreProvider>
   )
+}
+
+const NativeServersPreview = () => {
+  useTheme()
+  const entry = { ...PREVIEW_AGENTS[0]!, definition: { ...PREVIEW_AGENTS[0]!.definition!, runtimeServers: [] } }
+  const own = useMemo(() => previewStore({ agents: [entry] }), [])
+  return <StoreProvider store={own}><div className="min-h-screen bg-background px-8 py-10 text-foreground"><div className="mx-auto max-w-[760px]"><AgentPage entry={entry} onBack={() => {}} onLeave={() => {}} /></div></div></StoreProvider>
+}
+
+const RuntimeCostPreview = () => {
+  useTheme()
+  return <div className="min-h-screen bg-background text-foreground"><RuntimesPreview /></div>
 }
 
 export const Dial = <T extends string>({
@@ -1178,7 +1193,13 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('team-frame')
+        {new URLSearchParams(window.location.search).has('header-status')
+          ? <HeaderStatusFrames />
+          : new URLSearchParams(window.location.search).has('runtime-cost')
+          ? <RuntimeCostPreview />
+          : new URLSearchParams(window.location.search).has('native-servers')
+          ? <NativeServersPreview />
+          : new URLSearchParams(window.location.search).has('team-frame')
           ? <TeamFrame />
           : new URLSearchParams(window.location.search).has('inapplicable-actions')
           ? <InapplicableActionsFrames />

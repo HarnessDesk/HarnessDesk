@@ -8,14 +8,12 @@ import { AlertIcon } from './Icons'
 /**
  * The gate in front of a control the runtime says is a decision.
  *
- * Most settings are preferences: click, done. A few are not — Cursor's Max
- * mode widens every context window and bills the model's API rate plus 20%,
- * and its own client puts a card in front of it rather than a switch. A
- * setting like that must never come on because a pointer passed over it.
+ * Most settings are preferences: click, done. A setting that changes what
+ * the agent costs or may do needs an explicit decision before it comes on.
  *
  * The words are the runtime's, in `option.confirm`; the guarantee is this
- * hook's. Nothing here knows what Max mode is — an agent that declares a
- * confirmation on some control nobody has heard of gets the same card.
+ * hook's. An agent that declares a confirmation on an unfamiliar control
+ * gets the same card.
  *
  * Turning something *off* is never gated: stopping a bill should take one
  * click, and asking "are you sure you want to spend less?" is a dark pattern.

@@ -22,11 +22,11 @@ export interface AgentPreset {
   readonly values: Readonly<Record<string, OptionValue>>
 }
 
-/** The option values a session is currently on, as a preset would record them. */
+/** A reported model status is an observation, never a standing preference. */
 export const snapshotValues = (
   options: readonly ConfigOption[],
 ): Record<string, OptionValue> =>
-  Object.fromEntries(options.map((option) => [option.id, option.currentValue]))
+  Object.fromEntries(options.filter((option) => !option.modelStatus).map((option) => [option.id, option.currentValue]))
 
 /**
  * Reads user-defined presets out of persisted app state.
@@ -76,11 +76,12 @@ export const matchPreset = (
 ): AgentPreset | undefined => {
   if (!options) return undefined
   const current = snapshotValues(options)
+  const reported = new Set(options.filter((option) => option.modelStatus).map((option) => option.id))
   return presets.find(
     (preset) =>
       preset.runtime === runtime &&
-      Object.keys(preset.values).length > 0 &&
-      Object.entries(preset.values).every(([id, value]) => current[id] === value),
+      Object.keys(preset.values).some((id) => !reported.has(id)) &&
+      Object.entries(preset.values).every(([id, value]) => reported.has(id) || current[id] === value),
   )
 }
 

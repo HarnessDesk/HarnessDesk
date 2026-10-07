@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 import { AlertIcon, TrashIcon } from '../../components/Icons'
 import { Button } from '../ui/button'
@@ -32,6 +32,8 @@ import styles from './ConfirmDialog.module.css'
  *
  * The rule is in one file, so the eleventh confirm cannot get it wrong by
  * copying the tenth.
+ * A live update that removes the opener or disables confirmation can request
+ * `focusCancel`, moving focus to the keeping verb while the question stays open.
  */
 export const ConfirmDialog = ({
   title,
@@ -42,6 +44,7 @@ export const ConfirmDialog = ({
   busy = false,
   busyLabel,
   pending = false,
+  focusCancel = false,
   onConfirm,
   onCancel,
   children,
@@ -69,11 +72,18 @@ export const ConfirmDialog = ({
    * towards it gets clicked by accident.
    */
   pending?: boolean
+  /** Move focus to the keeping verb when a live update removes the opener or disables confirmation. */
+  focusCancel?: boolean
   onConfirm: () => void
   onCancel: () => void
   /** What is destroyed and where it goes. One or two sentences. */
   children: ReactNode
-}) => (
+}) => {
+  const cancel = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (focusCancel && !busy) cancel.current?.focus()
+  }, [focusCancel, busy])
+  return (
   /*
    * Base UI's alert dialog, wearing the app's dialog classes.
    *
@@ -139,10 +149,11 @@ export const ConfirmDialog = ({
         >
           {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
         </Button>
-        <Button variant="quiet" onClick={onCancel} disabled={busy}>
+        <Button ref={cancel} variant="quiet" onClick={onCancel} disabled={busy}>
           {cancelLabel}
         </Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
-)
+  )
+}

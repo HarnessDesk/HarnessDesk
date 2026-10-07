@@ -1,3 +1,4 @@
+import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
@@ -1962,6 +1963,8 @@ const AgentDetail = ({
 
       {info.origin === 'registry' && <InstallSection info={info} />}
 
+      <RuntimeResources runtime={info.id} />
+
       <NewSessionDefaults info={info} />
 
       {options.length > 0 && (
@@ -2121,6 +2124,8 @@ export const RuntimesSection = ({
           </Button>
         }
       />
+
+      <RuntimeResources />
 
       {/* Two agents fit on a screen and need no help being found; the filters
           arrive with the third, which is where scrolling starts. */}

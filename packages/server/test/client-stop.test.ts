@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { sessionId } from '@harnessdesk/protocol'
+import { CodexRuntime } from '@harnessdesk/adapter-codex'
+import { Host, StateStore } from '../src/index.js'
+import { silent } from './fixtures/harness.js'
 import { FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 import { ExecutionFiles } from '../src/flow-execution.js'
 import { start, stop } from './fixtures/harness.js'
@@ -40,6 +45,44 @@ rules:
   assert.equal((await h.host.call('flow/execution', { run: run.id })).state, 'stopped')
 })
 
+
+test('closing a working Flow pane ends its turn before Stop sees a closed handle', { timeout: 30_000 }, async t => {
+  const home = await mkdtemp('/tmp/hd-close-stop-')
+  const runtime = new CodexRuntime({
+    binaryPath: fileURLToPath(new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url)),
+    codexHome: join(home, 'codex'), env: { FAKE_CODEX_MODE: 'hold' },
+  })
+  const host = new Host({ logger: silent, state: new StateStore(join(home, 'state.json')), version: '9.9.9', catalogRefreshMs: 0 })
+  host.register(runtime)
+  t.after(async () => { await host.dispose(); await rm(home, { recursive: true, force: true }) })
+  await host.start()
+  await mkdir(join(home, 'agents', 'writer'), { recursive: true })
+  await writeFile(join(home, 'agents', 'writer', 'AGENT.md'), '---\nname: Writer\nceiling: read\nprefer: [codex]\n---\nWrite it.\n')
+  await host.call('workspace/open', { path: home })
+  const source = 'version: 2\nname: Close then stop\nroles:\n  writer: { kind: agent, uses: writer }\nseed: { role: writer, title: Write }\nrules: []\n'
+  const preview = await host.call('flow/preview', { root: home, source })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const run = await host.call('flow/start-goal', { root: home, source, sentence: 'Close then stop', token: preview.token! })
+  const view = await host.call('goal/read', { goal: run.goal })
+  const card = view.board.intents[0]!
+  assert.ok(card.claim)
+  const record = host.registry.get(runtime.info.id, sessionId(card.claim.sessionId))!
+  const until = async (condition: () => boolean) => {
+    const deadline = Date.now() + 5_000
+    while (!condition()) {
+      assert.ok(Date.now() < deadline, 'the closed pane must have no running turn')
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+  }
+  await until(() => record.running.size > 0)
+  await host.call('session/close', { runtime: runtime.info.id, sessionId: record.session.id })
+  assert.equal(record.live, null)
+  const stopped = await host.call('flow/execution/stop', { run: run.id, reason: 'Changed' })
+  assert.equal(stopped.state, 'stopped')
+  await until(() => record.running.size === 0)
+  const reopened = await runtime.resumeSession(record.session.id, { cwd: home })
+  await assert.rejects(() => reopened.interrupt(), /no turn is currently running/)
+})
 
 test('stop during a check startup journal prevents the deferred command from launching', async t => {
   const home = await mkdtemp('/tmp/hd-door-')

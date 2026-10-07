@@ -24,6 +24,10 @@
   height: 7px;
 }
 
+.dot[data-shape='square'] {
+  border-radius: var(--hd-radius-2xs);
+}
+
 .dot[data-state='ready'] {
   background: var(--hd-success);
 }
@@ -929,12 +933,13 @@
    draws outside the card.
 
    Earned only when a card of rows is what the head is actually naming
-   (`:has(+ […])` reads the very next sibling `Rows` renders): a head over a
+   (`:has(+ […])` reads the very next card or table container): a head over a
    `Note`, a plain button, or ProjectTriggers' own body has no such card to
    answer to, and the same inset put its label a row inset right of a body that
    starts flush with the page instead. */
 .sectionHead:has(+ [data-slot='rows']),
-.sectionHead:has(+ [role='radiogroup']) {
+.sectionHead:has(+ [role='radiogroup']),
+.sectionHead:has(+ [data-slot='table-container']) {
   padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
 }
 
