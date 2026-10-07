@@ -188,23 +188,90 @@ newer Codex started, opened after a downgrade):
 
 ## `mcp-release.mjs`
 
-Starts one thread with one synthetic MCP server in a newly created, isolated
-agent home, unsubscribes as the desk does, then stops the app-server. It runs
-no turn and does not read or edit the person's agent configuration.
+Starts two threads in one app-server, each with one synthetic MCP server that
+starts a child of its own, in a newly created, isolated agent home. It
+unsubscribes from the first as the desk does, then waits for Codex to close it.
+It runs no turn and does not read or edit the person's agent configuration.
 
 ```bash
-node script/probe/mcp-release.mjs
+pnpm build:node && node script/probe/mcp-release.mjs
 ```
 
-Build the Node packages first if this checkout has no compiled client. Measured
-2026-10-04 on codex-cli 0.160.0:
+A run takes about a minute. Measured on codex-cli 0.160.0:
 
 ```text
-children after start: 1
-unsubscribe: unsubscribed
-children one second after unsubscribe: 1
-children after app-server exit: 0
+processes after starting two threads: 4
+unsubscribe the first: unsubscribed
+processes one second after: 4
+thread/closed after 61 s; processes then: 2
+processes after app-server exit: 0
 ```
 
-The retained child belongs to the runtime process, so idle recycling is the
-release path ([decision](../../docs/decisions.md#finished-seats-release-handles-and-idle-runtimes-release-retained-tools)).
+`unsubscribe` only stops the events. A minute later Codex closes an idle thread
+nobody is subscribed to, its tool server and that server's child exit with it,
+and the other thread's two processes stay. So one process can serve every seat:
+a finished seat's helpers are released by its own thread closing
+([decision](../../docs/decisions.md#one-codex-process-per-account-shared-by-every-seat)).
+The probe this replaces waited one second, and read that as "retained".
+
+## `seat-processes.mjs`
+
+How many processes, and how much resident memory, do N seats on one account
+hold? Each seat is a new thread with one synthetic tool server, in an isolated
+home, against a loopback provider that answers nothing. Nothing leaves the
+machine.
+
+```bash
+pnpm build:node && node script/probe/seat-processes.mjs 1,3,8
+```
+
+It counts what hangs under the script: the app-servers, the launcher in front
+of each, and the helpers. `SEAT_PROCESSES_LIST=1` lists every process counted.
+Run before and after a change to how the adapter starts Codex, on the same
+build, to compare the two.
+
+## `subagent-release.mjs`
+
+A seat whose agent spawns a sub-agent: what does closing the seat leave behind?
+Two seats in one app-server, a synthetic tool server per thread, and a loopback
+provider that answers a turn saying `SPAWN` with a `spawn_agent` call and
+everything else with text, in an isolated agent home. Nothing leaves the
+machine. The desk unsubscribes from the first seat only, and from the second
+seat and its sub-agent, then watches for a minute and a half.
+
+```bash
+pnpm build:node && node script/probe/subagent-release.mjs
+```
+
+Measured on codex-cli 0.160.0:
+
+```text
+loaded: ["first seat","second seat","sub-agent of the first seat","sub-agent of the second seat"]; processes: 4
+unsubscribed the first seat only, and the second seat with its sub-agent: unsubscribed
+62 s: sub-agent of the second seat closed
+62 s: second seat closed
+62 s: first seat closed
+63 s: loaded: ["sub-agent of the first seat"]; processes: 1
+```
+
+Codex subscribes the parent's client to a sub-agent without announcing it, so
+the sub-agent is never unsubscribed and idle: closing its seat leaves it and its
+tools loaded until the process ends. The adapter finds a closed seat's
+sub-agents by their parent (`thread/read`) among `thread/loaded/list` and
+unsubscribes them with it ([decision](../../docs/decisions.md#one-codex-process-per-account-shared-by-every-seat)).
+
+## `mcp-selection.mjs`
+
+Starts synthetic native servers in an isolated agent home without a model turn.
+It checks selected, default and empty server lists, create/resume/fork overrides,
+reload, independent conversation release, and passive process roots.
+
+```bash
+pnpm build:node
+node script/probe/mcp-selection.mjs
+```
+
+Measured on 0.160.0. Expect only the selected helper on create, resume and fork,
+both configured helpers on an unrestricted concurrent thread, and zero owned
+roots after closing the conversations and stopping the idle runtime. The probe
+writes only synthetic configuration and rollout records and removes its own home.

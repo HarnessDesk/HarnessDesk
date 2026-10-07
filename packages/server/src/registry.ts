@@ -134,6 +134,7 @@ export interface SeatedAs {
    */
   readonly name: string
   readonly briefDigest: string
+  readonly runtimeServers?: readonly string[]
   /** The order in the vocabulary its Agent file used. */
   readonly standing: StandingOrder
   readonly seatLabel: string

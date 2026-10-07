@@ -10,15 +10,6 @@
   display: block;
 }
 
-/* The anchored Popover owns placement. The embedded menu still needs a real
-   anchor to finish Base UI's positioning lifecycle; without one its children
-   remain at opacity: 0 even though they are focusable and have layout boxes. */
-.embeddedPositioner {
-  position: static !important;
-  inset: auto !important;
-  transform: none !important;
-}
-
 .surface,
 .flyout {
   /* A floating panel is never a handle for moving the window. Electron's

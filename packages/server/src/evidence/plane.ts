@@ -213,6 +213,7 @@ export class EvidencePlane {
       agent: seat.agent.id,
       name: seat.agent.name,
       briefDigest: seat.briefDigest,
+      ...(seat.runtimeServers !== undefined ? { runtimeServers: seat.runtimeServers } : {}),
       standing: seat.standing,
       seatLabel: seat.seatLabel,
       passedOver: seat.passedOver,
@@ -597,6 +598,7 @@ export class EvidencePlane {
     const revision = card ? await revisionOf(where.cwd) : null
     const result = await run(command, {
       cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
+      flowAdvisory: false,
       ...(card ? { processOwner: { board: card.room, card: card.intent } } : {}),
     })
     const board = card ? this.#port.board(card.room) : null
@@ -677,6 +679,7 @@ export class EvidencePlane {
     const result = await runCommand(command, {
       cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
       processOwner: { board: card.goal, card: card.card },
+      flowAdvisory: card.advisory === true,
       ...(where.onStarted ? { onStarted: where.onStarted } : {}),
       ...(where.flowContext !== undefined ? { flowContext: where.flowContext } : {}),
       ...(where.signal ? { signal: where.signal } : {}),

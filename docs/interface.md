@@ -564,7 +564,8 @@ The default signature names the Team role and the agent's own model and effort
 labels. The first review round in a Run is 1; later reviews count only earlier
 review rounds in that Run, and the signature omits round 1. Outside a Team the
 role and round drop out. A description keeps the latest seat for each role and
-agent pair, so a fixer's update preserves the writer's credit. Comments carry their
+agent pair, up to eight pairs, so a fixer's update preserves the writer's credit.
+Adding a ninth drops the earliest-added pair, even if it was updated later. Comments carry their
 signature on the first visible line, descriptions on the last. Nothing about it
 rides in the conversation: the agent is told, through its own instruction
 layer, to use the tools; the desk does the rest. Text a person writes
@@ -616,7 +617,11 @@ in [extending.md](extending.md).
 - **Model, effort, permissions and mode** are controls, not chips: they shape
   *how* the message is read, not what it says. Beside the model sits the
   context ring — how full the window is for whichever agent this pane talks to
-  ([context-usage.md](context-usage.md)).
+  ([context-usage.md](context-usage.md)). When an agent enables a model setting
+  itself, its reported state appears in the model control’s hover text and as
+  a chip beside the model name in its menu. This status comes only from the
+  agent’s report; an effort level or model name never supplies it. Reports
+  are observations and are left out of saved preset preferences.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
 - **A conversation that cannot be read returns its pane to a fresh draft.**
@@ -665,6 +670,14 @@ the rest of a queue into a rate limit, a crashed agent, or a turn the user just
 stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
 session that is no longer live could not deliver it anyway.
+
+### Cursor model controls
+
+Cursor Agent’s Max mode reflects the flag saved after the turn. **Auto Max**
+says Cursor enabled it, without changing your choice for the next turn. A
+choice made while the turn runs takes precedence over that turn’s report.
+Max mode belongs to Cursor Agent; another agent’s “max” effort is a reasoning
+level and does not declare this status.
 
 ## Settings
 
@@ -754,8 +767,16 @@ For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
 regardless of the stored switch. The switch shows and changes the stored
 preference; disabling it does not remove that environment override.
 
-**Runtimes** is every registered runtime with its accounts beneath it, and a
-page per runtime (health, update, the runtime's own options) or per account;
+**Runtimes** lists every registered runtime with its accounts beneath it.
+Its Process cost section lists runtimes holding processes, with process count and
+resident memory, including descendants, refreshed every five seconds while the
+page is open. A failed or unsupported measurement says so. Shared pages may
+count more than once. **Recycle** stops only an unused running
+runtime; open conversations, work and in-flight reads prevent it. The same
+section appears on a runtime's detail page, where an idle runtime says **Not running**;
+observing it never starts one. Shared recycling refusals are stated once below the table.
+
+It has a page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* is where a registry entry or a custom one is added. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
 means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
@@ -764,6 +785,10 @@ answers showed: "Signed in" once a conversation has opened, its declared
 sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
 "Needs sign-in" on the strength of an empty list. ⌘, opens this page.
+
+Extensions › Reload holds changes while any conversation on the account has
+selected tool servers. Its notice asks you to close those conversations, then
+try Reload again. Each Seat keeps the tool servers it opened with.
 
 **Workspaces** lists every folder opened, each a way into its project's page —
 *Project settings* in the sidebar's project menu opens the same page — which

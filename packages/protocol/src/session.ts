@@ -92,6 +92,8 @@ export type SessionOptions = Partial<SessionSettings> & {
   readonly cwd: string
   /** Host-only ceiling request applied before a seat opens; never accepted from wire input. */
   readonly requestedCeiling?: CeilingLevel
+  /** Host-only native server narrowing, frozen by the Seat. */
+  readonly runtimeServers?: readonly string[]
   readonly environment?: Readonly<Record<string, string>>
   /**
    * Run this conversation against another model endpoint. Resolved by the

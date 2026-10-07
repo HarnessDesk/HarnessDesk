@@ -162,6 +162,16 @@ const openFromOpener = async (props: Partial<Props> = {}) => {
   return { opener, surface }
 }
 
+it.each(['opener', 'confirm'])('can move focus from %s to Keep when confirmation becomes unavailable', async focused => {
+  const { opener, surface } = await openFromOpener()
+  expect(document.activeElement).toBe(opener)
+  if (focused === 'confirm') act(() => button(surface, 'Delete').focus())
+  act(() => root.render(<Harness pending focusCancel />))
+  await frame()
+  expect(button(surface, 'Delete').disabled).toBe(true)
+  expect(document.activeElement).toBe(button(surface, 'Keep'))
+})
+
 /**
  * Tab, as a browser takes it: focus moves to the next focusable element in
  * document order — Base UI's guards included, which sit beside the popup in
@@ -186,8 +196,8 @@ it.each([
   // OptionConfirm: the ordinary tone, with a better verb for staying put.
   {
     shape: 'a default-tone confirm with its own verb for staying',
-    props: { tone: 'default', confirmLabel: 'Turn on Max mode', cancelLabel: 'Not now' },
-    proceed: 'Turn on Max mode',
+    props: { tone: 'default', confirmLabel: 'Enable metering', cancelLabel: 'Not now' },
+    proceed: 'Enable metering',
     stay: 'Not now',
   },
 ] as const)('paints the proceeding action rightmost: $shape', ({ props, proceed, stay }) => {

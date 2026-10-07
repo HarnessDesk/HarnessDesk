@@ -44,11 +44,13 @@ test('an idle stop reaps the bridge and serves cached models, account, and histo
   assert.equal(history.data[0]?.title, 'Earlier session')
   const pid = Number(runtime.info.version)
   assert.ok(Number.isInteger(pid) && pid > 0)
+  assert.deepEqual(runtime.resourceProcessIds(), [pid])
 
   // Taken at the stop, not earlier: the agent's command list (which sets `skills`) arrives on its own schedule after the
   // session starts, and once the process is gone this snapshot is exactly what the idle runtime must keep serving.
   const info = runtime.info
   assert.equal(await runtime.stopForIdle(), true)
+  assert.deepEqual(runtime.resourceProcessIds(), [], 'an idle stop releases the observed root')
   assert.equal(runtime.health().state, 'idle')
   await new Promise((resolve) => setTimeout(resolve, 40))
   assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' })

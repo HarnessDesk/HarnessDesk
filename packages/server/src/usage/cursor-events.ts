@@ -45,7 +45,7 @@ import { cursorAccountHash, cursorCookie, readCursorToken } from './cursor.js'
  * **`requests`.** `requestsCosts` is Cursor's own accounting of how many
  * "requests" of a request-based plan's quota one event consumed — a plain
  * model call reads `1`, a cheap one can read a fraction of that, and a
- * max-mode or otherwise expensive call reads several (the read above saw
+ * high-cost call reads several (the read above saw
  * values past 300 on one event). That is the meter's unit, not the ledger's:
  * it is the same figure the legacy request counter reads live (#999's
  * `numRequests`), and it is a float, never an integer count. `LedgerRow.requests`

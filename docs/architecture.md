@@ -157,6 +157,16 @@ host-minted reviewed stamp and checks the seating file in its write queue.
 
 `packages/server` owns everything that must not live in a browser:
 
+- **Account reads** — host calls through a registered runtime share one
+  in-flight read per account generation, including its lifecycle waits. Callers
+  receive an error after ten seconds. A deadline cannot cancel the adapter, so retries
+  receive that same error until the underlying read settles, rather than
+  starting more work. Settlement releases the hold without caching the answer;
+  another account or a replacement registration has its own hold. Account-change
+  events reject an older shared read and release its hold, so fresh callers can
+  read the new sign-in state without waiting for the old adapter. A deadline logs
+  one warning with the runtime named. Removing or replacing the registration and
+  closing the host clear its deadline and reject callers still waiting.
 - **Sessions and events.** One registry, fanned out to every connected client;
   the host keeps its own copy of each session so a reload rebuilds without
   asking the backend to replay. An agent restarting under an open conversation
@@ -185,6 +195,15 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   `turn/completed` for all of them. A turn that ended badly holds the queue
   rather than firing it. Like approvals, it sits beside the session rather than
   inside it, so an adapter re-emitting a whole `Session` cannot erase it.
+- **Folder identity reads** (`path-identity.ts`) — Goal and room lists,
+  subscription filters, session-history merging, lane scans and event folding
+  share native-resolved folder identities within one computation. The cache
+  ends when the synchronous read returns or the asynchronous list settles;
+  concurrent reads have separate snapshots, and detached work cannot retain a
+  finished cache. A new computation resolves renamed, removed or retargeted
+  folders again. Missing historical folders retain their lexical identity.
+  Admission checks for an unchanged canonical location still read realpath
+  directly.
 - **Git and worktrees** — status, diffs, hunk staging, and the managed
   worktrees a conversation can run in (`worktrees/`). Main-checkout folders
   resolved through Git's metadata are checked again from inside the folder:
@@ -221,15 +240,21 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   `live` becomes null and `detached` stays false. Only a runtime reporting
   `capabilities.resume` and implementing `stopForIdle` participates (currently
   the ACP and Codex adapters); the existing idle reaper can then stop its process
-  after `IDLE_STOP_MS` (ten minutes) with nothing else using it. Codex keeps
-  thread MCP children after unsubscribe. Each top-level conversation therefore
-  loads in a fresh process; releasing its last handle stops that process and
-  its retained tools even while other conversations work. Forks get a fresh
-  process too; delegated threads stay with their root. The control process owns
-  catalogue reads, file watches and standalone terminals. A conversation
-  process failure detaches only its own handles for the normal resume path.
-  Process exit releases its thread helpers
-  ([measurement and lifecycle](decisions.md#finished-conversations-recycle-their-own-processes)).
+  after `IDLE_STOP_MS` (ten minutes) with nothing else using it. One Codex
+  process serves every conversation of an account. Closing a handle interrupts
+  its active turn before unsubscribing its thread; Codex closes an unsubscribed idle thread a minute later and the
+  thread's tool helpers go with it, while other conversations keep working. A
+  process failure detaches every conversation it held, and the normal resume path
+  reattaches each
+  ([measurement and lifecycle](decisions.md#one-codex-process-per-account-shared-by-every-seat)).
+  Native server selection is an optional capability: an Agent's
+  `runtime-servers` names only already configured servers. The host freezes
+  the list in the Seat record and reapplies it on resume; the adapter supplies
+  thread-local disabling overrides, leaving agent-owned files alone.
+  Resource observations use optional adapter process roots and one bounded
+  process-table read for the desk, including descendants and RSS. The renderer
+  polls only while the runtime page is mounted. Manual idle recycling shares
+  the reaper's stop/start barrier and refuses in-flight work and open handles.
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening
