@@ -298,7 +298,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       }
       if (timing.status) status = timing.status
       const attention = (!stoppedWork && (uncertain || personWaiting)) || (execution.end?.kind === 'unrouted' && execution.end.card === id)
-      // The attempt a check ran on: by the revision or checkout its result names, else by the order its round opened its cards in.
+      // The attempt a check ran on: by its revision or checkout, qualifying shared revisions by checkout; else by card order before a result.
       const subject = (): string | null => {
         const attempts = attemptsBefore(round.n)
         if (!attempts.length || !card.dependsOn.some(dep => attempts.some(one => one.card === dep))) return null
@@ -307,7 +307,8 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
         const at = result.record.fact.kind === 'check' ? result.record.fact.at : null
         const cwd = result.record.checkout?.cwd ?? null
         const hit = attempts.filter(one => one.revision === at || (cwd !== null && one.cwd === cwd))
-        return hit.length === 1 ? hit[0]!.label : null
+        const qualified = hit.length > 1 && cwd !== null ? hit.filter(one => one.cwd === cwd) : hit
+        return qualified.length === 1 ? qualified[0]!.label : null
       }
       rows.push(row(`${kind}-${round.n}-${id}`, kind, title, { round: round.n, card: id,
         seat: [...execution.operations].reverse().find(one => one.kind === 'seat' && one.card === id && one.seat !== null)?.seat ?? null,

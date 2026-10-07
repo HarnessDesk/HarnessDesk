@@ -129,6 +129,25 @@ describe('runTimeline · a comparison', () => {
       assert.equal(find(rows, 'check-2-3').on, 'Attempt A')
       assert.equal(find(rows, 'check-2-4').on, 'Attempt B')
     })
+    it('disambiguates equal revisions by the recorded checkout, including mixed check results', () => {
+      const facts = [
+        view(1, 1, diff(REV.a, 1, 1), { cwd: '/work/race-a' }),
+        view(2, 1, diff(REV.a, 1, 1), { cwd: '/work/race-b' }),
+        // Reverse the check order so ordinal fallback cannot supply the labels.
+        view(3, 2, ran(REV.a, 0), { cwd: '/work/race-b' }),
+        view(4, 2, ran(REV.a, 1), { cwd: '/work/race-a' }),
+      ]
+      const rows = rowsOf(comparison({ facts }))
+      assert.partialDeepStrictEqual(find(rows, 'check-2-3'), { on: 'Attempt B', status: 'Passed' })
+      assert.partialDeepStrictEqual(find(rows, 'check-2-4'), { on: 'Attempt A', status: 'Failed' })
+      const unqualified = rowsOf(comparison({ facts: facts.map(one => {
+        if (one.record.fact.kind !== 'check') return one
+        const { checkout: _checkout, ...record } = one.record
+        return { ...one, record }
+      }) }))
+      assert.equal(find(unqualified, 'check-2-3').on, null)
+      assert.equal(find(unqualified, 'check-2-4').on, null)
+    })
     it('names it from the order of the cards when no check has run yet and the counts agree', () => {
       const rows = rowsOf(comparison({ facts: [view(1, 1, diff(REV.a, 1, 1)), view(2, 1, diff(REV.b, 1, 1))] }))
       assert.equal(find(rows, 'check-2-3').on, 'Attempt A')

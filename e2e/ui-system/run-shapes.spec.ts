@@ -72,3 +72,31 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`checkout-qualified check labels at equal revisions in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.setViewportSize({ width: 1440, height: 1440 })
+    // Keep the recorded checkouts distinct while making both committed revisions equal.
+    await page.route('**/run-shapes-fixture.ts', async route => {
+      const response = await route.fetch()
+      const body = (await response.text()).replace('"b".repeat(40)', '"a".repeat(40)')
+      await route.fulfill({ response, body })
+    })
+    await page.goto(`/preview.html?run-shapes=comparison&theme=${theme}`)
+    const frame = page.locator('#run-shapes-frame')
+    await expect(frame.locator('[data-slot="run-header"]')).toBeVisible()
+    await page.evaluate(async () => { await document.fonts.ready })
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.CHECK_LABEL_FRAMES_DIR) {
+      await mkdir(process.env.CHECK_LABEL_FRAMES_DIR, { recursive: true })
+      await frame.screenshot({ path: path.join(process.env.CHECK_LABEL_FRAMES_DIR, `equal-revisions-${theme}-${process.env.CHECK_LABEL_PHASE ?? 'after'}.png`) })
+    }
+    await expect(frame.locator('[data-row="check-2-3"]')).toContainText('on Attempt A')
+    await expect(frame.locator('[data-row="check-2-3"]')).toContainText('Passed')
+    await expect(frame.locator('[data-row="check-2-4"]')).toContainText('on Attempt B')
+    await expect(frame.locator('[data-row="check-2-4"]')).toContainText('Failed')
+    await expect(frame.locator('[data-row="card-3-5"]')).toContainText('Attempt B at aaaaaaa')
+    expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  })
+}

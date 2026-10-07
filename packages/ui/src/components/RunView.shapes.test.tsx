@@ -25,6 +25,20 @@ it('lays out competitors and per-attempt checks, keeps the pick visible, and sel
     expect(onSelect).toHaveBeenCalledWith('card-1-1')
   } finally { view.close() }
 })
+it('shows the checkout-qualified attempt beside each result when revisions agree', () => {
+  const input = shapeFixture('comparison')
+  input.evidence = { ...input.evidence!, cards: input.evidence!.cards.map(card => ({ ...card, facts: card.facts.map(view => ({
+    ...view, record: { ...view.record, fact: view.record.fact.kind === 'diff' ? { ...view.record.fact, to: 'a'.repeat(40) }
+      : view.record.fact.kind === 'check' ? { ...view.record.fact, at: 'a'.repeat(40) } : view.record.fact },
+  })) })) }
+  const view = mount(<RunView number={1} model={runTimeline(input)} execution={input.execution} selectedRow={null} onSelect={() => {}} />)
+  try {
+    expect(view.container.querySelector('[data-row="check-2-3"]')?.textContent).toContain('on Attempt A')
+    expect(view.container.querySelector('[data-row="check-2-3"]')?.textContent).toContain('Passed')
+    expect(view.container.querySelector('[data-row="check-2-4"]')?.textContent).toContain('on Attempt B')
+    expect(view.container.querySelector('[data-row="check-2-4"]')?.textContent).toContain('Failed')
+  } finally { view.close() }
+})
 it('puts answered progress in the title and the blind explanation once under the cards', () => {
   const input = shapeFixture('independent-review')
   const view = mount(<RunView number={1} model={runTimeline(input)} selectedRow={null} onSelect={() => {}} />)
