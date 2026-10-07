@@ -34,3 +34,9 @@ test('both Overview references include the ready-to-wrap default without a Run',
     assert.equal(/A Team without a Run opens on Chat/.test(reference), false, 'the later Chat description keeps the ready-to-wrap exception')
   }
 })
+
+test('the Seat guide holds plugin installation, like Reload, to the selected tool servers', () => {
+  const guide = readFileSync(join(root, 'docs/agents.md'), 'utf8').split('### Native server selection')[1].split('\n## ')[0].replace(/\s+/g, ' ')
+  assert.match(guide, /across a Reload or a plugin installation/, 'a Seat keeps its tool servers across both changes')
+  assert.match(guide, /Both are held while any conversation on the account has selected tool servers/, 'and both are held by them')
+})
