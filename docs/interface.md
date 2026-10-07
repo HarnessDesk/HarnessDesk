@@ -616,7 +616,10 @@ in [extending.md](extending.md).
 - **Model, effort, permissions and mode** are controls, not chips: they shape
   *how* the message is read, not what it says. Beside the model sits the
   context ring — how full the window is for whichever agent this pane talks to
-  ([context-usage.md](context-usage.md)).
+  ([context-usage.md](context-usage.md)). When an agent enables a model setting
+  itself, its reported state appears as a chip on the model’s label line. Max
+  mode reflects the flag saved after the turn; **Auto Max** says the
+  agent enabled it, without changing the person’s choice for the next turn.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
 - **A conversation that cannot be read returns its pane to a fresh draft.**

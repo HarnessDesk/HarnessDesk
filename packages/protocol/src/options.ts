@@ -81,6 +81,8 @@ interface OptionBase {
   readonly label: string
   readonly description?: string
   readonly category?: OptionCategory
+  /** Agent-declared state shown beside the current model, on its label line. */
+  readonly modelStatus?: string
   /**
    * Present when the runtime would refuse a change right now, with the reason.
    * Rendered greyed with the reason, never hidden: an absent control is a

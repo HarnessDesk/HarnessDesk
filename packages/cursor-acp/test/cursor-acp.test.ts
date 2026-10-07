@@ -1669,3 +1669,59 @@ test('writeToolPlugin refuses invalid sessionId with directory traversal (#413)'
     /Invalid session id: \.\.\/outside/,
   )
 })
+
+test('the session reports CLI-enabled Max mode without widening the next turn (#1311)', async () => {
+  const state = tempDir('cursor-max-state-')
+  const patch = join(tempDir('cursor-max-result-'), 'result.json')
+  const runtime = isolatedRuntime({
+    id: 'cursor', name: 'Cursor Agent', command: process.execPath, args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: state, FAKE_CURSOR_CONFIG_RESULT: patch, FAKE_CURSOR_SYSTEM_MODEL: 'Brain 9 200K' },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.setOption('model', 'brain-9')
+    const run = async (config: Record<string, unknown>, prompt = 'pong') => {
+      writeFileSync(patch, JSON.stringify(config))
+      const tape = record(runtime)
+      await session.send([{ type: 'text', text: prompt }])
+      if (prompt === 'slow') {
+        await tape.until((event) => event.type === 'item/delta')
+        await session.interrupt()
+      }
+      await tape.until((event) => event.type === 'turn/completed')
+      return session.options().find((option) => option.id === 'max-mode')
+    }
+    assert.equal(session.options().find((option) => option.id === 'max-mode')?.currentValue, false)
+    const auto = await run({ maxMode: true, maxModeAutoEnabled: true,
+      selectedModel: { modelId: 'brain-9', parameters: [{ id: 'context', value: '200k' }] } })
+    assert.equal(auto?.currentValue, true, 'a 200k turn can still run in Max mode')
+    assert.equal(auto?.modelStatus, 'Auto Max')
+    const off = await run({ maxMode: false, maxModeAutoEnabled: false })
+    const written = JSON.parse(readFileSync(join(state, 'cli-config', String(session.id), 'cli-config.json'), 'utf8'))
+    assert.equal(written.selectedModel, undefined, 'reporting auto-enablement must not request 1M next time')
+    assert.equal(off?.currentValue, false)
+    assert.equal(off?.modelStatus, undefined)
+    await run({ maxMode: true, maxModeAutoEnabled: true })
+    await session.setOption('model', 'fast-1')
+    assert.equal(session.options().find((option) => option.id === 'max-mode')?.modelStatus, undefined)
+    await session.setOption('model', 'brain-9')
+
+    await session.setOption('max-mode', true)
+    const manual = await run({ maxMode: true, maxModeAutoEnabled: false,
+      selectedModel: { modelId: 'brain-9', parameters: [{ id: 'context', value: '200k' }] } })
+    assert.equal(manual?.currentValue, true, 'the saved flag outranks the window heuristic')
+    assert.equal(manual?.modelStatus, undefined)
+    for (const prompt of ['explode', 'slow']) {
+      const stopped = await run({ maxMode: true, maxModeAutoEnabled: true }, prompt)
+      assert.equal(stopped?.currentValue, true, 'failed and cancelled turns still report the saved flag')
+      assert.equal(stopped?.modelStatus, 'Auto Max')
+    }
+    const invalid = await run({ maxMode: 'unknown', maxModeAutoEnabled: true })
+    assert.equal(invalid?.modelStatus, undefined, 'malformed flags confer no provenance')
+    await session.setOption('model', 'fast-1')
+    assert.equal(session.options().find((option) => option.id === 'max-mode')?.modelStatus, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})

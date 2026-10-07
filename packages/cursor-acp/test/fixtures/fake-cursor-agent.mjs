@@ -119,13 +119,22 @@ if (prompt.includes('hold-start')) {
   }
 }
 
+// A synthetic CLI write-back, supplied by each isolated test. The shape is
+// the two flags described in #1311; no account or vendor endpoint is used.
+if (process.env.FAKE_CURSOR_CONFIG_RESULT) {
+  const path = join(process.env.CURSOR_CONFIG_DIR, 'cli-config.json')
+  const config = JSON.parse(readFileSync(path, 'utf8'))
+  const patch = JSON.parse(readFileSync(process.env.FAKE_CURSOR_CONFIG_RESULT, 'utf8'))
+  writeFileSync(path, JSON.stringify({ ...config, ...patch }))
+}
+
 out({
   type: 'system',
   subtype: 'init',
   apiKeySource: 'login',
   cwd: process.cwd(),
   session_id: sessionId,
-  model,
+  model: process.env.FAKE_CURSOR_SYSTEM_MODEL ?? model,
   permissionMode: 'default',
 })
 out({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: prompt }] }, session_id: sessionId })

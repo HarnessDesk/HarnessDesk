@@ -3686,11 +3686,13 @@ class AcpSession implements AgentSession {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
       const category = acpCategory(option.id, option.category)
+      const modelStatus = (option._meta?.['harnessdesk'] as { modelStatus?: unknown } | undefined)?.modelStatus
       if (option.type === 'toggle' || option.type === 'boolean') {
         options.push({
           type: 'boolean',
           id: option.id,
           category,
+          ...(typeof modelStatus === 'string' && modelStatus ? { modelStatus } : {}),
           label: option.name,
           ...(option.description ? { description: option.description } : {}),
           ...(option.disabled ? { disabled: option.disabled } : {}),
@@ -3702,6 +3704,7 @@ class AcpSession implements AgentSession {
           type: 'select',
           id: option.id,
           category,
+          ...(typeof modelStatus === 'string' && modelStatus ? { modelStatus } : {}),
           label: option.name,
           ...(option.description ? { description: option.description } : {}),
           ...(option.disabled ? { disabled: option.disabled } : {}),
