@@ -219,9 +219,9 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   await expect(strip).toBeVisible()
   await expect(strip.getByRole('tab')).toHaveCount(3)
 
-  const hiddenStripMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [role="tablist"] { display: none !important; }' })
+  const hiddenStripMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [role="tablist"][aria-label="Side by side tiles"] { display: none !important; }' })
   // By CSS, not by role: a role lookup cannot see an element under display: none.
-  const stripVisible = await frame(page, 'side-by-side-four').locator('[role="tablist"]').evaluate((node) => getComputedStyle(node).display !== 'none')
+  const stripVisible = await frame(page, 'side-by-side-four').locator('[role="tablist"][aria-label="Side by side tiles"]').evaluate((node) => getComputedStyle(node).display !== 'none')
   expect(stripVisible).toBe(false)
   await hiddenStripMutation.evaluate((style) => style.remove())
 

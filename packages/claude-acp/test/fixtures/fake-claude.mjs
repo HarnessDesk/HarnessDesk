@@ -506,6 +506,35 @@ const textOf = (message) => {
   return ''
 }
 
+let preToolHooks = []
+let controlId = 0
+const pendingControls = new Map()
+const requestControl = (request) => new Promise(resolve => {
+  const request_id = `fake-control-${++controlId}`
+  pendingControls.set(request_id, resolve)
+  send({ type: 'control_request', request_id, request })
+})
+const permissionTurn = async ({ tool, input }) => {
+  const toolId = `tool-${controlId}`
+  for (const hook of preToolHooks) {
+    const result = await requestControl({
+      subtype: 'hook_callback', callback_id: hook, tool_use_id: toolId,
+      input: { hook_event_name: 'PreToolUse', session_id: sessionId, cwd: process.cwd(),
+        transcript_path: '/tmp/fake-transcript', tool_name: tool, tool_input: input, tool_use_id: toolId },
+    })
+    const decision = result.response?.hookSpecificOutput
+    if (decision?.permissionDecision === 'deny') {
+      reply('native guard denied.')
+      return
+    }
+    input = decision?.updatedInput ?? input
+  }
+  const result = await requestControl({
+    subtype: 'can_use_tool', tool_name: tool, input, tool_use_id: toolId,
+    ...(tool.startsWith('mcp__harnessdesk__') ? { mcp_server: { name: 'harnessdesk', source: 'dynamic' } } : {}),
+  })
+  reply(result.response?.behavior === 'allow' ? 'permission allowed.' : 'permission denied.')
+}
 const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
   if (!line.trim()) return
@@ -516,6 +545,12 @@ rl.on('line', (line) => {
   } catch {
     return
   }
+  if (message.type === 'control_response') {
+    const waiting = pendingControls.get(message.response.request_id)
+    pendingControls.delete(message.response.request_id)
+    waiting?.(message.response)
+    return
+  }
   if (message.type === 'control_request') {
     const { request_id, request } = message
     const respond = (response) =>
@@ -523,6 +558,7 @@ rl.on('line', (line) => {
     const refuse = (error) => send({ type: 'control_response', response: { subtype: 'error', request_id, error } })
     switch (request.subtype) {
       case 'initialize':
+        preToolHooks = (request.hooks?.PreToolUse ?? []).flatMap(hook => hook.hookCallbackIds)
         respond({
           commands: [
             { name: 'effort', description: 'Set effort level for model usage', argumentHint: '<low|medium|high|xhigh|max>' },
@@ -565,6 +601,10 @@ rl.on('line', (line) => {
     send(message)
     log('echoed user')
     const text = textOf(message.message).trim()
+    if (text.startsWith('permission ')) {
+      void permissionTurn(JSON.parse(text.slice('permission '.length)))
+      return
+    }
     // A whole research turn, for a client that wants to watch one arrive.
     if (/\bsurvey\b/i.test(text)) {
       void survey()

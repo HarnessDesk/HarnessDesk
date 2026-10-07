@@ -346,7 +346,16 @@ in *Needs you* too, because somebody has to take it over.
 
 Nothing is dragged, and no column takes a title: there is no column to put a
 card in, only the one its facts put it in, and work goes on through *New job*.
-An empty column says *Nothing here*. Every verb is in the card's ⋮ menu —
+An empty column says *Nothing here*. In List, *Put back in play* is visible on
+finished, set-aside and hand-stopped jobs; dependency-blocked jobs keep it in
+⋮. A person step shows *Answer…* or *Pick an attempt…*, opening its question
+before recording anything. A finished outcome sits beside its state when there
+is no Needs-you reason, and owned files appear below the title. Below 720px the
+job cell still names the assignee. A column too wide for the pane keeps its
+View switch disabled with the width it needs, and the filter includes each
+row's drawn state, including *Checking evidence*. A live claim has no visible
+verb. Every other verb stays in ⋮; a row with no remaining menu items has no
+menu trigger. On Board, every verb is in the card's ⋮ menu —
 *Mark done*, *Take it back off …*, *Put back in play*, *Stop it — say why*,
 *Abandon* — and, when the project names checks, *Run <check>* for each. A
 check that cannot run now stays in the menu, greyed, and says why: the file
@@ -409,8 +418,9 @@ An agent claims work using `claim_work(intent, files?)` or
   enables agents to register paths discovered during inspection. A claim
   owning no files states so in its return message.
 - **`claim_next`**: atomically takes the lowest-numbered open, unblocked, and
-  non-conflicting intent. This allows a team of agents to drain a backlog
-  without racing for the first card.
+  non-conflicting intent. A caller reclaims its own deliberate block by id
+  with `claim_work`. This allows a team to drain a backlog without racing for
+  the first card.
 - **Conflict pre-checks**: agents can run `check_conflicts(paths)` to inspect
   whether paths are locked before committing to an edit.
 - **Leases**: claims carry an expiration lease (`leaseUntil`). If an agent
@@ -459,7 +469,11 @@ If an agent must abandon a task, it calls `release_claim(intent, reason?,
 blocked?)`:
 - Passing `blocked: false` returns the intent to Ready and frees its files.
 - Passing `blocked: true` sets `blockedBy: 'hand'`. The task remains in Blocked
-  even if all dependencies finish, until a user or agent explicitly reopens it.
+  even if all dependencies finish. The conversation that blocked it can take
+  it back with `claim_work` by id; another conversation cannot undo
+  its block. A person's block is reopened only by the person. A Flow hands a
+  Seat its own blocked card back with a live claim, without spending the
+  limit for turns that end before finishing.
 
 **Demonstrated.** Codex completed #1 leaving a rounding contract. Cursor
 claimed #2, called `get_context(1)`, read *"tax(amount, rate) returns amount *
@@ -683,13 +697,13 @@ the MCP bridge:
 | --- | --- | --- |
 | `list_intents` | *(none)* | Returns all intents on the workspace board with their IDs, titles, details, states, file ownership, and dependencies. |
 | `add_intent` | `title` (required), `detail?`, `files?`, `depends_on?` | Puts a new intent on the board. `files` declares path globs owned while claimed. `depends_on` lists prerequisite intent IDs. |
-| `claim_work` | `intent` (required), `files?` | Atomically claims an open intent. Passing `files` merges path locks with the intent's paths, locking them against concurrent edits. |
+| `claim_work` | `intent` (required), `files?` | Atomically claims an open intent, or a deliberate block made by this conversation. Passing `files` merges path locks with the intent's paths, locking them against concurrent edits. |
 | `claim_next` | `files?` | Atomically claims the next lowest-numbered open, unblocked, non-conflicting intent. Returns the intent, detail, and dependencies' context packages. A card addressed to a role is skipped unless the caller holds that role, and unless the caller is holding no other addressed card. |
 | `await_work` | `cycle?`, `block_ms?` | Blocks until this conversation's board has a card it can take, then returns one line: `work: #N …`, `nothing yet`, or `stand down`. Costs nothing while waiting — the board wakes it rather than it polling — which is what lets a seat live inside one turn. `cycle` is the number the previous answer asked for, so no two calls are identical. |
 | `await_member` | `member`, `cycle?`, `block_ms?` | Waits for the named Goal member's currently running turn to finish. It sends nothing, starts nothing and is woken by the host rather than polling. |
 | `check_conflicts` | `paths` (required) | Checks whether specified file paths or globs overlap any active claim on the board. |
 | `complete_claim` | `intent` (required), `note?`, `context?`, `outcome?` | Marks a held intent as done. `note` updates the card; `context` stores the context package for dependent tasks; `outcome` is the one machine-readable word a flow's rules branch on. Free-form here; a card belonging to a flow is held to the outcomes its role declared. |
-| `commit_work` | `intent` (required), `message` (required) | The host commits the caller's card's own work — every path dirty now that was not dirty when the card was claimed — in its Seat's checkout, and answers the new commit. Only for a flow card whose Seat may commit (`edit` and above), and not while another committing card works in the same checkout; work a git filter (LFS) would touch is refused, and a submodule is never looked into. Git runs with no hook, filesystem monitor, filter, signing or trailer program the repository configures. Messages take up to 8000 characters; Git places and formats the desk's co-author trailer once, including around dividers and scissors cutoffs. Git 2.32 or newer is required, with older versions refused before staging. The checkout's configured author and committer are kept; the agent supplies only its message. Hand commits are untouched. It is how an agent whose sandbox keeps `.git` read-only commits at all. |
+| `commit_work` | `intent` (required), `message` (required) | The host commits the caller's card's own work — every path dirty now that was not dirty when this card’s current ownership began — in its Seat's checkout, and answers the new commit. A hand-back to the same conversation in the same checkout retains that earlier snapshot for up to 24 hours after release and names up to 20 committed paths, with a count of the rest, when preserved work predates the new claim; unrelated pre-card changes stay outside the commit. Another card claiming the checkout discards retained ownership, including across boards. A missing earlier snapshot is never treated as an empty one. Only for a flow card whose Seat may commit (`edit` and above), and not while another committing card works in the same checkout; work a git filter (LFS) would touch is refused, and a submodule is never looked into. Git runs with no hook, filesystem monitor, filter, signing or trailer program the repository configures. Messages take up to 8000 characters; Git places and formats the desk's co-author trailer once, including around dividers and scissors cutoffs. Git 2.32 or newer is required, with older versions refused before staging. The checkout's configured author and committer are kept; the agent supplies only its message. Hand commits are untouched. It is how an agent whose sandbox keeps `.git` read-only commits at all. |
 | `run_check` | `intent` (required), `name?`, `commit?` | For a Seat whose grant cannot write: the host runs one of the caller's card's flow's declared checks — a `check` role, picked by its name, never a command the agent writes — on the committed change the card was handed, in a fresh detached checkout cut with hooks off and removed afterwards, with the check's own timeout and output cap. Answers passed or failed with the last of its output, and records it on the card as advisory evidence (`counted: false`), which no rule's check guard reads. Only the card's holder; refused to a Seat that can write, while the run is paused or not live, past three runs a turn or ten a card, and while another run for the same card is going. `commit` picks one when the card was handed several. It is how an agent whose sandbox refuses a listening socket still verifies a change that starts a server. |
 | `release_claim` | `intent` (required), `reason?`, `blocked?` | Releases a held intent back to the board. If `blocked: true`, marks it `blockedBy: 'hand'`. |
 | `get_context` | `intent` (required) | Fetches the context package left by the completed intent. |

@@ -270,13 +270,24 @@ test.describe('preview coverage', () => {
     // and the pane with no session at all; the board's tool approvals; whole
     // windows whose Workbench draws the notice's fallback host; compact
     // inspectors include the Seat record and its attachments — so each is visited too.
-    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels']) {
+    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls']) {
       await page.goto(`/preview.html${query}`)
+      if (query === '?board-list') await page.getByRole('radio', { name: 'List', exact: true }).click()
+      if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', {name:'Fill the window',exact:true})).toBeVisible()
       await page.waitForTimeout(1200)
       const result = await collectCoverage(page)
       allComponents = result.allComponents
       for (const file of result.covered) covered.add(file)
     }
+
+    // The Run supplies its sibling inspectors only after its real Team view mounts.
+    await page.goto('/preview.html?run-dock')
+    await page.locator('#run-dock-frame [data-team-page="run"]').click()
+    await expect(page.locator('#run-dock-frame [data-slot="run-inspector"]:visible')).toBeVisible()
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    await page.locator('#run-dock-frame').getByRole('radio', { name: 'Flow', exact: true }).click()
+    await expect(page.locator('#run-dock-frame [data-slot="run-steps"]:visible')).toBeVisible()
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
 
     // Fail closed if an import-glob/configuration change silently empties the
     // inventory. These representatives prove we are still checking a root

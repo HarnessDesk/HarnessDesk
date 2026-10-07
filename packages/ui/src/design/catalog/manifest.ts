@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
+export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
 export type CatalogSize = 'stack' | 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
@@ -151,7 +151,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
   'heat-grid', 'PlanCard', 'SidebarMenuState',
   'SettingsRowMenu',
 ])
@@ -213,7 +213,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   stepper: ['default'],
   switch: ['default'],
   table: ['default', 'framed', 'panel'],
-  tabs: ['default', 'line'],
+  tabs: ['default', 'line', 'section'],
   textarea: ['default', 'editor', 'code', 'inline', 'composer'],
   toast: ['default'],
   'toggle-group': ['default', 'outline'],
@@ -245,6 +245,8 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   Notices: ['default'],
   Checklist: ['default'],
   FlowGraph: ['default'],
+  FlowCanvas: ['light', 'dark'],
+  FlowStepRow: ['default'],
   'heat-grid': ['default'],
   PaneColumn: ['default'],
   PlanCard: ['default'],
@@ -336,6 +338,8 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   FlowGraph: ['default', 'empty', 'working', 'needs-you', 'loading', 'error'],
+  FlowCanvas: ['editing', 'disabled', 'running', 'selected'],
+  FlowStepRow: ['default', 'working', 'needs-you', 'success', 'inactive'],
   'heat-grid': ['default', 'empty', 'populated'],
   sidebar: [
     'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',
@@ -396,6 +400,8 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Notices: 'packages/ui/src/components/Notices.tsx',
   Checklist: 'packages/ui/src/components/TaskPanel.tsx',
   FlowGraph: 'packages/ui/src/components/RunFlow.tsx',
+  FlowCanvas: 'packages/ui/src/preview/frames-flow-canvas.tsx',
+  FlowStepRow: 'packages/ui/src/components/RunSteps.tsx',
   PaneColumn: 'packages/ui/src/components/Conversation.tsx',
   PlanCard: 'packages/ui/src/components/SettingsAgents.tsx',
   UsageMeterRow: 'packages/ui/src/components/SettingsAgents.tsx',
@@ -414,6 +420,8 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   Notices: 'packages/ui/src/design/explorer/boards.tsx',
   Checklist: 'packages/ui/src/design/explorer/boards.tsx',
   FlowGraph: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  FlowCanvas: 'packages/ui/src/preview/frames-flow-canvas.tsx',
+  FlowStepRow: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
@@ -568,7 +576,9 @@ export const CANONICAL_PATTERN_MODULES = [
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
   ['Checklist', 'checklist', 'An agent plan: steps to do, under way and done'],
+  ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
+  ['FlowStepRow', 'flow-graph', 'Shared Flow and Run dock step rows with kind, recorded state, time and run count'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
   ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],

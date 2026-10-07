@@ -176,6 +176,7 @@
 --hd-inset-dense = 8px
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
+--hd-label-weight = 500
 --hd-line = 20px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -709,6 +710,7 @@
 --hd-inset-dense = 8px
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
+--hd-label-weight = 500
 --hd-line = 20px
 --hd-line-display = 40px
 --hd-line-heading = 28px

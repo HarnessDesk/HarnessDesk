@@ -8,6 +8,7 @@ import { StopRunBoard } from '../../preview/frames-stop-run'
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
 import { FlowOverlayBoard } from '../../preview/frames-flow-overlay'
 import { ReviewPublicationBoard } from '../../preview/frames-review-publication'
+import { FlowCanvasBoard } from '../../preview/frames-flow-canvas'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
@@ -44,6 +45,7 @@ import {
   PlusIcon,
   SearchIcon,
   ShieldAlertIcon,
+  SideBySideIcon,
   TeamIcon,
   TerminalIcon,
   UsageIcon,
@@ -268,7 +270,7 @@ const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'
 const BADGE_CATALOG_SIZES = ['default'] as const
 const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
 
-const TABS_CATALOG_VARIANTS = ['default', 'line'] as const
+const TABS_CATALOG_VARIANTS = ['default', 'line', 'section'] as const
 const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
@@ -992,6 +994,7 @@ const sideBySideState = (count: 2 | 4): SideBySideState => {
 }
 
 const SideBySideBoard = () => {
+  const [barSideBySide,setBarSideBySide]=useState(true)
   const [two, setTwo] = useState(() => sideBySideState(2))
   const [four, setFour] = useState(() => sideBySideState(4))
   const [narrow, setNarrow] = useState(() => sideBySideState(4))
@@ -1043,19 +1046,11 @@ const SideBySideBoard = () => {
   return (
     <>
       <div className={styles.matrix}>
-        <Case label="room rail — Side by side · disabled with its reason">
-          <div className="w-full max-w-80">
-            <ListRows>
-              <ListRow
-                as="button"
-                size="sm"
-                nav
-                aria-disabled="true"
-                title={<span title="Watch a member to put it here">Side by side</span>}
-                lead={<IconTile size="sm" tint="violet"><TeamIcon /></IconTile>}
-              />
-            </ListRows>
-          </div>
+        <Case label="Team bar — Side by side · pressed">
+          <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={barSideBySide} onClick={()=>setBarSideBySide(value=>!value)}><SideBySideIcon size={14} /></Button>
+        </Case>
+        <Case label="Team bar — Side by side · disabled with its reason">
+          <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={false} disabled title="Seat an Agent to show conversations side by side"><SideBySideIcon size={14} /></Button>
         </Case>
         <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore)}</Case>
         <Case className="col-span-full" label="room — Side by side · two members, waiting for you">{grid(waiting, setWaiting, 'catalog-side-by-side-waiting', waitingStore)}</Case>
@@ -1263,6 +1258,7 @@ const EmptyBoard = () => (
 
 const KanbanBoard = () => {
   const [tinted, setTinted] = useState(true)
+  const [folded, setFolded] = useState(true)
   return (
     <>
       <Toolbar className="mb-3">
@@ -1302,6 +1298,9 @@ const KanbanBoard = () => {
       </Board>
       <Board derived className="mt-3">
         <BoardColumn title="No result" count={0} onAdd={() => undefined} />
+        <BoardColumn title="Ready" count={1} collapsed={folded} onCollapsedChange={setFolded}>
+          <BoardCard title="Ship the retry coverage" />
+        </BoardColumn>
       </Board>
       <Rule>
         A card&rsquo;s column is its state, so no card repeats it — every card says who has it, how
@@ -3019,6 +3018,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Run timeline',
     about: 'The recorded rounds, cards, checks, findings and ending doors, with a selectable row and the frozen Flow in the header.',
     render: RunViewBoard,
+  },
+  {
+    id: 'flow-canvas',
+    title: 'FlowCanvas',
+    about: 'Five steps, six rules and one attachment: editable and read-only, followed by a Run with auto-layout positions and state slots.',
+    render: FlowCanvasBoard,
   },
   {
     id: 'flow-graph',

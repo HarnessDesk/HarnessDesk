@@ -184,6 +184,9 @@ those content insets. A board column's state dot hangs before its card-text
 edge; the heading and empty line derive that edge from the card tier and
 border. `ToolPaneHeader contentInset="board"` derives the same text column
 through the dense body and column, and the card tier, rather than fixing their old numbers.
+`ToolPaneHeader contentInset="reading-table"` aligns its title with the first
+cell’s text inside a framed table in a reading `PaneColumn`: reading gutter
+plus table edge. Notices above that table keep the reading gutter too.
 
 The tier rule judges **content containers**. Buttons, inputs, chips, compact
 navigation targets and menu panels keep their own measured control rhythm;
@@ -211,7 +214,7 @@ are doing; screens do not invent a new spelling for the same job:
 | wordmark | 20 / semibold | the product name beside its mark |
 | page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
 | section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
-| group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
+| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | member | 14 / medium | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`); `--hd-member-weight` owns the weight |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -277,11 +280,11 @@ faint ink over a settings card, and 12px tracked capitals in the room's rail,
 the trajectory's roles and the agent card.
 
 Now every page head is the page role, and every group heading is
-`GroupLabel`. The interfaces vary a label's weight and the air above a rail's
+`GroupLabel`. The interfaces share its medium weight and vary the air above a
 group, never its size, its ink or its case. Capitals are counted: the design
 audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
 utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
-fall. The screens still spelling them — the room's rail, the trajectory, the
+fall. The screens still spelling them — the Team's members list, the trajectory, the
 agent card and the transcript's small tags — are the burn-down.
 
 ### Where a label lands
@@ -718,7 +721,7 @@ Three shapes, and each one means something wherever it appears:
 
 | Shape | What it is | Examples |
 | --- | --- | --- |
-| Face | Someone: an agent at work, a runtime or a person | A sender in the chat, a member on a team's rail, a board card's holder, a runtime, session or member card, your seat, a name inside a sentence |
+| Face | Someone: an agent at work, a runtime or a person | A sender in the chat, a member in a Team's popover, a board card's holder, a runtime, session or member card, your seat, a name inside a sentence |
 | Ring | An account | The seat menu's account marks, an account card |
 | Square | A thing or a category | A plugin, a skill, a file, a section |
 
@@ -729,7 +732,10 @@ Settings › Appearance › Faces (`body[data-hd-faces='round']`). Draw a face w
 `MemberName`. A face drawn as a bare `square` tile would be the one face that
 ignores the setting. The ring and the square do not move with Faces: an
 account was already round, and a thing staying square is how a round face
-still reads as someone.
+still reads as someone. An unassigned job uses `IconTile shape="face" empty`:
+an empty face outline means nobody is assigned, and follows the Faces setting.
+A finished job with no recoverable completer shows only a quiet dash; no empty
+face claims that nobody did the work.
 
 A tinted face is filled with its tint's ink and uses the accent foreground for
 its mark or initials. Other tinted tiles, including square and round ones,
@@ -914,17 +920,16 @@ reads it against that pair exactly. The Dashboard's band heads are `section` (16
 drawn through `SectionHead`'s heading level (#1122).
 
 The owner's 1A decision on 2026-10-03 keeps list navigation and the Team
-rail's member rows at 13/400. The heavier rail variant proposed in #1220 is
-not planned; a member named in the rail follows its navigation role.
+members popover's rows at 13/400. The heavier rail variant proposed in #1220 is
+not planned; a member named in the popover follows its navigation role.
 
 ### Group labels
 
 `GroupLabel`'s computed `text-transform` is never `uppercase`, in every
 group-label role — see "One title, one group label" above, where the design
 audit's `uppercaseLabel` already refuses the capitals in source. Its weight is
-the interface's label weight, `--hd-label-weight`: regular in Desk, and
-medium in Studio, which varies only the weight and the air above a rail's
-group, on purpose. Size, ink and case are the same in both. Quiet sidebar bands
+the shared label weight, `--hd-label-weight`: medium in Desk and Studio.
+Studio varies the air above a rail's group, on purpose. Size, ink and case are the same in both. Quiet sidebar bands
 (Pinned, Projects and Other projects) use muted ink; other group labels keep
 secondary ink. `GroupLabel ink="muted"` and `NavigationGroupHeader labelInk="muted"`
 carry that choice without changing the label’s inset.
@@ -1560,15 +1565,15 @@ has never been tested.
 
 ## The Team overview
 
-Overview is the first destination on a Team's rail. A Team with a Run opens
-there; one without a Run opens on Chat. The Run's current round and recorded
+Overview is the first page tab in a Team. A Team with a Run or ready to wrap opens
+there; one with neither opens on Chat. The Run's current round and recorded
 usage lead, followed by what needs the person and the Seats in attention order:
 Needs you, Unread, Working, then Idle. Each Seat carries its face, role, card,
 round, doing line, time in state and cost in the unit its account meters.
 Unavailable usage stays a dash. Idle and Done use quiet text with no chip or
 health colour; done Seats fold beneath the active rows and return when they
 need attention. At a narrow pane width each Seat becomes one ListRow, with its
-state beside its name and cost at the end. The rail, Overview and sidebar use
+state beside its name and cost at the end. The members popover, Overview and sidebar use
 one conversation-keyed membership list, including Seats a Flow opened and
 conversations whose process is no longer held.
 
@@ -1672,10 +1677,11 @@ shown as text through the shared sanitiser, so an earlier output is read as it w
 recorded. While they are being read the section says so, and when the read failed
 it says that: a check is never said to have run once before the desk has been
 asked, and attempts already in hand stay on screen through a failed refresh.
-*Run again…* is the last control. Where the Run has ended or the check is still
-running it stays, disabled, with the host's own sentence on screen
-(`checkRetryRefusal`); everything else the host refuses (a moved checkout, cleanup
-still pending, a Team that cannot take work) is said in the consent dialog, which
+*Run again…* is the last control. While the check is still running it stays,
+disabled, with the host's own sentence on screen (`checkRetryRefusal`). An ended
+Run or wrapped Team keeps the reason without a retry action; an ended Run points
+to starting a new Run. Everything else the host refuses (a moved checkout,
+cleanup still pending, a Team that cannot take work) is said in the consent dialog, which
 shows the command exactly as it will run and keeps its answer disabled while there
 is no token to redeem.
 
@@ -1747,13 +1753,13 @@ no steps, in both faces.
 ### The wrapped Team
 
 Wrap retains the same pane and navigation, opening on Receipt. The receipt
-scrolls in the body, leaving the rail and its Agents available. In a narrow
-pane Receipt is the half that shows, for a Team that never had a Run as much as
-for one a Run wrapped, and the Agents list is one tap behind it. Overview and
+scrolls in the content column, leaving the page tabs and Team members trigger
+available. Receipt opens for a Team that never had a Run as much as for one a
+Run wrapped, and the Agents list opens from the members popover. Overview and
 Run stay readable. The shared Seat list reads the receipt's captured
 conversations, then an older receipt's answers, naming each conversation once
 however many Seats were retained for it; an unlinked Seat remains a face and
-name with **Conversation not kept**, without an opening action, and the rail's
+name with **Conversation not kept**, without an opening action, and the popover's
 **No Agents were kept** line is for a receipt that kept no Seat at all.
 Dispatching controls and both composers are disabled with **This Team is
 wrapped**, the conversation menu's **Compact now** and the branch chip's
@@ -1823,6 +1829,11 @@ only when it tells rows apart. Only interactive rows hover; selected table,
 matrix and record-list rows use the same selected fill. Navigation keeps its
 own destination semantics. The Tables catalogue board and “Tables: the family”
 preview frame mount the same real components in both densities.
+
+The Board list omits all-empty evidence columns by default; the view menu
+still offers them. Secondary columns yield to the board pane’s container
+width, preserving the job and its action cell. Titles wrap even when a path
+has no spaces; notes wrap for at most two lines, with full text in `title`.
 
 Library switches from its Skill/Server, State and Loaded by table to list rows
 below 600px of list-container width. The title keeps the name and command,

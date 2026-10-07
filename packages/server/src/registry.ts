@@ -1,6 +1,7 @@
 import {
   emptyQueue,
   mergeRead,
+  PendingConversationNotices,
   permissionOfCeiling,
   preserveNoticeItems,
   reduceSession,
@@ -40,7 +41,7 @@ const hasQueuedContent = (input: readonly UserContent[]): boolean =>
 
 export interface SessionRecord {
   /** Host-assigned shell checkout, separate from every runtime read and replay. */
-  shellCheckout: { readonly project: string; readonly cwd: string } | null
+  shellCheckout: { readonly project: string; readonly cwd: string; readonly source: 'own' | 'fallback' } | null
   session: Session
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */
@@ -251,6 +252,7 @@ const charsOf = (input: readonly UserContent[]): number =>
  */
 export class SessionRegistry {
   readonly #records = new Map<SessionKey, SessionRecord>()
+  readonly #pendingNotices = new PendingConversationNotices()
   /**
    * Where a conversation seen for the first time learns which Agent it was
    * seated as, from the desk's durable Seat records — so a restarted desk shows
@@ -276,6 +278,7 @@ export class SessionRegistry {
    * never resolves.
    */
   upsert(session: Session, live: AgentSession | null): SessionRecord {
+    session = this.#pendingNotices.apply(session)
     const existing = this.#records.get(sessionKey(session.runtime, session.id))
     if (existing) {
       existing.session = seatedSession(
@@ -357,6 +360,7 @@ export class SessionRegistry {
   }
 
   delete(runtime: RuntimeId, id: SessionId): void {
+    this.#pendingNotices.delete(runtime, id)
     this.#records.delete(sessionKey(runtime, id))
   }
 
@@ -492,6 +496,7 @@ export class SessionRegistry {
    * record so callers can react without a second lookup.
    */
   apply(runtime: RuntimeId, event: AgentEvent): SessionRecord | undefined {
+    if (event.type === 'session/detached') this.detachAll(runtime, event.sessionId)
     if (event.type === 'session/started') {
       return this.upsert(event.session, this.get(runtime, event.session.id)?.live ?? null)
     }
@@ -522,7 +527,11 @@ export class SessionRegistry {
     const target = sessionOf(event)
     if (!target) return undefined
     const record = this.get(runtime, target)
-    if (!record) return undefined
+    if (!record) {
+      if (event.type === 'session/closed') this.#pendingNotices.delete(runtime, target)
+      else this.#pendingNotices.keep(runtime, event)
+      return undefined
+    }
     record.session = seatedSession(reduceSession(record.session, event), record.seatedAs)
     return record
   }
@@ -573,10 +582,10 @@ export class SessionRegistry {
    * has to tell its clients about — a queue that quietly stopped looks to the
    * user like a message that vanished.
    */
-  detachAll(runtime: RuntimeId): SessionRecord[] {
+  detachAll(runtime: RuntimeId, session?: SessionId): SessionRecord[] {
     const held: SessionRecord[] = []
     for (const record of this.#records.values()) {
-      if (record.runtime !== runtime) continue
+      if (record.runtime !== runtime || (session !== undefined && record.session.id !== session)) continue
       // Only a handle that was there can be lost to a restart. A conversation
       // already closed by the user stays closed.
       record.detached = record.live !== null || record.detached

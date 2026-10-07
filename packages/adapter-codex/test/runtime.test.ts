@@ -8,11 +8,14 @@ import {
   reduceAll,
   sessionId,
   type AgentEvent,
+  type UserMessageItem,
   type Approval,
   runtimeId,
   type Session,
   type SessionOptions,
   wrapContext,
+  deskContextContent,
+  splitContextContent,
 } from '@harnessdesk/protocol'
 import { ExtensionKernel } from '@harnessdesk/cordis-host'
 
@@ -20,6 +23,7 @@ import { automaticContext } from '../src/capabilities.js'
 import { CodexRuntime, type CodexRuntimeOptions } from '../src/index.js'
 import { CODEX_PROFILE_OPTION_ID } from '../src/profiles.js'
 import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/session.js'
+import { testProcessEnv } from './fixtures/test-process-env.js'
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
@@ -32,7 +36,7 @@ const makeRuntime = (
   env: Readonly<Record<string, string>> = {},
   options: Omit<CodexRuntimeOptions, 'binaryPath' | 'clientName' | 'env'> = {},
 ): CodexRuntime =>
-  new CodexRuntime({ ...options, binaryPath: FAKE, clientName: 'harnessdesk-test', env })
+  new CodexRuntime({ ...options, binaryPath: FAKE, clientName: 'harnessdesk-test', env: testProcessEnv(env) })
 
 /** Collects the event stream so assertions can look at ordering, not just state. */
 const recorder = (runtime: CodexRuntime) => {
@@ -283,6 +287,69 @@ test('history lists and searches map onto session summaries', async (t) => {
   assert.equal(found.data.length, 1)
 })
 
+test('an item completion releases its recorded sent input', async (t) => {
+  const completedRuntime = makeRuntime()
+  t.after(() => completedRuntime.dispose())
+  await completedRuntime.start()
+  const completedTape = recorder(completedRuntime)
+  const completedSession = await completedRuntime.createSession({ cwd: '/w' })
+  await completedSession.send([deskContextContent(wrapContext('Git', 'On branch main'))])
+  await completedTape.until(events => events.some(event => event.type === 'approval/requested'))
+  const completedApprovalEvent = completedTape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> => event.type === 'approval/requested',
+  )
+  assert.ok(completedApprovalEvent)
+  const completedApproval = completedApprovalEvent.approval
+  assert.equal(completedApproval.type, 'command')
+  await completedSession.respondToApproval(completedApproval.id, {
+    type: 'option',
+    optionId: completedApproval.options.find(option => option.intent === 'approve')!.id,
+  })
+  await completedTape.until(events => events.some(event => event.type === 'turn/completed'))
+  const completedUser = completedTape.events.findLast(event =>
+    event.type === 'item/completed' && event.item.type === 'userMessage',
+  )
+  assert.ok(completedUser && completedUser.type === 'item/completed' && completedUser.item.type === 'userMessage')
+  const completedAccess = completedSession as unknown as {
+    recordedUserInput(item: UserMessageItem): UserMessageItem
+  }
+  const freshRead = { ...completedUser.item, content: [{ type: 'text' as const, text: 'fresh read' }] }
+  assert.deepEqual(completedAccess.recordedUserInput(freshRead), freshRead)
+})
+
+test('a turn end clears input that never bound to a user item', async (t) => {
+  const unboundRuntime = makeRuntime({ FAKE_CODEX_SKIP_USER_ITEM: '1' })
+  t.after(() => unboundRuntime.dispose())
+  await unboundRuntime.start()
+  const unboundTape = recorder(unboundRuntime)
+  const unboundSession = await unboundRuntime.createSession({ cwd: '/w' })
+  const sent = 'input whose item the runtime did not announce'
+  await unboundSession.send([{ type: 'text', text: sent }])
+  await unboundTape.until(events => events.some(event => event.type === 'approval/requested'))
+  const unboundApprovalEvent = unboundTape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> => event.type === 'approval/requested',
+  )
+  assert.ok(unboundApprovalEvent)
+  const unboundApproval = unboundApprovalEvent.approval
+  assert.equal(unboundApproval.type, 'command')
+  await unboundSession.respondToApproval(unboundApproval.id, {
+    type: 'option',
+    optionId: unboundApproval.options.find(option => option.intent === 'approve')!.id,
+  })
+  await unboundTape.until(events => events.some(event => event.type === 'turn/completed'))
+  const unboundAccess = unboundSession as unknown as {
+    noteUserInput(id: string, text: string): void
+    recordedUserInput(item: UserMessageItem): UserMessageItem
+  }
+  const lateItem = {
+    id: 'late-item' as UserMessageItem['id'],
+    type: 'userMessage' as const,
+    content: [{ type: 'text' as const, text: sent }],
+  }
+  unboundAccess.noteUserInput(String(lateItem.id), sent)
+  assert.deepEqual(unboundAccess.recordedUserInput(lateItem), lateItem)
+})
+
 test('a thread working on its first turn is in the list, under its ask', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())
@@ -300,7 +367,7 @@ test('a thread working on its first turn is in the list, under its ask', async (
   )
 
   await session.send([
-    { type: 'text', text: wrapContext('Uncommitted changes', 'Status: ## main') },
+    deskContextContent(wrapContext('Uncommitted changes', 'Status: ## main')),
     { type: 'text', text: 'Count slowly from 1 to 30, one number per line.' },
   ])
   const during = await runtime.listSessions({ pageSize: 10 })
@@ -640,7 +707,7 @@ test('a first message with HarnessDesk\'s own envelope names the thread; a plain
   // through Codex's own call and both windows read the same.
   const enveloped = await runtime.createSession({ cwd: '/w' })
   await enveloped.send([
-    { type: 'text', text: wrapContext('Uncommitted changes', 'Status: ## main') },
+    deskContextContent(wrapContext('Uncommitted changes', 'Status: ## main')),
     { type: 'text', text: 'Reply with exactly: ok' },
   ])
   await tape.until((events) =>
@@ -1127,10 +1194,10 @@ test('checkInstallation moves an idle runtime onto an upgraded binary, and waits
 
     // "Upgrade" the binary: discovery probes `--version` in this process's
     // environment, so the fixture reports the new number from here on.
+    const session = await runtime.createSession({ cwd: '/tmp/repo' })
     process.env['FAKE_CODEX_VERSION'] = '0.200.0'
 
-    // Busy: a turn in flight means the change is reported but not acted on.
-    const session = await runtime.createSession({ cwd: '/tmp/repo' })
+    // Busy: the existing conversation stays on its original build while its turn runs.
     await session.send([{ type: 'text', text: 'hello' }])
     await until((seen) => seen.some((event) => event.type === 'turn/started'))
     const deferred = await runtime.checkInstallation()
@@ -1186,8 +1253,8 @@ test('a conversation that opened with only context blocks is called by the first
   await runtime.start()
   const session = await runtime.createSession({ cwd: '/w' })
   await session.send([
-    { type: 'text', text: wrapContext('Handed off from Claude Code', '## Goal\nfinish the migration') },
-    { type: 'text', text: wrapContext('Git', 'On branch main.') },
+    deskContextContent(wrapContext('Handed off from Claude Code', '## Goal\nfinish the migration')),
+    deskContextContent(wrapContext('Git', 'On branch main.')),
   ])
   // The session the runtime hands back is Codex's own, whose summary the list is made from.
   assert.equal((session as unknown as { summary(): { preview: string | null } }).summary().preview, 'Handed off from Claude Code')
@@ -1244,17 +1311,17 @@ test('a hand-off to Codex is called by the hand-off, not by the block the adapte
     },
   })
   await new Promise((resolve) => setTimeout(resolve, 60))
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel, env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   const previewOf = (session: unknown): string | null => (session as { summary(): { preview: string | null } }).summary().preview
 
   const handed = await runtime.createSession({ cwd: '/w' })
-  await handed.send([{ type: 'text', text: wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish the migration') }])
+  await handed.send([deskContextContent(wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish the migration'))])
   assert.equal(previewOf(handed), 'Handed off from Claude Code — “Migrate webhooks”')
 
   const chipped = await runtime.createSession({ cwd: '/w' })
-  await chipped.send([{ type: 'text', text: wrapContext('Uncommitted changes', 'M src/a.ts') }])
+  await chipped.send([deskContextContent(wrapContext('Uncommitted changes', 'M src/a.ts'))])
   assert.equal(previewOf(chipped), 'Uncommitted changes')
 
   // Listed: Codex stored the message with the adapter's block in front of the chip.
@@ -1290,7 +1357,7 @@ const gitKernel = async (t: { after(fn: () => unknown): void }): Promise<Extensi
 test('a preview that is the person’s own words reads the same listed as opened', async (t) => {
   // The control for the pair below: nothing here needs a predicate at all.
   const kernel = await gitKernel(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel, env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
   const listed = (await runtime.listSessions({ pageSize: 10 })).data.find((row) => String(row.id) === 'thread-2')
@@ -1304,7 +1371,7 @@ test('a conversation is called the same thing opened as it is in the list (revie
      and the `session/started` event went on naming a conversation after the
      adapter's own block. Both paths, one thread, one answer. */
   const kernel = await gitKernel(t)
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel, env: testProcessEnv() })
   t.after(() => runtime.dispose())
   await runtime.start()
 
@@ -1349,3 +1416,39 @@ for (const order of ['separate', 'one-chunk']) {
     assert.equal((next.item as { kind?: string }).kind, undefined, 'brief classification does not leak into the next notice')
   })
 }
+
+test('automatic context carries its record through the native user-message echo', async t => {
+  const runtime = makeRuntime({}, { capabilities: await gitKernel(t) })
+  t.after(() => runtime.dispose())
+  const seen = recorder(runtime)
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/w' })
+  await live.send([{ type: 'text', text: 'Explain it' }])
+  await seen.until(events => events.some(event => event.type === 'item/started' && event.item.type === 'userMessage'))
+  const opening = seen.events.find(event => event.type === 'item/started' && event.item.type === 'userMessage')
+  assert.ok(opening?.type === 'item/started' && opening.item.type === 'userMessage')
+  assert.deepEqual(splitContextContent(opening.item.content), {
+    injections: [{ label: 'Git', text: 'On branch main.' }], text: 'Explain it',
+  })
+})
+
+test('locally sent wrapper lookalikes carry a record through the native event stream', async t => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  const seen = recorder(runtime)
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/w' })
+  const raw = `${wrapContext('Git', 'typed words')}\n\nExplain it`
+  await live.send([{ type: 'text', text: raw }])
+  await seen.until(events => events.some(event => event.type === 'item/started' && event.item.type === 'userMessage'))
+  const opening = seen.events.find(event => event.type === 'item/started' && event.item.type === 'userMessage')
+  assert.ok(opening?.type === 'item/started' && opening.item.type === 'userMessage')
+  assert.deepEqual(opening.item.content, [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }])
+  assert.equal(opening.item.context?.length ?? 0, 0)
+})
+
+test('presentation declares the native commit co-author', async (t) => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  assert.deepEqual(runtime.info.presentation.coAuthor, { name: 'Codex', email: 'noreply@openai.com' })
+})

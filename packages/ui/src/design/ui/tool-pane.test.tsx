@@ -169,3 +169,21 @@ it('draws a document tab’s part in a reorder with the sortable part’s own ma
   const classes = host.firstElementChild?.className.split(' ') ?? []
   for (const token of sortableItemClass('horizontal').split(' ')) expect(classes).toContain(token)
 })
+
+it('aligns a receipt header with the shared reading inset', () => {
+  const header = renderToStaticMarkup(<ToolPaneHeader title="Team" variant="window" contentInset="reading" />)
+  expect(header).toContain('pl-[calc(var(--hd-space-6)+var(--hd-table-edge)+var(--hd-border-width))]')
+})
+
+it('aligns a page header with its reading column while preserving the window corner', () => {
+  const header = renderToStaticMarkup(<ToolPaneHeader title="Team" variant="window" corner contentInset="page" />)
+  expect(header).toContain('pl-[max(var(--hd-space-6),var(--titlebar-inset,0px))]')
+})
+
+it('a reading-table header owns the same content inset as its table', () => {
+  const header = renderToStaticMarkup(<ToolPaneHeader title="Jobs" contentInset="reading-table" />)
+  expect(header).toContain('pl-[calc(var(--hd-space-6)+var(--hd-table-edge))]')
+  expect(header).toContain('pr-(--hd-space-6)')
+  const withIcon = renderToStaticMarkup(<ToolPaneHeader title="Jobs" icon={<span>mark</span>} contentInset="reading-table" />)
+  expect(withIcon).toContain('pl-[calc(var(--hd-space-6)+var(--hd-table-edge)-var(--hd-space-4)-var(--hd-bar-gap))]')
+})

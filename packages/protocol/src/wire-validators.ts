@@ -1,5 +1,5 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
-import { AUTHORING_AGENT_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
+import { AUTHORING_AGENT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
 import type { ApprovalDecision } from './approval.js'
 import type { FindingDecisionAction, FindingPublishAction } from './findings.js'
 import { lanePreferences } from './goal.js'
@@ -45,10 +45,19 @@ import type { ReviewRequest } from './runtime.js'
  * code, the socket is a loopback port that other local processes can reach.
  */
 
+const nonNegativeSafeInteger: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < 0) {
+    throw new ValidationError(path, 'expected a non-negative safe integer')
+  }
+  return number
+}
+
 export const userContentValidator: Validator<UserContent> = taggedUnion('type', {
   text: shape({
     type: literalUnion('text'),
     text: isString,
+    deskContext: optional(shape({ prefixLength: nonNegativeSafeInteger })),
     spans: optional(
       arrayOf(
         shape({
@@ -682,7 +691,7 @@ const flowLayoutValidator: Validator<unknown> = (value, path = '') => {
   } catch {
     throw new ValidationError(path, 'expected a plain JSON value')
   }
-  if (size > 64 * 1024) throw new ValidationError(path, 'expected layout metadata under 64 KiB')
+  if (size > SHAPE_LAYOUT_SIZE_LIMIT) throw new ValidationError(path, 'expected layout metadata under 64 KiB')
   return value
 }
 const flowPolicyValidator: Validator<FlowPolicy> = goalShape({

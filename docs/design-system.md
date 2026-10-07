@@ -419,10 +419,11 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | `--hd-nav-gap` | `8px` |
 | `--hd-nav-inset` | `8px` |
 | `--hd-nav-padding` | `0 8px` |
+| `--hd-label-weight` | `500` |
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Studio sets the same label in the medium weight with more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
+The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Both interfaces use medium weight; Studio adds more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
 
 ### The card
 
@@ -483,7 +484,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
-| `--hd-label-weight` | `` |
 | `--hd-label-space` | `` |
 | `--hd-card-fill` | `` |
 | `--hd-card-border` | `` |
@@ -1409,11 +1409,38 @@ a caller that does not re-render mid-drag has been passing this component
 the *committed* size all along, and committing that put the panel straight
 back where it started.
 
+### `FlowCanvas`
+
+`packages/ui/src/design/patterns/FlowCanvas.tsx`
+
+A controlled plan drawing. Give its container a height; Fit only shrinks.
+New drawings start at 100% when they fit, otherwise shrink to the container.
+Edits keep the viewport while any earlier step survives.
+Steps connect by pointer here; the builder dock will add keyboard connection later.
+
 ### `FlowGraph`
 
 `packages/ui/src/design/patterns/FlowGraph.tsx`
 
 The frozen Flow's measured drawing and accessible list. A Run overlays recorded state, seated faces, motion and shared Timeline selection; a blueprint stays still.
+
+### `words`
+
+`packages/ui/src/design/patterns/FlowStepRow.tsx`
+
+Read an agent-authored line as safe words, the same way the Flow drawing does.
+
+### `RunStateChip`
+
+`packages/ui/src/design/patterns/FlowStepRow.tsx`
+
+A recorded step or Seat state, toned once for the Flow list and Run dock. Unknown outcomes stay neutral.
+
+### `FlowStepRow`
+
+`packages/ui/src/design/patterns/FlowStepRow.tsx`
+
+A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
 
 ### `Lightbox`
 
@@ -1852,6 +1879,7 @@ focus, the arrow keys, Home/End, and the form value with it.
 
 The canonical toggle group supplies radio semantics and roving focus while
 this pattern supplies the settings-specific segmented appearance.
+An unavailable answer takes a disabled reason, kept in its hover title.
 
 ### `PageHead`
 
@@ -2073,7 +2101,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 0 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's two own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value. |
-| `singleAreaPrimitive` | 19 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
+| `singleAreaPrimitive` | 18 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |

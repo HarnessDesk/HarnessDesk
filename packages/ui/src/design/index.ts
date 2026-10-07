@@ -125,6 +125,7 @@ export { ConfirmDialog } from './patterns/ConfirmDialog'
 export { ConversationEmptyState } from './patterns/ConversationEmptyState'
 export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
 export { FlowGraph, type FlowGraphProps } from './patterns/FlowGraph'
+export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export {
@@ -205,3 +206,5 @@ export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState }
 export { PlanCard, type PlanCardProps } from './patterns/PlanCard'
 
 export { UsageMeterRow } from './patterns/UsageMeterRow'
+
+export { FlowCanvas, FLOW_CANVAS_CARD_WIDTH, FLOW_CANVAS_RUN_CARD_HEIGHT, type FlowCanvasStep, type FlowCanvasNode, type FlowCanvasEdge, type FlowCanvasNodeChange, type FlowCanvasEdgeChange, type FlowCanvasNodeProps, type FlowCanvasProps } from './patterns/FlowCanvas'

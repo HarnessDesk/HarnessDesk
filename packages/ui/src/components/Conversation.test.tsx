@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
+import { wrapContext, reduceSession, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -129,6 +129,15 @@ const render = (store: AppStore, key: string | null = KEY): void => {
   })
 }
 
+const expectNoticeBelowEmptyState = () => {
+  const transcript = container.querySelector('[data-live-transcript]')
+  const empty = transcript?.querySelector('[data-slot="conversation-empty-state"]')
+  const notice = transcript?.querySelector('[data-turn^="notice:"]')
+  expect(empty).not.toBeNull()
+  expect(notice).not.toBeNull()
+  expect(empty!.compareDocumentPosition(notice!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+}
+
 it('a session that has never been used is not reported as a broken one', () => {
   // `updatedAt === createdAt`: the host made it and nothing has happened since.
   render(rig(session()).store)
@@ -160,6 +169,27 @@ it('says plainly when an agent could not restore a conversation that was used', 
   expect(container.textContent).toContain('Nothing to show')
   expect(container.textContent).toContain('Codex')
   expect(container.textContent).toContain('restore')
+})
+
+it('keeps the opening pitch above a notice-only conversation', () => {
+  const id = sessionId('s-1')
+  const withNotice = reduceSession(session(), { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  render(rig(withNotice).store)
+
+  expect(container.textContent).toContain('What should we build?')
+  expect(container.textContent).toContain('No tools declared')
+  expectNoticeBelowEmptyState()
+})
+
+it('keeps the restore explanation above a notice-only conversation', () => {
+  const id = sessionId('s-1')
+  const withNotice = reduceSession(session({ updatedAt: 9_000 }), { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+  render(rig(withNotice).store)
+
+  expect(container.textContent).toContain('Nothing to show')
+  expect(container.textContent).toContain('restore')
+  expect(container.textContent).toContain('No tools declared')
+  expectNoticeBelowEmptyState()
 })
 
 it('shows the transcript once there is one, and neither empty state', () => {
@@ -197,6 +227,14 @@ it('a ready, empty pane whose folder is known offers to start with a team there'
   await act(async () => start.click())
 
   expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, undefined)
+})
+
+it('uses the page role’s own weight for the empty conversation title', () => {
+  render(rig(session()).store)
+  const title = container.querySelector('[data-slot="conversation-empty-state"] [data-role="page"]')!
+  expect(title.textContent).toBe('What should we build?')
+  expect(title.classList.contains('font-semibold')).toBe(true)
+  expect(title.hasAttribute('data-weight')).toBe(false)
 })
 
 it('with no session at all — no folder to read a catalogue from — offers no team action', () => {
@@ -654,4 +692,13 @@ it('a new turn re-engages follow, undoing an earlier release', () => {
   render(rig(session({ updatedAt: 9_500, turns: [first, second] })).store)
 
   expect(jumpToLatest()).toBeUndefined()
+})
+
+
+it('heads a recorded typed lookalike with its pasted first line', () => {
+  const raw = `${wrapContext('Git', 'Pasted header words')}\n\nExplain it`
+  render(rig(session({ turns: [{ id: turnId('typed'), status: 'completed', items: [
+    { id: itemId('typed'), type: 'userMessage', content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] },
+  ] }] })).store)
+  expect(container.querySelector('header')?.textContent).toContain('<context source="Git"')
 })

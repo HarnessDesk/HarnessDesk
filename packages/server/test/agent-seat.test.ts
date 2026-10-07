@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -10,6 +11,8 @@ import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
   wrapContext,
+  deskContextContent,
+  splitContextContent,
   findOption,
   OptionRefusedError,
   refuseOptionValue,
@@ -160,6 +163,8 @@ class SeatFake extends FakeRuntime {
    * conversations afresh after a restart would.
    */
   mintAs: string | null = null
+  /** One warning to emit before the next `session/started`, like a runtime opening a review. */
+  noticeBeforeNextRegistration: string | null = null
   /** Asked to delete, it refuses in these words. */
   deleteRefusal: string | null = null
   /** Conversations reopened, each on a handle of its own. */
@@ -209,6 +214,11 @@ class SeatFake extends FakeRuntime {
     }
     this.opened.push(session)
     this.minted.set(String(id), options.cwd)
+    if (this.noticeBeforeNextRegistration !== null) {
+      const message = this.noticeBeforeNextRegistration
+      this.noticeBeforeNextRegistration = null
+      this.emit({ type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message, id: `opening-warning-${String(id)}` })
+    }
     this.emit({ type: 'session/started', session: session.snapshot() })
     if (this.breakNext) {
       this.breakNext = false
@@ -2286,8 +2296,8 @@ test("over ACP: the brief opens as a notice, not a turn the person is shown as h
     [],
     'the brief is never recorded as something a person typed',
   )
-  const notice = items.find((item) => item.type === 'notice')
-  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  const notice = items.find((item) => item.type === 'notice' && item.kind === 'agentBrief')
+  assert.ok(notice && notice.type === 'notice', 'the brief is still recorded, just not as speech')
   assert.equal(notice.kind, 'agentBrief', 'the actual Agent brief carries its fold marker')
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
 })
@@ -2334,7 +2344,7 @@ const CODEX_FAKE = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtu
 /** A desk with the real Codex adapter on it, over the adapter's own fake. */
 const codexDesk = async (t: TestContext, env: Record<string, string>) => {
   const { harness, client, work } = await desk(t)
-  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', ...env } })
   harness.host.register(runtime)
   await runtime.start()
   t.after(() => runtime.dispose())
@@ -2350,7 +2360,7 @@ const directCodexDesk = async (t: TestContext, env: Record<string, string>) => {
     version: '9.9.9',
     pickDirectory: async () => stateDir,
   })
-  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', ...env } })
   host.register(runtime)
   await host.start()
   t.after(() => host.dispose())
@@ -2691,17 +2701,23 @@ for (const [left, words] of [
   })
 }
 
-test('through the host: a seat passed over is deleted where its runtime keeps it, forgotten by the desk, and dropped from every window', async (t) => {
+test('through the host: a passed-over seat with only a pre-registration warning is deleted and removed', async (t) => {
   const { harness, seats, client, work } = await desk(t)
   // Two differences, not one (effort and thinking): an effort-only mismatch
   // is fatal since #1013, and this test needs the seating to move on to the
   // next candidate.
+  seats.noticeBeforeNextRegistration = 'TOOLS_DECLARED (none)'
   await writeReviewer(harness.stateDir, 'seatfake=small/high+thinking, seatfake=big/high')
 
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   const [passed, kept] = seats.opened
   assert.ok(passed && kept && seats.opened.length === 2)
   assert.equal(String(kept.id), String(session.id))
+  assert.equal(
+    startedSeen(client, String(passed.id))?.turns.flatMap((turn) => turn.items).some((item) => item.type === 'notice'),
+    true,
+    'the warning is folded into registration before the seat is passed over',
+  )
   // Where the runtime keeps it…
   assert.deepEqual(seats.deleted, [String(passed.id)])
   // …and everything the desk held: its record, and the name it was given.
@@ -3908,8 +3924,8 @@ test('over Codex: the brief opens as a notice too — Codex echoes it back as `u
     [],
     'the brief is never recorded as something a person typed, even once Codex echoes it back',
   )
-  const notice = items.find((item) => item.type === 'notice')
-  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  const notice = items.find((item) => item.type === 'notice' && item.kind === 'agentBrief')
+  assert.ok(notice && notice.type === 'notice', 'the brief is still recorded, just not as speech')
   assert.equal(notice.kind, 'agentBrief', 'the actual Agent brief carries its fold marker')
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
 })
@@ -3929,8 +3945,8 @@ test('over Codex: a coalesced turn/start answer and opening echo still record th
     [],
     'the synchronous opening echo cannot overtake the silent-turn marker',
   )
-  const notice = items.find((item) => item.type === 'notice')
-  assert.ok(notice, 'the coalesced echo is still recorded as a notice')
+  const notice = items.find((item) => item.type === 'notice' && item.kind === 'agentBrief')
+  assert.ok(notice && notice.type === 'notice', 'the coalesced echo is still recorded as a notice')
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
 })
 
@@ -4025,12 +4041,14 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
     'the silent order to finish',
   )
   const request = 'Continue with the person\'s request.'
+  const pastedWrapper = wrapContext('Pasted elsewhere', 'keep this wrapper as typed text')
+  const typed = `${request}\n\n${pastedWrapper}`
   await client.call('turn/send', {
     runtime: session.runtime,
     sessionId: session.id,
     input: [
-      { type: 'text', text: wrapContext('Git', 'Status: ## main') },
-      { type: 'text', text: request },
+      deskContextContent(wrapContext('Git', 'Status: ## main')),
+      { type: 'text', text: typed },
     ],
   })
 
@@ -4042,10 +4060,12 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
     .flatMap((turn) => turn.items)
     .filter((item) => item.type === 'userMessage')
   assert.equal(spoken.length, 1, 'only the person\'s follow-up is speech')
-  const spokenText = spoken.flatMap((item) =>
-    item.type === 'userMessage' ? item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])) : [],
-  )
-  assert.ok(spokenText.includes(request), 'the normal message is recorded in the person\'s voice')
+  const message = spoken.find((item) => item.type === 'userMessage')
+  assert.ok(message && message.type === 'userMessage')
+  assert.deepEqual(splitContextContent(message.content), {
+    injections: [{ label: 'Git', text: 'Status: ## main' }],
+    text: typed,
+  })
   const summary = (await runtime.listSessions()).data.find((row) => row.id === session.id)
   assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
   // `agent/seat` names the conversation before handing over its silent order,

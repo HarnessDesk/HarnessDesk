@@ -11,6 +11,7 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  deskContextContent,
   approvalId as makeApprovalId,
   FLOW_BOARD_TOOL_NAMES,
   ceilingOfPermission,
@@ -29,6 +30,7 @@ import {
   type SeatCeiling,
   flowStepOf,
   isBusy,
+  isNoticeTurn,
   isSessionBusy,
   isSessionGone,
   reopenRefusedByAgent,
@@ -79,6 +81,7 @@ import {
   type Approval,
   type ContributionId,
   type ScopeQuery,
+  type WorkspaceAdmission,
   type GoalSeatRequest,
   type GoalReceipt,
   type SecretReload,
@@ -184,6 +187,7 @@ import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
+import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
@@ -224,7 +228,7 @@ export interface ExtensionHost extends CapabilityRegistry {
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
   setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
-  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined>): void
   /** Reads a manifest for the consent dialog; imports nothing. */
   inspectPlugin(specifier: string): Promise<{
     id: string
@@ -1016,6 +1020,20 @@ export class Host {
             return record.session.options ?? []
           }
         },
+        teamOf: (runtime, sessionId) => {
+          const seat = this.#evidence.seats.latestKeptOf(runtime, sessionId)
+          if (!seat?.board || seat.closed) return null
+          const board = this.#team.stateFor(seat.board)
+          const card = board.intents.find((one) => one.claim?.runtime === runtime && one.claim.sessionId === sessionId)
+          const run = card ? this.#flows.executionsFor(seat.board).find((one) => one.rounds.some((round) => round.cards.includes(card.id))) : null
+          const rounds = run ? this.#flows.findingRun(run.id)?.rounds ?? [] : []
+          const round = card ? rounds.find((one) => one.cards.includes(card.id)) : null
+          const index = round ? rounds.indexOf(round) : -1
+          const reviewNumber = round?.reviews && index >= 0
+            ? rounds.slice(0, index).filter((one) => one.reviews).length + 1
+            : null
+          return { role: seat.role, team: board.name || null, round: reviewNumber }
+        },
         record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
@@ -1041,8 +1059,9 @@ export class Host {
           () => this.#teamLive(runtime, id),
           async (live) => {
             this.#assertDispatchable({ runtime, sessionId: makeSessionId(id) })
-            if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
-            else await live.send([{ type: 'text', text }])
+            const input: readonly UserContent[] = from ? [deskContextContent(text)] : [{ type: 'text', text }]
+            if (from) await this.#startTurn(runtime, id, from, () => live.send(input))
+            else await live.send(input)
           },
         ), id))
       },
@@ -1052,7 +1071,8 @@ export class Host {
           () => this.#teamLive(runtime, id),
           async (live) => {
             this.#assertDispatchable({ runtime, sessionId: makeSessionId(id) })
-            await live.steer([{ type: 'text', text }])
+            const input: readonly UserContent[] = from ? [deskContextContent(text)] : [{ type: 'text', text }]
+            await live.steer(input)
             if (from) this.#markRunningTurn(runtime, id, this.#messageCause(from))
           },
         ))
@@ -1099,11 +1119,11 @@ export class Host {
                where the set-aside is tried again, behind whatever holds the
                Goal queue — never awaited here (review P2-1 on #940). */
             this.#retryStuckGoals()
-            return { ok: false as const, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
+            return { ok: false as const, readOnly: false, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
           }
           return !document.restored && document.goal.state === 'open' && document.operation === null
             ? { ok: true as const }
-            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+            : { ok: false as const, readOnly: Boolean(document.restored || document.goal.state !== 'open' || document.operation?.kind === 'wrap'), reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
         } catch {
           // A legacy room has no Goal document and retains the Team engine's
           // standalone behaviour until migration gives it one.
@@ -1302,7 +1322,7 @@ export class Host {
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
-      commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
+      commitWork: (cwd, before, message, seat) => commitCardWork(cwd, before, message, this.#runtimes.get(seat.session.runtime)?.info.presentation.coAuthor ?? null),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
       assertCheckCleanup: (goal, card) => this.#evidence.assertFlowCheckCleanup(goal, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
@@ -1494,6 +1514,14 @@ export class Host {
       ledger: (project) => this.#findings.ledgerOf(project),
       seat: (id) => this.#evidence.seats.byId(id),
       template: () => this.#reviewSignature(),
+      teamOf: (board) => { try { return this.#team.stateFor(board).name || null } catch { return null } },
+      reviewRoundOf: (seat, round) => {
+        if (!seat.board || round === null) return null
+        const run = this.#flows.executionsFor(seat.board).find((one) => one.operations.some((op) => op.kind === 'seat' && op.seat === seat.id))
+        const rounds = run ? this.#flows.findingRun(run.id)?.rounds ?? [] : []
+        const index = rounds.findIndex((one) => one.n === round && one.reviews)
+        return index < 0 ? null : rounds.slice(0, index).filter((one) => one.reviews).length + 1
+      },
       appendPost: (input) => this.#findings.appendPost(input),
       forge: options.findingForge ?? new GhFindingForge(),
       // A trigger's run posts each closed round as one review; every other run, comment by comment.
@@ -1734,7 +1762,7 @@ export class Host {
         }
         return (await seatAgent(this.#context, asked, {
           board: goal.id,
-          role: null,
+          role: policy.role,
           ...(input.grant === undefined ? {} : { grant: input.grant }),
           ...(policy.unattended ? { unattended: true } : {}),
           ...(policy.requireHeld ? { requireHeld: true as const } : {}),
@@ -3219,6 +3247,7 @@ export class Host {
 
   /** The last project opened by the host, never a runtime-reported session directory. */
   #shellProject: string | null = null
+  #shellCheckoutRoot: string | null = null
 
   /** Only person-opened projects admit shell authority; session listings never do. */
   async #admitShellProject(project: string | null | undefined, checkout?: string): Promise<ShellProjectIdentity | undefined> {
@@ -3250,7 +3279,7 @@ export class Host {
     return undefined
   }
 
-  async #shellWorkspace(scope: ScopeQuery): Promise<string | undefined> {
+  async #shellWorkspace(scope: ScopeQuery): Promise<WorkspaceAdmission | undefined> {
     const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
     // Durable records are candidates, re-admitted against person-opened projects on every invocation.
     const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
@@ -3264,8 +3293,13 @@ export class Host {
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
     const project = identity.project
     const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
-    if (record) record.shellCheckout = { project, cwd }
-    return cwd
+    // A Seat owns its placement only while shellRoot can still return that admitted checkout.
+    const placement = checkout && (kept ? await realpath(checkout.cwd).catch(() => undefined) : checkout.cwd)
+    const source = admitted && checkout && placement && samePath(cwd, placement)
+      ? record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
+      : 'fallback'
+    if (record) record.shellCheckout = { project, cwd, source }
+    return { root: cwd, enterCheckout: source === 'own' && !samePath(cwd, this.#shellCheckoutRoot ?? '') }
   }
 
   /** The folder a live session works in, straight off the registry; null when that session is not live. */
@@ -3327,11 +3361,12 @@ export class Host {
        still queued behind another. Patched onto the document instead, that
        card was missing, the claim was refused, and the assignment stayed
        staged, refusing every later save of the Goal. */
+    const carriedPatch = (intents: readonly Intent[]) => carryCardWork(intents, patch(intents))
     const staged = this.#goalStore.read(goal).operation?.kind === 'wrap'
     const save = staged
       ? async () => {
         const now = this.#goalStore.read(goal)
-        const intents = patch(now.board.intents)
+        const intents = carriedPatch(now.board.intents)
         if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
       }
       /* Whole: a Team save this write carries is answered as done once it
@@ -3339,7 +3374,7 @@ export class Host {
       : (state: TeamState) => this.#writeGoalBoard(goal, state, { whole: true })
     if (!(await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged }))) {
       const document = this.#goalStore.read(goal)
-      const intents = patch(document.board.intents)
+      const intents = carriedPatch(document.board.intents)
       if (intents === document.board.intents) return
       await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
     }
@@ -3424,7 +3459,7 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream, dirtyPaths },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
         updatedAt: at,
@@ -4718,8 +4753,9 @@ export class Host {
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
     this.#shellProject = shellIdentity.project
-    // A conversation here is admitted to the folder's checkout, or to its project's main checkout when it has no
-    // checkout of its own: a call admitted to either runs in this folder as it was opened.
+    this.#shellCheckoutRoot = shellIdentity.checkoutRoot
+    // A conversation here uses the folder's checkout or its project's main checkout as a fallback. Both can
+    // run in the folder as opened; #shellWorkspace distinguishes a Seat's own checkout from that fallback.
     this.#extensions?.setWorkspace({
       root: described.path, branch: git?.branch ?? null, admitted: [shellIdentity.checkoutRoot, shellIdentity.project],
     })
@@ -5407,7 +5443,7 @@ export class Host {
          for exactly those, and on the record when there is one — where a
          fresh attach and a runtime restart already clear it, which is the
          behaviour wanted. */
-      if (agent?.health().state === 'ready' && !isSessionBusy(error)) {
+      if (agent?.health().state === 'ready' && !isSessionBusy(error) && !isRuntimeDown(error)) {
         const gone = isSessionGone(error)
         const refusals =
           (record ? record.reopenRefusals : (this.#teamRefusals.get(key) ?? 0)) +
@@ -5565,12 +5601,18 @@ export class Host {
     const reopened = await this.#reopenAttachments(runtime, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await runtime.resumeSession(id, {
+        ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
       })
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
+      // These typed failures name the runtime process, not the conversation.
+      // Keep the code so #teamLive can distinguish a stopped agent from a
+      // conversation that the running agent refused to reopen.
+      if (isRuntimeDown(error)) throw error
       // The sentence is the same either way; what differs is whether asking
       // again could help. The adapter's own "gone", or the agent answering
       // that the id names nothing, settles it — and keeps its code, so a
@@ -5935,7 +5977,7 @@ export class Host {
     try {
       const session = this.#attach(runtime, live.id, live)
       const checkout = Object.freeze({ project, cwd })
-      this.registry.get(runtime.info.id, live.id)!.shellCheckout = checkout
+      this.registry.get(runtime.info.id, live.id)!.shellCheckout = { ...checkout, source: 'own' }
       await live.setTitle(where.title).catch(() => {})
       await this.#names.set(runtime.info.id, live.id, where.title)
       await this.#applySeatPicks(live, seat)
@@ -6104,13 +6146,15 @@ export class Host {
   #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
     const key = sessionKey(runtime, id)
     const record = this.registry.get(runtime, id)
+    // A warning given while opening the conversation is not use; only real turns count.
+    const hasRealTurn = record?.session.turns.some((turn) => !isNoticeTurn(turn)) ?? false
     const touched =
       inHand.reached ||
       this.#sendingNow.has(key) ||
       this.#draining.has(key) ||
       this.#reattaching.has(key) ||
       (record !== undefined &&
-        (record.session.turns.length > 0 ||
+        (hasRealTurn ||
           record.watched.size > 0 ||
           record.queue.messages.length > 0 ||
           (record.live !== null && record.live !== inHand.live)))
@@ -6469,7 +6513,13 @@ export class Host {
               ?.items ?? [],
           )
         : []
+    // The Team wait captures a running turn; settle it before detach clears
+    // that turn from the registry's live status.
+    if (event.type === 'session/detached') {
+      this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
+    }
     const record = this.registry.apply(runtime, event)
+    if (record && event.type === 'session/detached') this.#pushQueue(record)
     if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
       (event.type === 'session/tasks' && event.tasks.some((task) => task.state === 'running')))) {
       this.#seatQuietSince.delete(recordKey(record))
@@ -6496,7 +6546,9 @@ export class Host {
       if (settings !== event.settings) outgoing = { ...event, settings }
     }
     if (event.type === 'session/started') {
-      const session = seatedSession(event.session, record?.seatedAs ?? null)
+      // Registration carries the host fold, including notices heard before a
+      // window connected. The adapter's summary has never seen those rows.
+      const session = record?.session ?? seatedSession(event.session, null)
       if (session !== event.session) outgoing = { ...event, session }
     }
     if (record && event.type === 'turn/completed' && published.length > 0) {
@@ -6582,8 +6634,8 @@ export class Host {
          finished, a usage window ran out, a harness refused the next call —
          the flow stalls silently: cards stay open, nobody is waiting on them,
          and the only sign is a room that stopped moving. So the seat is
-         handed its order again. Budgeted, because a seat that cannot start is
-         a seat that would otherwise be re-armed forever. */
+         handed its order again. Unfinished turns and self-block hand-backs
+         have separate hourly allowances, so neither can re-arm forever. */
       void this.#flows.reArm(runtime, String(event.sessionId))
       // The same turn-ended signal answers a v2 release still waiting on this
       // Seat, rather than a poll of its own guessing when to ask again (#1027).
@@ -7460,6 +7512,11 @@ const ACCOUNT_NAME_DEADLINE_MS = 2_000
 const isInside = (path: string, base: string): boolean => path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
 
 const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, record.session.id)
+
+const isRuntimeDown = (error: unknown): boolean => {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false
+  return error.code === 'notRunning' || error.code === 'notInstalled'
+}
 
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)

@@ -12,7 +12,7 @@ import type {
   AgentItem,
   TurnInsightContext,
 } from '@harnessdesk/protocol'
-import { openingOf, preserveNoticeItems } from '@harnessdesk/protocol'
+import { isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
@@ -145,6 +145,19 @@ const pairTurns = (
   return pairs
 }
 
+/** Restore message records without copying the stored turn segmentation. */
+const withDeskContext = (turns: readonly Turn[], stored: readonly Turn[]): readonly Turn[] => {
+  const readItems = turns.flatMap(turn => turn.items)
+  const recordedItems = preserveDeskContext(readItems, stored.flatMap(turn => turn.items))
+  if (recordedItems === readItems) return turns
+  let offset = 0
+  return turns.map(turn => {
+    const items = recordedItems.slice(offset, offset + turn.items.length)
+    offset += turn.items.length
+    return items.every((item, index) => item === turn.items[index]) ? turn : { ...turn, items }
+  })
+}
+
 /**
  * The stored usage to put back on a read, or null to leave the read alone.
  *
@@ -231,7 +244,7 @@ export class TranscriptStore {
     const key = keyOf(session.runtime, session.id)
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
-      const stored: Stored = {
+      let stored: Stored = {
         version: FORMAT,
         runtime: session.runtime,
         id: session.id,
@@ -250,10 +263,16 @@ export class TranscriptStore {
         // would replace tomorrow's schema with today's, and the newer build
         // that owns it will be back.
         try {
-          const current = JSON.parse(await readFile(file, 'utf8')) as { version?: unknown }
+          const current = JSON.parse(await readFile(file, 'utf8')) as Partial<Stored>
           if (typeof current.version === 'number' && current.version > FORMAT) {
             this.log('transcript from a newer format left untouched', { session: session.id })
             return
+          }
+          // ACP announces loaded history before session/read can enrich it.
+          // That replay may be recorded first; it cannot erase the desk's record.
+          if (current.version === FORMAT && Array.isArray(current.turns) &&
+            current.turns.every(turn => turn && Array.isArray(turn.items))) {
+            stored = { ...stored, turns: withDeskContext(stored.turns, current.turns) }
           }
         } catch {
           // Absent or unreadable is the normal case; the write proceeds.
@@ -394,6 +413,10 @@ export class TranscriptStore {
       const earlier = stored.turns.slice(0, firstShared === -1 ? stored.turns.length : firstShared)
       if (earlier.length > 0) session = { ...session, turns: [...earlier, ...session.turns] }
     }
+    // Provenance belongs to a message even when replay changes its turn.
+    // Restore it before turn pairing, without copying the old segmentation.
+    const recordedTurns = withDeskContext(session.turns, stored.turns)
+    if (recordedTurns !== session.turns) session = { ...session, turns: recordedTurns }
     const pairs = pairTurns(session.turns, stored.turns)
     // Where each item the read knows about lives. A stored turn that would
     // bring an item some other read turn already shows is a split the
@@ -412,7 +435,7 @@ export class TranscriptStore {
       // host recorded. Put back at its place, whichever list stands.
       const published = publicationsIn(kept.items)
       const carry = (items: readonly AgentItem[]): readonly AgentItem[] => {
-        const classified = preserveNoticeItems(items, kept.items, true)
+        const classified = preserveDeskContext(preserveNoticeItems(items, kept.items, true), kept.items)
         return published.every(({ item }) => classified.some((entry) => entry.id === item.id))
           ? classified
           : withPublications(classified, published)
@@ -455,7 +478,7 @@ export class TranscriptStore {
     // Keep only their missing items; omitted work turns still belong to rollback.
     for (let index = 0; index < stored.turns.length; index++) {
       const held = stored.turns[index]!
-      if (!String(held.id).startsWith('notice:') || turns.some(turn => turn.id === held.id)) continue
+      if (!isNoticeTurn(held) || turns.some(turn => turn.id === held.id)) continue
       const items = held.items.filter(item => item.type === 'notice' && !homes.has(String(item.id)))
       if (items.length === 0) continue
       const next = stored.turns.slice(index + 1).find(turn => turns.some(read => read.id === turn.id))
@@ -755,9 +778,7 @@ const firstOpening = (turns: readonly Turn[]): string => {
   for (const turn of turns) {
     for (const item of turn.items) {
       if (item.type !== 'userMessage' || !Array.isArray(item.content)) continue
-      const opening = openingOf(
-        item.content.map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('\n'),
-      )
+      const opening = openingOfContent(item.content)
       if (opening) return opening
     }
   }
@@ -770,9 +791,8 @@ const spokenText = function* (turns: readonly Turn[]): Generator<string> {
     for (const item of turn.items) {
       if (item.type === 'assistantMessage' && typeof item.text === 'string') yield item.text
       if (item.type === 'userMessage' && Array.isArray(item.content)) {
-        for (const part of item.content) {
-          if (part.type === 'text' && typeof part.text === 'string') yield part.text
-        }
+        const text = typedUserText(item.content)
+        if (text) yield text
       }
     }
   }

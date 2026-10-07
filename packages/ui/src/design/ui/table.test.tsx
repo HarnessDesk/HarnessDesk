@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
+import { IconTile } from './icon-tile'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from './table'
 
 const element = (markup: string, slot: string) => {
@@ -80,4 +81,11 @@ it('keeps a collapsible column in the semantic table without leaking its policy 
   expect(host.querySelectorAll('td')).toHaveLength(2)
   expect(host.querySelectorAll('[data-collapse-below="sm"]')).toHaveLength(2)
   expect(markup).not.toContain('collapseBelow=')
+})
+
+
+it('allows a qualified face badge to extend beyond the table lead', () => {
+  const lead = element(renderToStaticMarkup(<table><tbody><TableRow><TableCell lead={<IconTile shape="face" badge="AL">A</IconTile>}>Alice</TableCell></TableRow></tbody></table>), 'table-cell-lead')
+  expect(lead.querySelector('[data-slot="face-badge"]')?.textContent).toBe('AL')
+  expect(lead.className).toContain('has-[[data-slot=face-badge]]:overflow-visible')
 })

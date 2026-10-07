@@ -41,7 +41,9 @@ test('each Seat of an isolated pair commits its own work in its own lane through
   ].join('\n')
 
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents, catalogRefreshMs: 0 })
-  host.register(new FakeRuntime())
+  const runtime = new FakeRuntime()
+  Object.assign(runtime.info.presentation, { coAuthor: { name: 'Jane Doe', email: 'dev@example.com' } })
+  host.register(runtime)
   // Disposed before its state folder goes: `t.after` hooks run in the order they are registered.
   t.after(async () => {
     await host.dispose()
@@ -63,6 +65,10 @@ test('each Seat of an isolated pair commits its own work in its own lane through
     intents = (await host.call('goal/read', { goal }) as GoalView).board.intents
   }
   for (const card of intents) {
+    const forge = await host.forgePlane.seat({runtime: card.claim!.runtime, sessionId: card.claim!.sessionId})
+    assert.equal(forge?.role, 'writer')
+    assert.equal(forge?.team, host.teamPlane.stateFor(goal).name)
+    assert.equal(forge?.round, null)
     assert.deepEqual(host.teamPlane.dirtyPathsOf(goal, card.id), [], `card #${card.id}'s lane claim recorded its snapshot`)
   }
 
@@ -83,8 +89,11 @@ test('each Seat of an isolated pair commits its own work in its own lane through
     assert.equal(await git('status', '--porcelain=v1'), '', 'and is clean')
     assert.equal(await git('log', '-1', '--format=%an <%ae>%n%cn <%ce>'),
       'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>', 'the person owns both identities')
-    assert.equal(await git('log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)'),
-      'HarnessDesk Agent <agent@harnessdesk.app>', 'the tool credits the desk once')
+    const trailers = (await git('log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).split('\n').sort()
+    assert.deepEqual(trailers, [
+      'HarnessDesk Agent <agent@harnessdesk.app>',
+      'Jane Doe <dev@example.com>',
+    ].sort(), 'the commit keeps both the desk and runtime credits once')
   }
   assert.equal((await repo.git('rev-parse', 'main')).trim(), main, 'the main checkout did not move')
 })

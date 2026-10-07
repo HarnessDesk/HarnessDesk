@@ -320,7 +320,12 @@ test('a relaunch with an approval pending reopens the Seat’s conversation and 
   assert.equal(after.state, 'running', 'the run reads running because something is')
 
   // The approval that died with the old process is not shown as pending; the agent asks again, and that is.
-  assert.equal((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).waits.some((one) => one.kind === 'approval'), false)
+  // A resumed turn can start before intake has durably reconciled its old waits.
+  const waits = await until(async () => {
+    const status = await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus
+    return status.waits.some((one) => one.kind === 'approval') ? null : status.waits
+  }, 'the old approval’s wait ended after the relaunch')
+  assert.equal(waits.some((one) => one.kind === 'approval'), false)
   void d.runtime.sessions.get(card.session)!.askApproval('ap-after' as never)
   await until(async () => ((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).waits.some((one) => one.kind === 'approval') ? true : null), 'the new approval named')
 })

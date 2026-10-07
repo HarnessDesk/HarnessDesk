@@ -1,3 +1,5 @@
+import { TeamFrame } from './frames-team-frame'
+import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
 import { CompactPanelFrames, compactAgentsStore, compactChangesStore } from './compact-panels-fixture'
@@ -12,7 +14,7 @@ import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { runtimeId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
@@ -42,6 +44,7 @@ import { RuntimesSection } from '../components/SettingsAgents'
 import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
+import { BoardListFrames } from './frames-board-list'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
@@ -84,8 +87,10 @@ import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { FlowOverlayFrames } from './frames-flow-overlay'
+import { FlowCanvasFrames } from './frames-flow-canvas'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
+import { InapplicableActionsFrames } from './frames-inapplicable-actions'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
@@ -93,6 +98,7 @@ import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
+import { ReadCeilingFrames } from './frames-read-ceiling'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -136,6 +142,23 @@ const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : sto
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 const settingsListsStore = capabilityListsStore(new URLSearchParams(location.search).get('capability-lists') === 'stress')
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
+/* A session with a folder but no turns: both inline actions belong to this
+   empty state, and a draft without a folder cannot exercise the Team link. */
+const emptyConversationStore = SHOW_EMPTY ? previewStore({
+  workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 },
+  runtimes: [runtime('codex', 'Alpha')],
+  activeSessionKey: PREVIEW_EMPTY_SESSION_KEY,
+  sessions: new Map([[PREVIEW_EMPTY_SESSION_KEY, {
+    id: sessionId('preview-empty'),
+    runtime: runtimeId('codex'),
+    cwd: '/work/storefront',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+  }]]),
+}) : store
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
 const sidebarProjectsSearchBeforeStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot(), true))
@@ -812,26 +835,28 @@ const Preview = () => {
         </div>
       </Frame>
 
-      {/* A pane scoped to no session at all: the transcript's own pitch,
-          "What should we build?", the pane a fresh conversation opens on.
+      {/* A conversation with its folder and no turns: the transcript's own
+          pitch and both inline actions before the first message.
           Only on `preview.html?empty` — see `SHOW_EMPTY` above. */}
       {SHOW_EMPTY && (
         <Frame id="conversation-empty" title="Conversation — the empty pane">
           <div className="h-[560px]">
-            <PaneProvider
-              scope={{
-                paneId: 'preview-empty' as never,
-                view: { kind: 'conversation', session: PREVIEW_EMPTY_SESSION_KEY } as never,
-                sessionKey: PREVIEW_EMPTY_SESSION_KEY,
-              }}
-            >
-              <Conversation
-                onChooseProject={() => {}}
-                onSignIn={() => {}}
-                onOpenUsage={() => {}}
-                onOpenRuntimes={() => {}}
-              />
-            </PaneProvider>
+            <StoreProvider store={emptyConversationStore}>
+              <PaneProvider
+                scope={{
+                  paneId: 'preview-empty' as never,
+                  view: { kind: 'conversation', session: PREVIEW_EMPTY_SESSION_KEY } as never,
+                  sessionKey: PREVIEW_EMPTY_SESSION_KEY,
+                }}
+              >
+                <Conversation
+                  onChooseProject={() => {}}
+                  onSignIn={() => {}}
+                  onOpenUsage={() => {}}
+                  onOpenRuntimes={() => {}}
+                />
+              </PaneProvider>
+            </StoreProvider>
           </div>
         </Frame>
       )}
@@ -1116,6 +1141,7 @@ const Preview = () => {
 const RunPreview = () => {
   useTheme()
   const params = new URLSearchParams(window.location.search)
+  if (params.has('run-dock')) return <RunDockFrame older={params.has('older')} />
   if (params.has('run-again')) return <RunAgainExample opened scene={RUN_AGAIN_STATES.find(one => one === params.get('run-again')) ?? 'default'} />
   if (params.has('run-ending-rig')) return <RunEndingRigFrames />
   return <><RunViewFrames />{params.has('run-inspector') && <RunInspectorFrames />}</>
@@ -1152,8 +1178,16 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('site-run')
+        {new URLSearchParams(window.location.search).has('team-frame')
+          ? <TeamFrame />
+          : new URLSearchParams(window.location.search).has('inapplicable-actions')
+          ? <InapplicableActionsFrames />
+          : new URLSearchParams(window.location.search).has('flow-canvas')
+          ? <FlowCanvasFrames />
+          : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
+          : new URLSearchParams(window.location.search).has('board-list')
+          ? <BoardListFrames />
           : new URLSearchParams(window.location.search).has('tables')
           ? <TablesPreview />
           : new URLSearchParams(window.location.search).has('undo-refused')
@@ -1164,6 +1198,8 @@ createRoot(container).render(
           ? <FindingsPreview />
           : new URLSearchParams(window.location.search).has('agent-brief')
           ? <AgentBriefFrames />
+          : new URLSearchParams(window.location.search).has('read-ceiling')
+          ? <ReadCeilingFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('review-publication')
@@ -1171,7 +1207,7 @@ createRoot(container).render(
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
-          : ['run-view', 'run-again', 'run-ending-rig'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
+          : ['run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

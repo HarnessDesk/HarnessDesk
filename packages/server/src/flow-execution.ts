@@ -36,6 +36,7 @@ import type {
   TriggerFact,
 } from '@harnessdesk/protocol'
 
+import { blockedByCaller } from './card-claims.js'
 import { ConfinedTree } from './confined-tree.js'
 import { sameCanonicalPath } from './path-identity.js'
 import { pathsAddedSince } from './evidence/revision.js'
@@ -261,7 +262,7 @@ export interface FlowExecutionPort {
    */
   canReadProvider?(runtime: string): boolean
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
-  openSeat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord>
+  openSeat(input: GoalSeatRequest & { readonly role: string; readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
   canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
   /** `at`, host-only: the commit every Seat of the new Goal works at, each in a checkout of its own cut from it. */
@@ -338,7 +339,7 @@ export interface FlowExecutionPort {
    * check is named apart from temporary checks and survives startup cleanup.
    */
   checkoutAt?(cwd: string, at: string, options?: { readonly retained?: true; readonly signal?: AbortSignal }): Promise<{ readonly cwd: string; remove(): Promise<void> }>
-  commitWork?(cwd: string, before: readonly string[], message: string): Promise<
+  commitWork?(cwd: string, before: readonly string[], message: string, seat: SeatRecord): Promise<
     { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
   >
   /**
@@ -1820,9 +1821,11 @@ export class FlowExecutions {
       return "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role."
     }
     if (!this.#port.commitWork) return 'Refused: this desk cannot commit for a Seat.'
-    const made = await this.#port.commitWork(seat.checkout.cwd, before, message)
+    const made = await this.#port.commitWork(seat.checkout.cwd, before, message, seat)
     if ('refused' in made) return made.refused
-    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.`
+    const resumed = this.#team.stateFor(goal).intents.find((one) => one.id === card)?.claim?.resumed
+    const paths = made.paths.slice(0, 20).join(', ') + (made.paths.length > 20 ? `, … and ${made.paths.length - 20} more` : '')
+    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.${resumed ? ` This card’s preserved work predates this claim. Committed paths: ${paths}.` : ''}`
   }
 
   /**
@@ -3328,7 +3331,7 @@ export class FlowExecutions {
       let record: SeatRecord
       try {
         record = await this.#port.openSeat({
-          goal: run.goal, agent: binding.agent.id,
+          goal: run.goal, agent: binding.agent.id, role: round.role,
           ...(candidates.length ? { seats: candidates } : {}),
           grant: { kind: 'ceiling', level: binding.grant }, card, isolate: isolate || base !== null,
           /* A lane the file did not ask for, for a Seat that only reads, is
@@ -3428,6 +3431,15 @@ export class FlowExecutions {
       await turn('prepared')
       return null
     }
+    const card = cardNow()
+    if (card && !card.claim) {
+      try {
+        const claimed = await this.#team.claim(card.id, seat.session)
+        if (!claimed.startsWith('Claimed') && !claimed.startsWith('You already hold')) return claimed
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    }
     await turn('started')
     // The same boundary applies to later card handovers and re-arms.
     if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') {
@@ -3470,6 +3482,7 @@ export class FlowExecutions {
       answers.length > 0
         ? `When it is done, call complete_claim for #${card?.id} with an outcome of exactly one of: ${answers.join(', ')}.`
         : `When it is done, call complete_claim for #${card?.id}.`,
+      card?.claim?.resumed ? 'Your preserved work predates this claim and remains this card’s to commit with commit_work.' : null,
       handed,
       packet,
       `Flow run ${run.id}.`,
@@ -3973,8 +3986,8 @@ export class FlowExecutions {
   /**
    * `why` is what ended the Seat's last turn: the Seat itself (`turn-ended`,
    * budgeted), a pause or the cap a trigger's release lifted (`released`),
-   * or the desk quitting under it (`relaunched`). Neither of the last two is
-   * a Seat that stopped early, so neither counts against the budget.
+   * or the desk quitting under it (`relaunched`). The last two do not spend
+   * the unfinished-turn budget; a self-block still spends its own allowance.
    */
   async #reArm(id: string, operation: FlowOperation, why: 'turn-ended' | 'released' | 'relaunched' = 'turn-ended'): Promise<void> {
     const run = this.#get(id)
@@ -3986,6 +3999,10 @@ export class FlowExecutions {
     const seat = this.#port.seatOf(operation.seat!)
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
+    if (card.state === 'blocked' && card.blockedBy === 'hand' && (!seat || !blockedByCaller(card, seat.session))) {
+      await this.#stall(id, `Card #${card.id} was deliberately blocked outside its Seat: ${card.blockedReason ?? 'no reason given'}. It is not being handed its card again.`)
+      return
+    }
     const again = why === 'relaunched' ? ' after the desk restarted' : ''
     /* Nothing but a relaunch's own resume will ever hand this card out again
        on its own, and a release after a hold hands it out exactly once
@@ -4048,6 +4065,20 @@ export class FlowExecutions {
     if (run.operations.find((one) => one.key === firstKey)?.state === 'prepared') {
       const refused = await this.#handOver(id, firstKey, seat, card.id, binding)
       if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed to its Seat${again}: ${refused}`)
+      return
+    }
+    if (blockedByCaller(card, seat.session)) {
+      const spent = run.operations.filter((one) => one.kind === 'turn' && one.seat === seat.id &&
+        one.key.includes(':self-block:') && this.#now() - (run.operationTimes[one.key]?.preparedAt ?? 0) < 60 * 60 * 1000)
+      if (spent.length >= 3) {
+        await this.#stall(id, `The Seat for card #${card.id} blocked it ${spent.length} times inside the hour: ${card.blockedReason ?? 'no reason given'}. It is not being handed its card again.`)
+        return
+      }
+      if (!await this.#sameSeat(id, seat, card.id, round.role, why)) return
+      const prefix = `turn:${round.n}:${index}:self-block:`
+      const key = `${prefix}${run.operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
+      const refused = await this.#handOver(id, key, seat, card.id, binding)
+      if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed back after its Seat blocked it: ${refused}`)
       return
     }
     if (why !== 'turn-ended') {

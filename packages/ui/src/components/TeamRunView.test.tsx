@@ -410,7 +410,7 @@ it('uses the separately read check history for the Flow count and keeps incomple
     expect(check().textContent).toContain('×2')
     await view.show({ incompleteAttempts: new Set([2]) })
     expect(check().textContent).not.toContain('×2')
-    expect(view.container.querySelector('[data-step-row="verify"] [data-slot="list-row-trail"]')!.lastElementChild!.textContent).toBe('—')
+    expect(view.container.querySelector('[data-step-row="verify"] [title="Run count unavailable"]')?.textContent).toBe('—')
   } finally { view.close() }
 })
 
@@ -423,9 +423,25 @@ it('keeps a check count unknown when a failed refresh retains older results, and
     expect(check().textContent).toContain('×2')
     await view.show({ attemptsRead: 'failed' })
     expect(check().textContent).not.toContain('×2')
-    expect(view.container.querySelector('[data-step-row="verify"] [data-slot="list-row-trail"]')!.lastElementChild!.textContent).toBe('—')
+    expect(view.container.querySelector('[data-step-row="verify"] [title="Run count unavailable"]')?.textContent).toBe('—')
     await view.show({ attemptsRead: undefined })
     expect(check().textContent).toContain('×2')
-    expect(view.container.querySelector('[data-step-row="verify"] [data-slot="list-row-trail"]')!.lastElementChild!.textContent).toBe('2 runs')
+    expect(view.container.querySelector('[data-step-row="verify"] [data-slot="list-row-trail"]')?.textContent).toContain('2 runs')
+    expect(view.container.querySelector('[data-step-row="verify"] [title="Run count unavailable"]')).toBeNull()
+  } finally { view.close() }
+})
+
+
+it('omits check retry in a wrapped Team even while its Run still reads running', async () => {
+  const fixture = runFixture('running')
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get(fixture.execution.goal)!
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped' } }]]) }
+  })
+  const view = await mount(store, { execution: fixture.execution, model: runTimeline(fixture), selectedRow: 'check-2-2' })
+  try {
+    const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
+    expect(inspector.textContent).toContain('This Team is wrapped')
+    expect([...inspector.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(false)
   } finally { view.close() }
 })

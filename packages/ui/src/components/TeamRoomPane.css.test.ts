@@ -33,27 +33,11 @@ const declarations = (from: number): string =>
 /** The same, by selector. */
 const body = (selector: string): string => declarations(at(selector))
 
-describe('the column head a narrow room hands back', () => {
-  /*
-   * `@container` adds no specificity, so between two identical selectors the
-   * later one wins — and the exception lived fifty lines *earlier* than the
-   * rule it was written to override. Measured in a real engine at a 560px
-   * room: the rail was `display: none` and the head was `display: none` with
-   * it, leaving a transcript with nothing on screen saying whose it was.
-   */
-  it('is written after the rule it overrides, or it never wins', () => {
-    const base = at(".columns[data-columns='1'] .columnHead")
-    expect(base, 'the base rule is gone from this stylesheet').toBeGreaterThan(-1)
-    const exception = at(".columns[data-columns='1'] .columnHead", base + 1)
-    expect(exception, 'the narrow-room exception is gone from this stylesheet').toBeGreaterThan(-1)
-
-    // The earlier of the two hides it; the later one — inside the container
-    // query — brings it back. In that order and no other.
-    expect(declarations(base)).toContain('display: none')
-    expect(declarations(exception)).toContain('display: flex')
-
-    const query = css.lastIndexOf('@container hd-room', exception)
-    expect(query, 'the exception is not inside a container query at all').toBeGreaterThan(base)
+describe('a conversation opened from the Team', () => {
+  it('always carries its identity when there is no Team roster beside it', () => {
+    expect(source).toContain('className={styles.columnHead}')
+    expect(css).not.toContain(".columns[data-columns='1'] .columnHead")
+    expect(body('.columnHead')).toMatch(/flex:\s*none/)
   })
 })
 
@@ -112,9 +96,9 @@ describe('appearance ownership', () => {
        conversation's composer. */
     for (const part of [
       '<PaneSurface',
-      '<Bar as="header" corner inset="ink" rule="bottom"',
+      '<ToolPaneHeader ref={headerLayout.ref} variant="window" corner',
       '<Bar as="header" rule="bottom"',
-      '<RailSection stretch="head" ruled',
+      '<TabsList variant="section"',
       '<RailSection stretch="list"',
       '<NavigationGroupHeader label="Agents">',
       '<Dot state="ready" variant="presence"',
@@ -125,15 +109,11 @@ describe('appearance ownership', () => {
     expect(code).not.toMatch(/^\s*(?:color|background[\w-]*|border[\w-]*|box-shadow|font[\w-]*|padding[\w-]*|line-height)\s*:/m)
   })
 
-  it('takes the rail’s edge away only when the narrow room makes the rail the whole pane', () => {
-    /* The edge is a `Separator` beside the rail. The same named room
-       container that makes the rail the whole pane must drop it, or it leaves
-       a stray rule at widths below 38rem. */
-    expect(source).toContain('<Separator orientation="vertical" className={styles.railEdge} />')
-    const query = css.indexOf('@container hd-room (max-width: 38rem)')
-    expect(query).toBeGreaterThan(-1)
-    const block = css.slice(query, css.indexOf('\n}\n', query))
-    expect(block).toMatch(/\.railEdge\s*\{\s*display:\s*none;?\s*\}/)
+  it('has no Team rail beside the content at any width', () => {
+    expect(source).not.toContain('<aside')
+    expect(source).not.toContain('className={styles.railEdge}')
+    expect(source).not.toContain('data-showing=')
+    expect(body('.tabs')).toMatch(/overflow-x:\s*auto/)
   })
 })
 
@@ -148,20 +128,31 @@ describe('the narrow rail and the narrow header', () => {
     return block.slice(at, block.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
   }
 
-  it('drops a roster row to its avatar below a 7rem rail, the name and job staying on its card', () => {
-    expect(inQuery('@container hd-room-rail (max-width: 7rem)', '.memberRow [data-slot="list-row-content"]')).toMatch(/display:\s*none/)
+  it('keeps member names in the popover rather than a clipped rail', () => {
+    expect(css).not.toContain('hd-room-rail')
+    expect(source).toContain('data-slot="team-members"')
   })
 
   it('never breaks a member’s name or job mid-word, whatever the shared row allows', () => {
     expect(body('.memberRow [data-slot="list-row-subtitle"]')).toMatch(/overflow-wrap:\s*normal/)
   })
 
-  it('folds messaging and Wrap into the More menu below a 22rem header', () => {
-    expect(inQuery('@container hd-header (max-width: 22rem)', '.barWrapFull')).toMatch(/display:\s*none/)
-    expect(inQuery('@container hd-header (max-width: 22rem)', '.barVerbsCompact')).toMatch(/display:\s*inline-flex/)
-    // And outside it the full verbs stand and the menu does not.
-    expect(body('.barWrapFull')).toMatch(/display:\s*inline-flex/)
-    expect(body('.barVerbsCompact')).toMatch(/display:\s*none/)
+  it('folds tools according to the measured header, including its portalled menu', () => {
+    expect(source).toContain('useNarrowLayout<HTMLElement>(608)')
+    expect(source).toContain('hidden={headerLayout.narrow === true}')
+    expect(source).toContain('{headerLayout.narrow && <>')
+    expect(body('.barWrapFull[hidden]')).toMatch(/display:\s*none/)
   })
 })
 
+
+
+it('the narrow header keeps its faces and hides only the membership count', () => {
+ expect(css).not.toContain(".barFacts [data-slot='avatar-stack']")
+ expect(css).toContain(".barFacts [data-team-members-count]")
+})
+
+it('updates the page once through its click handler', () => {
+ const tabs=source.slice(source.indexOf('<Tabs value='),source.indexOf('</Tabs>'))
+ expect(tabs).not.toContain('onValueChange=')
+})

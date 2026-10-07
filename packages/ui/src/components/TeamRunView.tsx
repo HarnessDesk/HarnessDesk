@@ -6,7 +6,7 @@ import { hasConversation, teamSeats } from '../lib/team-seats'
 import { teamSeatCost } from '../lib/team-overview'
 import { answerStep } from '../state/needs-you'
 import type { FindingsListState } from '../lib/findings'
-import { RunFlow } from './RunFlow'
+import { RunFlow, RunFlowFile } from './RunFlow'
 import { rowsForStep, stepForRow } from '../lib/flow-overlay'
 import { RunWorkspace } from './RunWorkspace'
 import { RunView } from './RunView'
@@ -76,16 +76,22 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
     return [seat.record.id, teamSeatCost({ team: execution.goal, report: usage }, seat.record.id, metered)]
   }))
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
-  const selectedStep = stepForRow(execution, view.model.rows, view.selectedRow)
+  const selectedStep = view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : stepForRow(execution, view.model.rows, view.selectedRow)
   const stepRows = rowsForStep(execution, view.model.rows, selectedStep)
+  const faceTints = new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))
   const flow = drawFlow ? <RunFlow execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
     cards={cards} sessions={snapshot.sessions} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
       const rows = rowsForStep(execution, view.model.rows, id)
       const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
-      if (latest) view.onSelect(latest)
-    }} faces={view.faces} faceTints={new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))} doing={view.doing} /> : view.flow
+      view.onSelect(latest ?? `step:${id}`)
+    }} faces={view.faces} faceTints={faceTints} doing={view.doing} /> : view.flow
   return <RunWorkspace {...view} home={snapshot.home} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     home: snapshot.home,
+    teamState: goal?.goal.state,
+    faces: view.faces,
+    faceTints,
+    pullRequest: view.pullRequest,
+    flowFile: <RunFlowFile root={goal?.goal.root ?? null} name={execution.document.flow.name} compact />,
     input: { execution, cards, origin, sessions: snapshot.sessions,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),

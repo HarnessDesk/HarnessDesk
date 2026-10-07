@@ -1,4 +1,4 @@
-import type { Turn } from '@harnessdesk/protocol'
+import { typedUserText, type Turn } from '@harnessdesk/protocol'
 
 /**
  * What a conversation looks like from the side.
@@ -126,7 +126,9 @@ const promptText = (turn: Turn): string => {
   for (const item of turn.items) {
     if (item.type !== 'userMessage') continue
     const words = item.content
-      .map((part) => (part.type === 'text' ? part.text : part.type === 'mention' || part.type === 'skill' ? part.name : ''))
+      .map((part) => part.type === 'text'
+        ? typedUserText([part])
+        : part.type === 'mention' || part.type === 'skill' ? part.name : '')
       .filter(Boolean)
       .join(' ')
     const said = stripMarkdown(words)

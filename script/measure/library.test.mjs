@@ -3,7 +3,7 @@ import { execFile, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import fs from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, join, relative } from 'node:path'
@@ -282,6 +282,8 @@ async function fakeModelProbe(t, { invalid = 0, unknown = false, refresh = 'yes'
   const peer = join(fixture.root, 'peer.mjs')
   const fixtureURL = codex ? '../../packages/adapter-codex/test/fixtures/fake-codex.mjs' : '../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs'
   let source = await readFile(new URL(fixtureURL, import.meta.url), 'utf8')
+  if (codex) await copyFile(new URL('../../packages/adapter-codex/test/fixtures/scripted-flow.mjs', import.meta.url),
+    join(fixture.root, 'scripted-flow.mjs'))
   const body = `
     appendFileSync(${JSON.stringify(requests)}, JSON.stringify(params) + '\\n');
     const isRefresh = ${codex ? "params.input[0].text" : "params.prompt[0].text"}.includes('one JSON object with only');
@@ -1392,6 +1394,8 @@ test('an agent helper still shutting down is gone before a probe returns, so not
   const late = join(root, 'codex.late')
   const peer = join(fixture.root, 'codex-peer.mjs')
   const source = (await readFile(new URL('../../packages/adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url), 'utf8')).replace(/^#!.*\n/, `#!${process.execPath}\n`)
+  await copyFile(new URL('../../packages/adapter-codex/test/fixtures/scripted-flow.mjs', import.meta.url),
+    join(fixture.root, 'scripted-flow.mjs'))
   await writeFile(peer, source + peerWithLingeringHelper(ready, late))
   fs.chmodSync(peer, 0o755)
   const probes = new Map()

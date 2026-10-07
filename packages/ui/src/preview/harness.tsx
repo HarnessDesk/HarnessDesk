@@ -57,6 +57,7 @@ import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '.
 import { withClosedTurnFiles } from '../state/snapshot'
 import {
   activate,
+  dock,
   areaVisible,
   sidebarCannotHaveColumn,
   focusView,
@@ -129,7 +130,7 @@ export const runtime = (id: string, name: string): RuntimeInfo =>
 /** The conversation every frame below is scoped to. */
 export const PREVIEW_SESSION_KEY = sessionKey(runtimeId('codex'), 's1' as SessionId)
 
-/** A pane scoped to no session at all — the empty-conversation frame's key. */
+/** The conversation with a folder and no turns — the empty frame's key. */
 export const PREVIEW_EMPTY_SESSION_KEY = sessionKey(runtimeId('codex'), 'preview-empty' as SessionId)
 
 const now = Date.now()
@@ -1240,6 +1241,10 @@ class PreviewStore {
      what the app would do, because it is the code the app would run. */
   #workbench(next: AppSnapshot['workbench']): void {
     this.patch({ workbench: next })
+  }
+  showViewIn(area: AreaId, view: import('../state/layout').PaneView): void {
+    if (area === 'main' || !permits(view, area)) return
+    this.#workbench(dock(this.#snapshot.workbench, area, view))
   }
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))

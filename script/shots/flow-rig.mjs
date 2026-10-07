@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -37,7 +38,7 @@ export async function createFlowRig({ home, work, delayMs = 0 }) {
   const codex = new CodexRuntime({
     binaryPath: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
     codexHome: join(home, 'codex-home'), capabilities: new GatedRegistry(extensions, () => host.ceilingGate),
-    env: { FAKE_CODEX_FLOW: JSON.stringify({ state, delayMs, steps: {
+    env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', FAKE_CODEX_FLOW: JSON.stringify({ state, delayMs, steps: {
       RIG_FLOW_WRITE: { kind: 'write', outcomes: ['committed', 'committed'], file: 'rig-retry.txt' },
       RIG_FLOW_REVIEW: { kind: 'review', outcomes: ['request-changes', 'approve'] },
     } }) },

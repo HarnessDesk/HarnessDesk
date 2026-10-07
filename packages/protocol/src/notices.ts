@@ -1,11 +1,56 @@
 import type { AgentEvent, NoticeClass, NoticeDetail } from './events.js'
-import type { RuntimeId } from './ids.js'
+import { sessionKey, type RuntimeId, type SessionId, type SessionKey } from './ids.js'
+import { reduceSession } from './reduce.js'
+import type { Session } from './session.js'
+
+const MAX_PENDING_NOTICES_PER_CONVERSATION = 20
+const MAX_PENDING_CONVERSATIONS = 100
 
 export const classifyNotice = (notice: { readonly class?: NoticeClass; readonly kind?: string; readonly sessionId?: string }): 'toast' | 'inbox' | 'conversation' | 'standing' => {
   if (notice.class === 'result') return 'toast'
   if (notice.class === 'actionable') return 'standing'
   if (notice.class === 'info' || notice.kind === 'runtime:config' || notice.kind === 'runtime:deprecation') return 'inbox'
   return notice.sessionId || notice.class === 'conversation' ? 'conversation' : 'inbox'
+}
+
+/** Notices wait for real metadata; both the host and its window projection use the same fold. */
+export class PendingConversationNotices {
+  readonly #pending = new Map<SessionKey, Extract<AgentEvent, { type: 'notice' }>[]>()
+
+  keep(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type !== 'notice' || !event.sessionId || classifyNotice(event) !== 'conversation') return
+    const key = sessionKey(runtime, event.sessionId)
+    const pending = this.#pending.get(key) ?? []
+    if (event.id && pending.some(notice => notice.id === event.id)) return
+    pending.push(event)
+    if (pending.length > MAX_PENDING_NOTICES_PER_CONVERSATION) {
+      pending.splice(0, pending.length - MAX_PENDING_NOTICES_PER_CONVERSATION)
+    }
+    if (!this.#pending.has(key) && this.#pending.size >= MAX_PENDING_CONVERSATIONS) {
+      const oldest = this.#pending.keys().next().value
+      if (oldest !== undefined) this.#pending.delete(oldest)
+    }
+    this.#pending.set(key, pending)
+  }
+
+  apply(session: Session): Session {
+    const key = sessionKey(session.runtime, session.id)
+    const pending = this.#pending.get(key)
+    this.#pending.delete(key)
+    if (!pending) return session
+    // A host registration/sync already carries its counted content. Replaying
+    // intermediate occurrences would count them twice: a row remembers only
+    // its first and latest event ids, not every occurrence between them.
+    const carried = new Set(session.turns.flatMap(turn => turn.items.flatMap(item => item.type === 'notice' && item.contentKey ? [item.contentKey] : [])))
+    return pending.reduce((held, notice) => {
+      const content = notice.contentKey ?? JSON.stringify([notice.kind ?? 'conversation:warning', notice.message])
+      return carried.has(content) ? held : reduceSession(held, notice)
+    }, session)
+  }
+
+  delete(runtime: RuntimeId, id: SessionId): void {
+    this.#pending.delete(sessionKey(runtime, id))
+  }
 }
 
 /** Exact serialization keeps unchanged content stable across processes and launches. */

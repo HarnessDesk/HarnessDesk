@@ -389,7 +389,7 @@ has a server glyph; runtime rows keep their own brand faces. When two or more
 accounts of the same runtime are signed in, their faces carry unique account
 initials from 24px up (two letters when initials collide). Smaller faces keep
 the account tint and a title naming the account. Top-right is reserved for
-attention counts.
+attention counts. A face that totals several accounts carries no initial.
 
 ### Archive and delete
 
@@ -467,7 +467,7 @@ took, and the name card adds an *Agent* band: what it is for, its ceiling
 *The brief has changed since this started* once its file has moved on.
 
 The same ceiling vocabulary appears on six governed-seat surfaces: the
-conversation header, Agent name card, room rail, board holder, flow dry run and
+conversation header, Agent name card, members popover, board holder, flow dry run and
 Agent roster. The chip is neutral whether the limit is held or asked — most
 runtimes have no control that holds one, so `asked` is the ordinary state, not
 a warning. A held ceiling names the level (*Read only*, *Edit*, *Publish* or
@@ -540,17 +540,16 @@ Opening any step shows the command under a prompt mark, then what it printed;
 the sentence never has the command glued to it, because a sentence in monospace
 with a shell line hanging off it teaches a CLI that does not exist.
 
-**A bubble holds what a person typed, and nothing their app added.** A prompt
-composed in Claude Code's or Codex's desktop app carries that app's additions
-inside the message it stores as the user's turn — notes over screenshots,
-injected reminders, slash-command echoes, open browser tabs, files an `@` named.
-Each vendor app hides its wrapper and no other client can; HarnessDesk strips
-the wrapper from the sentence and keeps it beside it as "Sent with your
-message" — one row per item, opening onto the block exactly as sent. It is never
-dropped: it is context the model was given, and a transcript that deletes it
-cannot explain what the agent knew. "Context added" is the same row for an
-envelope HarnessDesk sends, kept worded apart because our name does not belong on
-someone else's text.
+**A bubble holds what a person typed, and nothing the desk composed.** The
+wrapper's shape cannot prove who wrote it: a person can paste the same text.
+Newly sent messages record the exact boundary of the desk-composed prefix, so
+only blocks inside that boundary fold beside the message as "Context added".
+Wrappers the agent's own app adds are peeled by its adapter and fold as
+"Sent with your message"; they have no desk-composed record.
+The block stays available exactly as sent because it
+is context the agent received; an identical wrapper beyond the recorded
+boundary stays in the person's words. Its first typed line also names the
+conversation, even when that line is a pasted wrapper.
 
 **What the conversation put on the forge is a row of its own.** A pull request
 opened or updated through the desk's own tools, a review or a comment posted
@@ -558,12 +557,18 @@ through them, appears as a publication row: a verb, then the thing as a chip —
 GitHub's mark and `owner/name #n` — then its state in a word. Hovering the chip
 opens a card with GitHub's own text on it: the title, the author and size, and
 the opening of the description as GitHub holds it, which is where the signature
-the desk wrote is read. Pressing it opens the page. The signature itself — by
-default “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent
-model · effort)”, in the agent's own labels — is a template in the Git plugin's
-settings, and a blank one signs nothing. Nothing about it rides in the
-conversation: the agent is told, through its own instruction layer, to use the
-tools; the desk does the rest.
+the desk wrote is read. Pressing it opens the page. Settings › Plugins › Git
+has Description, Review and Comment signature templates. Their placeholders
+are listed once above the settings rows; a blank value turns that kind off.
+The default signature names the Team role and the agent's own model and effort
+labels. The first review round in a Run is 1; later reviews count only earlier
+review rounds in that Run, and the signature omits round 1. Outside a Team the
+role and round drop out. A description keeps the latest seat for each role and
+agent pair, so a fixer's update preserves the writer's credit. Comments carry their
+signature on the first visible line, descriptions on the last. Nothing about it
+rides in the conversation: the agent is told, through its own instruction
+layer, to use the tools; the desk does the rest. Text a person writes
+themselves carries no signature.
 
 **Under every finished turn, a summary**: files changed (click → Changes),
 commands run, tests passed or failed, what broke, and "waiting for your
@@ -800,12 +805,46 @@ along with what Settings still does not do — is recorded with the audit.
 ## What the desk observed
 
 **On a card.** A room's board draws each card's evidence as chips in its foot,
-and its columns — To do, Working, Needs you, In review, Ready, and Set aside
+and its columns — Needs you, Working, In review, To do, Ready, and Set aside
 while anything is — come from those facts, so nothing on the board is dragged.
 A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
+
+**As the board narrows.** Open columns keep at least 220px. Ready folds first,
+then To do, into named rails with their counts; each rail opens in place and
+offers a keyboard Fold control only when it can return to a rail. The scroll
+body reserves its gutter so a scrollbar appearing cannot move the fold
+thresholds. When the columns and rails no longer fit,
+or below 760px of content width, Needs you and Working share the first row,
+In review and To do the second; Ready stays a rail. Below 600px of content width
+the pane uses the compact list, grouped by state with Needs you first. Content
+width is the scroll body's client width, after its reserved scrollbar gutter;
+column fit also subtracts its insets. The pane measures itself, including space
+lost to a sidebar or dock, and restores the selected
+view when it widens. Set aside keeps its own lane while it contains work.
+
+**As a list.** Board · List switches the same jobs into a framed table. Filter
+jobs by words or state; All starts pressed, and the default order puts Needs
+you first, then the most recent. Job number and kind stay beside its title,
+with its description or stop reason beneath it; a completion note appears only
+on finished or set-aside jobs. Assignee, state, pull request, checks, changes and
+updated time each have a column; stale or unknown facts keep their qualification.
+Completed jobs still awaiting their first evidence read remain visible as
+Checking evidence, or Evidence unavailable if that read failed. Needs you says
+why, with a stranded claim’s age first. Finished jobs show their completing
+agent only while the channel still records it; otherwise Assignee is a dash.
+Reopen is visible on finished, set-aside and hand-stopped rows; dependency-
+blocked jobs keep it in the menu. A finished outcome sits beside its state when
+there is no Needs-you reason, and owned files appear below the title. Below
+720px the job cell still names the assignee. Names stay on one line, truncate
+with an ellipsis, and show their full name on hover. Columns too wide for the pane keep
+their View switch disabled with the width they need, and search includes the
+state each row shows, including Checking evidence. Other verbs stay in the
+menu, revealed on hover or keyboard focus. Empty evidence columns start hidden,
+and secondary columns yield to the pane’s width so actions stay in view. The
+footer names the displayed count and order.
 
 **A conversation's Seat record.** A conversation seated as an Agent shows its
 Seat record at the head of its Agents inspector, above the sub-agents it
@@ -941,15 +980,13 @@ the Recorded usage total keeps its source and observation age. Refresh reads
 the sources again. Cost lists one numeric row per part, with Recorded usage
 as its footer beneath a strong rule. The Sources dialog keeps each row's source,
 observation age and qualifications; differing amount qualifications remain
-beside that amount. Older cards show their
-number when no title was kept. Partial answers, gaps, unknown spend and dirty
+beside that amount. Older cards show their number and **Card title not recorded**
+when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
-A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
-rail. The header says **Wrapped** once, beside the project and wrap date,
-and draws no Wrap control or reason line. The wrapped rail hides Side by side
-and adding an Agent; Board omits its unclaimed count, and Agents show name and
-role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where the
-Agents list is one tap behind it. The Team’s Agents list keeps the same
+A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
+and adding an Agent; Board omits its unclaimed count, and members show name and
+role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where members open from the bar. The Team’s Agents list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one keeps **Conversation not kept** in its hover title, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than
@@ -1084,8 +1121,8 @@ the sentence, leaving a waiting reason whole.
 
 ### A Team's Overview
 
-Overview is the Team rail's first destination and opens by default when the
-Team has a Run. Its Run strip keeps the live line: who is working, what
+Overview is the Team's first page tab and opens by default when the
+Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
 waits on you, why it stalled or stopped, and any release still pending. It
 also keeps the Run's reason for waiting on evidence or ending without a rule
 to continue, showing each reason once. The header keeps the revision it
@@ -1106,7 +1143,7 @@ wait. The live line keeps pending release and trigger actions while these rows
 are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
-A Team without a Run opens on Chat and still offers Overview for its Seats.
+A Team without a Run that is not ready to wrap opens on Chat and still offers Overview for its Seats.
 Each member row names its nickname, with a distinct conversation title in the
 wrapping subtitle. Its task or message refusal shares that subtitle, so the
 work stays readable without adding a separate third line.
@@ -1126,7 +1163,7 @@ the row, beside the answer it refused.
 
 ### A Team's Run
 
-Run opens from the Team rail or its Overview strip. It reads oldest first:
+Run opens from its page tab or the Overview strip. It reads oldest first:
 the recorded start and brief, each round and its cards, the latest check
 result, findings, and why the Run ended. A repeated role gets its own round.
 Work in flight keeps its doing line; unknown durations and results stay unknown.
@@ -1141,12 +1178,27 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+Run details and Steps live in the app’s dock, with the same tabs, move,
+expand and hide controls as the conversation’s inspectors. The title-bar’s
+right-panel control puts them away and brings them back. Run details keeps
+the brief, Seats, recorded pull request and two-column Run facts; unavailable
+facts are omitted and named together once. Selecting a timeline row keeps
+its recorded detail and actions in that dock. Choosing Flow brings Steps
+forward: taken rounds and steps not reached, with selection lighting the
+corresponding node, including a step the Run has not reached.
+Leaving Run puts away a dock containing only Run views, or returns a mixed
+dock to its earlier tab and visibility. A saved mixed dock restores without
+Run tabs until a Run opens. Returning to Run keeps it visible when the dock
+would cover it; selecting a timeline row or Details explicitly opens it.
+Tabs closed during a visit stay closed when focus returns to that pane.
+
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
 **Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
 An absent round or one with no decision has no chip. The inspector keeps the
-host's reason whole and offers **Copy review** and **Post to pull request**.
+host's reason whole and offers **Copy review** and **Post to pull request**
+only for a completed, recorded review with text to copy.
 Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
@@ -1194,15 +1246,17 @@ row or its inspector while the Run is running or stalled. It asks first and
 shows the command exactly as it will run; the earlier result and its output are
 kept, and every result the desk recorded is listed under the check, with its
 output in the inspector. A Run that has settled or stopped refuses, says so, and
-points to starting a new Run.
+points to starting a new Run, without a retry action that could never apply.
+A wrapped Team also keeps its reason without a check retry action.
 
 A card that has not finished offers **Abandon card…** in its inspector. The
 question says first what the rule after the card's role will do: open the next
 round, end the Run without a next step, wait for the round's other cards, or
 nothing when the Run is not running; a claimed card names who holds it. A
-person's step is answered there with the same controls as the Overview. The
-question belongs to that Run and card, closes when the card finishes, and
-offers **Stop the run instead** while the Run is running.
+person's step is answered there with the same controls as the Overview. If the
+host reports that the card is missing, its explanation replaces the question
+and its abandonment action. The question belongs to that Run and card, closes
+when the card finishes, and offers **Stop the run instead** while the Run is running.
 
 **Stop run…** appears in the running Run's header and its Overview strip.
 The question says first that the Run stops now and no further step starts,

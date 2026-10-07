@@ -115,10 +115,14 @@ checkout of its own, and for one started in the folder the person opened,
 whether that is a repository, a subfolder of one, a linked worktree or a folder
 reached through a link — `ctx.fs`, `ctx.editor`, `ctx.workspace` and
 `ctx.harness.workspaceRoot` work in the open workspace as it was opened, with
-its branch. When it is another checkout, such as a Seat's isolated lane or
-another clone, they follow the call there: `ctx.fs` resolves relative paths
-against it and refuses a path outside it, `ctx.editor` shows and marks files
-there, `ctx.workspace.root` and `ctx.harness.workspaceRoot` name it, and
+its branch. Context providers and chips follow the same rule: a subfolder, a
+linked worktree, a folder reached through a link, and a subfolder of a linked
+worktree keep their opened root, branch and files, including for a Seat started
+in that checkout. When it is another checkout, including a Seat's own main
+checkout while a linked worktree is open, an isolated lane or another clone,
+they follow the call there: `ctx.fs` resolves relative paths against it and
+refuses a path outside it, `ctx.editor` shows and marks files there,
+`ctx.workspace.root` and `ctx.harness.workspaceRoot` name it, and
 `ctx.workspace.branch` is `null`, because the branch is a fact the host knows
 only about the folder it opened. Without a checkout in the invocation scope,
 and in hooks and slash commands (which do not enter the caller's checkout yet),
@@ -337,11 +341,11 @@ ctx.context.register({
   it left off. Throwing is for a provider that should have answered and could
   not: that stops the send, because a message silently missing what its chip
   promised misleads the agent.
-- During resolution, `ctx.workspace`, relative filesystem paths, shell working
-  directories and the workspace permission gate use the checkout admitted by
-  the host for the conversation or draft; a caller's `workspaceRoot` cannot
-  replace it. Concurrent resolutions keep separate roots; without an admitted
-  checkout, resolution uses the open workspace.
+- Context providers and chips follow the [same workspace rules as tool
+  calls](#permissions-and-isolation). Shell working directories use the
+  host-admitted checkout. A caller's `workspaceRoot` cannot replace that
+  admission; concurrent resolutions keep separate roots, and without an
+  admitted checkout, resolution uses the open workspace.
 - Resolution receives `(scope, ref)` and can return a plain `string` or `{
   text?, image? }` (e.g. for a screenshot). It resolves over the wire as
   `context/resolve { id, ref?, runtime?, workspaceRoot? }` → `{ label, text,
@@ -637,8 +641,49 @@ Three things worth knowing:
   behind it, or a host with no forge plane — gets no seat, and a signature
   built from a guess would be a false one. Say so in the result instead.
 - **Requires `forge: true`**, which is described to the person as “Sign pull
-  requests and reviews for the conversation, and put what it published in the
+  requests, reviews and comments for the conversation, and put what it published in the
   transcript”. The reach itself is `shell`'s.
+
+`ForgeSeat` (and `ForgeSeatInfo` across the child boundary) carries `agent`,
+`version`, `model`, `effort`, `thinking` and `label`, plus nullable `role`,
+`round` and `team`. The host reads the role from the conversation's stored
+Seat, the Team's name from its board, and the round from its claimed card's
+flow execution, for review rounds only. All three are null outside a Team.
+
+The Git plugin has three editable templates: `signature` for descriptions,
+`reviewSignature` for reviews, and `commentSignature` for pull request and
+issue comments. An empty template turns signing off for that kind.
+
+| Placeholder | Value |
+| --- | --- |
+| `{seat}` | Agent, model and effort as one label, from the runtime's presentation |
+| `{agent}`, `{model}`, `{effort}`, `{version}`, `{thinking}` | The seat's individual parts; thinking is `Thinking` when on |
+| `{role}` | Writer, Reviewer or Fixer; other role ids use ASCII letters, digits and hyphens; other characters become `-`; 32 characters at most; nothing usable reads `role`. A leading digit gets a `role-` prefix |
+| `{round}` | `round N`, where N is 1 plus earlier review rounds in that Run; the first review is round 1 and is omitted |
+| `{team}` | The Team's name, never its id |
+
+Empty parts take their ` · ` separator with them. The default review opens
+`**Reviewer · round 2** · Preview Agent Preview Model · via HarnessDesk`;
+an ordinary conversation's opening is `**Preview Agent Preview Model** · via HarnessDesk`.
+Comments open with `**Fixer · Preview Agent Preview Model** · via HarnessDesk`.
+Descriptions end with `🤖 Writer: Preview Agent Preview Model · via [HarnessDesk](https://harnessdesk.app)`.
+
+Description updates retain the latest seat for each role and agent pair. The
+marked last line keeps URI-encoded contributor data beside `<!-- harnessdesk:signature -->`,
+so editing its visible text or changing the template keeps earlier authors.
+The current template's contributor portion renders each distinct credit once,
+with its prefix and suffix shared. Old marked signatures and the former default's
+unmarked trailing line are recognised and upgraded without duplication.
+Description labels and rendered model, effort, version and Team parts use the
+marker's plain alphabet: unsupported characters become spaces, link forms and
+short references are removed, and parts longer than 80 characters are truncated.
+Comments mark their opening signature line with the same signature mark.
+
+Card commits retain the desk's co-author and add the native commit credit
+supplied by the running adapter in `RuntimeInfo.presentation.coAuthor`
+(`{name, email}`), when present. An absent or null credit adds no runtime
+trailer; the host never infers one from a runtime id. Git's `addIfDifferent`
+trailer rule handles placement and duplicates.
 
 **No built-in gives an agent a write tool**, and that is a decision rather than
 an omission — [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)
@@ -734,6 +779,13 @@ privileged path:
 | iOS simulator | `ctx.ios` (simctl) | devices, boot, install, launch, screenshot, tap, open URL |
 | Android | `ctx.android` (adb) | devices, install, launch, screenshot, tap, key, text, logcat |
 | tests | `ctx.shell` | `run_tests` with the framework detected, structured pass/fail; the `/test` command |
+
+`pr_create` uses the upstream to check for unpublished commits only when it
+names the current branch on `origin` (or the first remote when there is no
+`origin`). With no upstream, or one naming another branch such as
+`origin/main`, it reads the current branch's published copy on that remote
+instead. A missing copy or commits ahead of or behind it refuse creation;
+the tool never pushes or changes the upstream.
 
 `pr_merge` is deliberately head-bound. It requires the pull request `number`
 and the reviewed full `head` commit (40 or 64 lowercase hexadecimal characters),
