@@ -1178,6 +1178,14 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+The page-wide header keeps the Run's state and recorded start, elapsed time,
+round budget and Seat cost, with Stop and Timeline · Flow on the right.
+Missing times and costs stay explicit; an incomplete cost says partial.
+The timeline shares a centred reading column with the need card, using the
+conversation's measure plus a 112px time-and-rail gutter. Round start times
+sit left of the rail over their duration; the active round says **now**.
+Narrow panes keep the reading inset and reduce the gutter.
+
 Run details and Steps live in the app’s dock, with the same tabs, move,
 expand and hide controls as the conversation’s inspectors. The title-bar’s
 right-panel control puts them away and brings them back. Run details keeps
@@ -1203,9 +1211,11 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
-An ended Run keeps its reason, time and next actions together in one End summary.
-Status and aggregate publication stay in the Run header; the ending uses a warning
-only when a consequence needs attention. Finished work offers **Wrap**;
+When a Run needs the person, one need card above Timeline and Flow keeps its
+reason and at most two existing next actions. The End row stays selectable
+without repeating that reason or its actions. Other ended Runs keep their
+reason, time and next actions together in one End summary. Status and aggregate
+publication stay in the Run header. Finished work offers **Wrap**;
 an answer no rule follows offers **Run again…** and **Board**; a person or desk
 stop offers **Run again…**. An interrupted check keeps **Review and run again…**
 and its recorded reason. A spent budget names the limit and how many rounds
