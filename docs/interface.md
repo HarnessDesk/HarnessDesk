@@ -414,7 +414,8 @@ live; their handles rest after the work becomes quiet.
 Reopening restores the conversation from the agent's history. Personal
 conversations also release after ten quiet minutes; working turns, approvals,
 queued messages and running tasks keep them live, and so does a conversation
-the agent was never prompted in, which it could not reopen.
+the agent has taken no message in, which it could not reopen: a first message
+it rejected, or only a warning, does not count as one.
 
 **Not every agent can delete, and the interface says which.** Deleting has to
 reach the agent's own store, so it is offered exactly where something can:

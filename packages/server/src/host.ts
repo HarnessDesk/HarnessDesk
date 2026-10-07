@@ -2772,17 +2772,26 @@ export class Host {
   }
 
   /**
-   * Nothing is happening in a personal conversation, and the agent has been
-   * prompted in it.
+   * Nothing is happening in a personal conversation, and the agent has taken a
+   * prompt in it.
    *
    * The second half is not idleness. An agent that stores a conversation at
-   * its first message lists nothing for one that has none, so releasing the
-   * handle of a conversation with no turn drops the only way back to it: the
-   * reopen is refused as unlisted, and so is every send after it.
+   * its first accepted message lists nothing for one that has none, so
+   * releasing the handle of a conversation it took no prompt in drops the only
+   * way back to it: the reopen is refused as unlisted, and so is every send
+   * after it.
+   *
+   * Only a turn the agent took counts. A first prompt it rejected leaves a
+   * failed turn and nothing stored, and a warning given while the conversation
+   * opened is the host's own (`#leaveAsItIs` makes the same call). The host
+   * cannot tell a prompt the agent rejected from one it took and then stopped
+   * on, so a failed turn is counted as not taken, which only keeps the handle
+   * until a later turn succeeds.
    */
   #personalConversationQuiet(record: SessionRecord): boolean {
     const key = recordKey(record)
-    return Boolean(record.live) && record.session.turns.length > 0 && record.running.size === 0 && record.approvals.size === 0 &&
+    return Boolean(record.live) && record.session.turns.some(turn => turn.status !== 'failed' && !isNoticeTurn(turn)) &&
+      record.running.size === 0 && record.approvals.size === 0 &&
       record.queue.messages.length === 0 && !record.tasks.some(task => task.state === 'running') &&
       (this.#sessionActivity.get(key) ?? 0) === 0 && !this.#queueBusy(record) &&
       !this.#draining.has(key) && !this.#reattaching.has(key)

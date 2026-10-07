@@ -290,7 +290,8 @@ const runPrompt = async (id, params) => {
     return
   }
 
-  if (process.env.FAKE_ACP_PROMPT_ERROR === '1') {
+  // FAKE_ACP_PROMPT_ERROR=1 refuses every prompt; a prompt that says "reject this prompt" refuses only itself.
+  if (process.env.FAKE_ACP_PROMPT_ERROR === '1' || text.includes('reject this prompt')) {
     send({
       jsonrpc: '2.0',
       id,

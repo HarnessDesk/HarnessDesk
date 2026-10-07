@@ -104,6 +104,36 @@ test('the rest keeps a conversation the agent was never prompted in, which it co
   await completed
 })
 
+test('the rest keeps a conversation whose first prompt the agent rejected, which it could not reopen', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-rest-rejected-'))
+  // Stores a conversation at its first accepted message, so a prompt it refuses leaves nothing to list.
+  const runtime = new AcpRuntime({ id: 'rejected', name: 'Rejected', command: process.execPath, args: [FAKE],
+    env: { FAKE_ACP_STORE: join(dir, 'store.json') } })
+  const host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 25, sessionRestMs: 25 })
+  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  host.register(runtime)
+  await host.start()
+  const refused = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as { id: string }
+  const prompted = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as { id: string }
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: refused.id as never, input: [{ type: 'text', text: 'reject this prompt' }] })
+  const refusedRecord = host.registry.get(runtime.info.id, refused.id as never)!
+  await waitFor(() => refusedRecord.session.turns.some(turn => turn.status === 'failed'))
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: prompted.id as never, input: hello() })
+  const spoken = host.registry.get(runtime.info.id, prompted.id as never)!
+  // The sweep has had its chance once it has rested the conversation it may rest.
+  await waitFor(() => spoken.live === null)
+  // The turn is on the record, but nothing is stored for it, so its handle is the only way back.
+  assert.ok(refusedRecord.live, 'the handle of a conversation the agent never stored is kept')
+  const completed = new Promise<void>(resolve => {
+    const off = runtime.subscribe(event => {
+      if ('sessionId' in event && event.sessionId === refused.id && event.type === 'turn/completed' && event.turn.status === 'completed') { off(); resolve() }
+    })
+  })
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: refused.id as never, input: hello() })
+  await completed
+})
+
 for (const door of ['session/resume', 'turn/send'] as const) {
   test(`a held pick the agent now greys does not make the conversation unopenable through ${door}`, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), 'hd-acp-rest-greyed-'))

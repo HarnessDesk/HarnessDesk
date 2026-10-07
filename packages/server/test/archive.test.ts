@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import {
+  isNoticeTurn,
   runtimeId,
   sessionId,
   type Page,
@@ -385,6 +386,46 @@ test('archive leaves a conversation the agent was never prompted in alone, which
     const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
     const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
     const live = record.live
+    let closes = 0
+    live!.close = async () => { closes++ }
+    await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
+    assert.equal(closes, 0)
+    assert.equal(record.live, live)
+  } finally { await rig.close() }
+})
+
+test('archive leaves a conversation whose first prompt the agent rejected alone, which it could not reopen', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const params = { runtime: 'fake', sessionId: opened.id }
+    const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
+    const live = record.live as FakeSession
+    await rig.client.call('turn/send', { ...params, input: [{ type: 'text', text: 'First' }] })
+    await until(() => record.session.turns.length > 0)
+    // The turn is on the record, and the conversation is not on the agent: it refused the prompt.
+    live.fail('The model backend timed out.')
+    await until(() => record.running.size === 0)
+    assert.deepEqual(record.session.turns.map(turn => turn.status), ['failed'])
+    let closes = 0
+    live.close = async () => { closes++ }
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(closes, 0)
+    assert.equal(record.live, live)
+  } finally { await rig.close() }
+})
+
+test('archive leaves a conversation whose only turn is a warning alone, which the agent was never prompted in', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const id = sessionId(opened.id)
+    const record = rig.host.registry.get(runtimeId('fake'), id)!
+    const live = record.live
+    // A warning given while the conversation opens is the host's, not a prompt the agent took.
+    rig.runtime.emit({ type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
+    await until(() => record.session.turns.length > 0)
+    assert.ok(record.session.turns.every(isNoticeTurn), 'the warning is all the record holds')
     let closes = 0
     live!.close = async () => { closes++ }
     await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })

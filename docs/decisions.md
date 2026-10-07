@@ -2533,9 +2533,15 @@ and model/command declarations remain cached, and fresh option reads do not
 replace the composer's picks. The existing host release seam rests finished
 Seats; personal conversations also release after ten quiet minutes, with turns,
 approvals, queued input and running tasks protecting them, and so does a
-conversation the agent was never prompted in: an agent that stores a
-conversation at its first message lists nothing for one that has none, so
-releasing its handle would drop the only way back. Archiving a quiet resumable
+conversation the agent has taken no prompt in: an agent that stores a
+conversation at its first accepted message lists nothing for one that has none,
+so releasing its handle would drop the only way back. Only a turn the agent
+took counts. A first prompt it rejected leaves a failed turn on the record and
+nothing in the agent, and a warning given while the conversation opened is the
+host's own, so neither lets the handle go. The host cannot tell a prompt the
+agent rejected from one it took and then stopped on, a limit say, so a failed
+turn is counted as not taken: the cost is a handle kept until a later turn
+succeeds, never a conversation that cannot be reopened. Archiving a quiet resumable
 conversation releases its handle through the same release and the same quiet
 test. Archiving preserves working turns,
 approvals, queued input and running tasks for the normal quiet sweep.
