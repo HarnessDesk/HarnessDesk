@@ -1075,7 +1075,7 @@ test('only design/patterns/ is a pattern module; design/ui/ primitives are not c
 test('the browser integration job builds workspace package entries before Vite', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8')
   const browserJob = workflow.match(/^  ui-system-browser:[\s\S]*?(?=^  [a-z][a-z-]+:|\Z)/m)?.[0] ?? ''
-  assert.match(browserJob, /run: pnpm run build:node[\s\S]*run: pnpm test:ui-system/)
+  assert.match(browserJob, /run: pnpm run build:node[\s\S]*pnpm test:ui-system/)
 })
 
 test('UI system gates do not depend on an external ripgrep binary', () => {
@@ -1640,6 +1640,7 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
     ['design/ui/timeline.tsx', ['Timeline', 'TimelineItem']],
+    ['design/ui/timeline-cards.tsx', ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument']],
     ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowDoingLine']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
@@ -1647,12 +1648,12 @@ test('single-area exemptions (data geometry, native boundaries) name only the li
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 24)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 29)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
       assert.match(entry.module, /^design\/ui\//)
-      assert.equal(entry.area, ['design/ui/flow-step.tsx', 'design/ui/timeline.tsx'].includes(entry.module) ? 'room' : 'usage')
+      assert.equal(entry.area, ['design/ui/flow-step.tsx', 'design/ui/timeline.tsx', 'design/ui/timeline-cards.tsx'].includes(entry.module) ? 'room' : 'usage')
     } else {
       assert.equal(entry.kind, 'native-boundary', `${entry.module} is one of the two recorded kinds`)
       assert.match(entry.module, /^design\/adapters\//)
@@ -3018,8 +3019,8 @@ const runsInStep = (source, stepName) => {
   return runs
 }
 
-/** Read named steps only from the verification job's direct `steps` list. */
-const ciStepsInVerifyJob = (source) => {
+/** Read named steps only from the named job's direct `steps` list. */
+const ciStepsInJob = (source, job) => {
   const steps = []
   let inVerifyJob = false
   let inSteps = false
@@ -3054,7 +3055,7 @@ const ciStepsInVerifyJob = (source) => {
       }
       if (scalar) continue
     }
-    if (line === '  verify:') {
+    if (line === `  ${job}:`) {
       inVerifyJob = true
       continue
     }
@@ -3099,8 +3100,8 @@ const hasExactBashScript = (runs, expectedScript) => runs.some(({ command, args 
   command === 'bash' && args.length === 2 && args[0] === '-c' && args[1] === expectedScript,
 )
 
-const hasActiveCIStepRun = (source, stepName, expectedCommand) =>
-  ciStepsInVerifyJob(source).some((step) =>
+const hasActiveCIStepRun = (source, stepName, expectedCommand, job = 'verify') =>
+  ciStepsInJob(source, job).some((step) =>
     step.name === stepName && step.run === expectedCommand && step.condition === undefined && step.jobIf === undefined,
   )
 
@@ -3146,10 +3147,10 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
           `${file} passes the exact main test invocation as bash -c's script argument`)
       } else {
         const dedicatedCommand = `node --test --test-timeout=600000 "${carveOut}"`
-        assert.ok(hasActiveCIStepRun(text, ciStepName, dedicatedCommand),
+        assert.ok(hasActiveCIStepRun(text, ciStepName, dedicatedCommand, 'node-e2e'),
           `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
         const expectedCICommand = `bash -c "${expectedMainScript.replaceAll('$', '\\$')}"`
-        assert.ok(hasActiveCIStepRun(text, 'Node tests', expectedCICommand),
+        assert.ok(hasActiveCIStepRun(text, 'Node tests', expectedCICommand, 'node-tests'),
           `${file} uses the exact main test invocation in the active Node tests step`)
       }
     }
@@ -4499,4 +4500,17 @@ test('timeline geometry exemption is confined to its two data-view exports and c
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'settings'), false)
   const other = path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx')
   assert.equal(isSingleAreaPrimitiveExempt(other, 'Timeline', 'room'), false)
+})
+
+test('round-card geometry exemption names only its recorded-data slots in the room', () => {
+  const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline-cards.tsx')
+  for (const name of ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument']) {
+    assert.equal(isSingleAreaPrimitiveExempt(module, name, 'room'), true)
+    assert.equal(isSingleAreaPrimitiveExempt(module, name, 'settings'), false)
+    assert.equal(isSingleAreaPrimitiveExempt(path.join(repoRoot, 'packages/ui/src/design/ui/card.tsx'), name, 'room'), false)
+  }
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineCardAction', 'room'), false)
+  const entry = SINGLE_AREA_PRIMITIVE_EXEMPTIONS.find(one => one.module === 'design/ui/timeline-cards.tsx')
+  assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => 'settings').length, 5)
+  assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => undefined).length, 5)
 })

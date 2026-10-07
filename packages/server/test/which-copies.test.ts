@@ -58,7 +58,10 @@ const QUOTED = new RegExp(`['"\`]${ASKED}['"\`]`)
 
 /** Whether `source` asks for it once everything the compiler would drop is gone. */
 const asksForIt = (strip: Strip, source: string, fileName: string): boolean =>
-  QUOTED.test(strip(source, fileName, { strict: true }))
+  // The cheap question first: stripping parses the file with TypeScript, and
+  // almost none of a thousand files so much as spell the path. Stripping only
+  // ever removes text, so a file that never spells it cannot ask for it.
+  source.includes(ASKED) && QUOTED.test(strip(source, fileName, { strict: true }))
 
 /**
  * Build output and the trees `.gitignore` keeps out of the repository.

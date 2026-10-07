@@ -41,14 +41,20 @@ check that this paragraph and AGENTS.md name every step the gate runs. CI runs
 all of those except protocol drift, which needs a real `codex` binary; a
 green local run means a green pipeline.
 
-On pull requests, “Build, typecheck, test” always runs. Browser integration
-selects one of three modes: `all` runs the six shards for changes to the UI,
-its transitive workspace dependencies (read from package manifests), browser
-specs/configuration, or shared root inputs. `server` runs only specs that
-import packages outside those UI inputs, in one Ubuntu job, for other package
-changes. The selector discovers those imports, including local helpers; the
-spec list needs no manual update. `none` skips both browser jobs for docs-only
-and unrelated script changes. Desktop-only changes run native smoke.
+On pull requests, “Build, typecheck, test” always runs. It stands for the whole
+gate and is green only when each of four jobs that run side by side is: the
+Node tests, the Node end-to-end tests, the UI tests, and the checks. Browser
+integration selects one of three modes: `all` runs the eight shards for changes
+to the UI, its transitive workspace dependencies (read from package manifests),
+browser specs/configuration, or shared root inputs. The shards are dealt by how
+long each spec file takes, not by how many tests it holds
+(`script/ci-browser-shards.mjs`, from `e2e/ui-system/durations.json`, which its
+`--refresh` rebuilds from the shards' CI logs), and each runs two browsers at
+once. `server` runs only specs that import packages outside those UI inputs, in
+one Ubuntu job, for other package changes. The selector discovers those
+imports, including local helpers; the spec list needs no manual update. `none`
+skips both browser jobs for docs-only and unrelated script changes.
+Desktop-only changes run native smoke.
 
 Native smoke still runs for every package change, its isolated rig and launch
 helpers. Shared manifests, the lockfile, root tool configuration, assets, CI

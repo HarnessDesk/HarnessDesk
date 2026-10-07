@@ -38,7 +38,7 @@ for (const path of [
 for (const path of ['docs/architecture.md', 'CONTRIBUTING.md', 'script/land-safe.mjs']) {
   test(`${path} skips both suites`, () => check([path], ['none', false]))
 }
-for (const path of ['e2e/ui-system/layout.spec.ts', 'playwright.ui-system.config.ts']) {
+for (const path of ['e2e/ui-system/layout.spec.ts', 'e2e/ui-system/durations.json', 'playwright.ui-system.config.ts', 'script/ci-browser-shards.mjs']) {
   test(`${path} runs the browser suite`, () => check([path], ['all', false]))
 }
 for (const path of ['packages/desktop/electron/main.mjs', 'script/shots/seed.mjs', 'script/lib/temporary-directory.mjs']) {
