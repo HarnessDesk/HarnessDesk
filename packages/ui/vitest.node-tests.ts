@@ -1,18 +1,18 @@
 /**
  * The test files that run in Node, not in jsdom.
  *
- * jsdom is built again for every file — the suite created it 475 times and it
- * was 36% of the run's time — and these files never use it. Each one passes
- * with no DOM at all, and nothing it imports asks whether there is one
- * (`typeof window`, `document?.`, a storage that may be missing): a module
- * that did would take its other branch here and the test would stop proving
- * what it was written to prove. `src/node-environment.test.ts` holds both
- * halves of that, so the list cannot go stale or drift into a silent change.
+ * jsdom is built again for every file — the suite created it 475 times, and it
+ * was 36% of the run's time. These files never use it: each passes with no DOM
+ * at all, and nothing it imports asks whether there is one (`typeof window`,
+ * `document?.`, a storage that may be missing). A module that did would take
+ * its other branch here, and the test would stop proving what it was written
+ * to prove. `src/node-environment.test.ts` holds both halves of that, so the
+ * list can neither go stale nor drift into a silent change.
  *
- * Adding a file is the speed-up: it runs without the `setup-tests.ts`
- * stand-ins too, which is how a test that does need a DOM announces itself —
- * `window is not defined` — and goes back to the default, which is jsdom.
- * Every file not named here keeps it.
+ * To add a file, name it here. It then runs without the stand-ins in
+ * `setup-tests.ts` as well, so a test that does need a DOM says so — `window
+ * is not defined` — and belongs back in the default, which is jsdom. Every file
+ * not named here keeps jsdom.
  */
 export const NODE_TESTS: readonly string[] = [
   'src/components/Approvals.css.test.ts',
