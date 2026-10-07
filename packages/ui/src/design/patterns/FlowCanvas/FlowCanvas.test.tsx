@@ -397,3 +397,18 @@ it('an inert poster leaves selection, edits and keyboard navigation to its page'
   expect(onNodesChange).not.toHaveBeenCalled()
   expect(onEdgesChange).not.toHaveBeenCalled()
 })
+
+it('keeps the minimap off the title when the tools leave no other corner free', async () => {
+  // A 480×200 pane: the tools at the top right also block the bottom right, so the top left, where the title is, would be the only free corner.
+  const isTitle = (element: HTMLElement) => element.matches('.react-flow__panel.top.left:not(.react-flow__minimap)')
+  vi.restoreAllMocks()
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return isTitle(this) ? 150 : 480 })
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return isTitle(this) ? 20 : 200 })
+  await draw({ nodes: [], edges: [], readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
+  await vi.waitFor(() => expect(host.querySelector('.react-flow__minimap')).not.toBeNull())
+  const map = host.querySelector<HTMLElement>('.react-flow__minimap')!
+  // React Flow's 15px panel margin sits outside the style offsets, and the title sits inside the same margin.
+  const left = parseFloat(map.style.left) + 15, top = parseFloat(map.style.top) + 15
+  const right = left + parseFloat(map.style.width), bottom = top + parseFloat(map.style.height)
+  expect(left < 15 + 150 && right > 15 && top < 15 + 20 && bottom > 15).toBe(false)
+})

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
+import { minimapOverlaps, zoomOf } from './canvas-minimap'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`the docked Run Flow fills its pane and contains every step in ${theme}`, async ({ page }) => {
@@ -29,15 +30,44 @@ for (const theme of ['light', 'dark'] as const) {
       })).toBe(true)
       if (width === 1440 && process.env.FLOW_DOCK_FRAME_PHASE !== 'before') await capture()
     }
-    await page.setViewportSize({ width: 1000, height: 700 })
-    const scroll = frame.locator('[data-slot="workbench-main"] [data-slot="run-scroll"]')
-    const list = scroll.locator('[data-slot="flow-list"][data-placement="below"]')
-    await expect(list).toBeVisible()
-    const box = (await scroll.boundingBox())!
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 30)
-    await page.mouse.wheel(0, 1600)
-    await expect(list.locator('[data-step-row="person"]')).toBeInViewport()
-    await expect(list.locator('section[aria-label="Rules"]')).toBeInViewport()
+  })
+
+  test(`a narrow docked Run leaves its Steps to the dock and keeps the minimap clear in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    // A 950 to 1100px window with the dock open leaves the Run pane 440 to 600px wide.
+    for (const width of [950, 1000, 1100]) {
+      await page.setViewportSize({ width, height: 700 })
+      await page.goto(`/preview.html?run-dock&theme=${theme}`)
+      const frame = page.locator('#run-dock-frame')
+      await frame.locator('[data-team-page="run"]').click()
+      await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+      const main = frame.locator('[data-slot="workbench-main"]')
+        const canvas = main.locator('[data-slot="flow-canvas"]')
+      const list = main.locator('[data-slot="flow-list"]')
+      await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
+      await expect.poll(() => zoomOf(canvas)).toBeLessThan(0.6)
+      if (process.env.FLOW_DOCK_FRAMES_DIR && width !== 950) {
+        await page.evaluate(async () => { await document.fonts.ready })
+        expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+        await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round5-run-dock-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
+      }
+      // The dock lists the Steps, so the pane keeps only the text alternative, which takes no room.
+      await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'dock')
+      expect.soft(await list.evaluate(el => { const box = el.getBoundingClientRect(); return box.width <= 1 && box.height <= 1 }), `list at ${width}px`).toBe(true)
+      // The drawing has the whole pane, not a strip scaled to its width, and holds every step.
+      const drawn = (await canvas.boundingBox())!.height
+      expect.soft(drawn, `canvas at ${width}px`).toBeGreaterThan(300)
+      expect.soft((await main.locator('[data-slot="run-flow"]').boundingBox())!.height - drawn, `canvas at ${width}px`).toBeLessThan(2)
+      expect.soft(await canvas.evaluate(el => {
+        const clip = el.getBoundingClientRect()
+        return [...el.querySelectorAll('.react-flow__node')].every(node => {
+          const box = node.getBoundingClientRect()
+          return box.top >= clip.top && box.bottom <= clip.bottom + 0.5 && box.left >= clip.left && box.right <= clip.right + 0.5
+        })
+      }), `steps at ${width}px`).toBe(true)
+      // A drawn minimap never covers the title, the tools or a step.
+      expect.soft(await minimapOverlaps(canvas), `minimap at ${width}px`).toEqual([])
+    }
   })
 
   test(`Run details and Steps use the workbench dock in ${theme}`, async ({ page }) => {

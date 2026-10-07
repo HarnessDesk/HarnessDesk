@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { FlowEntry, FlowExecution } from '@harnessdesk/protocol'
 
+import { RunDockProvider } from '../panels/run-dock'
 import { flowGraphDocument } from '../preview/flow-graph-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -240,4 +241,22 @@ it('shortens the check in both drawing and Steps, retaining its raw hover title'
     expect(step.textContent).toContain('node ~/tools/land.mjs --check')
     expect(step.querySelector('[title="node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
   }
+})
+
+// The graph's own container decides, not the window: 500px is a narrow pane.
+const listInNarrowPane = async (docked: boolean) => {
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
+  canvasDOM({ graphWidth: 500 })
+  const view = <StoreProvider store={fakeStore([])}><RunFlow execution={run()} root="/repo" seats={[]} /></StoreProvider>
+  await act(async () => { root.render(docked ? <RunDockProvider>{view}</RunDockProvider> : view) })
+  await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
+  return container.querySelector<HTMLElement>('[data-slot="flow-list"]')!
+}
+
+it('leaves the Steps to the Team dock in a narrow pane, instead of listing them a second time', async () => {
+  expect((await listInNarrowPane(true)).dataset.placement).toBe('dock')
+})
+
+it('lists the Steps under the drawing in a narrow pane that has no dock', async () => {
+  expect((await listInNarrowPane(false)).dataset.placement).toBe('below')
 })

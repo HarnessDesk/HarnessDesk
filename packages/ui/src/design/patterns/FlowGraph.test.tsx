@@ -378,3 +378,33 @@ it('a docked text alternative keeps screen-reader selection without invisible ta
   act(() => rows[1]!.click())
   expect(select).toHaveBeenCalledWith('check')
 })
+
+// The graph's own container decides, not the window: 500px is a narrow pane and 900px a wide one.
+const inPane = async (width: number, listPlacement: 'below' | 'dock' | 'responsive') => {
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
+  canvasDOM({ graphWidth: width })
+  await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} listPlacement={listPlacement} />))
+  await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
+  return { list: container.querySelector<HTMLElement>('[data-slot="flow-list"]')!, drawing: container.querySelector<HTMLElement>('[data-slot="flow-drawing"]')! }
+}
+
+it('a list the Team dock owns stays out of a narrow pane, so the drawing keeps the whole pane', async () => {
+  const { list, drawing } = await inPane(500, 'dock')
+  expect(list.dataset.placement).toBe('dock')
+  expect(list.classList.contains('sr-only')).toBe(true)
+  expect(drawing.hasAttribute('style')).toBe(false)
+})
+
+it('outside a dock the list is the text alternative of a wide pane', async () => {
+  const { list, drawing } = await inPane(900, 'responsive')
+  expect(list.dataset.placement).toBe('dock')
+  expect(list.classList.contains('sr-only')).toBe(true)
+  expect(drawing.hasAttribute('style')).toBe(false)
+})
+
+it('outside a dock a narrow pane shows the list under a drawing sized to its width', async () => {
+  const { list, drawing } = await inPane(500, 'responsive')
+  expect(list.dataset.placement).toBe('below')
+  expect(list.classList.contains('sr-only')).toBe(false)
+  expect(drawing.getAttribute('style')).toContain('flex')
+})

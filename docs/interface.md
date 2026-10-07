@@ -1307,11 +1307,12 @@ The canvas fills the page below the Run header, with a 24 px margin on every
 side. It opens centred at 100% when the drawing fits; a smaller pane shrinks
 it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
 Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
-**The path this Run took** sits at the top left. Nodes cannot be moved or
-edited. The accessible Steps and Rules list retains state and selection.
-Outside the Team’s Steps dock, narrow panes scroll the fitted drawing and the
-list together; wide panes retain the text alternative without adding invisible
-keyboard stops.
+**The path this Run took** sits at the top left, and the minimap, where a clear
+spot is left, never covers it. Nodes cannot be moved or edited. The accessible
+Steps and Rules list retains state and selection. In the Team’s Steps dock the
+list lives in the dock at every width, so the drawing keeps the whole pane;
+outside it, narrow panes scroll the fitted drawing and the list together, and
+wide panes retain the text alternative without adding invisible keyboard stops.
 **Open the file** reads the Flow's file as it is now, in a window you can only
 read; the Run keeps the revision it started with.
 

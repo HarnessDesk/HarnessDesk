@@ -91,6 +91,8 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
   const transform = useStore(store => store.transform)
   const instanceId = useId().replace(/[^A-Za-z0-9_-]/g, '')
   const canvasRef = useRef<HTMLDivElement>(null)
+  const [titlePanel, titleRef] = useState<HTMLDivElement | null>(null)
+  const [titleSize, setTitleSize] = useState({ width: 0, height: 0 })
   const selectionCallback = useRef(onSelectionChange)
   selectionCallback.current = onSelectionChange
   const controlledSelection = useRef({ nodes: [] as string[], edges: [] as string[] })
@@ -109,6 +111,16 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
       .find(element => element.dataset.id === pending.targetId)
     ;(target ?? canvasRef.current)?.focus()
   })
+  // The title is the caller's, of any length: the minimap keeps off the room it really takes.
+  useLayoutEffect(() => {
+    if (!titlePanel) return
+    const measure = () => setTitleSize(previous => previous.width === titlePanel.offsetWidth && previous.height === titlePanel.offsetHeight ? previous : { width: titlePanel.offsetWidth, height: titlePanel.offsetHeight })
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(titlePanel)
+    return () => observer.disconnect()
+  }, [titlePanel])
 
   const engineNodes = useMemo<EngineNode[]>(() => nodes.map(node => ({
     id: node.id, type: 'step', position: node.position, selected: node.selected,
@@ -485,6 +497,8 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
       left: MINIMAP_INSET, top: height - MINIMAP_INSET - (MINIMAP_TOOL_RESERVED_HEIGHT - MINIMAP_INSET),
       right: MINIMAP_INSET + MINIMAP_TOOL_RESERVED_WIDTH, bottom: height - MINIMAP_INSET,
     }
+    // The title sits in the top left corner, inside the panel margin, and keeps the same margin clear around it.
+    const heading = titlePanel ? { left: MINIMAP_INSET, top: MINIMAP_INSET, right: MINIMAP_INSET * 2 + titleSize.width, bottom: MINIMAP_INSET * 2 + titleSize.height } : null
     for (const cornersOnly of [true, false]) for (const size of MINIMAP_SIZES) {
       if (width < size.width + MINIMAP_INSET * 2 || height < size.height + MINIMAP_INSET * 2) continue
       const maxLeft = width - size.width - MINIMAP_INSET, maxTop = height - size.height - MINIMAP_INSET
@@ -506,12 +520,12 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
         checked.add(key)
         const right = left + size.width, bottom = top + size.height
         const overlaps = (box: typeof tools) => box.left < right && box.right > left && box.top < bottom && box.bottom > top
-        if (overlaps(tools) || rendered.some(overlaps)) continue
+        if (overlaps(tools) || (heading && overlaps(heading)) || rendered.some(overlaps)) continue
         return { ...size, position: 'top-left' as const, left, top }
       }
     }
     return null
-  }, [nodes, measurements, transform, width, height, toolbarOnTop])
+  }, [nodes, measurements, transform, width, height, toolbarOnTop, titlePanel, titleSize])
   const render = (props: FlowCanvasNodeProps) => NodeComponent
     ? <NodeComponent {...props as FlowCanvasNodeProps<Data>} /> : <StepCard {...props} />
   return <div ref={canvasRef} className={`${styles.canvas} ${className ?? ''}`} data-slot="flow-canvas" data-readonly={readOnly} data-inert={inert || undefined} data-position-only={positionOnly || undefined} data-tool={readOnly ? 'hand' : tool} tabIndex={inert ? -1 : 0} role="region" aria-label={label} onKeyDownCapture={keyboard}>
@@ -526,7 +540,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
         zoomOnPinch={!inert && !positionOnly} ariaLabelConfig={ariaLabelConfig}>
         {edges.some(edge => edge.current) && batonPath && <EdgeLabelRenderer><FlowBaton path={batonPath} /></EdgeLabelRenderer>}
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1.5} color="var(--hd-border-strong)" />
-        {title && <Panel position="top-left"><Text role="meta">{title}</Text></Panel>}
+        {title && <Panel ref={titleRef} position="top-left"><Text role="meta">{title}</Text></Panel>}
         {showControls && !inert && <Panel position={toolbarOnTop ? "top-right" : "bottom-left"} className={styles.tools}>
           {!readOnly && <>
             <Button variant="ghost" size="icon" aria-label="Select tool" title="Select steps" aria-pressed={tool === 'select'} onClick={() => setTool('select')}><CanvasSelectIcon /></Button>

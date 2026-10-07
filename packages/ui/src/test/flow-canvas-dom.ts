@@ -1,8 +1,8 @@
 import { vi } from 'vitest'
 
-/** jsdom has no layout; supply the browser measurements the real canvas needs. */
-export const canvasDOM = () => {
-  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('react-flow__node') ? 232 : 1440 })
+/** jsdom has no layout; supply the browser measurements the real canvas needs. `graphWidth` is the width of the pane a graph is drawn in. */
+export const canvasDOM = ({ graphWidth = 1440 }: { graphWidth?: number } = {}) => {
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('react-flow__node') ? 232 : this.dataset.slot === 'flow-graph' ? graphWidth : 1440 })
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('react-flow__node') ? 130 : 600 })
   vi.stubGlobal('DOMMatrixReadOnly', class { m22 = 1 })
   vi.stubGlobal('ResizeObserver', class {

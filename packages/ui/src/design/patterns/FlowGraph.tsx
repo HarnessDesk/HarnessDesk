@@ -99,14 +99,18 @@ export interface FlowGraphProps {
   readonly actions?: ReactNode
   readonly showControls?: boolean
   readonly inert?: boolean
-  /** Wide panes retain the text alternative; narrow panes show the list until the Team dock exists. */
-  readonly listPlacement?: 'below' | 'dock'
+  /**
+   * Where the Steps and Rules list is read. `below`, the default, puts it under the drawing at every width.
+   * `dock` leaves it to the Team's Steps dock at every width: the drawing keeps the whole pane and the list stays here only as the text alternative.
+   * `responsive` is for a Run outside the dock: the text alternative in a wide pane, and under a drawing fitted to the pane once it is narrow.
+   */
+  readonly listPlacement?: 'below' | 'dock' | 'responsive'
 }
 
 /** The frozen Flow on the shared read-only canvas, with recorded state and an accessible Steps seam for the Team dock. */
 export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, faceTints, doing, now = Date.now(), title, actions, showControls, inert, listPlacement = 'below' }: FlowGraphProps) => {
   const { ref, narrow } = useNarrowLayout<HTMLDivElement>(608)
-  const listDocked = listPlacement === 'dock' && narrow !== true
+  const listDocked = listPlacement === 'dock' || (listPlacement === 'responsive' && narrow !== true)
   const layout = useMemo(() => (model.steps.length === 0 ? null : flowLayout(model)), [model])
   if (layout === null) {
     return <Text role="muted" as="p" data-slot="flow-graph">This Flow has no steps.</Text>

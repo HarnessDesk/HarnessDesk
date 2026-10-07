@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Locator } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
+import { minimapOverlaps, zoomOf } from './canvas-minimap'
 
 const run = async (page: Page, theme: string) => {
   await page.goto(`/preview.html?flow-overlay&theme=${theme}`)
@@ -136,6 +137,24 @@ for (const theme of ['light', 'dark'] as const) {
         })
       })
       expect(overlaps).toBe(false)
+    })
+
+    test('a Run pane of 480 to 600px keeps its minimap off the title and the tools', async ({ page }) => {
+      for (const width of [480, 520, 560, 600]) {
+        await page.setViewportSize({ width, height: 900 })
+        const pane = await run(page, theme)
+        const canvas = pane.locator('[data-slot="flow-canvas"]')
+        await nodesInCanvas(pane)
+        await expect.poll(() => zoomOf(canvas)).toBeLessThan(0.6)
+        const folder = process.env.FLOW_REPAIR_FRAMES_DIR
+        if (folder && width === 520) {
+          await mkdir(folder, { recursive: true })
+          await page.evaluate(async () => { await document.fonts.ready })
+          expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+          await pane.screenshot({ path: `${folder}/round5-run-${width}-${theme}-${process.env.FLOW_REPAIR_FRAME_PHASE ?? 'after'}.png` })
+        }
+        expect.soft(await minimapOverlaps(canvas), `minimap at ${width}px`).toEqual([])
+      }
     })
 
     test('the poster ignores drags and pinch while allowing page swipes', async ({ page }) => {
