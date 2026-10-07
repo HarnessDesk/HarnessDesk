@@ -7,17 +7,21 @@ const models = [
   { modelId: 'opus', name: 'Opus', _meta: { harnessdesk: { effortLevels: [{ id: 'high', label: 'High' }] } } },
 ]
 const sessions = new Map()
+let nextSession = 0
 const optionsOf = (model) => model === 'opus'
   ? [{ id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: process.env.SEAT_DEFAULT_EFFORT === '1' ? 'default' : 'high', options: [{ value: 'high', name: 'High' }, ...(process.env.SEAT_DEFAULT_EFFORT ? [{ value: 'default', name: 'Default' }] : [])] }]
   : []
 const reply = (id, result) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
 createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params } = JSON.parse(line)
-  if (method === 'initialize') reply(id, { protocolVersion: 1, agentInfo: { name: 'Seat fixture', version: '1' }, agentCapabilities: {}, authMethods: [] })
+  if (method === 'initialize') reply(id, { protocolVersion: 1, agentInfo: { name: 'Seat fixture', version: '1' }, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] })
   else if (method === 'session/new') {
-    const sessionId = `fixture-${sessions.size + 1}`
+    const sessionId = `fixture-${++nextSession}`
     sessions.set(sessionId, 'haiku')
     reply(id, { sessionId, models: { currentModelId: 'haiku', availableModels: models }, configOptions: [] })
+  } else if (method === 'session/close') {
+    sessions.delete(params.sessionId)
+    reply(id, {})
   } else if (method === 'session/set_model') {
     sessions.set(params.sessionId, params.modelId)
     reply(id, { configOptions: optionsOf(params.modelId) })

@@ -2,6 +2,7 @@ import { AgentIcon, PullRequestIcon } from './Icons'
 import { openExternal } from '../lib/desktop'
 import type { FindingRoundPublication, FlowCheckAttempt, GoalState } from '@harnessdesk/protocol'
 import { attemptWords, runTimeline, type RunTimelineInput } from '../lib/run-timeline'
+import { costWords, runSeatCosts } from '../lib/run-cost'
 import type { SeatRow } from '../lib/team-overview'
 export interface InspectorSeat {
   id: string
@@ -78,7 +79,6 @@ const Attempt = ({ attempt, incomplete }: { attempt: FlowCheckAttempt; incomplet
     {open && <CodeText block wrap className="self-stretch">{sanitizeText(attempt.tail || 'No output was printed')}</CodeText>}
   </div>
 }
-const costWords = (cost: InspectorSeat['cost']): string => cost ? `${cost.estimated ? 'About ' : ''}${cost.unit === 'money' ? `$${cost.value.toFixed(2)}` : `${cost.value} turns`}` : 'Not recorded'
 
 /** flow-execution appends these tool instructions after the rendered sentence.
  * Remove only those complete trailing paragraphs, keeping authored text.
@@ -194,13 +194,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
   const budget = execution.findings?.budget
   const extra = execution.findings?.extraRound
   const limit = budget ? Math.max(budget.rounds, extra ? extra.after + (extra.count ?? 1) : 0) : null
-  const ids = [...new Set(execution.rounds.flatMap(one => one.seats))]
-  const recorded = ids.flatMap(id => { const seat = seats.find(one => one.id === id); return seat ? [seat] : [] })
-  const costs = recorded.flatMap(one => one.cost ? [one.cost] : [])
-  const totals = (['money', 'turns'] as const).flatMap(unit => {
-    const values = costs.filter(one => one.unit === unit)
-    return values.length ? [costWords({ unit, value: values.reduce((n, one) => n + one.value, 0), estimated: values.some(one => one.estimated) })] : []
-  })
+  const { ids, recorded, costs, summary: costSummary } = runSeatCosts(execution, seats)
   // Evidence is scoped to the cards this Run actually opened; another Run's PR is not this one's.
   const cardIds = new Set(execution.rounds.flatMap(one => one.cards))
   const facts = (input.evidence?.cards ?? []).filter(one => cardIds.has(one.card)).flatMap(one => one.facts)
@@ -261,7 +255,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
             {input.origin && <KeyValueRow label="Started by" variant="panel">{sanitizeText(input.origin)}</KeyValueRow>}
             {budget && <KeyValueRow label="Budget" variant="panel"><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></KeyValueRow>}
             {budget && <KeyValueRow label="Without progress" variant="panel"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></KeyValueRow>}
-            {totals.length > 0 && <KeyValueRow label="Cost" variant="panel">{totals.join(' · ')}{costs.length < ids.length ? ' · Partial' : ''}</KeyValueRow>}
+            {costSummary !== null && <KeyValueRow label="Cost" variant="panel">{costSummary}</KeyValueRow>}
           </KeyValue>
           {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
           </CardContent>

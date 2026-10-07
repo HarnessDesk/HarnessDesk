@@ -101,6 +101,15 @@ const loadMcpChild = (threadId, config = {}) => {
 /** How long an unsubscribed idle thread stays loaded: Codex's minute, unless a test shortens it. */
 const UNLOAD_MS = Number(process.env['FAKE_CODEX_UNLOAD_MS'] ?? 60_000)
 /**
+ * `FAKE_CODEX_UNLOAD_WITH_REPLY=1` closes an unsubscribed idle thread in the
+ * same breath as the reply to its unsubscribe, so the reply and the notices of
+ * the close are one write and arrive as one chunk. That is what a client reads
+ * when it was not scheduled for the few milliseconds a shortened
+ * `FAKE_CODEX_UNLOAD_MS` puts between them. Whether that happens is the
+ * machine's to decide, so the test decides it instead.
+ */
+const UNLOAD_WITH_REPLY = process.env['FAKE_CODEX_UNLOAD_WITH_REPLY'] === '1'
+/**
  * A test holds the close of a thread open, the way the `FAKE_CODEX_HOLD_*`
  * files hold the other steps: while `FAKE_CODEX_UNLOAD_GATE` names a file that
  * exists, a thread due to close stays loaded; while `FAKE_CODEX_CLOSE_GATE`
@@ -150,7 +159,7 @@ const logThread = (method, params) => {
     environment: params?.config?.['shell_environment_policy.set'] ?? null,
   })}\n`)
 }
-const closeIfIdle = (threadId) => {
+const closeIfIdle = (threadId, together = false) => {
   const held = loadedThreads.get(threadId)
   if (!held || held.subscribed || held.closing) return
   if (workingThreads.has(threadId) || gated('FAKE_CODEX_UNLOAD_GATE')) {
@@ -173,14 +182,17 @@ const closeIfIdle = (threadId) => {
     notify('thread/status/changed', { threadId, status: { type: 'notLoaded' } })
     notify('thread/closed', { threadId })
   }
-  setTimeout(finish, 0)
+  if (together) finish()
+  else setTimeout(finish, 0)
 }
 const unsubscribeThread = (threadId) => {
   const held = loadedThreads.get(threadId)
   if (!held) return 'notLoaded'
   if (!held.subscribed) return 'notSubscribed'
   held.subscribed = false
-  held.timer = setTimeout(() => closeIfIdle(threadId), UNLOAD_MS)
+  // After the caller has queued its reply, ahead of the next write: the notices share it.
+  if (UNLOAD_WITH_REPLY) queueMicrotask(() => closeIfIdle(threadId, true))
+  else held.timer = setTimeout(() => closeIfIdle(threadId), UNLOAD_MS)
   return 'unsubscribed'
 }
 
@@ -506,6 +518,28 @@ const askedBy = new Map()
  * cancelled — the browser arm really does wait on another application.
  */
 let signedIn = (process.env['FAKE_CODEX_ACCOUNT'] ?? 'signedIn') !== 'signedOut'
+
+/**
+ * The account notice. A signed-in Codex says `account/updated` once, on its
+ * own, between 0.36 and 0.90 s after it is up — measured on 0.160.0 against a
+ * signed-in home (`script/probe/account-notice.mjs`); reads do not cause it and
+ * it did not repeat. A signed-out one says nothing. It is not played unless
+ * asked: most tests count what this process says and would have to wait for it.
+ *
+ * FAKE_CODEX_ACCOUNT_NOTICE=startup says it FAKE_CODEX_ACCOUNT_NOTICE_MS (640
+ * unless given, the middle of that range) after `initialized`. `first-read` says it
+ * as the first `account/read` arrives, so a test that holds that read
+ * (FAKE_CODEX_HOLD_ACCOUNT) has the notice land while the read is in flight,
+ * which is where the real one lands when the host reads the account the moment
+ * Codex is up.
+ */
+const accountNotice = process.env['FAKE_CODEX_ACCOUNT_NOTICE'] ?? null
+let accountNoticeSaid = false
+const sayAccountNotice = () => {
+  if (accountNoticeSaid || !signedIn) return
+  accountNoticeSaid = true
+  notify('account/updated', { authMode: 'chatgpt', planType: 'team' })
+}
 const loginOutcome = process.env['FAKE_CODEX_LOGIN'] ?? 'hang'
 const forcedLoginMethod = process.env['FAKE_CODEX_FORCED_LOGIN'] ?? null
 let activeLogin = null
@@ -1402,7 +1436,10 @@ rl.on('line', (line) => {
     return
   }
 
-  if (message.method === 'initialized') return
+  if (message.method === 'initialized') {
+    if (accountNotice === 'startup') setTimeout(sayAccountNotice, Number(process.env['FAKE_CODEX_ACCOUNT_NOTICE_MS'] ?? 640))
+    return
+  }
 
   // Client answering one of our server-initiated requests.
   if (message.id !== undefined && message.method === undefined) {
@@ -2351,6 +2388,7 @@ rl.on('line', (line) => {
       return
 
     case 'account/read':
+      if (accountNotice === 'first-read') sayAccountNotice()
       replyAfterHold(process.env.FAKE_CODEX_HOLD_ACCOUNT, id, {
         account: signedIn ? { type: 'chatgpt', email: 'dev@example.com', planType: 'team' } : null,
         requiresOpenaiAuth: true,

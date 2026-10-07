@@ -1626,12 +1626,17 @@ refused answer and a narrow pane, in both themes.
 
 ### The Run timeline
 
-The Run view composes `PaneColumn`, `ListRows`, `ListRow`, `Text` and `Chip`.
-Selection uses the same filled row as an inspector, with no navigation colour.
-Round headings group the oldest-first story; outcomes stay neutral unless the
-host names that outcome as the reason no step follows. Done and waiting are
-quiet text. Wrapped record titles centre their lead on the whole row. Sentences wrap at
-narrow widths, while the brief previews two lines.
+The Run view composes `PaneColumn`, `Timeline`, `TimelineItem`, `ListRow`,
+`Text` and `Chip`. The `timeline` catalogue board owns the continuous rail,
+first-line rings and meta–title–detail hierarchy. Finished rings and their
+incoming segments carry full ink, active rings spin, pending rings stay faint,
+and attention or failure uses its tone. Reduced motion keeps the ring still.
+Unknown times take no space. Start, the brief, rounds and End use the same
+anatomy; End is a plain selectable title. Quiet child records sit in the
+content column without boxes or rules, with actions at the right. Selection
+uses the inspector's filled row. Outcome words remain neutral unless the host
+names that outcome as the reason no step follows. Sentences wrap at narrow
+widths, and record leads stay centred on their whole row.
 A check that has run more than once draws each recorded result under its row,
 oldest first, as plain lines in the check row's own words (Passed, Failed, Timed
 out, Did not finish, or the Flow's own word). *Run again…* is a quiet link at the

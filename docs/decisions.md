@@ -1952,8 +1952,9 @@ not know; it predicts no future route and offers no execution control.
 ## A Run's publication and a review round are separate facts
 
 The Run's `finding/run.publication` folds every posting it holds. It belongs
-on the Overview strip, Run header and Findings summary. Its ending keeps the
-reason for attention without repeating the aggregate chip. A review
+on the Overview strip, Run header and Findings summary. A need card above
+Timeline and Flow keeps the reason for attention and the existing next actions;
+the selectable End step does not repeat them or the aggregate chip. A review
 row reads only its own `FindingRunView.rounds` record; a missing record or
 `none` never inherits the aggregate. The round budget and Goal-owned open
 finding counts cannot establish a new Run's publication.
@@ -2169,7 +2170,9 @@ differs between seats is a parameter of their own thread, never of the process:
 - *Finishing a seat.* Closing the handle interrupts its active turn before
   unsubscribing the thread, while completion and approval events are still heard. Codex closes
   it after its minute and the helpers go with it; the runtime counts the
-  closed handle until `thread/closed` arrives and does not announce that close
+  closed handle from the moment it asks for the unsubscribe, not from its
+  answer, until `thread/closed` arrives — a close Codex makes at once can be
+  read in the same chunk as the answer — and does not announce that close
   or its `notLoaded` status back to the desk, which asked for it. The
   sub-agent threads it left loaded are found among the loaded threads by their
   parent; an in-progress child turn is interrupted before its thread is
@@ -2443,6 +2446,71 @@ Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
 
+## ACP sessions release what they opened
+
+An ACP handle used to disappear only from the adapter's map. The peer kept its
+session and its children until the whole account process stopped. A catalogue
+probe was another retained session. Measured without prompts on 2026-10-06,
+eight sessions through the bundled Claude bridge left ten processes and about
+2 GB resident after close; the adapter now leaves the one bridge at about
+133 MB. The measurement uses an isolated home and synthetic keys, never a turn:
+[`acp-session-processes.mjs`](../script/probe/acp-session-processes.mjs).
+
+The negotiated `sessionCapabilities.close` chooses the lifecycle. A peer that
+declares it serves every conversation of its account on the same connection;
+closing a handle asks `session/close` with a three-second deadline. A refusal
+or timeout is logged and drops the local handle; a failed opening keeps its
+original error, and a stored archive mark remains successful.
+The bundled Claude bridge already tears down its query and attachments there.
+The Cursor bridge now cancels and waits for that session's turn, removes its
+transient tool/config folders, and keeps its durable chat and the shared start
+gate. Neither close names a sibling.
+
+A peer with no close method normally gets a connection per live session, beside the
+account's session-free control connection. Close reaps that connection's process
+group. A failed worker detaches only its session; restarting or disposing the
+account reaps all workers.
+
+Gemini CLI is the measured exception, declared by the known-agent table's
+`sharedSessionProcess` policy and applied through the same overlay to existing
+and newly registered rows. The first implementation multiplied its process
+families, taking eight unprompted sessions from about 0.5 GB to 4.1 GB. The
+repair keeps one shared family: measured on 2026-10-06, one, three and eight
+open sessions have two processes at 464, 474 and 485 MB. Closing the last
+handle reaps the whole family, leaving zero processes. Concurrent session
+opens, resumes and catalogue reads hold that release until they settle.
+Closing one session cancels only its turn and abandons its approvals; siblings
+keep their handles. Without a release verb, its closed sessions and probes
+remain in the peer until the last handle closes. This is a deliberate limit,
+not a claim that a shared peer can release one session while another works.
+
+Catalogue readers and nearby draft picks share a probe for five quiet seconds,
+then release it. Stored-history reads also retain their temporary handle for
+five quiet seconds and return the transcript before resource teardown; an
+explicit resume takes ownership and cancels that release. Draft picks
+and model/command declarations remain cached, and fresh option reads do not
+replace the composer's picks. The existing host release seam rests finished
+Seats; personal conversations also release after ten quiet minutes, with turns,
+approvals, queued input and running tasks protecting them. Archiving a quiet resumable
+conversation releases its handle. Archiving preserves working turns,
+approvals, queued input and running tasks for the normal quiet sweep.
+Reopening waits for close, then loads the same
+agent-owned history; personal quiet release holds the conversation's option
+values and reapplies changed picks before reopening it to a client or a send.
+Transient history handles keep the stored row's status and timestamps and do
+not request a shared last-handle stop; the host owns that idle interval.
+A stale close cannot release its replacement. A shared
+last-handle stop publishes idle state and its cleanup barrier before awaiting
+exit, so host callers wait for restart. Passive process counts include both the
+control connection and every live session worker.
+
+**The rule:** share an account process when the peer can release a session;
+otherwise bound processes to live handles and reap their groups when released,
+except where measured process cost requires the shared, last-handle policy.
+Scripted ACP and bundled bridge tests prove release, resume, sibling isolation,
+probe cleanup and worker failure. The installed-agent measurements cover opening
+and closing only; they do not claim anything about real prompted turns.
+
 ## Native server narrowing is separate from approved attachments
 
 Measured on 2026-10-06 with 0.160.0 by
@@ -2514,3 +2582,53 @@ was made; a saved flag reports configuration, not a measured charge.
 The bridge reflects that flag after a turn while preserving a newer manual
 choice. Automatic provenance stays an observation: it is shown in the model
 menu and hover text and is excluded from saved preset preferences.
+
+## An account change hands the reads in flight to a fresh read
+
+[Account reads](architecture.md) are bounded: host calls through a registered
+runtime share one read per account generation, each with a ten-second deadline.
+When an account-change notice arrived while a read was in flight, that read was
+ended with "Account changed during a read. Try again.", so that nobody was
+answered by an adapter that began before the change and nobody waited on one
+that never answered.
+
+**What it did to a seat.** No caller retries that error, and the seat offer
+reports an account it cannot read as the runtime being unavailable. A signed-in
+Codex says `account/updated` once, on its own, between 0.36 and 0.90 s after its
+app-server is up (nine runs on 0.160.0, `script/probe/account-notice.mjs`), and
+the desk reads the account the moment it resolves a seat, which just after a
+start is inside that window. The notice landed on the read and failed it: the
+seat was passed over as `unavailable: its account could not be read — Account
+changed during a read. Try again`, and a Flow could not seat Codex at all, with
+a refusal that said only "No seat could be opened". The same resolution a few
+seconds later was accepted. Reproduced on the real binary and the real home
+through the whole host: a Flow dry run right after the start was refused five
+times out of five, and accepted three times out of three with the change below.
+An empty home says nothing, which is why a throwaway home never showed it. The
+build before #1480 had no bound on account reads and so nothing to fail.
+
+**The decision.** A change hands the callers of the read in flight to a fresh
+read that begins after the notice. They are answered by something no older than
+the notice, never by an error, and never by the older adapter, whenever it
+speaks. That keeps what the bound was made for: one shared read per account
+generation, the deadline on each, the older read's late settlement neither
+releasing nor changing the newer one, and a teardown refusing the callers still
+waiting. A change with nothing in flight starts nothing.
+
+**What it costs.** A notice that lands on a read in flight starts one more
+adapter read while the older one is still outstanding, as a fresh caller's
+already did. A stream of notices would start one each; none does today, since
+Codex says it once.
+
+**Refused.** *Retrying in the seat offer.* That repairs one caller and leaves
+`runtime/account` and every other reader raising the same sentence. *Ignoring
+the notice.* It is how a sign-in finished in another window reaches this one.
+*Reverting the bound.* Reads a client had stopped waiting for did accumulate,
+which is what it was made to stop.
+
+**Not measured.** A real change of account, a sign-in finishing elsewhere,
+landing on a read in flight: the scripted Codex plays the notice from the
+measurement above and nothing else. Whether Codex says `account/updated` again
+later in a session, when another process refreshes the shared credential: it
+was not heard in a run of about seventeen seconds, which says nothing about an
+hour.

@@ -253,6 +253,31 @@ test('starting a second sign-in supersedes the first, and stale cancels are harm
   await tape.until((events) => loginEvents(events).some((event) => event.loginId === second.loginId))
 })
 
+/*
+ * The scripted Codex can say what a signed-in 0.160.0 says unprompted
+ * (`script/probe/account-notice.mjs`): `account/updated`, once, shortly after it
+ * is up, and nothing from a signed-out one. The host's seating test relies on
+ * it, so what it plays is held here rather than assumed there.
+ */
+test('the scripted Codex announces its account once, and only when signed in', async (t) => {
+  const changes = async (env: Record<string, string>, reads: number): Promise<number> => {
+    const runtime = makeRuntime({ FAKE_CODEX_ACCOUNT_NOTICE_MS: '30', ...env })
+    const tape = recorder(runtime)
+    await runtime.start()
+    try {
+      for (let read = 0; read < reads; read += 1) await runtime.getAccount()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return tape.events.filter((event) => event.type === 'account/changed').length
+    } finally {
+      await runtime.dispose()
+    }
+  }
+  assert.equal(await changes({}, 2), 0, 'it is silent unless asked, as every other test expects')
+  assert.equal(await changes({ FAKE_CODEX_ACCOUNT_NOTICE: 'startup' }, 0), 1, 'after the start, on its own')
+  assert.equal(await changes({ FAKE_CODEX_ACCOUNT_NOTICE: 'first-read' }, 2), 1, 'with the first read, and not with the second')
+  assert.equal(await changes({ FAKE_CODEX_ACCOUNT_NOTICE: 'startup', FAKE_CODEX_ACCOUNT: 'signedOut' }, 0), 0, 'signed out says nothing')
+})
+
 test('signing out announces the change and reads back as no account', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())

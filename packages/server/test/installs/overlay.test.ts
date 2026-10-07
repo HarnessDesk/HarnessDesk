@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
+import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { AgentDirectory, AgentRegistryStore } from '../../src/agent-registry.js'
@@ -35,6 +38,65 @@ const antigravityRow = {
   command: '/state/acp-agents/antigravity-acp/1.1.1/agy_acp_server.par',
   registry: { id: 'antigravity-acp', version: '1.1.1' },
 }
+
+test('Gemini opens eight sessions on one ACP process and reaps it after the last close', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-overlay-release-'))
+  const log = join(dir, 'lifetime.ndjson')
+  const row = { id: 'gemini-alias', name: 'Gemini CLI', command: process.execPath }
+  const runtime = new AcpRuntime({ ...row,
+    ...knowledgeOverlay(row, knownAgent('gemini'), { env: {} }),
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { FAKE_ACP_NO_CLOSE: '1', FAKE_ACP_NO_LIST: '1', FAKE_ACP_STORE_DRAFTS: '1',
+      FAKE_ACP_STORE: join(dir, 'store.json'), FAKE_ACP_LIFETIME: log },
+  })
+  t.after(async () => { await runtime.dispose(); rmSync(dir, { recursive: true, force: true }) })
+  const rows = (): { type: string; pid: number; helper?: number }[] => {
+    // Reaped zombies still answer kill(pid, 0); count runnable processes,
+    // using only ids and states so the snapshot contains no account or path.
+    const live = new Set(execFileSync('ps', ['-axo', 'pid=,stat='], { encoding: 'utf8' })
+      .trim().split('\n').flatMap(line => {
+        const [pid, state] = line.trim().split(/\s+/)
+        return state && !/[ZE]/.test(state) ? [Number(pid)] : []
+      }))
+    return readFileSync(log, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line) as { type: string; pid: number; helper?: number })
+      .filter(row => live.has(row.helper ?? row.pid))
+  }
+  await runtime.start()
+  await runtime.defaultSessionOptions(dir)
+  const sessions = []
+  for (let n = 1; n <= 8; n++) {
+    sessions.push(await runtime.createSession({ cwd: dir }))
+    assert.equal(rows().filter(r => r.type === 'bridge').length, 1,
+      `${n} open sessions must share the runtime process`)
+  }
+  const first = sessions[0]!
+  const sibling = sessions[1]!
+  const completed = new Promise<void>(resolve => {
+    const off = runtime.subscribe(event => {
+      if (event.type === 'turn/completed' && event.sessionId === sibling.id) { off(); resolve() }
+    })
+  })
+  await sibling.send([{ type: 'text', text: 'slow' }])
+  await first.close()
+  assert.equal(await runtime.resumeSession(sibling.id), sibling, 'a working sibling retains its handle')
+  await sibling.interrupt()
+  await completed
+  const resumed = await runtime.resumeSession(first.id)
+  await first.close()
+  assert.equal(await runtime.resumeSession(first.id), resumed, 'stale close cannot retire its replacement')
+  await resumed.close()
+  for (const session of sessions.slice(1)) await session.close()
+  assert.equal(rows().filter(r => r.type === 'bridge').length, 0)
+  assert.equal(rows().filter(r => r.helper).length, 0, 'last close reaps every retained helper')
+  assert.equal(runtime.health().state, 'idle')
+  assert.ok((await runtime.defaultSessionOptions(dir)).length > 0, 'the cached catalogue survives release')
+  await runtime.start()
+  const reopened = await runtime.resumeSession(first.id)
+  assert.equal(reopened.id, first.id, 'the no-list accepted folder survives process release')
+  await reopened.close()
+  assert.equal(runtime.health().state, 'idle')
+})
 
 test("a row under Antigravity's retired name gets today's name, its reader and its record", (t) => {
   const gemini = folder(t, { 'antigravity-acp/settings.json': { auth: { type: 'oauth-personal' } } })

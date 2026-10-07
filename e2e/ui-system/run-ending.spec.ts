@@ -66,18 +66,21 @@ for (const theme of ['light', 'dark'] as const) {
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
         const frame = page.locator('#run-ending-rig')
-        const banner = frame.locator('[data-slot="run-ending"]')
-        const titles = { complete: 'Nothing waits.', unrouted: 'Ended without a next step', 'person-stop': 'By you', 'desk-stop': 'By the desk', stalled: 'End', rounds: 'Round budget reached', 'without-progress': 'Rounds without progress reached' }
+        const ending = frame.locator('[data-slot="run-ending"]')
+        const attention = !['complete', 'person-stop', 'desk-stop'].includes(scene)
+        const banner = attention ? frame.locator('[data-slot="run-need"]') : ending
+        const titles = { complete: 'Nothing waits.', unrouted: 'Ended without a next step', 'person-stop': 'By you', 'desk-stop': 'By the desk', stalled: execution.reason!, rounds: 'Round budget reached', 'without-progress': 'Rounds without progress reached' }
         await expect(banner).toContainText(titles[scene])
         await expect(banner.locator('[data-tone="warning"]')).toHaveCount(['complete', 'person-stop', 'desk-stop'].includes(scene) ? 0 : 1)
-        await expect(banner.locator('[data-slot="chip"]')).toHaveCount(0)
+        await expect(ending.locator('[data-slot="chip"]')).toHaveCount(0)
+        await expect(ending.getByRole('button', { name: 'End', exact: true })).toBeVisible()
         const door = scene === 'complete' ? 'Wrap' : scene === 'stalled' ? 'Review and run again…' : 'Run again…'
         await expect(banner.getByRole('button', { name: door, exact: true })).toBeVisible()
         if (scene === 'complete') await expect(banner).toContainText('Nothing waits.')
         if (scene === 'unrouted') await expect(banner.getByRole('button', { name: 'Board', exact: true })).toBeVisible()
         if (scene === 'rounds' || scene === 'without-progress') await expect(banner).toContainText(scene === 'rounds' ? '1 round used' : '2 rounds without progress')
         await page.setViewportSize({ width: 390, height: 900 })
-        await frame.locator('[data-row="end"]').scrollIntoViewIfNeeded()
+        await banner.scrollIntoViewIfNeeded()
         await expect(banner.getByRole('button', { name: door, exact: true })).toBeInViewport()
         expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])

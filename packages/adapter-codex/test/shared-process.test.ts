@@ -400,6 +400,26 @@ test('closing stops a running descendant before unsubscribe and preserves anothe
   assert.ok(!(await d.calls()).some(call => call.threadId === theirs.threadId && call.method === 'turn/interrupt'))
 })
 
+test('a close the desk asked for is not announced back when Codex makes it in the same read as its answer', async (t) => {
+  // A client that is slow to read finds Codex's answer to the unsubscribe and its
+  // notices of the close together, before the code waiting on the answer has run.
+  const d = await account(t, { FAKE_CODEX_UNLOAD_MS: '1', FAKE_CODEX_UNLOAD_WITH_REPLY: '1' })
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn' }])
+  await until(async () => (await d.helpers()).length === 2 && d.ended(seat), 'the seat spawned a sub-agent with helpers of its own')
+  const helpers = await d.helpers()
+  const told = d.events.length
+  await seat.close()
+  await until(() => helpers.every((helper) => !running(helper.pid)), 'the seat and its sub-agent were both released')
+  // The scripted Codex answers requests in order, so once this one is answered
+  // everything it said about the two threads has been read.
+  await d.seat('barrier')
+  assert.deepEqual(
+    d.events.slice(told).filter((event) => 'sessionId' in event && String(event.sessionId).startsWith(String(seat.id))), [],
+    'the desk is told nothing of the closed seat’s threads, the sub-agent’s included',
+  )
+})
+
 for (const gate of ['delegate-list', 'delegate-read'] as const) {
   test(`reopening a root during ${gate} abandons its old sub-agent release sweep`, async (t) => {
     const d = await account(t, { FAKE_CODEX_UNLOAD_MS: '1' }, [gate, 'unload'])

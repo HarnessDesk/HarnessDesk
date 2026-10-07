@@ -275,3 +275,39 @@ Measured on 0.160.0. Expect only the selected helper on create, resume and fork,
 both configured helpers on an unrestricted concurrent thread, and zero owned
 roots after closing the conversations and stopping the idle runtime. The probe
 writes only synthetic configuration and rollout records and removes its own home.
+
+## `account-notice.mjs`
+
+When does Codex say `account/updated` on its own? The script starts
+`codex app-server`, says nothing to it but `initialize`, listens, and prints each
+notice's method and how long after the server was up it came. It sends no
+request, reads no account and starts no turn. It prints method names and times,
+never a notice's contents, which carry the account's own details.
+
+```bash
+pnpm build:node
+node script/probe/account-notice.mjs 3             # the agent's own home: signed in
+node script/probe/account-notice.mjs 3 --isolated  # an empty home: signed out
+```
+
+Measured on codex-cli 0.160.0, nine runs on a signed-in home: the server says
+`account/updated` once, between 0.36 and 0.90 s after it is up, with nothing
+asked of it. Reads do not cause it and it did not repeat (a run of about
+seventeen seconds that read the account, the configuration, the model list and
+the thread list heard it once). An empty home says nothing at all, which is why
+a throwaway home never shows it.
+
+```text
+the agent's own home, 3 s:
+  +0.00 s  ready
+  +0.00 s  remoteControl/status/changed
+  +0.62 s  account/updated
+an empty home (signed out), 3 s:
+  +0.00 s  ready
+  +0.00 s  remoteControl/status/changed
+```
+
+The desk reads the account the moment it resolves a seat, which just after a
+start of the process is inside that window, so the notice lands on a read in
+flight ([decision](../../docs/decisions.md#an-account-change-hands-the-reads-in-flight-to-a-fresh-read)).
+The scripted Codex plays it with `FAKE_CODEX_ACCOUNT_NOTICE`.

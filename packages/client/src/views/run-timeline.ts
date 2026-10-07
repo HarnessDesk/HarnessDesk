@@ -35,6 +35,8 @@ export interface RunTimelineRow {
   durationMs: number | null
   since: number | null
   working: boolean
+  /** Round rows only: every recorded card is done or abandoned, independent of closure. */
+  complete: boolean | null
   publication: ReviewPublication | null
   /**
    * A check row only: why the check cannot be run again from what its Run and
@@ -62,7 +64,7 @@ export interface RunTimelineInput {
 }
 const row = (id: string, kind: RunTimelineRow['kind'], title: string, rest: Partial<RunTimelineRow> = {}): RunTimelineRow => ({
   id, kind, title, detail: null, round: null, card: null, seat: null, status: null,
-  attention: false, publication: null, durationMs: null, since: null, working: false, retryRefusal: null, ...rest,
+  attention: false, publication: null, durationMs: null, since: null, working: false, complete: null, retryRefusal: null, ...rest,
 })
 const STANDARD_OUTCOMES = ['pass', 'fail', 'passed', 'failed']
 /**
@@ -121,7 +123,8 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     const durationMs = round.state === 'closed' && since !== null && cards.every(Boolean)
       ? Math.max(0, Math.min(Math.max(...cards.map(one => one!.updatedAt)), endedAt ?? Infinity) - since) : null
     rows.push(row(`round-${round.n}`, 'round', `Round ${round.n} · ${round.role}`, {
-      round: round.n, detail: `${finished} of ${round.cards.length} answered`, durationMs,
+      round: round.n, detail: `${finished} of ${round.cards.length} answered`, complete: finished === round.cards.length, durationMs, since,
+      working: execution.state === 'running' && round.state === 'running',
     }))
     const roundFindings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
     const recorded = findingRun?.rounds.find(one => one.round === round.n)
