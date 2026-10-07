@@ -5,7 +5,7 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-overview&theme=${theme}`)
   const wide=page.locator('#team-overview-running [data-slot="team-overview"]')
-  await expect(wide).toBeVisible({timeout:3000})
+  await expect(wide).toBeVisible()
   await expect(wide).toHaveAttribute('data-layout','table')
   await expect(wide.locator('[data-seat]')).toHaveCount(4)
   expect(await wide.locator('[data-seat]').evaluateAll(rows=>rows.map(row=>row.textContent))).toEqual(expect.arrayContaining([expect.stringContaining('Needs you'),expect.stringContaining('Unread'),expect.stringContaining('Working'),expect.stringContaining('Idle')]))

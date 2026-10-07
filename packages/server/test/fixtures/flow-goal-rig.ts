@@ -494,6 +494,7 @@ export const goalRig = async (
     log: () => {},
     recovery: { goal: () => ({ exists: true, writable: true }), seats: () => [] },
   }
+  const engines: Flows[] = []
   const build = () => {
     const files = new FaultyFiles(join(dir, 'flows-v2'))
     const executions: FlowExecutions = new FlowExecutions(files, team, port, {
@@ -519,6 +520,7 @@ export const goalRig = async (
     })
     const flows = new Flows(join(dir, 'flows'), team, legacy, undefined, executions, review)
     team.attachFlows(flows)
+    engines.push(flows)
     return { files, executions, flows }
   }
   Object.assign(rig, build(), { review })
@@ -571,6 +573,11 @@ export const goalRig = async (
     if (peer) Object.assign(peer, { busy: false })
   }
   t.after(async () => {
+    // A release left pending owns a timer that runs for the whole stall bound
+    // (a minute), and a test process cannot exit while it does. The host
+    // disposes before it flushes, so the rig does too — every engine it built,
+    // since a restart leaves the one it replaced with its timers still set.
+    for (const built of engines) built.dispose()
     await rig.flows.flush().catch(() => {})
     await team.flush()
     await rm(dir, { recursive: true, force: true })

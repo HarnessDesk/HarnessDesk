@@ -39,7 +39,11 @@ for (const width of [500, 700, 900, 1400]) {
     await page.evaluate(async () => {
       await document.fonts.ready
     })
-    await page.waitForTimeout(400)
+    // What is measured, rather than a fixed wait for it: the read below throws
+    // if the turn or the composer is not mounted yet, and a slow machine is
+    // exactly when 400ms was not enough.
+    await expect(page.locator('[data-live-transcript] [data-part] > *').first()).toBeVisible()
+    await expect(page.locator('[data-slot="composer"]').first()).toBeVisible()
 
     const { promptLeft, promptRight, composerLeft, composerRight } = await edges(page)
     expect(Math.abs(promptLeft - composerLeft), 'left edge').toBeLessThanOrEqual(1)
