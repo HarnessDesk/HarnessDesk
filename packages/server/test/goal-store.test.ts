@@ -39,6 +39,34 @@ test('create and update are durable, advance once, and do not expose mutable cac
   assert.equal((await readdir(join(home, 'goals'))).includes('%2Fwork%2Fold-room.json'), true)
 })
 
+test('identity and Run reads use held metadata and follow saves, restores and reloads', async (t) => {
+  const home = await empty()
+  const store = new GoalStore(home)
+  await store.load()
+  const fromFlow: GoalDocument = { ...document('flow'),
+    goal: goal('flow', { origin: { kind: 'flow', run: 'run-1' } }),
+    flowReservation: { run: 'run-1', operation: 'start' } }
+  await store.save(fromFlow, null)
+  await store.save(document('person'), null)
+  await store.restore({ ...document('reserved'), flowReservation: { run: 'run-2', operation: 'start' } }, 9)
+  await store.save({ ...fromFlow, goal: { ...fromFlow.goal, revision: 1 },
+    flowReservation: { run: 'run-2', operation: 'start' } }, 0)
+  const reopened = new GoalStore(home)
+  await reopened.load()
+  // Neither enumeration needs a mutable document copy, even after reload.
+  t.mock.method(globalThis, 'structuredClone', () => { throw new Error('metadata read copied a document') })
+  for (const held of [store, reopened]) {
+    assert.deepEqual([...held.ids()].sort(), ['flow', 'person', 'reserved'])
+    assert.deepEqual(held.forRun('run-1'), ['flow'], 'origin still names the earlier Run')
+    assert.deepEqual([...held.forRun('run-2')].sort(), ['flow', 'reserved'], 'current reservations name their own Run')
+    assert.deepEqual(held.forRun('missing'), [])
+    ;(held.ids() as string[]).push('forged')
+    ;(held.forRun('run-1') as string[]).push('forged')
+    assert.equal(held.ids().includes('forged'), false)
+    assert.deepEqual(held.forRun('run-1'), ['flow'])
+  }
+})
+
 test('two revision-zero updates serialize and only one wins', async () => {
   const home = await empty()
   const store = new GoalStore(home)

@@ -767,8 +767,11 @@ So the two are told apart, and the second is told apart again. No copy anywhere
 is `notInstalled`. A copy that is there and would not answer is `unreadable`
 when a later ask could differ — it timed out, was ended by a signal, exited
 non-zero (a launcher whose `node` is in a folder the PATH it was run with does
-not name exits 127), or the machine refused the spawn for want of a resource —
-and `spawnFailed` when it could not: it printed no version, it is not
+not name exits 127), the machine refused the spawn for want of a resource,
+or it exited successfully with empty output. Elapsed probe time is checked
+even on a successful exit, since a delayed callback can arrive after its
+deadline without a timeout error. It is `spawnFailed` when it could not:
+it answered with text that is not a version, it is not
 executable, it is not Codex. Either names the copy and what it did.
 
 **Discovery asks once, and the desk never waits on a second ask.** The window

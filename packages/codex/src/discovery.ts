@@ -141,8 +141,15 @@ const isInstallation = (probed: CodexInstallation | UnreadableCopy): probed is C
 
 const probe = async (path: string, options: DiscoveryOptions): Promise<CodexInstallation | UnreadableCopy> => {
   const limit = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS
+  const started = performance.now()
   try {
     const { stdout } = await run(path, ['--version'], { timeout: limit, ...(options.env ? { env: options.env } : {}) })
+    // A blocked event loop can deliver a successful exit after execFile's
+    // timeout was due. Judge elapsed time even when no spawn error arrived.
+    if (performance.now() - started >= limit) {
+      return { path, reason: `did not answer within ${limit / 1000} seconds`, transient: true }
+    }
+    if (!stdout.trim()) return { path, reason: 'printed no version number', transient: true }
     const semver = parseVersion(stdout)
     if (!semver) return { path, reason: `printed no version number${firstLine(stdout) ? ` ("${firstLine(stdout)}")` : ''}`, transient: false }
     return { path, version: stdout.trim(), semver }

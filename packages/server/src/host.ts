@@ -1104,8 +1104,8 @@ export class Host {
         ))
       },
       goalMembers: (goal) => {
-        const document = this.#goalStore.list().find((candidate) => candidate.goal.id === goal)
-        if (!document) return null
+        if (!this.#goalStore.standing(goal)) return null
+        const document = this.#goalStore.read(goal)
         return {
           seats: goalMembers(document, this.#evidence.seats.all()),
           legacy: document.legacy?.nicknames,
@@ -1267,7 +1267,7 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       recovery: {
         goal: (room) => {
-          const exists = this.#goalStore.list().some((document) => document.goal.id === room)
+          const exists = this.#goalStore.standing(room) !== undefined
           return { exists, writable: exists && this.#goals.canDispatch(room).ok, ...(exists ? { root: this.#goalStore.read(room).goal.root } : {}) }
         },
         seats: (room) => this.#evidence.seats.all().filter((seat) => seat.board === room),
@@ -1309,9 +1309,7 @@ export class Host {
       // Let go of again by the run that holds it, when that run ended before its first round.
       releaseGoal: (input) => this.#goals.releaseFlowReservation(input),
       // A Goal this run made, or an existing one reserved for it: how an interrupted start is found rather than repeated.
-      goalsOf: (run) => this.#goalStore.list()
-        .filter((document) => (document.goal.origin.kind === 'flow' && document.goal.origin.run === run) || document.flowReservation?.run === run)
-        .map((document) => document.goal.id),
+      goalsOf: (run) => this.#goalStore.forRun(run),
       seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
       seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
       digestOf: async (goal, agent) => (await this.#agents.read(agent, this.#goalStore.read(goal).goal.root).catch(() => null))?.digest ?? null,
@@ -2383,7 +2381,7 @@ export class Host {
     await this.#recoverGoalMail()
     this.#goalsReady = true
     await this.#goals.recover()
-    for (const document of this.#goalStore.list()) this.#refreshSeatActivities(document.goal.id)
+    for (const id of this.#goalStore.ids()) this.#refreshSeatActivities(id)
     /* Let through, unlike the runs below: rooms that cannot be read refuse
        the launch. Degraded, this desk would come up with no rooms, and the
        rest of it would believe that — `Flows.load` stops every running run
@@ -3098,7 +3096,7 @@ export class Host {
   }
 
   #refreshSeatActivities(goal: string, cards?: readonly Intent[]): void {
-    const document = this.#goalStore.list().find((document) => document.goal.id === goal)
+    const document = this.#goalStore.standing(goal) ? this.#goalStore.read(goal) : null
     this.#seatActivities.team(goal, document ? goalMembers(document, this.#evidence.seats.all()) : [],
       document ? cards ?? this.#goalIntents(goal) : [])
   }
@@ -4524,7 +4522,7 @@ export class Host {
       }
       const laneIds = new Set<string>()
       for (const lane of goalLanes) {
-        if (laneIds.has(lane.id) || (!ids.has(lane.goal) && !this.#goalStore.list().some((one) => one.goal.id === lane.goal))) {
+        if (laneIds.has(lane.id) || (!ids.has(lane.goal) && !this.#goalStore.standing(lane.goal))) {
           throw new Error('The Goal backup contains an invalid lane reference.')
         }
         laneIds.add(lane.id)
