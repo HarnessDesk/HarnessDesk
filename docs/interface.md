@@ -1210,8 +1210,10 @@ The timeline shares the conversation's centred reading measure with the need
 card. One continuous rail joins Start, the brief, recorded rounds and End;
 spacing separates steps. A ring centres on each title's first line: finished
 steps and their incoming rail use full ink, active work spins, pending work
-stays faint, and attention or failure carries its tone. Reduced motion keeps
-the active ring still. Known times and durations sit above the title, followed
+stays faint, and attention or failure carries its tone. An ended round with
+unanswered or unavailable cards stays pending even when Stop closed the round
+and released its claims. Reduced motion keeps the active ring still.
+Known times and durations sit above the title, followed
 by muted detail; unknown times are omitted. Cards, checks and findings are
 quiet rows in the content column, with actions at the right. End selects its
 recorded detail with a plain title. Narrow panes retain the reading inset.

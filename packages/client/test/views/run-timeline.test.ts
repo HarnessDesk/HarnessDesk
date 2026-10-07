@@ -20,6 +20,15 @@ const session = (startedAt = 100, busy = true): Session => ({ runtime: runtimeId
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it('records whether every round card is answered independently of round closure', () => {
+    const execution = run({ state: 'stopped', rounds: [{ ...run().rounds[0]!, state: 'closed', cards: [1, 2] }] })
+    for (const state of ['open', 'claimed', 'blocked', 'done', 'abandoned'] as const) {
+      const model = runTimeline({ execution, cards: [card({ state: 'done' }), card({ id: 2, state, claim: null })] })
+      assert.partialDeepStrictEqual(model.rows.find(row => row.kind === 'round'), { complete: state === 'done' || state === 'abandoned' })
+      assert.partialDeepStrictEqual(model.rows.find(row => row.kind === 'card'), { complete: null })
+    }
+    assert.partialDeepStrictEqual(runTimeline({ execution, cards: [card({ state: 'done' })] }).rows.find(row => row.kind === 'round'), { complete: false })
+  })
   it('exposes recorded round start times and active state without inventing missing times', () => {
     const round = (execution: FlowExecution, cards: Intent[]) => runTimeline({ execution, cards }).rows.find(row => row.kind === 'round')!
     assert.partialDeepStrictEqual(round(run(), [card()]), { since: 100, working: true })

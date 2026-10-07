@@ -50,7 +50,8 @@ export const RunViewFrames = () => {
   const stopped = useMemo(() => {
     const fixture = runFixture('running')
     return { ...fixture, execution: { ...fixture.execution, state: 'stopped' as const, end: { kind: 'stopped' as const, by: 'person' as const },
-      currentEndedAt: fixture.execution.startedAt! + 900_000, rounds: fixture.execution.rounds.map(round => ({ ...round, state: 'closed' as const })) } }
+      currentEndedAt: fixture.execution.startedAt! + 900_000, rounds: fixture.execution.rounds.map(round => ({ ...round, state: 'closed' as const })) },
+      cards: fixture.cards.map(card => card.id === 4 ? { ...card, state: 'open' as const, claim: null, outcome: null } : card) }
   }, [])
   const waiting = useMemo(() => {
     const fixture = runFixture('running')

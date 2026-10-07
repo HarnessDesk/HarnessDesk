@@ -468,6 +468,26 @@ it.each([false, true])('keeps a round stopped mid-work pending even though Stop 
   } finally { done() }
 })
 
+it.each(['running', 'person'] as const)('keeps the closed %s round pending after Stop leaves its card open', scene => {
+  const fixture = runFixture(scene)
+  const execution = { ...fixture.execution, state: 'stopped' as const, end: { kind: 'stopped' as const, by: 'person' as const },
+    currentEndedAt: fixture.execution.startedAt! + 900_000, rounds: fixture.execution.rounds.map(round => ({ ...round, state: 'closed' as const })) }
+  const cards = fixture.cards.map(card => card.id === 4 ? { ...card, state: 'open' as const, claim: null, outcome: null } : card)
+  const model = runTimeline({ ...fixture, execution, cards })
+  // The round fact also works for callers that only have the timeline model.
+  for (const recorded of [execution, undefined]) {
+    const { container, done } = withFlow({ model, execution: recorded })
+    try {
+      const step = container.querySelector('[data-row="round-4"]')!.closest('[data-slot="timeline-item"]')!
+      expect(step.textContent).toContain('0 of 1 answered')
+      expect(step.querySelector(`[data-kind="${scene === 'person' ? 'person' : 'card'}"]`)!.textContent).toContain('Waiting')
+      expect(step.getAttribute('data-state')).toBe('pending')
+      expect(step.querySelector('[data-slot="timeline-indicator"]')!.getAttribute('aria-label')).toBe('Pending')
+      expect(container.querySelector('[data-row="round-1"]')!.closest('[data-slot="timeline-item"]')!.getAttribute('data-state')).toBe('done')
+    } finally { done() }
+  }
+})
+
 it.each(['fail', 'failed', 'timed out', 'did not finish'])('tones an agent outcome %s as a failed step', outcome => {
   const fixture = runFixture('running')
   const cards = fixture.cards.map(card => card.id === 3 ? { ...card, outcome } : card)
