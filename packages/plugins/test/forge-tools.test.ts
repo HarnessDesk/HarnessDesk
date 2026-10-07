@@ -1954,7 +1954,7 @@ test('description markers retain the plain alphabet in every rendered text field
 })
 
 test('description labels remove link forms and keep exactly 80 characters without truncation', () => {
-  for (const [label, expected] of [['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['Preview gh-12gh-12 Model', 'Preview Model'], ['x'.repeat(80), 'x'.repeat(80)], [`${'a'.repeat(74)}www${'b'.repeat(8)}`, `${'a'.repeat(74)} ..`]]) {
+  for (const [label, expected] of [[`${'a'.repeat(73)} www${'b'.repeat(8)}`, `${'a'.repeat(73)} ..`], ['Preview www.example.com', 'Preview example.com'], ['Preview WWW.example.com', 'Preview example.com'], ['Preview gh-12gh-12 Model', 'Preview Model'], ['x'.repeat(80), 'x'.repeat(80)], [`${'a'.repeat(74)}www${'b'.repeat(8)}`, `${'a'.repeat(74)} ..`]]) {
     const seat = { ...SEAT, label: label!, role: 'writer' }
     const first = signDescription('First.', '{role}: {seat}', seat)
     assert.equal(authorsFrom(first)[0]?.label, expected)
