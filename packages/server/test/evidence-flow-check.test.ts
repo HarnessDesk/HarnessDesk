@@ -13,6 +13,57 @@ import { runCheck } from '../src/flows.js'
 import { evidenceDesk, makeRepo, until } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
+for (const advisory of [true, false]) {
+  test(`a Flow check tells its command whether it is advisory (${advisory})`, async (t) => {
+    const repo = await makeRepo()
+    const dir = tempDir('hd-flow-advisory-')
+    const plane = new EvidencePlane({ dir, seenFile: join(dir, 'seen.json') }, {
+      board: () => ({ id: 'goal-1', root: repo.dir, intents: [] } as unknown as TeamState),
+      cwdOf: () => null, push: () => {}, log: () => {},
+    })
+    const inherited = process.env['HARNESSDESK_FLOW_ADVISORY']
+    process.env['HARNESSDESK_FLOW_ADVISORY'] = advisory ? '0' : '1'
+    t.after(() => {
+      if (inherited === undefined) delete process.env['HARNESSDESK_FLOW_ADVISORY']
+      else process.env['HARNESSDESK_FLOW_ADVISORY'] = inherited
+    })
+    const outcome = await plane.runFlowCheck(
+      'printf "%s" "$HARNESSDESK_FLOW_ADVISORY"; if [ "$HARNESSDESK_FLOW_ADVISORY" = 1 ]; then exit 7; fi; touch acted',
+      { cwd: repo.dir, timeoutSec: 5 },
+      { goal: 'goal-1', card: 3, name: 'gate', round: 1, ...(advisory ? { advisory: true as const } : {}) },
+    )
+    assert.equal(outcome.result.tail, advisory ? '1' : '0', 'the host overrides any inherited flag')
+    assert.equal(outcome.result.exit, advisory ? 7 : 0)
+    if (advisory) await assert.rejects(readFile(join(repo.dir, 'acted')), { code: 'ENOENT' })
+    else assert.equal(await readFile(join(repo.dir, 'acted'), 'utf8'), '')
+    assert.equal(outcome.problem, null)
+    assert.ok(outcome.evidence)
+    const line = (await plane.store.read(await canonical(repo.dir), 'evidence')).lines[0]!
+    assert.equal(line.type, 'evidence')
+    if (line.type !== 'evidence') return
+    const saved = line.record.fact
+    assert.equal(saved.kind, 'check')
+    if (saved.kind === 'check') {
+      assert.equal(saved.advisory, advisory ? true : undefined)
+      assert.equal(saved.counted, advisory ? false : undefined)
+    }
+  })
+}
+
+test('a legacy Flow command receives the ordinary check flag', async () => {
+  const repo = await makeRepo()
+  const dir = tempDir('hd-legacy-flow-advisory-')
+  const plane = new EvidencePlane({ dir, seenFile: join(dir, 'seen.json') }, {
+    board: () => null, cwdOf: () => null, push: () => {}, log: () => {},
+  })
+  const result = await plane.flowCheck(
+    '[ "$HARNESSDESK_FLOW_ADVISORY" = 0 ]',
+    { cwd: repo.dir, timeoutSec: 5 },
+    runCheck,
+  )
+  assert.equal(result.status, 0)
+})
+
 for (const producer of ['named', 'legacy Flow'] as const) {
   test(`a running ${producer} check does not block Flow checks on another board`, async () => {
     const repo = await makeRepo()

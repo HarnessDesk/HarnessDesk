@@ -10,9 +10,6 @@ import { expect, test } from '@playwright/test'
  */
 for (const scheme of ['light', 'dark'] as const) {
   test(`the terminal's bottom edge is the theme's background in ${scheme}, at any dock height`, async ({ page }) => {
-    // Skipped on Linux until #1252 is fixed: the dark edge paints differently there.
-    test.skip(process.platform === 'linux' && scheme === 'dark', 'Linux Chromium currently paints this dark terminal edge differently.')
-
     await page.emulateMedia({ colorScheme: scheme })
     await page.goto('/preview.html')
     const terminal = page.locator('.xterm').first()
@@ -20,13 +17,15 @@ for (const scheme of ['light', 'dark'] as const) {
     await terminal.scrollIntoViewIfNeeded()
 
     const strips: number[] = []
-    for (const height of [201, 263, 300]) {
+    for (const height of [201, 263, 300, 317]) {
       const before = await terminal.evaluate((xterm) => xterm.querySelector('.xterm-scrollable-element')!.getBoundingClientRect().height)
-      // The pane's own host decides the height xterm fits itself into.
+      // Resize the dock, including its header, as the workbench does. Growing
+      // only xterm's host leaves the pane at 320px and clips the strip we mean
+      // to measure (#1252). Whether a strip lands there depends on the font's
+      // platform-specific row height; 317px also exposed this on macOS.
       await terminal.evaluate((xterm, px) => {
-        const host = xterm.parentElement!
-        host.style.flex = 'none'
-        host.style.height = `${px}px`
+        const pane = xterm.closest('[data-slot="tool-pane"]')!
+        pane.parentElement!.style.height = `${px}px`
       }, height)
       // Wait for xterm's own refit: its rows have moved off the last height, fit inside the new one, and leave less
       // than one row over. Each step changes the height by more than a row, so stale geometry cannot pass.
@@ -53,6 +52,8 @@ for (const scheme of ['light', 'dark'] as const) {
         // The strip between the last row and the pane's bottom, clear of the vertical scrollbar on the right.
         for (let y = Math.ceil(rows.bottom); y < Math.floor(box.bottom); y += 1) {
           for (let x = box.left + 2; x < box.right - 16; x += 40) {
+            // A clipped or offscreen terminal would sample another surface.
+            if (!document.elementsFromPoint(x, y).includes(xterm)) off.push(`${Math.round(x)},${y}: outside terminal`)
             const colour = paintAt(x, y)
             if (colour !== expected) off.push(`${Math.round(x)},${y}: ${colour}`)
           }
