@@ -128,8 +128,10 @@ progress, then an idle one whose managed spawn starts it through the host's
 stop/start barrier. Among multiple ready providers, account reads run in order
 and each is bounded to two seconds; a late or failed read counts as signed
 out. The first provider with a signed-in account or no sign-in method hosts.
-If all are signed out, the first ready provider still hosts, so sign-in never
-prevents a terminal.
+If all are signed out, the first ready provider whose account read answered
+still hosts; only when every read failed or was late does the first ready
+provider stand in. The two-second deadline is per provider, and a failed or
+late read leaves a warning in the host log. Sign-in never prevents a terminal.
 Unavailable providers are skipped; when none is available, the terminal is
 refused in the requested agent's name.
 
