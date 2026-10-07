@@ -758,6 +758,7 @@ const SavePresetDialog = ({
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const preferences = options.filter((option) => !option.modelStatus)
   const ready = name.trim() !== '' && snapshot.activeRuntime !== null
 
   const save = async (): Promise<void> => {
@@ -765,9 +766,9 @@ const SavePresetDialog = ({
     const preset: AgentPreset = {
       id: `custom-${Date.now().toString(36)}`,
       name: name.trim(),
-      description: summarise(options),
+      description: summarise(preferences),
       runtime: snapshot.activeRuntime,
-      values: snapshotValues(options),
+      values: snapshotValues(preferences),
     }
     setBusy(true)
     setError(null)
@@ -796,7 +797,7 @@ const SavePresetDialog = ({
       }
     >
       <FormStack>
-        <Field label="Name" hint={summarise(options) || 'The current session’s controls.'}>
+        <Field label="Name" hint={summarise(preferences) || 'The current session’s controls.'}>
           {(control) => (
             <Input
               {...control}
