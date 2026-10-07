@@ -27,6 +27,9 @@ import { StoreProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
 import styles from './TeamRoomPane.module.css'
+import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
+import { PREVIEW_FINDINGS } from '../preview/findings-fixture'
+import { emptyFindingsState } from '../lib/findings'
 
 /**
  * The team room: a list of agents, then the conversations you can have with
@@ -200,6 +203,9 @@ const rig = (
     /* A room with no flow, which is every room these tests are about. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
     loadTeamRuns: vi.fn().mockResolvedValue(undefined),
+    loadFindingRun: vi.fn().mockResolvedValue(undefined),
+    projectTriggers: vi.fn().mockResolvedValue({ triggers: [] }),
+    triggerPreferences: vi.fn().mockResolvedValue(null),
     continueFlowAnswer: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     // This navigation rig has no publication service; match the host's empty read for that desk.
@@ -3663,10 +3669,234 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await render(store)
   expect(loadTeamRuns).toHaveBeenCalledWith(ROOM)
   await pushes({ updatedAt: 3 })
-  const nav = row('Run') as HTMLButtonElement
+  const nav = container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+  expect(nav.textContent).toContain('Runs')
   expect(nav.textContent).toContain('1')
   await act(async () => nav.click())
+  expect(container.querySelector('table[aria-label="Runs"]')).not.toBeNull()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Run 1: Triage"]')!.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
+})
+
+it('lists a trigger Team’s Runs newest first, filters them, and returns from a selected timeline', async () => {
+  const old = { version: 2, id: 'old', goal: ROOM, state: 'settled', startedAt: 1, currentEndedAt: 60_001,
+    reason: null, operations: [], rounds: [], legacyRun: null,
+    target: { kind: 'pull-request', label: 'Retry checkout', pr: 7, head: null, base: null, dirty: false },
+    document: { format: 'agents', flow: { name: 'Review changes', roles: [], rules: [] } } } as unknown as FlowExecution
+  const fresh = { ...old, id: 'fresh', startedAt: 100_000, currentEndedAt: null, state: 'running' as const }
+  const { store } = triggerRig([], {}, [], new Map([[old.id, old], [fresh.id, fresh]]))
+  await render(store)
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  expect([...container.querySelectorAll('[data-run]')].map(one => one.getAttribute('data-run'))).toEqual(['fresh', 'old'])
+  expect(container.querySelector('[data-run="old"]')!.textContent).toContain('Run 1 · pull request #7')
+  const settled = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Settled'))!
+  await act(async () => settled.click())
+  expect(container.querySelectorAll('[data-run]')).toHaveLength(1)
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Run 1: Retry checkout"]')!.click())
+  expect(container.querySelector('[data-slot="run-view"]')).not.toBeNull()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Back to Runs"]')!.click())
+  expect(container.querySelectorAll('[data-run]')).toHaveLength(1)
+})
+
+it('loads reviewer details only for Runs in view and releases them when they leave view', async () => {
+  const runs = new Map(['newest', 'middle', 'oldest'].map((id, index) => [id, {
+    version: 2, id, goal: ROOM, state: 'settled', startedAt: 3 - index,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT,
+  } as FlowExecution]))
+  const observers: Array<{ fire: (target: Element, visible: boolean) => void; targets: Element[] }> = []
+  vi.stubGlobal('IntersectionObserver', class {
+    readonly targets: Element[] = []
+    constructor(private readonly callback: IntersectionObserverCallback) {
+      observers.push({ targets: this.targets, fire: (target, visible) => this.callback([
+        { target, isIntersecting: visible, intersectionRatio: visible ? 1 : 0 },
+      ] as IntersectionObserverEntry[], this as unknown as IntersectionObserver) })
+    }
+    observe(target: Element) { this.targets.push(target) }
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return [] }
+  })
+  try {
+    const { store } = triggerRig([], {}, [], runs)
+    const loadFindingRun = vi.fn().mockResolvedValue(undefined)
+    const loadVisibleFindingRun = vi.fn().mockResolvedValue(undefined)
+    const releaseVisibleFindingRun = vi.fn()
+    Object.assign(store, { loadFindingRun, loadVisibleFindingRun, releaseVisibleFindingRun })
+    await render(store)
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+
+    expect(loadFindingRun).toHaveBeenCalledTimes(1) // The current Run is also shown on Overview.
+    expect(loadFindingRun.mock.calls.map(([, run]) => run)).not.toEqual(expect.arrayContaining(['newest', 'middle', 'oldest']))
+    const observed = observers[0]!
+    expect(observed.targets).toHaveLength(3)
+    const row = observed.targets.find(target => (target as HTMLElement).dataset.run === 'newest')!
+    act(() => observed.fire(row, true))
+    expect(loadVisibleFindingRun).toHaveBeenCalledWith(ROOM, 'newest')
+    act(() => observed.fire(row, false))
+    expect(releaseVisibleFindingRun).toHaveBeenCalledWith(ROOM, 'newest')
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
+it('opens the empty Runs page and pauses using the recorded machine revision and cap', async () => {
+  const { store } = triggerRig([])
+  const prefs = triggerPreferences({ revision: 8, paused: false, dailyUsd: 25, chargedUsd: null })
+  const projectTriggers = vi.fn(async () => triggerProjectView({ triggers: [triggerView({ id: 'triage-issue', armed: true, state: 'armed' })] }))
+  const readPrefs = vi.fn(async () => prefs)
+  const setTriggerPreferences = vi.fn(async () => { throw new Error('The revision changed; read again.') })
+  const openFile = vi.fn()
+  Object.assign(store, { projectTriggers, triggerPreferences: readPrefs, setTriggerPreferences, openFile })
+  await render(store)
+  const tab = container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+  expect(tab.disabled).toBe(false)
+  expect(container.querySelector('header')?.textContent).toContain('Armed')
+  await act(async () => tab.click())
+  expect(container.textContent).toContain('No Runs yet')
+  expect(container.textContent).toContain('Unknown spend of $25.00 daily cap')
+  expect(container.querySelector('[data-slot="team-runs"]')!.textContent).toContain('interrupting its turns and checks')
+  expect([...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-head"] button')].find(one => one.textContent === 'Pause every trigger')!.textContent).toBe('Pause every trigger')
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-head"] button')].find(one => one.textContent === 'Pause every trigger')!.click())
+  expect(setTriggerPreferences).toHaveBeenCalledWith(8, true, 25)
+  expect(container.textContent).toContain('The revision changed; read again.')
+  expect(container.querySelector('header')?.textContent).toContain('Armed')
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Edit the trigger')!.click())
+  expect(openFile).toHaveBeenCalledWith(`${GOAL.goal.root}/.harnessdesk/triggers.yml`)
+})
+
+it.each([
+  ['running', 'Running'], ['stalled', 'Needs you'], ['settled', 'Done'], ['stopped', 'Stopped'],
+] as const)('keeps the %s Run state beside trigger consent after the declaration loads', async (state, label) => {
+  const execution = { version: 2, id: 'consent-run', goal: ROOM, state, startedAt: 1,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT } as FlowExecution
+  const { store } = triggerRig([], {}, [], new Map([[execution.id, execution]]))
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({ id: 'triage-issue', armed: true, state: 'armed' })] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const header = container.querySelector('header')!
+  expect(header.textContent).toContain('Armed')
+  expect([...header.querySelectorAll('[data-slot="chip"]')].filter(one => one.textContent === label)).toHaveLength(1)
+})
+
+it.each(['message', 'approval', 'question', 'budget'] as const)('keeps Needs you beside an Off trigger for a %s wait', async kind => {
+  const { store } = triggerRig([], kind === 'budget' ? { stop: { reason: 'out of budget', detail: 'Round limit reached.', at: 1 } } : {}, [wait({ kind })])
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({ id: 'triage-issue', armed: false, state: 'off' })] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const header = container.querySelector('header')!
+  expect(header.textContent).toContain('Off')
+  expect(header.textContent).toContain('Needs you')
+})
+
+it('opens the current trigger Run directly from Overview even after choosing another timeline', async () => {
+  const execution = { version: 2, id: 'current-trigger-run', goal: ROOM, state: 'running', startedAt: 2,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT } as FlowExecution
+  const old = { ...execution, id: 'old-trigger-run', startedAt: 1, state: 'settled' as const }
+  const { store } = triggerRig([], {}, [], new Map([[old.id, old], [execution.id, execution]]))
+  await render(store)
+  const openOverviewRun = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Run"] button')!.click())
+    expect(container.querySelector('[data-slot="run-view"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="run-view"]')!.textContent).toContain('Run 2')
+  }
+  await openOverviewRun()
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="Open Run 1:"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="overview"]')!.click())
+  await openOverviewRun()
+})
+
+it.each([1, 2])('uses singular Run counts with %s recorded Runs, including a filtered result', async count => {
+  const execution = { version: 2, id: 'single-run', goal: ROOM, state: 'settled', startedAt: 1,
+    reason: null, operations: [], rounds: [], legacyRun: null, document: FLOW_DOCUMENT } as FlowExecution
+  const runs = new Map([[execution.id, execution]])
+  if (count === 2) runs.set('running-run', { ...execution, id: 'running-run', state: 'running', startedAt: 2 })
+  const { store } = triggerRig([], {}, [], runs)
+  await render(store)
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  const page = container.querySelector('[data-slot="team-runs"]')!
+  expect(page.textContent).toContain(`${count} ${count === 1 ? 'Run' : 'Runs'} ·`)
+  await act(async () => [...page.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Settled'))!.click())
+  expect(page.querySelector('[data-slot="inspector-footer"]')!.textContent).toContain(count === 1 ? '1 Run' : '1 Run of 2')
+  expect(page.textContent).not.toContain('1 Runs')
+})
+
+it('attributes findings to the Run that raised them instead of repeating the Goal total on every Run', async () => {
+  const old = { version: 2, id: 'review-old', goal: ROOM, state: 'settled', startedAt: 1,
+    reason: null, operations: [], rounds: [], legacyRun: null,
+    document: { format: 'agents', flow: { name: 'Review', roles: [], rules: [] } } } as unknown as FlowExecution
+  const fresh = { ...old, id: 'review-fresh', state: 'running' as const, startedAt: 2 }
+  const { store } = triggerRig([], {}, [], new Map([[old.id, old], [fresh.id, fresh]]))
+  const finding = { ...PREVIEW_FINDINGS[0]!, ownerGoal: ROOM,
+    origin: { ...PREVIEW_FINDINGS[0]!.origin, goal: ROOM, run: old.id } }
+  const snapshot = { ...store.getSnapshot(), findings: new Map([[ROOM, {
+    ...emptyFindingsState(), rows: [finding], totals: { all: 1, open: 1, blocking: 1 },
+  }]]), findingRuns: new Map([old, fresh].map(run => [run.id, {
+    run: run.id, goal: ROOM, open: 1, blocking: 1, rounds: [], reviewersFinished: 2, reviewersTotal: 3,
+    round: 1, finished: 1, total: 1, embargoed: false, reason: null, ceilingStop: false, stamp: 'preview',
+    publication: 'local', pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
+  } satisfies FindingRunView])) }
+  Object.assign(store, { getSnapshot: () => snapshot, loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  expect(container.querySelector('[data-run="review-old"]')!.textContent).toContain('1 finding')
+  expect(container.querySelector('[data-run="review-fresh"]')!.textContent).toContain('2 of 3 answered')
+  expect(container.querySelector('[data-run="review-fresh"]')!.textContent).not.toContain('1 finding')
+})
+
+it.each(['off', 'changed', 'refused'] as const)('keeps an unarmed trigger’s %s state while the machine is paused', async state => {
+  const { store } = triggerRig([])
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({ id: 'triage-issue', armed: false, state })] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences({ paused: true })),
+  })
+  await render(store)
+  const header = container.querySelector('header')!
+  expect(header.textContent).toContain(state[0]!.toUpperCase() + state.slice(1))
+  expect(header.textContent).not.toContain('Paused')
+})
+
+it('uses the recorded trigger subject when an unattended Run has no front-door target', async () => {
+  const execution = { version: 2, id: 'subject-run', goal: ROOM, state: 'stopped', startedAt: Date.now() - 86_400_000,
+    currentEndedAt: null, endedAt: Date.now() - 82_800_000, reason: null, operations: [], rounds: [], legacyRun: null,
+    document: { format: 'agents', flow: { name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
+  const { store } = triggerRig([], {}, [], new Map([[execution.id, execution]]))
+  await render(store)
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  const subject = container.querySelector('[data-run="subject-run"]')!
+  expect(subject.querySelector('button')?.textContent).toBe('Issue #42')
+  expect(subject.textContent).toContain('1d ago')
+  const cells = subject.querySelectorAll('td')
+  expect(cells[3]?.textContent).toBe('—')
+})
+
+it('uses the completed trigger read reason in the source chip instead of a loading tooltip', async () => {
+  const { store } = triggerRig([])
+  const reason = 'The committed trigger needs review.'
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({
+      id: 'triage-issue', definition: null, reason,
+    })] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const source = container.querySelector('[data-team-trigger-label="full"]')!
+  expect(source.closest('[data-slot="chip"]')?.getAttribute('title')).toBe(reason)
+})
+
+it('does not keep a loading tooltip when the completed trigger read has no declaration', async () => {
+  const { store } = triggerRig([])
+  Object.assign(store, {
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [] })),
+    triggerPreferences: vi.fn(async () => triggerPreferences()),
+  })
+  await render(store)
+  const source = container.querySelector('[data-team-trigger-label="full"]')!
+  expect(source.closest('[data-slot="chip"]')?.getAttribute('title')).toBeNull()
 })
 
 it('draws a check run more than once with each attempt under it, and asks the desk for them only while the Run is on show', async () => {

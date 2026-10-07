@@ -1215,6 +1215,22 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+A Team opened by a project trigger calls this tab **Runs**:
+its recorded starts appear newest first, with their subject, state, reviewer
+answers or findings, duration and start time. Search and state filters keep
+their place when a row opens its timeline and the person returns to Runs.
+The bar keeps the Run's state beside the trigger's current consent; the source
+label and pinned revision fold away before they take width from the Team name
+and tools. A trigger being Off or Armed does not hide Needs you. The page
+header shows today's Run count and the machine's dollar cap. **Pause every
+trigger** applies to every trigger on this Mac, with its consequence stated
+in view: it holds all work started by triggers, interrupting its turns and
+checks. Resuming continues that work; interrupted checks wait to be run again.
+Edit the trigger opens the project's declaration. The Overview's Run link
+opens that Run's timeline directly.
+The list follows the existing Goal grouping: it does not combine other Teams
+opened by the same trigger.
+
 The page-wide header keeps the Run's state and recorded start, elapsed time,
 round budget and Seat cost, with Stop and Timeline · Flow on the right.
 Missing times and costs stay explicit; an incomplete cost says partial.
