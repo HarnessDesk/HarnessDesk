@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,12 +30,42 @@ const envPort = Number(process.env.PLAYWRIGHT_UI_SYSTEM_PORT)
 const port = Number.isInteger(envPort) && envPort > 0 ? envPort : derivedPort(repoRoot)
 const origin = `http://127.0.0.1:${port}`
 
+/**
+ * How many browsers run at once. One anywhere but CI: a Mac that other work
+ * shares should not have several started on it, and a re-record of a baseline
+ * (`UPDATE_METRICS`, `UPDATE_ALIGNMENT`) must stay a run of one file at a time.
+ * On CI, half the cores, which is Playwright's own default: each browser draws
+ * on a core of its own and the dev server needs one more. Three on a
+ * four-core runner was tried first, and two of six shards then ran their tests
+ * twice as slowly as the other four, with a test timing out in each of two.
+ *
+ * `PLAYWRIGHT_UI_SYSTEM_WORKERS` overrides it except while recording a baseline.
+ */
+const envWorkers = Number(process.env.PLAYWRIGHT_UI_SYSTEM_WORKERS)
+const workers =
+  process.env.UPDATE_METRICS === '1' || process.env.UPDATE_ALIGNMENT === '1'
+    ? 1
+    : Number.isInteger(envWorkers) && envWorkers > 0
+      ? envWorkers
+      : process.env.CI
+        ? Math.max(1, Math.floor(os.availableParallelism() / 2))
+        : 1
+
 export default defineConfig({
   testDir: './e2e/ui-system',
   outputDir: './output/playwright/ui-system/results',
-  fullyParallel: false,
-  workers: 1,
+  // Every test starts from its own page, and none reads what another left
+  // behind, so with several workers they are dealt out one by one rather than
+  // a file at a time: a file of sixty tests then keeps all of them busy
+  // instead of holding one.
+  fullyParallel: workers > 1,
+  workers,
   retries: 0,
+  // The defaults (30s a test, 5s an assertion) are sized for a browser that has
+  // the machine to itself. Beside another, and the dev server, a test that takes
+  // twenty seconds alone takes longer; the limit is for a test that is stuck,
+  // not for one that is slow because its neighbour is busy.
+  ...(workers > 1 ? { timeout: 90_000, expect: { timeout: 10_000 } } : {}),
   reporter: [['list'], ['html', { outputFolder: './output/playwright/ui-system/report', open: 'never' }]],
   use: {
     baseURL: origin,

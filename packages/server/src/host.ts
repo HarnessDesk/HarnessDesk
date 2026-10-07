@@ -5951,6 +5951,10 @@ export class Host {
       if (this.#sendingNow.get(key) === mark) this.#sendingNow.delete(key)
     }
     const deadline = setTimeout(release, this.options.sendAcceptDeadlineMs ?? SEND_ACCEPT_DEADLINE_MS)
+    // A backstop, not work: once the agent has taken the message the mark comes
+    // off with its `turn/started` and nothing clears this, so a referenced timer
+    // would hold the whole process open until it fired.
+    deadline.unref()
     try {
       return await (held ? held.send(input) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, live => live.send(input)))
     } catch (error) {
