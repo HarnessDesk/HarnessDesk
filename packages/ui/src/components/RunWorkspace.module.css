@@ -31,8 +31,17 @@
 .workspace[data-view="flow"] [data-slot="run-scroll"] > * {
   display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+/* The need banner shares the Flow's column: across it, above the drawing and on the drawing's left edge, with the drawing keeping the rest. */
+.workspace[data-view="flow"] [data-slot="run-need"] {
+  flex: none;
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  margin-block-start: 0;
 }
 
 .workspace[data-view="flow"] [data-slot="run-scroll"]:has([data-slot="flow-list"][data-placement="below"]) {

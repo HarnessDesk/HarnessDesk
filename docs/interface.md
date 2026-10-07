@@ -1314,6 +1314,8 @@ Steps and Rules list retains state and selection. In the Team’s Steps dock the
 list lives in the dock at every width, so the drawing keeps the whole pane;
 outside it, narrow panes scroll the fitted drawing and the list together, and
 wide panes retain the text alternative without adding invisible keyboard stops.
+A Run that needs you keeps its banner above the drawing, on the drawing's left
+edge, and the drawing keeps the rest of the pane.
 **Open the file** reads the Flow's file as it is now, in a window you can only
 read; the Run keeps the revision it started with.
 
