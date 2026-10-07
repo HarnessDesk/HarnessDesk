@@ -1,4 +1,5 @@
 import { retainRuntimeNotice } from './runtime-notices.js'
+import { AccountReads } from './account-reads.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
@@ -631,6 +632,7 @@ export class Host {
     send: (activity) => this.#push({ method: 'seat/activity', params: activity }),
   })
   readonly #runtimes = new Map<string, AgentRuntime>()
+  readonly #accountReads = new Map<string, AccountReads>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
@@ -850,6 +852,7 @@ export class Host {
   }
 
   async #announceAccount(runtime: RuntimeId): Promise<void> {
+    this.#accountReads.get(runtime)?.invalidate()
     this.#push({ method: 'event', params: { runtime, event: { type: 'account/changed', runtime } } })
   }
 
@@ -2054,6 +2057,7 @@ export class Host {
         runtime: id,
       })
       this.#invalidateDelegations(id)
+      this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
       this.#catalogs.forget(id)
@@ -2062,6 +2066,8 @@ export class Host {
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
     const surfaces = new WeakMap<object, object>()
+    const accountReads = new AccountReads(id, this.#logger)
+    this.#accountReads.set(id, accountReads)
     const managed = new Proxy(runtime, {
       get: (target, key) => {
         const member = Reflect.get(target, key, target) as unknown
@@ -2096,7 +2102,7 @@ export class Host {
           })
         }
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
-          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
+          const read = (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
             const starting = this.#startingRuntimes.get(String(target.info.id))
             if (starting) await starting
@@ -2107,6 +2113,9 @@ export class Host {
             }
             return Reflect.apply(member, target, args)
           })
+          return key === 'getAccount'
+            ? () => accountReads.read(() => read() as ReturnType<AgentRuntime['getAccount']>)
+            : read
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
@@ -2155,6 +2164,8 @@ export class Host {
     this.#runtimeSubscriptions.delete(id)
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
+    this.#accountReads.get(id)?.dispose()
+    this.#accountReads.delete(id)
     this.#idleSince.delete(String(id))
     this.#updates.delete(id)
     this.#meters.delete(id)
@@ -2705,6 +2716,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    for (const reads of this.#accountReads.values()) reads.dispose()
+    this.#accountReads.clear()
     this.#seatActivities.dispose()
     if (this.#idleReaper !== null) clearInterval(this.#idleReaper)
     this.#idleReaper = null
@@ -6416,6 +6429,7 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     withCanonicalPaths(() => this.#foldEvent(runtime, event))
   }
 
