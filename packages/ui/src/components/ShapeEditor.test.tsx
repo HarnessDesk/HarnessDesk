@@ -7,6 +7,7 @@ import type { AgentEntry, FlowPolicy, FrontDoorPreview, HostMethodName } from '@
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { ShapeEditor } from './ShapeEditor'
+import { canvasDOM } from '../test/flow-canvas-dom'
 
 /**
  * The ordered editor: every step and rule edit renders through the one host
@@ -23,6 +24,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  canvasDOM()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -30,6 +32,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
 })
 
 const AGENT: AgentEntry = {
@@ -278,7 +281,7 @@ it('Steps, Graph and Source all read one document, and Graph is absent until its
   await settle()
 
   // No graph node exists yet — its own read/edit surfaces mount only once selected.
-  const graphNode = () => [...document.body.querySelectorAll('button')].some((one) => one.getAttribute('aria-label')?.startsWith('review —'))
+  const graphNode = () => Boolean(document.body.querySelector('.react-flow__node[data-id="review"]'))
   expect(graphNode()).toBe(false)
 
   act(() => button('Agent').click())
@@ -286,10 +289,10 @@ it('Steps, Graph and Source all read one document, and Graph is absent until its
   const stepsPolicy = document.body.textContent
   expect(stepsPolicy).toContain('Uses')
 
-  act(() => button('Graph').click())
+  await act(async () => { button('Graph').click(); await import('../design/patterns/FlowCanvas/Engine') })
   await settle()
   // The same two roles (the seed person and the agent just added) are visible on the graph.
-  expect(graphNode()).toBe(true)
+  await act(async () => { await vi.waitFor(() => expect(graphNode()).toBe(true)) })
 
   act(() => button('Source').click())
   await settle()

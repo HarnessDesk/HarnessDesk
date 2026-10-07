@@ -2,8 +2,7 @@ import { expect, it } from 'vitest'
 import { runtimeId, sessionId, sessionKey, turnId, type Session, type FlowExecution, type Intent } from '@harnessdesk/protocol'
 import { flowGraphDocument } from '../preview/flow-graph-fixture'
 import { flowModel } from './flow-model'
-import { flowOverlay, flowOverlayLabels, stepForRow, rowsForStep } from './flow-overlay'
-import { flowLayout, FLOW_LABEL_H } from './flow-layout'
+import { flowOverlay, stepForRow, rowsForStep } from './flow-overlay'
 import { runTimeline } from './run-timeline'
 
 const round = (n: number, role: string, cause: string, closed = true, seats: string[] = []): FlowExecution['rounds'][number] =>
@@ -82,21 +81,6 @@ it('links every row of repeated step rounds in both directions without selecting
   expect(rowsForStep(execution, rows, 'write')).toEqual(['round-1', 'card-1-1', 'round-3', 'card-3-3'])
   expect(stepForRow(execution, rows, 'start')).toBeNull()
 })
-
-it('keeps labels clear of the current agent’s doing band without moving any card or route', () => {
-  const execution = run([round(1, 'review', 'seed', false, ['beta'])])
-  const layout = flowLayout(flowModel(execution.document.flow))
-  const before = structuredClone(layout)
-  const labels = flowOverlayLabels(layout, draw(execution, [card(1, null)]))
-  const node = layout.nodes.find(node => node.id === 'review')!.box
-  const centre = node.x + node.w / 2
-  const width = Math.min(320, 2 * centre, 2 * (layout.width - centre))
-  const band = { x: centre - width / 2, y: node.y + node.h + FLOW_LABEL_H, w: width, h: FLOW_LABEL_H }
-  expect([...labels.values()].filter(label => label.x - label.w / 2 < band.x + band.w && band.x < label.x + label.w / 2 && label.y - label.h / 2 < band.y + band.h && band.y < label.y + label.h / 2)).toEqual([])
-  expect(layout).toEqual(before)
-  expect(flowOverlayLabels(layout, draw(run([])))).toEqual(new Map(layout.edges.flatMap(edge => edge.label ? [[edge.id, edge.label]] : [])))
-})
-
 
 it('keeps a host-closed unfinished round stopped and freezes its time at the Run end', () => {
   const execution = run([round(1, 'write', 'seed'), round(2, 'fix', 'cause:manual')], {

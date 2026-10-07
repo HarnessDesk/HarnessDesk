@@ -15,7 +15,6 @@
 .site-poster-graph > * { flex: 1; }
 @container site-poster (min-width: 38rem) {
   .site-poster-graph [data-slot="flow-drawing"] { display: flex; }
-  .site-poster-graph [data-slot="flow-stage"] { flex: none; margin-inline: auto; }
   /* The drawing stands alone, but its text alternative remains in the accessibility tree. */
   .site-poster-graph [data-slot="flow-list"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
