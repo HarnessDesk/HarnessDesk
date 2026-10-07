@@ -51,11 +51,13 @@ const waitFor = async (check: () => boolean): Promise<void> => {
   }
 }
 
+const hello = (): { type: 'text'; text: string }[] => [{ type: 'text', text: 'Hello' }]
+
 for (const door of ['session/resume', 'turn/send'] as const) {
   test(`personal rest restores model and mode before ${door} on a peer that forgets picks`, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), 'hd-acp-rest-picks-'))
     const runtime = new AcpRuntime({ id: 'picks', name: 'Picks', command: process.execPath, args: [FAKE],
-      env: { FAKE_ACP_STORE: join(dir, 'store.json'), FAKE_ACP_STORE_DRAFTS: '1' } })
+      env: { FAKE_ACP_STORE: join(dir, 'store.json') } })
     const host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
       catalogRefreshMs: 0, idleStopMs: 25, sessionRestMs: 25 })
     t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
@@ -66,6 +68,8 @@ for (const door of ['session/resume', 'turn/send'] as const) {
     for (const [optionId, value] of [['model', 'large'], ['mode', 'terse']] as const) {
       await host.call('session/options/set', { ...params, optionId, value })
     }
+    // The agent stores a conversation at its first message, so only a prompted one can be reopened.
+    await host.call('turn/send', { ...params, input: hello() })
     const record = host.registry.get(runtime.info.id, params.sessionId)!
     await waitFor(() => record.live === null)
     await host.call(door, { ...params, ...(door === 'turn/send' ? { input: [{ type: 'text', text: 'Continue' }] } : {}) })
@@ -73,6 +77,32 @@ for (const door of ['session/resume', 'turn/send'] as const) {
       .map(option => [option.id, option.currentValue]).sort(), [['mode', 'terse'], ['model', 'large']])
   })
 }
+
+test('the rest keeps a conversation the agent was never prompted in, which it could not reopen', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-rest-unprompted-'))
+  // Stores a conversation at its first message and lists nothing before it, as most agents do.
+  const runtime = new AcpRuntime({ id: 'unprompted', name: 'Unprompted', command: process.execPath, args: [FAKE],
+    env: { FAKE_ACP_STORE: join(dir, 'store.json') } })
+  const host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 25, sessionRestMs: 25 })
+  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  host.register(runtime)
+  await host.start()
+  const drafted = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as { id: string }
+  const prompted = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as { id: string }
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: prompted.id as never, input: hello() })
+  const spoken = host.registry.get(runtime.info.id, prompted.id as never)!
+  // The sweep has had its chance once it has rested the conversation it may rest.
+  await waitFor(() => spoken.live === null)
+  // Nothing is stored for a conversation with no turn, so its handle is the only way back to it.
+  const completed = new Promise<void>(resolve => {
+    const off = runtime.subscribe(event => {
+      if ('sessionId' in event && event.sessionId === drafted.id && event.type === 'turn/completed') { off(); resolve() }
+    })
+  })
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: drafted.id as never, input: hello() })
+  await completed
+})
 
 test('host close of a refused handle clears it and the following send streams a reply', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-acp-refused-host-'))

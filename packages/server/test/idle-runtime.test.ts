@@ -1117,6 +1117,10 @@ test('a quiet personal conversation rests and its next message resumes it while 
   const second = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } }) as { id: string }
   const quiet = host.registry.get(runtime.info.id, first.id as never)!
   const busy = host.registry.get(runtime.info.id, second.id as never)!
+  // Only a conversation the agent was prompted in is one it can reopen.
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: first.id as never,
+    input: [{ type: 'text', text: 'First' }] })
+  runtime.sessions.get(first.id)!.finish('Done')
   await host.call('turn/send', { runtime: runtime.info.id, sessionId: second.id as never,
     input: [{ type: 'text', text: 'Keep working' }] })
   const sibling = busy.live

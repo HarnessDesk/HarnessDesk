@@ -310,54 +310,6 @@ test('session/archive wire call rejects when host archive cannot be persisted', 
 
 
 
-test('archiving a resumable conversation releases its handle and leaves a sibling open', async () => {
-  const rig = await start({ archiveHistory: false })
-  try {
-    const first = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
-    const sibling = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
-    await rig.client.call('session/archive', { runtime: 'fake', sessionId: first.id, archived: true })
-    const record = rig.host.registry.get(runtimeId('fake'), sessionId(first.id))!
-    assert.equal(record.live, null)
-    assert.equal(record.detached, false)
-    assert.ok(rig.host.registry.get(runtimeId('fake'), sessionId(sibling.id))?.live)
-    await rig.client.call('session/archive', { runtime: 'fake', sessionId: first.id, archived: false })
-    await rig.client.call('session/resume', { runtime: 'fake', sessionId: first.id })
-    assert.ok(record.live, 'opening after unarchive resumes the stored conversation')
-  } finally { await rig.close() }
-})
-
-test('an archive that was stored succeeds even if its quiet handle refuses close', async () => {
-  const rig = await start({ archiveHistory: false })
-  try {
-    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
-    const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
-    record.live!.close = async () => { throw new Error('close refused') }
-    await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
-    assert.equal(record.live, null)
-    assert.equal((await list(rig.client, 'only')).data[0]?.id, opened.id)
-  } finally { await rig.close() }
-})
-
-test('archive preserves work, approvals, queued input and running tasks', async () => {
-  const rig = await start({ archiveHistory: false })
-  try {
-    for (const busy of ['turn', 'approval', 'queue', 'task'] as const) {
-      const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
-      const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
-      const live = record.live
-      let closes = 0
-      record.live!.close = async () => { closes++ }
-      if (busy === 'turn') record.running.add('working' as never)
-      if (busy === 'approval') record.approvals.set('approval', {} as never)
-      if (busy === 'queue') record.queue = { ...record.queue, messages: [{ id: 'queued' } as never] }
-      if (busy === 'task') record.tasks = [{ id: 'task', state: 'running' } as never]
-      await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
-      assert.equal(closes, 0, busy)
-      assert.equal(record.live, live, busy)
-    }
-  } finally { await rig.close() }
-})
-
 const until = async (check: () => boolean): Promise<void> => {
   const deadline = Date.now() + 3_000
   while (!check()) {
@@ -382,6 +334,64 @@ const openWithATurn = async (rig: Rig) => {
 const heldPicks = (options: Session['options']): Record<string, unknown> =>
   Object.fromEntries((options ?? []).filter(option => ['model', 'tone'].includes(option.id))
     .map(option => [option.id, option.currentValue]))
+
+test('archiving a resumable conversation releases its handle and leaves a sibling open', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    const sibling = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(record.live, null)
+    assert.equal(record.detached, false)
+    assert.ok(rig.host.registry.get(runtimeId('fake'), sessionId(sibling.id))?.live)
+    await rig.client.call('session/archive', { ...params, archived: false })
+    await rig.client.call('session/resume', params)
+    assert.ok(record.live, 'opening after unarchive resumes the stored conversation')
+  } finally { await rig.close() }
+})
+
+test('an archive that was stored succeeds even if its quiet handle refuses close', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const { params, record } = await openWithATurn(rig)
+    record.live!.close = async () => { throw new Error('close refused') }
+    await rig.client.call('session/archive', { ...params, archived: true })
+    assert.equal(record.live, null)
+    assert.equal((await list(rig.client, 'only')).data[0]?.id, params.sessionId)
+  } finally { await rig.close() }
+})
+
+test('archive preserves work, approvals, queued input and running tasks', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    for (const busy of ['turn', 'approval', 'queue', 'task'] as const) {
+      const { params, record, live } = await openWithATurn(rig)
+      let closes = 0
+      live.close = async () => { closes++ }
+      if (busy === 'turn') record.running.add('working' as never)
+      if (busy === 'approval') record.approvals.set('approval', {} as never)
+      if (busy === 'queue') record.queue = { ...record.queue, messages: [{ id: 'queued' } as never] }
+      if (busy === 'task') record.tasks = [{ id: 'task', state: 'running' } as never]
+      await rig.client.call('session/archive', { ...params, archived: true })
+      assert.equal(closes, 0, busy)
+      assert.equal(record.live, live, busy)
+    }
+  } finally { await rig.close() }
+})
+
+test('archive leaves a conversation the agent was never prompted in alone, which it could not reopen', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    const opened = await rig.client.call('session/create', { runtime: 'fake', options: { cwd: '/tmp' } }) as { id: string }
+    const record = rig.host.registry.get(runtimeId('fake'), sessionId(opened.id))!
+    const live = record.live
+    let closes = 0
+    live!.close = async () => { closes++ }
+    await rig.client.call('session/archive', { runtime: 'fake', sessionId: opened.id, archived: true })
+    assert.equal(closes, 0)
+    assert.equal(record.live, live)
+  } finally { await rig.close() }
+})
 
 test('archive keeps the picks a quiet conversation held, as the rest does', async () => {
   const rig = await start({ archiveHistory: false })

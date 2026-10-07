@@ -2685,9 +2685,18 @@ export class Host {
     })
   }
 
+  /**
+   * Nothing is happening in a personal conversation, and the agent has been
+   * prompted in it.
+   *
+   * The second half is not idleness. An agent that stores a conversation at
+   * its first message lists nothing for one that has none, so releasing the
+   * handle of a conversation with no turn drops the only way back to it: the
+   * reopen is refused as unlisted, and so is every send after it.
+   */
   #personalConversationQuiet(record: SessionRecord): boolean {
     const key = recordKey(record)
-    return Boolean(record.live) && record.running.size === 0 && record.approvals.size === 0 &&
+    return Boolean(record.live) && record.session.turns.length > 0 && record.running.size === 0 && record.approvals.size === 0 &&
       record.queue.messages.length === 0 && !record.tasks.some(task => task.state === 'running') &&
       (this.#sessionActivity.get(key) ?? 0) === 0 && !this.#queueBusy(record) &&
       !this.#draining.has(key) && !this.#reattaching.has(key)
