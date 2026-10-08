@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, createElement } from 'react'
+import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { StagedRun, RUN_STAGES, runTimeSegments } from '../../site-demo/fake-run'
 import { TeamRoomPane } from '../components/TeamRoomPane'
@@ -11,6 +11,32 @@ import { SiteRunDemo } from '../../site-demo/run-demo'
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
 describe('the site Run', () => {
+  it('signals readiness once after the mounted scene has had a frame to paint', async () => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const frames = new Map<number, FrameRequestCallback>()
+    let next = 0
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.set(++next, callback); return next })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id) })
+    const posted = vi.spyOn(window.parent, 'postMessage').mockImplementation(() => {})
+    const paint = () => { const pending = [...frames.values()]; frames.clear(); act(() => pending.forEach(callback => callback(0))) }
+    window.history.replaceState(null, '', '/?view=flow&stage=write')
+    const box = document.createElement('div')
+    const root = createRoot(box)
+    try {
+      await act(async () => root.render(createElement(StrictMode, { children: createElement(SiteRunDemo) })))
+      expect(box.querySelector('[data-slot="site-run-demo"]')).not.toBeNull()
+      expect(posted).not.toHaveBeenCalled()
+      paint()
+      expect(posted).not.toHaveBeenCalled()
+      paint()
+      expect(posted).toHaveBeenCalledExactlyOnceWith({ type: 'hdDemoReady' }, '*')
+      act(() => window.dispatchEvent(new MessageEvent('message', { data: { hdTheme: 'dark' } })))
+      act(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+      paint()
+      expect(posted).toHaveBeenCalledTimes(1)
+    } finally { act(() => root.unmount()); box.remove(); vi.restoreAllMocks() }
+  })
+
   it('keeps the mounted stop dialog open with an explicit staged refusal', async () => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     const run = new StagedRun('fix')

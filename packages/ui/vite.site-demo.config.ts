@@ -11,7 +11,21 @@ import tailwindcss from '@tailwindcss/vite'
  * repository as static files.
  */
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    {
+      name: 'site-demo-placeholder-identities',
+      // Shared preview data also carries the project's public demo persona.
+      // The site's bundle uses placeholders, including unused fixture data.
+      transform(code, id) {
+        if (!id.includes('/src/preview/')) return
+        return code
+          .replace(/\b[\w.+-]+@harnessdesk\.app\b/g, 'dev@example.com')
+          .replace(/\/Users\/[^/\\'"\s]+/g, '/Users/jane')
+          .replace(/\b\w+-Cursor\b/g, 'Jane Doe')
+      },
+    },
+    react(), tailwindcss(),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
