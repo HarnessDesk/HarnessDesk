@@ -24,6 +24,7 @@ test('new stills cannot replace a referenced asset, including relative doc refer
 test('every embedded browser document is audited before its parent frame can be captured', () => {
   const clean = { text: 'Jane Doe · dev@example.com · Picked', documentTitle: 'Preview', attributes: [] }
   assert.doesNotThrow(() => auditSnapshots([clean, { ...clean, text: 'Storefront · Order confirmed' }]))
-  assert.throws(() => auditSnapshots([clean, { ...clean, text: 'person@private.invalid' }]), /Unpublishable/)
-  assert.throws(() => auditSnapshots([{ ...clean, attributes: [['title', '/Users/private/work/project']] }]), /Unpublishable/)
+  // Fictional rejection inputs, following shots-audit.test.mjs; never camera fixtures.
+  assert.throws(() => auditSnapshots([clean, { ...clean, text: 'person@private.invalid' }]), /Unpublishable/) // hd-secrets-ok
+  assert.throws(() => auditSnapshots([{ ...clean, attributes: [['title', '/Users/private/work/project']] }]), /Unpublishable/) // hd-secrets-ok
 })
