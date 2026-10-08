@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { EvidenceRecord, EvidenceView, FindingView } from '@harnessdesk/protocol'
+import type { EvidenceRecord, EvidenceView, FindingView, FlowStartTarget } from '@harnessdesk/protocol'
 
 import { boundPullRequest, isFindingPublication, Publications, type PublicationEntry } from '../src/findings/publication.js'
 import { FakeFindingForge, type SendOutcome } from './fixtures/fake-finding-forge.js'
@@ -31,7 +31,7 @@ interface Rig {
   restart(): Promise<void>
 }
 
-const publicationRig = async (t: { after(fn: () => Promise<void>): void }, options: { bind?: boolean; sighted?: boolean } = {}): Promise<Rig> => {
+const publicationRig = async (t: { after(fn: () => Promise<void>): void }, options: { bind?: boolean; sighted?: boolean; target?: FlowStartTarget } = {}): Promise<Rig> => {
   const f = await findingsRig(t, options.sighted ? { sighted: true } : {})
   const forge = new FakeFindingForge(SHA1)
   const goal = { open: true, preference: undefined as boolean | undefined }
@@ -40,7 +40,10 @@ const publicationRig = async (t: { after(fn: () => Promise<void>): void }, optio
     runs: () => f.rig.flows.publicationRuns(),
     run: (run) => {
       const snapshot = f.rig.flows.findingRun(run)
-      return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
+      return snapshot ? {
+        goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings,
+        ...(options.target ? { target: options.target } : {}),
+      } : null
     },
     entry: (key) => f.rig.flows.publicationEntry(key),
     snapshot: (run) => f.rig.flows.publicationOf(run),
@@ -135,6 +138,20 @@ test('restored PR observations cannot supersede a locally observed binding', () 
     ...restored, record: { ...restored.record, restored: { at: 40 } },
   }]), { kind: 'bound', repo: 'acme/widgets', pr: 7 })
   assert.equal(boundPullRequest([{ ...restored, record: { ...restored.record, restored: { at: 40 } } }]).kind, 'none')
+})
+
+test('a host-resolved branch review keeps an existing observed PR publication binding', async (t) => {
+  const r = await publicationRig(t, { target: {
+    kind: 'branch', label: 'branch fix', base: null, head: SHA1, pr: null, dirty: false,
+  } })
+  const { f, forge } = r
+  await review(r)
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const decision = f.rig.executions.stored(f.run)?.publication?.rounds[String(r.round)]
+  assert.equal(decision?.mode, 'batch')
+  assert.equal(decision?.pr, 7)
+  assert.equal(forge.sends.length, 4, 'the observed PR fact still receives the finding and review batch')
 })
 
 test('an invalid latest PR address does not fall back to an older valid observation', () => {

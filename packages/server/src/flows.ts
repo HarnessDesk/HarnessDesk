@@ -684,7 +684,11 @@ export class Flows implements TeamFlows {
       return 'This card needs a structured review before it can complete. Ask for review candidates and record one first.'
     }
     const owed = await this.#review.owed(intent.id, { runtime: caller.runtime, sessionId: caller.sessionId })
-    return owed ? 'This card needs a structured review before it can complete. Ask for review candidates and record one first.' : null
+    if (!owed) return null
+    const unsettled = await this.#review.unsettledReason(intent.id, { runtime: caller.runtime, sessionId: caller.sessionId })
+    return unsettled
+      ? `This card needs a structured review, but ${unsettled}. Ask for review candidates again once it is resolved.`
+      : 'This card needs a structured review before it can complete. Ask for review candidates and record one first.'
   }
 
   /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. See `FlowExecutions.refuseDirty`. */

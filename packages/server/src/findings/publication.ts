@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import {
-  DESK_POST_MARKER, type EvidenceRecord, type EvidenceView, type FindingAnchor, type FindingId, type FindingPost, type FindingRoundPublication, type FindingView, type SeatRecord,
+  DESK_POST_MARKER, type EvidenceRecord, type EvidenceView, type FlowStartTarget, type FindingAnchor, type FindingId, type FindingPost, type FindingRoundPublication, type FindingView, type SeatRecord,
 } from '@harnessdesk/protocol'
 import { renderSignature } from '@harnessdesk/plugins'
 
@@ -597,6 +597,10 @@ export interface RoundPlanInput {
    * reviewed; later events of earlier findings still answer in their threads.
    */
   readonly summary?: boolean
+  /** A host-observed, still-open pull request bound by this run's strict start token. */
+  readonly externalTarget?:
+    | { readonly kind: 'bound'; readonly repo: string; readonly pr: number }
+    | { readonly kind: 'refused'; readonly reason: string }
 }
 
 /**
@@ -608,7 +612,10 @@ export const planRound = (input: RoundPlanInput): { readonly round: PublicationR
   const decided = (mode: PublicationRound['mode'], reason: string | null, bound: { repo: string; pr: number } | null, keys: readonly string[] = []): PublicationRound =>
     ({ round: input.round, mode, reason, repo: bound?.repo ?? null, pr: bound?.pr ?? null, keys, decidedAt: input.now })
   if (input.preference === false) return { round: decided('local', 'Posting is off for this Goal, so this round stays on the desk.', null), entries: [] }
-  const bound = boundPullRequest(input.facts)
+  if (input.externalTarget?.kind === 'refused') return { round: decided('refused', input.externalTarget.reason, null), entries: [] }
+  const bound = input.externalTarget?.kind === 'bound'
+    ? { kind: 'bound' as const, repo: input.externalTarget.repo, pr: input.externalTarget.pr }
+    : boundPullRequest(input.facts)
   if (bound.kind === 'none') return { round: decided('local', bound.reason, null), entries: [] }
   const inRound = (record: EvidenceRecord): boolean =>
     !record.restored && record.card?.board === input.goal && input.cards.includes(record.card.id)
@@ -696,6 +703,7 @@ export interface PublishingRun {
   readonly goal: string
   readonly rounds: readonly { readonly n: number; readonly cards: readonly number[] }[]
   readonly pendingFindings: number
+  readonly target?: FlowStartTarget
 }
 
 export interface PublicationsPort {
@@ -761,6 +769,19 @@ type Ready =
 
 const UNSETTLED = new Set(['prepared', 'started', 'uncertain'])
 
+const hasPublicationWork = (
+  goal: string,
+  cards: readonly number[],
+  findings: readonly EvidenceRecord[],
+  facts: readonly EvidenceView[],
+): boolean => {
+  const inRound = (record: EvidenceRecord): boolean =>
+    !record.restored && record.card?.board === goal && cards.includes(record.card.id)
+  return findings.some((record) => inRound(record) && record.fact.kind === 'finding' &&
+    ['raise', 'repair', 'verdict'].includes(record.finding?.event.kind ?? '')) ||
+    facts.some((view) => inRound(view.record) && view.record.fact.kind === 'review')
+}
+
 /** What a person reads about an operation that did not end posted or skipped. */
 export const gapOf = (entry: PublicationEntry): string => {
   const what = isFindingPublication(entry) ? `finding ${entry.finding}` : isSummaryPublication(entry) ? `the review of round ${entry.round}` : 'a review summary'
@@ -789,6 +810,32 @@ export class Publications implements FindingPublisher {
     const result = this.#tail.then(work)
     this.#tail = result.then(() => undefined, () => undefined).finally(() => { this.#pending -= 1 })
     return result
+  }
+
+  /** Bind a strict-start PR from a fresh forge read; never infer a target from card or Goal prose. */
+  async #externalTarget(run: PublishingRun, project: string): Promise<RoundPlanInput['externalTarget'] | undefined> {
+    const target = run.target
+    if (!target || target.kind !== 'pull-request') return undefined
+    if (target.pr === null || !Number.isSafeInteger(target.pr) || target.head === null || !/^[a-f0-9]{40}$/i.test(target.head)) {
+      return { kind: 'refused', reason: 'The run’s pull request target has no pinned commit and number, so nothing was posted.' }
+    }
+    if (target.dirty) return { kind: 'refused', reason: 'The run’s pull request target was dirty, so nothing was posted.' }
+    let observed: ObservedTarget
+    try {
+      observed = await this.#port.forge.observeTarget(project, target.pr)
+    } catch (error) {
+      return { kind: 'refused', reason: `The run’s pull request could not be read, so nothing was posted (${error instanceof Error ? error.message : String(error)}).` }
+    }
+    if (observed.number !== target.pr) {
+      return { kind: 'refused', reason: 'The forge answered with another pull request than the one this run started from, so nothing was posted.' }
+    }
+    if (observed.state !== 'open') {
+      return { kind: 'refused', reason: `Pull request #${target.pr} is ${observed.state}, so this run’s review was kept on the desk.` }
+    }
+    if (observed.head !== target.head) {
+      return { kind: 'refused', reason: `Pull request #${target.pr} moved from ${short(target.head)} to ${short(observed.head)} after this run started, so nothing was posted.` }
+    }
+    return { kind: 'bound', repo: observed.repo, pr: observed.number }
   }
 
   /** Resolves once every queued operation has settled. */
@@ -827,10 +874,15 @@ export class Publications implements FindingPublisher {
       const ledger = await this.#port.ledger(project)
       const facts = await this.#port.facts(now.goal)
       const goal = this.#port.goal(now.goal)
+      const work = hasPublicationWork(now.goal, closing.cards, ledger.records, facts)
+      const externalTarget = goal?.preference === false || !work
+        ? undefined
+        : await this.#externalTarget(now, project)
       const plan = planRound({
         run, round, goal: now.goal, project, cards: closing.cards, findings: ledger.records, facts,
         preference: goal?.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
         summary: this.#port.summary?.(run) ?? false,
+        ...(externalTarget ? { externalTarget } : {}),
       })
       await journal.decide(plan.round, plan.entries)
       return plan.round
@@ -1120,6 +1172,11 @@ export class Publications implements FindingPublisher {
     const project = await this.#port.projectOf(snapshot.goal)
     const ledger = await this.#port.ledger(project)
     const facts = await this.#port.facts(snapshot.goal)
+    const cards = local.flatMap((kept) => snapshot.rounds.find((one) => one.n === kept.round)?.cards ?? [])
+    const work = hasPublicationWork(snapshot.goal, cards, ledger.records, facts)
+    const externalTarget = goal.preference === false || !work
+      ? undefined
+      : await this.#externalTarget(snapshot, project)
     const rounds: { round: PublicationRound; entries: readonly PublicationEntry[] }[] = []
     for (const kept of local) {
       const closing = snapshot.rounds.find((one) => one.n === kept.round)
@@ -1128,6 +1185,7 @@ export class Publications implements FindingPublisher {
         run, round: kept.round, goal: snapshot.goal, project, cards: closing.cards, findings: ledger.records, facts,
         preference: goal.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
         summary: this.#port.summary?.(run) ?? false,
+        ...(externalTarget ? { externalTarget } : {}),
       })
       if (plan.round.mode !== 'batch') return { refusal: plan.round.reason ?? 'These rounds cannot be posted now.' }
       if (plan.entries.length === 0) continue
