@@ -9,28 +9,32 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue?style=flat-square" alt="MIT licence" /></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black?style=flat-square&logo=apple&logoColor=white" alt="macOS 13 or later" />
-  <img src="https://img.shields.io/badge/agents-Codex%20%C2%B7%20Claude%20%C2%B7%20Cursor%20%C2%B7%20Gemini%20%C2%B7%20any%20ACP-111?style=flat-square" alt="Codex, Claude, Cursor, Gemini, and any ACP agent" />
+  <a href="https://github.com/HarnessDesk/HarnessDesk/releases/tag/v0.4.0"><img src="https://img.shields.io/badge/release-0.4.0-blue?style=flat-square" alt="Release 0.4.0" /></a>
 </p>
 
 <p align="center">
-  <strong>Where your agents work — whoever made them.</strong><br/>
-  Put Codex, Claude Code, Cursor and Gemini on one piece of work — one room, one board, one set of rules.
+  <strong>Where your agents work, whoever made them.</strong><br/>
+  Run coding agents in Teams. Set the rules with Flows, follow each Run, and step in where the work needs you.
 </p>
-
-<h3 align="center"><a href="#getting-started"><ins>Get started</ins></a></h3>
 
 <p align="center">
-  <a href="docs/images/app/hero-light.gif"><picture>
-    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/hero-dark.gif" />
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/hero-dark-poster.png" />
-    <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/hero-light.gif" />
-    <img src="docs/images/app/hero-light-poster.png" width="960" alt="A HarnessDesk room with two agents from different vendors. Claude Code reports its fix for a checkout that fails on a transient 502 and asks Codex to check it; Codex opens a browser pane beside the chat, the storefront shows the order placed after the 502 was retried, and Codex reports back with one nit, which Claude Code takes." />
-  </picture></a>
+  <a href="https://github.com/HarnessDesk/HarnessDesk/releases/tag/v0.4.0"><strong>Download for macOS</strong></a> · <a href="docs/README.md">Documentation</a>
 </p>
 
-Your machine already has several coding agents, each with its own history, permissions and credentials, and
-nothing shared between them. A model vendor's shell always has a preferred worker; HarnessDesk is the desk they
-all report to, and it makes none of them. [Why →](VISION.md)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/race-hero-dark.gif" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/race-hero-dark-poster.png" />
+    <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/race-hero-light.gif" />
+    <img src="docs/images/app/race-hero-light-poster.png" width="960" alt="An illustrated race: two agents build the same game in separate browser tiles, a judge picks one attempt, and the merge waits for Jane Doe." />
+  </picture>
+</p>
+
+<p align="center">Two agents build the same thing side by side, a judge picks one, and a person decides what lands — an illustrated, time-compressed run.</p>
+
+**Team** — the agents and their shared work, gathered in one place.<br/>
+**Flow** — the rules for who works, what gets checked, and where you step in.<br/>
+**Run** — one start of that Flow, with its rounds, checks and outcomes recorded.
 
 ## Features
 
@@ -38,38 +42,127 @@ all report to, and it makes none of them. [Why →](VISION.md)
 <tr>
 <td width="40%" valign="middle">
 
-### Flows
+### Teams
 
-Pick a shape — independent review, fan-out review, comparison, a staged relay — or write your own: who does what,
-and what moves work between them. The dry run spends nothing and shows every seat before you start; shipping stays
-yours.
+Find Teams by project, with work that needs you first. The project sidebar keeps linked checkouts, conversations and a Team’s Seats together.
 
-[Docs →](docs/flows.md)
+[Docs →](docs/interface.md#the-teams-page)
 
 </td>
 <td width="60%">
-  <a href="docs/images/app/flows-light.png"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flows-dark.png" />
-    <img src="docs/images/app/flows-light.png" width="100%" alt="The Start a team dialog listing the shapes that ship — Independent review, Fan-out review, Comparison and Staged relay — each with a one-line description." />
-  </picture></a>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/teams-dark.png" />
+    <img src="docs/images/app/teams-light.png" width="100%" alt="The Teams page groups work by project, puts Needs you before Working, and gathers quiet work under Ready to wrap." />
+  </picture>
+<details>
+<summary>Project sidebar</summary>
+
+<picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/project-sidebar-dark.png" />
+    <img src="docs/images/app/project-sidebar-light.png" width="100%" alt="The project sidebar gathers conversations from linked checkouts and expands a Team to show its Implementer and Reviewer Seats." />
+  </picture>
+
+</details>
 </td>
 </tr>
 <tr>
 <td width="40%" valign="middle">
 
-### Rooms
+### Runs
 
-Agents from different vendors on one piece of work, claiming from one board — each sees what the others took, and a
-second reach for a file already held is refused by name.
+Follow the brief, review rounds, repairs and checks on a timeline. Switch to the Flow to see the route this Run took, and stop it or run it again.
 
-[Docs →](docs/multi-agent.md#4-the-room-the-shared-workspace)
+[Docs →](docs/flows.md)
 
 </td>
 <td width="60%">
-  <a href="docs/images/app/rooms-light.png"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/rooms-dark.png" />
-    <img src="docs/images/app/rooms-light.png" width="100%" alt="A room with four agents from four vendors — Claude Code, Gemini, Copilot and Antigravity — each holding a card from the board. Its feed shows the cards claimed, two collisions refused by name because another agent's card already holds the file, and each agent's reply." />
-  </picture></a>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/run-timeline-dark.png" />
+    <img src="docs/images/app/run-timeline-light.png" width="100%" alt="A Run timeline records review findings, a repair, passing checks and later approvals, then waits for the person’s answer." />
+  </picture>
+<details>
+<summary>The route this Run took</summary>
+
+<picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/run-flow-dark.png" />
+    <img src="docs/images/app/run-flow-light.png" width="100%" alt="The Run’s frozen Flow shows the travelled review and repair loop, recorded checks, and the person step waiting for an answer." />
+  </picture>
+
+</details>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### Race
+
+Send the same task to two isolated Seats and watch them Side by side, with a browser per tile. The judge marks Picked and Not kept; the person step decides whether to merge the picked change.
+
+[Docs →](docs/multi-agent.md#3-race-competing-in-parallel)
+
+</td>
+<td width="60%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/race-tiles-dark.png" />
+    <img src="docs/images/app/race-tiles-light.png" width="100%" alt="Two attempts Side by side: one tile shows its own browser, the other its conversation, and the judge’s verdict marks Picked and Not kept above the shared composer." />
+  </picture>
+<details>
+<summary>The comparison Run</summary>
+
+<picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/run-picked-dark.png" />
+    <img src="docs/images/app/run-picked-light.png" width="100%" alt="A comparison Run keeps both attempts and their checks, including one failed check, the judge’s pick and the person step waiting to merge." />
+  </picture>
+
+</details>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### Flows
+
+Choose or write the rules for who works, which checks run and where the person steps in. Preview the Seats, ceilings and checks before Start.
+
+[Docs →](docs/flows.md)
+
+</td>
+<td width="60%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-start-preview-dark.png" />
+    <img src="docs/images/app/flow-start-preview-light.png" width="100%" alt="The start preview shows the task, a writer and two reviewers, Edit and Read only ceilings, a named check, and Start." />
+  </picture>
+<details>
+<summary>An illustrated Flow</summary>
+
+<picture>
+    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/anim-flow-dark.svg" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/anim-flow-dark-poster.png" />
+    <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/anim-flow-light.svg" />
+    <img src="docs/images/app/anim-flow-light-poster.png" width="100%" alt="An illustrated race Flow sends a brief to two parallel writers, then to a judge and a pick; motion follows the steps, and the still shows the completed route." />
+  </picture>
+
+</details>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### Command line
+
+Script it, or let your agent run it: the same Run from a terminal. Start a Flow and watch its events with the `harnessdesk` command line bundled with the app.
+
+[Docs →](docs/cli.md)
+
+</td>
+<td width="60%">
+  <picture>
+    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/anim-cli-dark.svg" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/anim-cli-dark-poster.png" />
+    <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/anim-cli-light.svg" />
+    <img src="docs/images/app/anim-cli-light-poster.png" width="100%" alt="An illustrated split screen starts a race from game.md in the terminal and follows the same Run in HarnessDesk; both attempts pass checks, the judge picks one, and the event stream settles." />
+  </picture>
+
 </td>
 </tr>
 <tr>
@@ -77,82 +170,43 @@ second reach for a file already held is refused by name.
 
 ### Dashboard
 
-Every plan and every account on one screen — what is left, when it resets, what the work cost at public rates, and
-each agent's days, week by week.
+See Paid beside Value, and recorded activity By hour. Value is an estimate at public API rates, not a bill; unpriced work and incomplete coverage stay visible.
 
 [Docs →](docs/usage-dashboard.md)
 
 </td>
 <td width="60%">
-  <a href="docs/images/app/dashboard-tour-light.gif"><picture>
-    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/dashboard-tour-dark.gif" />
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-tour-dark-poster.png" />
-    <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/dashboard-tour-light.gif" />
-    <img src="docs/images/app/dashboard-tour-light-poster.png" width="100%" alt="The Dashboard: what was paid, what the work was worth, turns and tokens, and three accounts' remaining quota; then Activity by agent, thirteen weeks of each agent's days with the days off left empty." />
-  </picture></a>
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-plans-dark.png" />
+    <img src="docs/images/app/dashboard-plans-light.png" width="100%" alt="An expanded plan shows Paid, an unpriced Value, the monthly fee, remaining allowance and where the reading came from." />
+  </picture>
+<details>
+<summary>Activity By hour</summary>
 
-### The repository, beside the work
+<picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-hour-dark.png" />
+    <img src="docs/images/app/dashboard-hour-light.png" width="100%" alt="Dashboard Activity By hour groups this year’s recorded tokens by local weekday and hour, with coverage known for two of three agents." />
+  </picture>
 
-History, branches and worktrees in a pane next to the conversation that is changing them.
-
-[Docs →](docs/interface.md)
-
-</td>
-<td width="60%">
-  <a href="docs/images/app/history-light.png"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/history-dark.png" />
-    <img src="docs/images/app/history-light.png" width="100%" alt="The repository pane expanded: branches grouped as chore, feat and fix, three tags, and a commit graph where several branches merge back into main." />
-  </picture></a>
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-
-### Agents
-
-Who does the work: a brief, the most it may do, and the seats it prefers. Nine ship — reviewers, an implementer,
-a judge, a researcher — and each sits on whichever runtime can offer it a seat.
-
-[Docs →](docs/agents.md)
-
-</td>
-<td width="60%">
-  <a href="docs/images/app/agents-light.png"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/agents-dark.png" />
-    <img src="docs/images/app/agents-light.png" width="100%" alt="The Agents page's built-in list — API reviewer, Implementer, Judge, Performance reviewer and Requirements analyst — each with its one-line purpose, its grant and the runtime it sits on." />
-  </picture></a>
+</details>
 </td>
 </tr>
 </table>
 
-**Also in the box:**
+## Also included
 
-- **[`/race`](docs/multi-agent.md#3-race-competing-in-parallel)** — one task to two agents, each in its own worktree, side by side.
-- **[Hand-off](docs/multi-agent.md#2-hand-offs-passing-the-baton)** — a conversation moves to another agent as a packet it can pick up.
-- **[A browser the agent drives](docs/browser-control.md)** — it opens the page, clicks, reads the console; you watch.
+- **[Hand-off](docs/multi-agent.md#2-hand-offs-passing-the-baton)** — pass a conversation to another agent with a packet it can pick up.
+- **[A browser the agent drives](docs/browser-control.md)** — open pages, click and read the console beside the conversation.
+- **[Repository tools](docs/interface.md)** — history, branches, changes and worktrees beside the work.
+- **[Agents](docs/agents.md)** — reusable briefs, ceilings and preferred Seats; nine built-in roles to start from.
 - **Plugins.** Twelve built in, and their tools reach every agent: each one gets an MCP server carrying its 73 built-in plugin tools. [Docs →](docs/extending.md)
-- **[Library](docs/interface.md#settings)** — every skill and MCP server on the machine, and which agents actually load each.
+- **[Library](docs/interface.md#settings)** — skills and MCP servers across installed agents, and which ones load each.
 - **[One policy, one audit log](docs/architecture.md)** — the same rules whichever agent asked.
-
-## Supported agents
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.svg" />
-    <img src="docs/images/agents-light.svg" width="760" alt="Codex, Claude Code, Cursor, Gemini CLI, Copilot, Amp, OpenCode, Cline, Windsurf and DeepSeek" />
-  </picture>
-</p>
-
-<p align="center">…and any agent that speaks ACP. <a href="#what-each-agent-can-actually-do">What each one can actually do →</a></p>
 
 ## Getting started
 
 **Download.** The signed, notarized app for macOS 13+ — Apple silicon or Intel — is on the
-[latest release](https://github.com/HarnessDesk/HarnessDesk/releases/latest), and it updates itself from there.
+[v0.4.0 release](https://github.com/HarnessDesk/HarnessDesk/releases/tag/v0.4.0), and it updates itself from there.
 Bring a coding agent: for Codex, `brew install codex` or `npm i -g @openai/codex`, version 0.145.0 or later.
 What has landed here since that release is listed under `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
 
@@ -170,28 +224,16 @@ a loopback URL with a per-launch token.
 See [docs/getting-started.md](docs/getting-started.md) for adding ACP agents
 (Claude Code, Cursor, Gemini CLI), packaging, and troubleshooting.
 
-## What it does not do yet
+## Supported agents
 
-Stated plainly, because the gaps are the plan.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.svg" />
+    <img src="docs/images/agents-light.svg" width="760" alt="Codex, Claude Code, Cursor, Gemini CLI, Copilot, Amp, OpenCode, Cline, Windsurf and DeepSeek" />
+  </picture>
+</p>
 
-- **Sign in with an API key from the interface.** Codex's API-key login
-  completes synchronously CLI-side; the sign-in dialog says to use the CLI
-  for that one case.
-- **Raw `config.toml` editing.** The controls people change are surfaced as
-  session options and feature toggles; arbitrary config editing is not built.
-- **Chat-Completions model routes.** Routes speak the Responses API only;
-  LiteLLM's bridge was evaluated against a captured request and declined
-  (see [the gateway decision](docs/decisions.md#other-models-reach-codex-through-a-gateway-never-a-fork)).
-- **Remote crash reporting.** Crash capture is local and ships in the
-  diagnostics bundle; nothing is reported anywhere.
-- **Run your package manager for you.** The Install section names the copy
-  of an agent that answers and the command that updates each of the others —
-  `brew upgrade`, `npm install -g …@latest`, `uv tool upgrade` — and never
-  runs them; only a build HarnessDesk downloaded itself is updated by
-  HarnessDesk ([runtimes.md](docs/runtimes.md)).
-- **Drive every agent's sign-in.** Gemini CLI, Kimi, CodeBuddy and pi sign in
-  from their own interface; the settings page says which command to run in
-  a terminal and offers the API-key field where the vendor takes one.
+<p align="center">…and any agent that speaks ACP. <a href="#what-each-agent-can-actually-do">What each one can actually do →</a></p>
 
 ## What each agent can actually do
 
@@ -208,6 +250,29 @@ this repository is backed by a recording that drove the real app against a
 signed-in agent, and `script/check-claims.mjs` fails the build if one of those
 claims stops naming a test that still exists.
 
+## What it does not do yet
+
+Stated plainly, because the gaps are the plan.
+
+- **Sign in with an API key from the interface.** Codex's API-key login
+  completes synchronously CLI-side; the sign-in dialog says to use the CLI
+  for that one case.
+- **Raw `config.toml` editing.** The controls people change are surfaced as
+  session options and feature toggles; arbitrary config editing is not built.
+- **Chat-Completions model routes.** Routes speak the Responses API only;
+  a bridge was evaluated against a captured request and declined
+  (see [the gateway decision](docs/decisions.md#other-models-reach-codex-through-a-gateway-never-a-fork)).
+- **Remote crash reporting.** Crash capture is local and ships in the
+  diagnostics bundle; nothing is reported anywhere.
+- **Run your package manager for you.** The Install section names the copy
+  of an agent that answers and the command that updates each of the others —
+  `brew upgrade`, `npm install -g …@latest`, `uv tool upgrade` — and never
+  runs them; only a build HarnessDesk downloaded itself is updated by
+  HarnessDesk ([runtimes.md](docs/runtimes.md)).
+- **Drive every agent's sign-in.** Gemini CLI, Kimi, CodeBuddy and pi sign in
+  from their own interface; the settings page says which command to run in
+  a terminal and offers the API-key field where the vendor takes one.
+
 ## Documentation
 
 [`docs/README.md`](docs/README.md) routes by what you came to do — use it,
@@ -215,8 +280,10 @@ extend it, or understand it.
 
 - [VISION.md](VISION.md) — positioning, and the promise about what needs an account.
 - [docs/interface.md](docs/interface.md) — every surface of the window.
-- [docs/multi-agent.md](docs/multi-agent.md) — hand-off, `/race`, boards, and channels.
-- [docs/flows.md](docs/flows.md) — declaring a room's policy: roles, rounds, rules, and dry run.
+- [docs/multi-agent.md](docs/multi-agent.md) — Teams, hand-off, `/race`, boards, and channels.
+- [docs/flows.md](docs/flows.md) — declaring a Team’s policy: roles, rounds, rules, and preview before start.
+- [docs/cli.md](docs/cli.md) — the bundled command line.
+- [docs/usage-dashboard.md](docs/usage-dashboard.md) — Paid, Value, activity and coverage.
 - [docs/architecture.md](docs/architecture.md) — two planes, host, and packages.
 - [docs/extending.md](docs/extending.md) — writing plugins and adding ACP backends.
 - [docs/decisions.md](docs/decisions.md) — the choices everything else follows from.
