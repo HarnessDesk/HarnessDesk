@@ -3,7 +3,15 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { assertReplaceable, auditSnapshots } from './shots/stills.mjs'
+import { assertReplaceable, auditSnapshots, STILL_SCENES } from './shots/stills.mjs'
+
+test('feature-card stills wait for a selected skill and the plugin access grants', () => {
+  assert.ok(STILL_SCENES.library?.ready.includes('Read the definition'))
+  assert.ok(STILL_SCENES.library?.ready.includes('Project docs'))
+  assert.ok(STILL_SCENES['plugin-permissions']?.ready.includes('Access'))
+  assert.ok(STILL_SCENES['plugin-permissions']?.ready.includes('Read files in the open project'))
+  assert.ok(STILL_SCENES['plugin-permissions']?.ready.includes('Reach docs.acme.dev'))
+})
 
 test('new stills cannot replace a referenced asset, including relative doc references', t => {
   const root = mkdtempSync(join(tmpdir(), 'hd-stills-test-'))
