@@ -149,12 +149,21 @@ export const cvaContract = (source) => {
   return contract
 }
 
-export const catalogCoverage = ({ uiModules, patternModules, registeredUi, registeredPatterns }) => ({
-  missingUi: uiModules.filter((name) => !registeredUi.includes(name)),
-  staleUi: registeredUi.filter((name) => !uiModules.includes(name)),
-  missingPatterns: patternModules.filter((name) => !registeredPatterns.includes(name)),
-  stalePatterns: registeredPatterns.filter((name) => !patternModules.includes(name)),
-})
+export const catalogCoverage = ({ uiModules, patternModules, registeredUi, registeredPatterns, graph = new Map(), screenPaths = [], entries = [], exportExemptions = [] }) => {
+  const exported = publicDesignExports(graph)
+  const consumed = exported.filter((key) => screenPaths.some((screen) => isReachable(graph, screen, key)))
+  const registered = entries.flatMap((entry) => (entry.symbols ?? []).map((symbol) => `${entry.implementationPath}#${symbol}`))
+  const validExemptions = exportExemptions.filter((entry) => typeof entry.reason === 'string' && entry.reason.trim().length >= 40 && entry.reason.includes(entry.export.split('#')[1]))
+  return {
+    missingUi: uiModules.filter((name) => !registeredUi.includes(name)),
+    staleUi: registeredUi.filter((name) => !uiModules.includes(name)),
+    missingPatterns: patternModules.filter((name) => !registeredPatterns.includes(name)),
+    stalePatterns: registeredPatterns.filter((name) => !patternModules.includes(name)),
+    missingExports: consumed.filter((key) => !registered.includes(key) && !validExemptions.some((entry) => entry.export === key)),
+    staleExports: registered.filter((key) => !exported.includes(key)),
+    invalidExportExemptions: exportExemptions.filter((entry) => !validExemptions.includes(entry) || !consumed.includes(entry.export) || registered.includes(entry.export)).map((entry) => entry.export),
+  }
+}
 
 const resolveSpecifier = (from, specifier, paths) => {
   const clean = specifier.replace(/\?.*$/, '')
@@ -238,6 +247,9 @@ export const importGraph = (files) => {
       return names
     }
     const localDependencies = new Map()
+    const typeNames = new Set(ast.statements
+      .filter((statement) => ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement))
+      .map((statement) => statement.name.text))
 
     /*
      * A lazily-loaded module is still a dependency — and, when the code says
@@ -294,9 +306,11 @@ export const importGraph = (files) => {
           info.fileTargets.add(target)
           continue
         }
+        if (clause.isTypeOnly) continue
         if (clause.name) info.symbols.set(clause.name.text, { target, symbol: 'default' })
         if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
           for (const element of clause.namedBindings.elements) {
+            if (element.isTypeOnly) continue
             info.symbols.set(element.name.text, { target, symbol: element.propertyName?.text ?? element.name.text })
           }
         }
@@ -306,6 +320,7 @@ export const importGraph = (files) => {
         continue
       }
       if (ts.isExportDeclaration(statement)) {
+        if (statement.isTypeOnly) continue
         const target = statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)
           ? resolveSpecifier(file.path, statement.moduleSpecifier.text, paths)
           : null
@@ -315,18 +330,29 @@ export const importGraph = (files) => {
         }
         if (ts.isNamedExports(statement.exportClause)) {
           for (const element of statement.exportClause.elements) {
+            if (element.isTypeOnly || (!target && typeNames.has(element.propertyName?.text ?? element.name.text))) continue
             const name = element.name.text
             info.exports.add(name)
             if (target) info.symbols.set(name, { target, symbol: element.propertyName?.text ?? name })
             else info.exportDependencies.set(name, localDependencies.get(element.propertyName?.text ?? name) ?? new Set())
           }
+        } else if (ts.isNamespaceExport(statement.exportClause) && target) {
+          const name = statement.exportClause.name.text
+          info.exports.add(name)
+          info.symbols.set(name, { target, symbol: '*' })
         }
         continue
       }
+      if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+        info.exports.add('default')
+        info.exportDependencies.set('default', identifiersUnder(statement.expression))
+      }
       if (exported(statement)) {
-        if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
-          info.exports.add(statement.name.text)
-          info.exportDependencies.set(statement.name.text, localDependencies.get(statement.name.text) ?? new Set())
+        const isDefault = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+        if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && (statement.name || isDefault)) {
+          const name = isDefault ? 'default' : statement.name.text
+          info.exports.add(name)
+          info.exportDependencies.set(name, statement.name ? localDependencies.get(statement.name.text) ?? new Set() : identifiersUnder(statement))
         }
         if (ts.isVariableStatement(statement)) {
           for (const declaration of statement.declarationList.declarations) {
@@ -352,8 +378,9 @@ export const importGraph = (files) => {
  * An anchor naming something the file does not export reaches nothing.
  */
 export const isReachable = (graph, from, target) => {
+  const [targetPath, targetSymbol] = target.split('#')
   const [fromPath, anchor] = from.split('#')
-  if (anchor === undefined && fromPath === target) return true
+  if (anchor === undefined && fromPath === targetPath && targetSymbol === undefined) return true
   const start = graph.get(fromPath)
   if (!start) return false
   if (anchor !== undefined && !start.exports.has(anchor)) return false
@@ -375,8 +402,9 @@ export const isReachable = (graph, from, target) => {
     const info = graph.get(current.path)
     if (!info) continue
     if (
-      current.path === target
+      current.path === targetPath
       && (current.symbol === null || current.symbol === '*' || info.exports.has(current.symbol))
+      && (targetSymbol === undefined || (info.exports.has(targetSymbol) && (current.symbol === null || current.symbol === '*' || current.symbol === targetSymbol)))
     ) return true
     if (current.symbol === null) {
       /*
@@ -399,6 +427,9 @@ export const isReachable = (graph, from, target) => {
     const direct = info.symbols.get(current.symbol)
     if (direct) pending.push({ path: direct.target, symbol: direct.symbol })
     for (const next of info.exportAll) pending.push({ path: next, symbol: current.symbol })
+    if (current.symbol === '*') {
+      for (const symbol of info.exports) pending.push({ path: current.path, symbol })
+    }
     if (info.exports.has(current.symbol)) {
       for (const dependency of info.exportDependencies.get(current.symbol) ?? []) {
         const edge = info.symbols.get(dependency)
@@ -407,6 +438,111 @@ export const isReachable = (graph, from, target) => {
     }
   }
   return false
+}
+
+/** Public value exports, resolved through the same symbol graph as consumers. */
+export const publicDesignExports = (graph) => {
+  const isValueExport = (file, symbol, seen = new Set()) => {
+    const key = `${file}#${symbol}`
+    if (seen.has(key)) return false
+    const info = graph.get(file)
+    if (!info) return false
+    const nextSeen = new Set([...seen, key])
+    if (symbol === '*') return [...info.exports].some((name) => isValueExport(file, name, nextSeen)) || [...info.exportAll].some((next) => isValueExport(next, '*', nextSeen))
+    if (info.exports.has(symbol)) {
+      const edge = info.symbols.get(symbol)
+      return !edge || isValueExport(edge.target, edge.symbol, nextSeen)
+    }
+    return [...info.exportAll].some((next) => isValueExport(next, symbol, nextSeen))
+  }
+  const pending = ['packages/ui/src/design/index.ts', 'packages/ui/src/design/ui/index.ts']
+    .map((path) => ({ path, symbol: '*' }))
+  const seen = new Set()
+  const exported = new Set()
+  while (pending.length > 0) {
+    const current = pending.pop()
+    const key = `${current.path}#${current.symbol}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const info = graph.get(current.path)
+    if (!info) continue
+    if (current.symbol === '*') {
+      for (const symbol of info.exports) pending.push({ path: current.path, symbol })
+      for (const next of info.exportAll) pending.push({ path: next, symbol: '*' })
+      continue
+    }
+    const implementation = /\/design\/(?:ui|patterns)\//.test(current.path) && !current.path.endsWith('/index.ts')
+    const edge = info.exports.has(current.symbol) && info.symbols.get(current.symbol)
+    if (implementation && isValueExport(current.path, current.symbol)) exported.add(key)
+    else if (edge) pending.push({ path: edge.target, symbol: edge.symbol })
+    for (const next of info.exportAll) pending.push({ path: next, symbol: current.symbol })
+  }
+  return [...exported].sort()
+}
+
+/** Feasible local props only: literal unions, aliases, interfaces and compositions. */
+export const unionContracts = (source) => {
+  const ast = ts.createSourceFile('component.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const types = new Map(ast.statements
+    .filter((statement) => ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement))
+    .map((statement) => [statement.name.text, statement]))
+  const functions = new Map()
+  for (const statement of ast.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) functions.set(statement.name.text, statement)
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) functions.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+  const literals = (node, seen = new Set()) => {
+    if (!node) return null
+    if (node.kind === ts.SyntaxKind.UndefinedKeyword || (ts.isLiteralTypeNode(node) && node.literal.kind === ts.SyntaxKind.NullKeyword)) return []
+    if (ts.isParenthesizedTypeNode(node)) return literals(node.type, seen)
+    if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) return [node.literal.text]
+    if (ts.isUnionTypeNode(node)) {
+      const values = node.types.map((type) => literals(type, seen))
+      return values.every(Boolean) ? [...new Set(values.flat())] : null
+    }
+    if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName) && !seen.has(node.typeName.text)) {
+      const local = types.get(node.typeName.text)
+      if (local && ts.isTypeAliasDeclaration(local)) return literals(local.type, new Set([...seen, node.typeName.text]))
+    }
+    return null
+  }
+  const axesUnder = (node, axes, seen = new Set()) => {
+    if (!node) return
+    if (ts.isParenthesizedTypeNode(node)) return axesUnder(node.type, axes, seen)
+    if (ts.isIntersectionTypeNode(node) || ts.isUnionTypeNode(node)) {
+      for (const type of node.types) axesUnder(type, axes, seen)
+    } else if (ts.isTypeLiteralNode(node) || ts.isInterfaceDeclaration(node)) {
+      for (const member of node.members) {
+        if (!ts.isPropertySignature(member) || !['variant', 'size'].includes(propertyName(member))) continue
+        const values = literals(member.type)
+        if (values) axes[propertyName(member)] = [...new Set([...(axes[propertyName(member)] ?? []), ...values])]
+      }
+      if (ts.isInterfaceDeclaration(node)) {
+        for (const clause of node.heritageClauses ?? []) for (const type of clause.types) {
+          if (ts.isIdentifier(type.expression) && !seen.has(type.expression.text)) axesUnder(types.get(type.expression.text), axes, new Set([...seen, type.expression.text]))
+        }
+      }
+    } else if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName) && !seen.has(node.typeName.text)) {
+      axesUnder(types.get(node.typeName.text), axes, new Set([...seen, node.typeName.text]))
+    } else if (ts.isTypeAliasDeclaration(node)) axesUnder(node.type, axes, seen)
+  }
+  const contracts = new Map([...functions].flatMap(([symbol, declaration]) => {
+    const axes = {}
+    axesUnder(declaration.parameters[0]?.type, axes)
+    return Object.keys(axes).length > 0 ? [[symbol, axes]] : []
+  }))
+  for (const statement of ast.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.moduleSpecifier || !statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue
+    for (const element of statement.exportClause.elements) {
+      const contract = contracts.get(element.propertyName?.text ?? element.name.text)
+      if (contract) contracts.set(element.name.text, contract)
+    }
+  }
+  return contracts
 }
 
 /**
@@ -523,7 +659,7 @@ export const surfaceLoads = (source, filePath, paths) => {
   return new Map([...renders].map(([id, render]) => [id, handles.get(render) ?? null]))
 }
 
-export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredSurfaces, reachablePairs = null, reachableExamplePairs = null, contracts = new Map(), exampleCoverage = new Map(), surfaceLoadsByView = null }) => {
+export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredSurfaces, reachablePairs = null, reachableExamplePairs = null, contracts = new Map(), exampleCoverage = new Map(), surfaceLoadsByView = null, sourceByPath = new Map() }) => {
   const productEntries = entries.filter((entry) => entry.category === 'Product Surfaces')
   const requiredSurfaceIds = requiredSurfaces.map((surface) => surface.id)
   const hasCompleteCoverage = (entry) => {
@@ -597,6 +733,15 @@ export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredS
       const contract = contracts.get(entry.implementationPath)
       return contract?.size && contract.size.join('\0') !== entry.sizes.join('\0')
     }).map((entry) => entry.id),
+    mismatchedUnionAxes: entries.flatMap((entry) => {
+      const local = unionContracts(sourceByPath.get(entry.implementationPath) ?? '')
+      return (entry.symbols ?? []).flatMap((symbol) => Object.entries(local.get(symbol) ?? {})
+        .filter(([axis, values]) => entry.symbolAxes?.[symbol]?.[axis]?.join('\0') !== values.join('\0'))
+        .map(([axis]) => `${entry.id}:${symbol}:${axis}`))
+    }),
+    staleSymbolAxes: entries.flatMap((entry) => Object.keys(entry.symbolAxes ?? {})
+      .filter((symbol) => !(entry.symbols ?? []).includes(symbol))
+      .map((symbol) => `${entry.id}:${symbol}`)),
     uncoveredExampleVariants: entries.filter((entry) => {
       const coverage = exampleCoverage.get(entry.implementationPath)
       return coverage?.variants && coverage.variants.join('\0') !== entry.variants.join('\0')
@@ -642,12 +787,6 @@ if (isMain) {
   const uiModules = exportedModules(uiIndex)
   const patternModules = patternModulesFromPaths(existingPathList)
   const manifest = fs.readFileSync(path.join(root, 'packages/ui/src/design/catalog/manifest.ts'), 'utf8')
-  const coverage = catalogCoverage({
-    uiModules,
-    patternModules,
-    registeredUi: seedNames(manifest, 'CANONICAL_UI_MODULES'),
-    registeredPatterns: seedNames(manifest, 'CANONICAL_PATTERN_MODULES'),
-  })
   const transpiled = ts.transpileModule(manifest, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText
@@ -666,6 +805,19 @@ if (isMain) {
     .filter((file) => /\.(?:[cm]?[jt]sx?|css)$/.test(file))
     .map((file) => ({ path: file, source: fs.readFileSync(path.join(root, file), 'utf8') }))
   const graph = importGraph(sourceFiles)
+  const coverage = catalogCoverage({
+    uiModules,
+    patternModules,
+    registeredUi: seedNames(manifest, 'CANONICAL_UI_MODULES'),
+    registeredPatterns: seedNames(manifest, 'CANONICAL_PATTERN_MODULES'),
+    graph,
+    screenPaths: sourceFiles
+      .filter((file) => /packages\/ui\/src\/(?:app|components|panels|slots)\//.test(file.path))
+      .filter((file) => !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file.path))
+      .map((file) => file.path),
+    entries: loaded.CATALOG_ENTRIES,
+    exportExemptions: loaded.CATALOG_EXPORT_EXEMPTIONS ?? [],
+  })
   const contracts = new Map(sourceFiles
     .map((file) => [file.path, cvaContract(file.source)])
     .filter(([, contract]) => contract))
@@ -717,6 +869,7 @@ if (isMain) {
     reachableExamplePairs,
     contracts,
     exampleCoverage,
+    sourceByPath,
     surfaceLoadsByView: surfaceLoads(
       explorer,
       'packages/ui/src/design/explorer/Explorer.tsx',

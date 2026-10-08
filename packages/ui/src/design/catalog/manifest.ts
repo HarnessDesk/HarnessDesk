@@ -3,10 +3,17 @@ export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | '
 export type CatalogSize = 'stack' | 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
+type CatalogSymbolAxes = Readonly<Record<string, {
+  readonly variant?: readonly string[]
+  readonly size?: readonly string[]
+}>>
+
 export type CatalogEntry = {
   readonly id: string
   readonly category: CatalogCategory
   readonly implementationPath: string
+  readonly symbols?: readonly string[]
+  readonly symbolAxes?: CatalogSymbolAxes
   readonly purpose: string
   readonly exampleId: string
   readonly variants: readonly CatalogVariant[]
@@ -471,10 +478,123 @@ const sizesFor = (name: string): readonly CatalogSize[] => {
   return sizes
 }
 
+/** Explicit value exports reviewed with each module's existing example. A
+ * module registration never grants coverage to a new exported sibling. */
+const UI_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
+  'alert-dialog': ['AlertDialog', 'AlertDialogContent', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogHeader', 'AlertDialogTitle'],
+  'alert': ['Alert', 'AlertContent', 'AlertDescription', 'AlertTitle'],
+  'attachment': ['Attachment', 'AttachmentMedia'],
+  'avatar-stack': ['AvatarStack'],
+  'avatar': ['Avatar', 'AvatarFallback', 'AvatarImage'],
+  'badge': ['Badge'],
+  'bar': ['Bar'],
+  'board': ['BOARD_COLUMN_MIN_WIDTH', 'BOARD_RAIL_WIDTH', 'Board', 'BoardCard', 'BoardColumn', 'BoardMenuButton'],
+  'breadcrumb': ['Breadcrumb', 'BreadcrumbItem', 'BreadcrumbList', 'BreadcrumbPage', 'BreadcrumbSeparator'],
+  'bubble': ['Bubble', 'BubbleContent'],
+  'button': ['Button', 'buttonEdge', 'buttonVariants'],
+  'card': ['Card', 'CardAction', 'CardContent', 'CardFooter', 'CardHeader', 'CardTitle', 'CardViewport'],
+  'chart': ['BurnDown', 'ChartAxis', 'ChartCard', 'ChartFoot', 'ChartFrame', 'ChartHead', 'ChartHint', 'ChartKey', 'ChartKeys', 'ChartTip', 'ChartTipRow', 'ChartTitle', 'ChartTools', 'DayColumns', 'PaceBadge', 'SegmentMeter', 'SeriesDot'],
+  'checkbox': ['Checkbox'],
+  'composer': ['ComposerChip', 'ComposerChips', 'ComposerDock', 'ComposerDropHint', 'ComposerGap', 'ComposerSend', 'ComposerShell', 'ComposerText', 'ComposerTools'],
+  'delta': ['Delta'],
+  'dialog': ['Dialog', 'DialogClose', 'DialogContent', 'DialogDescription', 'DialogOverlay', 'DialogPopup', 'DialogPortal', 'DialogTitle', 'DialogViewport'],
+  'disclosure-chevron': ['DisclosureChevron'],
+  'dropdown-menu': ['DropdownMenu', 'DropdownMenuCheckboxItem', 'DropdownMenuContent', 'DropdownMenuItem', 'DropdownMenuPopup', 'DropdownMenuPortal', 'DropdownMenuPositioner', 'DropdownMenuSeparator', 'DropdownMenuSub', 'DropdownMenuSubContent', 'DropdownMenuSubTrigger', 'DropdownMenuTrigger'],
+  'empty-state': ['EmptyState'],
+  'field': ['Field'],
+  'flow-step': ['FlowFaces'],
+  'group-label': ['GroupLabel'],
+  'heat-grid': ['HeatGrid', 'HeatLegend'],
+  'hover-card': ['HOVER_CARD_COLLISION_PADDING', 'HOVER_CARD_OPEN_DELAY', 'HOVER_CARD_SIDE_OFFSET', 'HOVER_CARD_WIDTH_REM', 'HoverCard', 'HoverCardContent', 'HoverCardTrigger'],
+  'icon-tile': ['FaceBadge', 'IconTile'],
+  'input': ['Input'],
+  'key-value': ['KeyValue', 'KeyValueRow', 'MiddleTruncate', 'SummaryItem', 'SummaryList'],
+  'label': ['Label'],
+  'list-row': ['ListRow', 'ListRowDetail', 'ListRows'],
+  'message': ['Message', 'MessageContent', 'MessageFooter'],
+  'native-select': ['NativeSelect'],
+  'popover': ['Popover', 'PopoverPopup', 'PopoverPortal', 'PopoverPositioner', 'PopoverTrigger'],
+  'progress': ['Progress', 'ProgressRing', 'ProgressStack'],
+  'resize-handle': ['ResizeHandle'],
+  'section': ['Section', 'SectionBody', 'SectionFooter', 'Toolbar', 'ToolbarGap', 'useInPageSection'],
+  'separator': ['Separator'],
+  'sidebar': ['SidebarGroup', 'SidebarGroupContent', 'SidebarMenu', 'SidebarMenuAction', 'SidebarMenuBadge', 'SidebarMenuButton', 'SidebarMenuItem'],
+  'sortable-list': ['SortableAnnouncer', 'SortableHandle', 'sortableItemClass', 'useSortable'],
+  'spark': ['Tick'],
+  'switch': ['Switch', 'SwitchShape'],
+  'table': ['Table', 'TableBody', 'TableCaption', 'TableCell', 'TableFooter', 'TableHead', 'TableHeader', 'TableRow'],
+  'tabs': ['Tabs', 'TabsList', 'TabsTrigger'],
+  'textarea': ['Textarea'],
+  'timeline-cards': ['TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineCards', 'TimelineDocument'],
+  'timeline': ['Timeline', 'TimelineItem'],
+  'toast': ['Toaster', 'toast'],
+  'toggle-group': ['ToggleGroup', 'ToggleGroupItem'],
+  'tone': ['dotTint', 'dotTone', 'inkTint', 'inkTone', 'softTint', 'softTone', 'solidTint', 'tintFor', 'tintsFor'],
+  'tool-pane': ['ToolPane', 'ToolPaneActivity', 'ToolPaneActivityMark', 'ToolPaneBar', 'ToolPaneBody', 'ToolPaneDocumentTab', 'ToolPaneEmptyState', 'ToolPaneGuest', 'ToolPaneHeader', 'ToolPaneHeaderDivider', 'ToolPaneMessage', 'ToolPaneNotice', 'ToolPaneReading', 'ToolPaneStage', 'ToolPaneTabIcon', 'ToolPaneTabViewport', 'ToolPaneToolGroup'],
+  'tooltip': ['Tooltip', 'TooltipContent', 'TooltipTrigger'],
+}
+
+const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'attachment': { 'AttachmentMedia': { 'variant': ['icon', 'image', 'picture'] } },
+  'avatar-stack': { 'AvatarStack': { 'size': ['sm', 'default', 'stack'] } },
+  'card': { 'Card': { 'variant': ['default', 'muted', 'flush', 'plate', 'raised'] }, 'CardViewport': { 'size': ['editor', 'lines'] } },
+  'dropdown-menu': { 'DropdownMenuItem': { 'variant': ['default', 'destructive'] } },
+  'empty-state': { 'EmptyState': { 'variant': ['panel', 'inline', 'row'] } },
+  'flow-step': { 'FlowFaces': { 'size': ['sm'] } },
+  'key-value': { 'KeyValue': { 'variant': ['default', 'panel'] }, 'KeyValueRow': { 'variant': ['default', 'panel'] } },
+  'list-row': { 'ListRow': { 'size': ['sm', 'default'] }, 'ListRows': { 'size': ['sm', 'default'] } },
+  'progress': { 'Progress': { 'size': ['xs', 'sm', 'default'] } },
+  'table': { 'Table': { 'variant': ['default', 'framed', 'panel'] }, 'TableCaption': { 'variant': ['default', 'sr-only', 'panel'] }, 'TableCell': { 'variant': ['default', 'matrix', 'flush', 'detail', 'footer', 'panel'] }, 'TableFooter': { 'variant': ['default', 'plain'] }, 'TableHead': { 'variant': ['default', 'matrix', 'row', 'footer', 'panel'] }, 'TableHeader': { 'variant': ['default', 'log'] }, 'TableRow': { 'variant': ['default', 'matrix', 'panel'] } },
+  'tool-pane': { 'ToolPane': { 'variant': ['default', 'integrated'] }, 'ToolPaneBar': { 'variant': ['terminal', 'address', 'find', 'annotate', 'tools'] }, 'ToolPaneHeader': { 'variant': ['default', 'window'] } },
+}
+
+const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
+  'ActionError': ['ActionError'],
+  'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
+  'AppWindow': ['AppWindowPage', 'AppWindowRail', 'AppWindowRailScroll', 'AppWindowRailTop', 'AppWindowSurface'],
+  'ApprovalDialog': ['ApprovalChoiceHint', 'ApprovalCode', 'ApprovalDialog', 'ApprovalFilePath', 'ApprovalMeta', 'ApprovalPermissionList', 'ApprovalQuestionText', 'ApprovalReason'],
+  'Change': ['ChangeStats', 'FileState', 'PatchHeader'],
+  'ChannelMessage': ['ChannelMessage', 'ChannelNotice', 'ChannelSignal'],
+  'Checklist': ['Checklist', 'ChecklistItem'],
+  'CodeBlock': ['CodeBlock'],
+  'ConfirmDialog': ['ConfirmDialog'],
+  'ConversationEmptyState': ['ConversationEmptyState'],
+  'CopyButton': ['CopyButton', 'copyButtonIconMarkup'],
+  'DialogForm': ['ChoiceList', 'Fieldset'],
+  'DockPanel': ['DockDropEdge', 'DockDropTarget', 'DockPanel', 'DockPanelActions', 'DockPanelBar', 'DockPanelBody', 'DockPanelTab', 'DockPanelTabs', 'PaneSurface', 'PanelSeam', 'RailSection', 'WorkbenchCanvas', 'WorkbenchRail', 'WorkbenchScrim'],
+  'FlowCanvas': ['FLOW_CANVAS_CARD_WIDTH', 'FLOW_CANVAS_RUN_CARD_HEIGHT', 'FlowCanvas'],
+  'FlowGraph': ['FlowGraph'],
+  'FlowStepRow': ['FlowStepRow', 'RunStateChip'],
+  'HeaderStatusGroup': ['HeaderStatusGroup', 'HeaderStatusReading', 'useHeaderStatusGroup'],
+  'InspectorPanel': ['Counts', 'GroupLine', 'PanelBody', 'PanelEmpty', 'PanelFilter', 'PanelFooter', 'PanelFrame', 'PanelPill', 'PanelRow', 'PanelTools', 'RowTime', 'RunDot'],
+  'Lightbox': ['Lightbox'],
+  'Menu': ['ContextMenu', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
+  'ModalDialog': ['Dialog', 'DialogBody', 'DialogHead', 'DialogSubhead'],
+  'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
+  'PaneColumn': ['PaneColumn', 'useComposerHeightVar'],
+  'PlanCard': ['PlanCard'],
+  'Popover': ['Popover', 'PopoverGroupLabel', 'PopoverOption', 'PopoverOptionBody', 'PopoverOptionHint', 'PopoverOptionLabel', 'PopoverOptionLive', 'PopoverOptionMark', 'PopoverSurface', 'dismissOverlays', 'useDismissOverlays', 'useEscapeSurface'],
+  'PublicationCard': ['KindGlyph', 'StatePill', 'publicationVerb', 'stateTone'],
+  'RefusedAction': ['RefusedAction'],
+  'Settings': ['AccountMark', 'BackLink', 'Chip', 'Clipped', 'CodeText', 'DetailHead', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'PageDescription', 'PageHead', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'Spinner', 'Text', 'TextMark'],
+  'SettingsRowMenu': ['SettingsRowMenu'],
+  'SidebarMenuState': ['SidebarMenuState'],
+  'TurnWork': ['TurnItem', 'TurnWorkBody', 'TurnWorkHeader', 'TurnWorkHeaderLabel', 'TurnWorkLive'],
+  'UsageMeterRow': ['UsageMeterRow'],
+}
+
+const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
+  'Notices': { 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
+  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Search': { 'size': ['default', 'compact'] } },
+}
+
 const primitive = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   id: `primitive.${name}`,
   category: 'Primitives',
   implementationPath: `packages/ui/src/design/ui/${name}.${name === 'tone' ? 'ts' : 'tsx'}`,
+  symbols: UI_SYMBOLS[name] ?? [],
+  symbolAxes: UI_SYMBOL_AXES[name],
   purpose,
   exampleId,
   variants: variantsFor(name),
@@ -491,6 +611,8 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   id: `pattern.${name}`,
   category: 'Patterns',
   implementationPath: `packages/ui/src/design/patterns/${name}.tsx`,
+  symbols: PATTERN_SYMBOLS[name] ?? [],
+  symbolAxes: PATTERN_SYMBOL_AXES[name],
   purpose,
   exampleId,
   variants: variantsFor(name),
