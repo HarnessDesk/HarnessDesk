@@ -1,5 +1,5 @@
 import { Button, Chip, CodeText, PopoverGroupLabel, PopoverSurface, Text } from '../design'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 
 import { CheckIcon, FileIcon, SessionIcon, SlashIcon, SparkIcon } from './Icons'
 import styles from './TriggerMenu.module.css'
@@ -46,6 +46,7 @@ export const TriggerMenu = ({
   onHover,
   onPick,
   emptyLabel,
+  anchor,
 }: {
   title?: string
   items: readonly TriggerItem[]
@@ -53,6 +54,7 @@ export const TriggerMenu = ({
   onHover: (index: number) => void
   onPick: (item: TriggerItem) => void
   emptyLabel?: string
+  anchor?: RefObject<HTMLElement | null>
 }): ReactNode => {
   const container = useRef<HTMLDivElement>(null)
 
@@ -63,7 +65,7 @@ export const TriggerMenu = ({
   }, [activeIndex])
 
   return (
-    <PopoverSurface className={styles.menu} ref={container} role="listbox" limit="trigger">
+    <PopoverSurface anchor={anchor} className={anchor ? undefined : styles.menu} ref={container} role="listbox" limit="trigger">
       {title && <PopoverGroupLabel>{title}</PopoverGroupLabel>}
       {items.length === 0 && <div className="hd-empty-line">{emptyLabel ?? 'No matches'}</div>}
       {items.map((item, index) => (

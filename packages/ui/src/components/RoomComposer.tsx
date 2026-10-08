@@ -236,6 +236,7 @@ export const RoomComposer = ({
   // Whether this room's own strip is the one the layout has chosen to carry
   // the desk-wide messages — never a second, competing answer of its own.
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const shell = useRef<HTMLDivElement>(null)
   const [localDraft, setLocalDraft] = useState<RoomComposerDraft>(EMPTY_ROOM_DRAFT)
   const { text: draft, to } = draftState?.value ?? localDraft
   const updateDraft = draftState?.onChange ?? setLocalDraft
@@ -605,9 +606,10 @@ export const RoomComposer = ({
       <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`room-composer:${mount?.id ?? 'unmounted'}`} />
       <ComposerNotices />
     </ComposerNoticeStack>
-    <ComposerShell className="relative">
+    <ComposerShell ref={shell} className="relative">
       {mention && (
         <TriggerMenu
+          anchor={defaultAudience ? shell : undefined}
           title="Address"
           items={items}
           activeIndex={active}

@@ -148,7 +148,7 @@ const chips = (): readonly string[] =>
     (one) => one.textContent?.replace(/\s+/g, ' ').trim() ?? '',
   )
 
-const menu = (): HTMLElement | null => container.querySelector('[role="listbox"]')
+const menu = (): HTMLElement | null => document.body.querySelector('[role="listbox"]')
 
 /* The audience anchor and the menu it opens. The menu is portalled to the body
    — a fixed panel inside an overflowing pane is a panel with a scrollbar — so
