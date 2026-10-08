@@ -123,8 +123,8 @@ const SHOW_EMPTY = new URLSearchParams(window.location.search).has('empty')
 const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
 /* Up to four more full `<Conversation>`s, one per tile — the duplication
    `?empty` is gated against, four times over. Only on
-   `preview.html?side-by-side`; the design page's own board draws the grid
-   for the coverage sweep. */
+   `preview.html?side-by-side`; the coverage sweep visits this Team's shared
+   composer as well as the design page's standalone grids. */
 const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-by-side')
 /* The Library's UX option mockups are a design record for the owner, not a
    shipped surface: they render only on `preview.html?library-options`, so the
