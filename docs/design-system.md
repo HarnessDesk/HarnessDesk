@@ -1146,6 +1146,12 @@ steps — so a screen reader hears them as a sequence, not a set.
 
 Exact command text and its output, drawn as one readable plate.
 
+### `ComparisonNotice`
+
+`packages/ui/src/design/patterns/ComparisonNotice.tsx`
+
+A comparison’s quiet result shelf. Its reserved space keeps the grid still when a pick arrives; actions never cover a conversation or its composer.
+
 ### `ConfirmDialog`
 
 `packages/ui/src/design/patterns/ConfirmDialog.tsx`

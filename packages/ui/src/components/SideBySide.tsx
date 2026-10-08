@@ -49,13 +49,15 @@ export type TileEntry = {
   readonly waitingForYou?: boolean
   /** How its last turn ended, while it is neither working nor waiting: done, or stopped short. */
   readonly ended?: 'done' | 'stopped'
+  /** The Run's recorded outcome for this competitor, independent of its conversation state. */
+  readonly keep?: 'kept' | 'not-kept' | null
   /** What it may do unasked, when held under a ceiling — the safety fact the conversation's own header carried. */
   readonly ceiling?: SeatCeilingShown | null
 }
 
 /** Resolve the room facts into the entry the shipped tile draws. */
 export const sideBySideTileEntry = (
-  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'ceiling'> & {
+  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'ceiling' | 'keep'> & {
     readonly lastTurnStatus?: Turn['status']
   },
 ): TileEntry => ({
@@ -64,6 +66,7 @@ export const sideBySideTileEntry = (
   busy: entry.busy,
   waitingForYou: entry.waitingForYou,
   ceiling: entry.ceiling,
+  keep: entry.keep,
   ...(entry.lastTurnStatus === 'completed'
     ? { ended: 'done' as const }
     : entry.lastTurnStatus === 'interrupted' || entry.lastTurnStatus === 'failed'
@@ -80,6 +83,7 @@ export const SideBySide = ({
   entryOf,
   onOpenMember,
   conversationProps,
+  notice,
   card = (_key, who) => who,
 }: {
   state: SideBySideState
@@ -90,6 +94,7 @@ export const SideBySide = ({
   entryOf: (key: SessionKey) => TileEntry | null
   onOpenMember: (key: SessionKey) => void
   conversationProps: ConversationProps
+  notice?: React.ReactNode
   /**
    * Wraps a tile's identity — its mark, name and model — in whatever card the
    * caller hangs on a member (the room's member hover card). Passed in so the
@@ -210,6 +215,7 @@ export const SideBySide = ({
 
   return (
     <div className={styles.root} onKeyDown={onKeyDown}>
+      {notice}
       {/* One tile at a time when the room is too narrow for two: the system's
           tabs pick which, with their arrow keys and roving focus. */}
       {narrow && (
@@ -274,6 +280,7 @@ export const SideBySide = ({
                     {model && <Text role="meta" className={styles.model} truncate>{model}</Text>}
                   </span>
                 ))}
+                {entry?.keep && <Chip tone={entry.keep === 'kept' ? 'success' : 'neutral'} size="sm">{entry.keep === 'kept' ? 'Picked' : 'Not kept'}</Chip>}
                 {entry?.ceiling && <CeilingChip ceiling={entry.ceiling.ceiling} note={entry.ceiling.note} />}
                 {/* Waiting outranks working, as it does everywhere a pane's
                     state is told (`paneStatus`): a turn held on an approval

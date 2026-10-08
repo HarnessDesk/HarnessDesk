@@ -101,7 +101,7 @@ import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
-import { SideBySideFrames } from './frames-side-by-side'
+import { SideBySideFrames, ComparisonVerdictPreview } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
 import { HeaderStatusFrames } from './frames-header-status'
 import { ReadCeilingFrames } from './frames-read-ceiling'
@@ -1225,6 +1225,8 @@ createRoot(container).render(
           ? <FindingsPreview />
           : new URLSearchParams(window.location.search).has('agent-brief')
           ? <AgentBriefFrames />
+          : new URLSearchParams(window.location.search).has('comparison-verdict')
+          ? <ComparisonVerdictPreview />
           : new URLSearchParams(window.location.search).has('read-ceiling')
           ? <ReadCeilingFrames />
           : new URLSearchParams(window.location.search).has('cli-install')

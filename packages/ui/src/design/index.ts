@@ -210,3 +210,4 @@ export { UsageMeterRow } from './patterns/UsageMeterRow'
 export { FlowCanvas, FLOW_CANVAS_CARD_WIDTH, FLOW_CANVAS_RUN_CARD_HEIGHT, type FlowCanvasStep, type FlowCanvasNode, type FlowCanvasEdge, type FlowCanvasNodeChange, type FlowCanvasEdgeChange, type FlowCanvasNodeProps, type FlowCanvasProps } from './patterns/FlowCanvas'
 
 export { HeaderStatusGroup, HeaderStatusReading, useHeaderStatusGroup } from './patterns/HeaderStatusGroup'
+export { ComparisonNotice } from './patterns/ComparisonNotice'

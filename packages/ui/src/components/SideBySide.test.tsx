@@ -352,3 +352,19 @@ it('moves the keyboard even when the chord names the tile that already has the k
   act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-1' })) })
   expect(tile().contains(document.activeElement)).toBe(true)
 })
+
+it('adds a success Picked or quiet Not kept chip only for a recorded comparison outcome', () => {
+  const prior = keys.slice(0, 2).map(key => entries.get(key)!)
+  entries.set(keys[0]!, { ...(prior[0] as unknown as Record<string, unknown>), keep: 'kept' } as never)
+  entries.set(keys[1]!, { ...(prior[1] as unknown as Record<string, unknown>), keep: 'not-kept' } as never)
+  try {
+    mount()
+    const headers = [...container.querySelectorAll('header')]
+    expect(text(headers[0]!, 'Picked').closest('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('success')
+    expect(text(headers[1]!, 'Not kept').closest('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('neutral')
+    // Outcomes do not hide an approval that still needs an answer.
+    expect(headers[1]?.textContent).toContain('Waiting for you')
+  } finally {
+    keys.slice(0, 2).forEach((key, i) => entries.set(key, prior[i]!))
+  }
+})

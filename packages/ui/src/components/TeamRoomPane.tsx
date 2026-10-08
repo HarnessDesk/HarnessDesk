@@ -68,6 +68,9 @@ import { MemberHoverCard, SeatFace, type SeatFaceIdentity, type MemberCardFacts 
 import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
 import { SideBySide, sideBySideTileEntry } from './SideBySide'
+import { ComparisonVerdict } from './ComparisonVerdict'
+import { PersonStepDialog } from './PersonStepDialog'
+import { comparisonVerdictOf } from '../lib/comparison-verdict'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
@@ -764,6 +767,24 @@ export const TeamRoomPane = ({
   }), [heldClient, room, intents, entries, seats, members, displayMembers, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
   const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions }) : null,
   [heldClient, flowExecution, snapshot.sessions])
+  const comparisonTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, {
+    sessions: snapshot.sessions, evidence: snapshot.boardEvidence.get(room),
+  }) : null, [heldClient, flowExecution, snapshot.sessions, snapshot.boardEvidence, room])
+  const comparison = comparisonTimeline && flowExecution ? comparisonVerdictOf(comparisonTimeline, flowExecution, intents) : null
+  const comparisonId = comparison?.id ?? null
+  const [comparisonDismissal, setComparisonDismissal] = useState({ id: comparisonId, hidden: false })
+  if (comparisonDismissal.id !== comparisonId) setComparisonDismissal({ id: comparisonId, hidden: false })
+  const hasComparison = Boolean(comparisonTimeline?.rows.some(one => one.attempt))
+  const comparisonKeeps = new Map(comparison?.kind === 'picked' ? [...comparison.keeps].flatMap(([card, keep]) => {
+    const row = comparisonTimeline?.rows.find(one => one.card === card)
+    const seat = seats.find(one => one.record.id === row?.seat)
+    return seat ? [[seat.key, keep] as const] : []
+  }) : [])
+  const [pickingComparison, setPickingComparison] = useState<string | null>(null)
+  useEffect(() => {
+    if (open !== 'side-by-side' || !flowExecution) return
+    void store.loadBoardEvidence(room)
+  }, [store, room, open, flowExecution?.id, flowExecution?.rounds.map(one => `${one.n}:${one.state}:${one.cards.join(',')}`).join('|')])
   const stoppingSessions = new Set(overviewTimeline?.rows.filter(row => row.status === 'Stopping').flatMap(row => {
     const claim = intents.find(card => card.id === row.card)?.claim
     return claim ? [sessionKey(claim.runtime, claim.sessionId)] : []
@@ -1307,8 +1328,24 @@ export const TeamRoomPane = ({
                   waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
                   ceiling: entry.ceiling,
                   lastTurnStatus: snapshot.sessions.get(key)?.turns.at(-1)?.status,
+                  keep: comparisonKeeps.get(key),
                 })
               }}
+              notice={hasComparison && <>
+                <ComparisonVerdict verdict={comparison}
+                  dismissed={comparisonDismissal.id === comparisonId && comparisonDismissal.hidden}
+                  onDismiss={() => setComparisonDismissal({ id: comparisonId, hidden: true })}
+                  nameOfSeat={id => { const seat = seats.find(one => one.record.id === id); return members.find(one => sessionKey(one.runtime, one.sessionId) === seat?.key)?.nickname ?? seat?.name ?? 'Judge' }}
+                  onOpenRun={row => {
+                    if (!flowExecution) return
+                    setChosenRun(flowExecution.id)
+                    if (row) setSelectedRunRows(was => new Map(was).set(flowExecution.id, row))
+                    show('run')
+                  }}
+                  onPick={() => { if (comparison?.kind === 'waiting') setPickingComparison(comparison.id) }} />
+                {comparison?.kind === 'waiting' && pickingComparison === comparison.id && <PersonStepDialog key={comparison.id}
+                  room={room} intent={comparison.card} role={comparison.step} mode="review" onClose={() => setPickingComparison(null)} />}
+              </>}
               onOpenMember={(key) => show(key)}
               conversationProps={{ onChooseProject, onSignIn, onOpenUsage, onOpenRuntimes }}
               card={(key, who) => (

@@ -1024,6 +1024,17 @@ beside that amount. Older cards show their number and **Card title not recorded*
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+In a comparison, Side by side reserves a quiet shelf above the tiles. Before a
+pick it draws nothing there. The Run's recorded selection adds **Picked** in
+success ink to the chosen attempt's tile bar and quiet **Not kept** to the
+other; working state and approvals remain visible. The shelf names the judge
+and chosen attempt, with the recorded reason only when it is already one
+sentence. **Merge the picked change** opens that Run's next person step; it
+never merges. A person judging a waiting pick sees **Pick an attempt…**, which
+opens the Board's same attempt dialog. Dismissal survives leaving and returning
+to Side by side and ends only when the verdict changes. No passing or recorded
+selected attempt means no winner. The shelf keeps its own space at the top,
+clear of transcript tails, approvals and the shared composer dock.
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and
 role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where members open from the bar. The Team’s Agents list keeps the same
