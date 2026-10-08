@@ -1146,6 +1146,12 @@ steps — so a screen reader hears them as a sequence, not a set.
 
 Exact command text and its output, drawn as one readable plate.
 
+### `ComparisonNotice`
+
+`packages/ui/src/design/patterns/ComparisonNotice.tsx`
+
+A comparison’s quiet result shelf, composed from Alert. Its fixed grid track keeps the tiles still; long recorded text scrolls whole while actions remain visible.
+
 ### `ConfirmDialog`
 
 `packages/ui/src/design/patterns/ConfirmDialog.tsx`

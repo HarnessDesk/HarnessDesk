@@ -366,6 +366,21 @@ it('moves the keyboard even when the chord names the tile that already has the k
   expect(tile().contains(document.activeElement)).toBe(true)
 })
 
+it('adds a success Picked or quiet Not kept chip only for a recorded comparison outcome', () => {
+  const prior = keys.slice(0, 2).map(key => entries.get(key)!)
+  entries.set(keys[0]!, { ...(prior[0] as unknown as Record<string, unknown>), keep: 'kept' } as never)
+  entries.set(keys[1]!, { ...(prior[1] as unknown as Record<string, unknown>), keep: 'not-kept' } as never)
+  try {
+    mount()
+    const headers = [...container.querySelectorAll('header')]
+    expect(text(headers[0]!, 'Picked').closest('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('success')
+    expect(text(headers[1]!, 'Not kept').closest('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('neutral')
+    // Outcomes do not hide an approval that still needs an answer.
+    expect(headers[1]?.textContent).toContain('Waiting for you')
+  } finally {
+    keys.slice(0, 2).forEach((key, i) => entries.set(key, prior[i]!))
+  }
+})
 it.each([1, 2, 3, 4])('shows exactly one shared composer for %i tiles only when several are displayed', (count) => {
   const shown = fourKeys.slice(0, count)
   const composer = vi.fn((recipients: readonly SessionKey[]) => <textarea aria-label="Shared message" data-recipients={JSON.stringify(recipients)} />)
@@ -497,6 +512,23 @@ it('switches one tile to Browser, keeps its sibling in Conversation, and invents
   expect(saved.modes).toEqual({ [keys[0]!]: 'browser' })
   click(mode(tiles[0]!, 'Conversation'))
   expect(tiles[0]!.querySelector('[data-testid="conversation-body"]')).not.toBeNull()
+})
+
+it('keeps recorded verdict chips beside the view switch when a tile shows Browser', () => {
+  const prior = keys.slice(0, 2).map(key => entries.get(key)!)
+  entries.set(keys[0]!, { ...(prior[0] as unknown as Record<string, unknown>), keep: 'kept' } as never)
+  entries.set(keys[1]!, { ...(prior[1] as unknown as Record<string, unknown>), keep: 'not-kept' } as never)
+  try {
+    mount(baseState(), { composer: () => <textarea aria-label="Shared message" /> })
+    const tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+    click(mode(tiles[0]!, 'Browser'))
+    expect(tiles[0]!.querySelector('header')?.textContent).toContain('Picked')
+    expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+    expect(tiles[1]!.querySelector('header')?.textContent).toContain('Not kept')
+    expect(container.querySelectorAll('[aria-label="Shared message"]')).toHaveLength(1)
+  } finally {
+    keys.slice(0, 2).forEach((key, i) => entries.set(key, prior[i]!))
+  }
 })
 
 it('keeps per-tile modes through expand, collapse, narrow tabs and a stored restart', () => {

@@ -166,6 +166,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  ComparisonNotice: ['default'],
   HeaderStatusGroup: ['default'],
   'flow-step': ['default'],
   alert: ['default', 'soft'],
@@ -263,6 +264,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  ComparisonNotice: ['default', 'needs-you', 'empty'],
   HeaderStatusGroup: ['default', 'warning'],
   'flow-step': ['default', 'working', 'needs-you', 'loading', 'error', 'empty'],
   alert: ['default', 'success', 'warning', 'error'],
@@ -386,6 +388,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  ComparisonNotice: 'packages/ui/src/components/ComparisonVerdict.tsx',
   HeaderStatusGroup: 'packages/ui/src/components/Conversation.tsx',
   Settings: 'packages/ui/src/components/Settings.tsx',
   ModalDialog: 'packages/ui/src/components/Settings.tsx',
@@ -421,6 +424,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  ComparisonNotice: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   HeaderStatusGroup: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SidebarMenuState: 'packages/ui/src/design/explorer/boards.tsx',
   /* The workbench is the example: it is what docks, seams and expands, and the
@@ -565,6 +569,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['ComparisonNotice', 'comparison-notice', 'A comparison verdict shelf with recorded text, an unanswered next step and reserved space after dismissal'],
   ['HeaderStatusGroup', 'header-status', 'One neutral header chip with a labelled hover and focus card for every reading'],
   ['SidebarMenuState', 'sidebar', 'A conversation or room state chip folding onto the action rail'],
   ['Settings', 'row', 'Settings pages, sections, rows and form layouts'],

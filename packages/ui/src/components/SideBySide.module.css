@@ -38,6 +38,12 @@
   min-width: 0;
 }
 
+/* The member card may wrap the identity, so the header's flex item owns the
+   minimum. Chips and the view switch wrap before squeezing its name. */
+.header > :first-child {
+  min-width: var(--hd-space-18);
+}
+
 .member {
   display: grid; /* desk: flex -> grid, member names take space before model detail in both interfaces */
   flex: 1 1 auto;

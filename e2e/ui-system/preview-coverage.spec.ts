@@ -43,6 +43,31 @@ const EXEMPT: Readonly<Record<string, string>> = {
   'components/Notices.tsx#Notices': 'The toast and inbox coordinator returns no DOM of its own; its visible outlets are covered separately by NoticeStripOutlet and SidebarNotices.',
 }
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`the comparison notice catalogue keeps its shelf in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/design.html?view=comparison-notice')
+    await expect(page.getByRole('heading', { name: 'Comparison notice', exact: true })).toBeVisible()
+    const picked = page.locator('[data-catalog-case="picked"]')
+    await expect(picked.getByRole('status')).toContainText('Attempt A picked by Judge')
+    await expect(picked.getByRole('button', { name: 'Merge the picked change' })).toBeVisible()
+    const waiting = page.locator('[data-catalog-case="waiting"]')
+    await expect(waiting.getByRole('button', { name: 'Pick an attempt…' })).toBeVisible()
+    await expect(waiting.locator('[data-waiting]')).toBeVisible()
+    const longText = page.locator('[data-catalog-case="long-reason"]').getByRole('status')
+    await expect(longText).toBeVisible()
+    expect(await longText.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+    const shelf = picked.locator('[data-slot="comparison-notice-slot"]')
+    const measured = page.locator('[data-catalog-variant="default"][data-catalog-size="default"]')
+    await expect(measured, 'metrics measure one shelf, without the board captions and other states').toHaveAttribute('data-slot', 'comparison-notice-slot')
+    const before = await shelf.boundingBox()
+    await picked.getByRole('button', { name: 'Dismiss verdict' }).click()
+    await expect(picked.getByRole('status')).toHaveCount(0)
+    expect((await shelf.boundingBox())?.height).toBe(before?.height)
+    await expect(page.locator('[data-catalog-case="empty"] [data-slot="comparison-notice"]')).toHaveCount(0)
+  })
+}
+
 /**
  * A product surface is code-split under Explorer's Suspense boundary. The nav
  * selection updates before its lazy tree mounts, so the title alone is not a
@@ -299,6 +324,21 @@ test.describe('preview coverage', () => {
     const sharedComposerCoverage = await collectCoverage(page)
     expect(sharedComposerCoverage.covered).toContain('components/RoomComposerOptions.tsx#RoomComposerOptions')
     for (const component of sharedComposerCoverage.covered) covered.add(component)
+
+    // Comparison frames mount the recorded verdict; its person scene opens
+    // the same real attempt dialog as the Board, with synthetic candidates.
+    await page.goto('/preview.html?comparison-verdict')
+    await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-notice"]')).toContainText('picked Attempt A')
+    const verdictCoverage = await collectCoverage(page)
+    expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
+    for (const component of verdictCoverage.covered) covered.add(component)
+    await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
+    const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })
+    await expect(pick.getByRole('radiogroup', { name: 'Attempts' })).toBeVisible()
+    await expect(pick).toContainText('attempt-1')
+    const personCoverage = await collectCoverage(page)
+    expect(personCoverage.covered).toContain('components/PersonStepDialog.tsx#PersonStepDialog')
+    for (const component of personCoverage.covered) covered.add(component)
 
     // A trigger Team mounts its history only after the Runs tab opens.
     await page.goto('/preview.html?team-frame=trigger-runs')

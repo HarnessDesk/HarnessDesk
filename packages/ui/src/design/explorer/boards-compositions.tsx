@@ -236,6 +236,7 @@ import { Specimen } from './specimen'
 import styles from './explorer.module.css'
 import { PlanCard } from '../patterns/PlanCard'
 import { UsageMeterRow } from '../patterns/UsageMeterRow'
+import { ComparisonNotice } from '../patterns/ComparisonNotice'
 
 /**
  * The composition layer, board by board.
@@ -2911,7 +2912,39 @@ const HeaderStatusBoard = () => (
   </div>
 )
 
+const COMPARISONNOTICE_CATALOG_VARIANTS = ['default'] as const
+const COMPARISONNOTICE_CATALOG_SIZES = ['default'] as const
+const COMPARISONNOTICE_CATALOG_STATES = ['default', 'needs-you', 'empty'] as const
+const ComparisonNoticeBoard = () => {
+  const [dismissed, setDismissed] = useState(false)
+  return <>
+    <Specimen measure="wide" caption="Picked, waiting for a person, long recorded text and an empty shelf">
+      <div className="grid gap-4">
+        {COMPARISONNOTICE_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} data-catalog-case={state === 'default' ? 'picked' : state === 'needs-you' ? 'waiting' : 'empty'}>
+          <Text role="meta">{state === 'default' ? 'Recorded pick — dismiss to inspect the reserved space' : state === 'needs-you' ? 'Waiting for a person' : 'No verdict — space reserved'}</Text>
+          <ComparisonNotice
+            data-catalog-variant={state === 'default' ? COMPARISONNOTICE_CATALOG_VARIANTS[0] : undefined}
+            data-catalog-size={state === 'default' ? COMPARISONNOTICE_CATALOG_SIZES[0] : undefined}
+            title={state === 'empty' || (state === 'default' && dismissed) ? undefined : state === 'needs-you' ? 'Judge is waiting for your pick' : 'Attempt A picked by Judge'}
+            reason={state === 'default' ? 'The attempt keeps the retry bounded and preserves the original error.' : undefined}
+            waiting={state === 'needs-you'}
+            action={state === 'empty' ? undefined : { label: state === 'needs-you' ? 'Pick an attempt…' : 'Merge the picked change', onSelect: () => undefined }}
+            onDismiss={state === 'default' ? () => setDismissed(true) : undefined}
+          />
+        </div>)}
+        <div data-catalog-state="default" data-catalog-case="long-reason">
+          <Text role="meta">Long recorded text — scrolls whole inside the shelf</Text>
+          <ComparisonNotice title="Attempt A picked by Judge" reason={'The selected attempt preserves the original error and keeps every retry within the recorded limit, '.repeat(16) + 'so the next step can continue.'} />
+        </div>
+        <Button variant="ghost" size="sm" disabled={!dismissed} onClick={() => setDismissed(false)}>Restore verdict</Button>
+      </div>
+    </Specimen>
+    <Rule>The shelf keeps its space before a pick and after dismissal. Recorded text scrolls inside it; the next action remains visible while it needs an answer.</Rule>
+  </>
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'comparison-notice', title: 'Comparison notice', about: 'The real comparison shelf, with a recorded pick, a waiting person and text that scrolls without moving the tiles.', render: ComparisonNoticeBoard },
   { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
   { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
