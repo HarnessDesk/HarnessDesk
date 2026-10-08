@@ -333,6 +333,8 @@ export interface AppSnapshot {
   readonly draftOptions: readonly ConfigOption[] | null
   /** The user's picks for the next session; sent as start options on create. */
   readonly draftValues: Readonly<Record<string, OptionValue>>
+  /** Rejected saved picks, retained until the person clears or replaces them. */
+  readonly staleDraftDefaults: Readonly<Record<string, readonly import('../lib/composer-slots').StaleDefault[]>>
   /**
    * Models kept out of the composer's picker, by agent. An account can offer
    * two hundred of them — Cursor's does — and a list that long is a scroll
@@ -840,6 +842,7 @@ const EMPTY: AppSnapshot = {
   runtimeOptions: [],
   draftOptions: null,
   draftValues: {},
+  staleDraftDefaults: {},
   teamsPrefs: { hidden: {}, seen: {} },
   hiddenModels: {},
   routes: [],

@@ -6,7 +6,7 @@ import type { ConfigOption, RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { ModelControl } from './ComposerControls'
+import { ModelControl, ModeControl, MoreControl, PermissionControl } from './ComposerControls'
 
 // ModelControl does not render either primitive, but ComposerControls imports
 // them through the full design barrel. Keep this focused test from loading
@@ -147,4 +147,58 @@ it.each(['claude-code', 'codex', 'other-agent'])('renders effort without an unde
   click(trigger)
   expect(document.querySelector('[role="menu"]')?.querySelector('[data-slot="chip"]')).toBeNull()
   expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Auto window')
+})
+
+it('keeps a removed current model visibly unavailable with valid choices and no automatic setter', () => {
+  const setOption = vi.fn()
+  const effort: ConfigOption = { id: 'effort', label: 'Reasoning', category: 'thought_level', type: 'select', currentValue: 'low', choices: [{ value: 'low', label: 'Low' }] }
+  let snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [model, effort] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, setOption } as unknown as AppStore
+  const render = () => act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
+  render()
+  snapshot = { ...snapshot, draftOptions: [{ ...model, choices: [{ value: 'brain-9', label: 'Brain 9' }] } as ConfigOption, effort] }
+  render()
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
+  expect(trigger.textContent).toContain('spark-3')
+  expect(trigger.querySelector('[data-slot="chip"]')?.textContent).toBe('Unavailable')
+  expect(trigger.textContent).not.toContain('Low')
+  expect(trigger.title).toContain('Low')
+  click(trigger)
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('spark-3 — Unavailable')
+  expect(setOption).not.toHaveBeenCalled()
+  const valid = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((node) => node.textContent?.includes('Brain 9'))!
+  click(valid)
+  expect(setOption).toHaveBeenCalledWith('model', 'brain-9')
+})
+
+it('flags a stale saved model in the control and offers one click to clear its original pick', () => {
+  const clearNewSessionDefault = vi.fn()
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [model],
+    staleDraftDefaults: { [cursor.id]: [{ id: 'model', label: 'Model', category: 'model', value: 'retired', valueLabel: 'Retired model', reason: 'This value is no longer offered.' }] } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, clearNewSessionDefault } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
+  expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
+  click(trigger)
+  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((node) => node.textContent?.includes('Use the agent’s current value'))!
+  expect(row.textContent).toContain('Retired model')
+  expect(row.textContent).toContain('This value is no longer offered.')
+  click(row)
+  expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'model')
+})
+
+it.each([['model', ModelControl], ['mode', ModeControl], ['_permissions', PermissionControl], ['_custom', MoreControl]] as const)('keeps the stale %s pick reachable after the whole option disappears', (category, Control) => {
+  const clearNewSessionDefault = vi.fn()
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [],
+    staleDraftDefaults: { [cursor.id]: [{ id: 'removed', label: 'Removed setting', category, value: 'original', valueLabel: 'Original value', reason: 'This setting is no longer offered.' }] } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, clearNewSessionDefault } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><Control /></StoreProvider>))
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
+  expect(trigger).toBeTruthy()
+  expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
+  click(trigger)
+  const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the agent’s current value'))!
+  expect(clear.textContent).toContain('Original value')
+  click(clear)
+  expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'removed')
 })
