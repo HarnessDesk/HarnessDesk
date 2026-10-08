@@ -43,6 +43,29 @@ const EXEMPT: Readonly<Record<string, string>> = {
   'components/Notices.tsx#Notices': 'The toast and inbox coordinator returns no DOM of its own; its visible outlets are covered separately by NoticeStripOutlet and SidebarNotices.',
 }
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`the comparison notice catalogue keeps its shelf in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/design.html?view=comparison-notice')
+    await expect(page.getByRole('heading', { name: 'Comparison notice', exact: true })).toBeVisible()
+    const picked = page.locator('[data-catalog-case="picked"]')
+    await expect(picked.getByRole('status')).toContainText('Attempt A picked by Judge')
+    await expect(picked.getByRole('button', { name: 'Merge the picked change' })).toBeVisible()
+    const waiting = page.locator('[data-catalog-case="waiting"]')
+    await expect(waiting.getByRole('button', { name: 'Pick an attempt…' })).toBeVisible()
+    await expect(waiting.locator('[data-waiting]')).toBeVisible()
+    const longText = page.locator('[data-catalog-case="long-reason"]').getByRole('status')
+    await expect(longText).toBeVisible()
+    expect(await longText.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+    const shelf = picked.locator('[data-slot="comparison-notice-slot"]')
+    const before = await shelf.boundingBox()
+    await picked.getByRole('button', { name: 'Dismiss verdict' }).click()
+    await expect(picked.getByRole('status')).toHaveCount(0)
+    expect((await shelf.boundingBox())?.height).toBe(before?.height)
+    await expect(page.locator('[data-catalog-case="empty"] [data-slot="comparison-notice"]')).toHaveCount(0)
+  })
+}
+
 /**
  * A product surface is code-split under Explorer's Suspense boundary. The nav
  * selection updates before its lazy tree mounts, so the title alone is not a
