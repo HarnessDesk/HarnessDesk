@@ -1,4 +1,4 @@
-import type { ConfigOption } from '@harnessdesk/protocol'
+import type { ConfigOption, OptionValue } from '@harnessdesk/protocol'
 
 /**
  * The composer and Settings need to make the same decision about where an
@@ -36,4 +36,38 @@ export const optionsBySlot = (options: readonly ConfigOption[] | undefined): Com
   }
   for (const option of options ?? []) slots[slotForCategory(option.category)].push(option)
   return slots
+}
+
+/** The saved pick survives separately from the values allowed to start a session. */
+export type StaleDefault = {
+  readonly id: string
+  readonly label: string
+  readonly category?: string
+  readonly value: OptionValue
+  readonly valueLabel: string
+  readonly reason: string
+}
+
+/** Explains saved picks the agent's answer no longer honours, in saved order. */
+export const staleDefaults = (
+  saved: Readonly<Record<string, OptionValue>>,
+  options: readonly ConfigOption[],
+  previous: readonly ConfigOption[] = [],
+): StaleDefault[] => {
+  // Some agents declare controls only after opening a conversation.
+  if (options.length === 0 && previous.length === 0) return []
+  return Object.entries(saved).flatMap(([id, value]) => {
+    const option = options.find((one) => one.id === id)
+    const earlier = previous.find((one) => one.id === id)
+    const choice = option?.type === 'select' ? option.choices.find((one) => one.value === value) : undefined
+    const oldChoice = earlier?.type === 'select' ? earlier.choices.find((one) => one.value === value) : undefined
+    const reason = !option ? 'This setting is no longer offered.'
+      : option.disabled || choice?.disabled
+        || (option.type === 'select' && !choice ? 'This value is no longer offered.'
+          : option.currentValue !== value ? 'The agent returned a different value.' : null)
+    if (!reason) return []
+    const metadata = earlier ?? option
+    return [{ id, label: metadata?.label ?? id, ...(metadata?.category ? { category: metadata.category } : {}),
+      value, valueLabel: oldChoice?.label ?? choice?.label ?? String(value), reason }]
+  })
 }

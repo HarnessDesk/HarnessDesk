@@ -13,7 +13,7 @@ import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
 import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
-import { optionsBySlot } from '../lib/composer-slots'
+import { optionsBySlot, slotForCategory, type ComposerOptionSlot, type StaleDefault } from '../lib/composer-slots'
 import {
   AlertIcon,
   AgentIcon,
@@ -186,6 +186,38 @@ const useComposerOptions = (): readonly ConfigOption[] | undefined => {
   if (session) return session.options
   return snapshot.draftOptions ?? undefined
 }
+
+/** One saved-default warning, shared by every option slot. */
+const useStaleDefaults = (slot: ComposerOptionSlot): readonly StaleDefault[] => {
+  const snapshot = useSnapshot()
+  const runtime = useRuntime()?.id
+  return (runtime ? snapshot.staleDraftDefaults[runtime] ?? [] : []).filter((one) => slotForCategory(one.category) === slot)
+}
+
+const DefaultWarning = () => <Text aria-label="Stale saved default" tone="warning" className="inline-flex shrink-0"><AlertIcon size={13} /></Text>
+
+const StaleDefaultRows = ({ stale }: { stale: readonly StaleDefault[] }) => {
+  const store = useStore()
+  const runtime = useRuntime()?.id
+  return <>{stale.map((one) => <MenuItem key={one.id} icon={<AlertIcon size={14} />}
+    label="Use the agent’s current value" hint={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`}
+    onSelect={() => { if (runtime) void store.clearNewSessionDefault(runtime, one.id) }} />)}
+    {stale.length > 0 && <MenuSeparator />}
+  </>
+}
+
+/** A removed setting keeps its warning reachable in the existing track. */
+const MissingOptionControl = ({ stale, label, reason, narrow, tight, children }: {
+  stale: readonly StaleDefault[]; label: string; reason: string; narrow: boolean; tight: boolean; children: ReactNode
+}) => stale.length > 0 ? (
+  <Popover fullWidth tightTrigger={tight} title={`${label} — stale saved default`} drop="up"
+    label={<>{children}<DefaultWarning />{!narrow && <Text role="row">{label}</Text>}{!tight && <Chevron />}</>}>
+    {(close) => <Menu close={close}><StaleDefaultRows stale={stale} /><MenuNote>{reason}</MenuNote></Menu>}
+  </Popover>
+) : <RefusedComposerControl label={label} reason={reason} narrow={narrow} tight={tight}>{children}</RefusedComposerControl>
+
+const UnavailableChoice = ({ option }: { option: ConfigOption }) => option.type === 'select' && !selectedChoice(option)
+  ? <MenuItem icon={<AlertIcon size={14} />} label={currentLabel(option)} disabled="This current value is no longer offered." onSelect={() => undefined} /> : null
 
 export type ComposerTrackName =
   | 'add'
@@ -388,6 +420,7 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
       ) : (
         <>
           <MenuLabel>{option.label}</MenuLabel>
+          <UnavailableChoice option={option} />
           {option.disabled && <MenuNote>{option.disabled}</MenuNote>}
           <ChoiceRows option={option} />
         </>
@@ -461,7 +494,7 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
 }
 
 const currentLabel = (option: SelectOption): string =>
-  selectedChoice(option)?.label ?? option.currentValue
+  selectedChoice(option)?.label ?? `${option.currentValue} — Unavailable`
 
 /** Permissions and approvals, plus saved presets that set several at once. */
 export const PermissionControl = () => {
@@ -470,14 +503,15 @@ export const PermissionControl = () => {
   const { ref, folded, tight } = useNarrowToolbar('permissions')
   const all = useComposerOptions()
   const options = optionsBySlot(all).permissions
+  const stale = useStaleDefaults('permissions')
 
   if (options.length === 0) {
     return (
       <ComposerTrack name="permissions" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label="Permissions" reason="This agent has no permission setting" narrow={folded} tight={tight}>
+          <MissingOptionControl stale={stale} label="Permissions" reason="This agent has no permission setting" narrow={folded} tight={tight}>
             <ShieldIcon size={13} />
-          </RefusedComposerControl>
+          </MissingOptionControl>
         </InToolbar>
       </ComposerTrack>
     )
@@ -502,6 +536,7 @@ export const PermissionControl = () => {
           label={
             <>
               {shieldFor(tone)}
+              {stale.length > 0 && <DefaultWarning />}
               {!folded && <Text role="row" className="truncate">{current}</Text>}
               {!tight && <Chevron />}
             </>
@@ -509,6 +544,7 @@ export const PermissionControl = () => {
         >
           {(close) => (
             <Menu close={close}>
+              <StaleDefaultRows stale={stale} />
               {presets.length > 0 && (
                 <>
                   <MenuLabel>Preset</MenuLabel>
@@ -567,6 +603,7 @@ export const ModelControl = () => {
   const { ask, dialog } = useOptionConfirm()
   const runtime = useRuntime()?.id
   const slots = optionsBySlot(all)
+  const stale = useStaleDefaults('model')
   const models = slots.model.filter((option) => option.category === 'model')
   const levels = slots.model.filter((option) => option.category === 'thought_level')
   // The picker offers what Settings left in it. The model a session is
@@ -587,9 +624,9 @@ export const ModelControl = () => {
     return (
       <ComposerTrack name="model" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label="Model" reason="This agent has no model setting" narrow={folded} tight={tight}>
+          <MissingOptionControl stale={stale} label="Model" reason="This agent has no model setting" narrow={folded} tight={tight}>
             <ModelIcon size={13} />
-          </RefusedComposerControl>
+          </MissingOptionControl>
         </InToolbar>
       </ComposerTrack>
     )
@@ -604,7 +641,8 @@ export const ModelControl = () => {
   const activeRoute = snapshot.routes.find((route) => route.id === snapshot.draftRouteId)
   // What the trigger says: the model — or the route a draft will start on —
   // and how hard it thinks.
-  const name = !session && activeRoute ? activeRoute.name : model.type === 'select' ? currentLabel(model) : model.label
+  const unavailable = model.type === 'select' && !selectedChoice(model)
+  const name = !session && activeRoute ? activeRoute.name : model.type === 'select' ? selectedChoice(model)?.label ?? model.currentValue : model.label
   const effort = firstLevel && !activeRoute ? currentLabel(firstLevel) : null
   const statuses = [...new Set((all ?? []).flatMap((option) => option.modelStatus ? [option.modelStatus] : []))]
 
@@ -632,8 +670,8 @@ export const ModelControl = () => {
           /* Narrow, the words go to the hover text — and so, with nothing else
              to name the trigger, to its accessible name. */
           title={
-            folded ? `${[name, effort, ...statuses].filter(Boolean).join(' · ')} — model and reasoning`
-              : ['Model and reasoning', ...statuses].join(' · ')
+            folded ? `${[name, unavailable && 'Unavailable', effort, ...statuses].filter(Boolean).join(' · ')} — model and reasoning`
+              : ['Model and reasoning', ...(unavailable ? [`${name} — Unavailable`, effort] : []), ...statuses].filter(Boolean).join(' · ')
           }
           drop="up"
           label={
@@ -649,19 +687,23 @@ export const ModelControl = () => {
               ) : (
                 <ModelIcon size={13} />
               )}
+              {stale.length > 0 && <DefaultWarning />}
               {/* The model reads as the subject, its effort as the qualifier. */}
-              {!folded && <Text role="row">{name}</Text>}
-              {effort && !folded && <Text ink="muted">{effort}</Text>}
+              {!folded && <Text role="row" className="min-w-0 flex-1 truncate">{name}</Text>}
+              {unavailable && !folded && <Chip tone="warning" size="sm" variant="quiet">Unavailable</Chip>}
+              {effort && !folded && !unavailable && <Text ink="muted">{effort}</Text>}
               {!tight && <Chevron />}
             </>
           }
         >
           {(close) => (
             <Menu close={close}>
+              <StaleDefaultRows stale={stale} />
               {statuses.length > 0 && <MenuLabel>{name} {statuses.map((status) =>
                 <Chip key={status} tone="neutral">{status}</Chip>)}</MenuLabel>}
               {model.type === 'select' ? (
                 <>
+                  <UnavailableChoice option={model} />
                   {model.disabled && <MenuNote>{model.disabled}</MenuNote>}
                   {/* What the runtime wants said about this list — a configured
                       model it cannot serve, say — sits above the list it explains. */}
@@ -688,6 +730,7 @@ export const ModelControl = () => {
                   width={280}
                 >
                   {option.description && <MenuNote>{option.description}</MenuNote>}
+                  <UnavailableChoice option={option} />
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
                   {index === 0 && levelToggles.length > 0 && <MenuSeparator />}
@@ -831,14 +874,15 @@ export const ModeControl = () => {
   const { ref, folded, tight } = useNarrowToolbar('mode')
   const all = useComposerOptions()
   const modes = optionsBySlot(all).mode
+  const stale = useStaleDefaults('mode')
   const mode = modes[0]
   if (!mode) {
     return (
       <ComposerTrack name="mode" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label="Mode" reason="This agent has no mode setting" narrow={folded} tight={tight}>
+          <MissingOptionControl stale={stale} label="Mode" reason="This agent has no mode setting" narrow={folded} tight={tight}>
             <ZapIcon size={13} />
-          </RefusedComposerControl>
+          </MissingOptionControl>
         </InToolbar>
       </ComposerTrack>
     )
@@ -858,6 +902,7 @@ export const ModeControl = () => {
           label={
             <>
               {current ? choiceIcon(mode, current) : <ZapIcon size={13} />}
+              {stale.length > 0 && <DefaultWarning />}
               {!folded && <Text role="row" className="truncate">{label}</Text>}
               {!tight && <Chevron />}
             </>
@@ -865,6 +910,7 @@ export const ModeControl = () => {
         >
           {(close) => (
             <Menu close={close}>
+              <StaleDefaultRows stale={stale} />
               {modes.map((option) => (
                 <OptionRows key={option.id} option={option} />
               ))}
@@ -881,11 +927,12 @@ export const MoreControl = () => {
   const { ref, folded, tight } = useNarrowToolbar('more')
   const all = useComposerOptions()
   const others = optionsBySlot(all).more
+  const stale = useStaleDefaults('more')
 
   return (
     <ComposerTrack name="more" folded={folded} tight={tight}>
       <InToolbar refer={ref}>
-        {others.length > 0 && (
+        {(others.length > 0 || stale.length > 0) && (
           <Popover
             fullWidth
             tightTrigger={tight}
@@ -894,6 +941,7 @@ export const MoreControl = () => {
             label={
               <>
                 <SlidersIcon size={13} />
+                {stale.length > 0 && <DefaultWarning />}
                 {!folded && <Text role="row" className="truncate">More</Text>}
                 {!tight && <Chevron />}
               </>
@@ -901,6 +949,7 @@ export const MoreControl = () => {
           >
             {(close) => (
               <Menu close={close}>
+                <StaleDefaultRows stale={stale} />
                 {others.map((option) => (
                   <OptionRows key={option.id} option={option} />
                 ))}

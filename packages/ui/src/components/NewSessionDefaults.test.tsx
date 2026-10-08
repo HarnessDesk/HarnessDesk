@@ -6,6 +6,7 @@ import type { ConfigOption, RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import type { StaleDefault } from '../lib/composer-slots'
 import { NewSessionDefaults } from './SettingsAgents'
 
 /**
@@ -54,16 +55,20 @@ const DECLARED: ConfigOption[] = [
 
 const mount = async (
   declared: readonly ConfigOption[],
-): Promise<{ setNewSessionDefault: ReturnType<typeof vi.fn> }> => {
+  stale: readonly StaleDefault[] = [],
+): Promise<{ setNewSessionDefault: ReturnType<typeof vi.fn>; clearNewSessionDefault: ReturnType<typeof vi.fn> }> => {
   const setNewSessionDefault = vi.fn(async (_runtime: string, id: string, value: unknown) =>
     declared.map((option) => (option.id === id ? { ...option, currentValue: value } : option)),
   )
-  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open' } as AppSnapshot
+  let snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', staleDraftDefaults: { [INFO.id]: stale } } as AppSnapshot
+  const listeners = new Set<() => void>()
+  const clearNewSessionDefault = vi.fn(async () => { snapshot = { ...snapshot, staleDraftDefaults: {} }; for (const listener of listeners) listener(); return declared })
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     getSnapshot: () => snapshot,
     newSessionDefaultsFor: vi.fn(async () => declared),
     setNewSessionDefault,
+    clearNewSessionDefault,
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -72,7 +77,7 @@ const mount = async (
       </StoreProvider>,
     )
   })
-  return { setNewSessionDefault }
+  return { setNewSessionDefault, clearNewSessionDefault }
 }
 
 it('renders the runtime’s declared defaults and writes a pick through the shared record', async () => {
@@ -127,4 +132,14 @@ it('a longer choice list keeps refused values visible and disabled', async () =>
     select!.dispatchEvent(new Event('change', { bubbles: true }))
   })
   expect(setNewSessionDefault).toHaveBeenCalledWith('codex', 'codexProfile', 'sol')
+})
+
+it('names a stale removed option and deletes its saved pick with one click', async () => {
+  const { clearNewSessionDefault } = await mount(DECLARED, [{ id: 'retired-mode', label: 'Mode', category: 'mode', value: 'old-mode', valueLabel: 'Old mode', reason: 'This setting is no longer offered.' }])
+  expect(container.textContent).toContain('Saved Mode: Old mode')
+  expect(container.textContent).toContain('This setting is no longer offered.')
+  const clear = [...container.querySelectorAll('button')].find((node) => node.textContent?.includes('Use the agent’s current value'))!
+  await act(async () => { clear.click() })
+  expect(clearNewSessionDefault).toHaveBeenCalledWith(INFO.id, 'retired-mode')
+  expect(container.textContent).not.toContain('Old mode')
 })
