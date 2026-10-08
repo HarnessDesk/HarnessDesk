@@ -9,6 +9,8 @@ import { TeamRoomPane } from '../components/TeamRoomPane'
 import { TeamRunView } from '../components/TeamRunView'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { Usage } from '../components/Usage'
+import { LibrarySection } from '../components/Library'
+import { PluginsSection } from '../components/PluginsSection'
 import { Bar, Button, FormStack, PageHead, PaneColumn } from '../design'
 import { runTimeline } from '../lib/run-timeline'
 import { MountProvider } from '../panels/mount'
@@ -23,7 +25,17 @@ import { PROJECTS_ROOT, sidebarProjectsFixture } from './sidebar-projects-fixtur
 import { SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
 import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
-import { STILL_HOURS, STILL_RUNTIMES } from './release-stills-data'
+import { STILL_HOURS, STILL_LIBRARY, STILL_PLUGINS, STILL_RUNTIMES } from './release-stills-data'
+
+const capabilityStore = () => {
+  const base = previewStore().getSnapshot()
+  const own = previewStore({ plugins: STILL_PLUGINS, contributions: STILL_PLUGINS.flatMap(plugin => plugin.contributions),
+    runtimes: base.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, pluginTools: true } })) })
+  const request = own.transport.request.bind(own.transport)
+  own.transport.request = async (method, params) => method === 'library/read' ? STILL_LIBRARY
+    : method === 'audit/query' ? [] : request(method, params)
+  return own
+}
 
 const names = [...STILL_RUNTIMES.map(runtime => runtime.presentation.name), 'Judge']
 const raceStore = () => {
@@ -110,6 +122,10 @@ const PickedRun = () => {
 
 const Body = ({ scene }: { scene: string }) => {
   useTheme()
+  if (scene === 'library' || scene === 'plugin-permissions') return <PaneColumn inset="reading" className="py-6"><FormStack>
+    {scene === 'library' && <LibrarySection />}
+    <PluginsSection />
+  </FormStack></PaneColumn>
   if (scene === 'teams') return <TeamsWindow onClose={() => {}} />
   if (scene === 'project-sidebar') return <div className="flex h-full">
     <div className="w-80 shrink-0"><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
@@ -133,6 +149,7 @@ export const ReleaseStills = () => {
     const own = scene === 'teams' ? teamsPageStore()
       : scene === 'project-sidebar' ? previewStore(publicPaths(sidebarProjectsFixture(store.getSnapshot())))
       : scene === 'race-tiles' ? raceStore()
+      : scene === 'library' || scene === 'plugin-permissions' ? capabilityStore()
       : scene === 'flow-start-preview' ? startStore() : dashboardStore()
     // Some preview proxies retain their own snapshot, so patching their base
     // cannot change the theme the mounted screen reads. Decorate that read.
