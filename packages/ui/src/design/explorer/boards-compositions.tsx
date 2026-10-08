@@ -2919,10 +2919,12 @@ const ComparisonNoticeBoard = () => {
   const [dismissed, setDismissed] = useState(false)
   return <>
     <Specimen measure="wide" caption="Picked, waiting for a person, long recorded text and an empty shelf">
-      <div className="grid gap-4" data-catalog-variant={COMPARISONNOTICE_CATALOG_VARIANTS[0]} data-catalog-size={COMPARISONNOTICE_CATALOG_SIZES[0]}>
+      <div className="grid gap-4">
         {COMPARISONNOTICE_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} data-catalog-case={state === 'default' ? 'picked' : state === 'needs-you' ? 'waiting' : 'empty'}>
           <Text role="meta">{state === 'default' ? 'Recorded pick — dismiss to inspect the reserved space' : state === 'needs-you' ? 'Waiting for a person' : 'No verdict — space reserved'}</Text>
           <ComparisonNotice
+            data-catalog-variant={state === 'default' ? COMPARISONNOTICE_CATALOG_VARIANTS[0] : undefined}
+            data-catalog-size={state === 'default' ? COMPARISONNOTICE_CATALOG_SIZES[0] : undefined}
             title={state === 'empty' || (state === 'default' && dismissed) ? undefined : state === 'needs-you' ? 'Judge is waiting for your pick' : 'Attempt A picked by Judge'}
             reason={state === 'default' ? 'The attempt keeps the retry bounded and preserves the original error.' : undefined}
             waiting={state === 'needs-you'}

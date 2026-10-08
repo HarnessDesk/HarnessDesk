@@ -58,6 +58,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(longText).toBeVisible()
     expect(await longText.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
     const shelf = picked.locator('[data-slot="comparison-notice-slot"]')
+    const measured = page.locator('[data-catalog-variant="default"][data-catalog-size="default"]')
+    await expect(measured, 'metrics measure one shelf, without the board captions and other states').toHaveAttribute('data-slot', 'comparison-notice-slot')
     const before = await shelf.boundingBox()
     await picked.getByRole('button', { name: 'Dismiss verdict' }).click()
     await expect(picked.getByRole('status')).toHaveCount(0)
