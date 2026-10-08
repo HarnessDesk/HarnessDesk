@@ -26,11 +26,11 @@
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/race-hero-dark.gif" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/race-hero-dark-poster.png" />
     <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/race-hero-light.gif" />
-    <img src="docs/images/app/race-hero-light-poster.png" width="960" alt="An illustrated race: two agents build the same game in separate browser tiles, a judge picks one attempt, and the merge waits for Jane Doe." />
+    <img src="docs/images/app/race-hero-light-poster.png" width="960" alt="An illustrated, time-compressed cat-bike race: two agents build cats riding bikes and jumping obstacles in separate browser tiles, a judge picks one attempt, and the merge waits for Jane Doe." />
   </picture>
 </p>
 
-<p align="center">Two agents build the same thing side by side, a judge picks one, and a person decides what lands — an illustrated, time-compressed run.</p>
+<p align="center">Two agents build a cat-bike game side by side, a judge picks one, and a person decides what lands — an illustrated, time-compressed run.</p>
 
 **Team** — the agents and their shared work, gathered in one place.<br/>
 **Flow** — the rules for who works, what gets checked, and where you step in.<br/>
