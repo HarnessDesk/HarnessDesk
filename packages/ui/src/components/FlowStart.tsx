@@ -279,19 +279,7 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
         </Banner>
       )}
 
-      {flow && flow.inputs.map((input) => input.id === 'brief' ? (
-        <BriefInput key={`${root}:${id}:brief`} value={vars.brief ?? ''} disabled={disabled} onChange={(value) => setVar('brief', value)} onReadingChange={readingBrief} />
-      ) : (
-        <Field key={input.id} label={input.label}>
-          {(control) => (
-            <Input
-              {...control}
-              value={vars[input.id] ?? ''}
-              onChange={(event) => setVar(input.id, event.target.value)}
-            />
-          )}
-        </Field>
-      ))}
+      <FlowInputFields flow={flow} scope={`${root}:${id}`} vars={vars} disabled={disabled} onChange={setVar} onReadingChange={readingBrief} />
 
       {initial && preview?.seats.map(seat => {
         const slots = preview.seats.filter(one => one.role === seat.role).sort((a, b) => a.index - b.index)
@@ -320,6 +308,22 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
     </div>
   )
 }
+
+/** The declared inputs, shared by the full start form and its compact excerpt. */
+export const FlowInputFields = ({ flow, scope, vars, disabled, onChange, onReadingChange }: {
+  readonly flow: FlowPolicy | null
+  readonly scope: string
+  readonly vars: Readonly<Record<string, string>>
+  readonly disabled?: boolean
+  readonly onChange: (id: string, value: string) => void
+  readonly onReadingChange: (reading: boolean) => void
+}) => <>{flow?.inputs.map(input => input.id === 'brief' ? (
+  <BriefInput key={`${scope}:brief`} value={vars.brief ?? ''} disabled={disabled} onChange={value => onChange('brief', value)} onReadingChange={onReadingChange} />
+) : (
+  <Field key={input.id} label={input.label}>
+    {control => <Input {...control} value={vars[input.id] ?? ''} onChange={event => onChange(input.id, event.target.value)} />}
+  </Field>
+))}</>
 
 /** Files are imported into the variable, never attached to the Run. */
 const BRIEF_FILE_CAP = 64 * 1024
@@ -410,6 +414,20 @@ const BriefInput = ({ value, disabled, onChange, onReadingChange }: {
   )
 }
 
+/** The report's complete Seat section, including Agent identities and candidates. */
+export const FlowPreviewSeats = ({ preview, roster }: {
+  readonly preview: FlowPreview
+  readonly roster: ReadonlyMap<string, AgentEntry>
+}) => (
+  <section aria-label="Seats this would open">
+    <SectionHead name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
+    <Rows>
+      {preview.seats.length === 0 && <Row title="This flow names no Agent role" />}
+      {preview.seats.map(seat => <SeatPreviewRows key={`${seat.role}-${seat.index}`} seat={seat} roster={roster} />)}
+    </Rows>
+  </section>
+)
+
 /**
  * The dry run's own report — every seat, every command verbatim, every
  * round and guard, the messaging disclosure and the cost note — shared by
@@ -425,13 +443,7 @@ export const FlowPreviewReport = ({
   readonly roster: ReadonlyMap<string, AgentEntry>
 }) => (
   <>
-    <section aria-label="Seats this would open">
-      <SectionHead name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
-      <Rows>
-        {preview.seats.length === 0 && <Row title="This flow names no Agent role" />}
-        {preview.seats.map((seat) => <SeatPreviewRows key={`${seat.role}-${seat.index}`} seat={seat} roster={roster} />)}
-      </Rows>
-    </section>
+    <FlowPreviewSeats preview={preview} roster={roster} />
 
     {preview.commands.length > 0 && (
       <section aria-label="Commands it runs">

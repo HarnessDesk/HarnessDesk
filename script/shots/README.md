@@ -20,6 +20,21 @@ except the `flow-light.png` / `flow-dark.png` pair reserved by the stills brief.
 node --test script/shots-stills.test.mjs
 ```
 
+The compact website set lives in `docs/images/app/site/`. Capture its eleven
+scenes in both themes with `shootStills({ app, out, requested })`, naming
+`teams-table`, `run-short`, `race-run`, `browser-tile`, `handoff-dialog`,
+`start-preview`, `dash-plans`, `dash-hour`, `dash-year`, `dash-spend` and
+`dash-agents` (or use `shoot.mjs --release-stills --scene <name>` per scene).
+These cameras use device scale factor 2 and crop to the production content's
+DOM edge. The two Runs have their own short frozen Flows, without check or
+landing rounds. Dashboard ranges, agent totals and local-hour cells derive
+from one fictional year with five placeholder accounts. The Browser's
+`https://acme.dev/storefront` request is fulfilled locally from
+`fixtures/acme-storefront.html`; it never reaches that host. Dates are frozen
+at September 30, 2026, with the camera in America/Los_Angeles. A month-end
+camera gives the year grid room to name its final month. The manifest records
+each crop's logical size and scale. Open every PNG after the automated audit.
+
 ## Scripted repair loop
 
 Build the Node packages and renderer, then record a complete repair loop without
