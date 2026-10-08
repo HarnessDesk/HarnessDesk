@@ -23,6 +23,7 @@ export type SendOutcome = 'ok' | 'lose' | 'fail' | 'duplicate'
 
 export class FakeFindingForge implements FindingForgePort {
   repo = 'acme/widgets'
+  pr = 7
   head: string
   state: ObservedTarget['state'] = 'open'
   anchorOk = true
@@ -48,11 +49,11 @@ export class FakeFindingForge implements FindingForgePort {
   }
 
   #url(comment: FakeComment): string {
-    return `https://github.com/${this.repo}/pull/7#${comment.kind === 'issue-comment' ? 'issuecomment' : 'discussion_r'}${comment.id}`
+    return `https://github.com/${this.repo}/pull/${this.pr}#${comment.kind === 'issue-comment' ? 'issuecomment' : 'discussion_r'}${comment.id}`
   }
 
   #post(operation: PublicationEntry, comment: FakeComment): FindingPost {
-    return { repo: this.repo, pr: 7, comment: comment.id, kind: comment.kind, url: this.#url(comment), operation: operation.key }
+    return { repo: this.repo, pr: this.pr, comment: comment.id, kind: comment.kind, url: this.#url(comment), operation: operation.key }
   }
 
   async observeTarget(_project: string, pr: number): Promise<ObservedTarget> {

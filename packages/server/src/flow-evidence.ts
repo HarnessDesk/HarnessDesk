@@ -532,11 +532,10 @@ export class FlowReview implements FlowReviewPort {
 
   /**
    * Whether this caller still owes a review before `complete_claim` may
-   * finish its card: it holds the card, the card has predecessor work to
-   * judge — a revision, or a writer whose checkout is not yet clean — and
-   * its own Seat has recorded nothing on it. A step with nothing before it
-   * to judge (a seed that proposes, say) owes none: there is no candidate a
-   * review could name.
+   * finish its card: it holds the card, has predecessor work or a bound
+   * start target to judge, and its own Seat has recorded nothing on it.
+   * An unsettled required subject still owes a review. A proposal seed
+   * with no review subject owes none.
    */
   async owed(intent: number, scope: TeamCallScope): Promise<boolean> {
     const bound = await this.#port.bindingFor(intent, scope)
@@ -545,10 +544,19 @@ export class FlowReview implements FlowReviewPort {
     return !(await this.recorded(intent, scope))
   }
 
+  /** A held reviewer whose host-bound subject is unsettled gets the actual reason on refusal. */
+  async unsettledReason(intent: number, scope: TeamCallScope): Promise<string | null> {
+    const bound = await this.#port.bindingFor(intent, scope)
+    return bound?.unsettled?.[0]?.why ?? null
+  }
+
   async candidates(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]> {
     this.#sweep()
     const bound = await this.#port.bindingFor(intent, scope)
     if (!bound) return []
+    if (bound.subjects.length === 0 && bound.unsettled?.length) {
+      throw new Error(`No review candidate is available: ${bound.unsettled[0]!.why}.`)
+    }
     const facts = await this.#port.facts(bound.goal)
     const out: ReviewCandidate[] = []
     for (const subject of bound.subjects) {

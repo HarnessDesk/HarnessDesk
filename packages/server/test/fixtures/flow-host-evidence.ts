@@ -8,10 +8,12 @@ import { promisify } from 'node:util'
 import type { FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
 import type { GhInCheckout } from '../../src/evidence/forge.js'
+import type { FindingForgePort } from '../../src/findings/publication.js'
 import { Host, StateStore } from '../../src/index.js'
 import type { QuestionTimers } from '../../src/host.js'
 import { makeRepo } from './evidence-desk.js'
 import { FakeRuntime } from './fake-runtime.js'
+import { HoldFake } from './hold-runtime.js'
 import { silent } from './harness.js'
 import { tempDir } from '../scratch.js'
 
@@ -56,15 +58,17 @@ export interface Forge {
   readonly gh: GhInCheckout
 }
 
-const forge = (): Forge => {
+const forge = (publishablePr = false): Forge => {
   const open = new Set<string>()
   const gh: GhInCheckout = async (_args, cwd) => {
     const head = await git(cwd, 'rev-parse', 'HEAD').catch(() => '')
     const branch = await git(cwd, 'symbolic-ref', '--quiet', '--short', 'HEAD').catch(() => '')
     if (!open.has(branch)) return { stdout: '', stderr: 'no pull requests found for branch', exitCode: 1 }
+    const base = publishablePr ? await git(cwd, 'rev-parse', 'main').catch(() => head) : null
     return {
       stdout: JSON.stringify({
-        number: 41, state: 'OPEN', headRefOid: head, url: null,
+        number: 41, state: 'OPEN', headRefOid: head,
+        ...(publishablePr ? { baseRefOid: base, headRefName: branch, url: 'https://github.com/acme/widgets/pull/41' } : { url: null }),
         statusCheckRollup: [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
       }),
       stderr: '',
@@ -99,6 +103,10 @@ export interface DeskOptions {
   readonly refusesWhileBusy?: boolean
   /** The timers an unattended Seat's question deadline runs on, so a test fires it when it says. */
   readonly questionTimers?: QuestionTimers
+  /** A deterministic fake publisher for end-to-end review-round tests. */
+  readonly findingForge?: FindingForgePort
+  /** Replace the first runtime with one that can honor front-door held-seat previews. */
+  readonly held?: boolean
 }
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
@@ -111,7 +119,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
   await repo.git('commit', '-q', '-m', 'contest script')
   // Work happens on a branch, so what an Agent commits is a real diff against `main` — unless the test says it stays there.
   if (!options.onMain) await repo.git('checkout', '-q', '-b', 'work')
-  const gh = forge()
+  const gh = forge(options.findingForge !== undefined)
   const stateDir = tempDir('hd-flow-host-state-')
   for (const [id, agent] of Object.entries(AGENTS)) {
     await mkdir(join(stateDir, 'agents', id), { recursive: true })
@@ -128,11 +136,14 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     builtinAgents: tempDir('hd-flow-host-builtins-'),
     catalogRefreshMs: 0,
     evidence: { gh: gh.gh },
+    ...(options.findingForge ? { findingForge: options.findingForge } : {}),
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })
   const runtimes = [
-    new FakeRuntime({ provider: 'vendor-a' }),
-    new FakeRuntime({ id: second.id as never, name: 'Second Fake', ...(second.provider !== undefined ? { provider: second.provider } : {}) }),
+    options.held ? new HoldFake('fake') : new FakeRuntime({ provider: 'vendor-a' }),
+    options.held
+      ? new HoldFake(second.id)
+      : new FakeRuntime({ id: second.id as never, name: 'Second Fake', ...(second.provider !== undefined ? { provider: second.provider } : {}) }),
   ]
   for (const runtime of runtimes) {
     runtime.refusesWhileBusy = options.refusesWhileBusy ?? false

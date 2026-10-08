@@ -511,6 +511,8 @@ export interface FindingRunSnapshot {
   readonly id: string
   readonly goal: string
   readonly state: FlowExecution['state']
+  /** The host-resolved target frozen by this run's strict start token. */
+  readonly target?: FlowStartTarget
   /** Why the run itself is in that state — set when it stopped or settled; null while it is still live. */
   readonly reason: string | null
   readonly findings: FindingRunState | null
@@ -976,7 +978,10 @@ export class FlowExecutions {
     const pinned = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.pinned]))
     // `?? []`: absent on a packet pinned before repair leads existed; that packet has no lead to show, not a crash reading it back.
     const leads = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.leads ?? []]))
-    return { id: run.id, goal: run.goal, state: run.state, reason: run.reason, findings: run.findings ?? null, rounds, slots, pendingFindings, pinned, leads }
+    return {
+      id: run.id, goal: run.goal, state: run.state, reason: run.reason,
+      ...(run.target ? { target: run.target } : {}), findings: run.findings ?? null, rounds, slots, pendingFindings, pinned, leads,
+    }
   }
 
   /**
@@ -1619,9 +1624,8 @@ export class FlowExecutions {
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (role?.kind !== 'agent') return false
     const binding = bindingsFor(run, role.id)[found.slot]
-    // A card that judges is never judged: a reviewer's own checkout is not a
-    // subject whatever its grant, exactly as `reviewBinding` offers it only
-    // what it depends on.
+    // A reviewer's grant never makes it a writer subject. A seed review's
+    // fallback subject is the host-pinned target, not work it authored.
     return binding !== undefined && writes(binding)
   }
 
@@ -1632,9 +1636,10 @@ export class FlowExecutions {
    * card's head read now, never trusted from when its Seat opened. Every
    * card the walk crossed is returned too — those are the cards whose facts
    * may speak for the subjects. Bounded, so a corrupt or cyclic `dependsOn`
-   * cannot loop.
+   * cannot loop. Without a writer, a required review may instead judge the
+   * run's host-resolved target, read from its own clean, pinned checkout.
    */
-  async #closure(run: StoredFlowExecution, start: readonly number[]): Promise<FlowClosure> {
+  async #closure(run: StoredFlowExecution, start: readonly number[], externalReviewCard?: number): Promise<FlowClosure> {
     const board = this.#team.stateFor(run.goal)
     const crossed = new Set<number>()
     let frontier = [...new Set(start)]
@@ -1648,7 +1653,45 @@ export class FlowExecutions {
       }
       frontier = [...next]
     }
-    return { subjects: [], unsettled: [], cards: [...crossed] }
+    const reviewCard = externalReviewCard ?? [...crossed].find((card) => this.requiresReview(run.goal, card))
+    if (reviewCard === undefined || !this.requiresReview(run.goal, reviewCard)) {
+      return { subjects: [], unsettled: [], cards: [...crossed] }
+    }
+    if (!run.target) {
+      return {
+        subjects: [],
+        unsettled: [{ card: reviewCard, why: 'this review card has no host-resolved target' }],
+        cards: [...new Set([...crossed, reviewCard])],
+      }
+    }
+    const target = run.target
+    // A working-diff token binds a snapshot, but that snapshot has no commit
+    // identity for ReviewCandidate.at. Its reviewers keep reading the
+    // project's checkout, as the front door's working-tree contract says.
+    if (target.kind === 'working-diff') return { subjects: [], unsettled: [], cards: [...new Set([...crossed, reviewCard])] }
+    const found = this.#cardOf(run.goal, reviewCard)
+    const { seat } = this.#seatForCard(run, reviewCard)
+    if (!found || found.run.id !== run.id || !seat) {
+      return { subjects: [], unsettled: [{ card: reviewCard, why: 'the Seat holding this review can no longer be read' }], cards: [...crossed, reviewCard] }
+    }
+    const checkout = { cwd: seat.checkout.cwd, branch: seat.checkout.branch }
+    const unsettled = (why: string): FlowClosure => ({ subjects: [], unsettled: [{ card: reviewCard, why, checkout }], cards: [...new Set([...crossed, reviewCard])] })
+    if (target.dirty) return unsettled('the host-resolved review target was dirty when this run started')
+    if (target.head === null || !/^[a-f0-9]{40}$/i.test(target.head)) {
+      return unsettled('the host-resolved review target has no pinned commit to review')
+    }
+    if (target.kind === 'pull-request' && (target.pr === null || !Number.isSafeInteger(target.pr))) {
+      return unsettled('the host-resolved pull request has no number to review')
+    }
+    const head = await this.#port.headOf(checkout.cwd, checkout.branch)
+    if (!head.at) return unsettled('the host-resolved review checkout has no commit to judge')
+    if (head.dirty) return unsettled('the host-resolved review checkout has uncommitted changes')
+    if (head.at !== target.head) return unsettled('the host-resolved review checkout moved away from its pinned head')
+    return {
+      subjects: [{ card: reviewCard, round: found.round.n, checkout, at: head.at }],
+      unsettled: [],
+      cards: [...new Set([...crossed, reviewCard])],
+    }
   }
 
   async #heads(run: StoredFlowExecution, cards: readonly number[]): Promise<Omit<FlowClosure, 'cards'>> {
@@ -2000,9 +2043,9 @@ export class FlowExecutions {
 
   /**
    * What a review call binds to: the caller's own kept Seat, holding this
-   * exact card now, its Agent's declared answers, and the predecessor
-   * subjects it may judge — each a fresh, clean (non-dirty) checkout's own
-   * head, read now rather than trusted from when the Seat opened. Null when
+   * exact card now, its Agent's declared answers, and the predecessor work
+   * or host-resolved start target it may judge. Each subject has a fresh,
+   * clean checkout head; a start target must still match its pin. Null when
    * the scope holds no live claim on this card at all.
    */
   async reviewBinding(
@@ -2025,9 +2068,9 @@ export class FlowExecutions {
       : []
     const board = this.#team.stateFor(goal)
     const deps = board.intents.find((one) => one.id === card)?.dependsOn ?? []
-    // The same walk a guard makes, started from what this card depends on:
-    // a review judges its predecessors' revisions, never its own checkout.
-    const closure = await this.#closure(run, deps)
+    // Use the guard's predecessor walk, with the host-resolved start target
+    // as the fallback for a required review with no writer before it.
+    const closure = await this.#closure(run, deps, card)
     return { seat: String(seat.id), answers, round: round.n, subjects: closure.subjects, unsettled: closure.unsettled }
   }
 

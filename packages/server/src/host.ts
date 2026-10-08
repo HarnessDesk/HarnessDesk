@@ -1518,7 +1518,10 @@ export class Host {
       runs: () => this.#flows.publicationRuns(),
       run: (run) => {
         const snapshot = this.#flows.findingRun(run)
-        return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
+        return snapshot ? {
+          goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings,
+          ...(snapshot.target ? { target: snapshot.target } : {}),
+        } : null
       },
       entry: (key) => this.#flows.publicationEntry(key),
       snapshot: (run) => this.#flows.publicationOf(run),
