@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import type { SessionKey, Turn } from '@harnessdesk/protocol'
 
 import {
@@ -27,6 +27,7 @@ import {
   Bar,
   Button,
   Chip,
+  ComposerDock,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -38,6 +39,7 @@ import {
   TabsTrigger,
   Text,
   Dot,
+  useComposerHeightVar,
 } from '../design'
 import styles from './SideBySide.module.css'
 
@@ -80,6 +82,7 @@ export const SideBySide = ({
   entryOf,
   onOpenMember,
   conversationProps,
+  composer,
   card = (_key, who) => who,
 }: {
   state: SideBySideState
@@ -90,6 +93,8 @@ export const SideBySide = ({
   entryOf: (key: SessionKey) => TileEntry | null
   onOpenMember: (key: SessionKey) => void
   conversationProps: ConversationProps
+  /** The room's shared composer addresses exactly the members displayed by the grid. */
+  composer?: (shown: readonly SessionKey[]) => ReactNode
   /**
    * Wraps a tile's identity — its mark, name and model — in whatever card the
    * caller hangs on a member (the room's member hover card). Passed in so the
@@ -98,12 +103,17 @@ export const SideBySide = ({
   card?: (key: SessionKey, who: React.ReactNode) => React.ReactNode
 }) => {
   const gridRef = useRef<HTMLDivElement>(null)
+  /* The dock ref stays mounted even with one tile showing, so the system's
+     observer sees it appear, disappear and grow with all its notices. */
+  const composerRef = useComposerHeightVar(gridRef)
   const [width, setWidth] = useState(0)
+  const [composing, setComposing] = useState(false)
   const focusedPane = useIsFocusedPane()
   /* A tile never claims the keyboard that what encloses the grid says is
      elsewhere; it can only narrow it to one tile. */
   const keyboardAbove = useContext(KeyboardHereContext) !== false
   const shown = displayFor(state, width)
+  const sharedComposer = composer !== undefined && shown.shown.length >= 2
   /* Narrow is about the room's width, not about what is shown: an expanded
      tile in a narrow room keeps the strip, so the member can still be
      switched without first pressing Esc. */
@@ -186,7 +196,14 @@ export const SideBySide = ({
   const rows = Math.max(1, Math.ceil(shown.shown.length / columns))
   const track = (count: number) =>
     Array.from({ length: count }, () => 'minmax(0, 1fr)').join(' var(--hd-space-px) ')
-  const gridStyle = { gridTemplateColumns: track(columns), gridTemplateRows: track(rows) } as CSSProperties
+  // The bottom track includes the dock's clearance, leaving equal usable
+  // tile heights instead of taking all that space from half-height tiles.
+  const gridStyle = {
+    gridTemplateColumns: track(columns),
+    gridTemplateRows: sharedComposer && rows === 2
+      ? 'minmax(0, calc((100% - var(--composer-h, 0px) - var(--hd-space-px)) / 2)) var(--hd-space-px) minmax(0, calc((100% + var(--composer-h, 0px) - var(--hd-space-px)) / 2))'
+      : track(rows),
+  } as CSSProperties
   const place = (key: SessionKey): CSSProperties | undefined => {
     const at = shown.shown.indexOf(key)
     if (at < 0) return undefined
@@ -236,6 +253,7 @@ export const SideBySide = ({
           const isFocused = state.focused === key
           const isExpanded = state.expanded === key
           const isHidden = !shown.shown.includes(key)
+          const clearsComposer = sharedComposer && !isHidden && Math.floor(shown.shown.indexOf(key) / columns) === rows - 1
           const model = [member?.agent === nickname ? null : member?.agent, member?.model].filter(Boolean).join(' · ')
           return (
             <section
@@ -255,7 +273,7 @@ export const SideBySide = ({
               onClick={() => focus(key)}
               /* Keyboard entry counts as choosing the tile, the same as a
                  click: Tab into its composer and the keys are its keys. */
-              onFocusCapture={() => focus(key)}
+              onFocusCapture={() => { setComposing(false); focus(key) }}
             >
               <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1}
                 /* Agent and model detail give way before the name; a name
@@ -315,12 +333,12 @@ export const SideBySide = ({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </Bar>
-              <div className={styles.body}>
+              <div className={styles.body} {...(clearsComposer ? { 'data-clear-composer': '' } : {})}>
                 {/* One tile has the keyboard. The others read as unfocused
                     panes to everything inside them — their composers take
                     no compose events, their approvals answer no keys and
                     take no focus — so one press reaches one member. */}
-                <KeyboardHereContext.Provider value={keyboardAbove && isFocused && !isHidden}>
+                <KeyboardHereContext.Provider value={keyboardAbove && isFocused && !isHidden && !(sharedComposer && composing)}>
                   <PaneProvider scope={{ paneId: `${paneId}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
                     {/* One tile alone on screen — expanded, or the narrow
                         room's one tab — keeps its own composer; on a grid of
@@ -336,6 +354,13 @@ export const SideBySide = ({
         {seams.map((seam) => (
           <Separator key={seam.key} orientation={seam.orientation} style={seam.style} />
         ))}
+        <ComposerDock floating ref={composerRef} data-shared-composer="" hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
+          {sharedComposer && composer && (
+            <ComposerDock>
+              <div className={styles.composer}>{composer(shown.shown)}</div>
+            </ComposerDock>
+          )}
+        </ComposerDock>
       </div>
     </div>
   )

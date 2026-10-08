@@ -139,6 +139,9 @@ describe('ApprovalDialog', () => {
     expect(document.querySelector('[data-slot="approval-dialog-scope"]')).not.toBeNull()
     expect(document.querySelector('[data-slot="dialog-popup"]')).not.toBeNull()
     expect(document.querySelector('[data-slot="approval-card"]')).toBeNull()
+    const scrim = document.querySelector('[data-slot="dialog-overlay"]')!
+    expect(scrim.classList.contains('fixed'), 'a tile approval cannot cover the desk or shared composer').toBe(false)
+    expect(scrim.classList.contains('absolute')).toBe(true)
     await act(() => root.unmount())
   })
 })
@@ -150,4 +153,5 @@ it('assigns the overlay its modal edge and the docked approval its card edge', a
   expect(block('docked')).toContain('--approval-edge-inset: var(--hd-inset-card)')
   expect(block('header')).toContain('padding: var(--approval-edge-inset) var(--approval-edge-inset)')
   expect(block('footer')).toContain('padding: var(--approval-edge-inset)')
+  expect(block('dialog')).toContain('max-height: min(72vh, 720px, 100%)')
 })

@@ -35,6 +35,8 @@ export interface TriggerItem {
    * the caller's fact and this menu must not learn about runtimes.
    */
   readonly mark?: ReactNode
+  /** A refused pick remains visible, with the reason in the row. */
+  readonly disabled?: string
 }
 
 export const TriggerMenu = ({
@@ -70,6 +72,8 @@ export const TriggerMenu = ({
           type="button"
           role="option"
           aria-selected={index === activeIndex} variant="navigation" size="navigation" className={styles.row}
+          disabled={Boolean(item.disabled)} aria-disabled={Boolean(item.disabled)}
+          title={item.disabled}
           {...(index === activeIndex ? { 'data-selected': '' } : {})}
           onMouseEnter={() => onHover(index)}
           onClick={() => onPick(item)}
@@ -90,7 +94,7 @@ export const TriggerMenu = ({
             {item.mono ? <CodeText size="inherit">{item.name}</CodeText> : item.name}
           </Text>
           {item.hint && (
-            <Text role="muted" {...(item.pathStyle ? { truncateFrom: 'start' as const } : { truncate: true })} className={styles.hint}>
+            <Text role="muted" {...(item.disabled ? {} : item.pathStyle ? { truncateFrom: 'start' as const } : { truncate: true })} className={styles.hint}>
               {item.pathStyle ? <CodeText size="inherit">{item.hint}</CodeText> : item.hint}
             </Text>
           )}

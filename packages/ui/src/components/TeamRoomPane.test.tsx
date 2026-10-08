@@ -1073,6 +1073,90 @@ const clickRailOpen = async (pane: HTMLElement, nickname: string): Promise<void>
   await act(async () => {})
 }
 
+const sharedBox = (): HTMLTextAreaElement => {
+  const found = container.querySelector<HTMLTextAreaElement>('[data-slot="composer-text"]')
+  if (!found) throw new Error('No shared composer')
+  return found
+}
+const sharedEnter = (): void => act(() => {
+  sharedBox().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+})
+
+it.each([{ addressed: [] }, { addressed: ['a'] }, { addressed: ['a', 'b'] }])('the grid sends once to its visible audience narrowed by $addressed', async ({ addressed }) => {
+  const keys = [sessionKey('codex', 'a'), sessionKey('claude', 'b'), sessionKey('codex', 'off-grid')]
+  const { store, pane } = await renderRoom({ members: keys })
+  await clickRailWatch(pane, 'a')
+  await clickRailWatch(pane, 'b')
+  for (const name of addressed) {
+    act(() => type(sharedBox(), `@${name}`))
+    sharedEnter()
+  }
+  act(() => type(sharedBox(), 'Compare the approaches'))
+  sharedEnter()
+  await act(async () => {})
+  if (addressed.length === 1) {
+    expect(store.teamPost).toHaveBeenCalledExactlyOnceWith(ROOM, 'Compare the approaches', { runtime: 'codex', sessionId: 'a' })
+    expect(store.teamHandout).not.toHaveBeenCalled()
+  } else {
+    expect(store.teamHandout).toHaveBeenCalledExactlyOnceWith(ROOM, 'Compare the approaches', [
+      { runtime: 'codex', sessionId: 'a' }, { runtime: 'claude', sessionId: 'b' },
+    ])
+    expect(store.teamPost).not.toHaveBeenCalled()
+  }
+  expect(pane.querySelectorAll('[data-slot="composer-text"]')).toHaveLength(1)
+})
+
+it('keeps the room words and audience across Chat, the grid and an expanded tile', async () => {
+  const { pane } = await renderRoom({ members: [sessionKey('codex', 'a'), sessionKey('claude', 'b')] })
+  act(() => type(sharedBox(), '@a'))
+  sharedEnter()
+  act(() => type(sharedBox(), 'Keep this draft'))
+  await clickRailWatch(pane, 'a')
+  await clickRailWatch(pane, 'b')
+  expect(sharedBox().value).toBe('Keep this draft')
+  expect(pane.querySelector('[data-slot="composer-chips"]')?.textContent).toContain('a')
+  clickElement(pane.querySelector('button[aria-label="Expand a"]')!)
+  expect(pane.querySelector('[data-slot="composer-text"]')).toBeNull()
+  clickElement(pane.querySelector('button[aria-label="Collapse a"]')!)
+  expect(sharedBox().value).toBe('Keep this draft')
+  clickElement(row('Chat'))
+  expect(sharedBox().value).toBe('Keep this draft')
+  expect(pane.querySelector('[data-slot="composer-chips"]')?.textContent).toContain('a')
+})
+
+it('keeps an unfinished address usable when the room draft moves to the grid', async () => {
+  const { pane, store } = await renderRoom({ members: [sessionKey('codex', 'a'), sessionKey('claude', 'b')] })
+  act(() => type(sharedBox(), '@a'))
+  await clickRailWatch(pane, 'a')
+  await clickRailWatch(pane, 'b')
+  expect(sharedBox().value).toBe('@a')
+  sharedEnter()
+  expect(pane.querySelector('[data-slot="composer-chips"]')?.textContent).toContain('a')
+  expect(store.teamPost).not.toHaveBeenCalled()
+  expect(store.teamHandout).not.toHaveBeenCalled()
+})
+
+it.each(['Chat', 'grid'] as const)('keeps a delayed %s send failure beside the draft after switching destinations', async (from) => {
+  const { pane, store } = await renderRoom({ members: [sessionKey('codex', 'a'), sessionKey('claude', 'b')] })
+  let refuse!: (error: Error) => void
+  const going = new Promise<never>((_resolve, reject) => { refuse = reject })
+  if (from === 'grid') {
+    await clickRailWatch(pane, 'a')
+    await clickRailWatch(pane, 'b')
+    vi.mocked(store.teamHandout).mockReturnValueOnce(going)
+  } else vi.mocked(store.teamPost).mockReturnValueOnce(going)
+  act(() => type(sharedBox(), 'This failed draft'))
+  sharedEnter()
+  if (from === 'grid') clickElement(row('Chat'))
+  else {
+    await clickRailWatch(pane, 'a')
+    await clickRailWatch(pane, 'b')
+  }
+  await act(async () => { refuse(new Error('Connection lost')) })
+  expect(sharedBox().value).toBe('This failed draft')
+  expect(pane.textContent).toContain('The host did not take that. Your words are still here.')
+})
+
 it('Watch puts a member on a Side by side tile and opens the destination', async () => {
   const { pane, store } = await renderRoom({ members: ['codex\u0000a', 'claude\u0000b'] })
   await clickRailWatch(pane, 'a')

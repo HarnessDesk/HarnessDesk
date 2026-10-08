@@ -179,7 +179,9 @@ export const ApprovalDialog = forwardRef<HTMLDivElement, {
         }}
       >
         {portalHost ? <DialogPortal container={portalHost} className={styles.portal}>
-          <DialogOverlay className={styles.backdrop} />
+          {/* Merge out the primitive's fixed utility: a pane-local scrim must
+              stay inside its scope even when utilities are bundled last. */}
+          <DialogOverlay className={`absolute ${styles.backdrop}`} />
           <DialogViewport className={styles.viewport}>
             <DialogPopup
               ref={setSurface}

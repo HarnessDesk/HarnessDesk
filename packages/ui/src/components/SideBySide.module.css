@@ -16,6 +16,9 @@
 }
 
 .tile {
+  /* An approval belongs to this tile's paint layer. Its dialog z-order must
+     not cover the shared dock's addressing menu or the Team's popovers. */
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -64,11 +67,38 @@
 }
 
 .body {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* Shrink the whole tile body, including approvals, rather than leaving its
+   last lines or its decision controls behind the floating room composer. */
+.body[data-clear-composer] {
+  margin-bottom: var(--composer-h, 0px);
+}
+
+.dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 50%;
+  overflow-y: auto;
+  z-index: var(--hd-z-sticky);
+  pointer-events: none;
+}
+
+.dock > * {
+  pointer-events: auto;
+}
+
+.composer {
+  max-width: var(--hd-column);
+  margin-inline: auto;
 }
 
 .strip {

@@ -293,7 +293,7 @@ it('puts boolean auto-approval in the permission control', () => {
   )
   expect(toggle).toBeDefined()
   click(toggle!)
-  expect(testStore.setOption).toHaveBeenCalledWith('auto_approve', true)
+  expect(testStore.setOption).toHaveBeenCalledWith('auto_approve', true, sessionKey(agent.id, sessionId('narrow-test')))
 })
 
 it('keeps the chevrons while there is room for them, and folds them at a phone’s width', () => {
