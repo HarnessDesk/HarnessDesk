@@ -1,14 +1,32 @@
 /** Website camera data: fictional accounts and one reproducible year of local history. */
-import { type FlowAgentRole, type FlowPolicy, type FlowPreview, type Intent, type LedgerDay, type LedgerHour, type LedgerQuery, type LedgerReport, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, type FlowAgentRole, type FlowPolicy, type FlowPreview, type Intent, type LedgerDay, type LedgerHour, type LedgerQuery, type LedgerReport, type UsageReport } from '@harnessdesk/protocol'
 import type { RunTimelineInput } from '../lib/run-timeline'
 import { shapeFixture } from './run-shapes-fixture'
 import { runFixture } from './run-view-fixture'
-import { previewUsage } from './sidebar-fixture'
 
 export const SITE_NOW = Date.parse('2026-09-30T17:00:00Z')
 export const SITE_BROWSER_URL = 'https://acme.dev/storefront'
 const DAY = 86_400_000
-const accounts = [0, 1, 2, 3, 6].map((index, n) => ({ template: previewUsage[index]!, account: ['dev', 'work', 'review', 'studio', 'api'][n] + '@example.com' }))
+// The Dashboard specs replace their shared reports at the module boundary.
+// Cameras own these templates so importing the preview never depends on that roster.
+const lane = (id: string, label: string, windowMinutes: number) => ({ id, label, windowMinutes, usedPercent: 0, resetsAt: SITE_NOW })
+const report = (runtime: string, plan: string | null, lanes: UsageReport['lanes']): UsageReport => ({
+  runtime: runtimeId(runtime), account: null, plan, lanes, credits: null, spend: null, reached: null,
+  source: { kind: 'runtime', label: 'from its own API' }, fetchedAt: SITE_NOW - 60_000, staleAfterMs: 600_000, error: null,
+})
+const templates: UsageReport[] = [
+  { ...report('claude', 'Max 20x', [lane('session', 'Session', 300), lane('weekly', 'Weekly', 10_080)]),
+    billing: { kinds: ['windows'], fee: { amount: 200, currency: 'USD', period: 'month', source: 'user' } } },
+  { ...report('codex', 'Team', [lane('session', '5-hour', 300), lane('weekly', 'Weekly', 10_080)]),
+    billing: { kinds: ['windows'], fee: { amount: 20, currency: 'USD', period: 'month', source: 'vendor' } } },
+  report('claude', 'Pro', [lane('session', 'Session', 300), lane('weekly', 'Weekly', 10_080)]),
+  { ...report('cursor', 'Pro', [lane('plan', 'Plan', 43_200)]), credits: { remaining: 10.66, used: 39.34, unit: 'USD' },
+    billing: { kinds: ['allowance', 'metered'] } },
+  { ...report('claude', null, []), spend: { currency: 'USD', todayCost: 1.4, windowCost: 22.4, windowDays: 30,
+    todayTokens: 180_000, windowTokens: 2_400_000, provenance: 'listPrice', coverage: null },
+    billing: { kinds: ['metered'], budget: { amount: 50, currency: 'USD', period: 'month' } } },
+]
+const accounts = templates.map((template, n) => ({ template, account: ['dev', 'work', 'review', 'studio', 'api'][n] + '@example.com' }))
 const runtimes = [...new Set(accounts.map(row => row.template.runtime))]
 
 export const siteHistory = () => {

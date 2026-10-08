@@ -1,8 +1,28 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { runTimeline } from '../lib/run-timeline'
 import { SITE_NOW, siteHistory, siteLedger, siteRun, siteUsage, siteStartPreview } from './site-stills-data'
 
 describe('compact website fixtures', () => {
+  it('keeps website usage independent when the Dashboard stages its four accounts', async () => {
+    vi.resetModules()
+    const { previewUsage } = await import('./sidebar-fixture')
+    const templates = [...previewUsage]
+    try {
+      previewUsage.splice(0, previewUsage.length, ...templates.slice(0, 4).map((report, index) => ({
+        ...report, account: `dashboard-${index}@example.com`, lanes: [], credits: null,
+      })))
+      const camera = await import('./site-stills-data')
+      expect(camera.siteUsage()).toEqual(siteUsage())
+      expect(camera.siteLedger({ days: 30, groupBy: 'runtime' })).toEqual(siteLedger({ days: 30, groupBy: 'runtime' }))
+      expect(previewUsage.map(report => report.account)).toEqual([
+        'dashboard-0@example.com', 'dashboard-1@example.com', 'dashboard-2@example.com', 'dashboard-3@example.com',
+      ])
+    } finally {
+      previewUsage.splice(0, previewUsage.length, ...templates)
+      vi.resetModules()
+    }
+  })
+
   it('includes every agent role in the start summary with its held ceiling', () => {
     const preview = siteStartPreview()
     expect(preview.compiled.document.format).toBe('agents')
