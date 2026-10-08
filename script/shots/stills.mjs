@@ -1,5 +1,5 @@
 /** Opt-in 0.4.0 posters, composed from production surfaces in preview.html. */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -10,7 +10,7 @@ export const STILL_SCENES = {
   'project-sidebar': { height: 800, ready: ['Teams', 'Projects', 'Retry the checkout call on a 502'], caption: 'One project gathers linked checkout conversations and a Team with nested Seats.' },
   'run-timeline': { height: 1544, ready: ['Request changes', 'Cap the retry attempts', 'Decide whether the retry change ships'], caption: 'A Run records the first review, the repair and passing checks, then waits for a person.' },
   'run-flow': { height: 820, ready: ['Decide whether the retry change ships', 'Flow'], caption: 'The Run’s Flow shows the travelled repair loop and the person step waiting.' },
-  'flow-start-preview': { height: 1672, ready: ['It opens 2 seats', 'It runs these commands', 'Start'], caption: 'The start preview shows the task, Seat choices, Edit and Read only ceilings, a named check and Start.' },
+  'flow-start-preview': { height: 1920, ready: ['It opens 3 seats', 'reviewer · Seat 2', 'It runs these commands', 'Start'], caption: 'The start preview shows the task, Seat choices, Edit and Read only ceilings, a named check and Start.' },
   'race-tiles': { height: 820, ready: ['Picked', 'Not kept', 'Browser'], caption: 'Two attempts share a composer; one shows its Browser, and the judge’s verdict marks Picked and Not kept.' },
   'run-picked': { height: 1224, ready: ['Picked', 'Not kept', 'Run'], caption: 'A comparison Run keeps both attempts and their checks, with the picked attempt distinguished from the one not kept.' },
   'dashboard-plans': { height: 960, ready: ['Paid', 'Value', 'unpriced', 'from its own API'], caption: 'An expanded plan shows Paid, an unpriced Value, the monthly fee and the source of its reading.' },
@@ -18,9 +18,11 @@ export const STILL_SCENES = {
 }
 
 /** Protect images other documentation still uses; the brief permits only this pair. */
-export const assertReplaceable = (root, filename) => {
+export const assertReplaceable = (root, filename, out = join(root, 'docs/images/app')) => {
   if (['flow-light.png', 'flow-dark.png'].includes(filename)) return
-  if (!existsSync(join(root, 'docs/images/app', filename))) return
+  const protectedFile = join(root, 'docs/images/app', filename)
+  const destination = join(out, filename)
+  if (!existsSync(protectedFile) || !existsSync(destination) || realpathSync(destination) !== realpathSync(protectedFile)) return
   const docs = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const path = join(directory, entry.name)
     return entry.isDirectory() ? docs(path) : /\.(?:md|mdx|html)$/.test(entry.name) ? [path] : []
@@ -40,7 +42,7 @@ export const shootStills = async ({ app, out, requested = [], themes = ['light',
   const names = requested.length ? requested : Object.keys(STILL_SCENES)
   for (const name of names) {
     if (!STILL_SCENES[name]) throw new Error(`No release still named ${name}`)
-    for (const theme of themes) assertReplaceable(app, `${name}-${theme}.png`)
+    for (const theme of themes) assertReplaceable(app, `${name}-${theme}.png`, out)
   }
   const require = createRequire(join(app, 'packages/ui/package.json'))
   const { createServer } = await import(pathToFileURL(require.resolve('vite')))
@@ -103,7 +105,7 @@ export const shootStills = async ({ app, out, requested = [], themes = ['light',
           auditSnapshots(await Promise.all(page.frames().map(frame => frame.evaluate(COLLECT))))
           if (errors.length) throw new Error(`${name}: the preview reported ${errors.length} rendering errors; no frame saved.`)
           const filename = `${name}${width === 1280 ? '-full' : ''}-${theme}.png`
-          assertReplaceable(app, filename)
+          assertReplaceable(app, filename, out)
           await surface.screenshot({ path: join(out, filename), animations: 'disabled' })
           frames.push({ scene: name, theme, width, filename, caption: scene.caption })
           process.stdout.write(`Audited and captured ${filename}\n`)

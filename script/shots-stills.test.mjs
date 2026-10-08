@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -15,6 +15,13 @@ test('new stills cannot replace a referenced asset, including relative doc refer
   writeFileSync(join(root, 'docs', 'images', 'app', 'race-tiles-dark.png'), '')
   assert.throws(() => assertReplaceable(root, 'hero-light.png'), /referenced/)
   assert.throws(() => assertReplaceable(root, 'race-tiles-dark.png'), /referenced/)
+  const scratch = join(root, 'scratch')
+  mkdirSync(scratch)
+  writeFileSync(join(scratch, 'hero-light.png'), '')
+  assert.doesNotThrow(() => assertReplaceable(root, 'hero-light.png', scratch))
+  assert.throws(() => assertReplaceable(root, 'hero-light.png', join(root, 'docs/images/app/../app')), /referenced/)
+  symlinkSync(join(root, 'docs/images/app'), join(root, 'asset-alias'), 'dir')
+  assert.throws(() => assertReplaceable(root, 'hero-light.png', join(root, 'asset-alias')), /referenced/)
   assert.doesNotThrow(() => assertReplaceable(root, 'run-timeline-light.png'))
   writeFileSync(join(root, 'docs', 'flows.md'), '<img src="images/app/flow-light.png">')
   writeFileSync(join(root, 'docs', 'images', 'app', 'flow-light.png'), '')

@@ -52,8 +52,10 @@ const startStore = () => {
   return new Proxy(own, { get(target, key) {
     if (key === 'previewFlow') return async (...args: Parameters<typeof own.previewFlow>): Promise<FlowPreview> => {
       const preview = await original(...args)
-      return { ...preview, seats: [...preview.seats, { ...preview.seats[0]!, role: 'reviewer', agent: 'reviewer', isolate: true, reviews: true,
-        plan: { ...preview.seats[0]!.plan, id: 'reviewer', ceiling: { level: 'read', hold: 'held' } } }] }
+      return { ...preview, seats: [...preview.seats, ...Array.from({ length: 2 }, (_, index) => ({
+        ...preview.seats[0]!, role: 'reviewer', index, agent: 'reviewer', isolate: true, reviews: true,
+        plan: { ...preview.seats[0]!.plan, id: 'reviewer', ceiling: { level: 'read' as const, hold: 'held' as const } },
+      }))] }
     }
     return Reflect.get(target, key)
   } })

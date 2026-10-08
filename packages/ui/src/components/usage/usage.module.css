@@ -39,8 +39,16 @@
    selector (`[data-section-head]`, which `SectionHead` always sets) rather
    than a plain class beats that rule on specificity regardless of which
    stylesheet's build order happens to load last (review of #1069, B8). */
-.firstBandHead[data-section-head] {
+.firstBandHead[data-section-head],
+.firstBandHead[data-section-head] > div {
   flex-wrap: wrap;
+}
+
+/* SectionHead groups its text and actions inside one flex item. Give that
+   inner row the wrap policy too, and reserve the text's natural measure
+   before deciding whether the filter row fits beside it. */
+.firstBandHead[data-section-head] > div > div:has(> [data-slot='section-name']) {
+  flex-basis: max-content;
 }
 
 /* The band head wrapping (above) moves the whole filter row to its own line
