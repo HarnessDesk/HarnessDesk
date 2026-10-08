@@ -1029,7 +1029,9 @@ pick it draws nothing there. The Run's recorded selection adds **Picked** in
 success ink to the chosen attempt's tile bar and quiet **Not kept** to the
 other; working state and approvals remain visible. The shelf names the judge
 and chosen attempt, with the recorded reason only when it is already one
-sentence. **Merge the picked change** opens that Run's next person step; it
+sentence. Longer recorded text scrolls within the shelf without moving the tiles.
+**Merge the picked change** opens that Run's next person step while it still
+needs an answer; it disappears after the step finishes or the Run stops and
 never merges. A person judging a waiting pick sees **Pick an attempt…**, which
 opens the Board's same attempt dialog. Dismissal survives leaving and returning
 to Side by side and ends only when the verdict changes. No passing or recorded

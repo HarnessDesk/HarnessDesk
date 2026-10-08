@@ -15,6 +15,13 @@ it('uses the Run’s kept attempt and preserves the recorded judge sentence', ()
   expect(verdict.next?.card).toBe(6)
   expect([...verdict.keeps]).toEqual([[1, 'kept'], [2, 'not-kept']])
 })
+it.each(['merged', 'stopped', 'missing'] as const)('keeps the recorded pick without a next action after the person step is %s', state => {
+  const input = comparison()
+  if (state === 'merged') input.cards = input.cards.map(one => one.id === 6 ? { ...one, state: 'done', outcome: 'accepted' } : one)
+  if (state === 'stopped') input.execution = { ...input.execution, state: 'stopped', endedAt: Date.now(), end: { kind: 'stopped', by: 'person' } }
+  if (state === 'missing') input.cards = input.cards.filter(one => one.id !== 6)
+  expect(comparisonVerdictOf(runTimeline(input), input.execution, input.cards)).toMatchObject({ kind: 'picked', next: null, attempt: { label: 'Attempt A' } })
+})
 it('shows no verdict or outcome before a pick, including when no attempt passes', () => {
   const input = comparison()
   input.evidence = { ...input.evidence!, cards: input.evidence!.cards.filter(one => one.card !== 5) }

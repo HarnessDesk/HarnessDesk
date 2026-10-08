@@ -33,7 +33,7 @@ export const comparisonVerdictOf = (model: ReturnType<typeof runTimeline>, execu
       const sentences = words ? new Intl.Segmenter('en', { granularity: 'sentence' }).segment(words) : []
       const reason = words && [...sentences].length === 1 ? words : null
       return { kind: 'picked', id: JSON.stringify([execution.id, judge.id, judge.pick.revision, judge.pick.attempts.map(one => [one.card, one.keep])]), judge, attempt, reason,
-        next: model.rows.find(one => one.kind === 'person' && (one.round ?? -1) > (judge.round ?? -1)) ?? null,
+        next: model.rows.find(one => one.kind === 'person' && one.attention && (one.round ?? -1) > (judge.round ?? -1)) ?? null,
         keeps: new Map(judge.pick.attempts.flatMap(one => one.keep ? [[one.card, one.keep] as const] : [])),
       }
     }

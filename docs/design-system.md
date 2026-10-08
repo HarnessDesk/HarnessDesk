@@ -1150,7 +1150,7 @@ Exact command text and its output, drawn as one readable plate.
 
 `packages/ui/src/design/patterns/ComparisonNotice.tsx`
 
-A comparison’s quiet result shelf. Its reserved space keeps the grid still when a pick arrives; actions never cover a conversation or its composer.
+A comparison’s quiet result shelf, composed from Alert. Its fixed grid track keeps the tiles still; long recorded text scrolls whole while actions remain visible.
 
 ### `ConfirmDialog`
 

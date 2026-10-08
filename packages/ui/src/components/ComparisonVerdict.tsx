@@ -18,6 +18,7 @@ export const ComparisonVerdict = ({ verdict, nameOfSeat, onOpenRun, onPick, dism
   if (dismissal.id !== id) setDismissal({ id, hidden: false })
   if (!verdict || dismissed || (dismissal.id === id && dismissal.hidden)) return <ComparisonNotice />
   const waiting = verdict.kind === 'waiting'
+  const next = !waiting ? verdict.next : null
   const judge = !waiting ? verdict.judge.kind === 'person' ? 'You' : sanitizeText(nameOfSeat(verdict.judge.seat)) : null
   return <ComparisonNotice
     key={id}
@@ -25,7 +26,7 @@ export const ComparisonVerdict = ({ verdict, nameOfSeat, onOpenRun, onPick, dism
     title={waiting ? 'Your pick is next' : <>{judge} picked {verdict.attempt.label}</>}
     reason={!waiting && verdict.reason ? sanitizeText(verdict.reason) : undefined}
     action={waiting ? { label: 'Pick an attempt…', onSelect: onPick }
-      : { label: 'Merge the picked change', onSelect: () => onOpenRun(verdict.next?.id ?? verdict.judge.id) }}
+      : next ? { label: 'Merge the picked change', onSelect: () => onOpenRun(next.id) } : undefined}
     onDismiss={() => onDismiss ? onDismiss() : setDismissal({ id, hidden: true })}
   />
 }

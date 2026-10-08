@@ -107,10 +107,11 @@ export const ComparisonVerdictPreview = () => {
   useTheme()
   const store = useStore()
   const snapshot = useSnapshot()
+  const scene = new URLSearchParams(window.location.search).get('comparison-verdict')
   return <div className="p-4">
     <label>theme <select aria-label="theme" value={snapshot.theme} onChange={event => store.setTheme(event.target.value as 'light' | 'dark')}>
       <option value="light">light</option><option value="dark">dark</option>
     </select></label>
-    <SideBySideFrames comparisonOnly scene={new URLSearchParams(window.location.search).get('comparison-verdict') === 'approval' ? 'approval' : undefined} />
+    <SideBySideFrames comparisonOnly scene={scene === 'approval' || scene === 'long-reason' || scene === 'merged' || scene === 'stopped' ? scene : undefined} />
   </div>
 }

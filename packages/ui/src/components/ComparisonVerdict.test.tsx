@@ -48,3 +48,11 @@ it('reserves the same shelf before a pick without exposing a verdict or controls
   expect(box.querySelector('button')).toBeNull()
   expect(box.textContent).toBe('')
 })
+it('keeps the recorded verdict without a Merge action when no person step needs an answer', () => {
+  mount()
+  const verdict = picked()!
+  if (verdict.kind !== 'picked') throw new Error('No recorded pick')
+  act(() => root.render(<ComparisonVerdict verdict={{ ...verdict, next: null }} nameOfSeat={names} onOpenRun={vi.fn()} onPick={vi.fn()} />))
+  expect(box.textContent).toContain('Gamma picked Attempt A')
+  expect([...box.querySelectorAll('button')].some(one => one.textContent === 'Merge the picked change')).toBe(false)
+})
