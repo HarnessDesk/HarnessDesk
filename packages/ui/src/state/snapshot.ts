@@ -1,3 +1,4 @@
+import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
   AccountStatus,
   CapabilityContribution,
@@ -758,6 +759,8 @@ export interface AppSnapshot {
    * workspace's layout; whether this app keeps cookies is a standing
    * answer, so it lives here beside the theme.
    */
+  /** Live tile owners; never persisted with the workspace. */
+  readonly browserTiles: ReadonlyMap<string, BrowserTileMount>
   readonly browserPrefs: {
     /** Default-profile guests use a persistent partition when enabled; lane profiles are independently retained. */
     readonly persistSession: boolean
@@ -921,6 +924,7 @@ const EMPTY: AppSnapshot = {
   preferencesLoaded: false,
   // Cookies kept and links staying in the pane are what a person expects of
   // a browser; both are one row away in the pane's own menu.
+  browserTiles: new Map(),
   browserPrefs: {
     persistSession: true,
     linksInPane: true,
@@ -950,6 +954,7 @@ export const emptySnapshot = (): AppSnapshot => ({
   seating: null,
   seatAgents: new Map(),
   goals: new Map(),
+  browserTiles: new Map(),
   seatActivities: new Map(),
   findings: new Map(),
   findingRuns: new Map(),

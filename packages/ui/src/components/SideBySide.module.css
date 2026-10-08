@@ -34,6 +34,7 @@
 }
 
 .header {
+  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -79,6 +80,12 @@
    padding and approval viewport clear its measured height independently. */
 .body[data-clear-composer] {
   --shared-composer-h: var(--composer-h, 0px);
+}
+
+/* A live browser cannot scroll its controls out from under the dock, so
+   reserve the same clearance around its whole surface. */
+.body[data-clear-composer][data-mode='browser'] {
+  margin-bottom: var(--shared-composer-h);
 }
 
 .dock {

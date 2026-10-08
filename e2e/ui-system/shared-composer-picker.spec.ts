@@ -3,6 +3,59 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`${theme}: Browser and Conversation tiles clear the shared dock together`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    // Independent preview stores default to the system theme too.
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?side-by-side')
+    await page.locator('label').filter({ hasText: /^theme/ }).locator('select').first().selectOption(theme)
+    const frame = page.locator('[data-frame-id="side-by-side-browsers"]')
+    const grid = frame.locator('[data-slot="side-by-side-grid"]')
+    await frame.locator('[data-side-by-side-container]').evaluate(node => {
+      const grid = node.querySelector('[data-slot="side-by-side-grid"]')!
+      const delta = 1200 - grid.getBoundingClientRect().width
+      ;(node as HTMLElement).style.width = `${node.getBoundingClientRect().width + delta}px`
+      ;(node as HTMLElement).style.maxWidth = 'none'
+    })
+    await expect.poll(async () => (await grid.boundingBox())?.width).toBe(1200)
+    const tiles = grid.locator('[data-slot="side-by-side-tile"]')
+    await tiles.nth(1).getByRole('radio', { name: 'Conversation', exact: true }).click()
+    await expect(tiles.nth(0).locator('iframe')).toBeVisible()
+    await expect(tiles.nth(1).locator('[data-live-transcript]')).toBeVisible()
+    const dock = grid.locator('[data-shared-composer]')
+    const box = dock.locator('[data-slot="composer-text"]')
+    for (const draft of ['Compare the retry budget.', 'Compare the retry budget.\n'.repeat(24)]) {
+      await box.fill(draft)
+      // The whole browser surface, including any footer controls, must end
+      // above the dock. Both bodies inherit the same measured clearance.
+      await expect.poll(() => grid.evaluate(node => {
+        const dock = node.querySelector('[data-shared-composer]')!
+        const tiles = [...node.querySelectorAll('[data-slot="side-by-side-tile"]')]
+        const browser = tiles[0]!.querySelector('iframe')!.closest('[data-slot="tool-pane"]')!
+        const bodies = tiles.map(tile => tile.querySelector('[data-clear-composer]')!)
+        const height = dock.getBoundingClientRect().height
+        return browser.getBoundingClientRect().bottom <= dock.getBoundingClientRect().top + 1
+          && bodies.every(body => Math.abs(parseFloat(getComputedStyle(body).getPropertyValue('--shared-composer-h')) - height) <= 1)
+      })).toBe(true)
+      if (process.env.HD_MERGED_FRAMES && !draft.includes('\n')) {
+        mkdirSync(process.env.HD_MERGED_FRAMES, { recursive: true })
+        await grid.scrollIntoViewIfNeeded()
+        await page.evaluate(async () => { await document.fonts.ready })
+        await expect.poll(() => page.evaluate(() => document.body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
+        await grid.screenshot({ path: join(process.env.HD_MERGED_FRAMES, `merged-main-${theme}.png`), animations: 'disabled' })
+      }
+    }
+    await tiles.nth(0).getByRole('button', { name: 'Expand Alpha', exact: true }).click()
+    await expect(dock).toBeHidden()
+    await expect.poll(() => tiles.nth(0).evaluate(tile => {
+      const browser = tile.querySelector('iframe')!.closest('[data-slot="tool-pane"]')!
+      return Math.abs(browser.getBoundingClientRect().bottom - tile.getBoundingClientRect().bottom)
+    })).toBeLessThanOrEqual(1)
+    await tiles.nth(0).getByRole('button', { name: 'Collapse Alpha', exact: true }).click()
+    await expect(dock).toBeVisible()
+    await expect(box).toHaveValue('Compare the retry budget.\n'.repeat(24))
+  })
+
   test(`${theme}: Settings dismisses shared recipients and still answers Escape`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 })
     await page.route('**/src/preview/main.tsx*', async route => {

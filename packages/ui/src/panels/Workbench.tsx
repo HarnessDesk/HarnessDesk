@@ -1,3 +1,4 @@
+import { tileBrowserWorkbench } from '../lib/browser-tiles'
 import { RunDockProvider } from './run-dock'
 import {
   createContext,
@@ -155,7 +156,7 @@ const LIVE: Record<DockId, string> = {
 export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const { workbench } = snapshot
+  const workbench = tileBrowserWorkbench(snapshot)
   const zoom = workbench.zoom
 
   const [dragging, setDragging] = useState<Dragging>(null)
@@ -377,7 +378,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
 const RightPanel = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const workbench = snapshot.workbench
+  const workbench = tileBrowserWorkbench(snapshot)
   // A panel with nothing in it is not a panel. Its seam, its strip and its
   // border would all be furniture around an empty box — and the way back is
   // the control that put something there in the first place.
@@ -434,7 +435,7 @@ const RightPanel = () => {
 const BottomPanel = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const workbench = snapshot.workbench
+  const workbench = tileBrowserWorkbench(snapshot)
   const dock = workbench.bottom
   const shown = areaVisible(workbench, 'bottom')
   if (dockViews(dock).length === 0 || !shown) return <EdgeDropZone area="bottom" />
@@ -564,7 +565,7 @@ const useFloatingSidebar = (
  * page's history exactly where they were.
  */
 const PanelArea = ({ area }: { area: DockId }) => {
-  const dock = useSnapshot().workbench[area]
+  const dock = tileBrowserWorkbench(useSnapshot())[area]
   if (dockViews(dock).length === 0) return null
   return <DockNodeView area={area} node={dock.root} collapsed={dock.collapsed} />
 }
@@ -739,7 +740,7 @@ const StackPanel = ({
   const store = useStore()
   const { setDragging } = useContext(DragContext)
   const snapshot = useSnapshot()
-  const workbench = snapshot.workbench
+  const workbench = tileBrowserWorkbench(snapshot)
   const titleOf = useViewTitle()
   const shown = stackView(stack)
 

@@ -1030,11 +1030,21 @@ over the bottom of the grid. **Everyone** reaches the visible Seats; `@` picks
 one or several instead. Chat keeps the message once, and the room's words and
 audience wait across Chat, the grid and expanding a tile. A lone, expanded or
 narrow single tile uses its own composer. Panels extend to the bottom behind the floating box; their
-transcript padding and approval viewports clear the dock's measured height.
+transcript padding, approval viewports and Browser surfaces clear the dock's measured height.
 Settings keep the ordinary four slots; differing choices read **Mixed** and
 their menus name each recipient. Unavailable recipients show their reason,
 delivery outcomes name each copy, queued copies mark their recipient tile, and
 **Stop** stops the addressed working Seats.
+
+Each Side by side tile has a **Conversation | Browser** switch in its bar.
+The choice belongs to that tile and survives Expand, collapse, the narrow
+member tab strip and a restart. Browser shows the Seat's own lane profile in
+the same browser surface as the Browser pane, with its tabs and address bar;
+several isolated Seats can show live pages at once. The tile takes the
+Browser pane's place while it shows that profile, so the tabs have one live
+surface. A Seat with no page shows **Nothing open yet** and **Pages the agent
+opens appear here.** Seats that share the ordinary browser profile share one
+surface; another tile says where that browser is already shown.
 
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and
