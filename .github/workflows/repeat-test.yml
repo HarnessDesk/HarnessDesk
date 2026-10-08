@@ -30,6 +30,12 @@ jobs:
   repeat:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Thirty browser repetitions outlive one job on a loaded runner. Keep
+    # all thirty, divided over three independent ten-repetition jobs.
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: ${{ fromJSON(github.event_name == 'pull_request' && '[1,2,3]' || '[1]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -49,7 +55,7 @@ jobs:
           # A workflow change measures this flake; dispatch still defaults to
           # the Node test above and can select either kind of test explicitly.
           TEST_FILE: ${{ inputs.test_file || 'e2e/ui-system/focus-ring.spec.ts' }}
-          RUNS: ${{ inputs.runs || '30' }}
+          RUNS: ${{ inputs.runs || '10' }}
           COPIES: ${{ inputs.copies || '2' }}
         shell: python
         run: |
@@ -111,6 +117,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure() || cancelled()
         with:
-          name: repeat-test-logs
+          name: repeat-test-logs-${{ matrix.batch }}
           path: output/repeat-test/
           retention-days: 3

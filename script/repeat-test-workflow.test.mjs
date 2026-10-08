@@ -12,7 +12,7 @@ test('repeat-test uploads only failed or cancelled logs for three days', () => {
   assert.equal(uploads.length, 1)
   const upload = uploads[0][1]
   assert.match(upload, /^        if: failure\(\) \|\| cancelled\(\)$/m)
-  assert.match(upload, /^          name: repeat-test-logs$/m)
+  assert.match(upload, /^          name: repeat-test-logs-\$\{\{ matrix\.batch \}\}$/m)
   assert.match(upload, /^          path: output\/repeat-test\/$/m)
   assert.match(upload, /^          retention-days: 3$/m)
 })
@@ -44,6 +44,13 @@ test('repeat-test accepts browser specs and repeats them against one shared serv
   assert.match(workflow, /'--repeat-each=' \+ str\(runs\)/)
   assert.match(workflow, /'--workers=' \+ str\(copies\)/)
   assert.match(workflow, /'--retries=0'/)
+})
+
+test('PR browser measurements preserve thirty repetitions within the job cap', () => {
+  assert.match(workflow, /batch:.*fromJSON\(github\.event_name == 'pull_request' && '\[1,2,3\]' \|\| '\[1\]'\)/)
+  assert.match(workflow, /^      fail-fast: false$/m)
+  assert.match(workflow, /RUNS: \$\{\{ inputs\.runs \|\| '10' \}\}/)
+  assert.match(workflow, /^    timeout-minutes: 20$/m)
 })
 
 test('repeat-test refuses absolute, traversing, and unlisted paths', () => {
