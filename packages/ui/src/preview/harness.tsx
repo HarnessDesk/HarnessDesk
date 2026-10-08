@@ -1,3 +1,6 @@
+import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
+import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
+import { replaceView, viewAt } from '../state/workbench'
 import type { ReactNode } from 'react'
 
 import {
@@ -1239,6 +1242,25 @@ class PreviewStore {
      is not a model of the panel system: it is the panel system, minus the
      socket. What a reader sees on the Panels tab when they collapse a dock is
      what the app would do, because it is the code the app would run. */
+  readonly #browserTileRegistry = new BrowserTileRegistry()
+  mountBrowserTile(profile: string | null, mount: BrowserTileMount): () => void {
+    return this.#browserTileRegistry.mount(profile, mount, browserTiles => this.patch({ browserTiles }))
+  }
+  loadLanePreferences = async (): Promise<void> => {}
+  #browser(id: string, change: (view: BrowserView) => BrowserView): void {
+    const view = viewAt(this.#snapshot.workbench, id)
+    if (view?.kind === 'browser') this.#workbench(replaceView(this.#snapshot.workbench, id, change(view)))
+  }
+  noteBrowserUrl(id: string, tab: string, url: string): void {
+    this.#browser(id, view => patchBrowserTab(view, tab, { url }))
+  }
+  selectBrowserTab(id: string, tab: string): void {
+    this.#browser(id, view => ({ ...view, active: tab }))
+  }
+  newBrowserTab(id: string, url = 'about:blank'): void {
+    this.#browser(id, view => addBrowserTab(view, url))
+  }
+
   #workbench(next: AppSnapshot['workbench']): void {
     this.patch({ workbench: next })
   }

@@ -1024,6 +1024,16 @@ beside that amount. Older cards show their number and **Card title not recorded*
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+Each Side by side tile has a **Conversation | Browser** switch in its bar.
+The choice belongs to that tile and survives Expand, collapse, the narrow
+member tab strip and a restart. Browser shows the Seat's own lane profile in
+the same browser surface as the Browser pane, with its tabs and address bar;
+several isolated Seats can show live pages at once. The tile takes the
+Browser pane's place while it shows that profile, so the tabs have one live
+surface. A Seat with no page shows **Nothing open yet** and **Pages the agent
+opens appear here.** Seats that share the ordinary browser profile share one
+surface; another tile says where that browser is already shown.
+
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and
 role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where members open from the bar. The Team’s Agents list keeps the same
