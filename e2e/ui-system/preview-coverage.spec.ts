@@ -231,6 +231,18 @@ const sweepSelectsForCoverage = (
   }, { delayedRevealProbe })
 
 test.describe('preview coverage', () => {
+  test('Seat browsers preview live pages and Seats with nothing open', async ({ page }) => {
+    await page.goto('/preview.html?tile-browsers')
+    const live = page.locator('[data-frame-id="side-by-side-browsers"]')
+    await expect(live.frameLocator('iframe').first().getByRole('heading', { name: 'The daily planner' })).toBeVisible()
+    await expect(live.frameLocator('iframe').nth(1).getByRole('heading', { name: 'The reading shelf' })).toBeVisible()
+    const mixed = page.locator('[data-frame-id="side-by-side-browsers-empty"]')
+    await expect(mixed.locator('iframe')).toHaveCount(2)
+    await expect(mixed.getByText('Nothing open yet', { exact: true })).toHaveCount(2)
+    await expect(mixed.getByText('Pages the agent opens appear here.', { exact: true })).toHaveCount(2)
+    expect((await collectCoverage(page)).covered).toContain('components/SeatBrowser.tsx#SeatBrowser')
+  })
+
   test('the in-page inventory keeps an acronym-led React component', async ({ page }) => {
     await page.goto('/preview.html')
     const included = await page.evaluate(async () => {
@@ -270,7 +282,7 @@ test.describe('preview coverage', () => {
     // and the pane with no session at all; the board's tool approvals; whole
     // windows whose Workbench draws the notice's fallback host; compact
     // inspectors include the Seat record and its attachments — so each is visited too.
-    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls']) {
+    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers']) {
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') await page.getByRole('radio', { name: 'List', exact: true }).click()
       if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', {name:'Fill the window',exact:true})).toBeVisible()

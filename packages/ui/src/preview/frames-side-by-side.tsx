@@ -100,10 +100,11 @@ export const SideBySideFrames = () => (
   </>
 )
 
-/** A single synthetic scene for inspected public browser-tile frames. */
+/** Synthetic live and empty Seat browser scenes for coverage and public frames. */
 export const TileBrowserFrames = () => {
   useTheme()
-  return <main className="bg-background p-4 text-foreground">
+  return <main className="grid gap-4 bg-background p-4 text-foreground">
     <SideBySideRoomFrame id="side-by-side-browsers" title="Side by side — each Seat’s browser" count={2} browsers />
+    <SideBySideRoomFrame id="side-by-side-browsers-empty" title="Side by side — live pages and Seats with nothing open" count={4} browsers />
   </main>
 }
