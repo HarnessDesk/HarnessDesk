@@ -12,24 +12,32 @@ import css from '../design/patterns/ApprovalDialog.module.css?raw'
  */
 
 /** A block's body, braces balanced, with its comments taken out. */
-const blockAfter = (opening: string): string => {
-  const at = css.indexOf(opening)
+const blockAfter = (opening: string, source = css): string => {
+  source = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const escaped = opening.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const at = source.search(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{`))
   expect(at, `${opening} is gone from this stylesheet`).toBeGreaterThan(-1)
-  const start = css.indexOf('{', at)
+  const start = source.indexOf('{', at)
   let depth = 0
-  for (let index = start; index < css.length; index += 1) {
-    if (css[index] === '{') depth += 1
-    if (css[index] === '}') {
+  for (let index = start; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1
+    if (source[index] === '}') {
       depth -= 1
-      if (depth === 0) return css.slice(start, index + 1).replace(/\/\*[\s\S]*?\*\//g, '')
+      if (depth === 0) return source.slice(start, index + 1).replace(/\/\*[\s\S]*?\*\//g, '')
     }
   }
   throw new Error(`${opening} never closes`)
 }
 
 describe("an approval's answers in a narrow pane", () => {
+  it('finds the viewport despite comments, spacing and declaration order', () => {
+    const source = `.viewportExtra { container: wrong / inline-size; }
+      .viewport  /* pane viewport */ { bottom: 0; container: hd-approval / inline-size; z-index: 10; }`
+    expect(blockAfter('.viewport', source)).toMatch(/container:\s*hd-approval\s*\/\s*inline-size/)
+  })
+
   it('are sized by the pane the card sits in', () => {
-    expect(blockAfter('.viewport {\n  z-index')).toMatch(/container:\s*hd-approval\s*\/\s*inline-size/)
+    expect(blockAfter('.viewport')).toMatch(/container:\s*hd-approval\s*\/\s*inline-size/)
   })
 
   it('wrap below 460px and share their lines, with nothing holding them apart', () => {
