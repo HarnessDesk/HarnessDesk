@@ -1,5 +1,5 @@
 import { Button, Chip, CodeText, PopoverGroupLabel, PopoverSurface, Text } from '../design'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 
 import { CheckIcon, FileIcon, SessionIcon, SlashIcon, SparkIcon } from './Icons'
 import styles from './TriggerMenu.module.css'
@@ -35,6 +35,8 @@ export interface TriggerItem {
    * the caller's fact and this menu must not learn about runtimes.
    */
   readonly mark?: ReactNode
+  /** A refused pick remains visible, with the reason in the row. */
+  readonly disabled?: string
 }
 
 export const TriggerMenu = ({
@@ -44,6 +46,8 @@ export const TriggerMenu = ({
   onHover,
   onPick,
   emptyLabel,
+  anchor,
+  onDismiss,
 }: {
   title?: string
   items: readonly TriggerItem[]
@@ -51,6 +55,8 @@ export const TriggerMenu = ({
   onHover: (index: number) => void
   onPick: (item: TriggerItem) => void
   emptyLabel?: string
+  anchor?: RefObject<HTMLElement | null>
+  onDismiss?: () => void
 }): ReactNode => {
   const container = useRef<HTMLDivElement>(null)
 
@@ -61,7 +67,7 @@ export const TriggerMenu = ({
   }, [activeIndex])
 
   return (
-    <PopoverSurface className={styles.menu} ref={container} role="listbox" limit="trigger">
+    <PopoverSurface anchor={anchor} onDismiss={onDismiss} className={anchor ? undefined : styles.menu} ref={container} role="listbox" limit="trigger">
       {title && <PopoverGroupLabel>{title}</PopoverGroupLabel>}
       {items.length === 0 && <div className="hd-empty-line">{emptyLabel ?? 'No matches'}</div>}
       {items.map((item, index) => (
@@ -70,6 +76,8 @@ export const TriggerMenu = ({
           type="button"
           role="option"
           aria-selected={index === activeIndex} variant="navigation" size="navigation" className={styles.row}
+          disabled={Boolean(item.disabled)} aria-disabled={Boolean(item.disabled)}
+          title={item.disabled}
           {...(index === activeIndex ? { 'data-selected': '' } : {})}
           onMouseEnter={() => onHover(index)}
           onClick={() => onPick(item)}
@@ -90,7 +98,7 @@ export const TriggerMenu = ({
             {item.mono ? <CodeText size="inherit">{item.name}</CodeText> : item.name}
           </Text>
           {item.hint && (
-            <Text role="muted" {...(item.pathStyle ? { truncateFrom: 'start' as const } : { truncate: true })} className={styles.hint}>
+            <Text role="muted" {...(item.disabled ? {} : item.pathStyle ? { truncateFrom: 'start' as const } : { truncate: true })} className={styles.hint}>
               {item.pathStyle ? <CodeText size="inherit">{item.hint}</CodeText> : item.hint}
             </Text>
           )}

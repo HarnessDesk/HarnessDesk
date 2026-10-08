@@ -14,7 +14,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 export const FLOW_SOURCE = readFileSync(new URL('./flow.yml', import.meta.url), 'utf8')
 
 /** Own one synthetic desk. No install discovery, vendor accounts or forge. */
-export async function createFlowRig({ home, work, delayMs = 0 }) {
+export async function createFlowRig({ home, work, delayMs = 0, scriptedTurns = true }) {
   execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
     env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '1' }, stdio: 'pipe',
   })
@@ -38,10 +38,10 @@ export async function createFlowRig({ home, work, delayMs = 0 }) {
   const codex = new CodexRuntime({
     binaryPath: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
     codexHome: join(home, 'codex-home'), capabilities: new GatedRegistry(extensions, () => host.ceilingGate),
-    env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', FAKE_CODEX_FLOW: JSON.stringify({ state, delayMs, steps: {
+    env: { HARNESSDESK_CODEX_PROCESS_GROUP: randomUUID(), HARNESSDESK_CODEX_GENERATION: '0', ...(scriptedTurns ? { FAKE_CODEX_FLOW: JSON.stringify({ state, delayMs, steps: {
       RIG_FLOW_WRITE: { kind: 'write', outcomes: ['committed', 'committed'], file: 'rig-retry.txt' },
       RIG_FLOW_REVIEW: { kind: 'review', outcomes: ['request-changes', 'approve'] },
-    } }) },
+    } }) } : {}) },
   })
   host.register(codex)
   const errors = []

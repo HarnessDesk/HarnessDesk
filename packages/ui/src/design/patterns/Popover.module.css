@@ -80,6 +80,10 @@
   max-height: 300px;
 }
 
+.panel[data-limit='trigger'][data-width='trigger'] {
+  max-height: min(300px, var(--available-height, 300px));
+}
+
 /* The row that opened it, unfolded: exactly the trigger's width, which Base
    UI's positioner measures as `--anchor-width`. The panel's 180px floor
    still holds, so a sidebar dragged to its narrowest keeps a readable menu

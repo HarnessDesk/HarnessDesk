@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import { NativeSelect } from '../design'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { shortcutFor } from '../lib/shortcuts'
 import { MountProvider } from '../panels/mount'
@@ -55,27 +56,31 @@ const SideBySideRoomFrame = ({
   count,
   expanded,
   comparison,
+  browsers = false,
 }: {
   readonly id: string
   readonly title: string
   readonly count: 2 | 4
   readonly expanded?: boolean
   readonly comparison?: ComparisonScene
+  readonly browsers?: boolean
 }) => {
-  const store = useMemo(() => comparison ? comparisonVerdictStore(comparison) : sideBySideStore(), [comparison])
+  const store = useMemo(() => comparison ? comparisonVerdictStore(comparison) : sideBySideStore({ browsers }), [comparison, browsers])
   const tiles = SIDE_BY_SIDE_KEYS.slice(0, count)
   const view = {
     kind: 'room' as const,
     room: PREVIEW_ROOM,
     sideBySide: {
       tiles,
+      ...(comparison === 'combined' ? { modes: { [tiles[0]!]: 'browser' as const } } : {}),
+      ...(browsers ? { modes: Object.fromEntries(tiles.map(key => [key, 'browser' as const])) } : {}),
       focused: expanded ? tiles[1] : tiles[0],
       ...(expanded ? { expanded: tiles[1] } : {}),
     },
   }
   return (
     <Frame id={id} title={title}>
-      <div data-side-by-side-container style={{ width: '100%', height: 520 }}>
+      <div data-side-by-side-container style={{ width: '100%', height: browsers || comparison === 'combined' ? 700 : 520 }}>
         <StoreProvider store={store}>
           <MountProvider scope={{ area: 'main', id, view }}>
             <FocusedWhileInside>
@@ -94,6 +99,7 @@ export const SideBySideFrames = ({ comparisonOnly = false, scene }: { comparison
     <div className="mt-4 grid grid-cols-1 gap-4">
       {(scene ? [scene] : ['before', 'picked', 'person', 'no-pass'] as const).map(scene => <SideBySideRoomFrame key={scene} id={`comparison-${scene}`} title={`Comparison · ${scene}`} count={2} comparison={scene} />)}
       {!comparisonOnly && <>
+      <SideBySideRoomFrame id="side-by-side-browsers" title="Room — Side by side · two live pages" count={2} browsers />
       <SideBySideRoomFrame id="side-by-side-two" title="Room — Side by side · two members" count={2} />
       <SideBySideRoomFrame id="side-by-side-four" title="Room — Side by side · four members" count={4} />
       <SideBySideRoomFrame id="side-by-side-expanded" title="Room — Side by side · expanded tile" count={4} expanded />
@@ -109,9 +115,18 @@ export const ComparisonVerdictPreview = () => {
   const snapshot = useSnapshot()
   const scene = new URLSearchParams(window.location.search).get('comparison-verdict')
   return <div className="p-4">
-    <label>theme <select aria-label="theme" value={snapshot.theme} onChange={event => store.setTheme(event.target.value as 'light' | 'dark')}>
+    <label>theme <NativeSelect aria-label="theme" value={snapshot.theme} onChange={event => store.setTheme(event.target.value as 'light' | 'dark')}>
       <option value="light">light</option><option value="dark">dark</option>
-    </select></label>
-    <SideBySideFrames comparisonOnly scene={scene === 'approval' || scene === 'long-reason' || scene === 'merged' || scene === 'stopped' ? scene : undefined} />
+    </NativeSelect></label>
+    <SideBySideFrames comparisonOnly scene={scene === 'approval' || scene === 'long-reason' || scene === 'merged' || scene === 'stopped' || scene === 'combined' ? scene : undefined} />
   </div>
+}
+
+/** Synthetic live and empty Seat browser scenes for coverage and public frames. */
+export const TileBrowserFrames = () => {
+  useTheme()
+  return <main className="grid gap-4 bg-background p-4 text-foreground">
+    <SideBySideRoomFrame id="side-by-side-browsers" title="Side by side — each Seat’s browser" count={2} browsers />
+    <SideBySideRoomFrame id="side-by-side-browsers-empty" title="Side by side — live pages and Seats with nothing open" count={4} browsers />
+  </main>
 }

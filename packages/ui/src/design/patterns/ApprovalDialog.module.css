@@ -32,22 +32,26 @@
    and viewport this same layer for the same reason, and the one written
    second wins the tie. */
 .viewport {
+  /* Keep the scrim full-pane while the decision clears a shared floating dock. */
+  bottom: var(--shared-composer-h, 0px);
   z-index: var(--hd-z-dialog);
   display: grid;
   place-items: center;
-  padding: var(--hd-space-6);
+  padding-inline: var(--hd-space-6);
   container: hd-approval / inline-size;
 }
 
 .dialog {
   width: min(620px, 100%);
-  max-height: min(72vh, 720px);
+  /* A bottom grid tile is shorter than the window: scroll the request body
+     within that pane and keep the footer above the shared composer. */
+  max-height: min(72vh, 720px, 100%); /* desk: cap the decision to its tile viewport above the shared dock */
   display: flex;
   flex-direction: column;
   border-radius: var(--hd-surface-radius);
   background: var(--hd-surface-fill);
   box-shadow: var(--hd-surface-shadow);
-  overflow: hidden;
+  overflow-y: auto;
   outline: none;
 }
 
@@ -105,6 +109,15 @@
   overflow-y: auto;
   padding: 0 var(--approval-edge-inset) var(--hd-inset-row); /* desk: overlay inline 16 → 24; docked inline 16 stays, internal bottom stays 12 (#1363) */
   padding-left: calc(var(--approval-edge-inset) + var(--approval-text-inset)); /* desk: overlay hanging text 40 → 48; docked stays 40 (#1363) */
+}
+
+/* A pane can be shorter than the question's header and footer together.
+   Scroll the entire overlay surface then, rather than squeezing its request
+   to zero or leaving its answers outside the tile. Docked cards retain their
+   existing body scroll and footer. */
+.dialog .body {
+  flex-shrink: 0;
+  overflow: visible;
 }
 
 .reason {

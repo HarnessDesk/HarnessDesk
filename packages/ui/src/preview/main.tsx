@@ -101,7 +101,7 @@ import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
-import { SideBySideFrames, ComparisonVerdictPreview } from './frames-side-by-side'
+import { SideBySideFrames, ComparisonVerdictPreview, TileBrowserFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
 import { HeaderStatusFrames } from './frames-header-status'
 import { ReadCeilingFrames } from './frames-read-ceiling'
@@ -123,8 +123,8 @@ const SHOW_EMPTY = new URLSearchParams(window.location.search).has('empty')
 const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
 /* Up to four more full `<Conversation>`s, one per tile — the duplication
    `?empty` is gated against, four times over. Only on
-   `preview.html?side-by-side`; the design page's own board draws the grid
-   for the coverage sweep. */
+   `preview.html?side-by-side`; the coverage sweep visits this Team's shared
+   composer as well as the design page's standalone grids. */
 const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-by-side')
 /* The Library's UX option mockups are a design record for the owner, not a
    shipped surface: they render only on `preview.html?library-options`, so the
@@ -1197,7 +1197,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('shape-graph')
+        {new URLSearchParams(window.location.search).has('tile-browsers')
+          ? <TileBrowserFrames />
+          : new URLSearchParams(window.location.search).has('shape-graph')
           ? <ShapeGraphFrames />
           : new URLSearchParams(window.location.search).has('header-status')
           ? <HeaderStatusFrames />

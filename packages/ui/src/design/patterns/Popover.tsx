@@ -1,4 +1,4 @@
-import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref } from 'react'
+import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref, type RefObject } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -294,16 +294,43 @@ export const PopoverGroupLabel = ({
 /** The floating plate shared by anchored menus and inline trigger pickers. */
 export const PopoverSurface = forwardRef<
   HTMLDivElement,
-  HTMLAttributes<HTMLDivElement> & { limit?: 'trigger' }
->(({ className, limit, ...props }, ref) => (
-  <div
+  HTMLAttributes<HTMLDivElement> & {
+    limit?: 'trigger'
+    /** A typing picker escapes its anchor's scroll clip without taking focus. */
+    anchor?: RefObject<HTMLElement | null>
+    /** Lets a controlled typing picker clear its owner's active query. */
+    onDismiss?: () => void
+  }
+>(({ className, limit, anchor, onDismiss, ...props }, ref) => {
+  useDismissOverlays(Boolean(anchor), () => onDismiss?.())
+  const surface = <div
     ref={ref}
     {...props}
     data-slot="popover-surface"
     {...(limit ? { 'data-limit': limit } : {})}
+    {...(anchor ? { 'data-width': 'trigger' } : {})}
     className={`${styles.panel}${className ? ` ${className}` : ''}`}
   />
-))
+  if (!anchor) return surface
+  return (
+    <BasePopover open modal={false} onOpenChange={open => { if (!open) onDismiss?.() }}>
+      <PopoverPortal>
+        <PopoverPositioner
+          anchor={anchor}
+          positionMethod="fixed"
+          side="top"
+          align="start"
+          sideOffset={6}
+          collisionPadding={8}
+          collisionBoundary={anchor.current?.closest('[data-slot="app-window"]') ?? undefined}
+          className={styles.positioner}
+        >
+          <PopoverPopup render={surface} initialFocus={false} finalFocus={false} onMouseDown={event => event.preventDefault()} />
+        </PopoverPositioner>
+      </PopoverPortal>
+    </BasePopover>
+  )
+})
 PopoverSurface.displayName = 'PopoverSurface'
 
 export const PopoverOption = ({

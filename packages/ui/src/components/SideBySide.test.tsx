@@ -1,11 +1,13 @@
-import { act, useContext, useState } from 'react'
+import { act, useContext, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi, type Mock } from 'vitest'
 
 import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
-import { KeyboardHereContext, PaneProvider, usePane } from '../state/context'
-import { emptySideBySide, type SideBySideState } from '../lib/side-by-side'
+import { KeyboardHereContext, PaneProvider, StoreProvider, usePane } from '../state/context'
+import { emptySideBySide, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
+import { AppStore } from '../state/store'
 import { SideBySide } from './SideBySide'
+import sheet from './SideBySide.module.css?raw'
 
 vi.mock('./Conversation', () => ({
   Conversation: ({ header, composer }: { header?: boolean; composer?: boolean }) => {
@@ -24,6 +26,8 @@ vi.mock('../state/context', async (load) => {
 })
 let paneFocused = true
 let keyboardHere: boolean | null = null
+let store: AppStore
+let saved: SideBySideState
 
 let measuredWidth = 1200
 const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -42,9 +46,11 @@ afterEach(() => {
   rect.mockClear()
   paneFocused = true
   keyboardHere = null
+  vi.unstubAllGlobals()
 })
 
 const keys = [sessionKey('codex', 'one'), sessionKey('claude', 'two'), sessionKey('cursor', 'three')] as SessionKey[]
+const fourKeys = [...keys, sessionKey('codex', 'four')]
 const nicknames = ['Alpha', 'Beta', 'Gamma']
 const members = new Map(keys.map((key, index) => [key, { nickname: nicknames[index]!, agent: `Agent ${index + 1}`, model: `Model ${index + 1}` }]))
 const entries = new Map(keys.map((key, index) => [key, {
@@ -69,18 +75,22 @@ const baseState = (tileKeys = keys.slice(0, 2)): SideBySideState => ({
   seen: tileKeys,
 })
 
-const mount = (initial = baseState(), opts: { width?: number; onOpenMember?: (key: SessionKey) => void } = {}) => {
+const mount = (initial = baseState(), opts: { width?: number; onOpenMember?: (key: SessionKey) => void; composer?: (shown: readonly SessionKey[]) => ReactNode } = {}) => {
   const opened = opts.onOpenMember ?? vi.fn()
   measuredWidth = opts.width ?? 1200
+  store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store, 'loadLanePreferences').mockResolvedValue()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
-  act(() => root!.render(<Harness initial={initial} onOpenMember={opened} />))
+  act(() => root!.render(<Harness initial={initial} onOpenMember={opened} composer={opts.composer} />))
   return { container, root: root!, opened }
 }
 
 const mountTwo = () => {
   measuredWidth = 1200
+  store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store, 'loadLanePreferences').mockResolvedValue()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -100,12 +110,14 @@ const text = (target: ParentNode, content: string): HTMLElement => {
   return element
 }
 
-const Harness = ({ initial, onOpenMember }: {
+const Harness = ({ initial, onOpenMember, composer }: {
   initial: SideBySideState
   onOpenMember: (key: SessionKey) => void
+  composer?: (shown: readonly SessionKey[]) => ReactNode
 }) => {
   const [state, setState] = useState(initial)
-  return <KeyboardHereContext.Provider value={keyboardHere}>
+  saved = state
+  return <StoreProvider store={store}><KeyboardHereContext.Provider value={keyboardHere}>
     <SideBySide
       state={state}
       onChange={setState}
@@ -113,9 +125,10 @@ const Harness = ({ initial, onOpenMember }: {
       memberOf={(key) => members.get(key)}
       entryOf={(key) => entries.get(key) ?? null}
       onOpenMember={onOpenMember}
+      composer={composer}
       conversationProps={{ onChooseProject: vi.fn(), onSignIn: vi.fn(), onOpenUsage: vi.fn(), onOpenRuntimes: vi.fn() }}
     />
-  </KeyboardHereContext.Provider>
+  </KeyboardHereContext.Provider></StoreProvider>
 }
 
 it('renders one tile per member in order and marks focus and hidden state', () => {
@@ -367,4 +380,173 @@ it('adds a success Picked or quiet Not kept chip only for a recorded comparison 
   } finally {
     keys.slice(0, 2).forEach((key, i) => entries.set(key, prior[i]!))
   }
+})
+it.each([1, 2, 3, 4])('shows exactly one shared composer for %i tiles only when several are displayed', (count) => {
+  const shown = fourKeys.slice(0, count)
+  const composer = vi.fn((recipients: readonly SessionKey[]) => <textarea aria-label="Shared message" data-recipients={JSON.stringify(recipients)} />)
+  mount(baseState(shown), { composer })
+  const shared = container.querySelector('[aria-label="Shared message"]')
+  expect(shared === null).toBe(count === 1)
+  if (count > 1) {
+    expect(composer).toHaveBeenLastCalledWith(shown)
+    expect(shared?.closest('[data-slot="composer-dock"]')).not.toBeNull()
+  } else expect(composer).not.toHaveBeenCalled()
+  const bodies = [...container.querySelectorAll<HTMLElement>('[data-testid="conversation-body"]')]
+  expect(bodies.map((body) => body.dataset.composer)).toEqual(shown.map(() => String(count === 1)))
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"] [data-testid="approvals"]')).toHaveLength(count)
+})
+
+const observeResizes = () => {
+  const observers: { target?: Element; resize: () => void; disconnect: Mock<() => void> }[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    readonly record: typeof observers[number]
+    constructor(callback: () => void) {
+      this.record = { resize: callback, disconnect: vi.fn() }
+      observers.push(this.record)
+    }
+    observe(target: Element) { this.record.target = target }
+    disconnect() { this.record.disconnect() }
+  })
+  return observers
+}
+
+it('gives the shared composer the keyboard so tile approvals cannot answer its digits or Escape', () => {
+  mount(baseState(), { composer: () => <textarea aria-label="Shared message" /> })
+  const contexts = () => [...container.querySelectorAll<HTMLElement>('[data-testid="conversation-body"]')].map(body => body.dataset.keyboardHere)
+  expect(contexts()).toEqual(['true', 'false'])
+  act(() => container.querySelector<HTMLTextAreaElement>('[aria-label="Shared message"]')!.focus())
+  expect(contexts()).toEqual(['false', 'false'])
+  act(() => container.querySelector<HTMLElement>('[data-slot="side-by-side-tile"]')!.focus())
+  expect(contexts()).toEqual(['true', 'false'])
+})
+
+it('switches between the shared dock and individual composers across expansion and narrow resizing', () => {
+  const observers = observeResizes()
+  const composer = vi.fn(() => <textarea aria-label="Shared message" />)
+  mount(baseState(keys), { composer })
+  const dock = container.querySelector<HTMLElement>('[data-shared-composer]')!
+  expect(dock).not.toBeNull()
+  expect(dock.hidden).toBe(false)
+  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+  expect(container.querySelector('[data-shared-composer]')).toBe(dock)
+  expect(dock.hidden).toBe(true)
+  expect(dock.querySelector('textarea')).toBeNull()
+  expect(container.querySelector<HTMLElement>('[data-testid="conversation-body"]')?.dataset.composer).toBe('true')
+  click(container.querySelector('button[aria-label="Collapse Alpha"]')!)
+  expect(dock.hidden).toBe(false)
+  expect(composer).toHaveBeenLastCalledWith(keys)
+  expect([...container.querySelectorAll<HTMLElement>('[data-testid="conversation-body"]')].map((body) => body.dataset.composer)).toEqual(['false', 'false', 'false'])
+  measuredWidth = 600
+  act(() => observers.find((observer) => observer.target?.getAttribute('data-slot') === 'side-by-side-grid')!.resize())
+  expect(dock.hidden).toBe(true)
+  expect(container.querySelector('[data-clear-composer]')).toBeNull()
+  const lone = container.querySelector<HTMLElement>('[data-slot="side-by-side-tile"]:not([data-hidden]) [data-testid="conversation-body"]')!
+  expect(lone.dataset.composer).toBe('true')
+  measuredWidth = 1400
+  act(() => observers.find((observer) => observer.target?.getAttribute('data-slot') === 'side-by-side-grid')!.resize())
+  expect(dock.hidden).toBe(false)
+  expect(composer).toHaveBeenLastCalledWith(keys)
+  // Three tiles fit on one row now: all three clear the composer, while
+  // the earlier two-column layout only cleared its final tile.
+  expect(container.querySelectorAll('[data-clear-composer]')).toHaveLength(3)
+})
+
+it.each([2, 3, 4])('clears the measured dock and notices only beneath the bottom row of %i tiles', (count) => {
+  const observers = observeResizes()
+  let height = 190
+  const offset = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.hasAttribute('data-shared-composer') && !this.hidden ? height : 0
+  })
+  try {
+    mount(baseState(fourKeys.slice(0, count)), { composer: () => <><div>Delivery notice</div><textarea aria-label="Shared message" /></> })
+    const grid = container.querySelector<HTMLElement>('[data-slot="side-by-side-grid"]')!
+    if (count > 2) expect(grid.style.gridTemplateRows).toContain('100% + var(--composer-h')
+    const dock = grid.querySelector('[data-shared-composer]')!
+    const observer = observers.find((one) => one.target === dock)!
+    // The grid's first width measurement reveals the initially empty dock;
+    // the browser then reports its new size to the already mounted observer.
+    act(() => observer.resize())
+    expect(grid.style.getPropertyValue('--composer-h')).toBe('190px')
+    const tiles = [...grid.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
+    expect(tiles.map((tile) => !!tile.querySelector('[data-clear-composer]'))).toEqual(count === 2 ? [true, true] : count === 3 ? [false, false, true] : [false, false, true, true])
+    expect(dock.textContent).toContain('Delivery notice')
+    height = 260
+    act(() => observer.resize())
+    expect(grid.style.getPropertyValue('--composer-h')).toBe('260px')
+    click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+    act(() => observer.resize())
+    expect(grid.style.getPropertyValue('--composer-h')).toBe('0px')
+    expect(grid.querySelector('[data-clear-composer]')).toBeNull()
+    click(container.querySelector('button[aria-label="Collapse Alpha"]')!)
+    act(() => observer.resize())
+    expect(grid.style.getPropertyValue('--composer-h')).toBe('260px')
+    act(() => root!.unmount())
+    root = null
+    expect(observer.disconnect).toHaveBeenCalledOnce()
+    expect(observers.every((one) => one.disconnect.mock.calls.length === 1)).toBe(true)
+  } finally {
+    offset.mockRestore()
+  }
+})
+
+it('keeps full-height panels and reserves content clearance under the ordinary-width floating dock', () => {
+  expect(sheet).toMatch(/\.tile\s*\{[^}]*isolation:\s*isolate/)
+  expect(sheet).toMatch(/\.body\s*\{[^}]*position:\s*relative/)
+  expect(sheet).toMatch(/\.body\[data-clear-composer\]\s*\{[^}]*--shared-composer-h:\s*var\(--composer-h,\s*0px\)/)
+  expect(sheet).not.toMatch(/margin-bottom:\s*var\(--composer-h/)
+  expect(sheet).toMatch(/\.composer\s*\{[^}]*max-width:\s*var\(--hd-column\)/)
+  expect(sheet).toMatch(/\.dock\s*\{[^}]*position:\s*absolute/)
+})
+
+const mode = (tile: Element, name: string) => tile.querySelector(`[role="radio"][aria-label="${name}"]`) ?? [...tile.querySelectorAll('[role="radio"]')].find(one => one.textContent === name)!
+
+it('switches one tile to Browser, keeps its sibling in Conversation, and invents no page', () => {
+  mount()
+  const tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+  expect(mode(tiles[0]!, 'Conversation')?.getAttribute('aria-checked')).toBe('true')
+  click(mode(tiles[0]!, 'Browser'))
+  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  expect(tiles[0]!.textContent).toContain('Pages the agent opens appear here.')
+  expect(tiles[0]!.querySelector('iframe, webview')).toBeNull()
+  expect(tiles[1]!.querySelector('[data-testid="conversation-body"]')).not.toBeNull()
+  expect(saved.modes).toEqual({ [keys[0]!]: 'browser' })
+  click(mode(tiles[0]!, 'Conversation'))
+  expect(tiles[0]!.querySelector('[data-testid="conversation-body"]')).not.toBeNull()
+})
+
+it('keeps recorded verdict chips beside the view switch when a tile shows Browser', () => {
+  const prior = keys.slice(0, 2).map(key => entries.get(key)!)
+  entries.set(keys[0]!, { ...(prior[0] as unknown as Record<string, unknown>), keep: 'kept' } as never)
+  entries.set(keys[1]!, { ...(prior[1] as unknown as Record<string, unknown>), keep: 'not-kept' } as never)
+  try {
+    mount(baseState(), { composer: () => <textarea aria-label="Shared message" /> })
+    const tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+    click(mode(tiles[0]!, 'Browser'))
+    expect(tiles[0]!.querySelector('header')?.textContent).toContain('Picked')
+    expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+    expect(tiles[1]!.querySelector('header')?.textContent).toContain('Not kept')
+    expect(container.querySelectorAll('[aria-label="Shared message"]')).toHaveLength(1)
+  } finally {
+    keys.slice(0, 2).forEach((key, i) => entries.set(key, prior[i]!))
+  }
+})
+
+it('keeps per-tile modes through expand, collapse, narrow tabs and a stored restart', () => {
+  mount(baseState(), { width: 400 })
+  let tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+  click(mode(tiles[0]!, 'Browser'))
+  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+  click(container.querySelector('button[aria-label="Collapse Alpha"]')!)
+  const strip = container.querySelector('[role="tablist"][aria-label="Members"]') ?? container.querySelector('[role="tablist"]')!
+  click(text(strip, 'Beta'))
+  expect(mode(tiles[1]!, 'Conversation').getAttribute('aria-checked')).toBe('true')
+  click(text(strip, 'Alpha'))
+  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  const restored = fromStored(JSON.parse(JSON.stringify(toStored(saved))))
+  act(() => root!.unmount())
+  container.remove()
+  mount(restored, { width: 400 })
+  tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  expect(mode(tiles[1]!, 'Conversation').getAttribute('aria-checked')).toBe('true')
 })

@@ -156,7 +156,8 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
-import { toStored, type SideBySideState } from '../lib/side-by-side'
+import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
+import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
 import { kept as keptInInbox, repeated as repeatedInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
@@ -3276,6 +3277,25 @@ export class AppStore {
     return view?.kind === 'browser' ? { id, view } : null
   }
 
+  readonly #browserTileRegistry = new BrowserTileRegistry()
+
+  mountBrowserTile(profile: string | null, mount: BrowserTileMount): () => void {
+    return this.#browserTileRegistry.mount(profile, mount, browserTiles => this.#patch({ browserTiles }))
+  }
+
+  #frontBrowserTile(profile: string | null): boolean {
+    const tile = this.#snapshot.browserTiles.get(browserProfileKey(profile))
+    if (!tile) return false
+    const room = viewAt(this.#snapshot.workbench, tile.paneId)
+    if (room?.kind !== 'room') return false
+    tile.focus?.()
+    this.setRoomSideBySide(tile.paneId, focusTile(fromStored(room.sideBySide, room.watching), tile.key))
+    this.revealView(tile.paneId)
+    if (this.#snapshot.layout.expanded !== null && this.#snapshot.layout.expanded !== tile.paneId) this.#setLayout(collapseIn(this.#snapshot.layout))
+    if (this.#snapshot.workbench.zoom && !areaVisibleIn(this.#snapshot.workbench, areaOfMount(this.#snapshot.workbench, tile.paneId))) this.unzoomPanel()
+    return true
+  }
+
   /** Applies a change to the browser's view, wherever it is mounted. */
   #patchBrowser(id: string, change: (view: BrowserView) => BrowserView | null): void {
     const current = viewAt(this.#snapshot.workbench, id)
@@ -3344,7 +3364,7 @@ export class AppStore {
     }
     if (existing) {
       if (url) this.#patchBrowser(existing.id, sendDriven)
-      this.revealView(existing.id)
+      if (!this.#frontBrowserTile(profile)) this.revealView(existing.id)
       return
     }
     // A closed panel gets its pages back — including when it is an agent
@@ -3362,6 +3382,7 @@ export class AppStore {
       return
     }
     this.openDefaultView(view)
+    this.#frontBrowserTile(profile)
   }
 
   /**
@@ -3388,6 +3409,10 @@ export class AppStore {
   focusDrivenBrowserTab(profile: string | null = null): void {
     const pane = this.#browserPane(profile)
     if (!pane) return
+    if (this.#frontBrowserTile(profile)) {
+      this.#patchBrowser(pane.id, view => view.active === view.driven ? view : { ...view, active: view.driven })
+      return
+    }
     this.revealView(pane.id)
     // A browser hidden behind another pane's expansion cannot paint, and a
     // frozen webview screenshots as a stale frame — the tools are about to

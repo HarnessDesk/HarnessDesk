@@ -11,7 +11,7 @@ import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
 import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
-import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
+import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
 import { optionsBySlot } from '../lib/composer-slots'
 import {
@@ -337,6 +337,7 @@ const ChoiceRows = ({
   choices?: readonly OptionChoice[]
 }) => {
   const store = useStore()
+  const key = useSessionKey()
   const agent = brandForRuntime(useRuntime())
   const column = describesEveryChoice(option)
   const groups = new Map<string | undefined, OptionChoice[]>()
@@ -359,7 +360,7 @@ const ChoiceRows = ({
               {...(column && choice.description ? { hint: choice.description } : {})}
               {...(choice.description ? { title: choice.description } : {})}
               disabled={option.disabled || choice.disabled}
-              onSelect={() => void store.setOption(option.id, choice.value)}
+              onSelect={() => void (key ? store.setOption(option.id, choice.value, key) : store.setOption(option.id, choice.value))}
             />
           ))}
         </div>
@@ -371,6 +372,7 @@ const ChoiceRows = ({
 /** One option, whole: its heading, its reason when refused, and its rows. */
 const OptionRows = ({ option }: { option: ConfigOption }) => {
   const store = useStore()
+  const key = useSessionKey()
   const { ask, dialog } = useOptionConfirm()
   return (
     <>
@@ -383,7 +385,7 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
           hint={option.disabled ?? option.description}
           checked={option.currentValue}
           disabled={option.disabled}
-          onChange={(next) => ask(option, next, () => void store.setOption(option.id, next))}
+          onChange={(next) => ask(option, next, () => void (key ? store.setOption(option.id, next, key) : store.setOption(option.id, next)))}
         />
       ) : (
         <>
@@ -408,6 +410,7 @@ const FIELD_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'H
 
 const FilterableChoices = ({ option, close }: { option: SelectOption; close: () => void }) => {
   const store = useStore()
+  const key = useSessionKey()
   const [query, setQuery] = useState('')
   if (option.choices.length <= 8) return <ChoiceRows option={option} />
   const needle = query.trim().toLowerCase()
@@ -446,7 +449,7 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
           event.preventDefault()
           const first = filtered.find((choice) => !choice.disabled)
           if (first) {
-            void store.setOption(option.id, first.value)
+            void (key ? store.setOption(option.id, first.value, key) : store.setOption(option.id, first.value))
             close()
           }
         }}
@@ -466,6 +469,8 @@ const currentLabel = (option: SelectOption): string =>
 /** Permissions and approvals, plus saved presets that set several at once. */
 export const PermissionControl = () => {
   const store = useStore()
+  const key = useSessionKey()
+  const runtime = useRuntime()?.id
   const snapshot = useSnapshot()
   const { ref, folded, tight } = useNarrowToolbar('permissions')
   const all = useComposerOptions()
@@ -483,8 +488,8 @@ export const PermissionControl = () => {
     )
   }
 
-  const presets = presetsFor(snapshot.activeRuntime, snapshot.customPresets)
-  const preset = matchPreset(snapshot.activeRuntime ?? '', all, presets)
+  const presets = presetsFor(runtime, snapshot.customPresets)
+  const preset = matchPreset(runtime ?? '', all, presets)
   const tone = riskTone(options)
   const first = options[0]
   const current = first?.type === 'select' ? currentLabel(first) : first?.label
@@ -519,7 +524,7 @@ export const PermissionControl = () => {
                       selected={entry.id === preset?.id}
                       label={entry.name}
                       hint={entry.description}
-                      onSelect={() => void store.applyPreset(entry)}
+                      onSelect={() => void (key ? store.applyPreset(entry, key) : store.applyPreset(entry))}
                     />
                   ))}
                 </>
@@ -559,6 +564,7 @@ const FOLD_FROM = FEATURED_MODELS + 2
  */
 export const ModelControl = () => {
   const store = useStore()
+  const key = useSessionKey()
   const snapshot = useSnapshot()
   const { ref, folded, tight } = useNarrowToolbar('model')
   const session = useActiveSession()
@@ -701,7 +707,7 @@ export const ModelControl = () => {
                           checked={toggle.currentValue}
                           disabled={toggle.disabled}
                           onChange={(next) =>
-                            ask(toggle, next, () => void store.setOption(toggle.id, next))
+                            ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))
                           }
                         />
                       ) : null,
@@ -717,7 +723,7 @@ export const ModelControl = () => {
                       hint={toggle.description}
                       checked={toggle.currentValue}
                       disabled={toggle.disabled}
-                      onChange={(next) => ask(toggle, next, () => void store.setOption(toggle.id, next))}
+                      onChange={(next) => ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))}
                     />
                   ) : null,
                 )}

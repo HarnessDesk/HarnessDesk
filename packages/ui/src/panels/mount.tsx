@@ -24,6 +24,8 @@ import { views } from './views'
  */
 
 export interface MountScope {
+  /** The enclosing tile owns panel furniture and keyboard focus. */
+  readonly embedded?: boolean
   readonly area: AreaId
   /** The pane's id in `main`, the mounted view's id in a dock. */
   readonly id: string
@@ -100,7 +102,7 @@ export const useMountControls = (): MountControls | null => {
   const scope = useMount()
 
   return useMemo(() => {
-    if (!scope) return null
+    if (!scope || scope.embedded) return null
     const { area, id, view } = scope
     const dock = area === 'main' ? null : snapshot.workbench[area]
     const holding = dock ? stackOf(dock, id) : null
