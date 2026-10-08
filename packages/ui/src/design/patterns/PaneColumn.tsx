@@ -28,8 +28,9 @@ import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } fr
  * owns rather than a class string a screen composes around it).
  *
  * `clearComposer` is `reading`'s alone: only a floating composer needs its
- * measured height cleared, and only the transcript's own scroll box floats
- * one — the room's composer sits in flow below its stream.
+ * measured height cleared. A tile under a shared floating composer supplies
+ * `--shared-composer-h` in addition to its own dock's measurement; its local
+ * bars sit above that shared dock. The room's Chat composer remains in flow.
  */
 
 type ReadingInset = 'reading'
@@ -88,7 +89,7 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
       data-inset={inset}
       style={{
         padding: clearComposer
-          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} calc(var(--composer-h, 150px) + 16px)`
+          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)`
           : `${page ? INLINE.reading : VERTICAL[inset] ?? '0'} ${INLINE[inset]}`,
         ...style,
       }}

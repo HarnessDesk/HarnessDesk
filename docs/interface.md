@@ -1024,6 +1024,18 @@ beside that amount. Older cards show their number and **Card title not recorded*
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+
+With two or more Seats visible, Side by side has one ordinary composer centred
+over the bottom of the grid. **Everyone** reaches the visible Seats; `@` picks
+one or several instead. Chat keeps the message once, and the room's words and
+audience wait across Chat, the grid and expanding a tile. A lone, expanded or
+narrow single tile uses its own composer. Panels extend to the bottom behind the floating box; their
+transcript padding, approval viewports and Browser surfaces clear the dock's measured height.
+Settings keep the ordinary four slots; differing choices read **Mixed** and
+their menus name each recipient. Unavailable recipients show their reason,
+delivery outcomes name each copy, queued copies mark their recipient tile, and
+**Stop** stops the addressed working Seats.
+
 Each Side by side tile has a **Conversation | Browser** switch in its bar.
 The choice belongs to that tile and survives Expand, collapse, the narrow
 member tab strip and a restart. Browser shows the Seat's own lane profile in

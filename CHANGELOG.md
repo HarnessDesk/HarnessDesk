@@ -5,6 +5,13 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **One composer for a Team's visible Seats.** Side by side sends one message
+  to everyone on the grid, or to the Seats picked with `@`, and Chat keeps it
+  once. The room draft follows between Chat and the grid; a single tile keeps
+  its own composer. Approvals remain in each tile, clear of the shared box.
+
 ## 0.4.0 — 2026-10-07
 
 Teams are now something you can read and steer: a Teams page that puts what

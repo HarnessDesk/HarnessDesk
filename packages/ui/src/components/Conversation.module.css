@@ -172,7 +172,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: var(--shared-composer-h, 0px); /* desk: lift local strips above the shared dock; zero without one */
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -213,7 +213,7 @@
 
 .jumpButton {
   position: absolute;
-  bottom: calc(var(--composer-h, 150px) + 14px);
+  bottom: calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 14px); /* desk: jump action clears both docks; shared height defaults to zero */
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;

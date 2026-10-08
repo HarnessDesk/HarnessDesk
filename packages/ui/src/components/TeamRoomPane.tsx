@@ -69,7 +69,7 @@ import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
 import { SideBySide, sideBySideTileEntry } from './SideBySide'
 import { ChannelStream, readChannel } from './Channel'
-import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
+import { EMPTY_ROOM_DRAFT, RoomComposer, type RoomComposerDraft, type RoomComposerDraftState, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
 import { formatDuration } from './TurnTail'
 import { GoalFindings } from './GoalFindings'
@@ -354,6 +354,20 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
+  // The words and audience belong to the room, through Chat, grid and expand.
+  const [drafts, setDrafts] = useState<Readonly<Record<string, RoomComposerDraft>>>({})
+  const changeDraft = useCallback<RoomComposerDraftState['onChange']>((next) => {
+    setDrafts((current) => ({
+      ...current,
+      [room]: typeof next === 'function' ? next(current[room] ?? EMPTY_ROOM_DRAFT) : next,
+    }))
+  }, [room])
+  const roomDraft: RoomComposerDraftState = { value: drafts[room] ?? EMPTY_ROOM_DRAFT, onChange: changeDraft }
+  const [composerTroubles, setComposerTroubles] = useState<Readonly<Record<string, string | null>>>({})
+  const composerTrouble = composerTroubles[room] ?? null
+  const setComposerTrouble = useCallback((message: string | null) => {
+    setComposerTroubles(current => ({ ...current, [room]: message }))
+  }, [room])
   /* A wrapped Team opens on its Receipt, with or without a Run: the record is
      what the person came for, and the page tabs are the way around it. */
   const opensOnReceipt = record && Boolean(goal?.receipt)
@@ -792,6 +806,7 @@ export const TeamRoomPane = ({
            updates itself; for one it has never opened, the host's answer is all
            there is. */
         const live = snapshot.sessions.get(key)
+        const health = snapshot.healthByRuntime[peer.runtime]
         /* What this agent is on *right now*, from the board — not the last
            thing it said. That is what makes the rail answer the question
            without anything being opened.
@@ -809,6 +824,7 @@ export const TeamRoomPane = ({
           ) ?? null
         return {
           peer,
+          ...(health?.state === 'unavailable' ? { unavailable: health.message } : {}),
           displayName: seatDisplayName(goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === key), peer.nickname, runtime?.presentation.name, displayMembers),
           key,
           runtime,
@@ -867,6 +883,7 @@ export const TeamRoomPane = ({
       seats,
       overview,
       snapshot.runtimes,
+      snapshot.healthByRuntime,
       snapshot.sessions,
       snapshot.accountsByRuntime,
       snapshot.accountPrefs,
@@ -1305,12 +1322,26 @@ export const TeamRoomPane = ({
                   brand: entry.brand,
                   busy: entry.busy,
                   waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
+                  queued: entries.some((one) => one.kind === 'message' && one.from.kind === 'user' && one.state === 'queued' && one.to && sessionKey(one.to.runtime, one.to.sessionId as SessionId) === key),
                   ceiling: entry.ceiling,
                   lastTurnStatus: snapshot.sessions.get(key)?.turns.at(-1)?.status,
                 })
               }}
               onOpenMember={(key) => show(key)}
               conversationProps={{ onChooseProject, onSignIn, onOpenUsage, onOpenRuntimes }}
+              composer={(shown) => <>
+                {composerTrouble && <ActionError>{composerTrouble}</ActionError>}
+                <RoomComposer
+                  key={room}
+                  room={room}
+                  members={peers === null ? null : roster}
+                  defaultAudience={shown}
+                  draftState={roomDraft}
+                  messaging={messaging}
+                  onTrouble={setComposerTrouble}
+                  onPosted={() => {}}
+                />
+              </>}
               card={(key, who) => (
                 <MemberCard
                   entry={roster.find((one) => one.key === key) ?? null}
@@ -1354,7 +1385,7 @@ export const TeamRoomPane = ({
               )
             })()
           ) : (
-            <Room room={room} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
+            <Room room={room} draftState={roomDraft} trouble={composerTrouble} onTrouble={setComposerTrouble} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
           )}
         </div>
       </div>
@@ -2038,6 +2069,9 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
 
 const Room = ({
   room,
+  draftState,
+  trouble,
+  onTrouble: setTrouble,
   members,
   loaded,
   onShow,
@@ -2047,6 +2081,9 @@ const Room = ({
   needsYou,
 }: {
   readonly room: string
+  readonly draftState: RoomComposerDraftState
+  readonly trouble: string | null
+  readonly onTrouble: (message: string | null) => void
   /**
    * The rail's own resolved members, so a card opened from the chat is the
    * card the rail would draw, and the composer offers exactly who the rail
@@ -2079,7 +2116,6 @@ const Room = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const [trouble, setTrouble] = useState<string | null>(null)
   /* The composer's own handle. The room has one surface that addresses a
      member from outside the box — a name card on a message, offering
      Message — and this is where it lands. */
@@ -2370,6 +2406,7 @@ const Room = ({
             key={room}
             ref={composer}
             room={room}
+            draftState={draftState}
             members={loaded ? members : null}
             messaging={messaging}
             statusLine={<RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}

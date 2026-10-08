@@ -292,6 +292,14 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     }
 
+    // The catalogue's standalone grids omit the shared composer. The real
+    // Team preview mounts its recipient settings under the shared dock.
+    await page.goto('/preview.html?side-by-side')
+    await expect(page.locator('[data-frame-id="side-by-side-two"] [data-shared-composer]')).toBeVisible()
+    const sharedComposerCoverage = await collectCoverage(page)
+    expect(sharedComposerCoverage.covered).toContain('components/RoomComposerOptions.tsx#RoomComposerOptions')
+    for (const component of sharedComposerCoverage.covered) covered.add(component)
+
     // A trigger Team mounts its history only after the Runs tab opens.
     await page.goto('/preview.html?team-frame=trigger-runs')
     const triggerTeam = page.locator('[data-slot="team-room"]')

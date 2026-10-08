@@ -2,9 +2,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionKey, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
+import { sessionKey, type SessionKey, type TeamMessage, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
+import { dismissOverlays, escapeSurface } from '../lib/overlays'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { RoomComposer, type RoomComposerHandle, type RoomMember } from './RoomComposer'
 
@@ -82,12 +83,13 @@ const GEMINI = member(peer('cursor', 'g1', 'Gemini'))
 /* One snapshot object for every rig. `useSyncExternalStore` compares identity,
    so a getter that mints a fresh snapshot re-renders forever — the same trap
    the room pane keeps `NO_ENTRIES` for. */
-const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true) => {
+const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true, defaultAudience?: readonly SessionKey[], view: AppSnapshot = snapshot) => {
   const store = {
     subscribe: () => () => {},
-    getSnapshot: (): AppSnapshot => snapshot,
+    getSnapshot: (): AppSnapshot => view,
     teamPost: vi.fn().mockResolvedValue(undefined),
     teamHandout: vi.fn().mockResolvedValue({ batch: 'b1', delivered: 2, queued: 0, refused: 0 }),
+    interrupt: vi.fn().mockResolvedValue(undefined),
   } as unknown as AppStore
   const trouble = vi.fn()
   const posted = vi.fn()
@@ -98,6 +100,7 @@ const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messag
           room={ROOM}
           members={members}
           messaging={messaging}
+          defaultAudience={defaultAudience}
           onTrouble={trouble}
           onPosted={posted}
         />
@@ -146,7 +149,7 @@ const chips = (): readonly string[] =>
     (one) => one.textContent?.replace(/\s+/g, ' ').trim() ?? '',
   )
 
-const menu = (): HTMLElement | null => container.querySelector('[role="listbox"]')
+const menu = (): HTMLElement | null => document.body.querySelector('[role="listbox"]')
 
 /* The audience anchor and the menu it opens. The menu is portalled to the body
    — a fixed panel inside an overflowing pane is a panel with a scrollbar — so
@@ -184,6 +187,57 @@ it('@ addresses a member, and the token it matched leaves the words', () => {
   expect(menu()).toBeNull()
 })
 
+it('the explicit grid default keeps an unavailable recipient and reports its refusal', async () => {
+  const unavailable = { ...GPT, unavailable: 'The agent is unavailable on this machine.' }
+  const { store, trouble } = rig([OPUS, unavailable, GEMINI], true, [OPUS.key, GPT.key])
+  act(() => type('Compare these two'))
+  act(() => anchor().click())
+  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find((one) => one.textContent?.includes('GPT'))
+  expect(row?.getAttribute('aria-disabled')).toBe('true')
+  expect(row?.textContent).toContain(unavailable.unavailable)
+  act(() => anchor().click())
+  ;(store.teamHandout as ReturnType<typeof vi.fn>).mockResolvedValue({ batch: 'b1', delivered: 1, queued: 0, refused: 1 })
+  act(() => press('Enter'))
+  await act(async () => {})
+  expect(store.teamHandout).toHaveBeenCalledExactlyOnceWith(ROOM, 'Compare these two', [
+    { runtime: OPUS.peer.runtime, sessionId: OPUS.peer.sessionId },
+    { runtime: GPT.peer.runtime, sessionId: GPT.peer.sessionId },
+  ])
+  expect(trouble).toHaveBeenCalledWith('1 of 2 did not take it. The row in the channel says why.')
+})
+
+it('keeps an explicit grid draft until its visible recipients are loaded', () => {
+  const { store } = rig(null, true, [OPUS.key, GPT.key])
+  act(() => type('Keep this until the Seats are known'))
+  expect(send().disabled).toBe(true)
+  act(() => press('Enter'))
+  expect(store.teamHandout).not.toHaveBeenCalled()
+  expect(store.teamPost).not.toHaveBeenCalled()
+  expect(box().value).toBe('Keep this until the Seats are known')
+  expect(container.textContent).toContain('Loading the visible Seats')
+})
+
+it('Stop on the grid interrupts only addressed working members', async () => {
+  const { store } = rig([{ ...OPUS, busy: true }, { ...GPT, busy: true }, GEMINI], true, [OPUS.key, GPT.key])
+  act(() => type('@op'))
+  act(() => press('Enter'))
+  const stop = container.querySelector<HTMLButtonElement>('button[aria-label="Stop addressed agents"]')
+  expect(stop).not.toBeNull()
+  act(() => stop!.click())
+  await act(async () => {})
+  expect(store.interrupt).toHaveBeenCalledExactlyOnceWith(OPUS.key)
+})
+
+it('an unavailable Seat stays greyed with its reason in the mention list', () => {
+  rig([{ ...GPT, unavailable: 'The agent could not start.' }], true, [GPT.key])
+  act(() => type('@gp'))
+  const option = menu()?.querySelector('[role="option"]')
+  expect(option?.getAttribute('aria-disabled')).toBe('true')
+  expect(option?.textContent).toContain('The agent could not start.')
+  act(() => press('Enter'))
+  expect(chips()).toEqual([])
+})
+
 it('keeps the room toolbar and flexible gap shrinkable in a narrow composer column', () => {
   container.style.width = 'var(--hd-composer-slots-preview-tight)'
   rig()
@@ -212,6 +266,35 @@ it('Escape puts the menu away and leaves the words alone', () => {
   act(() => press('Escape'))
   expect(menu()).toBeNull()
   expect(box().value).toBe('@op')
+})
+
+it('the shared recipient picker dismisses when another surface opens without losing the draft', async () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key])
+  await act(async () => type('Review this @op'))
+  expect(menu()).not.toBeNull()
+  await act(async () => dismissOverlays())
+  expect(menu()).toBeNull()
+  expect(box().value).toBe('Review this @op')
+
+  const closeWindow = vi.fn(() => true)
+  const leave = escapeSurface(closeWindow)
+  try {
+    act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(closeWindow).toHaveBeenCalledOnce()
+  } finally {
+    leave()
+  }
+})
+
+it('Escape outside the shared recipient picker closes it and retains the draft', async () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key])
+  await act(async () => type('Review this @op'))
+  expect(menu()).not.toBeNull()
+  await act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  })
+  expect(menu()).toBeNull()
+  expect(box().value).toBe('Review this @op')
 })
 
 it('Enter over a menu that matches nobody puts it away rather than sending', () => {
@@ -724,6 +807,28 @@ it('another surface in the room can address a member through the handle', () => 
 
 it('every member has a key of its own', () => {
   expect(new Set([OPUS, GPT, GEMINI].map(key)).size).toBe(3)
+})
+
+it('shows each latest shared copy as delivered, queued or refused with the host reason', () => {
+  const batch = { id: 'latest', size: 3, template: 'Compare approaches' }
+  const channel: readonly TeamMessage[] = [
+    { id: 'old', at: 1, kind: 'message', from: { kind: 'user' }, text: 'Older words', state: 'delivered', batch: { ...batch, id: 'old' } },
+    ...([OPUS, GPT, GEMINI] as const).map((one, index) => ({
+      id: `copy-${index}`, at: 2, kind: 'message' as const, from: { kind: 'user' as const },
+      to: { runtime: one.peer.runtime, sessionId: one.peer.sessionId, title: one.peer.nickname },
+      text: batch.template, batch,
+      state: (['delivered', 'queued', 'refused'] as const)[index]!,
+      ...(index === 2 ? { reason: 'Connection unavailable. Restart it to continue.' } : {}),
+    })),
+  ]
+  const view = { ...snapshot, teams: new Map([[ROOM, { channel } as never]]) }
+  rig([OPUS, GPT, GEMINI], true, [OPUS.key, GPT.key, GEMINI.key], view)
+  const outcomes = container.querySelector('[data-slot="room-composer-outcomes"]')
+  expect(outcomes?.getAttribute('role')).toBe('status')
+  expect(outcomes?.textContent).toContain('Opus: delivered')
+  expect(outcomes?.textContent).toContain('GPT: Queued — next after this turn')
+  expect(outcomes?.textContent).toContain('Gemini: refused — Connection unavailable. Restart it to continue.')
+  expect(outcomes?.textContent).not.toContain('Older words')
 })
 
 
