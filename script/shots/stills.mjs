@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url'
 import { COLLECT, textReasons, USER } from './audit.mjs'
 
 export const STILL_SCENES = {
+  library: { height: 1040, ready: ['Library', 'code-review', 'Read the definition', 'Project docs', 'Project checks', 'Release notes'], caption: 'Library shows which agents load each skill, with one expanded above the installed plugins.' },
+  'plugin-permissions': { height: 744, ready: ['Project docs', 'Access', 'Read files in the open project', 'Reach docs.acme.dev'], caption: 'Project docs holds access to read the open project and reach docs.acme.dev.' },
   teams: { height: 744, ready: ['Needs you', 'Working', 'Ready to wrap'], caption: 'Teams grouped by project, with work that needs you first and settled work expanded.' },
   'project-sidebar': { height: 800, ready: ['Teams', 'Projects', 'Retry the checkout call on a 502'], caption: 'One project gathers linked checkout conversations and a Team with nested Seats.' },
   'run-timeline': { height: 1544, ready: ['Request changes', 'Cap the retry attempts', 'Decide whether the retry change ships'], caption: 'A Run records the first review, the repair and passing checks, then waits for a person.' },
@@ -70,6 +72,13 @@ export const shootStills = async ({ app, out, requested = [], themes = ['light',
           await expect(surface).toBeVisible()
           await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'dark' ? 1 : 0)
           if (name === 'teams') await surface.getByRole('button', { name: /Ready to wrap/ }).click()
+          if (name === 'library') {
+            await surface.getByRole('radio', { name: 'Matrix', exact: true }).click()
+            const skill = surface.getByRole('button', { name: /^code-review/ })
+            await skill.click()
+            await expect(skill).toHaveAttribute('aria-expanded', 'true')
+          }
+          if (name === 'plugin-permissions') await surface.getByRole('button', { name: /Project docs Find reference/ }).click()
           if (name === 'project-sidebar') {
             await surface.getByRole('button', { name: 'Room Retry the checkout call on a 502', exact: true }).focus()
             await page.keyboard.press('ArrowRight')
@@ -82,6 +91,12 @@ export const shootStills = async ({ app, out, requested = [], themes = ['light',
           }
           if (name === 'dashboard-hour') await surface.getByRole('radio', { name: 'By hour', exact: true }).click()
           for (const text of scene.ready) await expect(surface).toContainText(text)
+          if (name === 'library' || name === 'plugin-permissions') {
+            const last = name === 'library' ? surface.getByRole('button', { name: /Release notes Gather/ })
+              : surface.getByText('Reach docs.acme.dev', { exact: true })
+            const box = await last.boundingBox()
+            if (!box || box.y + box.height > scene.height) throw new Error(`${name}: the last required row is outside the camera frame`)
+          }
           if (name === 'run-flow') await expect(surface.locator('[data-slot="flow-step"]').first()).toBeVisible()
           if (name === 'flow-start-preview') {
             const start = page.getByRole('button', { name: 'Start', exact: true })
