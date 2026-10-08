@@ -65,7 +65,7 @@ it('clears the floating composer only when asked, on top of a notice inset', () 
   act(() => root.render(<PaneColumn inset="reading" clearComposer>turns</PaneColumn>))
   const column = container.firstElementChild as HTMLElement
   expect(column.style.padding).toBe(
-    'calc(8px + var(--hd-notice-inset, 0px)) var(--hd-space-6) calc(var(--composer-h, 150px) + 16px)',
+    'calc(8px + var(--hd-notice-inset, 0px)) var(--hd-space-6) calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)',
   )
 })
 

@@ -75,10 +75,10 @@
   overflow: hidden;
 }
 
-/* Shrink the whole tile body, including approvals, rather than leaving its
-   last lines or its decision controls behind the floating room composer. */
+/* Panels reach the bottom behind the floating composer. Their transcript
+   padding and approval viewport clear its measured height independently. */
 .body[data-clear-composer] {
-  margin-bottom: var(--composer-h, 0px);
+  --shared-composer-h: var(--composer-h, 0px);
 }
 
 .dock {
@@ -86,6 +86,9 @@
   left: 0;
   right: 0;
   bottom: 0;
+  width: 100%;
+  max-width: calc(var(--hd-column) + 2 * (var(--hd-space-6) + var(--hd-scrollbar-width, 8px)));
+  margin-inline: auto;
   max-height: 50%;
   overflow-y: auto;
   z-index: var(--hd-z-sticky);

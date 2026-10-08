@@ -466,10 +466,11 @@ it.each([2, 3, 4])('clears the measured dock and notices only beneath the bottom
   }
 })
 
-it('shrinks bottom tile bodies for clearance and centers the ordinary-width floating dock', () => {
+it('keeps full-height panels and reserves content clearance under the ordinary-width floating dock', () => {
   expect(sheet).toMatch(/\.tile\s*\{[^}]*isolation:\s*isolate/)
   expect(sheet).toMatch(/\.body\s*\{[^}]*position:\s*relative/)
-  expect(sheet).toMatch(/\.body\[data-clear-composer\]\s*\{[^}]*margin-bottom:\s*var\(--composer-h,\s*0px\)/)
+  expect(sheet).toMatch(/\.body\[data-clear-composer\]\s*\{[^}]*--shared-composer-h:\s*var\(--composer-h,\s*0px\)/)
+  expect(sheet).not.toMatch(/margin-bottom:\s*var\(--composer-h/)
   expect(sheet).toMatch(/\.composer\s*\{[^}]*max-width:\s*var\(--hd-column\)/)
   expect(sheet).toMatch(/\.dock\s*\{[^}]*position:\s*absolute/)
 })

@@ -32,6 +32,8 @@
    and viewport this same layer for the same reason, and the one written
    second wins the tie. */
 .viewport {
+  /* Keep the scrim full-pane while the decision clears a shared floating dock. */
+  bottom: var(--shared-composer-h, 0px);
   z-index: var(--hd-z-dialog);
   display: grid;
   place-items: center;

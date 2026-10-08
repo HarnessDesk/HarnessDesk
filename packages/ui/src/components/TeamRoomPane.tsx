@@ -1322,6 +1322,7 @@ export const TeamRoomPane = ({
                   brand: entry.brand,
                   busy: entry.busy,
                   waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
+                  queued: entries.some((one) => one.kind === 'message' && one.from.kind === 'user' && one.state === 'queued' && one.to && sessionKey(one.to.runtime, one.to.sessionId as SessionId) === key),
                   ceiling: entry.ceiling,
                   lastTurnStatus: snapshot.sessions.get(key)?.turns.at(-1)?.status,
                 })

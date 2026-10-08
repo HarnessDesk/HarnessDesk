@@ -1029,11 +1029,12 @@ With two or more Seats visible, Side by side has one ordinary composer centred
 over the bottom of the grid. **Everyone** reaches the visible Seats; `@` picks
 one or several instead. Chat keeps the message once, and the room's words and
 audience wait across Chat, the grid and expanding a tile. A lone, expanded or
-narrow single tile uses its own composer. Bottom tiles leave the shared dock's
-measured height clear, including their approvals, which stay inside each tile.
+narrow single tile uses its own composer. Panels extend to the bottom behind the floating box; their
+transcript padding and approval viewports clear the dock's measured height.
 Settings keep the ordinary four slots; differing choices read **Mixed** and
 their menus name each recipient. Unavailable recipients show their reason,
-delivery outcomes name each copy, and **Stop** stops the addressed working Seats.
+delivery outcomes name each copy, queued copies mark their recipient tile, and
+**Stop** stops the addressed working Seats.
 
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and

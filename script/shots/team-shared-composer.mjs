@@ -84,11 +84,13 @@ try {
       const approval = tile.querySelector('[data-slot="approval-dialog-scope"]')
       const body = tile.lastElementChild.getBoundingClientRect()
       const bounds = approval?.getBoundingClientRect()
-      return { bodyBottom: body.bottom, dockTop: dock.top, approval: bounds ? { top: bounds.top, bottom: bounds.bottom } : null }
+      const viewport = tile.querySelector('[data-slot="dialog-viewport"]').getBoundingClientRect()
+      const scroll = tile.querySelector('[data-live-transcript]')
+      return { bodyBottom: body.bottom, tileBottom: tile.getBoundingClientRect().bottom, dockTop: dock.top, viewportBottom: viewport.bottom, scrollPadding: parseFloat(getComputedStyle(scroll).paddingBottom), dockHeight: dock.height, approval: bounds ? { top: bounds.top, bottom: bounds.bottom } : null }
     })
   })
-  assert(geometry.every(one => one.bodyBottom <= one.dockTop + 1), JSON.stringify(geometry))
-  evidence.push('Each tile body ends above the measured shared dock while both tile approvals are pending.')
+  assert(geometry.every(one => one.bodyBottom === one.tileBottom && one.bodyBottom > one.dockTop && one.viewportBottom <= one.dockTop + 1 && one.scrollPadding >= one.dockHeight), JSON.stringify(geometry))
+  evidence.push('Both panels extend to the bottom behind the floating dock; transcript padding and approval viewports clear its measured height.')
   const capture = async name => {
     for (const theme of ['light', 'dark']) {
       await page.evaluate(value => window.__hdStore.setTheme(value), theme)
@@ -128,6 +130,7 @@ try {
   await page.waitForFunction(room => window.__hdStore.getSnapshot().teams.get(room)?.channel.filter(one => one.kind === 'message' && one.from.kind === 'user' && one.text === 'Compare all four attempts.').length === 4, room)
   const fourPost = (await rig.host.call('team/state', { room })).channel.filter(one => one.kind === 'message' && one.from.kind === 'user' && one.text === 'Compare all four attempts.')
   assert.deepEqual(fourPost.map(one => one.state).sort(), ['delivered', 'delivered', 'queued', 'queued'])
+  assert.equal(await page.locator('[data-slot="side-by-side-tile"] header [title="Queued — next after this turn"]').count(), 2)
   const fourGeometry = await page.locator('[data-slot="side-by-side-grid"]').evaluate(grid => {
     const dock = grid.querySelector('[data-shared-composer]').getBoundingClientRect()
     return [...grid.querySelectorAll('[data-slot="side-by-side-tile"]')].map(tile => {
@@ -137,25 +140,46 @@ try {
       return { bodyTop: body.top, bodyBottom: body.bottom, dockTop: dock.top, scrimTop: scrim.top, scrimBottom: scrim.bottom, popupTop: popup.top, popupBottom: popup.bottom }
     })
   })
-  assert(fourGeometry.every(one => one.bodyBottom <= one.dockTop + 1 && one.scrimTop >= one.bodyTop - 1 && one.scrimBottom <= one.bodyBottom + 1 && one.popupTop >= one.bodyTop - 1 && one.popupBottom <= one.bodyBottom + 1), JSON.stringify(fourGeometry))
+  assert(fourGeometry.every(one => one.scrimTop >= one.bodyTop - 1 && one.scrimBottom <= one.bodyBottom + 1 && one.popupTop >= one.bodyTop - 1 && one.popupBottom <= Math.min(one.bodyBottom, one.dockTop) + 1), JSON.stringify(fourGeometry))
   await capture('shared-composer-four-approvals')
   evidence.push('Four tile approvals and their buttons stay inside their own bodies, clear of the shared dock; busy copies are queued.')
   await page.setViewportSize({ width: 1680, height: 520 })
   await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))))
   const shortGeometry = await page.locator('[data-slot="side-by-side-tile"]').evaluateAll(tiles => tiles.map(tile => {
     const body = tile.lastElementChild.getBoundingClientRect()
+    const dockTop = tile.closest('[data-slot="side-by-side-grid"]').querySelector('[data-shared-composer]').getBoundingClientRect().top
     const popup = tile.querySelector('[data-slot="dialog-popup"]')
     popup.scrollTop = popup.scrollHeight
     const buttons = [...popup.querySelectorAll('button')].map(button => { const rect = button.getBoundingClientRect(); return [rect.top, rect.bottom] })
-    return { body: [body.top, body.bottom], buttons }
+    return { body: [body.top, body.bottom], dockTop, buttons }
   }))
-  assert(shortGeometry.every(one => one.body[1] > one.body[0] && one.buttons.every(([top, bottom]) => top >= one.body[0] - 1 && bottom <= one.body[1] + 1)), JSON.stringify(shortGeometry))
+  assert(shortGeometry.every(one => one.body[1] > one.body[0] && one.buttons.every(([top, bottom]) => top >= one.body[0] - 1 && bottom <= Math.min(one.body[1], one.dockTop) + 1)), JSON.stringify(shortGeometry))
   evidence.push('At the minimum 520px window height, every tile keeps a nonzero body and each approval can scroll to its answer buttons.')
   await page.setViewportSize({ width: 1680, height: 1000 })
   await page.getByRole('tab', { name: /^Chat\b/ }).click()
   await page.getByText('Compare the retry budget and explain the tradeoffs.', { exact: true }).waitFor()
   assert.equal(await page.getByText('Compare the retry budget and explain the tradeoffs.', { exact: true }).count(), 1)
   evidence.push('Chat renders the shared message once.')
+  // Stage a readable transcript frame by denying the scripted requests
+  // explicitly. The shared composer never participates in those answers.
+  for (let at = 0; at < 16; at++) {
+    await page.waitForFunction(() => window.__hdStore.getSnapshot().approvals.length > 0 || [...window.__hdStore.getSnapshot().sessions.values()].every(one => one.turns.at(-1)?.status !== 'inProgress'))
+    const pending = await page.evaluate(() => {
+      const one = window.__hdStore.getSnapshot().approvals[0]
+      return one ? { key: one.key, id: one.approval.id, option: one.approval.options.find(option => option.intent === 'deny')?.id } : null
+    })
+    if (!pending) break
+    assert(pending.option)
+    await page.evaluate(({ key, id, option }) => window.__hdStore.respondToApproval(key, id, { type: 'option', optionId: option }), pending)
+  }
+  await page.waitForFunction(() => window.__hdStore.getSnapshot().approvals.length === 0)
+  await page.getByRole('button', { name: 'Side by side', exact: true }).click()
+  for (const name of ['GPT 3', 'GPT 4']) {
+    await page.getByRole('button', { name: `${name} actions`, exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Take off the grid', exact: true }).click()
+  }
+  await box.fill('Compare the retry limits across these attempts.')
+  await capture('shared-composer-transcripts')
   writeFileSync(join(out, 'evidence.json'), `${JSON.stringify({ evidence, geometry, fourGeometry, shortGeometry }, null, 2)}\n`)
   console.log(evidence.join('\n'))
 } catch (error) {

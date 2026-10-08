@@ -49,6 +49,8 @@ export type TileEntry = {
   readonly brand?: ComponentProps<typeof BrandMark>['brand'] | null
   readonly busy?: boolean
   readonly waitingForYou?: boolean
+  /** A user message is waiting behind this member's current turn. */
+  readonly queued?: boolean
   /** How its last turn ended, while it is neither working nor waiting: done, or stopped short. */
   readonly ended?: 'done' | 'stopped'
   /** What it may do unasked, when held under a ceiling — the safety fact the conversation's own header carried. */
@@ -57,7 +59,7 @@ export type TileEntry = {
 
 /** Resolve the room facts into the entry the shipped tile draws. */
 export const sideBySideTileEntry = (
-  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'ceiling'> & {
+  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'queued' | 'ceiling'> & {
     readonly lastTurnStatus?: Turn['status']
   },
 ): TileEntry => ({
@@ -65,6 +67,7 @@ export const sideBySideTileEntry = (
   brand: entry.brand,
   busy: entry.busy,
   waitingForYou: entry.waitingForYou,
+  queued: entry.queued,
   ceiling: entry.ceiling,
   ...(entry.lastTurnStatus === 'completed'
     ? { ended: 'done' as const }
@@ -306,6 +309,7 @@ export const SideBySide = ({
                 ) : entry?.ended === 'stopped' ? (
                   <Chip tone="neutral" size="sm">Stopped</Chip>
                 ) : null}
+                {entry?.queued && <Chip tone="neutral" size="sm" title="Queued — next after this turn">Queued</Chip>}
                 <Button
                   type="button"
                   variant="ghost"

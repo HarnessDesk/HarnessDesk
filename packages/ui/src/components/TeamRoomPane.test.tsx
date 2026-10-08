@@ -1260,6 +1260,28 @@ it('Watch places members on Side by side tiles with their identities', async () 
   expect(container.textContent).toContain('Opus')
 })
 
+it('marks a queued user copy on only its recipient tile', async () => {
+  paneWidth(1400)
+  const { store } = rig(undefined, undefined, {
+    channel: [{
+      id: 'queued-copy', at: 10, kind: 'message', from: { kind: 'user' },
+      to: { runtime: runtimeId('codex'), sessionId: sessionId('c1'), nickname: 'Codex', title: 'API migration' },
+      text: 'Compare the retry budget', state: 'queued', reason: null, envelope: null,
+    }],
+  })
+  await render(store)
+  await clickRailWatch(container, 'Codex')
+  await clickRailWatch(container, 'Opus')
+  const tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+  expect(tiles[0]?.querySelector('header [title="Queued — next after this turn"]')?.textContent).toBe('Queued')
+  expect(tiles[1]?.querySelector('header [title="Queued — next after this turn"]')).toBeNull()
+  const teams = store.getSnapshot().teams as Map<string, TeamState>
+  const team = teams.get(ROOM)!
+  teams.set(ROOM, { ...team, channel: team.channel.map(one => one.kind === 'message' ? { ...one, state: 'delivered' } : one) })
+  await render(store)
+  expect(container.querySelector('header [title="Queued — next after this turn"]')).toBeNull()
+})
+
 it('a tile can be taken off the grid without closing its conversation', async () => {
   paneWidth(1400)
   const { store } = rig()
