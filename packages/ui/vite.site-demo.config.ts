@@ -20,7 +20,7 @@ export default defineConfig({
         if (!id.includes('/src/preview/')) return
         return code
           .replace(/\b[\w.+-]+@harnessdesk\.app\b/g, 'dev@example.com')
-          .replace(/\/Users\/[^/\\'"\s]+/g, '/Users/jane')
+          .replace(/\/Users\/[^/\\'"\s]+/g, '/Users/dev') // hd-secrets-ok: home-matching pattern, not an account path.
           .replace(/\b\w+-Cursor\b/g, 'Jane Doe')
       },
     },

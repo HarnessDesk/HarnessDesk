@@ -56,7 +56,7 @@ test('the built demo carries only placeholder account identities', async () => {
   for (const file of files.filter(file => /\.(js|html|css)$/.test(file))) {
     const text = await readFile(`${folder}/${file}`, 'utf8')
     expect(text.match(/\b[\w.+-]+@harnessdesk\.app\b/g) ?? [], file).toEqual([])
-    expect(text.match(/\/Users\/(?!jane(?:\/|["']))[^/"'\s]+/g) ?? [], file).toEqual([])
+    expect(text.match(/\/Users\/(?!dev(?:\/|["']))[^/"'\s]+/g) ?? [], file).toEqual([])
   }
 })
 
