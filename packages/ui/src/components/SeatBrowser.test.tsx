@@ -8,7 +8,7 @@ import type { DesktopBridge } from '../lib/desktop'
 import { MountProvider } from '../panels/mount'
 import { StoreProvider, useSnapshot } from '../state/context'
 import { AppStore } from '../state/store'
-import { findView, viewAt } from '../state/workbench'
+import { findView, focusedMount } from '../state/workbench'
 import { BrowserPane } from './BrowserPane'
 import { SideBySide } from './SideBySide'
 import '../panels/builtins'
@@ -85,6 +85,43 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     act(() => store.openBrowser('https://example.com/beta-updated', { profile: 'lane-beta' }))
     expect((guests[1] as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL).toHaveBeenCalledWith('https://example.com/beta-updated')
     expect(store.getSnapshot().layout.focused).toBe(paneId)
+    // The selected tile stays selected while a different mount has the keys.
+    // None of its browser shortcuts may take those keys or change its tabs.
+    act(() => store.showViewIn('bottom', { kind: 'tasks' }))
+    const bottom = findView(store.getSnapshot().workbench, { kind: 'tasks' })!
+    expect(bottom.area).toBe('bottom')
+    const bottomId = bottom.area === 'main' ? bottom.pane : bottom.mounted.id
+    expect(bottomId).not.toBe(paneId)
+    await act(async () => {
+      store.focusView(bottomId)
+      await new Promise(requestAnimationFrame)
+    })
+    expect(focusedMount(store.getSnapshot().workbench)).toBe(bottomId)
+    const before = lanes.map(lane => browserMount(store.getSnapshot(), lane.browserProfile!)!.view)
+    const activeElement = document.activeElement
+    const forwarded = vi.fn()
+    document.addEventListener('keydown', forwarded)
+    try {
+      for (const key of ['t', 'w', 'l', '1', '[', ']']) {
+        const event = new KeyboardEvent('keydown', { key, metaKey: true, bubbles: true, cancelable: true })
+        act(() => document.dispatchEvent(event))
+        expect(event.defaultPrevented, key).toBe(false)
+      }
+      expect(forwarded).toHaveBeenCalledTimes(6)
+      expect(document.activeElement).toBe(activeElement)
+      expect(lanes.map(lane => browserMount(store.getSnapshot(), lane.browserProfile!)!.view)).toEqual(before)
+    } finally {
+      document.removeEventListener('keydown', forwarded)
+    }
+    await act(async () => {
+      store.focusPane(paneId)
+      await new Promise(requestAnimationFrame)
+    })
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true, cancelable: true })))
+    const after = lanes.map(lane => browserMount(store.getSnapshot(), lane.browserProfile!)!.view)
+    expect(after[0]).toEqual(before[0])
+    expect(after[1]!.tabs.slice(0, before[1]!.tabs.length)).toEqual(before[1]!.tabs)
+    expect(after[1]!.tabs).toHaveLength(before[1]!.tabs.length + 1)
   } finally {
     act(() => root.unmount())
     container.remove()

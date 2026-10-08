@@ -1,7 +1,6 @@
 import { browserProfileKey } from '../lib/browser-tiles'
 import {
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -27,7 +26,7 @@ import { browserLoadFailureMessage } from '../lib/browser-load-error'
 import { noteKey, wrapContext } from '../lib/context-envelope'
 import { browserPartition, desktop, hasInlineBrowser, openExternal } from '../lib/desktop'
 import { bareToolName, toolsOfPlugin, toolWords } from '../lib/tool-names'
-import { KeyboardHereContext, useSessionKey, useSnapshot, useStore } from '../state/context'
+import { useIsFocusedPane, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { focusedMount } from '../state/workbench'
 import {
@@ -746,7 +745,7 @@ const BrowserPaneContent = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const mount = useMount()
-  const keyboardHere = useContext(KeyboardHereContext)
+  const focusedTile = useIsFocusedPane()
   const sessionKey = useSessionKey()
   const view: BrowserView | null = mount?.view.kind === 'browser' ? mount.view : null
   /* The id of whatever is holding this browser — a pane in the split tree or a
@@ -1272,7 +1271,7 @@ const BrowserPaneContent = () => {
   /* Both halves of focus: this browser is usually docked to the right now, and
    `layout.focused` names panes only — the shortcuts stopped arming entirely
    the day the browser stopped being a pane. */
-  const focused = mount?.embedded ? keyboardHere === true : focusedMount(snapshot.workbench) === paneId
+  const focused = mount?.embedded ? focusedTile : focusedMount(snapshot.workbench) === paneId
   useEffect(() => {
     if (!focused || !paneId || !view) return
     const onKeyDown = (event: KeyboardEvent): void => {
