@@ -3,8 +3,9 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
-import { KeyboardHereContext, PaneProvider, usePane } from '../state/context'
-import { emptySideBySide, type SideBySideState } from '../lib/side-by-side'
+import { KeyboardHereContext, PaneProvider, StoreProvider, usePane } from '../state/context'
+import { emptySideBySide, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
+import { AppStore } from '../state/store'
 import { SideBySide } from './SideBySide'
 
 vi.mock('./Conversation', () => ({
@@ -24,6 +25,8 @@ vi.mock('../state/context', async (load) => {
 })
 let paneFocused = true
 let keyboardHere: boolean | null = null
+let store: AppStore
+let saved: SideBySideState
 
 let measuredWidth = 1200
 const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -72,6 +75,8 @@ const baseState = (tileKeys = keys.slice(0, 2)): SideBySideState => ({
 const mount = (initial = baseState(), opts: { width?: number; onOpenMember?: (key: SessionKey) => void } = {}) => {
   const opened = opts.onOpenMember ?? vi.fn()
   measuredWidth = opts.width ?? 1200
+  store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store, 'loadLanePreferences').mockResolvedValue()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -81,6 +86,8 @@ const mount = (initial = baseState(), opts: { width?: number; onOpenMember?: (ke
 
 const mountTwo = () => {
   measuredWidth = 1200
+  store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store, 'loadLanePreferences').mockResolvedValue()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -105,7 +112,8 @@ const Harness = ({ initial, onOpenMember }: {
   onOpenMember: (key: SessionKey) => void
 }) => {
   const [state, setState] = useState(initial)
-  return <KeyboardHereContext.Provider value={keyboardHere}>
+  saved = state
+  return <StoreProvider store={store}><KeyboardHereContext.Provider value={keyboardHere}>
     <SideBySide
       state={state}
       onChange={setState}
@@ -115,7 +123,7 @@ const Harness = ({ initial, onOpenMember }: {
       onOpenMember={onOpenMember}
       conversationProps={{ onChooseProject: vi.fn(), onSignIn: vi.fn(), onOpenUsage: vi.fn(), onOpenRuntimes: vi.fn() }}
     />
-  </KeyboardHereContext.Provider>
+  </KeyboardHereContext.Provider></StoreProvider>
 }
 
 it('renders one tile per member in order and marks focus and hidden state', () => {
@@ -351,4 +359,40 @@ it('moves the keyboard even when the chord names the tile that already has the k
   ;(document.activeElement as HTMLElement | null)?.blur()
   act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-1' })) })
   expect(tile().contains(document.activeElement)).toBe(true)
+})
+
+const mode = (tile: Element, name: string) => tile.querySelector(`[role="radio"][aria-label="${name}"]`) ?? [...tile.querySelectorAll('[role="radio"]')].find(one => one.textContent === name)!
+
+it('switches one tile to Browser, keeps its sibling in Conversation, and invents no page', () => {
+  mount()
+  const tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+  expect(mode(tiles[0]!, 'Conversation')?.getAttribute('aria-checked')).toBe('true')
+  click(mode(tiles[0]!, 'Browser'))
+  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  expect(tiles[0]!.textContent).toContain('Pages the agent opens appear here.')
+  expect(tiles[0]!.querySelector('iframe, webview')).toBeNull()
+  expect(tiles[1]!.querySelector('[data-testid="conversation-body"]')).not.toBeNull()
+  expect(saved.modes).toEqual({ [keys[0]!]: 'browser' })
+  click(mode(tiles[0]!, 'Conversation'))
+  expect(tiles[0]!.querySelector('[data-testid="conversation-body"]')).not.toBeNull()
+})
+
+it('keeps per-tile modes through expand, collapse, narrow tabs and a stored restart', () => {
+  mount(baseState(), { width: 400 })
+  let tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+  click(mode(tiles[0]!, 'Browser'))
+  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+  click(container.querySelector('button[aria-label="Collapse Alpha"]')!)
+  const strip = container.querySelector('[role="tablist"][aria-label="Members"]') ?? container.querySelector('[role="tablist"]')!
+  click(text(strip, 'Beta'))
+  expect(mode(tiles[1]!, 'Conversation').getAttribute('aria-checked')).toBe('true')
+  click(text(strip, 'Alpha'))
+  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  const restored = fromStored(JSON.parse(JSON.stringify(toStored(saved))))
+  act(() => root!.unmount())
+  container.remove()
+  mount(restored, { width: 400 })
+  tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
+  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  expect(mode(tiles[1]!, 'Conversation').getAttribute('aria-checked')).toBe('true')
 })

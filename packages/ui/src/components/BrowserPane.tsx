@@ -1,5 +1,7 @@
+import { browserProfileKey } from '../lib/browser-tiles'
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -25,7 +27,7 @@ import { browserLoadFailureMessage } from '../lib/browser-load-error'
 import { noteKey, wrapContext } from '../lib/context-envelope'
 import { browserPartition, desktop, hasInlineBrowser, openExternal } from '../lib/desktop'
 import { bareToolName, toolsOfPlugin, toolWords } from '../lib/tool-names'
-import { useSnapshot, useStore } from '../state/context'
+import { KeyboardHereContext, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { focusedMount } from '../state/workbench'
 import {
@@ -295,7 +297,9 @@ const BrowserTabPage = ({
   onPageMenu,
   zoom,
   register,
+  agentPages = false,
 }: {
+  agentPages?: boolean
   tab: BrowserTab
   active: boolean
   partition: string
@@ -587,7 +591,7 @@ const BrowserTabPage = ({
           over={inline}
           icon={<GlobeIcon size={40} />}
           title="Nothing open yet"
-          description={inline
+          description={agentPages ? 'Pages the agent opens appear here.' : inline
             ? 'Type a URL above, or let a turn open one. Whatever an agent does in the marked tab happens here, in front of you.'
             : 'Type a URL above. In the desktop app this pane is a full browser; here it shows what allows itself to be framed.'}
         />
@@ -730,9 +734,20 @@ const useDriving = (): Driving | null => {
 }
 
 export const BrowserPane = () => {
+  const snapshot = useSnapshot()
+  const mount = useMount()
+  // A profile has one live surface: a tile takes the panel's place rather
+  // than opening a second guest on the same tabs.
+  if (mount?.view.kind === 'browser' && !mount.embedded && snapshot.browserTiles.has(browserProfileKey(mount.view.profile ?? null))) return null
+  return <BrowserPaneContent />
+}
+
+const BrowserPaneContent = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const mount = useMount()
+  const keyboardHere = useContext(KeyboardHereContext)
+  const sessionKey = useSessionKey()
   const view: BrowserView | null = mount?.view.kind === 'browser' ? mount.view : null
   /* The id of whatever is holding this browser — a pane in the split tree or a
      tab in a panel strip. Every verb below takes it, and none of them cares
@@ -746,11 +761,11 @@ export const BrowserPane = () => {
 
   /** The runtime of the conversation beside this pane, for the driven mark. */
   const activeRuntime = useMemo(() => {
-    const key = snapshot.activeSessionKey
+    const key = mount?.embedded ? sessionKey : snapshot.activeSessionKey
     const session = key ? (snapshot.sessions.get(key) ?? null) : null
     if (!session) return null
     return snapshot.runtimes.find((entry) => entry.id === session.runtime) ?? null
-  }, [snapshot.activeSessionKey, snapshot.sessions, snapshot.runtimes])
+  }, [mount?.embedded, sessionKey, snapshot.activeSessionKey, snapshot.sessions, snapshot.runtimes])
 
   /*
    * Who would receive the browser tools if a turn asked for them now.
@@ -1257,7 +1272,7 @@ export const BrowserPane = () => {
   /* Both halves of focus: this browser is usually docked to the right now, and
    `layout.focused` names panes only — the shortcuts stopped arming entirely
    the day the browser stopped being a pane. */
-  const focused = focusedMount(snapshot.workbench) === paneId
+  const focused = mount?.embedded ? keyboardHere === true : focusedMount(snapshot.workbench) === paneId
   useEffect(() => {
     if (!focused || !paneId || !view) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -1914,6 +1929,7 @@ export const BrowserPane = () => {
           <BrowserTabPage
             key={`${profile ?? 'default'}:${entry.id}`}
             tab={entry}
+            agentPages={mount.embedded}
             active={entry.id === view.active}
             partition={partition}
             onReady={onReady}

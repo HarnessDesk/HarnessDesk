@@ -5,6 +5,7 @@ import { shortcutFor } from '../lib/shortcuts'
 import { MountProvider } from '../panels/mount'
 import { KeyboardHereContext, StoreProvider } from '../state/context'
 import { Frame } from './main'
+import { useTheme } from '../state/theme'
 import { PREVIEW_ROOM } from './harness'
 import { SIDE_BY_SIDE_KEYS, sideBySideStore } from './side-by-side-fixture'
 
@@ -52,26 +53,29 @@ const SideBySideRoomFrame = ({
   title,
   count,
   expanded,
+  browsers = false,
 }: {
   readonly id: string
   readonly title: string
   readonly count: 2 | 4
   readonly expanded?: boolean
+  readonly browsers?: boolean
 }) => {
-  const store = useMemo(sideBySideStore, [])
+  const store = useMemo(() => sideBySideStore({ browsers }), [browsers])
   const tiles = SIDE_BY_SIDE_KEYS.slice(0, count)
   const view = {
     kind: 'room' as const,
     room: PREVIEW_ROOM,
     sideBySide: {
       tiles,
+      ...(browsers ? { modes: Object.fromEntries(tiles.map(key => [key, 'browser' as const])) } : {}),
       focused: expanded ? tiles[1] : tiles[0],
       ...(expanded ? { expanded: tiles[1] } : {}),
     },
   }
   return (
     <Frame id={id} title={title}>
-      <div data-side-by-side-container style={{ width: '100%', height: 520 }}>
+      <div data-side-by-side-container style={{ width: '100%', height: browsers ? 700 : 520 }}>
         <StoreProvider store={store}>
           <MountProvider scope={{ area: 'main', id, view }}>
             <FocusedWhileInside>
@@ -88,9 +92,18 @@ export const SideBySideFrames = () => (
   <>
     <PreviewShortcutBridge />
     <div className="mt-4 grid grid-cols-1 gap-4">
+      <SideBySideRoomFrame id="side-by-side-browsers" title="Room — Side by side · two live pages" count={2} browsers />
       <SideBySideRoomFrame id="side-by-side-two" title="Room — Side by side · two members" count={2} />
       <SideBySideRoomFrame id="side-by-side-four" title="Room — Side by side · four members" count={4} />
       <SideBySideRoomFrame id="side-by-side-expanded" title="Room — Side by side · expanded tile" count={4} expanded />
     </div>
   </>
 )
+
+/** A single synthetic scene for inspected public browser-tile frames. */
+export const TileBrowserFrames = () => {
+  useTheme()
+  return <main className="bg-background p-4 text-foreground">
+    <SideBySideRoomFrame id="side-by-side-browsers" title="Side by side — each Seat’s browser" count={2} browsers />
+  </main>
+}

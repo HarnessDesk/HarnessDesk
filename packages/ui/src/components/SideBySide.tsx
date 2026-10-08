@@ -9,6 +9,7 @@ import {
   focusTile,
   pinTile,
   removeTile,
+  setTileMode,
   type SideBySideState,
 } from '../lib/side-by-side'
 import { KeyboardHereContext, PaneProvider, useIsFocusedPane } from '../state/context'
@@ -17,6 +18,7 @@ import type { SeatCeilingShown } from '../lib/ceilings'
 import { BrandMark } from './BrandIcons'
 import { CeilingChip } from './CeilingChip'
 import { Conversation } from './Conversation'
+import { SeatBrowser } from './SeatBrowser'
 import {
   AgentIcon,
   CollapseIcon,
@@ -33,6 +35,8 @@ import {
   DropdownMenuTrigger,
   IconTile,
   Separator,
+  ToggleGroup,
+  ToggleGroupItem,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -173,7 +177,7 @@ export const SideBySide = ({
     onChange((was) => expandTile(was, null))
   }, [entryOf, onChange, state.expanded])
 
-  const focus = (key: SessionKey) => onChange((was) => focusTile(was, key))
+  const focus = useCallback((key: SessionKey) => onChange((was) => focusTile(was, key)), [onChange])
   /*
    * Where each shown tile sits. The grid's tracks alternate tiles and one-
    * hairline seams, and the system's Separator draws each seam — the screen
@@ -288,6 +292,15 @@ export const SideBySide = ({
                 ) : entry?.ended === 'stopped' ? (
                   <Chip tone="neutral" size="sm">Stopped</Chip>
                 ) : null}
+                <ToggleGroup type="single" size="sm" aria-label={`${nickname} view`}
+                  value={state.modes[key] ?? 'conversation'}
+                  className="shrink-0"
+                  onValueChange={(mode) => {
+                    if (mode === 'conversation' || mode === 'browser') onChange(was => setTileMode(focusTile(was, key), key, mode))
+                  }}>
+                  <ToggleGroupItem value="conversation">Conversation</ToggleGroupItem>
+                  <ToggleGroupItem value="browser">Browser</ToggleGroupItem>
+                </ToggleGroup>
                 <Button
                   type="button"
                   variant="ghost"
@@ -325,8 +338,14 @@ export const SideBySide = ({
                     {/* One tile alone on screen — expanded, or the narrow
                         room's one tab — keeps its own composer; on a grid of
                         two or more, one composer below speaks for them all. */}
-                    <Conversation {...conversationProps} header={false} composer={shown.shown.length < 2} />
-                    <Approvals />
+                    {state.modes[key] === 'browser' ? (
+                      <SeatBrowser paneId={paneId} session={key} onFocus={focus} />
+                    ) : (
+                      <>
+                        <Conversation {...conversationProps} header={false} composer={shown.shown.length < 2} />
+                        <Approvals />
+                      </>
+                    )}
                   </PaneProvider>
                 </KeyboardHereContext.Provider>
               </div>
