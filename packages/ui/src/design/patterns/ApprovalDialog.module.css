@@ -45,7 +45,7 @@
   width: min(620px, 100%);
   /* A bottom grid tile is shorter than the window: scroll the request body
      within that pane and keep the footer above the shared composer. */
-  max-height: min(72vh, 720px, 100%);
+  max-height: min(72vh, 720px, 100%); /* desk: cap the decision to its tile viewport above the shared dock */
   display: flex;
   flex-direction: column;
   border-radius: var(--hd-surface-radius);
