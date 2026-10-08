@@ -300,6 +300,21 @@ test.describe('preview coverage', () => {
     expect(sharedComposerCoverage.covered).toContain('components/RoomComposerOptions.tsx#RoomComposerOptions')
     for (const component of sharedComposerCoverage.covered) covered.add(component)
 
+    // Comparison frames mount the recorded verdict; its person scene opens
+    // the same real attempt dialog as the Board, with synthetic candidates.
+    await page.goto('/preview.html?comparison-verdict')
+    await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-notice"]')).toContainText('picked Attempt A')
+    const verdictCoverage = await collectCoverage(page)
+    expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
+    for (const component of verdictCoverage.covered) covered.add(component)
+    await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
+    const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })
+    await expect(pick.getByRole('radiogroup', { name: 'Attempts' })).toBeVisible()
+    await expect(pick).toContainText('attempt-1')
+    const personCoverage = await collectCoverage(page)
+    expect(personCoverage.covered).toContain('components/PersonStepDialog.tsx#PersonStepDialog')
+    for (const component of personCoverage.covered) covered.add(component)
+
     // A trigger Team mounts its history only after the Runs tab opens.
     await page.goto('/preview.html?team-frame=trigger-runs')
     const triggerTeam = page.locator('[data-slot="team-room"]')

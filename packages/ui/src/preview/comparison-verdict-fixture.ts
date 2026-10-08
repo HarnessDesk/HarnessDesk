@@ -5,19 +5,19 @@ import { shapeFixture } from './run-shapes-fixture'
 import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from './side-by-side-fixture'
 import type { AppStore } from '../state/store'
 
-export type ComparisonScene = 'before' | 'picked' | 'person' | 'no-pass' | 'approval' | 'long-reason' | 'merged' | 'stopped'
+export type ComparisonScene = 'before' | 'picked' | 'person' | 'no-pass' | 'approval' | 'long-reason' | 'merged' | 'stopped' | 'combined'
 /** Recorded synthetic Run facts drive the real Team pane, chips, Run door and shared attempt dialog. */
 export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppStore => {
-  const base = sideBySideStore({ noGoal: true, waiting: scene === 'approval' })
+  const base = sideBySideStore({ noGoal: true, waiting: scene === 'approval', browsers: scene === 'combined' })
   const snapshot = base.getSnapshot()
   const input = shapeFixture('comparison')
-  const picked = ['picked', 'approval', 'long-reason', 'merged', 'stopped'].includes(scene)
+  const picked = ['picked', 'approval', 'long-reason', 'merged', 'stopped', 'combined'].includes(scene)
   const person = scene === 'person'
   const seatIds = ['seat-1', 'seat-2', 'seat-5']
   const members = SIDE_BY_SIDE_MEMBERS.slice(0, 3).map((member, i): SeatRecord => ({
     id: seatIds[i]! as SeatRecord['id'], session: { runtime: member.runtime, sessionId: member.id }, role: i === 2 ? 'judge' : 'competitor', openedAt: 0, closed: null, agent: null, seatLabel: member.nickname,
     briefDigest: null, seat: { runtime: member.runtime, model: member.model }, passedOver: [], standing: { kind: 'unknown' }, ceiling: null,
-    checkout: { cwd: '/workspace/demo-client', project: '/workspace/demo-client', branch: `attempt-${i + 1}`, head: null }, board: PREVIEW_ROOM,
+    checkout: { cwd: scene === 'combined' ? snapshot.sessions.get(SIDE_BY_SIDE_KEYS[i]!)!.cwd : '/workspace/demo-client', project: '/workspace/demo-client', branch: `attempt-${i + 1}`, head: null }, board: PREVIEW_ROOM,
   }))
   const run = { ...input.execution, goal: PREVIEW_ROOM,
     rounds: input.execution.rounds.filter(round => picked || round.n <= (scene === 'no-pass' ? 2 : 3)).map(round => ({ ...round, ...(round.n === 3 && !picked ? { state: 'running' as const, ...(person ? { seats: [] } : {}) } : {}) })),
