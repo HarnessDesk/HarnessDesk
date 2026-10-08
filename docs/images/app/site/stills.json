@@ -1,0 +1,200 @@
+[
+  {
+    "scene": "teams-table",
+    "theme": "light",
+    "width": 652,
+    "height": 307,
+    "scale": 2,
+    "filename": "teams-table-light.png",
+    "caption": "Active Teams, grouped by project."
+  },
+  {
+    "scene": "teams-table",
+    "theme": "dark",
+    "width": 652,
+    "height": 307,
+    "scale": 2,
+    "filename": "teams-table-dark.png",
+    "caption": "Active Teams, grouped by project."
+  },
+  {
+    "scene": "run-short",
+    "theme": "light",
+    "width": 736,
+    "height": 782,
+    "scale": 2,
+    "filename": "run-short-light.png",
+    "caption": "Write, review, repair, approve, and a decision for the person."
+  },
+  {
+    "scene": "run-short",
+    "theme": "dark",
+    "width": 736,
+    "height": 782,
+    "scale": 2,
+    "filename": "run-short-dark.png",
+    "caption": "Write, review, repair, approve, and a decision for the person."
+  },
+  {
+    "scene": "race-run",
+    "theme": "light",
+    "width": 736,
+    "height": 710,
+    "scale": 2,
+    "filename": "race-run-light.png",
+    "caption": "Two attempts, the judge’s pick, and the person’s decision."
+  },
+  {
+    "scene": "race-run",
+    "theme": "dark",
+    "width": 736,
+    "height": 710,
+    "scale": 2,
+    "filename": "race-run-dark.png",
+    "caption": "Two attempts, the judge’s pick, and the person’s decision."
+  },
+  {
+    "scene": "browser-tile",
+    "theme": "light",
+    "width": 672,
+    "height": 502,
+    "scale": 2,
+    "filename": "browser-tile-light.png",
+    "caption": "A Seat’s Browser visits an isolated Storefront fixture at acme.dev."
+  },
+  {
+    "scene": "browser-tile",
+    "theme": "dark",
+    "width": 672,
+    "height": 502,
+    "scale": 2,
+    "filename": "browser-tile-dark.png",
+    "caption": "A Seat’s Browser visits an isolated Storefront fixture at acme.dev."
+  },
+  {
+    "scene": "handoff-dialog",
+    "theme": "light",
+    "width": 460,
+    "height": 468,
+    "scale": 2,
+    "filename": "handoff-dialog-light.png",
+    "caption": "Choose how much of a conversation travels to the next agent."
+  },
+  {
+    "scene": "handoff-dialog",
+    "theme": "dark",
+    "width": 460,
+    "height": 468,
+    "scale": 2,
+    "filename": "handoff-dialog-dark.png",
+    "caption": "Choose how much of a conversation travels to the next agent."
+  },
+  {
+    "scene": "start-preview",
+    "theme": "light",
+    "width": 672,
+    "height": 508,
+    "scale": 2,
+    "filename": "start-preview-light.png",
+    "caption": "The start preview’s brief, task, Seat summary and Start."
+  },
+  {
+    "scene": "start-preview",
+    "theme": "dark",
+    "width": 672,
+    "height": 508,
+    "scale": 2,
+    "filename": "start-preview-dark.png",
+    "caption": "The start preview’s brief, task, Seat summary and Start."
+  },
+  {
+    "scene": "dash-plans",
+    "theme": "light",
+    "width": 652,
+    "height": 718,
+    "scale": 2,
+    "filename": "dash-plans-light.png",
+    "caption": "Five placeholder accounts, with one plan near its limit and its reset time."
+  },
+  {
+    "scene": "dash-plans",
+    "theme": "dark",
+    "width": 652,
+    "height": 718,
+    "scale": 2,
+    "filename": "dash-plans-dark.png",
+    "caption": "Five placeholder accounts, with one plan near its limit and its reset time."
+  },
+  {
+    "scene": "dash-hour",
+    "theme": "light",
+    "width": 652,
+    "height": 324,
+    "scale": 2,
+    "filename": "dash-hour-light.png",
+    "caption": "A year of work by local weekday and hour, including quiet mornings and weekends."
+  },
+  {
+    "scene": "dash-hour",
+    "theme": "dark",
+    "width": 652,
+    "height": 324,
+    "scale": 2,
+    "filename": "dash-hour-dark.png",
+    "caption": "A year of work by local weekday and hour, including quiet mornings and weekends."
+  },
+  {
+    "scene": "dash-year",
+    "theme": "light",
+    "width": 812,
+    "height": 280,
+    "scale": 2,
+    "filename": "dash-year-light.png",
+    "caption": "A whole synthetic year, with weekends, days off and a holiday week."
+  },
+  {
+    "scene": "dash-year",
+    "theme": "dark",
+    "width": 812,
+    "height": 280,
+    "scale": 2,
+    "filename": "dash-year-dark.png",
+    "caption": "A whole synthetic year, with weekends, days off and a holiday week."
+  },
+  {
+    "scene": "dash-spend",
+    "theme": "light",
+    "width": 652,
+    "height": 388,
+    "scale": 2,
+    "filename": "dash-spend-light.png",
+    "caption": "Estimated spend across agents over 90 days."
+  },
+  {
+    "scene": "dash-spend",
+    "theme": "dark",
+    "width": 652,
+    "height": 388,
+    "scale": 2,
+    "filename": "dash-spend-dark.png",
+    "caption": "Estimated spend across agents over 90 days."
+  },
+  {
+    "scene": "dash-agents",
+    "theme": "light",
+    "width": 652,
+    "height": 324,
+    "scale": 2,
+    "filename": "dash-agents-light.png",
+    "caption": "The same total split by agent."
+  },
+  {
+    "scene": "dash-agents",
+    "theme": "dark",
+    "width": 652,
+    "height": 324,
+    "scale": 2,
+    "filename": "dash-agents-dark.png",
+    "caption": "The same total split by agent."
+  }
+]

@@ -26,6 +26,7 @@ import { SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
 import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
 import { STILL_HOURS, STILL_LIBRARY, STILL_PLUGINS, STILL_RUNTIMES } from './release-stills-data'
+import { SITE_SCENES, SiteStills, siteStillStore } from './site-stills'
 
 const capabilityStore = () => {
   const base = previewStore().getSnapshot()
@@ -122,6 +123,7 @@ const PickedRun = () => {
 
 const Body = ({ scene }: { scene: string }) => {
   useTheme()
+  if (SITE_SCENES.includes(scene)) return <SiteStills scene={scene} />
   if (scene === 'library' || scene === 'plugin-permissions') return <PaneColumn inset="reading" className="py-6"><FormStack>
     {scene === 'library' && <LibrarySection />}
     <PluginsSection />
@@ -146,7 +148,7 @@ export const ReleaseStills = () => {
   const knobs = new URLSearchParams(window.location.search)
   const scene = knobs.get('release-stills') ?? 'teams'
   const own = useMemo(() => {
-    const own = scene === 'teams' ? teamsPageStore()
+    const own = SITE_SCENES.includes(scene) ? siteStillStore(scene) : scene === 'teams' ? teamsPageStore()
       : scene === 'project-sidebar' ? previewStore(publicPaths(sidebarProjectsFixture(store.getSnapshot())))
       : scene === 'race-tiles' ? raceStore()
       : scene === 'library' || scene === 'plugin-permissions' ? capabilityStore()
