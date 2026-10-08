@@ -1,18 +1,17 @@
 /** Content-only website cameras, composed from the shipped surfaces. */
-import { useMemo } from 'react'
-import { CeilingChip } from '../components/CeilingChip'
-import { AgentIcon } from '../components/Icons'
+import { useMemo, useState } from 'react'
+import { FlowInputFields, FlowPreviewSeats } from '../components/FlowStart'
 import { HandoffSheet } from '../components/ComposerControls'
 import { RunView } from '../components/RunView'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { Usage } from '../components/Usage'
-import { Bar, Button, Card, CardContent, Field, FormStack, Input, Row, Rows, SectionHead, Textarea } from '../design'
+import { Bar, Button, Card, CardContent, FormStack } from '../design'
 import { runTimeline } from '../lib/run-timeline'
 import { browserView } from '../state/layout'
 import { mountedViews, replaceView } from '../state/workbench'
 import { MountProvider } from '../panels/mount'
-import { previewStore, PREVIEW_ROOM } from './harness'
+import { previewStore, PREVIEW_AGENTS, PREVIEW_ROOM } from './harness'
 import { sideBySideStore, SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
 import { teamsPageStore } from './teams-page-fixture'
 import { SITE_BROWSER_URL, siteLedger, siteRun, siteUsage, siteStartPreview } from './site-stills-data'
@@ -48,15 +47,15 @@ const CompactRun = ({ race }: { race: boolean }) => {
 }
 
 const StartTop = () => {
-  const preview = siteStartPreview()
+  const preview = useMemo(() => siteStartPreview(), [])
+  const roster = useMemo(() => new Map(PREVIEW_AGENTS.map(agent => [agent.id, agent])), [])
+  const [vars, setVars] = useState({ brief: 'Bound the retry attempts and keep the final failure visible.', task: 'Retry the checkout call on a 502' })
+  const [reading, setReading] = useState(false)
+  const flow = preview.compiled.document.format === 'agents' ? preview.compiled.document.flow : null
   return <Card data-site-start><CardContent className="py-6"><FormStack>
-    <Field label="Brief">{control => <Textarea {...control} rows={2} readOnly value="Bound the retry attempts and keep the final failure visible." />}</Field>
-    <Field label="Task">{control => <Input {...control} readOnly value="Retry the checkout call on a 502" />}</Field>
-    <section aria-label="Seats this would open"><SectionHead name={`It opens ${preview.seats.length} seats`} /><Rows>
-      {preview.seats.map(seat => <Row key={seat.role} mark={<AgentIcon />} title={`${seat.plan.candidates[seat.plan.winner!]!.label} · ${seat.role}, isolated`}
-        control={seat.plan.ceiling && <CeilingChip ceiling={seat.plan.ceiling} />} />)}
-    </Rows></section>
-    <Bar><Button disabled={!preview.token}>Start</Button></Bar>
+    <FlowInputFields flow={flow} scope="site-start" vars={vars} onChange={(id, value) => setVars(current => ({ ...current, [id]: value }))} onReadingChange={setReading} />
+    <FlowPreviewSeats preview={preview} roster={roster} />
+    <Bar><Button disabled={reading || !preview.token}>Start</Button></Bar>
   </FormStack></CardContent></Card>
 }
 

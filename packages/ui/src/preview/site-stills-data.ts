@@ -114,10 +114,12 @@ export const siteRun = (kind: 'review' | 'race'): RunTimelineInput => {
 
 /** The top excerpt keeps every Seat; the frozen Flow owns its roles and ceilings. */
 export const siteStartPreview = (): FlowPreview => {
-  const document = siteRun('review').execution.document
-  if (document.format !== 'agents') throw new Error('Expected the website’s agent Flow')
+  const saved = siteRun('review').execution.document
+  if (saved.format !== 'agents') throw new Error('Expected the website’s agent Flow')
+  const document = { ...saved, flow: { ...saved.flow, roles: saved.flow.roles.map(role => role.kind === 'agent'
+    ? { ...role, uses: [role.grant === 'read' ? 'code-reviewer' : 'implementer'] } : role) } }
   return { token: 'site-start-token', compiled: { document, bindings: [], problems: [] }, commands: [], guards: [], messaging: 'board-only', problems: [],
-    seats: document.flow.roles.flatMap((role, index) => role.kind === 'agent' ? [{ role: role.id, index: 0, agent: role.id, isolate: true, reviews: role.grant === 'read',
-      plan: { id: role.id, from: 'prefer' as const, winner: 0, blocked: null, ceiling: { level: role.grant ?? 'edit', hold: 'held' as const },
+    seats: document.flow.roles.flatMap((role, index) => role.kind === 'agent' ? [{ role: role.id, index: 0, agent: role.uses[0]!, isolate: role.isolate, reviews: role.grant === 'read',
+      plan: { id: role.uses[0]!, from: 'prefer' as const, winner: 0, blocked: null, ceiling: { level: role.grant ?? 'edit', hold: 'held' as const },
         candidates: [{ seat: { runtime: index === 1 ? 'claude' : 'codex' }, label: index === 1 ? 'Beta' : 'Alpha', runtimeName: index === 1 ? 'Beta' : 'Alpha', state: 'taken' as const, reason: null, fix: null }] } }] : []) }
 }

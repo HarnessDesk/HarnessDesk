@@ -93,19 +93,19 @@
     "scene": "start-preview",
     "theme": "light",
     "width": 672,
-    "height": 508,
+    "height": 779,
     "scale": 2,
     "filename": "start-preview-light.png",
-    "caption": "The start preview’s brief, task, Seat summary and Start."
+    "caption": "The start preview’s brief, task, Agent identities, Seat candidates and Start."
   },
   {
     "scene": "start-preview",
     "theme": "dark",
     "width": 672,
-    "height": 508,
+    "height": 779,
     "scale": 2,
     "filename": "start-preview-dark.png",
-    "caption": "The start preview’s brief, task, Seat summary and Start."
+    "caption": "The start preview’s brief, task, Agent identities, Seat candidates and Start."
   },
   {
     "scene": "dash-plans",
