@@ -298,8 +298,11 @@ export const PopoverSurface = forwardRef<
     limit?: 'trigger'
     /** A typing picker escapes its anchor's scroll clip without taking focus. */
     anchor?: RefObject<HTMLElement | null>
+    /** Lets a controlled typing picker clear its owner's active query. */
+    onDismiss?: () => void
   }
->(({ className, limit, anchor, ...props }, ref) => {
+>(({ className, limit, anchor, onDismiss, ...props }, ref) => {
+  useDismissOverlays(Boolean(anchor), () => onDismiss?.())
   const surface = <div
     ref={ref}
     {...props}
@@ -310,7 +313,7 @@ export const PopoverSurface = forwardRef<
   />
   if (!anchor) return surface
   return (
-    <BasePopover open modal={false}>
+    <BasePopover open modal={false} onOpenChange={open => { if (!open) onDismiss?.() }}>
       <PopoverPortal>
         <PopoverPositioner
           anchor={anchor}

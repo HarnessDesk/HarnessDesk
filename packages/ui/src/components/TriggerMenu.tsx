@@ -47,6 +47,7 @@ export const TriggerMenu = ({
   onPick,
   emptyLabel,
   anchor,
+  onDismiss,
 }: {
   title?: string
   items: readonly TriggerItem[]
@@ -55,6 +56,7 @@ export const TriggerMenu = ({
   onPick: (item: TriggerItem) => void
   emptyLabel?: string
   anchor?: RefObject<HTMLElement | null>
+  onDismiss?: () => void
 }): ReactNode => {
   const container = useRef<HTMLDivElement>(null)
 
@@ -65,7 +67,7 @@ export const TriggerMenu = ({
   }, [activeIndex])
 
   return (
-    <PopoverSurface anchor={anchor} className={anchor ? undefined : styles.menu} ref={container} role="listbox" limit="trigger">
+    <PopoverSurface anchor={anchor} onDismiss={onDismiss} className={anchor ? undefined : styles.menu} ref={container} role="listbox" limit="trigger">
       {title && <PopoverGroupLabel>{title}</PopoverGroupLabel>}
       {items.length === 0 && <div className="hd-empty-line">{emptyLabel ?? 'No matches'}</div>}
       {items.map((item, index) => (

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { sessionKey, type SessionKey, type TeamMessage, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
+import { dismissOverlays, escapeSurface } from '../lib/overlays'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { RoomComposer, type RoomComposerHandle, type RoomMember } from './RoomComposer'
 
@@ -265,6 +266,35 @@ it('Escape puts the menu away and leaves the words alone', () => {
   act(() => press('Escape'))
   expect(menu()).toBeNull()
   expect(box().value).toBe('@op')
+})
+
+it('the shared recipient picker dismisses when another surface opens without losing the draft', async () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key])
+  await act(async () => type('Review this @op'))
+  expect(menu()).not.toBeNull()
+  await act(async () => dismissOverlays())
+  expect(menu()).toBeNull()
+  expect(box().value).toBe('Review this @op')
+
+  const closeWindow = vi.fn(() => true)
+  const leave = escapeSurface(closeWindow)
+  try {
+    act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(closeWindow).toHaveBeenCalledOnce()
+  } finally {
+    leave()
+  }
+})
+
+it('Escape outside the shared recipient picker closes it and retains the draft', async () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key])
+  await act(async () => type('Review this @op'))
+  expect(menu()).not.toBeNull()
+  await act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  })
+  expect(menu()).toBeNull()
+  expect(box().value).toBe('Review this @op')
 })
 
 it('Enter over a menu that matches nobody puts it away rather than sending', () => {

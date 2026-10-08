@@ -610,6 +610,7 @@ export const RoomComposer = ({
       {mention && (
         <TriggerMenu
           anchor={defaultAudience ? shell : undefined}
+          onDismiss={() => setMention(null)}
           title="Address"
           items={items}
           activeIndex={active}
