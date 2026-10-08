@@ -22,6 +22,17 @@ export async function mountFocusFixture(page: Page) {
       import { CommandPalette } from '/src/components/CommandPalette.tsx';
       import { ProfileSection } from '/src/components/SettingsYou.tsx';
       import { Button, Dialog, Input, Search, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '/src/design/index.ts';
+      // The palette's debounced reads need wire-shaped answers. The preview
+      // transport's null fallback made files.map crash and unmount this root.
+      const request = store.transport.request;
+      store.transport.request = async (method, params) => {
+        if (method === 'workspace/files') return [
+          { path: '/work/harnessdesk/appearance.ts', relativePath: 'appearance.ts', score: 1, kind: 'file' },
+        ].filter(file => file.relativePath.includes(params.query));
+        if (method === 'session/search') return { data: [], nextCursor: null };
+        if (method === 'transcripts/search') return [];
+        return request(method, params);
+      };
       const h = focusReact.createElement;
       const FocusFixture = () => {
         useTheme();

@@ -38,6 +38,14 @@ test('repeat-test accepts desktop Electron and script tests from source', () => 
   }
 })
 
+test('repeat-test accepts browser specs and repeats them against one shared server', () => {
+  assert.match('e2e/ui-system/focus-ring.spec.ts', allowedPath)
+  assert.match(workflow, /pnpm exec playwright install --with-deps chromium/)
+  assert.match(workflow, /'--repeat-each=' \+ str\(runs\)/)
+  assert.match(workflow, /'--workers=' \+ str\(copies\)/)
+  assert.match(workflow, /'--retries=0'/)
+})
+
 test('repeat-test refuses absolute, traversing, and unlisted paths', () => {
   for (const path of [
     '/tmp/outside.test.mjs',
@@ -48,6 +56,10 @@ test('repeat-test refuses absolute, traversing, and unlisted paths', () => {
     'packages/desktop/preload.test.mjs',
     'packages/desktop/electron/nested/waiters.test.mjs',
     'packages/desktop/electron/waiters.test.js',
+    'e2e/ui-system/../outside.spec.ts',
+    'e2e/ui-system/focus-ring.spec.ts;echo unsafe',
+    'e2e/ui-system/nested/focus-ring.spec.ts',
+    'e2e/ui-system/focus-ring.test.ts',
   ]) {
     assert.doesNotMatch(path, allowedPath)
   }

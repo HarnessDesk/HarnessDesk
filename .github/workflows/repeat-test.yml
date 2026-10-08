@@ -1,10 +1,10 @@
-name: Repeat Node test
+name: Repeat test
 
 on:
   workflow_dispatch:
     inputs:
       test_file:
-        description: Node test source or built test file
+        description: Node test source, built test file, or UI system browser spec
         type: string
         default: packages/server/test/provenance-observer.test.ts
         required: true
@@ -41,11 +41,16 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:node
+      - name: Install the browser for a browser spec
+        if: startsWith(inputs.test_file || 'e2e/ui-system/focus-ring.spec.ts', 'e2e/ui-system/')
+        run: pnpm exec playwright install --with-deps chromium
       - name: Repeat the test and report failures
         env:
-          TEST_FILE: ${{ inputs.test_file || 'packages/server/test/provenance-observer.test.ts' }}
+          # A workflow change measures this flake; dispatch still defaults to
+          # the Node test above and can select either kind of test explicitly.
+          TEST_FILE: ${{ inputs.test_file || 'e2e/ui-system/focus-ring.spec.ts' }}
           RUNS: ${{ inputs.runs || '30' }}
-          COPIES: ${{ inputs.copies || '4' }}
+          COPIES: ${{ inputs.copies || '2' }}
         shell: python
         run: |
           import concurrent.futures
@@ -56,8 +61,27 @@ jobs:
           import time
 
           source = os.environ['TEST_FILE']
-          if not re.fullmatch(r'(packages/[a-z0-9-]+/(?:dist/)?test/[a-zA-Z0-9_/-]+\.test\.(?:ts|js)|packages/desktop/(?:electron|script)/[a-zA-Z0-9_.-]+\.test\.mjs|script/[a-zA-Z0-9_-]+\.test\.mjs)', source):
-              raise SystemExit('Expected a repository Node test file')
+          if not re.fullmatch(r'(packages/[a-z0-9-]+/(?:dist/)?test/[a-zA-Z0-9_/-]+\.test\.(?:ts|js)|packages/desktop/(?:electron|script)/[a-zA-Z0-9_.-]+\.test\.mjs|script/[a-zA-Z0-9_-]+\.test\.mjs|e2e/ui-system/[a-zA-Z0-9_-]+\.spec\.ts)', source):
+              raise SystemExit('Expected a repository Node test file or UI system browser spec')
+          runs, copies = int(os.environ['RUNS']), int(os.environ['COPIES'])
+          if not (1 <= runs <= 200 and 1 <= copies <= 16):
+              raise SystemExit('Runs must be 1–200 and copies 1–16')
+          logs = Path('output/repeat-test')
+          logs.mkdir(parents=True, exist_ok=True)
+
+          if source.startswith('e2e/ui-system/'):
+              if not Path(source).is_file():
+                  raise SystemExit('Browser spec does not exist: ' + source)
+              # One Playwright invocation owns one Vite server. Concurrent
+              # invocations would fight over that server's port (#995).
+              command = ['pnpm', 'exec', 'playwright', 'test', '-c', 'playwright.ui-system.config.ts',
+                         source, '--repeat-each=' + str(runs), '--workers=' + str(copies),
+                         '--retries=0', '--reporter=line', '--output=' + str(logs / 'browser-results')]
+              with (logs / 'browser.log').open('w') as log:
+                  result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
+              print((logs / 'browser.log').read_text(), flush=True)
+              raise SystemExit(result.returncode)
+
           test_file = source
           test_cwd = None
           if source.startswith('packages/desktop/'):
@@ -67,11 +91,6 @@ jobs:
           if not Path(test_file).is_file():
               raise SystemExit('Test file was not built: ' + test_file)
           command_test_file = test_file.removeprefix('packages/desktop/') if test_cwd else test_file
-          runs, copies = int(os.environ['RUNS']), int(os.environ['COPIES'])
-          if not (1 <= runs <= 200 and 1 <= copies <= 16):
-              raise SystemExit('Runs must be 1–200 and copies 1–16')
-          logs = Path('output/repeat-test')
-          logs.mkdir(parents=True, exist_ok=True)
 
           def run(index):
               started = time.monotonic()

@@ -15,6 +15,9 @@ for (const theme of ['light', 'dark'] as const) {
       expect((await ringOf(page)).outline).toBe('none')
       await field.fill('appearance')
       await expect(palette.getByRole('option', { name: /Settings › Appearance/ })).toBeVisible()
+      // The settings entry is local. Keep the palette open until its debounced
+      // file search has answered and rendered, rather than racing Escape.
+      await expect(palette.getByRole('option', { name: 'appearance.ts', exact: true })).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(palette).toHaveCount(0)
       await opener.focus()
