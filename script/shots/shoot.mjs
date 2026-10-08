@@ -46,6 +46,7 @@ import { runScene } from './scene.mjs'
 import { selectScenes } from './selection.mjs'
 import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
+import { shootStills } from './stills.mjs'
 
 /**
  * What is on the board, and what has been said in the room.
@@ -105,6 +106,13 @@ const PROVENANCE_SHOTS = (() => {
   const file = join(HOME, 'provenance-shots.json')
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return [] }
 })()
+
+// This route mounts only synthetic preview stores and opens no desktop window.
+if (has('release-stills')) {
+  await shootStills({ app: APP, out: OUT, themes: THEMES,
+    requested: argv.flatMap((one, i) => one === '--scene' && argv[i + 1] ? [argv[i + 1]] : []) })
+  process.exit(0)
+}
 
 requireSeeded()
 

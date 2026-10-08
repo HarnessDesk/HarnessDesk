@@ -348,7 +348,7 @@ shown before the button that runs it.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/flow-dark.png" />
-    <img src="images/app/flow-light.png" width="900" alt="The New room dialog with a flow chosen: a Flow select reading “Fix and review”, an input labelled “What to fix”, and beneath them the dry run — “It opens 4 agents · 4 turns to seat”, one row per seat giving its role, its agent and model, and its permission as a chip (publish on the fixer, read on the three reviewers); then “How it would go”, a trace of fixer → reviewer → referee with each round’s card count and answers; and a note that the seating figure is not what running them costs." />
+    <img src="images/app/flow-light.png" width="900" alt="The Flow start preview: a task and brief, writer and reviewer Seat choices with Edit and Read only ceilings, the named verify check, the round sequence, and Start and Cancel controls." />
   </picture>
 </p>
 

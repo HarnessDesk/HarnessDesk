@@ -1,5 +1,27 @@
 # Scripted Flow scene
 
+## README and site stills
+
+```sh
+HD_SHOTS_HOME=/tmp/hd-stills-rig node script/shots/shoot.mjs --release-stills --out /tmp/hd-stills
+```
+
+This opt-in take opens `preview.html` headlessly, composing the shipped screens
+over public synthetic stores. It needs no agent, account, desktop window or
+seeded desk. `--scene teams` (or any name in `stills.mjs`) narrows a take;
+`--theme light` or `--theme dark` narrows its themes. It produces each scene at
+960 pixels wide and the race also at 1280 pixels wide, with a caption manifest.
+Named content, the theme, enabled Start and the embedded browser's loaded page
+must be ready before capture. `audit.mjs` checks the parent and every embedded
+document before any PNG is saved. Existing referenced images are refused,
+except the `flow-light.png` / `flow-dark.png` pair reserved by the stills brief.
+
+```sh
+node --test script/shots-stills.test.mjs
+```
+
+## Scripted repair loop
+
 Build the Node packages and renderer, then record a complete repair loop without
 opening a desktop window:
 

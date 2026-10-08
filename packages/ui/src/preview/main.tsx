@@ -1,4 +1,5 @@
 import { AgentPage } from '../components/AgentPage'
+import { ReleaseStills } from './release-stills'
 import { PREVIEW_AGENTS } from './harness'
 import { TeamFrame } from './frames-team-frame'
 import { RunDockFrame } from './frames-run-dock'
@@ -1213,6 +1214,8 @@ createRoot(container).render(
           ? <InapplicableActionsFrames />
           : new URLSearchParams(window.location.search).has('flow-canvas')
           ? <FlowCanvasFrames />
+          : new URLSearchParams(window.location.search).has('release-stills')
+          ? <ReleaseStills />
           : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
           : new URLSearchParams(window.location.search).has('board-list')
