@@ -531,6 +531,7 @@ const assertNestedCheckoutAttribution = async (
     readonly invalidCwds?: (nested: string) => readonly string[]
     readonly seatAtRoot?: boolean
     readonly malformedSibling?: boolean
+    readonly malformedSeatSibling?: boolean
   } = {},
 ): Promise<void> => {
   const base = await repo.commitTree(null, { one: 'base\n' }, 'base')
@@ -568,6 +569,15 @@ const assertNestedCheckoutAttribution = async (
     fact: { kind: 'diff', from: base, to: first, files: 1, added: 1, removed: 1 },
   } },
   ])
+  if (options.malformedSeatSibling) {
+    await appendFile(join(store.folderOf(repo.dir), 'seats.ndjson'),
+      `{malformed\n${JSON.stringify({ v: 1, type: 'seat', record: { ...opening, id: 'malformed-seat', openedAt: 'unreadable' } })}\n`,
+    )
+    const seatRead = await store.read(repo.dir, 'seats')
+    assert.equal(seatRead.skipped, 2, 'both malformed JSON and an invalid Seat opening are skipped')
+    assert.deepEqual(seatRead.lines.map(line => line.type === 'seat' ? line.record.id : null), [seat.id])
+    assert.equal((await store.read(repo.dir, 'evidence')).skipped, 0, 'only Seat records are damaged')
+  }
   if (options.malformedSibling) await appendFile(join(store.folderOf(repo.dir), 'evidence.ndjson'), '{malformed\n')
   const seats = new Map([...invalidSeats, seat].map((record) => [record.id, record]))
   const plane = new ProvenancePlane({
@@ -581,10 +591,14 @@ const assertNestedCheckoutAttribution = async (
   const result = (await plane.read(repo.dir, [first])).commits[0]!
   assert.deepEqual(result.seats.map((item) => item.id), [seat.id])
   assert.deepEqual(result.evidenceIds, ['nested-fact'])
-  if (options.malformedSibling) {
+  if (options.malformedSibling || options.malformedSeatSibling) {
     const health = (await plane.status(repo.dir))[0]!
     assert.equal(health.state, 'degraded')
     assert.match(health.reason, /evidence/i)
+    if (options.malformedSeatSibling) {
+      assert.equal(health.reason, 'Some local evidence records could not be read.')
+      assert.equal(health.nextStep, 'Repair the local evidence and retry capture.')
+    }
   }
 }
 
@@ -626,6 +640,11 @@ test('malformed and relative stored CWDs skip without blocking canonical nested 
 test('a malformed sibling evidence row degrades capture without blocking valid attribution', async (t) => {
   const repo = await makeRepo()
   await assertNestedCheckoutAttribution(t, repo, repo.dir, [repo.dir], { malformedSibling: true })
+})
+
+test('malformed sibling Seat records degrade capture without blocking valid attribution', async (t) => {
+  const repo = await makeRepo()
+  await assertNestedCheckoutAttribution(t, repo, repo.dir, [repo.dir], { malformedSeatSibling: true })
 })
 
 
