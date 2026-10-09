@@ -1009,6 +1009,15 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'runtime/account/remove': shape({ runtime: isString }),
 
+  'session/index': shape({
+    cursor: optional(isString),
+    pageSize: optional((value, path) => {
+      const size = goalInteger(1)(value, path)
+      if (size > 500) throw new ValidationError(path ?? 'params.pageSize', 'pageSize must be at most 500')
+      return size
+    }),
+    archived: optional(literalUnion('exclude', 'only')),
+  }),
   'session/list': shape({
     runtime: isString,
     cursor: optional(isString),

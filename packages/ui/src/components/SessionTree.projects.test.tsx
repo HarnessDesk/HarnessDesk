@@ -129,10 +129,6 @@ it('keeps the cached home when an older unloaded match is returned while both cl
   // older matching conversation from another clone before pagination reaches it.
   const history = [{ ...home, createdAt: 10 }]
   let listCalls = 0
-  let resetHistory!: (value: { data: readonly SessionSummary[]; nextCursor: null }) => void
-  const delayedReset = new Promise<{ data: readonly SessionSummary[]; nextCursor: null }>((resolve) => {
-    resetHistory = resolve
-  })
   const opened = [
     workspace('/widgets', { root: '/widgets', worktree: false, origin: 'github.com/acme/widgets' }),
     workspace('/widgets-clone', { root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets' }),
@@ -148,9 +144,9 @@ it('keeps the cached home when an older unloaded match is returned while both cl
     method: HostMethodName,
     params: { query?: string },
   ) => {
-    if (method === 'session/list') {
+    if (method === 'session/index') {
       listCalls += 1
-      return listCalls === 1 ? { data: history, nextCursor: null } : delayedReset
+      return { data: history, nextCursor: null }
     }
     if (method === 'session/search') return { data: [{ ...clone, createdAt: 1 }], nextCursor: null }
     if (method === 'workspace/recent') return opened
@@ -217,17 +213,15 @@ it('keeps the cached home when an older unloaded match is returned while both cl
   act(() => {
     renderTree()
   })
-  // Clearing the field precedes Sidebar's debounced full-history request.
-  // Keep the search response visible both before that request starts and
-  // while its replacement response is pending.
+  // Clearing the field restores cached identity without another request.
   expect(currentProjectRoot()).toBe('/widgets')
   let clear!: Promise<void>
   act(() => { clear = store.searchHistory('') })
   expect(currentProjectRoot()).toBe('/widgets')
   await act(async () => {
-    resetHistory({ data: history, nextCursor: null })
     await clear
   })
+  expect(listCalls).toBe(1)
   expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['home-session'])
   expect(currentProjectRoot()).toBe('/widgets')
   expect(projects()).toEqual(['widgets'])

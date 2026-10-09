@@ -69,10 +69,11 @@ describe('history search request ordering', () => {
     const older = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
     request.mockImplementation(((method: HostMethodName) => {
       if (method === 'session/search') return older.promise
-      if (method === 'session/list') return Promise.resolve({ data: [summary('reset-history')], nextCursor: null })
+      if (method === 'session/index') return Promise.resolve({ data: [summary('reset-history')], nextCursor: null })
       return Promise.resolve(null)
     }) as never)
 
+    await store.loadHistory({ reset: true })
     const first = store.searchHistory('slow')
     const clear = store.searchHistory('')
     await clear

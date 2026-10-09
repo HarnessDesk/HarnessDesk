@@ -12,6 +12,8 @@ import {
   orderTasks,
   reduceSession,
   sessionKey,
+  sessionIndexCursorOf,
+  sessionIndexCompare,
   splitSessionKey,
   typedUserText,
   type AccountStatus,
@@ -660,18 +662,15 @@ export class AppStore {
           // the request before filtering the visible history so a late page
           // cannot put its rows back.
           this.#historyRequestId += 1
+          this.#historyPageRemovedRuntimes?.add(runtime)
           const runtimes = this.#snapshot.runtimes.filter((entry) => entry.id !== runtime)
           const accountsByRuntime = { ...this.#snapshot.accountsByRuntime }
           delete accountsByRuntime[runtime]
           const healthByRuntime = { ...this.#snapshot.healthByRuntime }
           delete healthByRuntime[runtime]
-          // Nothing may stay pointed at a runtime that no longer resolves —
-          // the list's paging anchor and its cursor included.
-          const anchored = this.#historyAnchor === runtime
-          if (anchored) this.#historyAnchor = null
           this.#patch({
             runtimes,
-            historyLoading: false,
+            historyLoading: this.#historyPageChanges !== null,
             accountsByRuntime,
             healthByRuntime,
             activeRuntime:
@@ -680,10 +679,12 @@ export class AppStore {
                 : this.#snapshot.activeRuntime,
             historyIdentity: this.#snapshot.historyIdentity.filter((entry) => entry.runtime !== runtime),
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
-            historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
           // Whatever a plan had it seated on may no longer be offered at all.
           if (this.#agentsRequested) void this.loadAgentPlans()
+        }
+        if (notification.method === 'session/indexChanged') {
+          this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
           this.#dropRemoved(
@@ -888,10 +889,12 @@ export class AppStore {
       stateDir: hello.stateDir,
       goalMigrationPending: hello.goalMigrationPending,
     })
+    // The local index does not wait for an agent or its account catalogue.
+    const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
     await this.loadPreferences()
-    await Promise.all([this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
+    await Promise.all([history, this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
     // Goal history is additive to the ordinary conversation path. A damaged
     // migration stays visible as Goal-specific recovery state without making
     // the rest of the desk unusable.
@@ -970,18 +973,11 @@ export class AppStore {
     // Choosing a crashed agent is also "selecting it again": it comes back
     // up, and its health change re-reads the surface once it is ready.
     if (crashed) void this.refreshCatalog()
-    await this.refreshRuntime({ history: false })
+    await this.refreshRuntime()
   }
 
-  /**
-   * Reloads everything that depends on which runtime is selected.
-   *
-   * `history: false` keeps the session list as it is. A switch of the default
-   * agent asks for this — the list is every agent's and a re-page would drop
-   * the reader back to the first page — while an agent coming up or signing
-   * in does not, since its history just became readable.
-   */
-  async refreshRuntime(options: { readonly history?: boolean } = {}): Promise<void> {
+  /** Reloads the selected agent's catalogue; the sidebar belongs to the host index. */
+  async refreshRuntime(): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const [health, [accountRead, accountAnswer], limits, models, runtimeOptions] = await Promise.all([
@@ -1010,7 +1006,6 @@ export class AppStore {
       ...(health ? { healthByRuntime: { ...this.#snapshot.healthByRuntime, [runtime]: health } } : {}),
     })
     if (health?.state === 'ready') {
-      if (options.history !== false) void this.loadHistory({ reset: true })
       void this.loadSkills()
       void this.loadDraftOptions()
     }
@@ -1396,7 +1391,7 @@ export class AppStore {
 
   /**
    * Archives every session in a project, each on the runtime that owns it,
-   * and reloads the list once rather than once per session.
+   * applying each successful archive to the index rows.
    */
   async archiveSessions(sessions: readonly SessionSummary[]): Promise<void> {
     let failed = 0
@@ -1407,6 +1402,7 @@ export class AppStore {
           sessionId: summary.id,
           archived: true,
         })
+        this.#changeHistory([{ ...summary, archived: true }])
         const key = sessionKey(summary.runtime, summary.id)
         const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
         if (pane) this.closePane(pane.id)
@@ -1417,7 +1413,6 @@ export class AppStore {
     if (failed > 0) {
       this.resultNotice('error', `${failed} of ${sessions.length} sessions could not be archived.`)
     }
-    await this.loadHistory({ reset: true })
   }
 
   /** Drops a folder from the opened list; the folder itself is untouched. */
@@ -2079,77 +2074,134 @@ export class AppStore {
 
   // ------------------------------------------------------------------ history
 
-  /**
-   * One history across every backend. The active runtime is paged as
-   * before; the others contribute their first page, merged by recency. Every
-   * row carries its runtime, so opening one opens it where it lives.
-   */
+  /** Pages desk conversations from the host's local index, independently of agents. */
   async loadHistory(options: { reset?: boolean } = {}): Promise<void> {
-    // A page continues the list it is a page of. The list is paged around
-    // one agent — the anchor — with a first page of every other; a reset
-    // rebuilds it around the default agent, and every page after continues
-    // along the same anchor even if the default has changed since, because a
-    // cursor handed to a different agent names nothing.
-    const runtime =
-      options.reset || !this.#historyAnchor ? this.#snapshot.activeRuntime : this.#historyAnchor
-    if (!runtime || (this.#snapshot.historyLoading && !options.reset)) return
-    const requestId = ++this.#historyRequestId
-    this.#historyAnchor = runtime
+    if (this.#historyQuery || (this.#snapshot.historyLoading && !options.reset)) return
+    const requestId = ++this.#historyPageRequestId
+    const capacity = options.reset || !this.#historyLoaded ? 50 : this.#historyCapacity + 50
+    // Notifications received after this read started are newer than its page.
+    const changes = new Map<SessionKey, SessionSummary | null>()
+    this.#historyPageChanges = changes
+    this.#historyPageFirstCursor = undefined
+    const removedRuntimes = new Set<RuntimeId>()
+    this.#historyPageRemovedRuntimes = removedRuntimes
     this.#patch({ historyLoading: true })
     try {
-      // Only agents that have their own history to give. An account sharing
-      // another's session store declares `listHistory: false`, so the shared
-      // list is listed once rather than once per account.
-      const others = this.#snapshot.runtimes
-        .filter((entry) => entry.capabilities.listHistory)
-        .map((entry) => entry.id)
-        .filter((id) => id !== runtime)
-      const [page, ...extra] = await Promise.all([
-        this.transport.request('session/list', {
-          runtime,
-          pageSize: 40,
-          ...(options.reset ? {} : { cursor: this.#snapshot.historyCursor }),
-        }),
-        ...others.map((id) =>
-          this.transport
-            .request('session/list', { runtime: id, pageSize: 20 })
-            .then((result) => result.data)
-            .catch(() => [] as SessionSummary[]),
-        ),
-      ])
-      const merged = [...page.data, ...extra.flat()].sort((a, b) => b.updatedAt - a.updatedAt)
-      if (requestId !== this.#historyRequestId) return
-      const nextFoldersGone = this.#foldersGoneFor(merged)
-      const mergeHistory = (current: readonly SessionSummary[]) => options.reset
-        ? merged
-        : [
-            ...current,
-            ...merged.filter((entry) => !current.some(
-              (existing) => existing.id === entry.id && existing.runtime === entry.runtime,
-            )),
-          ]
+      const page = await this.transport.request('session/index', {
+        pageSize: 50,
+        ...(!options.reset && this.#historyCursor ? { cursor: this.#historyCursor } : {}),
+      })
+      if (requestId !== this.#historyPageRequestId) return
+      const rows = new Map<SessionKey, SessionSummary>()
+      if (!options.reset) {
+        for (const row of this.#snapshot.historyIdentity) rows.set(sessionKey(row.runtime, row.id), row)
+      }
+      for (const row of page.data) {
+        const key = sessionKey(row.runtime, row.id)
+        if ((rows.get(key)?.updatedAt ?? -Infinity) > row.updatedAt) continue
+        rows.set(key, row)
+      }
+      for (const [key, row] of changes) {
+        if (row) rows.set(key, row)
+        else rows.delete(key)
+      }
+      const merged = [...rows.values()].filter(row => !row.archived && !removedRuntimes.has(row.runtime)).sort(sessionIndexCompare)
+      const history = merged.slice(0, capacity)
+      const nextFoldersGone = this.#foldersGoneFor(history)
+      this.#historyCapacity = capacity
+      this.#historyLoaded = true
+      const removedFromPage = page.data.some(row => changes.get(sessionKey(row.runtime, row.id)) === null)
+      this.#historyCursor = merged.length > capacity
+        ? sessionIndexCursorOf(history.at(-1)!)
+        : removedFromPage && page.nextCursor
+          ? history.length > 0 ? sessionIndexCursorOf(history.at(-1)!) : page.nextCursor
+          : capacity === 50 && this.#historyPageFirstCursor !== undefined
+          ? this.#historyPageFirstCursor
+          : page.nextCursor ?? null
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
-        historyIdentity: mergeHistory(this.#snapshot.historyIdentity),
-        history: mergeHistory(this.#snapshot.history),
-        historyCursor: page.nextCursor ?? null,
+        historyIdentity: history,
+        ...(!this.#historyQuery ? { history, historyCursor: this.#historyCursor } : {}),
       })
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
+      if (requestId === this.#historyPageRequestId) {
+        this.#historyPageChanges = null
+        this.#historyPageRemovedRuntimes = null
+        if (!this.#historyQuery) this.#patch({ historyLoading: false })
+      }
     }
+  }
+
+  /** Applies an index change without disturbing a live search or its results. */
+  #changeHistory(
+    upserted: readonly SessionSummary[],
+    removed: readonly { runtime: RuntimeId; id: SessionId }[] = [],
+    firstPageCursor?: string | null,
+  ): void {
+    const changes = new Map<SessionKey, SessionSummary | null>()
+    for (const row of upserted) changes.set(sessionKey(row.runtime, row.id), row.archived ? null : row)
+    for (const row of removed) changes.set(sessionKey(row.runtime, row.id), null)
+    for (const [key, row] of changes) {
+      this.#historyPageChanges?.set(key, row)
+      if (row) this.#historyExcluded.delete(key)
+      else this.#historyExcluded.add(key)
+    }
+    const rows = new Map(this.#snapshot.historyIdentity.map(row => [sessionKey(row.runtime, row.id), row]))
+    for (const [key, row] of changes) {
+      if (row) rows.set(key, row)
+      else rows.delete(key)
+    }
+    const merged = [...rows.values()].sort(sessionIndexCompare)
+    const historyIdentity = merged.slice(0, this.#historyCapacity)
+    if (this.#historyCapacity === 50 && firstPageCursor !== undefined) {
+      const removedFromWindow = this.#snapshot.historyIdentity.some(row =>
+        changes.get(sessionKey(row.runtime, row.id)) === null,
+      )
+      // The host's replacement at row fifty may be a row this window has not
+      // read yet. Keep the loaded boundary through later metadata notices too.
+      if (this.#historyCursor === null) this.#historyCursor = firstPageCursor
+      else if (removedFromWindow && historyIdentity.length > 0) {
+        this.#historyCursor = sessionIndexCursorOf(historyIdentity.at(-1)!)
+      }
+      this.#historyPageFirstCursor = this.#historyCursor
+    }
+    if (merged.length > this.#historyCapacity) {
+      this.#historyCursor = sessionIndexCursorOf(historyIdentity.at(-1)!)
+      if (this.#historyCapacity === 50) this.#historyPageFirstCursor = this.#historyCursor
+    }
+    let sessions = this.#snapshot.sessions
+    for (const row of upserted) {
+      const key = sessionKey(row.runtime, row.id)
+      const live = sessions.get(key)
+      if (!live) continue
+      const title = row.title === undefined ? live.title : row.title
+      const archived = row.archived === undefined ? live.archived : row.archived
+      if (live.title === title && live.archived === archived) continue
+      const next = new Map(sessions)
+      next.set(key, { ...live, title, archived })
+      sessions = next
+    }
+    const nextFoldersGone = this.#foldersGoneFor(upserted)
+    this.#patch({
+      ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
+      historyIdentity,
+      ...(sessions !== this.#snapshot.sessions ? { sessions } : {}),
+      ...(!this.#historyQuery ? { history: historyIdentity, historyCursor: this.#historyCursor } : {}),
+    })
   }
 
   /** One search across every backend that can search. */
   async searchHistory(query: string): Promise<void> {
-    const runtime = this.#snapshot.activeRuntime
-    if (!runtime) return
     this.#historyQuery = query.trim()
-    if (query.trim().length === 0) {
-      await this.loadHistory({ reset: true })
+    if (!this.#historyQuery) {
+      this.#historyRequestId += 1
+      this.#patch({ history: this.#snapshot.historyIdentity, historyCursor: this.#historyCursor, historyLoading: this.#historyPageChanges !== null })
       return
     }
+    const runtime = this.#snapshot.activeRuntime
+    if (!runtime) return
     const requestId = ++this.#historyRequestId
     this.#patch({ historyLoading: true })
     try {
@@ -2220,19 +2272,20 @@ export class AppStore {
   }
 
   #ensureHistorySummary(session: Session): void {
-    const key = String(sessionKey(session.runtime, session.id))
-    const summary = summaryOfSession(session)
-    const has = (rows: readonly SessionSummary[]) =>
-      rows.some((entry) => String(sessionKey(entry.runtime, entry.id)) === key)
-    const history = this.#snapshot.history
-    const historyIdentity = this.#snapshot.historyIdentity
-    if (has(history) && has(historyIdentity)) return
-    this.#patch({
-      history: has(history) ? history : [...history, summary].sort((a, b) => b.updatedAt - a.updatedAt),
-      historyIdentity: has(historyIdentity)
-        ? historyIdentity
-        : [...historyIdentity, summary].sort((a, b) => b.updatedAt - a.updatedAt),
-    })
+    const key = sessionKey(session.runtime, session.id)
+    if (session.archived || this.#snapshot.sessions.get(key)?.archived || this.#historyExcluded.has(key)) return
+    if ([...this.#snapshot.teams.values()].some(team => team.members.includes(key))) return
+    if (this.#snapshot.historyIdentity.some(row => sessionKey(row.runtime, row.id) === key)) return
+    this.#changeHistory([summaryOfSession(session)])
+  }
+
+  #archiveHistory(runtime: RuntimeId, id: SessionId): void {
+    const key = sessionKey(runtime, id)
+    const live = this.#snapshot.sessions.get(key)
+    const row = this.#snapshot.historyIdentity.find(one => sessionKey(one.runtime, one.id) === key)
+      ?? (live ? summaryOfSession(live) : null)
+    if (row) this.#changeHistory([{ ...row, archived: true }])
+    else this.#changeHistory([], [{ runtime, id }])
   }
 
   // ----------------------------------------------------------------- sessions
@@ -2481,7 +2534,7 @@ export class AppStore {
       this.#setSession(session)
       const key = sessionKey(runtime, session.id)
       if (options.reveal !== false) this.#showInPane(key, options.split, options.area)
-      void this.loadHistory({ reset: true })
+      this.#ensureHistorySummary(session)
       return key
     } catch (error) {
       this.resultNotice('error', describe(error))
@@ -2734,7 +2787,7 @@ export class AppStore {
       const session = await this.transport.request('session/fork', { runtime, sessionId: id })
       this.#setSession(session)
       this.#showInPane(sessionKey(runtime, session.id), 'row')
-      void this.loadHistory({ reset: true })
+      this.#ensureHistorySummary(session)
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -2883,10 +2936,10 @@ export class AppStore {
   async archiveSession(id: SessionId, owner: RuntimeId, label?: string): Promise<void> {
     try {
       await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: true })
+      this.#archiveHistory(owner, id)
       const key = sessionKey(owner, id)
       const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
       if (pane) this.closePane(pane.id)
-      await this.loadHistory({ reset: true })
       this.resultNotice('info', label ? `Archived "${label}".` : 'Archived.', {
         label: 'Undo',
         run: () => void this.unarchiveSession(id, owner),
@@ -2896,11 +2949,10 @@ export class AppStore {
     }
   }
 
-  /** Puts one back in the list. Reloads it, so the row reappears at once. */
+  /** Puts one back in the index; the host pushes the restored summary. */
   async unarchiveSession(id: SessionId, owner: RuntimeId): Promise<void> {
     try {
       await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: false })
-      await this.loadHistory({ reset: true })
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -2925,7 +2977,7 @@ export class AppStore {
     // session and nothing else ever reads them again, so left behind they are
     // a preference that only grows and is sent on every state sync.
     this.forgetPlanEdits(key)
-    await this.loadHistory({ reset: true })
+    this.#dropRemoved(key, true)
     return outcome
   }
 
@@ -2958,6 +3010,8 @@ export class AppStore {
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
     const { runtime, id } = splitSessionKey(key)
+    this.#historyPageChanges?.set(key, null)
+    this.#historyExcluded.add(key)
     this.#pendingConversationNotices.delete(runtime, id)
     const { sessions, queues, tasks, history, historyIdentity, approvals } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
@@ -3000,20 +3054,15 @@ export class AppStore {
     if (!key) return
     try {
       await this.transport.request('session/setTitle', { ...address(key), title })
-      /*
-       * The open conversation takes the name now, rather than waiting for the
-       * history reload to bring it back. An agent that keeps no name of its
-       * own — every ACP one — reports whatever it always reported, so the
-       * reload is not what tells this window the new name; the host is, and it
-       * has already agreed.
-       */
+      // The confirmed name patches both the open conversation and its indexed row.
       const open = this.#snapshot.sessions.get(key)
       if (open) {
         const sessions = new Map(this.#snapshot.sessions)
         sessions.set(key, { ...open, title: title.trim() === '' ? null : title.trim() })
         this.#patch({ sessions })
       }
-      void this.loadHistory({ reset: true })
+      const known = this.#snapshot.historyIdentity.find(row => sessionKey(row.runtime, row.id) === key)
+      if (known) this.#changeHistory([{ ...known, title: title.trim() || null }])
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -5371,7 +5420,7 @@ export class AppStore {
       this.#setSession(session)
       const key = sessionKey(session.runtime, session.id)
       if (options.reveal !== false) this.#showInPane(key)
-      void this.loadHistory({ reset: true })
+      this.#ensureHistorySummary(session)
       return key
     } catch (error) {
       const candidates = refusalOf(error)
@@ -5857,7 +5906,7 @@ export class AppStore {
       if (!side) return
       this.#setSession(side)
       this.#showInPane(sessionKey(side.runtime, side.id))
-      void this.loadHistory({ reset: true })
+      this.#ensureHistorySummary(side)
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -7350,48 +7399,19 @@ export class AppStore {
     }
     const next = reduceSession(existing, event)
     if (next !== existing) this.#setSession(next)
-    // The sidebar reads the backend's list, which learns about a conversation
-    // only once it has something to say about it: a brand-new session has no
-    // ask to show until its first turn starts, and a title arrives later
-    // still. Those are the moments to read the list again, not a timer —
-    // `turn/started` among them, because that is when a row that was created
-    // empty gains both its opening line and its place in the "Working" band.
-    if (
-      event.type === 'session/title' ||
-      event.type === 'turn/started' ||
-      event.type === 'turn/completed'
-    ) {
-      this.#scheduleHistoryRefresh()
-    }
   }
 
-  #historyRefresh: ReturnType<typeof setTimeout> | null = null
-  /** Newer history reads supersede older replies, including a reset after search. */
+  /** Newer history reads supersede older replies, including a clear after search. */
   #historyRequestId = 0
-  /** The sidebar's live filter, so a re-read keeps showing what was searched. */
+  #historyPageRequestId = 0
   #historyQuery = ''
-  /** The agent the list is paged around; see `loadHistory`. */
-  #historyAnchor: RuntimeId | null = null
-
-  /**
-   * One re-read per burst of events, a beat after the last of them.
-   *
-   * A read already in flight cannot be joined — `loadHistory` refuses a
-   * second one — and dropping this one would lose the very change that asked
-   * for it, so it waits its turn instead. That is how a name that arrives
-   * while the list is being read still reaches the sidebar.
-   */
-  #scheduleHistoryRefresh(): void {
-    if (this.#historyRefresh) clearTimeout(this.#historyRefresh)
-    this.#historyRefresh = setTimeout(() => {
-      if (this.#snapshot.historyLoading) {
-        this.#scheduleHistoryRefresh()
-        return
-      }
-      this.#historyRefresh = null
-      void (this.#historyQuery ? this.searchHistory(this.#historyQuery) : this.loadHistory({ reset: true }))
-    }, 600)
-  }
+  #historyCursor: string | null = null
+  #historyCapacity = 50
+  #historyLoaded = false
+  #historyPageFirstCursor: string | null | undefined = undefined
+  #historyPageChanges: Map<SessionKey, SessionSummary | null> | null = null
+  #historyPageRemovedRuntimes: Set<RuntimeId> | null = null
+  readonly #historyExcluded = new Set<SessionKey>()
 
   readonly #pendingConversationNotices = new PendingConversationNotices()
 
@@ -7404,7 +7424,10 @@ export class AppStore {
     // carries metadata but no transcript, and a read taken while a turn is
     // running knows less about that turn than this window does — it watched it
     // stream. Reopening a working conversation goes through here.
-    sessions.set(key, existing ? mergeRead(existing, session) : session)
+    const read = existing?.archived !== undefined && session.archived === undefined
+      ? { ...session, archived: existing.archived }
+      : session
+    sessions.set(key, existing ? mergeRead(existing, read) : read)
     this.#patch({ sessions })
   }
 

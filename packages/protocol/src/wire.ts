@@ -1226,6 +1226,11 @@ export interface HostMethods {
   /** Signs the account out, stops it, and forgets its credential home. */
   'runtime/account/remove': { params: { readonly runtime: RuntimeId }; result: null }
 
+  /** The desk's sidebar metadata, without starting or consulting an agent. */
+  'session/index': {
+    params: { readonly cursor?: string; readonly pageSize?: number; readonly archived?: 'exclude' | 'only' }
+    result: Page<SessionSummary>
+  }
   'session/list': {
     params: { readonly runtime: RuntimeId } & ListSessionsQuery
     result: Page<SessionSummary>
@@ -2776,6 +2781,16 @@ export type WireNotification =
        */
       readonly method: 'session/removed'
       readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly deleted: boolean }
+    }
+  | {
+      /** Metadata changes for the sidebar, including background upgrade/cache work. */
+      readonly method: 'session/indexChanged'
+      readonly params: {
+        readonly upserted: readonly SessionSummary[]
+        readonly removed: readonly { readonly runtime: RuntimeId; readonly id: SessionId }[]
+        /** Continues the current first page while an upgrade fills an initially empty index. */
+        readonly firstPageCursor?: string | null
+      }
     }
   | {
       /**
