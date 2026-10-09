@@ -68,6 +68,10 @@ for (const theme of ['light', 'dark'] as const) {
         if (iconOnly) {
           await tab.hover()
           await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText(name)
+          // The closed popup stays mounted until its exit finishes. Leave
+          // the trigger and join that exit before hovering the next tab.
+          await header.locator('[data-team-title]').hover()
+          await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0)
         }
       }
     }

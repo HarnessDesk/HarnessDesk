@@ -151,6 +151,10 @@ export class ProvenancePlane {
           await this.#open(state)
         } catch (error) {
           await this.#release(handle)
+          // A linked checkout may already have registered this main root.
+          // A failed admission must not replace its still-running observer.
+          const previous = this.#projects.get(root)
+          if (previous) await this.#stop(previous)
           const state = this.#state(root, null)
           this.#projects.set(root, state)
           this.#aliases.set(root, root)
