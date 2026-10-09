@@ -311,7 +311,11 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
     if (!policy) return
     const role = policy.roles[index]!
     if (!roleRemovable(policy, role.id)) return
-    void editPolicy({ ...policy, roles: policy.roles.filter((_, one) => one !== index) })
+    void editPolicy({
+      ...policy,
+      ...(policy.complete === undefined ? {} : { complete: Object.fromEntries(Object.entries(policy.complete).filter(([id]) => id !== role.id)) }),
+      roles: policy.roles.filter((_, one) => one !== index),
+    })
   }
   const moveRole = (index: number, delta: number): void => {
     if (!policy) return
