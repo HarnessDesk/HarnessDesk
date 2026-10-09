@@ -556,7 +556,7 @@ export async function seatAgent(
   await Promise.all([...new Set(candidates.map(candidate => candidate.runtime))].map(async id => {
     const runtime = ctx.runtimes.get(id)
     if (runtime && (runtime.health().state === 'idle' || runtime.health().state === 'starting')) {
-      await ctx.runtimes.ensureStarted?.(runtime).catch(() => {})
+      await ctx.runtimes.start?.(runtime).catch(() => {})
     }
   }))
   const desk = await readDesk(ctx, candidates)

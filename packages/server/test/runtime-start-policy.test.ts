@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -30,7 +30,7 @@ class HeldRuntime extends FakeRuntime {
   starts = 0
   release!: () => void
   barrier = new Promise<void>(resolve => { this.release = resolve })
-  override async start() { this.starts++; await this.barrier; await super.start() }
+  override async start() { this.starts++; this.setHealth({ state: 'starting' }); await this.barrier; await super.start() }
 }
 
 test('launch returns before the default is ready and never starts the other runtime', async t => {
@@ -188,3 +188,65 @@ test('models learned after an unanswered first probe finish that start measureme
   runtime.learn()
   await waitFor(async () => (await cost()).modelsMs >= 40)
 })
+
+for (const method of ['flow/preview', 'agent/seat'] as const) {
+  test(`${method} passes a held startup over within the startup deadline`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-seat-start-'))
+    const held = new HeldRuntime({ id: runtimeId('held') })
+    held.setHealth({ state: 'idle' })
+    const available = new FakeRuntime()
+    await mkdir(join(dir, 'agents', 'reviewer'), { recursive: true })
+    await writeFile(join(dir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\npermission: read\nprefer: [held, fake]\nanswers: [done]\n---\nRead the diff.\n')
+    const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), startTimeoutMs: 30, seatReadDeadlineMs: 30, catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
+    host.register(available); host.register(held)
+    t.after(async () => { held.release(); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await host.start()
+    await host.call('workspace/open', { path: dir })
+    const result = await Promise.race([
+      host.call(method, method === 'agent/seat' ? { id: 'reviewer', cwd: dir } : { root: dir, source: 'version: 2\nname: Preview\nroles:\n  reviewer: { kind: agent, uses: reviewer }\nseed: { role: reviewer, title: Read }\n' }).then(value => ({ value })),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 1000)),
+    ])
+    assert.ok(result, 'one runtime must not hold the whole candidate list')
+    if (method === 'agent/seat') assert.equal((result.value as { runtime: string }).runtime, 'fake', 'the available fallback is seated')
+    assert.equal(held.starts, 1)
+    held.release()
+    await waitFor(() => held.health().state === 'ready')
+  })
+}
+
+test('warm and a live operation join an adapter-owned start without starting again', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-direct-start-'))
+  const runtime = new HeldRuntime({ id: runtimeId('direct') })
+  runtime.setHealth({ state: 'idle' })
+  const host = makeHost(dir, [new FakeRuntime(), runtime])
+  t.after(async () => { runtime.release(); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await host.start()
+  runtime.setHealth({ state: 'starting' })
+  const direct = runtime.start()
+  await host.call('runtime/warm', { runtime: runtime.info.id })
+  const opening = host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(runtime.starts, 1, 'the adapter already owns this start')
+  runtime.release()
+  await direct
+  assert.ok(await opening)
+  assert.equal(runtime.starts, 1)
+})
+
+for (const adapter of ['acp', 'codex'] as const) {
+  test(`${adapter} cached signed-out state still offers configured sign-in without spawning`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-idle-signin-'))
+    const runtime: AgentRuntime = adapter === 'acp'
+      ? new AcpRuntime({ id: 'signin', name: 'Sign in', command: process.execPath, args: [peer], account: { login: { command: process.execPath, args: ['-e', 'process.exit(0)'] } } })
+      : new CodexRuntime({ id: runtimeId('signin'), name: 'Sign in', binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir } })
+    await writeFile(join(dir, 'runtime-cache.json'), JSON.stringify({ version: 1, runtimes: { signin: { account: { accounts: [], signInMethods: [] }, start: { readyMs: 100, modelsMs: 100 } } } }))
+    const host = makeHost(dir, [new FakeRuntime(), runtime])
+    t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await host.start()
+    await host.call('runtime/warm', { runtime: runtime.info.id })
+    const account = await host.call('runtime/account', { runtime: runtime.info.id })
+    assert.ok(account.signInMethods.some(method => method.flow === 'browser'), 'cached signed-out is not an agent with no sign-in')
+    assert.equal(runtime.health().state, 'idle')
+    assert.equal(runtime.resourceProcessIds?.().length, 0)
+  })
+}

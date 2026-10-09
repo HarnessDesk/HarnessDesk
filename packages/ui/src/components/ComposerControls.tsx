@@ -1086,7 +1086,10 @@ export const AgentControl = () => {
                       onHighlight={() => warm(entry.id)}
                       onSelect={() => {
                         warm(entry.id)
-                        if (entry.id !== owner.id) void store.selectRuntime(entry.id)
+                        if (entry.id !== owner.id) void store.selectRuntime(entry.id).then(() => {
+                          // A cheap idle agent stays idle; no ready event will load its cached draft controls.
+                          if (store.getSnapshot().activeRuntime === entry.id && store.getSnapshot().health?.state === 'idle') void store.loadDraftOptions()
+                        })
                       }}
                     />
                   )
