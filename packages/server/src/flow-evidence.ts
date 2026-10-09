@@ -421,6 +421,7 @@ export function readyGuard(guards: readonly FlowEvidenceGuard[], context: FlowEv
  * on every call — the host's own gateway scope, never a caller-supplied id.
  */
 export interface ReviewBinding {
+  readonly refusal?: string
   readonly goal: string
   readonly seat: SeatId
   /** The Agent's declared answers; a verdict outside this list is refused. */
@@ -549,6 +550,7 @@ export class FlowReview implements FlowReviewPort {
     this.#sweep()
     const bound = await this.#port.bindingFor(intent, scope)
     if (!bound) return []
+    if (bound.subjects.length === 0) throw new Error(bound.refusal ?? (bound.unsettled?.map((one) => `Card #${one.card}: ${one.why}`).join('\n') || NO_SUBJECT))
     const facts = await this.#port.facts(bound.goal)
     const out: ReviewCandidate[] = []
     for (const subject of bound.subjects) {

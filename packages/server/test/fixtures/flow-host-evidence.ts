@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import type { FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
 import type { GhInCheckout } from '../../src/evidence/forge.js'
+import type { FindingForgePort } from '../../src/findings/publication.js'
 import { Host, StateStore } from '../../src/index.js'
 import type { QuestionTimers } from '../../src/host.js'
 import { makeRepo } from './evidence-desk.js'
@@ -53,12 +54,20 @@ const AGENTS: Readonly<Record<string, { ceiling: string; answers?: string; produ
 /** What the forge says about a checkout: no pull request, unless the test opened one. */
 export interface Forge {
   readonly open: Set<string>
+  readonly pullRequests: Map<number, { head: string; state: 'OPEN' | 'CLOSED' | 'MERGED' }>
   readonly gh: GhInCheckout
 }
 
 const forge = (): Forge => {
   const open = new Set<string>()
-  const gh: GhInCheckout = async (_args, cwd) => {
+  const pullRequests = new Map<number, { head: string; state: 'OPEN' | 'CLOSED' | 'MERGED' }>()
+  const gh: GhInCheckout = async (args, cwd) => {
+    if (args[2] && args[2] !== '--json') {
+      const number = Number(args[2])
+      const pr = pullRequests.get(number)
+      return pr ? { stdout: JSON.stringify({ number, state: pr.state, headRefOid: pr.head, url: `https://github.com/acme/widgets/pull/${number}`, statusCheckRollup: [] }), stderr: '', exitCode: 0 }
+        : { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+    }
     const head = await git(cwd, 'rev-parse', 'HEAD').catch(() => '')
     const branch = await git(cwd, 'symbolic-ref', '--quiet', '--short', 'HEAD').catch(() => '')
     if (!open.has(branch)) return { stdout: '', stderr: 'no pull requests found for branch', exitCode: 1 }
@@ -71,7 +80,7 @@ const forge = (): Forge => {
       exitCode: 0,
     }
   }
-  return { open, gh }
+  return { open, pullRequests, gh }
 }
 
 export interface Desk {
@@ -93,6 +102,7 @@ export interface Second { readonly id: string; readonly provider?: string | null
 
 /** How the desk is set up beyond its runtimes: where work happens, and how its agents take a second message. */
 export interface DeskOptions {
+  readonly findingForge?: FindingForgePort
   /** Work stays on the project's default branch, as a step that is neither isolated nor told to branch does. */
   readonly onMain?: boolean
   /** Each runtime refuses a message while a turn is running, as a real agent's adapter does. */
@@ -128,6 +138,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     builtinAgents: tempDir('hd-flow-host-builtins-'),
     catalogRefreshMs: 0,
     evidence: { gh: gh.gh },
+    ...(options.findingForge ? { findingForge: options.findingForge } : {}),
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })
   const runtimes = [

@@ -2370,6 +2370,19 @@ export class Team {
     return this.#addIntent(board, args, by)
   }
 
+  /** The host's current candidate refusal, visible in its flow card's instructions. */
+  reviewAvailability(room: string, id: number, why: string | null): void {
+    const board = this.#mutableBoardById(room)
+    const card = board.intents.find((one) => one.id === id)
+    const prefix = 'Review candidates unavailable: '
+    if (!card?.dispatch || card.state === 'done') return
+    const original = card.detail?.startsWith(prefix) ? '' : (card.detail ?? '').split(`\n\n${prefix}`)[0]!
+    const detail = (why ? [original, `${prefix}${why}`].filter(Boolean).join('\n\n') : original) || null
+    if ((card.detail ?? null) === detail) return
+    this.#patchIntent(board, id, { detail })
+    this.#commit(board)
+  }
+
   async claimNext(scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
