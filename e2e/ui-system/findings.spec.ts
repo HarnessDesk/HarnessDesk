@@ -56,7 +56,9 @@ test('desktop and narrow layouts keep every sentence inside the pane', async ({ 
       const findingsRow = goal.getByRole('tab', { name: /^Findings/ })
       await findingsRow.click()
 
-      const pane = page.locator('[aria-label="Findings"]').first()
+      // The counted icon tab also has this accessible name. Measure the
+      // content pane, not the tab's hidden intrinsic-width label.
+      const pane = goal.locator('[data-slot="tool-pane"][aria-label="Findings"]')
       await expect(pane).toBeVisible()
 
       const overflow = await pane.evaluate((node) => {
