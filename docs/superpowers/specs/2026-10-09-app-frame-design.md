@@ -93,6 +93,34 @@ screen. Five causes, each checked in the source:
 
 ## The frame
 
+### The fixed shell
+
+The owner's rule, after walking a new session, a Team's Run with Run
+details docked, and Settings: **the sidebar, the top bar, the panels and the
+bottom bar are fixed.** Every destination had drawn its own header, so a
+draft's bar, a conversation's and a Team's were three different rows, and a
+docked inspector drew its own titled cards under the panel's strip. So:
+
+- **Five regions, always in the same places, each drawn by one shell
+  component:** the left column, the top bar, main, the right panel (the
+  bottom panel wears the same frame), and the status bar along the window's
+  foot.
+- **A page draws none of them.** It declares what goes in their slots — the
+  top bar's place, state, tabs, facts, tools and ⋯ items through one hook; a
+  panel view's body only; its status facts — and the shell renders them. The
+  conversation header, the Team bar and the draft's header stop being
+  components of their own.
+- **The top bar is one component on every destination** — a draft, a
+  conversation, a Team, a list page, an Agent, Settings — with its slots in
+  the same places and the panel toggle and ⋯ always where they were.
+- **The status bar holds what is true of the whole app, not of the page:**
+  plan usage, the other agents, background tasks, sync and updates. Those
+  leave the top bar, whose facts are only the page's own (branch, ceiling,
+  context).
+- **A panel is one frame.** Its strip (pill tabs, panel verbs) and its quiet
+  footer line are the shell's; a view supplies a body of sections — a label
+  over rows or a facts card — never a titled card or a header of its own.
+
 ### The shell and its destinations
 
 The window is the left column, main, the right panel and the bottom panel, as
@@ -362,10 +390,13 @@ own with the app working:
 1. **Tokens.** Bar height 40 and the window-button position; the named widths
    and menu tokens; dead tokens out. Every screen moves with it; re-record
    `metrics.json`.
-2. **Bars.** `WindowBar`, `ViewBar`, the panel bar and the one switcher in
-   `design/patterns`, with catalogue boards. The conversation and Team headers
-   move onto `WindowBar`; Run, Board, Findings and Runs onto `ViewBar`; the
-   docked inspector loses its second bar.
+2. **The fixed shell.** The shell renders the top bar, the panel frame and
+   the status bar; destinations register their slots instead of drawing
+   headers (`useTopBar`, panel view bodies, status facts). The conversation,
+   Team and draft headers are deleted as they move; Run, Board, Findings and
+   Runs use `ViewBar`; the docked inspector loses its second bar and its
+   titled cards; app-wide facts move to the status bar; the right-panel
+   toggle leaves the window-buttons row for the top bar's end.
 3. **Popups.** The menu, the wide menu and the info card; every popup in the
    app renders one of the three.
 4. **The left column.** One top row; one row anatomy; the seat row's gear; the
