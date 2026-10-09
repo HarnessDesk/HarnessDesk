@@ -788,7 +788,9 @@ page is open. A failed or unsupported measurement says so. Shared pages may
 count more than once. **Recycle** stops only an unused running
 runtime; open conversations, work and in-flight reads prevent it. The same
 section appears on a runtime's detail page, where an idle runtime says **Not running**;
-observing it never starts one. Shared recycling refusals are stated once below the table.
+reading process cost never starts one. Opening the detail page begins a costly
+or unmeasured start in the background; the page can show the last learned models,
+options and account while it waits. Shared recycling refusals are stated once below the table.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* is where a registry entry or a custom one is added. Extensions

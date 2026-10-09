@@ -29,6 +29,11 @@ export const runtimeMethods = {
     }
   },
 
+  'runtime/warm': (ctx, params) => {
+    ctx.runtimes.warm(ctx.runtimes.resolve(params))
+    return null
+  },
+
   'runtime/models': (ctx, params) => ctx.runtimes.resolve(params).listModels(),
 
   'runtime/account': (ctx, params) => ctx.runtimes.resolve(params).getAccount(),

@@ -274,6 +274,8 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   archiving a quiet resumable conversation releases its handle the same way.
   All use the same host close-and-resume seam
   ([ACP release lifecycle](decisions.md#acp-sessions-release-what-they-opened)).
+  The host persists display observations in `runtime-cache.json` beside `state.json`,
+  without credentials. Launch starts only the default runtime, in the background.
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening

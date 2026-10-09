@@ -2699,3 +2699,29 @@ measurement above and nothing else. Whether Codex says `account/updated` again
 later in a session, when another process refreshes the shared credential: it
 was not heard in a run of about seventeen seconds, which says nothing about an
 hour.
+
+## Agents start by measured cost
+
+Launching the desk starts only its default agent, in the background; the window
+waits for no agent. Every live operation shares the existing start and idle-stop
+barrier. Highlighting or choosing an agent, and opening its settings page, is
+intent: it starts an agent whose last observed process readiness plus first-model
+read cost at least 500 ms, or whose cost is not known. A cheaper agent waits for
+its first live operation. No agent-name table decides the split; each start is
+measured on this machine, with readiness and the first models answer kept apart.
+
+The host writes display observations to `runtime-cache.json` beside `state.json`,
+atomically, independently of conversation storage. Models, runtime and session
+options, loaded commands, learned capabilities and account display fields remain
+readable while the adapter is idle, including before its first start this launch.
+Missing observations mean not known yet. A live answer replaces them and sends
+the existing catalogue and account events. Account records keep only kind, name,
+plan and whether the name is anonymous; no email field, sign-in payload,
+credential, token or key is copied into this cache. Agent-owned authentication
+remains in the agent's home or the credential broker.
+
+Automatic catalogue refresh skips idle agents. An explicit refresh is intent and
+still starts one through the host. File-based usage meters and process-cost
+observations keep their passive reads. Resuming a conversation or opening a Seat
+waits for current capabilities before making its live request. Sidebar hover
+intent follows when the conversation index is integrated.

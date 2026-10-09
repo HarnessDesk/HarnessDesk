@@ -37,6 +37,7 @@ import {
   type RuntimeHealth,
   type SecretReload,
   type RuntimeInfo,
+  type RuntimeObservations,
   type CeilingLevel,
   NO_CAPABILITIES,
   DESK_TOOL_CEILINGS,
@@ -803,7 +804,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #listeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
-  #health: RuntimeHealth = { state: 'starting' }
+  #health: RuntimeHealth = { state: 'idle' }
   #initialized: AcpInitializeResult | null = null
   /** The agent CLI behind the bridge, once looked for; null when not found or not declared. */
   #executable: ResolvedExecutable | null = null
@@ -980,7 +981,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   get info(): RuntimeInfo {
-    if (this.#health.state === 'idle' && this.#idleInfo) return this.#idleInfo
+    if (this.#health.state !== 'ready' && this.#idleInfo) return this.#idleInfo
     const selfVersion = this.#initialized?.agentInfo?.version ?? null
     const effectiveVersion =
       !this.#config.executable && (selfVersion === null || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(selfVersion.trim()))
@@ -1144,8 +1145,9 @@ export class AcpRuntime implements AgentRuntime {
   async start(): Promise<void> {
     await this.#idleStopping
     // A new process refreshes the observations cached for an idle runtime.
-    this.#idleInfo = null
     this.#probeOptions = null
+    this.#catalogKnown = false
+    this.#commandsKnown = false
     this.#draftValues = {}
     // Read beside the start, never ahead of it; `providerAt` waits for it.
     this.#providerRead = this.#refreshProvider()
@@ -1201,6 +1203,8 @@ export class AcpRuntime implements AgentRuntime {
       this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
       this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
       this.#attachmentCapability = decodeAttachmentCapability(this.#initialized)
+      this.#restored = null
+      this.#idleInfo = null
       this.#setHealth({ state: 'ready' })
       // The handshake is what turned the capability claims on, and a window
       // may already be drawn from the all-false version.
@@ -1649,6 +1653,7 @@ export class AcpRuntime implements AgentRuntime {
    * none, and that is an empty list.
    */
   async knownModels(): Promise<readonly ModelInfo[] | null> {
+    if (this.#health.state !== 'ready' && this.#restored?.models) return this.#restored.models
     if (!this.#catalogKnown && this.#health.state === 'ready') {
       try {
         await this.#useProbe(undefined, async () => {})
@@ -1670,6 +1675,7 @@ export class AcpRuntime implements AgentRuntime {
    * turned off — an agent's commands are configured in the agent.
    */
   async listSkills(cwd?: string): Promise<readonly SkillInfo[]> {
+    if (this.#health.state !== 'ready' && this.#restored?.commands) return this.#restored.commands
     // An answer of "none" belongs only to an agent that was actually asked.
     // An agent that cannot start, or will not open the probe, must *throw*:
     // callers that treat this as the agent's own report (the library's
@@ -1801,13 +1807,15 @@ export class AcpRuntime implements AgentRuntime {
     // registry says how to ask it. Without that, the surface stays empty
     // rather than guessing wrong in either direction.
     const keyMethods = this.#keyMethods()
+    const saved = this.#restored?.account ?? this.#lastAccount
+    if (this.#health.state !== 'ready' && saved) return { ...saved, signInMethods: keyMethods }
     // A stored key is an account: it is what "signed in" means for an agent
     // that authenticates with one, and the label never carries the value.
     const keyAccounts: Account[] = (this.#config.secrets ?? []).flatMap((secret) => {
       const where = whereSecretLives(secret, this.#config.resolveSecret, this.#config.env)
       return where ? [{ kind: where.kind, label: secret.label, planType: where.detail }] : []
     })
-    if (this.#account) {
+    if (this.#account && this.#health.state === 'ready') {
       const status = await this.#account.status()
       // An interactive-only CLI has no safe status probe. In that case the
       // ACP session observation is the sign-in proof, while the CLI commands
@@ -1815,14 +1823,14 @@ export class AcpRuntime implements AgentRuntime {
       const observed = this.#config.account?.status
         ? { accounts: [], signInMethods: [] }
         : this.#observedAccount(keyAccounts.length > 0)
-      return {
+      return this.#lastAccount = {
         accounts: [...status.accounts, ...keyAccounts, ...observed.accounts],
         signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
         ...(observed.refusal ? { refusal: observed.refusal } : {}),
       }
     }
     const observed = this.#observedAccount(keyAccounts.length > 0)
-    return {
+    return this.#lastAccount = {
       accounts: [...keyAccounts, ...observed.accounts],
       signInMethods: [...keyMethods, ...observed.signInMethods],
       ...(observed.refusal ? { refusal: observed.refusal } : {}),
@@ -2257,8 +2265,8 @@ export class AcpRuntime implements AgentRuntime {
         }
       }
     }
-    if (this.#health.state === 'idle') {
-      let options = [...(this.#probeOptions ?? [])]
+    if (this.#health.state === 'idle' || this.#health.state !== 'ready' && this.#restored?.sessionOptions) {
+      let options = [...(this.#restored?.sessionOptions ?? this.#probeOptions ?? [])]
       const entries = Object.entries(values ?? {}).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))
       for (const [id, value] of entries) {
         const option = findOption(options, id)
@@ -2431,6 +2439,25 @@ export class AcpRuntime implements AgentRuntime {
   #probeOptions: readonly ConfigOption[] | null = null
   #draftValues: Readonly<Record<string, OptionValue>> = {}
   #idleInfo: RuntimeInfo | null = null
+  #restored: RuntimeObservations | null = null
+  #lastAccount: AccountStatus | null = null
+
+  observations(): RuntimeObservations {
+    const options = this.#probe?.options() ?? this.#probeOptions
+    return {
+      ...(this.#catalogKnown ? { models: this.#catalog } : {}),
+      ...(options ? { sessionOptions: options } : {}),
+      ...(this.#commandsKnown ? { commands: this.#commands.map(command => ({ name: command.name, description: command.description?.trim() ?? '', enabled: true, toggleable: false })) } : {}),
+      ...(this.#lastAccount ? { account: this.#lastAccount } : {}),
+      info: { version: this.info.version, capabilities: this.info.capabilities },
+    }
+  }
+
+  restoreObservations(observations: RuntimeObservations): void {
+    if (this.#health.state !== 'idle') return
+    this.#restored = observations
+    this.#idleInfo = { ...this.info, ...observations.info }
+  }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
   /** Last complete history answer; sidebar reads must not wake an idle helper. */

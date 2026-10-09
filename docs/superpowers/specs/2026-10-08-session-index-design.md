@@ -307,8 +307,9 @@ The policy:
 3. **An agent measured at 0.5 s or more starts on intent:** the pointer resting
    on one of its conversations, choosing it in the agent picker, or opening its
    settings page.
-4. **Models, account state and options are cached in the database** and shown
-   stale until the live read replaces them.
+4. **Models, account display state, options, commands and start costs are cached
+   in `runtime-cache.json` beside `state.json`**, independently of `sessions.sqlite`,
+   and shown stale until the live read replaces them; credentials are never cached.
 5. **Idle agents still stop**, as they do today.
 
 Each agent's start time is measured on every start and stored, so the split

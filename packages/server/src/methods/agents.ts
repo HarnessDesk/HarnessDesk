@@ -553,6 +553,12 @@ export async function seatAgent(
   const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
+  await Promise.all([...new Set(candidates.map(candidate => candidate.runtime))].map(async id => {
+    const runtime = ctx.runtimes.get(id)
+    if (runtime && (runtime.health().state === 'idle' || runtime.health().state === 'starting')) {
+      await ctx.runtimes.ensureStarted?.(runtime).catch(() => {})
+    }
+  }))
   const desk = await readDesk(ctx, candidates)
   const offers = nativeServerOffers(ctx, definition, desk.offers)
   const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
@@ -1386,6 +1392,12 @@ export const previewAgent = async (
   const list = candidatesFor(entry.definition, machine, seats.length ? seats : undefined)
   const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld, ...(options.requireHeld ? { required: true as const } : {}) }
   if ('refused' in list) return blockedPlan(agent, list.refused, 'machine')
+  // Preview is deliberate intent. Join a runtime's first launch before its
+  // capability preflight; later idle observations stay passive.
+  await Promise.all([...new Set([...list.seats, ...entry.definition.prefer].map(seat => seat.runtime))].map(async id => {
+    const runtime = ctx.runtimes.get(id)
+    if (runtime) await ctx.runtimes.prepareIntent?.(runtime).catch(() => {})
+  }))
   const desk = await readDesk(ctx, [...list.seats, ...entry.definition.prefer])
   const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
   // A role's own explicit `seats:` reads like `prefer` here: `SeatPlan.from` tells

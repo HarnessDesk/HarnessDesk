@@ -279,6 +279,7 @@ export const MenuItem = ({
   layout = 'default',
   className,
   onSelect,
+  onHighlight,
 }: {
   ref?: Ref<HTMLButtonElement>
   /** Rich row anatomy still uses the canonical Base UI menu item behavior. */
@@ -302,6 +303,8 @@ export const MenuItem = ({
   layout?: 'default' | 'profile' | 'account'
   className?: string
   onSelect: () => void
+  /** Pointer or keyboard intent, before the row is chosen. */
+  onHighlight?: () => void
 }) => {
   const scope = useScope()
   const reason = typeof disabled === 'string' ? disabled : undefined
@@ -322,6 +325,8 @@ export const MenuItem = ({
       disabled={Boolean(disabled)}
       title={reason ?? title}
       closeOnClick={!keepOpen}
+      onFocus={onHighlight}
+      onPointerEnter={onHighlight}
       onClick={(event) => {
         ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
         onSelect()

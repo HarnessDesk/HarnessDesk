@@ -86,6 +86,7 @@ import { PanelFrames } from './frames-panels'
 import { CoverageFrames, NoticePlacementFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
+import { RuntimeStartFrames } from './frames-runtime-start'
 import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
@@ -1132,6 +1133,7 @@ const Preview = () => {
 
       <Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame>
       <SettingsFrames />
+      {new URLSearchParams(window.location.search).has('runtime-start') && <RuntimeStartFrames />}
       <Frame id="typography-cjk" title="CJK — reading text and controls">
         <CjkSpecimen />
       </Frame>

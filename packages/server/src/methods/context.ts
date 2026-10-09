@@ -272,6 +272,9 @@ export interface HostContext {
     unregister(id: RuntimeId): Promise<void>
     resources(): Promise<readonly import('@harnessdesk/protocol').RuntimeResources[]>
     recycle(runtime: AgentRuntime): Promise<boolean>
+    prepareIntent(runtime: AgentRuntime): Promise<void>
+    ensureStarted(runtime: AgentRuntime): Promise<void>
+    warm(runtime: AgentRuntime): void
     start(runtime: AgentRuntime): Promise<void>
     bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean }): void
   }

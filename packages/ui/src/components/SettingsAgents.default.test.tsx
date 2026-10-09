@@ -78,6 +78,7 @@ const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
     ...over,
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),

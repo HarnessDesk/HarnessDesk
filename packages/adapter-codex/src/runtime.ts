@@ -43,6 +43,7 @@ import {
   type RuntimeHealth,
   type RuntimeId,
   type RuntimeInfo,
+  type RuntimeObservations,
   type InstallationCheck,
   type Session,
   type SessionId,
@@ -288,7 +289,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   #version: string | null = null
   #disposeServer: Unsubscribe[] = []
-  #idleStopped = false
+  #idleStopped = true
   #lastAccount: AccountStatus | null = null
   #lastRateLimits: RateLimits | null = null
   #lastAccountActivity: AccountActivity | null = null
@@ -381,6 +382,7 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   get info(): RuntimeInfo {
+    if (this.health().state !== 'ready' && this.#idleInfo) return this.#idleInfo
     return {
       id: this.#id,
       name: this.#name,
@@ -452,6 +454,8 @@ export class CodexRuntime implements AgentRuntime {
     this.#providerRead = this.#readProvider()
     await this.#spawnServer()
     await this.#providerRead
+    this.#restored = null
+    this.#idleInfo = null
     // The links a slot's home is made of are relaid on every start, and a home
     // that had never held a thread now has a `sessions` directory to resolve.
     this.#sessionStore = sessionStoreOf(this.#codexHome)
@@ -493,6 +497,29 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Whether the app-server has ever answered — what makes `CAPABILITIES` a claim with evidence. */
   #everStarted = false
+  #lastModels: readonly ModelInfo[] | undefined
+  #lastOptions: readonly ConfigOption[] | undefined
+  #lastSessionOptions: readonly ConfigOption[] | undefined
+  #restored: RuntimeObservations | null = null
+  #idleInfo: RuntimeInfo | null = null
+
+  observations(): RuntimeObservations {
+    const commands = this.#lastSkills.get('')
+    return {
+      ...(this.#lastModels ? { models: this.#lastModels } : {}),
+      ...(this.#lastOptions ? { options: this.#lastOptions } : {}),
+      ...(this.#lastSessionOptions ? { sessionOptions: this.#lastSessionOptions } : {}),
+      ...(commands ? { commands } : {}),
+      ...(this.#lastAccount ? { account: this.#lastAccount } : {}),
+      info: { version: this.info.version, capabilities: this.info.capabilities },
+    }
+  }
+
+  restoreObservations(observations: RuntimeObservations): void {
+    if (this.health().state !== 'idle') return
+    this.#restored = observations
+    this.#idleInfo = { ...this.info, ...observations.info }
+  }
   readonly #infoListeners = new Set<() => void>()
 
   onInfoChange(listener: () => void): Unsubscribe {
@@ -577,8 +604,10 @@ export class CodexRuntime implements AgentRuntime {
   // ------------------------------------------------------------- capabilities
 
   async listModels(): Promise<readonly ModelInfo[]> {
+    if (this.health().state !== 'ready' && this.#restored?.models) return this.#restored.models
+    if (this.#idleStopped && !this.#everStarted) throw new Error('Models are not known yet; start the runtime first.')
     const models = await this.#catalog.models()
-    return models
+    return this.#lastModels = models
       .filter((model) => !model.hidden)
       .map((model) => ({
         id: model.id,
@@ -595,7 +624,9 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Experimental features, as runtime-wide toggles. */
   async listOptions(): Promise<readonly ConfigOption[]> {
-    return runtimeOptions(await this.#listFeatures())
+    if (this.health().state !== 'ready' && this.#restored?.options) return this.#restored.options
+    if (this.#idleStopped && !this.#everStarted) throw new Error('Options are not known yet; start the runtime first.')
+    return this.#lastOptions = runtimeOptions(await this.#listFeatures())
   }
 
   /**
@@ -635,6 +666,7 @@ export class CodexRuntime implements AgentRuntime {
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
   ): Promise<readonly ConfigOption[]> {
+    if (this.health().state !== 'ready' && this.#restored?.sessionOptions && !cwd && !values) return this.#restored.sessionOptions
     // Named no folder, the draft is read as the user's own, as the ACP
     // adapter's is. This process's working directory depends on how the app
     // was started — `/` from Finder, the checkout under `pnpm dev` — so a
@@ -657,10 +689,12 @@ export class CodexRuntime implements AgentRuntime {
     let state = stateFromConfig(effective, catalog, where)
     const ordinary = withoutProfile(values)
     if (Object.keys(ordinary).length > 0) state = overlayDraftValues(state, ordinary, catalog)
-    return [
+    const options = [
       ...noteUnservedModel(sessionOptions(state, catalog), effective.model, catalog),
       profileOption(profiles, selected),
     ]
+    if (!cwd && !values) this.#lastSessionOptions = options
+    return options
   }
 
   async #listFeatures(): Promise<CodexProtocol.v2.ExperimentalFeature[]> {
@@ -680,6 +714,8 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   async getAccount(): Promise<AccountStatus> {
+    if (this.health().state !== 'ready' && this.#restored?.account) return this.#restored.account
+    if (this.#idleStopped && !this.#everStarted) throw new Error('Account status is not known yet; start the runtime first.')
     if (this.#idleStopped && this.#lastAccount) return this.#lastAccount
     const [response, forced] = await Promise.all([
       this.#server.request('account/read', {}),
@@ -745,6 +781,7 @@ export class CodexRuntime implements AgentRuntime {
    * available from two roots is still one skill.
    */
   async listSkills(cwd?: string): Promise<readonly SkillInfo[]> {
+    if (!cwd && this.health().state !== 'ready' && this.#restored?.commands) return this.#restored.commands
     const key = cwd ?? ''
     if (this.#idleStopped) {
       const skills = this.#lastSkills.get(key)
@@ -934,8 +971,8 @@ export class CodexRuntime implements AgentRuntime {
   canReadWhileIdle(read: IdleRuntimeRead): boolean {
     switch (read.method) {
       case 'listSessions': return this.#lastListings.has(this.#listingKey(read.query))
-      case 'defaultSessionOptions': return this.#lastDefaults.has(read.cwd ?? homedir())
-      case 'listSkills': return this.#lastSkills.has(read.cwd ?? '')
+      case 'defaultSessionOptions': return (!read.cwd && !read.values && this.#restored?.sessionOptions !== undefined) || this.#lastDefaults.has(read.cwd ?? homedir())
+      case 'listSkills': return (!read.cwd && this.#restored?.commands !== undefined) || this.#lastSkills.has(read.cwd ?? '')
       case 'listSkillProblems': return this.#lastSkillProblems.has(read.cwd ?? '')
     }
   }

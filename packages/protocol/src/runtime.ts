@@ -122,7 +122,7 @@ export interface AuthMethod {
 /** Reads whose observed answers can be retained across an idle stop. */
 export type IdleRuntimeRead =
   | { readonly method: 'listSessions'; readonly query?: ListSessionsQuery }
-  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string }
+  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string; readonly values?: Readonly<Record<string, OptionValue>> }
 
 export interface AccountStatus {
   readonly accounts: readonly Account[]
@@ -983,7 +983,21 @@ export interface CatalogRefresh {
 /** What telling a runtime its secret changed actually achieved. */
 export type SecretReload = 'restarted' | 'busy' | 'unsupported'
 
+/** Host-owned display observations; absent fields mean not known yet. No credentials. */
+export interface RuntimeObservations {
+  readonly models?: readonly ModelInfo[]
+  readonly options?: readonly ConfigOption[]
+  readonly sessionOptions?: readonly ConfigOption[]
+  readonly commands?: readonly SkillInfo[]
+  readonly account?: AccountStatus
+  readonly info?: Pick<RuntimeInfo, 'version' | 'capabilities'>
+}
+
 export interface AgentRuntime {
+  /** Restore last live observations before starting a process. */
+  restoreObservations?(observations: RuntimeObservations): void
+  /** Answers already learned; taking this snapshot never opens a probe. */
+  observations?(): RuntimeObservations
   readonly info: RuntimeInfo
 
   /**

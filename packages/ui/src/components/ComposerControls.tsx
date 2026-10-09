@@ -990,6 +990,9 @@ export const AgentControl = () => {
     )
   }
   const seat = session?.settings?.seatLabel ?? owner.presentation.name
+  const warm = (runtime: RuntimeId): void => {
+    void store.transport.request('runtime/warm', { runtime }).catch(() => {})
+  }
   const others = snapshot.runtimes.filter((entry) => entry.id !== owner.id)
   const target = handoff ? snapshot.runtimes.find((entry) => entry.id === handoff) ?? null : null
   // Two accounts of one agent are two entries here, and the agent's name
@@ -1050,7 +1053,8 @@ export const AgentControl = () => {
                           key={entry.id}
                           icon={<RuntimeMark runtime={entry} />}
                           label={`Hand off to ${label(entry)}…`}
-                          onSelect={() => setHandoff(entry.id)}
+                          onHighlight={() => warm(entry.id)}
+                          onSelect={() => { warm(entry.id); setHandoff(entry.id) }}
                         />
                       ))}
                     </>
@@ -1079,7 +1083,9 @@ export const AgentControl = () => {
                       // where choosing is the whole task.
                       hint={down ? 'This agent cannot start right now. Selecting it shows what to fix.' : undefined}
                       title={down ? undefined : entry.presentation.tagline}
+                      onHighlight={() => warm(entry.id)}
                       onSelect={() => {
+                        warm(entry.id)
                         if (entry.id !== owner.id) void store.selectRuntime(entry.id)
                       }}
                     />
