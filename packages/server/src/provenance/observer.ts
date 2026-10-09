@@ -7,6 +7,7 @@ import type { GitReader, LogCursor, RepoHandle, ReflogMove } from './git.js'
 import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, type JournalEntry, writeCheckpoint } from './journal.js'
 import { moves } from './model.js'
 import { backlog, type CommitObservation } from './reconcile.js'
+import { WorkSlices } from './slices.js'
 
 export interface ObserverCheckpoint {
   readonly generation: number
@@ -279,7 +280,6 @@ export class RefObserver {
     const requested = [...this.#requested]
     const frontier = [...new Set([...prior.frontier, ...tips, ...requested].filter((sha): sha is string => !!sha))]
     const baseline = first ? [...new Set(tips.filter((sha): sha is string => !!sha))] : [...prior.baseline]
-    const began = performance.now()
     const checkouts = [...this.#handle.checkouts.keys()]
     let captured = 0
     let visited = 0
@@ -287,8 +287,27 @@ export class RefObserver {
     // not been acknowledged. Keep ancestry visits provisional until it is.
     const walked = new Set<string>()
     const hasWalked = (sha: string) => (!earlierWindow && this.#walked.has(sha)) || walked.has(sha)
+    const discarded = new Set<string>()
     // One check of the repository's metadata covers everything this batch reads.
     await git.batch(signal, async (reader) => {
+      const unread = frontier.filter((sha) => !hasWalked(sha))
+      if (unread.length && reader.commitTimes) {
+        const clocks = await reader.commitTimes(unread, signal)
+        const remaining: string[] = []
+        const slices = new WorkSlices()
+        for (const sha of frontier) {
+          signal.throwIfAborted()
+          await slices.step()
+          const clock = clocks.get(sha)
+          if (clock !== undefined && clock !== null && clock < historyFloor) {
+            walked.add(sha)
+            discarded.add(sha)
+            this.#options.outsideWindow?.(sha)
+          } else remaining.push(sha)
+        }
+        frontier.splice(0, frontier.length, ...remaining)
+      }
+      const began = performance.now()
       while (frontier.length && visited < 200 && performance.now() - began < 50) {
         signal.throwIfAborted()
         const sha = frontier.shift()!
@@ -300,6 +319,7 @@ export class RefObserver {
         // remain intact, and admitted diff facts are still read by Reconciler.
         if (object?.committedAt !== undefined && object.committedAt !== null && object.committedAt < historyFloor) {
           walked.add(sha)
+          discarded.add(sha)
           this.#options.outsideWindow?.(sha)
           continue
         }
@@ -361,7 +381,14 @@ export class RefObserver {
     }
     signal.throwIfAborted()
     const durable = lasting(next)
-    if (durable !== this.#written) {
+    const priorState = lasting(prior)
+    const onlyDiscarded = discarded.size > 0 &&
+      digest(frontier) === digest(prior.frontier.filter((sha) => !discarded.has(sha))) &&
+      lasting({ ...next, frontier: prior.frontier }) === priorState
+    // Below-floor frontier entries are disposable work. Leaving them in the
+    // saved cursor is safe on restart; removing them alone must not serialize
+    // the full range index, nor cause an unchanged later scan to do so.
+    if (durable !== this.#written && durable !== priorState && !onlyDiscarded) {
       await writeCheckpoint(journal, next)
       this.#written = durable
     }

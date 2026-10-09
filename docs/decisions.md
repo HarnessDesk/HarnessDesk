@@ -1196,6 +1196,15 @@ synced temporary file and atomically replaces the original. A failed replacement
 leaves the original readable; checkpoint writes and replacements share a queue
 so a manifest never points at parts renumbered while it was being written.
 
+An earlier local Seat widens the saved window and restarts discovery from the
+unchanged tips. Capture reads the frontier's commit clocks in bounded batches
+before spending its observation budget, discarding every entry below the floor
+in the same scan. Frontier-only discards write no checkpoint: replaying that
+disposable work after a restart is safe and avoids rewriting a large journal's
+range index while no new observation is made. Completed range keys remain in
+the checkpoint because reconciliation uses them to avoid repeating Git work;
+the journal and backup formats keep their existing contracts.
+
 ## A Goal is finite; Seats and receipts are the authority
 
 Rooms accumulated three competing truths: a member array, the conversations

@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import type { GitReader } from '../src/provenance/git.js'
 import { admitProject, gitReader } from '../src/provenance/git.js'
 import { captureHealth } from '../src/provenance/health.js'
-import { digest, ProvenanceJournal, readCheckpoint } from '../src/provenance/journal.js'
+import { digest, ProvenanceJournal, readCheckpoint, writeCheckpoint } from '../src/provenance/journal.js'
 import { RefObserver, type WorkerCheckpoint } from '../src/provenance/observer.js'
 import { makeRepo, scriptedGit } from './fixtures/provenance-repo.js'
 import type { EvidencePlane } from '../src/evidence/plane.js'
@@ -91,6 +91,7 @@ test('an earlier Seat extends the floor and a saved opening time survives restar
 })
 
 for (const restart of [false, true]) test(`lowering the floor reseeds unchanged refs ${restart ? 'after restart' : 'on the same observer'}`, async (t) => {
+  t.mock.method(performance, 'now', () => 0)
   const repo = await makeRepo()
   const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
   t.after(() => gitReader(handle).close())
@@ -118,10 +119,56 @@ for (const restart of [false, true]) test(`lowering the floor reseeds unchanged 
   const checkpoint = readCheckpoint((await journal.read()).entries) as WorkerCheckpoint
   assert.equal(checkpoint.historyFloor, floor)
   assert.equal(checkpoint.openedAt, firstOpened)
-  assert.deepEqual(checkpoint.frontier, [])
+  assert.deepEqual(observer.checkpoint!.frontier, [])
+  assert.ok(checkpoint.frontier.every((id) => Number.parseInt(id, 16) * DAY < floor),
+    'only disposable below-floor work may remain in the saved cursor')
   observer.wake()
   await observer.idle()
   assert.equal(f.fingerprinted.length, 72, 'unchanged floor does not repeat discovery')
+})
+
+for (const legacy of [false, true]) test(`a long below-floor frontier drains in one batch without checkpoint churn${legacy ? ' on upgrade' : ''}`, async (t) => {
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'provenance.ndjson'))
+  const frontier = Array.from({ length: 350 }, (_, n) => sha(n + 1))
+  const saved: WorkerCheckpoint = { generation: 1, refs: [['refs/heads/main', sha(350)]], heads: [], logs: [],
+    frontier, openedAt: firstOpened, historyFloor: legacy ? undefined : 449 * DAY, capturedThrough: 0, scanStartedAt: firstOpened,
+    baseline: [sha(350)], rangeKeys: Array.from({ length: 13000 }, (_, n) => `range-${n}`), rangePending: [] }
+  await writeCheckpoint(journal, saved)
+  const checkpointWrites = t.mock.method(journal, 'checkpoint', async () => {})
+  const batches: string[][] = []
+  const excluded: string[] = []
+  let scans = 0
+  let clock = 0
+  t.mock.method(performance, 'now', () => clock)
+  const f = history()
+  const git = { ...f.git,
+    snapshot: async () => ({ refs: new Map(saved.refs), heads: new Map(), takenAt: firstOpened }),
+    // Advancing controlled time would allow only one object per old scan.
+    commit: async (id: string) => { clock += 100; return f.git.commit(id, new AbortController().signal) },
+    commitTimes: async (ids: readonly string[]) => { batches.push([...ids]); return new Map(ids.map((id) => [id, Number.parseInt(id, 16) * DAY])) },
+    batch: <T>(_signal: AbortSignal, work: (reader: GitReader) => Promise<T>): Promise<T> => work(git),
+  }
+  const observer = new RefObserver({ git, journal, changed: () => { scans += 1 }, problem: () => {}, watch: noWatch, pollMs: 0,
+    now: () => firstOpened, openedAt: firstOpened, historyFloor: () => 449 * DAY, outsideWindow: (id) => excluded.push(id) })
+  t.after(() => observer.close())
+  await observer.start(handle, saved)
+  await observer.idle()
+  assert.equal(scans, 1, 'every below-floor entry is discarded in one scan')
+  assert.deepEqual(batches, [frontier])
+  assert.deepEqual(excluded, frontier)
+  assert.equal(f.fingerprinted.length, 0)
+  const writes = legacy ? 1 : 0
+  assert.equal(checkpointWrites.mock.callCount(), writes, 'only a newly introduced floor needs one checkpoint')
+  if (legacy) assert.deepEqual((checkpointWrites.mock.calls[0]!.arguments[0] as WorkerCheckpoint).frontier, [])
+  assert.deepEqual(observer.checkpoint!.frontier, [])
+  assert.deepEqual(readCheckpoint((await journal.read()).entries), JSON.parse(JSON.stringify(saved)),
+    'the durable cursor safely retains only disposable work')
+  observer.wake()
+  await observer.idle()
+  assert.equal(checkpointWrites.mock.callCount(), writes, 'an unchanged later scan does not write the discarded frontier')
 })
 
 test('the Git reader extracts only the commit time needed for the horizon', async (t) => {
@@ -179,6 +226,10 @@ test('a legacy desk opens, compacts, preserves decisions and finishes an old unf
   const script = scriptedGit()
   let fingerprinted = 0
   const run: typeof script.run = async (executable, args, options) => {
+    if (args.includes('log')) {
+      const ids = options.input!.toString('utf8').trim().split('\n')
+      return Buffer.from(`${ids.map((id) => `${id} ${Number.parseInt(id, 16) * DAY / 1000}`).join('\n')}\n`)
+    }
     const at = args.indexOf('cat-file')
     if (at >= 0 && args[at + 1] === 'commit') {
       const id = args[at + 2]!
