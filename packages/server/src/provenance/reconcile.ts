@@ -94,6 +94,8 @@ export interface ReconcileInput {
   readonly priorLinks: readonly LinkObservation[]
   readonly moves: readonly ReflogMove[]
   readonly now: number
+  /** Deterministic cost evidence; counts index lookups and range member reads. */
+  readonly work?: { patchLookups: number; sourceRebuilds: number; rangeMembers: number }
 }
 
 /** Additional internal proof, rebuilt from durable facts/ranges on startup. */
@@ -111,7 +113,6 @@ export interface ProvenanceSource extends Source {
 const unique = (values: readonly string[]): string[] => [...new Set(values)].sort()
 const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
-const same = (a: Patch, b: Patch): boolean => a.stable === b.stable && a.exact === b.exact
 const live = (signal: AbortSignal): void => {
   if (signal.aborted) throw new Error('capture-aborted')
 }
@@ -287,31 +288,32 @@ export const rangeCandidates = (
   return { ready, pending, retry }
 }
 
-const related = (input: ReconcileInput, from: string, to: string): boolean => {
-  if (from === to) return true
+/** Rewrite edges are undirected; sharing a parent never joins independent branches. */
+const lineage = (moves: readonly ReflogMove[]): ((from: string, to: string) => boolean) => {
   const graph = new Map<string, Set<string>>()
-  const edge = (a: string, b: string) => {
-    const neighbours = graph.get(a) ?? new Set<string>()
-    neighbours.add(b)
-    graph.set(a, neighbours)
-  }
-  // Rewrite movement edges are undirected. A range names its observed tip.
-  // Sharing a base never joins independent branches into a rewrite lineage.
-  for (const move of input.moves) {
+  for (const move of moves) {
     if (!move.before || !move.after) continue
-    edge(move.before, move.after)
-    edge(move.after, move.before)
+    for (const [a, b] of [[move.before, move.after], [move.after, move.before]] as const) {
+      const neighbours = graph.get(a) ?? new Set<string>()
+      neighbours.add(b)
+      graph.set(a, neighbours)
+    }
   }
-  const todo = [from]
-  const seen = new Set<string>()
-  while (todo.length) {
-    const sha = todo.pop()!
-    if (sha === to) return true
-    if (seen.has(sha)) continue
-    seen.add(sha)
-    for (const next of graph.get(sha) ?? []) todo.push(next)
+  const components = new Map<string, string>()
+  for (const start of graph.keys()) {
+    if (components.has(start)) continue
+    const todo = [start]
+    components.set(start, start)
+    while (todo.length) {
+      for (const next of graph.get(todo.pop()!) ?? []) {
+        if (components.has(next)) continue
+        components.set(next, start)
+        todo.push(next)
+      }
+    }
   }
-  return false
+  return (from, to) => from === to ||
+    (components.has(from) && components.get(from) === components.get(to))
 }
 
 /**
@@ -330,6 +332,62 @@ export const reconcileProject = async (
   const oldIds = new Set(input.priorLinks.map((link) => link.id))
   const observed = new Map(input.commits.map((commit) => [commit.sha, commit]))
   const sources = input.sources.filter(proven)
+  const related = lineage(input.moves)
+  const patchKey = (patch: Patch): string => {
+    if (input.work) input.work.patchLookups += 1
+    return JSON.stringify([patch.stable, patch.exact])
+  }
+  const index = <T>(values: readonly T[], patch: (value: T) => Patch | null): Map<string, T[]> => {
+    const byPatch = new Map<string, T[]>()
+    for (const value of values) {
+      const fingerprint = patch(value)
+      if (!fingerprint) continue
+      const key = patchKey(fingerprint)
+      const group = byPatch.get(key) ?? []
+      group.push(value)
+      byPatch.set(key, group)
+    }
+    return byPatch
+  }
+  const byPatch = index(sources, (source) => source.patch)
+  const unscopedByPatch = index(input.sources.filter((source) => !proven(source)), (source) => source.patch)
+  const commitsByPatch = index(input.commits, (commit) => commit.patch)
+  const movesTo = new Map<string, ReflogMove[]>()
+  for (const move of input.moves) {
+    if (!move.after) continue
+    const group = movesTo.get(move.after) ?? []
+    group.push(move)
+    movesTo.set(move.after, group)
+  }
+  const dependent = new Map<string, Set<ProvenanceSource>>()
+  const dirty = new Set<ProvenanceSource>()
+  const refreshed = new Map<ProvenanceSource, ProvenanceSource>()
+  const byId = new Map(sources.map((source) => [source.id, source]))
+  for (const source of sources) {
+    if (source.proof.kind !== 'range') continue
+    dirty.add(source)
+    for (const sha of source.proof.commits) {
+      const ranges = dependent.get(sha) ?? new Set<ProvenanceSource>()
+      ranges.add(source)
+      dependent.set(sha, ranges)
+    }
+  }
+  const refresh = (source: ProvenanceSource): ProvenanceSource => {
+    if (!dirty.delete(source)) return refreshed.get(source) ?? source
+    if (input.work) {
+      input.work.sourceRebuilds += 1
+      input.work.rangeMembers += source.proof.commits.length
+    }
+    const parts = source.proof.commits.map((sha) => latest.get(sha))
+    const seats = unique(parts.flatMap((part) => part?.seats ?? []))
+    const invalid = parts.some((part) => !part || part.coverage !== 'complete') ||
+      JSON.stringify(seats) !== JSON.stringify(unique(source.seats))
+    const current = { ...source, ambiguous: source.ambiguous || invalid }
+    refreshed.set(source, current)
+    return current
+  }
+  // One initial rebuild, then only ranges depending on a changed decision.
+  for (const source of sources) refresh(source)
   const decide = (commit: CommitObservation, result: Omit<LinkObservation, 'id' | 'sha' | 'at'>) => {
     const normalized = {
       ...result,
@@ -350,6 +408,7 @@ export const reconcileProject = async (
     const id = digest(['link', 1, commit.id, commit.sha, previous?.id ?? null, normalized])
     const link: LinkObservation = { ...normalized, id, sha: commit.sha, at: input.now }
     latest.set(commit.sha, link)
+    for (const source of dependent.get(commit.sha) ?? []) dirty.add(source)
     if (!oldIds.has(id)) output.push(link)
   }
   for (const commit of [...input.commits].sort((a, b) =>
@@ -365,15 +424,8 @@ export const reconcileProject = async (
       refuse(commit.why ?? 'missing-object')
       continue
     }
-    const currentSources = sources.map((source): ProvenanceSource => {
-      if (source.proof.kind !== 'range') return source
-      const parts = source.proof.commits.map((sha) => latest.get(sha))
-      const seats = unique(parts.flatMap((part) => part?.seats ?? []))
-      const invalid = parts.some((part) => !part || part.coverage !== 'complete') ||
-        JSON.stringify(seats) !== JSON.stringify(unique(source.seats))
-      return { ...source, ambiguous: source.ambiguous || invalid }
-    })
-    const matches = currentSources.filter((source) => same(source.patch, patch))
+    const key = patchKey(patch)
+    const matches = (byPatch.get(key) ?? []).map(refresh)
     const direct = matches.filter((source) => !source.proof.restored &&
       source.proof.to === commit.sha &&
       source.proof.from === commit.parents[0],
@@ -390,7 +442,7 @@ export const reconcileProject = async (
       refuse(commit.why)
       continue
     }
-    const unscoped = input.sources.filter((source) => !proven(source) && same(source.patch, patch))
+    const unscoped = (unscopedByPatch.get(key) ?? [])
       .map((source) => ({ ...source, seats: [], ambiguous: true }))
     let candidates: Source[] = [...direct, ...unscoped]
     if (!direct.length) {
@@ -398,15 +450,14 @@ export const reconcileProject = async (
       // A discovered equal patch with no binding proof is a known alternative.
       // Copies already explained by the same lineage are represented by their
       // source, rather than being counted twice as known and unknown.
-      for (const other of input.commits) {
-        if (other.sha === commit.sha || !other.patch || !same(other.patch, patch)) continue
-        const explained = sources.some((source) => !source.proof.restored &&
-          same(source.patch, patch) &&
-          (source.proof.to === other.sha || related(input, source.proof.to, other.sha)),
+      for (const other of commitsByPatch.get(key) ?? []) {
+        if (other.sha === commit.sha || !other.patch) continue
+        const explained = matches.some((source) => !source.proof.restored &&
+          (source.proof.to === other.sha || related(source.proof.to, other.sha)),
         )
         if (!explained) candidates.push({ id: other.id, patch: other.patch, seats: [] })
       }
-      if (candidates.some((source) => proven(source) && !related(input, source.proof.to, commit.sha))) {
+      if (candidates.some((source) => proven(source) && !related(source.proof.to, commit.sha))) {
         refuse('ambiguous-patch', candidates.map((source) => source.id))
         continue
       }
@@ -436,7 +487,7 @@ export const reconcileProject = async (
       refuse('ambiguous-patch', candidates.map((source) => source.id))
       continue
     }
-    const replacements = input.moves.filter((move) => move.after === commit.sha && move.before &&
+    const replacements = (movesTo.get(commit.sha) ?? []).filter((move) => move.before &&
       (move.checkout === null || commit.checkoutHints.includes(move.checkout)),
     ).map((move) => observed.get(move.before!)).filter((old): old is CommitObservation =>
       !!old && JSON.stringify(old.parents) === JSON.stringify(commit.parents),
@@ -451,9 +502,12 @@ export const reconcileProject = async (
       const link = latest.get(sha)
       if (!link || link.coverage === 'none' || !link.retainedPaths.includes(path)) return null
       if (link.seats.length === 1) return { seats: [...link.seats], evidenceIds: [...link.evidenceIds] }
-      const ranges = currentSources.filter((source) => source.proof.kind === 'range' &&
-        !source.ambiguous && link.sourceIds.includes(source.id),
-      )
+      const ranges = link.sourceIds.flatMap((id) => {
+        const source = byId.get(id)
+        if (!source || source.proof.kind !== 'range') return []
+        const current = refresh(source)
+        return current.ambiguous ? [] : [current]
+      })
       const parts = unique(ranges.flatMap((range) => range.proof.commits))
         .filter((part) => observed.get(part)?.files.some((file) => file.path === path))
       const owners = parts.map((part) => ownership(part, path, new Set(seen)))
