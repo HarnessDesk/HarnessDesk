@@ -470,21 +470,25 @@ test('search survives an empty store, an empty query, and a corrupt file', async
   })
 })
 
-test('a transcript stamped by a newer format is never overwritten', async () => {
-  await withStore(async (store, dir) => {
-    const { mkdir, readFile: read, writeFile: write } = await import('node:fs/promises')
-    await mkdir(join(dir, 'codex'), { recursive: true })
-    const future = JSON.stringify({ version: 2, somethingNewer: true })
-    await write(join(dir, 'codex', 's1.json'), future)
-
-    store.record(session([turn('t1', [item('u', 'userMessage')])]), { now: true })
+test('a transcript stamped by a newer format is never overwritten', async t => {
+  for (const action of ['record', 'restore']) await t.test(action, () => withStore(async (store, dir) => {
+    store.record(session([turn('old', [item('old', 'userMessage')])]), { now: true })
     await store.flush()
-    assert.equal(
-      await read(join(dir, 'codex', 's1.json'), 'utf8'),
-      future,
-      'the newer file is byte-for-byte untouched',
-    )
-  })
+    const future = JSON.stringify({ version: 2, somethingNewer: true })
+    databaseAt(dir, db => db.prepare('UPDATE bodies SET payload=? WHERE runtime=? AND id=?').run(future, 'codex', 's1'))
+    const rows = () => databaseAt(dir, db => ['bodies', 'turns', 'items', 'items_fts', 'sessions'].map(table =>
+      db.prepare(`SELECT * FROM ${table}`).all()))
+    const before = rows()
+
+    if (action === 'record') {
+      store.record(session([turn('t1', [item('u', 'userMessage')])]), { now: true })
+      await store.flush()
+    } else assert.equal(await store.importOne('codex', 's1', {
+      version: 1, runtime: 'codex', id: 's1', savedAt: Date.now() + 1000,
+      turns: [turn('restored', [item('restored', 'userMessage')])],
+    }), 'refused')
+    assert.deepEqual(rows(), before, `${action} leaves the newer body and every related row untouched`)
+  }))
 })
 
 test('a file from before the metadata still makes a presentable hit', async () => {

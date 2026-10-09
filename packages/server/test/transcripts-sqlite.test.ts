@@ -7,6 +7,7 @@ import { test, type TestContext } from 'node:test'
 import { runtimeId, sessionId, turnId, itemId, type AgentItem, type Session, type Turn } from '@harnessdesk/protocol'
 import { SessionIndex } from '../src/session-index.js'
 import { TranscriptStore } from '../src/transcripts.js'
+import { TranscriptDatabase } from '../src/transcript-database.js'
 
 const message = (id: string, text: string): AgentItem => ({ id: itemId(id), type: 'assistantMessage', text } as AgentItem)
 const tool = (text: string, status: 'running' | 'completed' = 'completed'): AgentItem => ({
@@ -92,6 +93,26 @@ test('a corrupt retained body does not prevent later live turns from being saved
       assert.deepEqual((await store.recover(live.runtime, live.id))?.turns, live.turns)
     }
   } finally { database.close() }
+})
+
+test('the write transaction protects a newer body even when an earlier read was supported', async t => {
+  const { home, store } = await fixture(t)
+  store.record(session([turn('t1', [message('m', 'original answer')])]))
+  await store.flush()
+  const writer = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  const database = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try {
+    const supported = writer.read('demo', 's1')
+    assert.ok(supported)
+    const future = JSON.stringify({ version: 2, somethingNewer: true })
+    database.prepare('UPDATE bodies SET payload=? WHERE runtime=? AND id=?').run(future, 'demo', 's1')
+    const before = database.prepare('SELECT * FROM sessions').all()
+    assert.throws(() => writer.write({ ...supported, turns: [turn('t2', [message('new', 'replacement')])] }), /newer format/)
+    assert.equal(database.prepare('SELECT payload FROM bodies').get()?.payload, future)
+    assert.deepEqual(database.prepare('SELECT * FROM sessions').all(), before)
+    assert.equal(database.prepare("SELECT count(*) AS n FROM items_fts WHERE items_fts MATCH 'original'").get()?.n, 1)
+    assert.equal(database.prepare("SELECT count(*) AS n FROM items_fts WHERE items_fts MATCH 'replacement'").get()?.n, 0)
+  } finally { writer.close(); database.close() }
 })
 
 test('item occurrence sequences survive completion and repeated IDs stay distinct', async t => {

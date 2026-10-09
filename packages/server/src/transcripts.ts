@@ -13,7 +13,7 @@ import type {
 } from '@harnessdesk/protocol'
 import { isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
-import { InvalidTranscriptBodyError, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
+import { InvalidTranscriptBodyError, NewerTranscriptFormatError, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
 import { DailySessionSnapshots } from './session-snapshots.js'
 import { publicationsIn, withPublications } from './publications.js'
 
@@ -266,7 +266,8 @@ export class TranscriptStore {
         this.#database.write(stored)
         this.#snapshots.schedule()
       } catch (error) {
-        this.log('transcript not saved', { session: session.id, error: String(error) })
+        this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',
+          { session: session.id, error: String(error) })
       }
     })
     this.#writes.set(key, next)

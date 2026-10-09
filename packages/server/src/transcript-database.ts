@@ -22,11 +22,23 @@ type Facts = Omit<Stored, 'turns' | 'insight'> & { insightOrder?: readonly strin
 
 /** A single body's JSON is unusable; this does not indicate a database failure. */
 export class InvalidTranscriptBodyError extends Error {}
+/** The body belongs to a newer build and must remain untouched. */
+export class NewerTranscriptFormatError extends Error {}
 
 const decodeBody = <T>(decode: () => T): T => {
   try { return decode() }
-  catch (error) { throw new InvalidTranscriptBodyError('A stored transcript cannot be decoded', { cause: error }) }
+  catch (error) {
+    if (error instanceof NewerTranscriptFormatError) throw error
+    throw new InvalidTranscriptBodyError('A stored transcript cannot be decoded', { cause: error })
+  }
 }
+
+const readFacts = (payload: string): Facts | null => decodeBody(() => {
+  const value = JSON.parse(payload) as Facts | null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid transcript facts')
+  if (typeof value.version === 'number' && value.version > 1) throw new NewerTranscriptFormatError('A stored transcript has a newer format')
+  return value.version === 1 ? value : null
+})
 
 /** Row storage only. The TranscriptStore above it owns reconciliation and settle. */
 export class TranscriptDatabase {
@@ -39,12 +51,8 @@ export class TranscriptDatabase {
   read(runtime: string, id: string, messagesOnly = false): Stored | null {
     const row = this.db.prepare('SELECT payload FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
     if (!row) return null
-    const parsed = decodeBody(() => {
-      const value = JSON.parse(String(row.payload)) as Facts | null
-      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid transcript facts')
-      return value
-    })
-    if (parsed.version !== 1) return null
+    const parsed = readFacts(String(row.payload))
+    if (!parsed) return null
     const rows = this.db.prepare('SELECT * FROM turns WHERE runtime=? AND id=? ORDER BY seq').all(runtime, id) as unknown as TurnRow[]
     const itemRows = this.db.prepare(`SELECT turn_id,payload FROM items WHERE runtime=? AND id=?${messagesOnly ? " AND kind='userMessage'" : ''} ORDER BY position,seq`)
       .all(runtime, id) as unknown as { turn_id: string; payload: string }[]
@@ -82,6 +90,13 @@ export class TranscriptDatabase {
     const next = new Map<string, string>()
     const contexts = new Map((stored.insight ?? []).map(context => [context.turn, context]))
     transaction(this.db, () => {
+      // Recheck under the write lock; a provenance read or backup restore may
+      // have observed this body before another connection upgraded it.
+      const current = this.db.prepare('SELECT payload FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
+      if (current) {
+        try { readFacts(String(current.payload)) }
+        catch (error) { if (!(error instanceof InvalidTranscriptBodyError)) throw error }
+      }
       const { turns, insight, ...facts } = stored
       const turnIds = new Set(turns.map(turn => String(turn.id)))
       const orphanInsight = insight?.filter(context => !turnIds.has(context.turn))
