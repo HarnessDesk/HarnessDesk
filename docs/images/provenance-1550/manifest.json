@@ -1,0 +1,70 @@
+[
+  {
+    "state": "before",
+    "theme": "light",
+    "health": {
+      "project": "/work/project",
+      "enabled": true,
+      "checkedAt": 20,
+      "lastCapturedAt": 20,
+      "pending": 36,
+      "gaps": 0,
+      "revision": 1,
+      "state": "degraded",
+      "reason": "Catching up with this project.",
+      "nextStep": "Keep the project open; capture continues in the background."
+    },
+    "text": "Project — capture\nProvenance\nCapture on this machine\nLinks each change to the Seat and conversation that produced it.\nCapture status\nCatching up with this project. Keep the project open; capture continues in the background. 36 commits are waiting for capture.\nDegraded\nRetry capture"
+  },
+  {
+    "state": "after",
+    "theme": "light",
+    "health": {
+      "project": "/work/project",
+      "enabled": true,
+      "checkedAt": 20,
+      "lastCapturedAt": 20,
+      "pending": 0,
+      "gaps": 0,
+      "revision": 1,
+      "state": "healthy",
+      "reason": "Capture is current for the refs Git exposes.",
+      "nextStep": "No action needed."
+    },
+    "text": "Project — capture\nProvenance\nCapture on this machine\nLinks each change to the Seat and conversation that produced it.\nCapture status\nCapture is current for the refs Git exposes. No action needed.\nHealthy\nRetry capture"
+  },
+  {
+    "state": "before",
+    "theme": "dark",
+    "health": {
+      "project": "/work/project",
+      "enabled": true,
+      "checkedAt": 20,
+      "lastCapturedAt": 20,
+      "pending": 36,
+      "gaps": 0,
+      "revision": 1,
+      "state": "degraded",
+      "reason": "Catching up with this project.",
+      "nextStep": "Keep the project open; capture continues in the background."
+    },
+    "text": "Project — capture\nProvenance\nCapture on this machine\nLinks each change to the Seat and conversation that produced it.\nCapture status\nCatching up with this project. Keep the project open; capture continues in the background. 36 commits are waiting for capture.\nDegraded\nRetry capture"
+  },
+  {
+    "state": "after",
+    "theme": "dark",
+    "health": {
+      "project": "/work/project",
+      "enabled": true,
+      "checkedAt": 20,
+      "lastCapturedAt": 20,
+      "pending": 0,
+      "gaps": 0,
+      "revision": 1,
+      "state": "healthy",
+      "reason": "Capture is current for the refs Git exposes.",
+      "nextStep": "No action needed."
+    },
+    "text": "Project — capture\nProvenance\nCapture on this machine\nLinks each change to the Seat and conversation that produced it.\nCapture status\nCapture is current for the refs Git exposes. No action needed.\nHealthy\nRetry capture"
+  }
+]
