@@ -199,6 +199,20 @@ test('an ordinary record cannot bless source work it has not reconciled', async 
   assert.deepEqual((await r.stored())[0]?.turns, refreshed.turns)
 })
 
+test('closing with a pending ordinary record still invalidates the source stamp', async t => {
+  const r = await rig(t)
+  const original = await r.read()
+  const live = await r.runtime.resumeSession(original.id, { cwd: r.dir })
+  r.host.registry.upsert(original, live)
+  r.runtime.emit({ type: 'session/title', sessionId: original.id, title: 'Synthetic title' })
+  await r.host.call('session/close', { runtime: original.runtime, sessionId: original.id })
+  const store = new TranscriptStore(join(r.dir, 'transcripts'))
+  try { assert.equal(await store.source(original.runtime, original.id), null) }
+  finally { await store.close() }
+  await r.read()
+  assert.equal(r.reads(), 2, 'a released event body still needs an authoritative read')
+})
+
 test('first-read capability negotiation cannot bless an append during replay', async t => {
   const r = await rig(t, false)
   const original = await r.read()

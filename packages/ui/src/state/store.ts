@@ -579,12 +579,11 @@ export class AppStore {
               const held = this.#snapshot.sessions.get(key)
               // A closed body's metadata is silent about the transcript this
               // window already shows. A full sync still replaces it outright.
-              let synced = !session.itemsLoaded && held ? mergeRead(held, session) : session
-              if (!session.itemsLoaded && session.status.type !== 'active' && held?.turns.some(turn => turn.status === 'inProgress')) {
-                // Completion may have arrived while disconnected. Keep the
-                // displayed text until the visible pane reads the final body.
-                synced = { ...synced, itemsLoaded: false }
-              }
+              const synced = !session.itemsLoaded && held
+                // Entire turns may have arrived while disconnected. Keep the
+                // displayed text until the visible pane reads the latest body.
+                ? { ...mergeRead(held, session), itemsLoaded: false }
+                : session
               sessions.set(key, this.#pendingConversationNotices.apply(synced))
             }
           }

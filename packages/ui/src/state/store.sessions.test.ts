@@ -85,7 +85,7 @@ it('a metadata-only reconnect keeps an already displayed transcript after the ho
     runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
   } })
   expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
-  expect(store.getSnapshot().sessions.get(KEY)?.itemsLoaded).toBe(true)
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.itemsLoaded).toBe(true))
 })
 
 it('reconnect reloads a visible turn that finished while this window was away', async () => {
@@ -101,6 +101,25 @@ it('reconnect reloads a visible turn that finished while this window was away', 
     runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
   } })
   await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns[0]?.status).toBe('completed'))
+})
+
+it('reconnect reads a completed turn that started and finished while this window was away', async () => {
+  const full = session({ turns: [{ id: turnId('old'), status: 'completed',
+    items: [{ id: itemId('old-output'), type: 'assistantMessage', text: 'Synthetic earlier answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  const updated = session({ turns: [...full.turns, { id: turnId('new'), status: 'completed',
+    items: [{ id: itemId('new-output'), type: 'assistantMessage', text: 'Synthetic latest answer' }] }] })
+  answers['session/read'] = updated
+  answers['session/resume'] = updated
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(updated.turns))
 })
 
 describe('opening a conversation', () => {
