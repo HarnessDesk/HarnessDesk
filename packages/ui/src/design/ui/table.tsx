@@ -1,4 +1,4 @@
-import type * as React from 'react'
+import * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -53,13 +53,21 @@ const TableHeader = ({ className, as: Tag = 'thead', variant = 'default', ...pro
   )} {...props} />
 )
 
-const TableBody = ({ className, ...props }: React.ComponentProps<'tbody'>) => (
-  <tbody
-    data-slot="table-body"
-    className={cn('[&_tr:last-child]:border-0', className)}
-    {...props}
-  />
-)
+/** Fixed-pitch rows, with geometry supplied by the scroll viewport. Only the
+ * visible children mount; spacer rows preserve native table columns. */
+const TableBody = ({ className, children, window: viewport, ...props }: React.ComponentProps<'tbody'> & {
+  window?: { top: number; height: number; pitch: number; columns: number }
+}) => {
+  const rows = React.Children.toArray(children)
+  const start = viewport ? Math.max(0, Math.floor(viewport.top / viewport.pitch) - 5) : 0
+  const end = viewport ? Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / viewport.pitch) + 5) : rows.length
+  const space = (height: number, key: string) => height > 0 && <tr key={key} aria-hidden="true"><td colSpan={viewport?.columns} style={{ height, padding: 0, border: 0 }} /></tr>
+  return <tbody data-slot="table-body" className={cn('[&_tr:last-child]:border-0', className)} {...props}>
+    {viewport && space(start * viewport.pitch, 'before')}
+    {rows.slice(start, end)}
+    {viewport && space((rows.length - end) * viewport.pitch, 'after')}
+  </tbody>
+}
 
 const TableFooter = ({
   className,

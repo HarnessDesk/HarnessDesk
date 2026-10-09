@@ -199,7 +199,9 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   status, cancellation, title-filtered pages, removal and cached-body clearing.
   `historyClient` in `@harnessdesk/client` takes the authenticated host transport's
   request function; these storage operations are outside the tiered external
-  `Client`. The History screens follow in a separate slice.
+  `Client`. Settings and the palette reach a separately paged, windowed History view.
+  Import progress lives in the renderer snapshot; host events invalidate its
+  pages, and opening a preview does not seed the sidebar.
 - **Transcripts** (`transcripts.ts`) — the host records what the backend does
   not keep. Codex's own protocol says it "explicitly do[es] not persist all
   agent interactions, such as command executions"; Cursor keeps nothing

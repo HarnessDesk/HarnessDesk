@@ -1,5 +1,6 @@
 import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
+  HistoryImportState,
   AccountStatus,
   CapabilityContribution,
   PluginInstance,
@@ -352,6 +353,11 @@ export interface AppSnapshot {
 
   /** Every conversation the host told us about, keyed by `(runtime, id)`. */
   readonly sessions: ReadonlyMap<SessionKey, Session>
+  /** Import progress read on demand and kept current by host notifications. */
+  readonly historyImports: Readonly<Record<string, HistoryImportState | null>>
+  readonly historyRevision: number
+  /** Open imports await an authoritative desk-index row before appearing in the sidebar. */
+  readonly previewSessions: ReadonlySet<SessionKey>
   /** Full, unfiltered conversation history used for stable project identity during search. */
   readonly historyIdentity: readonly SessionSummary[]
   readonly history: readonly SessionSummary[]
@@ -850,6 +856,9 @@ const EMPTY: AppSnapshot = {
   queues: new Map(),
   recoverableDrafts: new Map(),
   tasks: new Map(),
+  historyImports: {},
+  historyRevision: 0,
+  previewSessions: new Set(),
   historyIdentity: [],
   history: [],
   historyLoading: false,

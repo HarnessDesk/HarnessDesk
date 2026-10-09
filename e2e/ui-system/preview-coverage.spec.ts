@@ -366,6 +366,14 @@ test.describe('preview coverage', () => {
     await expect(page.locator('#run-dock-frame [data-slot="run-steps"]:visible')).toBeVisible()
     for (const component of (await collectCoverage(page)).covered) covered.add(component)
 
+    await page.goto('/preview.html?history')
+    await expect(page.locator('[data-frame-id="history-rows"]').getByRole('button', { name: 'Trace the slow startup', exact: true })).toBeVisible()
+    await expect(page.locator('[data-frame-id="history-agent-done"]').getByRole('button', { name: 'Browse', exact: true })).toBeVisible()
+    const historyCoverage = await collectCoverage(page)
+    expect(historyCoverage.covered).toContain('components/History.tsx#HistorySection')
+    expect(historyCoverage.covered).toContain('components/History.tsx#AgentHistory')
+    for (const component of historyCoverage.covered) covered.add(component)
+
     // Fail closed if an import-glob/configuration change silently empties the
     // inventory. These representatives prove we are still checking a root
     // component, a nested component, and a recursively discovered panel.
@@ -500,3 +508,22 @@ test.describe('preview coverage', () => {
     expect(unconfined, `Dialog(s) open on a fresh load, uncontained, that would cover the page as it scrolls: ${unconfined.join(', ')}`).toEqual([])
   })
 })
+
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`History uses the landed hide and delete controls in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?history=rows')
+    const frame = page.locator('[data-frame-id="history-rows"]')
+    await frame.getByRole('button', { name: 'Trace the slow startup actions', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: 'Hide from HarnessDesk', exact: true })).toBeVisible()
+    await page.getByRole('menuitem', { name: 'Delete everywhere…', exact: true }).click()
+    const dialog = page.getByRole('alertdialog', { name: 'Delete "Trace the slow startup" everywhere?' })
+    await expect(dialog.getByRole('button', { name: 'Move to Trash' })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Keep', exact: true }).click()
+    await frame.getByRole('button', { name: 'Fix the project picker actions', exact: true }).click()
+    const deletion = page.getByRole('menuitem', { name: 'Delete everywhere…', exact: true })
+    await expect(deletion).toBeDisabled()
+    await expect(deletion).toHaveAttribute('title', 'Beta erases it for good, so delete it there')
+  })
+}
