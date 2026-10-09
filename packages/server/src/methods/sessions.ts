@@ -68,6 +68,7 @@ const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRunt
  * verbs on one conversation that are not a turn.
  */
 export const sessionMethods = {
+  'session/index': (ctx, params) => ctx.sessionIndex.list(params),
   'session/list': async (ctx, params) => {
     assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
@@ -195,6 +196,7 @@ export const sessionMethods = {
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     const resumed = ctx.registry.upsert(session, live).session
+    ctx.sessionIndex.record(resumed)
     await announceUnavailableTools(ctx, runtime, resumed)
     return resumed
   },
@@ -237,6 +239,7 @@ export const sessionMethods = {
     if (params.archived && runtime.info.capabilities.resume) {
       await ctx.sessions.releaseQuiet({ runtime: runtime.info.id, sessionId: id })
     }
+    ctx.sessionIndex.setArchived(runtime.info.id, id, params.archived)
     return null
   },
 
@@ -249,6 +252,7 @@ export const sessionMethods = {
     // The agent's copy first: if it refuses, nothing here is thrown away,
     // and the conversation is exactly as it was.
     const outcome = await runtime.deleteSession(id)
+    ctx.sessionIndex.remove(runtime.info.id, id)
     // Then everything the host was holding about it. A transcript left
     // behind would be re-enriched onto the next session that reused the
     // id, and an archive mark left behind is a row hidden forever.
@@ -304,6 +308,7 @@ export const sessionMethods = {
     } else {
       await ctx.names.set(runtime.info.id, makeSessionId(params.sessionId), params.title)
     }
+    ctx.sessionIndex.setTitle(runtime.info.id, makeSessionId(params.sessionId), params.title.trim() || null)
     return null
   },
 

@@ -64,7 +64,7 @@ const summary = (id: string, runtime: string): SessionSummary =>
 let store: AppStore
 /**
  * What the host answers, per method, for this test. A function answers by
- * params — `session/list` has to give each agent its own rows, or a reset
+ * params — `session/index` has to give each agent its own rows, or a reset
  * that lists every agent merges one row once per agent.
  */
 let answers: Partial<Record<HostMethodName, unknown | ((params: unknown) => unknown)>>
@@ -85,13 +85,9 @@ beforeEach(() => {
   }) as never)
 })
 
-/** One agent's page: its own rows, and a next page only for the agent asked to continue. */
-const page =
-  (rows: readonly SessionSummary[], nextCursor: string | null = null) =>
-  (params: unknown) => {
-    const { runtime } = params as { runtime: string }
-    return { data: rows.filter((row) => row.runtime === runtime), nextCursor }
-  }
+/** The host index is one page across every agent. */
+const page = (rows: readonly SessionSummary[], nextCursor: string | null = null) =>
+  () => ({ data: rows, nextCursor })
 
 /** A notification, as the host pushes it. Never connected; nothing reaches a wire. */
 const push = (notification: WireNotification): void => {
@@ -149,38 +145,37 @@ describe('choosing the agent new sessions run as', () => {
 
   it('leaves the list where it was, and keeps paging it from the agent it was paged from', async () => {
     await seat()
-    answers['session/list'] = page([summary('a', CODEX)], 'page-2')
+    answers['session/index'] = page([summary('a', CODEX)], 'page-2')
     await store.loadHistory({ reset: true })
     expect(listed()).toEqual(['a'])
 
     calls.length = 0
     await store.selectRuntime(CLAUDE)
-    expect(calls.map((call) => call.method)).not.toContain('session/list')
+    expect(calls.map((call) => call.method)).not.toContain('session/index')
     expect(listed()).toEqual(['a'])
     expect(store.getSnapshot().historyCursor).toBe('page-2')
 
-    // The next page continues Codex's list: a cursor handed to Claude names
-    // nothing, and the reader three pages down stays three pages down.
-    answers['session/list'] = page([summary('b', CODEX)])
+    // The shared cursor survives a change of default agent.
+    answers['session/index'] = page([summary('b', CODEX)])
     await store.loadHistory()
     const paged = calls.find(
-      (call) => call.method === 'session/list' && (call.params as { cursor?: string }).cursor === 'page-2',
+      (call) => call.method === 'session/index' && (call.params as { cursor?: string }).cursor === 'page-2',
     )
-    expect(paged?.params).toMatchObject({ runtime: CODEX, cursor: 'page-2' })
+    expect(paged?.params).toEqual({ pageSize: 50, cursor: 'page-2' })
     expect(listed()).toEqual(['a', 'b'])
   })
 
-  it('rebuilds the list around the new agent only on a real reset', async () => {
+  it('rebuilds the shared index only on a real reset', async () => {
     await seat()
-    answers['session/list'] = page([summary('a', CODEX)], 'page-2')
+    answers['session/index'] = page([summary('a', CODEX)], 'page-2')
     await store.loadHistory({ reset: true })
     await store.selectRuntime(CLAUDE)
 
     calls.length = 0
-    answers['session/list'] = page([summary('c', CLAUDE)])
+    answers['session/index'] = page([summary('c', CLAUDE)])
     await store.loadHistory({ reset: true })
-    const first = calls.find((call) => call.method === 'session/list')
-    expect(first?.params).toMatchObject({ runtime: CLAUDE })
+    const first = calls.find((call) => call.method === 'session/index')
+    expect(first?.params).toEqual({ pageSize: 50 })
     expect(first?.params).not.toHaveProperty('cursor')
     expect(listed()).toContain('c')
   })
@@ -205,9 +200,9 @@ describe('choosing the agent new sessions run as', () => {
     })
   })
 
-  it('forgets the list’s paging when the agent it was paged from goes away', async () => {
+  it('removes an agent’s rows while keeping the shared index cursor', async () => {
     await seat()
-    answers['session/list'] = page([summary('a', CODEX)], 'page-2')
+    answers['session/index'] = page([summary('a', CODEX)], 'page-2')
     await store.loadHistory({ reset: true })
 
     push({ method: 'runtime/removed', params: { runtime: CODEX } })
@@ -215,7 +210,7 @@ describe('choosing the agent new sessions run as', () => {
     const after = store.getSnapshot()
     expect(after.activeRuntime).toBe(CLAUDE)
     expect(listed()).toEqual([])
-    expect(after.historyCursor).toBeNull()
+    expect(after.historyCursor).toBe('page-2')
   })
 })
 
@@ -403,7 +398,7 @@ describe('what round one of the review found', () => {
     await seat()
     answers['runtime/health'] = { state: 'unavailable', reason: 'crashed', message: 'Codex exited.' }
     answers['runtime/account'] = { accounts: [], signInMethods: [] }
-    await store.refreshRuntime({ history: false })
+    await store.refreshRuntime()
     const now = store.getSnapshot()
     expect(now.healthByRuntime[CODEX]?.state).toBe('unavailable')
     expect(now.accountsByRuntime[CODEX]?.accounts).toEqual([])

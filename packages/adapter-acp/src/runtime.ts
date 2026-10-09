@@ -1808,7 +1808,10 @@ export class AcpRuntime implements AgentRuntime {
     // rather than guessing wrong in either direction.
     const keyMethods = this.#keyMethods()
     const saved = this.#restored?.account ?? this.#lastAccount
-    if (this.#health.state !== 'ready' && saved) return { ...saved, signInMethods: keyMethods }
+    if (this.#health.state !== 'ready' && saved) return { ...saved, signInMethods: [
+      ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
+      ...keyMethods, ...this.#observedAccount(false).signInMethods,
+    ] }
     // A stored key is an account: it is what "signed in" means for an agent
     // that authenticates with one, and the label never carries the value.
     const keyAccounts: Account[] = (this.#config.secrets ?? []).flatMap((secret) => {

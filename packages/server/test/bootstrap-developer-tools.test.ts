@@ -40,6 +40,11 @@ const { host, extensions, pathReady } = createDefaultHost({
 try {
   await pathReady
   await host.start()
+  // Every child must actually start: launch now warms only the default in
+  // the background, while a live operation joins each runtime's startup.
+  for (const runtime of ['codex', ...agents.map(agent => agent.id)]) {
+    await host.call('session/create', { runtime, options: { cwd: root } })
+  }
   if (process.env.DEVELOPER_DIR !== before) throw new Error('host developer directory changed')
 } finally {
   await host.dispose()

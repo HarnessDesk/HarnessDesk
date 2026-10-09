@@ -259,6 +259,12 @@ Running or waiting changes the row's state without moving it. Project overflow
 counts include only loose conversations still shown there.
 
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`).
+The sidebar lists conversations started or continued in HarnessDesk. It reads
+the desk's local index, fifty at a time, and loads another page on reaching the
+end. An agent filter pages that agent's accounts, and **Load more conversations**
+also reaches the next page when the rows do not fill the column. Each project shows its first ten conversations with **Show more** below;
+project folds are remembered. Team conversations live under their Team's row.
+
 Clones with the same remote and linked worktrees share one project. A checkout
 you opened leads; among several, the one worked in first keeps the name.
 Each conversation's branch still says where it ran. Agents that report no git
@@ -292,18 +298,16 @@ to move through its visible rows, including project headings, rooms, members
 and overflow rows; Home and End go to the first and last visible rows. On a
 project, room or **Other projects** row, → expands it (or moves to its first
 child) and ← collapses it (or returns to its parent). Enter or Space opens a
-conversation or toggles a group; on **N more** it reveals another page and
+conversation or toggles a group; on **Show more** it reveals another page and
 moves to the first new row. Type a title prefix to jump to a matching row.
 Shift+F10 or the ContextMenu key opens the focused row's actions; Escape
 returns focus to that row. Large project lists mount rows as keyboard focus
 reaches them and keep the focused row in view.
 
-**Every open conversation whose folder is still there has a row.** The rows are
-the agents' own history read through them, and an agent with no `session/list` — Gemini CLI — lists
-nothing, so the conversation being typed into had no row anywhere in the tree.
-A conversation open in this window is drawn from the desk's own knowledge of
-it, named by its title or its first ask and filed under the checkout its
-folder belongs to, until the agent's history catches up. The active row is
+**Every open conversation whose folder is still there has a row.** The desk
+records its conversations even when an agent keeps no history of its own.
+A conversation open in this window is named by its title or its first ask and
+filed under the checkout its folder belongs to, or under its Team. The active row is
 scrolled into view when it changes: a list long enough to hold a month of
 rooms kept it thousands of pixels below the fold.
 

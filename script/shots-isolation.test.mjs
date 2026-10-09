@@ -12,12 +12,48 @@ import { Agents } from '../packages/server/dist/src/agents.js'
 import { InstallService } from '../packages/server/dist/src/installs/service.js'
 import { readChecks } from '../packages/server/dist/src/evidence/checks-file.js'
 import { GoalStore } from '../packages/server/dist/src/goals/store.js'
+import { SessionIndex } from '../packages/server/dist/src/session-index.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
 import { selectScenes } from './shots/selection.mjs'
+import { CAST, CONTEXT_CAST, CONVERSATIONS, rigRuntimeId } from './shots/cast.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+for (const native of ['0', '1']) {
+  test(`seeded conversations are desk index rows and reseeding removes stale rows (native=${native})`, async t => {
+    const directory = mkdtempSync(join(tmpdir(), 'hd-shots-index-'))
+    t.after(() => rmSync(directory, { recursive: true, force: true }))
+    const home = join(directory, 'home')
+    const env = { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: join(directory, 'work'), HD_SHOTS_NATIVE_CODEX: native, HD_SHOTS_CONTEXT: '1' }
+    const seed = () => execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], { env, stdio: 'pipe' })
+    seed()
+    const expected = [
+      ...CAST.filter(agent => native === '0' || agent.id !== 'codex')
+        .flatMap(agent => (CONVERSATIONS[agent.id] ?? []).map((_, n) => [rigRuntimeId(agent.id), `${agent.id}-${n}`])),
+      ...CONTEXT_CAST.map(agent => [agent.id, `${agent.id}-0`]),
+    ]
+    const file = join(home, 'sessions.sqlite')
+    const index = new SessionIndex(file)
+    try {
+      const rows = index.list({ pageSize: 500 }).data
+      assert.deepEqual(rows.map(row => [row.runtime, row.id]).sort(), expected.sort())
+      for (const row of rows) {
+        const transcript = JSON.parse(readFileSync(join(home, 'transcripts', row.runtime, `${row.id}.json`), 'utf8'))
+        assert.equal(row.title, transcript.title)
+        assert.equal(row.cwd, transcript.cwd)
+        assert.equal(row.updatedAt, transcript.updatedAt)
+      }
+      index.upsert({ ...rows[0], runtime: 'shots-stale', id: 'stale-take', title: 'Old take' })
+    } finally { index.close() }
+    seed()
+    const refreshed = new SessionIndex(file)
+    try {
+      assert.deepEqual(refreshed.list({ pageSize: 500 }).data.map(row => [row.runtime, row.id]).sort(), expected.sort())
+    } finally { refreshed.close() }
+  })
+}
 
 test('the context rig can never republish ordinary scenes with its extra seats', () => {
   const scenes = ['desk', 'conversation', 'ring-codex', 'ring-cursor', 'ring-dsh']

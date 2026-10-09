@@ -1602,6 +1602,7 @@ export const NewSessionDefaults = ({
   empty?: string
 }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
   const [options, setOptions] = useState<readonly ConfigOption[] | null>(null)
 
   useEffect(() => {
@@ -1612,7 +1613,7 @@ export const NewSessionDefaults = ({
     return () => {
       cancelled = true
     }
-  }, [store, info.id])
+  }, [store, info.id, snapshot.healthByRuntime[info.id]?.state])
 
   const pick = (id: string, value: OptionValue): void => {
     void store.setNewSessionDefault(info.id, id, value).then(setOptions)

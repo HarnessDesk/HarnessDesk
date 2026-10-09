@@ -989,7 +989,10 @@ export interface RuntimeObservations {
   readonly options?: readonly ConfigOption[]
   readonly sessionOptions?: readonly ConfigOption[]
   readonly commands?: readonly SkillInfo[]
-  readonly account?: AccountStatus
+  readonly account?: AccountStatus & {
+    /** Observed permitted flow kinds, without descriptors or login payloads. Absent means unknown. */
+    readonly signInFlows?: readonly AuthMethod['flow'][]
+  }
   readonly info?: Pick<RuntimeInfo, 'version' | 'capabilities'>
 }
 

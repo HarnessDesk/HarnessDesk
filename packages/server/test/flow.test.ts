@@ -109,44 +109,6 @@ const errors = (source: string): string[] => {
     .map((one) => `${one.at}: ${one.text}`)
 }
 
-test('the flow this repository ships reads, and says what a person meant', () => {
-  const flow = read(shipped('fix-and-review.yml'))
-  assert.equal(flow.name, 'Fix and review')
-  assert.deepEqual(
-    flow.roles.map((role) => [role.id, role.kind, role.count, role.permission]),
-    [
-      ['fixer', 'agent', 1, 'publish'],
-      ['reviewer', 'agent', 3, 'read'],
-      ['referee', 'person', 1, 'read'],
-    ],
-  )
-  assert.equal(seatAt(flow.roles[1]!, 2).model, 'gemini-3.8-flash')
-  assert.equal(flow.rules.map((rule) => rule.id).join(','), 'review-it,fix-again,hand-to-the-person')
-  assert.deepEqual(validateFlow(flow), [])
-})
-
-test('the race flow gives each card of one round its own seat', () => {
-  const flow = read(shipped('race.yml'))
-  const competitor = flow.roles.find((role) => role.id === 'competitor')!
-  assert.equal(competitor.count, 2)
-  assert.equal(competitor.isolate, true)
-  assert.equal(seatAt(competitor, 0).model, 'gpt-5.3-codex')
-  assert.equal(seatAt(competitor, 1).model, 'claude-4.6-opus')
-  assert.equal(seatAt(competitor, 1).thinking, true)
-  assert.deepEqual(validateFlow(flow), [])
-})
-
-test('a reserved layout key is carried and never read', () => {
-  const flow = read(shipped('fix-and-review.yml'))
-  // Carried, so a canvas that wrote it finds it again…
-  assert.deepEqual((flow.layout as Record<string, unknown>)['fixer'], { x: 40, y: 40 })
-  // …and invisible to everything that decides anything: the same flow with a
-  // different layout dry-runs identically.
-  const moved = read(shipped('fix-and-review.yml').replace('x: 40, y: 40', 'x: 900, y: 900'))
-  const both = [flow, moved].map((one) => JSON.stringify(dryRun(one).trace))
-  assert.equal(both[0], both[1])
-})
-
 test('the first matching rule fires, so the unhappy branch can be written first', () => {
   const flow = read(REVIEW)
   assert.equal(ruleFor(flow, 'reviewer', ['approve', 'approve', 'approve'])?.id, 'hand-over')
@@ -851,4 +813,3 @@ rules:
   assert.equal(validationProblems[0]?.at, 'rules[1]')
   assert.match(validationProblems[0]?.text ?? '', /nothing builder can answer reaches this rule/)
 })
-

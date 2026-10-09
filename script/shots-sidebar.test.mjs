@@ -11,6 +11,8 @@ test('native hover waits for opaque actions and settled mark geometry', async ()
   const from = shoot.indexOf('  const hover = async (selector) => {')
   const to = shoot.indexOf('  const workspaceHoverAction =', from)
   let reads = 0
+  let tooltipReads = 0
+  const moves = []
   const samples = [
     { ready: false, geometry: 'old' },
     { ready: false, geometry: 'old' },
@@ -19,7 +21,8 @@ test('native hover waits for opaque actions and settled mark geometry', async ()
     { ready: true, geometry: 'settled' },
   ]
   const cdp = {
-    send: async () => {},
+    send: async (_method, params) => { moves.push(params) },
+    eval: async () => ++tooltipReads >= 3,
     json: async expression => expression.includes('getAnimations')
       ? samples[Math.min(reads++, samples.length - 1)] : { x: 100, y: 100 },
   }
@@ -28,6 +31,8 @@ test('native hover waits for opaque actions and settled mark geometry', async ()
     (read, matches) => waitForSnapshot(read, matches, { sleepImpl: async () => {} }),
   )
   await hover('[data-slot="sidebar-menu-action"]')
+  assert.equal(tooltipReads, 3, 'the previous row tooltip must leave before targeting another row')
+  assert.deepEqual(moves[0], { type: 'mouseMoved', x: 0, y: 0 })
   assert.equal(reads, samples.length, 'a fixed delay cannot vouch for opacity or mark placement')
 })
 const start = shoot.indexOf('        for (const row of document.querySelectorAll(\'[data-slot="sidebar-menu-item"]:hover\'))')
@@ -59,6 +64,35 @@ for (const marks of [0, 1, 2, 3, 4]) {
 
 // Evaluate just the two scene declarations, supplying the same staging seam.
 // Both must preserve the marked sessions and pinned project supplied by it.
+test('sidebar marks follow the indexed list without altering agent history', async () => {
+  const from = shoot.indexOf('  const stageSidebarMarks = async () => {')
+  const to = shoot.indexOf("  SCENES['session-rest']", from)
+  const root = '/demo/storefront'
+  // The index sorts across agents: other projects can precede this project.
+  const data = [
+    { id: 'other-first', cwd: '/demo/other' },
+    { id: 'other-second', cwd: '/demo/other' },
+    ...[0, 1, 2].map(index => ({ id: String(index), cwd: root })),
+  ]
+  const store = {
+    transport: { request: async () => ({ data }) },
+    setListPrefs: () => {},
+    loadHistory: async () => {},
+  }
+  const stage = new Function('SCENES', 'cdp', 'q', 'REPO', 'STORE', 'sleep', `${shoot.slice(from, to)}; return stageSidebarMarks`)(
+    { desk: { run: async () => {} } },
+    { eval: async expression => new Function('fixtureStore', `return ${expression}`)(store) },
+    JSON.stringify, root, 'fixtureStore', async () => {},
+  )
+  await stage()
+  const rows = (await store.transport.request('session/index', {})).data
+  assert.deepEqual(rows.slice(0, 2), data.slice(0, 2))
+  assert.equal(rows[2].repo?.worktree, true)
+  assert.equal(rows[3].folderGone, true)
+  assert.deepEqual(rows[4], data[4])
+  assert.deepEqual((await store.transport.request('session/list', {})).data, data)
+})
+
 for (const scene of ['workspace-hover', 'session-hover']) {
   test(`${scene} preserves the rig's marks and pinned project`, async () => {
     const from = shoot.indexOf('  const workspaceHoverAction =')

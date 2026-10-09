@@ -714,7 +714,11 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   async getAccount(): Promise<AccountStatus> {
-    if (this.health().state !== 'ready' && this.#restored?.account) return this.#restored.account
+    const restoredAccount = this.health().state !== 'ready' ? this.#restored?.account : undefined
+    if (restoredAccount) return {
+      accounts: restoredAccount.accounts,
+      signInMethods: signInMethods(null).filter(method => restoredAccount.signInFlows?.includes(method.flow)),
+    }
     if (this.#idleStopped && !this.#everStarted) throw new Error('Account status is not known yet; start the runtime first.')
     if (this.#idleStopped && this.#lastAccount) return this.#lastAccount
     const [response, forced] = await Promise.all([

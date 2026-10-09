@@ -304,7 +304,7 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
         </NativeSelect>}
       </Field>})}
 
-      {preview && flow && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
+      {preview && flow && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} vars={vars} />}
     </div>
   )
 }
@@ -434,12 +434,18 @@ export const FlowPreviewSeats = ({ preview, roster }: {
  * `FlowStart` and `RaceStart` so a race's dry run reads exactly like every
  * other flow's rather than a second, narrower rendering of the same data.
  */
+const seedTitleOf = (flow: FlowPolicy, vars: Readonly<Record<string, string>>): string =>
+  // Like a Run's card title, substitute once: input text may itself contain braces.
+  flow.seed.title.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (_slot, name: string) =>
+    vars[name]?.trim() ? vars[name]! : flow.inputs.find(input => input.id === name)?.label ?? name)
+
 export const FlowPreviewReport = ({
-  preview, flow, warnings, roster,
+  preview, flow, warnings, roster, vars = {},
 }: {
   readonly preview: FlowPreview
   readonly flow: FlowPolicy | null
   readonly warnings: readonly FlowProblem[]
+  readonly vars?: Readonly<Record<string, string>>
   readonly roster: ReadonlyMap<string, AgentEntry>
 }) => (
   <>
@@ -464,7 +470,7 @@ export const FlowPreviewReport = ({
       <section aria-label="Rounds and rules">
         <SectionHead name="Its rounds" />
         <Rows>
-          <Row title={flow.seed.role} desc={`Seed round — ${flow.seed.title}`} />
+          <Row title={flow.seed.role} desc={`Seed round — ${seedTitleOf(flow, vars)}`} />
           {flow.rules.map((rule) => {
             const guard = preview.guards.find((one) => one.rule === rule.id)
             // A guard's requirement is a sentence, not a value — it belongs

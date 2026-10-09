@@ -357,6 +357,12 @@ export class TranscriptStore {
     }
   }
 
+  /** Metadata of a verified stored file, including conversations with no turns. */
+  async readSummary(runtime: RuntimeId, id: SessionId): Promise<SessionSummary | null> {
+    const stored = await this.#read(runtime, id)
+    return stored ? { ...summaryOf(stored), runtime, id } : null
+  }
+
   /** Historical metadata is unavailable, not person-caused, when an old file has none. */
   async readInsight(runtime: RuntimeId, id: SessionId): Promise<readonly TurnInsightContext[] | null> {
     const stored = await this.#read(runtime, id)

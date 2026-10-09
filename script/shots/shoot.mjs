@@ -1975,10 +1975,15 @@ rules:
         const real = store.transport.request.bind(store.transport)
         store.transport.request = async (method, params) => {
           const result = await real(method, params)
-          if (method !== 'session/list') return result
-          return { ...result, data: result.data.map((row, index) => row.cwd !== root || index > 1 ? row : {
-            ...row, cwd: root + '/.worktrees/sidebar-' + index,
-            repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+          if (method !== 'session/index') return result
+          let marked = 0
+          return { ...result, data: result.data.map(row => {
+            if (row.cwd !== root || marked >= 2) return row
+            const index = marked++
+            return {
+              ...row, cwd: root + '/.worktrees/sidebar-' + index,
+              repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+            }
           }) }
         }
         store.__shotsSidebarMarks = true
@@ -1994,6 +1999,10 @@ rules:
     await sleep(200)
   } }
   const hover = async (selector) => {
+    // A prior row's tooltip can cover this row's action. Leave its trigger
+    // and wait for the popup to go before choosing a new pointer target.
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+    await waitForSnapshot(() => cdp.eval(`!document.querySelector('[role="tooltip"]')`), Boolean)
     // Hover-only actions have no box until their row is entered.
     const rowPoint = await cdp.json(`(() => {
       const node = document.querySelector(${q(selector)})?.closest('[data-slot="sidebar-menu-item"]')

@@ -72,7 +72,7 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
       await store.wrapGoal(view.goal.id, preview.stamp, choices)
       onClose()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The desk did not wrap this Goal.'
+      const message = error instanceof Error ? error.message : 'The desk did not wrap this Team.'
       setProblem(message)
       setPreview(null)
     } finally { pending.current = false; setBusy(false) }
@@ -80,12 +80,12 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
 
   return (
     <Dialog
-      title={preview ? 'Review receipt' : 'Wrap this Goal'}
+      title={preview ? 'Review receipt' : 'Wrap this Team'}
       size="lg"
       onClose={onClose}
       footer={preview ? (
         <>
-          <Button disabled={busy || record} title={record ? RECORD_REASON : undefined} onClick={() => void commit()}>Wrap Goal</Button>
+          <Button disabled={busy || record} title={record ? RECORD_REASON : undefined} onClick={() => void commit()}>Wrap Team</Button>
           <Button variant="secondary" disabled={busy} onClick={() => setPreview(null)}>Edit</Button>
         </>
       ) : (

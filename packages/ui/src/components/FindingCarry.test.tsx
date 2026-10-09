@@ -82,7 +82,7 @@ it('with no open Goal in this project to carry into, the action is greyed and sa
   ;(snapshot.goals as Map<string, GoalView>).delete('target')
   act(() => { root.render(<StoreProvider store={store}><FindingCarry source={source} /></StoreProvider>) })
   expect(button('Carry unresolved findings…').disabled).toBe(true)
-  expect(container.textContent).toContain('Open a Goal in this project to carry these findings into.')
+  expect(container.textContent).toContain('Open a Team in this project to carry these findings into.')
 })
 
 it('a refused carry keeps the dialog open with the reason', async () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { AccountStatus, ConfigOption, ModelInfo, RuntimeObservations, SkillInfo } from '@harnessdesk/protocol'
+import type { ConfigOption, ModelInfo, RuntimeObservations, SkillInfo } from '@harnessdesk/protocol'
 
 export interface RuntimeStartCost {
   readonly readyMs: number
@@ -11,13 +11,15 @@ export interface RuntimeStartCost {
 export interface CachedRuntime extends RuntimeObservations { readonly start?: RuntimeStartCost }
 
 /** Copy display vocabulary explicitly: arbitrary adapter fields never reach disk. */
-const accountDisplay = (account: AccountStatus): AccountStatus => ({
+const accountDisplay = (account: NonNullable<RuntimeObservations['account']>): NonNullable<RuntimeObservations['account']> => ({
   accounts: account.accounts.map(entry => ({
     kind: entry.kind, label: entry.label,
     ...(entry.planType !== undefined ? { planType: entry.planType } : {}),
     ...(entry.anonymous !== undefined ? { anonymous: entry.anonymous } : {}),
   })),
   signInMethods: [],
+  signInFlows: [...new Set(account.signInFlows ?? account.signInMethods.map(method => method.flow))]
+    .filter(flow => ['browser', 'deviceCode', 'external', 'apiKey'].includes(flow)),
 })
 const modelsDisplay = (models: readonly ModelInfo[]): readonly ModelInfo[] => models.map(entry => ({
   id: entry.id, displayName: entry.displayName, supportsImages: entry.supportsImages,
