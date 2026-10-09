@@ -201,12 +201,29 @@ export class TranscriptStore {
   constructor(
     directory: string,
     private readonly log: (message: string, details?: Record<string, unknown>) => void = () => {},
+    private readonly onWrite: () => void = () => {},
   ) {
     this.#database = new TranscriptDatabase(join(dirname(directory), 'sessions.sqlite'))
     this.#snapshots = new DailySessionSnapshots(this.#database.file, {
       onError: error => this.log('conversation snapshot not saved', { error: String(error) }),
     })
     this.#snapshots.schedule()
+  }
+
+  forgetMemory(rows: readonly { runtime: RuntimeId; id: SessionId }[]): void {
+    for (const row of rows) {
+      const key = keyOf(row.runtime, row.id)
+      const pending = this.#pending.get(key)
+      if (pending) clearTimeout(pending.timer)
+      this.#pending.delete(key)
+      this.#insight.delete(key)
+    }
+  }
+
+  evictCached(cap: number, live: (runtime: RuntimeId, id: SessionId) => boolean): { count: number; bytes: number } {
+    const result = this.#database.evictCached(cap, live)
+    this.forgetMemory(result.removed)
+    return { count: result.count, bytes: result.bytes }
   }
 
   /**
@@ -274,6 +291,7 @@ export class TranscriptStore {
         const source = refresh?.source ?? null
         this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source })
         this.#snapshots.schedule()
+        this.onWrite()
       } catch (error) {
         this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',
           { session: session.id, error: String(error) })
@@ -495,7 +513,7 @@ export class TranscriptStore {
       JOIN bodies b ON b.runtime=i.runtime AND b.id=i.id
       JOIN sessions s ON s.runtime=i.runtime AND s.id=i.id
       JOIN turns t ON t.runtime=i.runtime AND t.id=i.id AND t.turn_id=i.turn_id
-      WHERE ${match}(instr(items_fts.message_text,?)>0${options.includeTools ? ' OR instr(items_fts.tool_text,?)>0' : ''})
+      WHERE s.origin='desk' AND s.removed_at IS NULL AND ${match}(instr(items_fts.message_text,?)>0${options.includeTools ? ' OR instr(items_fts.tool_text,?)>0' : ''})
       ORDER BY s.saved_at DESC,i.runtime,i.id,t.seq,i.position`).iterate(...params)
     const hits: TranscriptHit[] = []
     const seen = new Set<string>()

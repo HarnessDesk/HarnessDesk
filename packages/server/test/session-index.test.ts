@@ -114,7 +114,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 4)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 5)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })
@@ -298,5 +298,18 @@ test('schema v1 upgrade retains row state, tombstones, repo answers and seed com
     assert.deepEqual(index.repo('/demo'), { repo: { root: '/demo', worktree: false }, exists: true, checkedAt: 4 })
     index.confirmArchived(runtime, idOf('removed'), false)
     assert.deepEqual(index.list().data, [])
+  } finally { index.close() }
+})
+
+test('ordinary writes preserve origin; promotion alone adopts an imported conversation', async () => {
+  const changes: SessionSummary[][] = []
+  const index = new SessionIndex(':memory:', ({ upserted }) => changes.push([...upserted]))
+  try {
+    index.upsert(row('preview'), { origin: 'imported' })
+    index.upsert(row('preview', 20))
+    assert.deepEqual(index.list().data, [], 'a read or event must not adopt a preview')
+    index.upsert(row('desk'))
+    index.upsert(row('desk', 20), { origin: 'imported' })
+    assert.deepEqual(index.list().data.map(row => row.id), ['desk'], 'an existing desk row keeps its origin')
   } finally { index.close() }
 })

@@ -29,6 +29,37 @@ through that row, and do not also appear as loose sidebar conversations.
 **The rule:** the first sidebar page reads local metadata; an upgrade carries
 the list over, and Team membership decides where a conversation is filed.
 
+## Opening history previews it; a new turn adopts it
+
+A conversation created or forked here is `desk`. An unknown conversation read,
+opened or resumed here is `imported`. Ordinary metadata and body writes retain
+that origin; only a new `turn/started` adopts a preview, turns its cached body
+into a full body and emits the sidebar upsert immediately. A Seat's turn does
+this too, while its Team membership keeps it filed under the Team. Upgrade
+rows remain desk conversations.
+
+History import is a per-runtime, on-request metadata job. It starts the runtime,
+pages its own history in transactions and records progress, failure or
+cancellation in the same database. Native archive state comes from both archive
+listings; other agents use the host's archive marks. Desk rows keep their origin
+and body, and removal tombstones are never revived. Completed rescans are
+throttled to once a minute; failures and cancellation can be retried immediately.
+Import does no Git work. The History query matches titles literally and pages
+by update time, runtime and id; repository checks start only for displayed rows.
+Removing an import deletes retained imported rows and their cached bodies,
+keeps desk rows and tombstones, and clears its scan state. Agent files stay untouched.
+These are host contracts; Settings and palette entry points follow in the screen slice.
+
+Preview bodies are `cached`, with payload bytes counted on write and recency
+recorded on open. The host's default cap is 500 MiB, configurable through
+`HostOptions.cachedBodyCapBytes`. At launch and after settled writes, eviction
+drops the oldest cached bodies, including items, turns, search, usage and Insight
+context in one transaction. Full bodies and live conversations are retained.
+The clear-cache host operation uses the same policy, retaining live previews.
+
+**The rule:** opening reads history without adopting it; a new turn adopts it.
+Import and eviction alter only the host's own database.
+
 ## The host's conversations live in SQLite
 
 The host keeps its conversation bodies in `sessions.sqlite`, beside their

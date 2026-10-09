@@ -143,13 +143,16 @@ const restorePathCase = async (t: TestContext, path: string) => {
 test('what one host exports, a fresh host restores — and can prove it has', async (t) => {
   const dirA = await mkdtemp(join(tmpdir(), 'hd-backup-a-'))
   const dirB = await mkdtemp(join(tmpdir(), 'hd-backup-b-'))
+  const hosts: Host[] = []
   t.after(async () => {
+    // Drain daily snapshots before removing the directories they write to.
+    for (const host of hosts) await host.dispose()
     await rm(dirA, { recursive: true, force: true })
     await rm(dirB, { recursive: true, force: true })
   })
 
   const a = await hostAt(dirA)
-  t.after(() => a.host.dispose())
+  hosts.push(a.host)
   a.store.add({ id: 'my-agent', name: 'My Agent', command: 'my-agent' })
   await a.host.call('app/state/set', { patch: { theme: 'dark', draftValues: { 'my-agent': { model: 'large' } } } })
   const transcripts = new TranscriptStore(join(dirA, 'transcripts'))
@@ -172,7 +175,7 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   assert.equal(backup.seating, null)
 
   const b = await hostAt(dirB)
-  t.after(() => b.host.dispose())
+  hosts.push(b.host)
   const report = await b.host.call('backup/import', { backup })
   assert.deepEqual(report.agents, { restored: 1, skipped: 0 })
   assert.equal(report.preferences, 2)

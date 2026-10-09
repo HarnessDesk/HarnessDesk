@@ -1,12 +1,13 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 
-import { sessionIndexCursorOf, type Page, type RepoInfo, type RuntimeId, type SessionId, type SessionSummary } from '@harnessdesk/protocol'
+import { sessionIndexCursorOf, type HistoryImportState, type HistorySummary, type HostParams, type Page, type RepoInfo, type RuntimeId, type SessionId, type SessionSummary } from '@harnessdesk/protocol'
 
-import { openSessionDatabase } from './session-database.js'
+import { dropSessionBody, openSessionDatabase } from './session-database.js'
 
 import { seedSummaries } from './session-index-seed.js'
 
 export interface SessionIndexChange {
+  readonly resolveRepos?: boolean
   readonly upserted: readonly SessionSummary[]
   readonly removed: readonly { runtime: RuntimeId; id: SessionId }[]
 }
@@ -58,7 +59,7 @@ export class SessionIndex {
   readonly #get: StatementSync
   readonly #write: StatementSync
   readonly #onChange: ((change: SessionIndexChange) => void) | undefined
-  readonly #pending = new Map<string, { runtime: RuntimeId; id: SessionId; summary: SessionSummary | null }>()
+  readonly #pending = new Map<string, { runtime: RuntimeId; id: SessionId; summary: SessionSummary | null; resolveRepos: boolean }>()
   #scheduled = false
   #closed = false
   #seeding: Promise<void> | null = null
@@ -70,10 +71,10 @@ export class SessionIndex {
     this.#write = this.#db.prepare(`INSERT INTO sessions
       (runtime,id,origin,title,preview,cwd,repo_root,created_at,updated_at,archived,team_id,status,git)
       VALUES (?,?,?,?,?,?,(SELECT repo_root FROM repos WHERE cwd = ?),?,?,?,?,?,?)
-      ON CONFLICT(runtime,id) DO UPDATE SET origin=excluded.origin,title=excluded.title,preview=excluded.preview,
+      ON CONFLICT(runtime,id) DO UPDATE SET title=excluded.title,preview=excluded.preview,
         cwd=excluded.cwd,repo_root=excluded.repo_root,created_at=excluded.created_at,updated_at=excluded.updated_at,
         archived=COALESCE(?,sessions.archived),team_id=CASE WHEN ? THEN excluded.team_id ELSE sessions.team_id END,
-        status=excluded.status,git=excluded.git,removed_at=NULL`)
+        status=excluded.status,git=excluded.git`)
   }
 
   #transaction<T>(write: () => T): T {
@@ -98,10 +99,10 @@ export class SessionIndex {
     this.#db.prepare('DELETE FROM meta WHERE key=?').run(pendingKey(runtime, id))
   }
 
-  #notify(runtime: RuntimeId, id: SessionId): void {
+  #notify(runtime: RuntimeId, id: SessionId, resolveRepos = true): void {
     if (!this.#onChange || this.#closed) return
     const row = this.#row(runtime, id)
-    this.#pending.set(JSON.stringify([runtime, id]), { runtime, id, summary: row && eligible(row) && row.archived !== null ? summaryOf(row) : null })
+    this.#pending.set(JSON.stringify([runtime, id]), { runtime, id, resolveRepos, summary: row && eligible(row) && row.archived !== null ? summaryOf(row) : null })
     if (this.#scheduled) return
     this.#scheduled = true
     queueMicrotask(() => {
@@ -109,7 +110,7 @@ export class SessionIndex {
       if (this.#closed) return
       const changes = [...this.#pending.values()]
       this.#pending.clear()
-      this.#onChange?.({ upserted: changes.flatMap((change) => change.summary ? [change.summary] : []),
+      this.#onChange?.({ resolveRepos: changes.some(change => change.resolveRepos), upserted: changes.flatMap((change) => change.summary ? [change.summary] : []),
         removed: changes.filter((change) => !change.summary).map(({ runtime, id }) => ({ runtime, id })) })
     })
   }
@@ -127,6 +128,20 @@ export class SessionIndex {
       this.#clearFacts(summary.runtime, summary.id)
     })
     this.#notify(summary.runtime, summary.id)
+  }
+
+  /** Create/fork and the first new turn are the only adoption seams. */
+  promote(runtime: RuntimeId, id: SessionId): void {
+    const result = this.#db.prepare("UPDATE sessions SET origin='desk',body=CASE WHEN body='cached' THEN 'full' ELSE body END WHERE runtime=? AND id=? AND origin='imported' AND removed_at IS NULL").run(runtime, id)
+    if (result.changes) this.#notify(runtime, id)
+  }
+
+  isImported(runtime: RuntimeId, id: SessionId): boolean {
+    return this.#row(runtime, id)?.origin === 'imported'
+  }
+
+  opened(runtime: RuntimeId, id: SessionId): void {
+    this.#db.prepare('UPDATE sessions SET last_opened_at=? WHERE runtime=? AND id=?').run(Date.now(), runtime, id)
   }
 
   list(options: { cursor?: string; pageSize?: number; archived?: 'exclude' | 'only'; runtimes?: readonly RuntimeId[] } = {}): Page<SessionSummary> {
@@ -156,6 +171,95 @@ export class SessionIndex {
       ? sessionIndexCursorOf({ updatedAt: last.updated_at, runtime: last.runtime, id: last.id }, options.archived) : null }
   }
 
+  /** One page, one transaction. Desk metadata/body and removal tombstones win. */
+  importPage(rows: readonly SessionSummary[], archivedOf: (row: SessionSummary) => boolean): void {
+    const changed: { runtime: RuntimeId; id: SessionId }[] = []
+    this.#transaction(() => {
+      const write = this.#db.prepare(`INSERT INTO sessions(runtime,id,origin,title,cwd,repo_root,created_at,updated_at,archived)
+        VALUES(?,?,'imported',?,?,(SELECT repo_root FROM repos WHERE cwd=?),?,?,?)
+        ON CONFLICT(runtime,id) DO UPDATE SET
+          title=CASE WHEN sessions.origin='imported' THEN excluded.title ELSE sessions.title END,
+          cwd=CASE WHEN sessions.origin='imported' THEN excluded.cwd ELSE sessions.cwd END,
+          repo_root=CASE WHEN sessions.origin='imported' THEN excluded.repo_root ELSE sessions.repo_root END,
+          created_at=CASE WHEN sessions.origin='imported' THEN excluded.created_at ELSE sessions.created_at END,
+          updated_at=CASE WHEN sessions.origin='imported' THEN excluded.updated_at ELSE sessions.updated_at END,
+          archived=excluded.archived WHERE sessions.removed_at IS NULL`)
+      for (const row of rows) {
+        const previous = this.#row(row.runtime, row.id)
+        if (previous?.removed_at != null) continue
+        const archived = Number(archivedOf(row))
+        write.run(row.runtime, row.id, row.title ?? null, row.cwd, row.cwd, row.createdAt, row.updatedAt, archived)
+        if (previous?.origin === 'desk' && previous.archived !== archived) changed.push(row)
+      }
+    })
+    for (const row of changed) this.#notify(row.runtime, row.id, false)
+  }
+
+  importedCount(runtime: RuntimeId): number {
+    return Number(this.#db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE runtime=? AND origin='imported' AND removed_at IS NULL").get(runtime)?.n)
+  }
+
+  importStatus(runtime: RuntimeId): HistoryImportState | null {
+    const row = this.#db.prepare('SELECT * FROM imports WHERE runtime=?').get(runtime)
+    return row ? { state: row.state as HistoryImportState['state'], count: Number(row.count),
+      importedAt: row.imported_at == null ? null : Number(row.imported_at), lastScanAt: Number(row.last_scan_at),
+      ...(row.error == null ? {} : { error: String(row.error) }) } : null
+  }
+
+  saveImport(runtime: RuntimeId, value: HistoryImportState): void {
+    this.#db.prepare(`INSERT INTO imports(runtime,imported_at,count,last_scan_at,state,error) VALUES(?,?,?,?,?,?)
+      ON CONFLICT(runtime) DO UPDATE SET imported_at=excluded.imported_at,count=excluded.count,
+        last_scan_at=excluded.last_scan_at,state=excluded.state,error=excluded.error`)
+      .run(runtime, value.importedAt, value.count, value.lastScanAt, value.state, value.error ?? null)
+  }
+
+  interruptImports(): void {
+    this.#db.prepare("UPDATE imports SET state='cancelled' WHERE state='running'").run()
+  }
+
+  removeImported(runtime: RuntimeId): readonly { runtime: RuntimeId; id: SessionId }[] {
+    return this.#transaction(() => {
+      const rows = this.#db.prepare("SELECT runtime,id FROM sessions WHERE runtime=? AND origin='imported' AND removed_at IS NULL").all(runtime) as unknown as { runtime: RuntimeId; id: SessionId }[]
+      for (const row of rows) {
+        dropSessionBody(this.#db, row.runtime, row.id)
+        this.#db.prepare('DELETE FROM sessions WHERE runtime=? AND id=?').run(row.runtime, row.id)
+        this.#clearFacts(row.runtime, row.id)
+      }
+      this.#db.prepare('DELETE FROM imports WHERE runtime=?').run(runtime)
+      return rows
+    })
+  }
+
+  history(options: HostParams<'history/list'> = {}): Page<HistorySummary> {
+    const params: (string | number)[] = []
+    let where = "s.origin='imported'"
+    if (!options.includeHidden) where += ' AND s.removed_at IS NULL'
+    if (options.runtimes !== undefined) {
+      if (!options.runtimes.length) return { data: [], nextCursor: null }
+      where += ` AND s.runtime IN (${options.runtimes.map(() => '?').join(',')})`
+      params.push(...options.runtimes)
+    }
+    if (options.repoRoot !== undefined) { where += ' AND s.repo_root=?'; params.push(options.repoRoot) }
+    if (options.query) {
+      where += " AND s.title LIKE ? ESCAPE '\\'"
+      params.push(`%${options.query.replace(/[\\%_]/g, '\\$&')}%`)
+    }
+    if (options.cursor) {
+      let cursor: unknown
+      try { cursor = JSON.parse(Buffer.from(options.cursor, 'base64url').toString('utf8')) }
+      catch { throw new Error('Invalid history cursor') }
+      if (!Array.isArray(cursor) || cursor.length !== 4 || !Number.isFinite(cursor[0]) || typeof cursor[1] !== 'string' ||
+        typeof cursor[2] !== 'string' || cursor[3] !== Boolean(options.includeHidden)) throw new Error('Invalid history cursor')
+      where += ' AND (s.updated_at < ? OR (s.updated_at = ? AND (s.runtime > ? OR (s.runtime = ? AND s.id > ?))))'
+      params.push(cursor[0] as number, cursor[0] as number, cursor[1], cursor[1], cursor[2])
+    }
+    const size = Math.min(500, Math.max(1, Math.floor(options.pageSize ?? 50)))
+    const rows = this.#db.prepare(`${SELECT} WHERE ${where} ORDER BY s.updated_at DESC,s.runtime,s.id LIMIT ?`).all(...params, size + 1) as unknown as Row[]
+    const data = rows.slice(0, size), last = data.at(-1)
+    return { data: data.map(row => ({ ...summaryOf(row), hidden: row.removed_at !== null })), nextCursor: rows.length > size && last
+      ? Buffer.from(JSON.stringify([last.updated_at, last.runtime, last.id, Boolean(options.includeHidden)])).toString('base64url') : null }
+  }
+
   remove(runtime: RuntimeId, id: SessionId): void {
     // A tombstone also covers a file the background seed has not reached yet.
     this.#transaction(() => {
@@ -174,19 +278,19 @@ export class SessionIndex {
     this.#notify(runtime, id)
   }
 
-  setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void {
+  setArchived(runtime: RuntimeId, id: SessionId, archived: boolean, resolveRepos = true): void {
     this.#transaction(() => {
       if (!this.#row(runtime, id)) this.#saveFacts(runtime, id, { archived })
       else this.#db.prepare('UPDATE sessions SET archived=? WHERE runtime=? AND id=? AND removed_at IS NULL').run(Number(archived), runtime, id)
     })
-    this.#notify(runtime, id)
+    this.#notify(runtime, id, resolveRepos)
   }
 
   /** Only an already indexed, retained conversation can receive authority facts. */
   confirmArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void {
     const row = this.#row(runtime, id)
     if (!row || row.removed_at !== null) return
-    this.setArchived(runtime, id, archived)
+    this.setArchived(runtime, id, archived, false)
   }
 
   unresolvedArchive(runtime: RuntimeId): readonly SessionId[] {

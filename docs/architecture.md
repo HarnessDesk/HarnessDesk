@@ -193,6 +193,12 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   agent's `session/list` records — or, for an agent that keeps no listing, the
   one it accepted when this run of the app opened the conversation — never in
   the host's own working directory.
+- **History imports** (`history-import.ts`) — on-request, cancellable metadata
+  scans in the existing `sessions.sqlite`. The `history/*` methods expose import,
+  status, cancellation, title-filtered pages, removal and cached-body clearing.
+  `historyClient` in `@harnessdesk/client` takes the authenticated host transport's
+  request function; these storage operations are outside the tiered external
+  `Client`. The History screens follow in a separate slice.
 - **Transcripts** (`transcripts.ts`) — the host records what the backend does
   not keep. Codex's own protocol says it "explicitly do[es] not persist all
   agent interactions, such as command executions"; Cursor keeps nothing
