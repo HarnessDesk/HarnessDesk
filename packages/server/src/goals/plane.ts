@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import {
-  activityOf, checkedDependencies, flowStepOf, placeCard,
+  activityOf, checkedDependencies, flowStepOf, evidenceForCard, placeCard,
   type BoardEvidence, type CarryFindingsInput, type EvidenceRecord, type FindingReceipt, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
   type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalOrigin, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
@@ -288,17 +288,12 @@ export class GoalPlane {
       ?? executions.find((one) => one.id === origin)
       ?? (named === null ? executions.at(-1) : undefined)
     const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled'
-    // Successfully completed Runs have already accepted their attempts and the
-    // person's final answer, including predecessors retained after Run again.
-    // Their done cards stay history; follow-ups and independent waits still count.
-    const completedCards = new Set(executions
-      .filter(one => one.state === 'settled' && one.end?.kind === 'complete')
-      .flatMap(one => one.rounds.flatMap(round => round.cards)))
-    const placements = board.intents.filter(intent => intent.state !== 'done' || !completedCards.has(intent.id)).map((intent) => {
+    const placements = board.intents.map((intent) => {
       const step = flowStepOf(intent, run, executions)
       return placeCard({
         intent,
-        evidence: evidence?.cards.find((card) => card.card === intent.id),
+        evidence: evidenceForCard(intent, board.intents, evidence, run, executions),
+        flowStep: step,
         stranded: this.port.stranded(id, intent.id),
         holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
         forPerson: step?.kind === 'person',

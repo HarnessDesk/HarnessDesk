@@ -52,6 +52,7 @@ try {
               if (revisions.includes(label)) option.textContent = `${label.slice(0, 7)}…`
             }
           }, [...photographedRevisions])
+          assert.doesNotMatch(await page.locator('body').innerText(), /(?:harnessdesk\/)?lane-[0-9a-f-]{20,}/, 'managed lane identifiers stay out of visible text')
           assert.deepEqual(textReasons(await page.evaluate(COLLECT), { user: USER }), [], `privacy audit: ${name}`)
           const filename = `${template}-${name}-${theme}.png`
           await page.screenshot({ path: join(out, filename), animations: 'disabled' })
@@ -76,9 +77,13 @@ try {
       if (template === 'comparison') {
         const command = page.getByRole('textbox', { name: 'Check each attempt with', exact: true })
         await expect(command).toHaveValue('pnpm test')
-        await command.fill(TEMPLATE_CHECK)
+        await command.fill('')
+        await command.pressSequentially(TEMPLATE_CHECK)
         await expect(command).toHaveValue(TEMPLATE_CHECK)
       }
+      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+      await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
+      await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
       await page.getByText('Details', { exact: true }).click()
       const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Agent for Judge' : 'Agent for Reviews', exact: true })
@@ -153,7 +158,9 @@ try {
         await observe(cards => cards.some(one => one.role === 'judge' && one.state === 'claimed'), 'judge seated')
         await expect(boardTitle('Pick the best attempt')).toBeVisible()
         await expect(boardColumn('Working').getByRole('heading', { level: 4 })).toHaveCount(1)
-        await expect(boardColumn('Ready').getByRole('heading', { level: 4 })).toHaveCount(2)
+        await expect(boardColumn('Ready').getByRole('heading', { level: 4 })).toHaveCount(4)
+        await expect(boardColumn('Needs you').getByRole('heading', { level: 4 })).toHaveCount(0)
+        await expect(page.getByText('nothing checked', { exact: true })).toHaveCount(0)
         await expect(checkCards.getByText('pass', { exact: true })).toHaveCount(2)
         const passedChecks = checkCards.getByText(/^verify ✓ @[0-9a-f]+$/)
         await expect(passedChecks).toHaveCount(2)
@@ -166,6 +173,7 @@ try {
         await photograph('10-referee-board')
         await page.getByRole('button', { name: 'Side by side', exact: true }).click()
         await expect(page.getByRole('button', { name: 'Merge A into main', exact: true })).toBeEnabled()
+        await expect(page.getByText('The agent finished this turn without any output.', { exact: true })).toHaveCount(0)
         await photograph('11-picked-attempt')
         await page.getByRole('button', { name: 'Merge A into main', exact: true }).click()
         await expect(page.getByRole('dialog', { name: 'Merge into main', exact: true })).toBeVisible()
@@ -234,13 +242,22 @@ try {
         assert.ok(comments[0].body.includes(`reviewed ${evidence.at(-1).publishedHead.slice(0, 12)} in round 2 and raised no findings.`))
         evidence.at(-1).reviewCommentUrl = comments[0].html_url
       }
+      await expect(page.getByText(template === 'comparison' ? 'Rounds 4 of 4' : 'Rounds 3 of 7', { exact: true })).toBeVisible()
       await photograph('13-finished-overview')
       await tab('Run')
       await page.getByRole('radio', { name: 'Timeline', exact: true }).click()
       await photograph('14-finished-run')
       await tab('Board')
+      const readyRail = page.getByRole('button', { name: /^Ready \d+ — Open column$/ })
+      if (await readyRail.isVisible()) await readyRail.click()
+      await expect(boardColumn('Needs you').getByRole('heading', { level: 4 })).toHaveCount(0)
+      await expect(boardColumn('In review').getByRole('heading', { level: 4 })).toHaveCount(0)
+      await expect(boardColumn('Ready').getByRole('heading', { level: 4 })).toHaveCount(template === 'comparison' ? 6 : 3)
       await photograph('15-finished-board')
       await tab('Chat')
+      await expect(page.getByText(/You (?:added|completed).*Check the attempt/)).toHaveCount(0)
+      await expect(page.getByText(/The Flow .* added/).first()).toBeVisible()
+      await expect(page.getByText(/\(Implementer\)/)).toHaveCount(0)
       await photograph('16-finished-chat')
       assert.deepEqual(rendererErrors, [], 'the shipped renderer had no uncaught errors')
     } catch (error) {

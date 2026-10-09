@@ -9,6 +9,18 @@ const entry = (id: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
 })
 const shapes = ['review', 'investigation', 'comparison', 'alignment', 'independent-review', 'fix-and-review'].map(id => entry(id))
 
+it('preserves separating spaces as the controlled project check is typed', () => {
+  const template = TEAM_START_POLICIES.comparison
+  let flow: FlowPolicy = template
+  let value = ''
+  for (const character of 'node check.mjs') {
+    flow = withAttemptCheck(flow, template, value + character)
+    const check = flow.roles.find(role => role.kind === 'check')
+    value = check?.kind === 'check' ? check.check.run : ''
+  }
+  expect(value).toBe('node check.mjs')
+})
+
 const customComparison = (): FlowPolicy => {
   const base: FlowPolicy = TEAM_START_POLICIES.comparison
   return { ...base, roles: [base.roles[0]!, {

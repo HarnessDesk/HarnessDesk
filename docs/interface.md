@@ -1314,9 +1314,10 @@ Arrow keys move focus through the tabs, including Side by side.
 
 Overview is the Team's first page tab and opens by default when the
 Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
-waits on you, why it stalled or stopped, and any release still pending. It
+waits on you, whether the Run stalled or stopped, and any release still pending. It
 also keeps the Run's reason for waiting on evidence or ending without a rule
-to continue, showing each reason once. The header keeps the revision it
+to continue. A stalled Run keeps its full refusal and recovery on Run;
+Overview, Board and Chat offer **Review stopped Run** to reach it. The header keeps the revision it
 reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**, above the rows.

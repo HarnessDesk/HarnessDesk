@@ -1,4 +1,4 @@
-import type { CardEvidence, EvidenceView } from './evidence.js'
+import type { BoardEvidence, CardEvidence, EvidenceView } from './evidence.js'
 import type { FlowRole, FlowRun } from './flow.js'
 import type { FlowExecution } from './flow-policy.js'
 import type { Intent } from './team.js'
@@ -43,6 +43,7 @@ export interface PlaceInput {
    * theirs — drawn in Needs you, as the Goal's own header already reads it.
    */
   readonly runStopped: boolean
+  readonly flowStep?: FlowStep | null
 }
 
 export const flowRoleOf = (intent: Intent, run: FlowRun | undefined): FlowRole | null => {
@@ -67,6 +68,8 @@ export interface FlowStep {
   readonly review?: true
   /** The run whose review candidates or check retry this card may choose. */
   readonly run?: string
+  /** A completed agent/check obligation; its facts remain readable history. */
+  readonly fulfilled?: true
 }
 
 /**
@@ -119,6 +122,7 @@ export const flowStepOf = (
       stopped: execution.state === 'stalled',
       ...(role.kind === 'check' ? { run: execution.id } : {}),
       live: execution.state === 'running' || execution.state === 'stalled',
+      ...(intent.state === 'done' && role.kind !== 'person' ? { fulfilled: true as const } : {}),
       ...(role.kind === 'person' && isPersonReviewStep(execution.document.flow, role.id)
         ? { review: true as const, run: execution.id }
         : {}),
@@ -147,7 +151,29 @@ const notCurrent = (view: EvidenceView): string | null => {
   return view.freshness.state === 'unknown' ? `${subject} unknown` : `${subject} out of date`
 }
 
-const settled = (evidence: CardEvidence | undefined): Placement => {
+/** Check facts follow a recorded dependency only at the writer's exact revision and checkout. */
+export const evidenceForCard = (intent: Intent, intents: readonly Intent[], evidence: BoardEvidence | null | undefined,
+  run: FlowRun | undefined, executions: readonly FlowExecution[]): CardEvidence | undefined => {
+  const own = evidence?.cards.find(one => one.card === intent.id)
+  const diff = own?.facts.find(one => one.record.fact.kind === 'diff')?.record
+  if (!diff || diff.fact.kind !== 'diff' || !diff.checkout) return own
+  const facts = [...(own?.facts ?? [])]
+  for (const check of intents) {
+    if (!check.dependsOn.includes(intent.id) || flowStepOf(check, run, executions)?.kind !== 'check') continue
+    for (const view of evidence?.cards.find(one => one.card === check.id)?.facts ?? []) {
+      const record = view.record
+      if (record.fact.kind !== 'check' || record.restored || record.fact.advisory || record.fact.at !== diff.fact.to ||
+        record.checkout?.cwd !== diff.checkout.cwd || record.checkout.branch !== diff.checkout.branch) continue
+      const name = record.fact.name
+      const previous = facts.findIndex(one => one.record.fact.kind === 'check' && one.record.fact.name === name)
+      if (previous < 0) facts.push(view)
+      else if (facts[previous]!.record.observedAt < record.observedAt) facts[previous] = view
+    }
+  }
+  return { card: intent.id, facts, running: own?.running ?? [] }
+}
+
+const settled = (evidence: CardEvidence | undefined, step?: FlowStep | null): Placement => {
   const facts = evidence?.facts ?? []
   const current = facts.filter((view) => isCurrent(view.freshness))
   for (const view of current) {
@@ -168,8 +194,9 @@ const settled = (evidence: CardEvidence | undefined): Placement => {
   for (const view of current) {
     const fact = view.record.fact
     if (fact.kind === 'ci' && ciVerdict(fact.checks) === 'running') return { column: 'review', why: 'CI running' }
-    if (fact.kind === 'pr' && fact.state === 'open') return { column: 'review', why: `PR #${fact.number} open` }
+    if (!step?.fulfilled && fact.kind === 'pr' && fact.state === 'open') return { column: 'review', why: `PR #${fact.number} open` }
   }
+  if (step?.fulfilled) return { column: 'ready', why: null }
   for (const view of facts) {
     const why = notCurrent(view)
     if (why !== null) return { column: 'needs', why }
@@ -177,7 +204,7 @@ const settled = (evidence: CardEvidence | undefined): Placement => {
   return { column: 'needs', why: 'nothing checked' }
 }
 
-export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, live, runStopped }: PlaceInput): Placement => {
+export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, live, runStopped, flowStep }: PlaceInput): Placement => {
   switch (intent.state) {
     case 'abandoned':
       return { column: 'aside', why: null }
@@ -210,6 +237,6 @@ export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, 
        * this checks it before, and instead of, `settled`.
        */
       if (forPerson) return { column: 'ready', why: null }
-      return settled(evidence)
+      return settled(evidence, flowStep)
   }
 }

@@ -64,7 +64,12 @@ export function scriptedFlow(raw, { send, notify }) {
       let error = null
       try {
         // A Seat's standing brief arrives before it is bound to a card. Finish
-        // that turn quietly; only the later, real card order may do work.
+        // that turn with an acknowledgement; only the later card order may do work.
+        if (!card || !entry) {
+          const item = { id: `rig-standing-${turnId}`, type: 'agentMessage', text: 'Ready for the next card.' }
+          notify('item/started', { threadId, turnId, item })
+          notify('item/completed', { threadId, turnId, item })
+        }
         if (card && entry) {
           const intent = Number(card[1])
           const [marker, step] = entry

@@ -2,7 +2,7 @@ import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
 
 /** The existing comparison form edits the policy itself; the engine receives only concrete commands and routes. */
 export const withAttemptCheck = (flow: FlowPolicy, template: FlowPolicy, command: string): FlowPolicy => {
-  const run = command.trim()
+  const run = command.trim() ? command : ''
   const previous = flow.roles.find(role => role.id === 'verify' && role.kind === 'check')
   if (run && previous?.kind === 'check') return { ...flow, roles: flow.roles.map(role => role === previous ? { ...previous, check: { ...previous.check, run } } : role) }
   const fallback = template.roles.find(role => role.id === 'verify' && role.kind === 'check')

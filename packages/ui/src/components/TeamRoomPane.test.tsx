@@ -541,16 +541,20 @@ const GOAL: GoalView = {
 
 const FLOW_DOCUMENT = { format: 'agents' as const, flow: { version: 2 as const, name: 'Review', inputs: [], roles: [], rules: [], seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 } }
 
-it('says the same stalled Run problem once on Overview, Run, Board and Chat', async () => {
+it('keeps the full stalled reason on Run and routes the other destinations there', async () => {
   const reason = 'The Seat for card #1 could not be opened: the project is unavailable. Lane lane-1 was retained for review; its checkout and ports were kept.\nNext: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
-  const shown = 'The Seat for card #1 could not be opened: the project is unavailable. Its checkout and ports were kept for review.\nNext: fix what stopped card #1, then choose Run again.'
+  const shown = 'The Seat for card #1 could not be opened: the project is unavailable. Its checkout and ports were kept for review.\nNext: open the project folder again, then choose Run again.'
   const execution: FlowExecution = { version: 2, id: 'stalled-run', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled', end: { kind: 'stalled' }, rounds: [], operations: [], legacyRun: null, reason }
   const { store } = rig(undefined, undefined, {}, { ...GOAL, problem: reason }, new Map([[execution.id, execution]]))
   await render(store)
   for (const page of ['Overview', 'Run', 'Board', 'Chat']) {
     act(() => row(page).click())
     await act(async () => {})
-    expect(container.textContent?.split(shown), page).toHaveLength(2)
+    expect(container.textContent?.split(shown), page).toHaveLength(page === 'Run' ? 2 : 1)
+    if (page !== 'Run') {
+      const recovery = [...container.querySelectorAll('button')].find(one => one.textContent === 'Review stopped Run')
+      expect(recovery, page).toBeDefined()
+    }
     expect(container.textContent, page).not.toContain('lane-1')
     expect(container.textContent, page).not.toContain('Goal')
     if (page === 'Run') {
@@ -2126,30 +2130,19 @@ it("names a person-started flow's own stop reason on the live line, as a proper 
  * run's own reason — the refusal, the siblings its round held back, the next
  * step — each line as the host wrote it.
  */
-it("names a stalled run's own reason on the live line, lines kept, as a wait on you", async () => {
-  const reason = 'The Seat for card #1 could not be opened: Claude did not offer to pass a lane environment to a session when it started.\n' +
-    'A round’s cards start together, so card #2 was not started either.\n' +
-    'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
-  const shown = reason.slice(0, reason.indexOf('Next:')) + 'Next: fix what stopped card #1, then choose Run again.'
-  const execution: FlowExecution = {
-    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled',
-    rounds: [], operations: [], legacyRun: null, reason,
-  }
+it('routes a Seat-opening refusal to Run without repeating its full reason in Overview or Chat', async () => {
+  const reason = 'The Seat for card #1 could not be opened: the model is unavailable.\nNext: choose an available model, then choose Run again.'
+  const execution: FlowExecution = { version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled', end: { kind: 'stalled' }, rounds: [], operations: [], legacyRun: null, reason }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
-  expect(container.querySelector('[data-slot="team-overview"] [data-kind="stall"] .whitespace-pre-line')?.textContent).toBe(shown)
-  expect(container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')?.textContent?.split(shown)).toHaveLength(2)
+  expect(container.textContent).not.toContain(reason)
   act(() => row('Chat').click())
   await act(async () => {})
-
-  expect(container.querySelector('header')!.textContent).toContain('Needs you')
-  const line = container.querySelector('[data-slot="room-live-line"]')!
-  expect(line.getAttribute('data-kind')).toBe('stall')
-  expect(line.hasAttribute('data-settled')).toBe(true)
-  // It waits on you: it leads with the same pulsing light a question does.
-  expect(line.querySelector('[data-slot="dot"]')).not.toBeNull()
-  const words = line.querySelector<HTMLElement>('.whitespace-pre-line')!
-  expect(words.textContent).toBe(shown)
+  expect(container.textContent).not.toContain(reason)
+  const review = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Review stopped Run')!
+  act(() => review.click())
+  await act(async () => {})
+  expect(container.textContent?.split(reason)).toHaveLength(2)
 })
 
 it('offers to continue a kept answer and disables the action with the visible refusal when its Seat is gone', async () => {

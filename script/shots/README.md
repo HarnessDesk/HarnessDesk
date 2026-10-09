@@ -100,7 +100,7 @@ at its original commit. The scene has no forge and never pushes or merges.
 `FAKE_CODEX_FLOW` opts the fake app-server into this behavior. `flow-rig.mjs`
 supplies the steps and outcomes, resets their pass state for each take, and seats
 the project reviewer on the native fake. The normal fake turns used by adapter
-tests are unchanged. Standing prompts finish quietly; only a real card order
+tests are unchanged. Standing prompts acknowledge their brief visibly; only a real card order
 can claim, write or answer. A refused tool fails the turn rather than reporting
 completion.
 

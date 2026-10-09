@@ -260,3 +260,10 @@ it('puts compact Agent facts on the name line so its second line has room to rea
  expect(box.querySelector('[data-slot="list-row-title"]')?.textContent).toContain('Working')
  expect(box.querySelector('[data-slot="list-row-trail"]')?.textContent??'').not.toContain('Working')
 })
+
+it('calls the frozen Flow budget Rounds, including its agent and person steps', () => {
+ const model = overviewModel('done')
+ act(() => root.render(<TeamOverview model={{ ...model, run: { ...model.run!, reviewRounds: { used: 4, of: 4 } } }} />))
+ expect(box.textContent).toContain('Rounds 4 of 4')
+ expect(box.textContent).not.toContain('Reviews 4 of 4')
+})

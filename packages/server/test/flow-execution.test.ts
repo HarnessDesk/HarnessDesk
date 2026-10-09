@@ -1,3 +1,4 @@
+import { seatRefused } from '../src/flow-execution.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -798,7 +799,7 @@ rules:
  * channel showed "You added #1 — …" for a card admission opened while nobody
  * was at the keyboard (#898).
  */
-test('a card a trigger’s run opens names the trigger, and a card a person’s run opens still names the person', async (t) => {
+test('a card a trigger’s run opens names the trigger, and a card a person’s run opens names the Flow', async (t) => {
   const rig = await goalRig(t)
   const SEED_ONLY = `
 version: 2
@@ -816,7 +817,7 @@ rules: []
 
   const started = await rig.start(SEED_ONLY, agents)
   const startedAdd = addedSignal(rig.board(started.goal).channel)
-  assert.deepEqual(startedAdd?.by, { kind: 'user' })
+  assert.deepEqual(startedAdd?.by, { kind: 'flow', name: 'Review a change' })
 })
 
 const TWO_REVIEWERS = `
@@ -2138,4 +2139,9 @@ complete: {land: [landed]}
   await rig.flows.flush()
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.end?.kind,outcome==='landed'?'complete':'unrouted')
  }
+})
+
+test('project and model opening refusals name their own recovery', () => {
+  assert.match(seatRefused(1, [1, 2], 'The Seat project is outside every project opened here. Open it first.'), /Next: open the project folder again, then choose Run again\./)
+  assert.match(seatRefused(1, [1], 'the model is unavailable'), /Next: choose an available model, then choose Run again\./)
 })

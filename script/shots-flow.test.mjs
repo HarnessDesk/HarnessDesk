@@ -74,6 +74,7 @@ test('the script is opt-in and standing prompts cannot claim or advance a pass',
   assert.equal(scriptedFlow(undefined, {}), null)
   const rig = worker(t, { WRITE: { kind: 'write', file: 'retry.txt', outcomes: ['committed'] } })
   await rig.play(1, 'WRITE', { prompt: 'The standing order mentions WRITE, before a card exists.' })
+  assert.ok(rig.events.some(one => one.method === 'item/completed' && one.params.item.type === 'agentMessage'), 'standing turns acknowledge the brief visibly')
   assert.deepEqual(rig.calls, [])
   assert.equal(rig.events.at(-2).params.turn.status, 'completed')
 })

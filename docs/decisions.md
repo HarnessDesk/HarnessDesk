@@ -436,7 +436,16 @@ agent's latest card lifecycle signal when release clears the claim, or through
 the Run's explicit seat/card journal. A later lifecycle transition supersedes
 the block; stop capture and other metadata updates do not. A refused claim's
 conflict signal leaves ownership unchanged. Neither a shared role name nor
-matching session ids across runtimes establish ownership. Completed cards
+matching session ids across runtimes establish ownership.
+
+Completed Flow obligations stay Ready without inventing a missing check.
+A current failed check, failed CI or closed pull request still needs attention;
+a completed obligation does not erase a failure. Downstream check facts
+qualify the attempt only through its recorded dependency, exact diff revision
+and checkout identity. Board placement and host attention use this same
+contract rather than omitting completed cards on the host alone.
+
+Completed cards
 retain the completing agent through the latest card lifecycle signal, including
 manual cards and cards from earlier Runs after the host clears their claims;
 refused claims and metadata capture leave that attribution intact.

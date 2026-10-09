@@ -69,7 +69,7 @@ type Tint = (typeof TINTS)[number] | 'blue'
 
 /** One sender, stable across their messages — the conversation, not the agent. */
 const senderKey = (actor: TeamActor): string =>
-  actor.kind === 'user' ? 'user' : actor.kind === 'trigger' ? `trigger\u0000${actor.trigger}` : `${actor.runtime}\u0000${actor.sessionId}`
+  actor.kind === 'user' ? 'user' : actor.kind === 'flow' ? `flow\u0000${actor.name}` : actor.kind === 'trigger' ? `trigger\u0000${actor.trigger}` : `${actor.runtime}\u0000${actor.sessionId}`
 
 /** A run of messages from one sender is one person talking. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -424,6 +424,7 @@ export const ChannelStream = ({
  */
 const actorName = (actor: TeamActor, snapshot: AppSnapshot): string => {
   if (actor.kind === 'user') return 'You'
+  if (actor.kind === 'flow') return `The Flow ${actor.name}`
   /* Admission opened this while nobody was at the keyboard: the card is the
      trigger's, never "You" — the misattribution a Goal a trigger opened used
      to show in its own chat (#898). */
@@ -437,7 +438,7 @@ const actorName = (actor: TeamActor, snapshot: AppSnapshot): string => {
      conversation back out of. A row written before rooms had names still has
      only its title, and still reads. */
   if (actor.nickname) {
-    return actor.title && actor.title !== agent && actor.title !== actor.nickname
+    return actor.title && actor.title !== agent && !actor.nickname.split(' · ').includes(actor.title)
       ? `${actor.nickname} (${actor.title})`
       : actor.nickname
   }

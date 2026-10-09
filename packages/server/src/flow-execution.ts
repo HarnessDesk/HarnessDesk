@@ -616,8 +616,11 @@ export const seatRefused = (card: number, cards: readonly number[], why: string)
   const together = siblings.length === 0
     ? ''
     : `\nA round’s cards start together, so card${siblings.length === 1 ? '' : 's'} ${siblings.join(', ')} ${siblings.length === 1 ? 'was' : 'were'} not started either.`
+  const recovery = /project is unavailable|project is outside every project opened|project (?:folder|identity)|Open it first/i.test(why)
+    ? 'open the project folder again'
+    : /model.*(?:unavailable|not found|unsupported)/i.test(why) ? 'choose an available model' : `fix what stopped card #${card}`
   return `The Seat for card #${card} could not be opened: ${why}${together}\n` +
-    `Next: fix what stopped card #${card}, then choose Run again.`
+    `Next: ${recovery}, then choose Run again.`
 }
 
 /** What a finished round's rule decides: fire one (with the evidence that authorized it), wait, or end the run. */
@@ -3146,7 +3149,7 @@ export class FlowExecutions {
         ...(dependsOn.length ? { dependsOn } : {}),
         role: role.id,
         dispatch: `${id}:${round.n}:${index}`,
-      }, run.intake ? { kind: 'trigger', trigger: run.intake.trigger } : { kind: 'user' })
+      }, run.intake ? { kind: 'trigger', trigger: run.intake.trigger } : { kind: 'flow', name: policy.name })
       cards.push(card.id)
     }
     if (JSON.stringify(cards) !== JSON.stringify(round.cards) || (plan && !run.checkPlans?.[String(round.n)])) {
@@ -3753,7 +3756,7 @@ export class FlowExecutions {
         }
         await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'finished', card, seat: null }))
         const said = check.exits[String(outcome.result.exit)] ?? check.otherwise
-        await this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said)
+        await this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said, undefined, undefined, run.intake ? { kind: 'trigger', trigger: run.intake.trigger } : { kind: 'flow', name: run.document.flow.name })
         return true
       }
       if (!background) return complete()
