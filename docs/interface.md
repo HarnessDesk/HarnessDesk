@@ -599,7 +599,10 @@ summary says where it got, for the reader who did not watch.
 record, and backups keep it restorable. Reopening a conversation shows what
 happened even when the backend forgot: Cursor keeps nothing readable, and ACP
 replay is lossy. A prompt with several content blocks replays as one message,
-not one turn per block.
+not one turn per block. When the agent can name its source file, an unchanged
+record opens from the local copy; a changed record is read again and folded
+into it. If that record is gone or cannot be read by the agent, the transcript
+says **HarnessDesk’s copy** in one quiet line at the top.
 
 The search palette searches your messages and the agent's answers. **Include
 tool output** adds output from tools and commands, with those hits marked
@@ -1073,7 +1076,10 @@ with their full text on hover. The **globe** opens the Seat's own browser; the
 collapse, narrow member tabs and a restart. Expansion is in the tile's more
 menu. A tile's browser has only back, forward, reload and an address field; the
 ordinary Browser pane retains its full toolbar. Several isolated Seats can
-show live pages at once. A Seat with no page shows **Nothing open yet** and
+show live pages at once. When two rows cannot fit the Browser controls, a
+usable page and the shared dock, member tabs show one tile at a time; making
+the room taller restores the grid without reloading its pages.
+A Seat with no page shows **Nothing open yet** and
 **Pages the agent opens appear here.** Seats that share the ordinary browser
 profile share one surface; another tile says where that browser is already
 shown.

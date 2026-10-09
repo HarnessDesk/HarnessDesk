@@ -65,15 +65,17 @@ const stripCitations = (text: string): string => {
 }
 
 /** The rollout file for a thread, wherever under `sessions/` it was filed. */
-export const findRollout = async (codexHome: string | null, id: string): Promise<string | null> => {
-  const root = join(codexHome ?? join(homedir(), '.codex'), 'sessions')
-  try {
-    const entries = await readdir(root, { recursive: true })
-    const match = entries.find((entry) => String(entry).endsWith(`-${id}.jsonl`))
-    return match ? join(root, String(match)) : null
-  } catch {
-    return null
+export const findRollout = async (codexHome: string | null, id: string, includeArchived = false): Promise<string | null> => {
+  const home = codexHome ?? join(homedir(), '.codex')
+  for (const folder of includeArchived ? ['sessions', 'archived_sessions'] : ['sessions']) {
+    const root = join(home, folder)
+    try {
+      const entries = await readdir(root, { recursive: true })
+      const match = entries.find((entry) => String(entry).endsWith(`-${id}.jsonl`))
+      if (match) return join(root, String(match))
+    } catch { /* An absent store has no rollout. */ }
   }
+  return null
 }
 
 /** Reads the rollout into a read-only `Session`; null when nothing usable. */

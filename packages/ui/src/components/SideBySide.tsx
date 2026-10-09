@@ -9,6 +9,7 @@ import {
   focusTile,
   pinTile,
   removeTile,
+  SEAM_WIDTH,
   setTileMode,
   type SideBySideState,
 } from '../lib/side-by-side'
@@ -119,21 +120,27 @@ export const SideBySide = ({
   card?: (key: SessionKey, who: React.ReactNode) => React.ReactNode
 }) => {
   const gridRef = useRef<HTMLDivElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
   /* The dock ref stays mounted even with one tile showing, so the system's
      observer sees it appear, disappear and grow with all its notices. */
   const composerRef = useComposerHeightVar(gridRef)
   const [width, setWidth] = useState(0)
+  const [room, setRoom] = useState({ height: 0, dock: 0, browserTile: 0 })
   const [composing, setComposing] = useState(false)
   const focusedPane = useIsFocusedPane()
   /* A tile never claims the keyboard that what encloses the grid says is
      elsewhere; it can only narrow it to one tile. */
   const keyboardAbove = useContext(KeyboardHereContext) !== false
-  const shown = displayFor(state, width)
+  const fitting = displayFor(state, width)
+  const fittingRows = Math.ceil(fitting.shown.length / fitting.columns)
+  const shortBrowserGrid = fittingRows > 1 && fitting.shown.some(key => state.modes[key] === 'browser')
+    && room.height > 0 && (room.height - (composer ? room.dock : 0) - SEAM_WIDTH) / fittingRows < room.browserTile
+  const shown = shortBrowserGrid ? displayFor(state, 0) : fitting
   const sharedComposer = composer !== undefined && shown.shown.length >= 2
-  /* Narrow is about the room's width, not about what is shown: an expanded
-     tile in a narrow room keeps the strip, so the member can still be
-     switched without first pressing Esc. */
-  const narrow = state.tiles.length > 1 && columnsThatFit(width) < 2
+  /* Tabs select a member when width or Browser height constrains the grid.
+     An expanded tile in a narrow room also keeps the strip, so the member
+     can still be switched without first pressing Esc. */
+  const narrow = state.tiles.length > 1 && (columnsThatFit(width) < 2 || shortBrowserGrid)
   /* The tile a chord just chose, whose composer takes the keyboard once it
      is drawn: a chord moves the keys, not only the highlight. */
   const typeInto = useRef<SessionKey | null>(null)
@@ -162,6 +169,55 @@ export const SideBySide = ({
     observer.observe(grid)
     return () => observer.disconnect()
   }, [])
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    const dock = composerRef.current
+    if (!grid || !dock) return
+    const chromeRows = (): Element[][] => [...grid.querySelectorAll('[data-mode="browser"]')].map(body => {
+      const bars = [...(body.querySelector('[data-slot="tool-pane"]')?.children ?? [])]
+        .filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
+      return body.previousElementSibling ? [body.previousElementSibling, ...bars] : bars
+    })
+    const measure = (): void => {
+      const tokens = getComputedStyle(grid)
+      // The embedded browser has a tile header, slim address bar and footer.
+      // Keep a usable page below them even before its live surface mounts.
+      const chrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
+      const browserTile = Math.max(chrome || 0, ...chromeRows().map(rows =>
+        rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0))) + 80
+      setRoom(was => {
+        // Hiding the shared dock for the fallback must not immediately bring
+        // the cramped grid back. Retain its clearance until it is shown again.
+        // The fallback's tabs disappear with it: count their space when
+        // asking whether the two-row grid can return after chrome shrinks.
+        const height = grid.getBoundingClientRect().height + (stripRef.current?.getBoundingClientRect().height ?? 0)
+        const next = { height, dock: dock.hidden ? was.dock : dock.offsetHeight, browserTile }
+        return next.height === was.height && next.dock === was.dock && next.browserTile === was.browserTile ? was : next
+      })
+    }
+    measure()
+    const gridObserver = new ResizeObserver(measure)
+    const dockObserver = new ResizeObserver(measure)
+    const chromeObserver = new ResizeObserver(measure)
+    let observedChrome = new Set<Element>()
+    const watchChrome = (): void => {
+      const next = new Set(chromeRows().flat())
+      let changed = false
+      for (const row of observedChrome) if (!next.has(row)) { chromeObserver.unobserve(row); changed = true }
+      for (const row of next) if (!observedChrome.has(row)) { chromeObserver.observe(row); changed = true }
+      observedChrome = next
+      if (changed) measure()
+    }
+    // Find and a late-mounted live Browser change chrome without resizing the
+    // room or dock. Observe their rows, including rows added after this effect.
+    watchChrome()
+    const chromeMounts = new MutationObserver(watchChrome)
+    chromeMounts.observe(grid, { childList: true, subtree: true })
+    gridObserver.observe(grid)
+    dockObserver.observe(dock)
+    return () => { gridObserver.disconnect(); dockObserver.disconnect(); chromeObserver.disconnect(); chromeMounts.disconnect() }
+  }, [composerRef, state.modes])
 
   useEffect(() => {
     const onCommand = (event: Event): void => {
@@ -245,10 +301,10 @@ export const SideBySide = ({
     <div className={styles.root} onKeyDown={onKeyDown}>
       {notice}
       {!sharedComposer && decision && <PaneColumn inset="bars">{decision}</PaneColumn>}
-      {/* One tile at a time when the room is too narrow for two: the system's
+      {/* One tile at a time when the room cannot fit the grid: the system's
           tabs pick which, with their arrow keys and roving focus. */}
       {narrow && (
-        <div className={styles.strip}>
+        <div ref={stripRef} className={styles.strip}>
           <Tabs value={state.focused ?? state.tiles[0] ?? ''} onValueChange={(next) => focus(next as SessionKey)}>
             <TabsList aria-label="Side by side tiles">
               {state.tiles.map((key) => (
