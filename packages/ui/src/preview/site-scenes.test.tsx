@@ -1,6 +1,6 @@
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { SCENES } from '../../site-demo/scenes'
 import { SiteScene } from '../../site-demo/scene'
 import { dashboardData } from '../../site-demo/dashboard'
@@ -17,6 +17,22 @@ const step = async (ms: number) => act(async () => {
   const pending = [...frames.values()]
   frames.clear()
   pending.forEach(frame => frame(performance.now()))
+})
+
+let websiteData: ReturnType<typeof dashboardData>
+let yearReferences: Set<string>
+let yearRowKeys: Set<string>
+
+beforeAll(() => {
+  websiteData = dashboardData()
+  const ledger = websiteData.ledger(365, 'runtime')
+  yearReferences = new Set([
+    ...ledger.daily.map(row => row.runtime),
+    ...ledger.hourly!.map(row => row.runtime),
+    ...ledger.rows.map(row => row.runtime!),
+    ...ledger.coverage.hoursKnownFor!,
+  ])
+  yearRowKeys = new Set(ledger.rows.map(row => row.key))
 })
 
 beforeEach(() => {
@@ -43,8 +59,7 @@ it('registers only the approved dashboard with its fixed logical size', () => {
 })
 
 it('uses website runtime presentations and keeps every ledger reference on that roster', () => {
-  const data = dashboardData()
-  const snapshot = data.store.getSnapshot()
+  const snapshot = websiteData.store.getSnapshot()
   expect(snapshot.runtimes.map(info => info.presentation)).toEqual([
     expect.objectContaining({ name: 'Codex', brand: 'codex' }),
     expect.objectContaining({ name: 'Claude Code', brand: 'claudecode' }),
@@ -53,12 +68,8 @@ it('uses website runtime presentations and keeps every ledger reference on that 
   const roster = new Set(snapshot.runtimes.map(info => info.id))
   const accounts = new Set(snapshot.usage.map(report => report.account))
   expect(accounts).toEqual(new Set(['shane@harnessdesk.app', 'olivia@harnessdesk.app', 'review@example.com', 'studio@example.com', 'api@example.com']))
-  const ledger = data.ledger(365, 'runtime')
-  expect(ledger.daily.every(row => roster.has(row.runtime))).toBe(true)
-  expect(ledger.hourly!.every(row => roster.has(row.runtime))).toBe(true)
-  expect(ledger.rows.every(row => roster.has(row.runtime!))).toBe(true)
-  expect(new Set(ledger.rows.map(row => row.key))).toEqual(roster)
-  expect(ledger.coverage.hoursKnownFor!.every(id => roster.has(id))).toBe(true)
+  expect(yearReferences).toEqual(roster)
+  expect(yearRowKeys).toEqual(roster)
 })
 
 it.each(['light', 'dark'] as const)('boots the shipping dashboard in %s, paused, and follows live theme messages', async theme => {
