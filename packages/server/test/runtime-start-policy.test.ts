@@ -237,29 +237,74 @@ test('models learned after an unanswered first probe finish that start measureme
   await waitFor(async () => (await cost()).modelsMs >= 40)
 })
 
-for (const method of ['flow/preview', 'agent/seat'] as const) {
-  test(`${method} passes a held startup over within the startup deadline`, async t => {
-    const dir = await mkdtemp(join(tmpdir(), 'hd-seat-start-'))
-    const held = new HeldRuntime({ id: runtimeId('held') })
-    held.setHealth({ state: 'idle' })
-    const available = new FakeRuntime()
+for (const method of ['agent/seat', 'agent/seat/dry'] as const) {
+  test(`${method} starts a cold unavailable candidate but passes over a later failure`, async t => {
+    class CountingRuntime extends FakeRuntime {
+      starts = 0
+      override async start() { this.starts++; await super.start() }
+    }
+    const dir = await mkdtemp(join(tmpdir(), 'hd-cold-seat-'))
+    const runtime = new CountingRuntime({ id: runtimeId('cold') })
+    const host = makeHost(dir, [new FakeRuntime(), runtime])
+    t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
     await mkdir(join(dir, 'agents', 'reviewer'), { recursive: true })
-    await writeFile(join(dir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\npermission: read\nprefer: [held, fake]\nanswers: [done]\n---\nRead the diff.\n')
-    const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), startTimeoutMs: 30, seatReadDeadlineMs: 30, catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
-    host.register(available); host.register(held)
-    t.after(async () => { held.release(); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await writeFile(join(dir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\npermission: read\nprefer: [cold]\n---\nRead the diff.\n')
     await host.start()
     await host.call('workspace/open', { path: dir })
-    const result = await Promise.race([
-      host.call(method, method === 'agent/seat' ? { id: 'reviewer', cwd: dir } : { root: dir, source: 'version: 2\nname: Preview\nroles:\n  reviewer: { kind: agent, uses: reviewer }\nseed: { role: reviewer, title: Read }\n' }).then(value => ({ value })),
-      new Promise<null>(resolve => setTimeout(() => resolve(null), 1000)),
-    ])
-    assert.ok(result, 'one runtime must not hold the whole candidate list')
-    if (method === 'agent/seat') assert.equal((result.value as { runtime: string }).runtime, 'fake', 'the available fallback is seated')
-    assert.equal(held.starts, 1)
-    held.release()
-    await waitFor(() => held.health().state === 'ready')
+    assert.equal(runtime.health().state, 'unavailable')
+    assert.equal(runtime.starts, 0)
+    const read = () => method === 'agent/seat'
+      ? host.call('agent/seat', { id: 'reviewer', cwd: dir })
+      : host.call('agent/seat/dry', { ids: ['reviewer'] })
+    const seated = await read()
+    if ('runtime' in seated) assert.equal(seated.runtime, runtime.info.id)
+    else {
+      assert.equal(seated[0]?.candidates[0]?.state, 'taken')
+      assert.equal(runtime.sessions.size, 0, 'a dry run opens no conversation')
+    }
+    assert.equal(runtime.starts, 1)
+    if (method === 'agent/seat/dry') {
+      runtime.setHealth({ state: 'idle' })
+      await read()
+      assert.equal(runtime.health().state, 'idle', 'later dry runs keep idle observations passive')
+      assert.equal(runtime.starts, 1)
+    }
+    runtime.setHealth({ state: 'unavailable', reason: 'crashed', message: 'Synthetic process failure' })
+    if (method === 'agent/seat') await assert.rejects(read(), /Synthetic process failure/)
+    else {
+      const plans = await host.call('agent/seat/dry', { ids: ['reviewer'] })
+      assert.equal(plans[0]?.candidates[0]?.state, 'passed')
+      assert.deepEqual(plans[0]?.candidates[0]?.reason, { kind: 'unavailable', detail: 'Synthetic process failure' })
+    }
+    assert.equal(runtime.starts, 1, 'an observed failure is passed over without restarting')
   })
+}
+
+for (const initialState of ['idle', 'unavailable'] as const) {
+  for (const method of ['flow/preview', 'agent/seat'] as const) {
+    test(`${method} passes a held ${initialState} startup over within the startup deadline`, { timeout: 5000 }, async t => {
+      const dir = await mkdtemp(join(tmpdir(), 'hd-seat-start-'))
+      const held = new HeldRuntime({ id: runtimeId('held') })
+      held.setHealth(initialState === 'idle' ? { state: 'idle' } : { state: 'unavailable', reason: 'unknown', message: 'Not started' })
+      const available = new FakeRuntime()
+      await mkdir(join(dir, 'agents', 'reviewer'), { recursive: true })
+      await writeFile(join(dir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\npermission: read\nprefer: [held, fake]\nanswers: [done]\n---\nRead the diff.\n')
+      const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), startTimeoutMs: 30, seatReadDeadlineMs: 30, catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
+      host.register(available); host.register(held)
+      t.after(async () => { held.release(); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+      await host.start()
+      await host.call('workspace/open', { path: dir })
+      // The start cannot settle until released below. Returning while it is
+      // held proves the startup wait yielded; seating's disk work does not
+      // have to race an unrelated wall-clock timer.
+      const result = await host.call(method, method === 'agent/seat' ? { id: 'reviewer', cwd: dir } : { root: dir, source: 'version: 2\nname: Preview\nroles:\n  reviewer: { kind: agent, uses: reviewer }\nseed: { role: reviewer, title: Read }\n' })
+      if (method === 'agent/seat') assert.equal((result as { runtime: string }).runtime, 'fake', 'the available fallback is seated')
+      assert.equal(held.starts, 1)
+      assert.equal(held.health().state, 'starting', 'the held start has not settled behind the result')
+      held.release()
+      await waitFor(() => held.health().state === 'ready')
+    })
+  }
 }
 
 test('warm and a live operation join an adapter-owned start without starting again', async t => {
