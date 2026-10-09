@@ -1969,6 +1969,11 @@ rules:
   // the crowded right rail rather than an empty row that could not regress.
   const stageSidebarMarks = async () => {
     await SCENES.desk.run()
+    // Passive history no longer starts the camera agent. This scene needs
+    // its scripted rows, so join an explicit refresh before reading them.
+    const runtime = NATIVE_CODEX ? rigRuntimeId('claude-code') : 'codex'
+    const refreshed = await cdp.json(`${STORE}.transport.request('runtime/refreshCatalog', ${q({ runtime })})`, 60_000)
+    if (!refreshed.refreshed) throw new Error(`sidebar history fixture could not start: ${refreshed.reason ?? 'no refresh'}`)
     await cdp.eval(`(() => {
       const store = ${STORE}, root = ${q(REPO)}
       if (!store.__shotsSidebarMarks) {
