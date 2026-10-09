@@ -98,6 +98,9 @@ an agent.** Three claims anyone can check:
 11. **The History view opens from the command palette and from Settings**, not
     from a fixed sidebar entry. It is not an everyday surface.
 
+12. **Team runs are filed under their Team.** Their conversations remain reachable
+    through that Team and do not also appear as loose sidebar conversations.
+
 ## The data
 
 One file, `<HARNESSDESK_HOME>/sessions.sqlite`, opened with `node:sqlite` in
@@ -375,7 +378,8 @@ All strings name the agent through `RuntimeInfo.presentation`.
 1. **Sidebar.** Desk conversations only, 50 at a time, more on reaching the
    end. Each project shows its first ten with a **Show more** below; which
    projects are folded is remembered locally. With these limits the sidebar
-   retains its existing keyboard-aware windowing; measure mounted rows and
+   files Team conversations under the Team's own row, and retains its existing
+   keyboard-aware windowing; measure mounted rows and
    grouping cost after pagination before considering its removal.
 2. **An agent's settings page gains a History section.** Before import: one
    line and **Import history**. During: the running count, and **Cancel**.

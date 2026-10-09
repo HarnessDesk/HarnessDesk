@@ -254,6 +254,11 @@ export const Sidebar = ({
             />
           )}
           <SessionTree now={now} searching={query.length > 0} />
+          {snapshot.historyCursor && query.length === 0 && (
+            <Button variant="muted" size="sm" disabled={snapshot.historyLoading} onClick={() => void store.loadHistory()}>
+              Load more conversations
+            </Button>
+          )}
         </RailSection>
       </div>
       <Separator />

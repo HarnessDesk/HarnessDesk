@@ -1969,21 +1969,21 @@ rules:
   // the crowded right rail rather than an empty row that could not regress.
   const stageSidebarMarks = async () => {
     await SCENES.desk.run()
-    // Passive history no longer starts the camera agent. This scene needs
-    // its scripted rows, so join an explicit refresh before reading them.
-    const runtime = NATIVE_CODEX ? rigRuntimeId('claude-code') : 'codex'
-    const refreshed = await cdp.json(`${STORE}.transport.request('runtime/refreshCatalog', ${q({ runtime })})`, 60_000)
-    if (!refreshed.refreshed) throw new Error(`sidebar history fixture could not start: ${refreshed.reason ?? 'no refresh'}`)
     await cdp.eval(`(() => {
       const store = ${STORE}, root = ${q(REPO)}
       if (!store.__shotsSidebarMarks) {
         const real = store.transport.request.bind(store.transport)
         store.transport.request = async (method, params) => {
           const result = await real(method, params)
-          if (method !== 'session/list') return result
-          return { ...result, data: result.data.map((row, index) => row.cwd !== root || index > 1 ? row : {
-            ...row, cwd: root + '/.worktrees/sidebar-' + index,
-            repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+          if (method !== 'session/index') return result
+          let marked = 0
+          return { ...result, data: result.data.map(row => {
+            if (row.cwd !== root || marked >= 2) return row
+            const index = marked++
+            return {
+              ...row, cwd: root + '/.worktrees/sidebar-' + index,
+              repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+            }
           }) }
         }
         store.__shotsSidebarMarks = true
@@ -1999,6 +1999,10 @@ rules:
     await sleep(200)
   } }
   const hover = async (selector) => {
+    // A prior row's tooltip can cover this row's action. Leave its trigger
+    // and wait for the popup to go before choosing a new pointer target.
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+    await waitForSnapshot(() => cdp.eval(`!document.querySelector('[role="tooltip"]')`), Boolean)
     // Hover-only actions have no box until their row is entered.
     const rowPoint = await cdp.json(`(() => {
       const node = document.querySelector(${q(selector)})?.closest('[data-slot="sidebar-menu-item"]')

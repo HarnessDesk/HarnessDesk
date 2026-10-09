@@ -107,6 +107,14 @@ export interface HostContext {
   readonly audit: AuditLog
   readonly transcripts: TranscriptStore
   readonly archive: SessionArchive
+  /** Metadata only: the sidebar never consults an agent on this port. */
+  readonly sessionIndex: {
+    list(params: HostParams<'session/index'>): Page<SessionSummary>
+    record(session: Session): void
+    setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void
+    setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void
+    remove(runtime: RuntimeId, id: SessionId): void
+  }
   readonly names: SessionNames
   readonly terminals: Terminals
   readonly worktrees: Worktrees

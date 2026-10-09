@@ -168,7 +168,7 @@ const SessionRow = memo(({
   }, sameSessionRowSlice)
   const agentName = runtime?.presentation.name ?? 'This conversation’s agent'
   /* The name the person just gave it, before the history list has caught up.
-     A rename patches the open session at once and re-reads the history after;
+     A rename patches the open session and the indexed row at once;
      138 renames in a row left the sidebar saying "Untitled session" down the
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
@@ -860,7 +860,7 @@ const GoneFolders = ({ folders }: { folders: readonly string[] }) => {
 }
 
 /** How many sessions a workspace shows before "Show more". */
-const COLLAPSED_LIMIT = 5
+const COLLAPSED_LIMIT = 10
 const EXPANSION_STEP = 25
 
 type ProjectRow =
@@ -1161,7 +1161,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
   const liveRows = useMemo(() => {
     const listed = new Set(snapshot.history.map((summary) => String(sessionKey(summary.runtime, summary.id))))
     return [...snapshot.sessions.entries()]
-      .filter(([key]) => !listed.has(String(key)))
+      .filter(([key, session]) => !session.archived && !listed.has(String(key)))
       .map(([, session]) => rowOf(session))
   }, [snapshot.history, snapshot.sessions])
   /* The facts a live row is drawn from, as one string. The first ask is one
@@ -1337,7 +1337,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
      once, so a toggle or a move works on what is stored and a stale spelling
      cannot bring the pin back after it is undone. Only from the whole list: a
      filtered or searched one is a part of it, and a part must not decide. */
-  const listIsWhole = !searching && snapshot.listPrefs.agent === null && !snapshot.historyLoading
+  const listIsWhole = !searching && snapshot.listPrefs.agent === null && !snapshot.historyLoading && snapshot.historyCursor === null
   useEffect(() => {
     if (!listIsWhole) return
     const pinned = migratedRoots(snapshot.listPrefs.pinned, null, groups)
@@ -1774,7 +1774,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
             className={styles.nested}
             footer={loose.length > visibleCount ? (
               <SidebarMenu><SidebarMenuItem>
-                <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label={`${loose.length - visibleCount} more`}
+                <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label="Show more" title={`${loose.length - visibleCount} more conversations`}
                   onClick={() => {
                     const shown = revealedCount.get(group.root) ?? COLLAPSED_LIMIT
                     setNavigationTarget({ root: group.root, index: rows.length })
