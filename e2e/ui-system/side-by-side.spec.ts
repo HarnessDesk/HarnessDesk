@@ -1,6 +1,37 @@
 import { expect, test, type Page } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`floating dock fades across the whole grid in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({width:1440, height:900})
+    await page.goto('/preview.html?comparison-verdict')
+    await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
+    const frame = page.locator('[data-frame-id="comparison-picked"]')
+    await frame.locator('[data-side-by-side-container]').scrollIntoViewIfNeeded()
+    const coverage = () => frame.locator('[data-shared-composer]').evaluate(dock => {
+      const grid = dock.parentElement!.getBoundingClientRect()
+      const fade = dock.getBoundingClientRect()
+      const column = dock.querySelector('textarea')!.getBoundingClientRect()
+      const style = getComputedStyle(dock)
+      // The same top fade band must cover points both inside and outside the
+      // centered message column, without moving the column to the grid edge.
+      const y = fade.top + parseFloat(style.paddingTop) / 2
+      const xs = [grid.left + 8, column.left - 8, (column.left + column.right) / 2, column.right + 8, grid.right - 8]
+      return {
+        spansGrid: Math.abs(fade.left - grid.left) < 1 && Math.abs(fade.right - grid.right) < 1,
+        coversBand: xs.every(x => x >= fade.left && x <= fade.right && y >= fade.top && y < fade.bottom),
+        centeredColumn: Math.abs((column.left + column.right) / 2 - (grid.left + grid.right) / 2) < 1 && column.width < grid.width,
+        gradient: style.backgroundImage,
+      }
+    })
+    await expect.poll(async () => (await coverage()).spansGrid).toBe(true)
+    expect(await coverage()).toMatchObject({coversBand:true, centeredColumn:true})
+    expect((await coverage()).gradient).toContain('linear-gradient')
+    const clipped = await page.addStyleTag({content:'[data-shared-composer] { max-width: 800px !important; margin-inline: auto !important; }'})
+    expect(await coverage()).toMatchObject({spansGrid:false, coversBand:false})
+    await clipped.evaluate(node => node.remove())
+    await expect.poll(async () => (await coverage()).spansGrid).toBe(true)
+  })
+
   test(`tile transcripts open at latest and follow dock resizing in ${theme}`, async ({ page }) => {
     await page.setViewportSize({width:1440, height:900})
     await page.goto('/preview.html?side-by-side')
