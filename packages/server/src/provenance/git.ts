@@ -24,6 +24,8 @@ export interface RefSnapshot {
 }
 
 export interface CommitObject {
+  /** Commit clock for the passive history horizon; never attribution proof. */
+  readonly committedAt?: number | null
   readonly sha: string
   readonly tree: string
   readonly parents: readonly string[]
@@ -621,7 +623,10 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
     const headers = utf8(bytes.subarray(0, end)).split('\n')
     const tree = headers.find((line) => line.startsWith('tree '))?.slice(5)
     if (!tree) fail('invalid-commit')
+    const timestamp = /^committer .* (-?\d+) [+-]\d{4}$/.exec(headers.find((line) => line.startsWith('committer ')) ?? '')?.[1]
+    const milliseconds = timestamp === undefined ? NaN : Number(timestamp) * 1000
     const parsed: CommitObject = Object.freeze({
+      committedAt: Number.isSafeInteger(milliseconds) ? milliseconds : null,
       sha,
       tree: objectId(tree),
       parents: Object.freeze(headers.filter((line) => line.startsWith('parent ')).map((line) => objectId(line.slice(7)))),

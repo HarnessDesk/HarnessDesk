@@ -18,6 +18,9 @@ export interface ObserverCheckpoint {
   readonly scanStartedAt: number
 }
 export interface WorkerCheckpoint extends ObserverCheckpoint {
+  /** Absent in checkpoints written before capture had a history horizon. */
+  readonly openedAt?: number
+  readonly historyFloor?: number
   readonly rangeKeys: readonly string[]
   readonly rangePending: readonly string[]
   readonly baseline: readonly string[]
@@ -28,6 +31,9 @@ export interface RefObserverOptions {
   readonly changed: () => void
   readonly problem: (kind: 'degraded' | 'stopped', reason: string) => void
   readonly now?: () => number
+  readonly openedAt?: number
+  readonly historyFloor?: () => number
+  readonly outsideWindow?: (sha: string) => void
   readonly reconcile?: (
     entries: readonly JournalEntry[], checkpoint: WorkerCheckpoint, signal: AbortSignal,
   ) => Promise<Pick<WorkerCheckpoint, 'rangeKeys' | 'rangePending'>>
@@ -85,6 +91,7 @@ let watchers = 0
 const lasting = (checkpoint: WorkerCheckpoint): string => digest([
   checkpoint.refs, checkpoint.heads, checkpoint.logs, checkpoint.frontier,
   checkpoint.capturedThrough, checkpoint.baseline, checkpoint.rangeKeys, checkpoint.rangePending,
+  checkpoint.openedAt, checkpoint.historyFloor,
 ])
 const empty = (): WorkerCheckpoint => ({
   generation: 0, refs: [], heads: [], logs: [], frontier: [],
@@ -107,6 +114,7 @@ export class RefObserver {
   #poll: ReturnType<typeof setTimeout> | null = null
   #debounce: ReturnType<typeof setTimeout> | null = null
   #requested = new Set<string>()
+  #walked = new Set<string>()
 
   constructor(options: RefObserverOptions) {
     this.#options = options
@@ -233,11 +241,6 @@ export class RefObserver {
     const read = await journal.read({ copy: 'shallow' })
     if (read.broken) throw new Error('provenance-journal-damaged')
     const commits = new Map(values<CommitObservation>(read.entries, 'commit').map((entry) => [entry.sha, entry]))
-    const acknowledged = [...read.entries].reverse().find((entry) => entry.kind === 'cursor' &&
-      object(entry.value) && entry.value.type === 'checkpoint')?.seq ?? 0
-    const unacknowledged = new Set(read.entries.filter((entry) => entry.seq > acknowledged &&
-      entry.kind === 'commit' && object(entry.value) && !('restoredAt' in entry.value))
-      .map((entry) => (entry.value as CommitObservation).sha))
     const { snapshot, logs } = await git.batch(signal, async (reader) => ({
       snapshot: await reader.snapshot(signal),
       logs: await reader.reflogs(new Map(prior.logs), signal),
@@ -266,7 +269,11 @@ export class RefObserver {
       this.#options.problem('degraded', 'history-gap')
     }
     const first = prior.generation === 0
-    const tips = first ? [...snapshot.refs.values(), ...snapshot.heads.values()]
+    const openingWindow = first || prior.historyFloor === undefined
+    const openedAt = prior.openedAt ?? this.#options.openedAt ?? now()
+    const historyFloor = Math.min(prior.historyFloor ?? Infinity,
+      this.#options.historyFloor?.() ?? Math.max(0, openedAt - 86400000))
+    const tips = openingWindow ? [...snapshot.refs.values(), ...snapshot.heads.values()]
       : [...logs.moves, ...delta].flatMap((move) => [move.before, move.after])
     const requested = [...this.#requested]
     const frontier = [...new Set([...prior.frontier, ...tips, ...requested].filter((sha): sha is string => !!sha))]
@@ -274,19 +281,28 @@ export class RefObserver {
     const began = performance.now()
     const checkouts = [...this.#handle.checkouts.keys()]
     let captured = 0
+    let visited = 0
     // One check of the repository's metadata covers everything this batch reads.
     await git.batch(signal, async (reader) => {
-      while (frontier.length && captured < 200 && performance.now() - began < 50) {
+      while (frontier.length && visited < 200 && performance.now() - began < 50) {
         signal.throwIfAborted()
         const sha = frontier.shift()!
+        visited += 1
+        if (this.#walked.has(sha)) continue
         const existing = commits.get(sha)
-        if (existing) {
-          if (unacknowledged.delete(sha) && !first && !baseline.includes(sha)) {
-            for (const parent of existing.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-          }
+        const object = await reader.commit(sha, signal)
+        // A commit clock only bounds passive discovery. Existing observations
+        // remain intact, and admitted diff facts are still read by Reconciler.
+        if (object?.committedAt !== undefined && object.committedAt !== null && object.committedAt < historyFloor) {
+          this.#walked.add(sha)
+          this.#options.outsideWindow?.(sha)
           continue
         }
-        const object = await reader.commit(sha, signal)
+        if (existing) {
+          for (const parent of existing.parents) if (!this.#walked.has(parent) && !frontier.includes(parent)) frontier.push(parent)
+          this.#walked.add(sha)
+          continue
+        }
         if (!object) {
           // Refs retain tag object IDs. A bounded rev-list peels a tag without
           // executing project configuration or traversing its whole ancestry.
@@ -323,9 +339,8 @@ export class RefObserver {
         await journal.append('commit', observation)
         commits.set(sha, observation)
         if (observation.why) this.#options.problem('degraded', observation.why === 'limit-exceeded' ? 'limit-exceeded' : 'history-gap')
-        if (!first && !baseline.includes(sha)) {
-          for (const parent of observation.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-        }
+        for (const parent of observation.parents) if (!this.#walked.has(parent) && !frontier.includes(parent)) frontier.push(parent)
+        this.#walked.add(sha)
         captured += 1
       }
     })
@@ -333,7 +348,7 @@ export class RefObserver {
     let next: WorkerCheckpoint = {
       generation, refs: [...snapshot.refs], heads: [...snapshot.heads], logs: [...logs.cursors],
       frontier, capturedThrough: captured ? now() : prior.capturedThrough, scanStartedAt: snapshot.takenAt,
-      baseline, rangeKeys: prior.rangeKeys, rangePending: prior.rangePending,
+      baseline, openedAt, historyFloor, rangeKeys: prior.rangeKeys, rangePending: prior.rangePending,
     }
     if (this.#options.reconcile) {
       const ranges = await this.#options.reconcile((await journal.read({ copy: 'shallow' })).entries, next, signal)

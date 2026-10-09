@@ -143,3 +143,30 @@ test('opening a legacy journal compacts checkpoints and invalidates incremental 
   assert.equal(refreshed.entries[0]?.kind, 'gap', 'a compacted prefix is reloaded rather than silently skipped')
   assert.deepEqual(readCheckpoint(refreshed.entries), checkpoint(32))
 })
+
+
+test('a yielded journal read keeps one generation when compaction overtakes it', async () => {
+  const journal = journalAt(join(tempDir('compact-reader-'), 'provenance.ndjson'))
+  await journal.append('gap', gap('kept'))
+  await writeCheckpoint(journal, checkpoint(1))
+  let entered!: () => void
+  let release!: () => void
+  const paused = new Promise<void>((resolve) => { entered = resolve })
+  const hold = new Promise<void>((resolve) => { release = resolve })
+  const before = await journal.read({ copy: 'shallow' })
+  let first = true
+  const reading = journal.read({ copy: 'shallow', slices: { items: 1, yield: async () => {
+    if (first) { first = false; entered(); await hold }
+  } } })
+  await paused
+  try {
+    await writeCheckpoint(journal, checkpoint(2))
+    await writeCheckpoint(journal, checkpoint(3))
+    await journal.compact(true)
+  } finally { release() }
+  const snapshot = await reading
+  assert.equal(snapshot.generation, before.generation)
+  assert.deepEqual(snapshot.entries, before.entries)
+  assert.deepEqual(readCheckpoint(snapshot.entries), checkpoint(1))
+  assert.deepEqual(readCheckpoint((await journal.read()).entries), checkpoint(3))
+})

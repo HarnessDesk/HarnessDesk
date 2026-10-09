@@ -297,9 +297,18 @@ test('3000 commits and 12000 ranges rebuild and look up sources linearly', async
     sources.push({ ...direct(c, `range-${i}`), patch: { stable: sha(10000 + i), exact: sha(10000 + i), files: ['file'] },
       proof: { kind: 'range', from: c.parents[0]!, to: c.sha, commits: [c.sha], evidenceIds: [], restored: false } })
   }
+  let patchReads = 0
+  const fingerprints = new Set([...commits.map((c) => c.patch!), ...sources.map((source) => source.patch)])
+  for (const patch of fingerprints) {
+    for (const field of ['stable', 'exact'] as const) {
+      const value = patch[field]
+      Object.defineProperty(patch, field, { get: () => { patchReads += 1; return value } })
+    }
+  }
   const work = { patchLookups: 0, sourceRebuilds: 0, rangeMembers: 0 }
   const input = { commits, sources, moves: [], priorLinks: [], now: 4000, work }
   assert.equal((await reconcileProject(input, git, signal())).length, 3000)
+  assert.ok(patchReads <= 4 * (commits.length + sources.length), `${patchReads} fingerprint reads, including model comparisons`)
   assert.ok(work.sourceRebuilds > 0, 'the counters must measure actual source work')
   assert.ok(work.sourceRebuilds <= 24000, `${work.sourceRebuilds} rebuilds`)
   assert.ok(work.rangeMembers <= 24000, `${work.rangeMembers} member reads`)

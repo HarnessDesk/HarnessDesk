@@ -1169,6 +1169,33 @@ The private view capture reads through is a folder in the state directory. Whoev
 
 **The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
 
+## Passive provenance starts at the project and Seat window
+
+Capture walks back to the earlier of the project's first capture opening and
+its earliest local Seat opening, minus one day for clock skew. The opening and
+floor survive in the checkpoint. Older desks recover the opening from their
+oldest local commit observation; restored records never widen the local window.
+Reaching the floor finishes ancestry work, including a History request for an
+older commit: it remains unobserved rather than pending forever. Terminal range
+limits describe bounds already reached, not work still pending. Existing
+observations, decisions and backup history are retained.
+
+This is a bound on passive discovery, not an ownership test. `model.seed` binds
+a diff's observation time to the Seat's lifetime, and `model.reconcile` compares
+exact fingerprints; neither treats a Git author or commit clock as evidence.
+Commit clocks can be backdated. An admitted local diff fact therefore still
+supplies its source fingerprint even when its endpoints predate the passive
+window, preserving its explanation of a later rewrite. Missing commit clocks
+are handled conservatively rather than used to discard an observation.
+
+Reconciliation indexes patches and range dependencies, and capture work yields
+every 100 items or 20 ms. A journal retains every historical observation and
+only the latest complete checkpoint. Streaming an older journal discards
+superseded checkpoint bytes from memory, then writes the retained records to a
+synced temporary file and atomically replaces the original. A failed replacement
+leaves the original readable; checkpoint writes and replacements share a queue
+so a manifest never points at parts renumbered while it was being written.
+
 ## A Goal is finite; Seats and receipts are the authority
 
 Rooms accumulated three competing truths: a member array, the conversations

@@ -291,7 +291,7 @@ function* candidateSteps(
   return { ready, pending, retry }
 }
 
-/** Rewrite edges are undirected; sharing a parent never joins independent branches. */
+/** Synchronous compatibility helper; capture uses the sliced consumer below. */
 export const rangeCandidates = (
   ...args: Parameters<typeof candidateSteps>
 ): ReturnType<typeof rangeCandidatesAsync> extends Promise<infer T> ? T : never => {
@@ -314,6 +314,7 @@ export const rangeCandidatesAsync = async (
   return next.value
 }
 
+/** Rewrite edges are undirected; sharing a parent never joins independent branches. */
 const lineage = async (moves: readonly ReflogMove[], slices: WorkSlices): Promise<(from: string, to: string) => boolean> => {
   const graph = new Map<string, Set<string>>()
   for (const move of moves) {

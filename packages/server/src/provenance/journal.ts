@@ -57,7 +57,9 @@ export const checkpointValue = (value: unknown): boolean => object(value) &&
   number(value.generation) && array(value.refs, pair(sha)) &&
   array(value.heads, pair((head) => nullable(head, sha))) && array(value.logs, pair(logCursor)) &&
   array(value.frontier, sha) && number(value.capturedThrough) && number(value.scanStartedAt) &&
-  strings(value.rangeKeys) && strings(value.rangePending) && array(value.baseline, sha)
+  strings(value.rangeKeys) && strings(value.rangePending) && array(value.baseline, sha) &&
+  (value.openedAt === undefined || number(value.openedAt)) &&
+  (value.historyFloor === undefined || number(value.historyFloor))
 
 /** The same admission rule is used for disk and backups; raw patches have no slot. */
 export const validValue = (kind: JournalKind, value: unknown, prefix = Infinity): boolean => {
@@ -197,17 +199,20 @@ export class ProvenanceJournal {
   async read(options: JournalReadOptions = {}): Promise<JournalRead> {
     await this.#loadOnce(options)
     await this.#tail
+    const source = this.#entries
+    const end = source.length
+    const generation = this.#generation
     const entries: JournalEntry[] = []
     const slices = new WorkSlices(options.slices)
-    for (let at = options.generation !== undefined && options.generation !== this.#generation ? 0 : options.after ?? 0; at < this.#entries.length; at += 1) {
+    for (let at = options.generation !== undefined && options.generation !== generation ? 0 : options.after ?? 0; at < end; at += 1) {
       await slices.step()
-      const entry = this.#entries[at]!
+      const entry = source[at]!
       entries.push(options.copy === 'shallow' ? entry : structuredClone(entry))
     }
     return {
       entries,
       broken: this.#broken,
-      generation: this.#generation,
+      generation,
     }
   }
 
@@ -223,32 +228,32 @@ export class ProvenanceJournal {
   }
 
   async #appendLoaded(kind: JournalKind, saved: unknown): Promise<number> {
-  if (this.#broken) throw new Error('provenance-journal-damaged')
-  if (this.#failed) throw this.#failed
-  if (!validValue(kind, saved, this.#entries.length)) throw new Error('provenance-invalid-record')
-  const key = keyOf(kind, saved)
-  const existing = this.#ids.get(key)
-  if (existing !== undefined) return existing
-  const body = { version: 1, seq: this.#sequence + 1, kind, value: saved }
-  const bytes = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
-  if (bytes.length > JOURNAL_LIMIT) throw new Error('provenance-line-limit')
-  try {
-    await fs.mkdir(dirname(this.#file), { recursive: true, mode: 0o700 })
-    const file = await fs.open(this.#file, 'a', 0o600)
+    if (this.#broken) throw new Error('provenance-journal-damaged')
+    if (this.#failed) throw this.#failed
+    if (!validValue(kind, saved, this.#entries.length)) throw new Error('provenance-invalid-record')
+    const key = keyOf(kind, saved)
+    const existing = this.#ids.get(key)
+    if (existing !== undefined) return existing
+    const body = { version: 1, seq: this.#sequence + 1, kind, value: saved }
+    const bytes = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
+    if (bytes.length > JOURNAL_LIMIT) throw new Error('provenance-line-limit')
     try {
-      if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
-      await file.sync()
-    } finally {
-      await file.close()
+      await fs.mkdir(dirname(this.#file), { recursive: true, mode: 0o700 })
+      const file = await fs.open(this.#file, 'a', 0o600)
+      try {
+        if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
+        await file.sync()
+      } finally {
+        await file.close()
+      }
+    } catch (error) {
+      this.#failed = error instanceof Error ? error : new Error('provenance-write-failed')
+      throw this.#failed
     }
-  } catch (error) {
-    this.#failed = error instanceof Error ? error : new Error('provenance-write-failed')
-    throw this.#failed
-  }
-  this.#entries.push({ seq: body.seq, kind, value: saved })
-  this.#sequence = body.seq
-  this.#ids.set(key, body.seq)
-  return body.seq
+    this.#entries.push({ seq: body.seq, kind, value: saved })
+    this.#sequence = body.seq
+    this.#ids.set(key, body.seq)
+    return body.seq
   }
 
   /** Parts, manifest and replacement share one queue slot, including concurrent callers. */
