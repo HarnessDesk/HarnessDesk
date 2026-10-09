@@ -471,6 +471,9 @@ URL named on the card, and seats the review at that head, including after
 a person or read-only step that supplied no writer revision. A Run started
 at a resolved branch, diff or PR keeps its frozen target; observing a moved
 PR refuses candidates instead of moving the review's checkout. `review_candidates`
+never substitutes a PR for a working-tree review: its reviewers keep the
+selected checkout, and the card explains that its snapshot has no committed
+candidate, even if the checkout later becomes clean. For a committed review it
 offers that observed revision for `raise_finding` and `record_review`; a moved
 head invalidates an earlier candidate. When no candidate is available, the
 card and the candidate call say why. Closing a review round without a recorded

@@ -1987,3 +1987,38 @@ rules: []
     if (kind !== 'pull-request') assert.equal(reads, 0, 'a branch or diff review never adopts a PR binding')
   })
 }
+
+for (const binding of ['card', 'run'] as const) for (const dirty of [true, false]) {
+  test(`a working-diff review keeps its checkout despite a ${binding} PR (dirty=${dirty})`, async (t) => {
+    const head = 'a'.repeat(40)
+    let reads = 0
+    const rig = await goalRig(t, { reviewTarget: async () => {
+      reads += 1
+      return { at: head, number: 7 }
+    } })
+    const entry = agent('reviewer', ['approve'])
+    const reviewer = { ...entry, definition: { ...entry.definition!, ceiling: 'read' as const, produces: ['review' as const] } }
+    const source = `version: 2
+name: Working tree review
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read }
+seed: { role: reviewer, title: "${binding === 'card' ? 'Review pull request #7' : 'Review the working changes'}" }
+rules: []
+`
+    rig.heads.set('/repo', { at: head, dirty })
+    rig.heads.set('/repo/.lanes/1', { at: head, dirty: false })
+    const run = await rig.flows.startGoal({
+      root: '/repo', sentence: 'Review the working changes', source, sourcePath: null, compiled: rig.compile(source, [reviewer]),
+      vars: binding === 'run' ? { pr: '7' } : {}, requireHeld: true,
+      target: { kind: 'working-diff', label: 'Working tree (not committed)', base: head, head: null, pr: null, dirty },
+      authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+    })
+    assert.equal(run.state, 'running', run.reason ?? '')
+    assert.equal(rig.executions.stored(run.id)!.seatPlans?.['1']?.base, null)
+    assert.equal(rig.seats.get('seat-1')!.checkout.cwd, '/repo')
+    assert.equal(reads, 0, 'seating must not observe a PR for a working-tree target')
+    await assert.rejects(() => rig.review.candidates(1, rig.sessionOf('seat-1')), /working tree.*committed/i)
+    assert.equal(reads, 0, 'candidate resolution must not adopt a PR even when the working tree is clean')
+    assert.match(rig.board(run.goal).intents[0]!.detail ?? '', /working tree.*committed/i)
+  })
+}

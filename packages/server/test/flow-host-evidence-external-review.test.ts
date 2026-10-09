@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
+
+import type { FlowExecution, FrontDoorPreview } from '@harnessdesk/protocol'
 
 import { EvidenceStore } from '../src/evidence/store.js'
 import { projectOf } from '../src/evidence/revision.js'
 import { FakeFindingForge } from './fixtures/fake-finding-forge.js'
+import { HoldFake } from './fixtures/hold-runtime.js'
 import { answer, board, claimed, cwdOf, desk, E2E, git, scopeOf, settled, start, whenChanged, type Desk } from './fixtures/flow-host-evidence.js'
 
 const source = (title: string) => `
@@ -25,6 +28,39 @@ const bind = async (d: Desk, goal: string, head: string): Promise<void> => {
     card: null, checkout: null, seat: null, round: null, observedAt: Date.now(), posted: null,
     intake: { firing: 'a'.repeat(64), part: 'pr', goal },
   } }])
+}
+
+for (const binding of ['card', 'team'] as const) {
+  test(`a working-diff review retains uncommitted files despite a ${binding} PR`, E2E, async (t) => {
+    const forge = new FakeFindingForge('a'.repeat(40))
+    const d = await desk(t, undefined, { findingForge: forge })
+    d.host.register(new HoldFake())
+    await writeFile(join(d.stateDir, 'agents', 'code-reviewer', 'AGENT.md'),
+      '---\nname: Reviewer\nceiling: read\nanswers: [approve, request-changes]\nproduces: [review]\nprefer: [holdfake]\n---\nRead the working changes.\n')
+    const head = await git(d.root, 'rev-parse', 'HEAD')
+    forge.head = head
+    d.forge.pullRequests.set(7, { head, state: 'OPEN' })
+    await writeFile(join(d.root, 'uncommitted.txt'), 'Selected working changes.\n')
+    const text = source(binding === 'card' ? 'Review pull request #7' : 'Review the working changes') +
+      '\nlayout: { frontDoor: { contexts: [working-diff] } }\n'
+    const preview = await d.host.call('authoring/start/preview', {
+      context: { kind: 'working-diff', root: d.root }, source: text, vars: {},
+    }) as FrontDoorPreview
+    assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
+    const run = await d.host.call('flow/start-goal', {
+      root: d.root, source: text, token: preview.flow.token!, sentence: preview.sentence, vars: preview.vars,
+    }) as FlowExecution
+    d.runs.push(run.id)
+    const [card] = await claimed(d, run.goal, 'reviewer', 1)
+    if (binding === 'team') await bind(d, run.goal, head)
+    assert.equal(await realpath(cwdOf(d, card!)), await realpath(d.root), 'the reviewer must read the selected working checkout')
+    assert.match(await git(cwdOf(d, card!), 'status', '--porcelain'), /uncommitted\.txt/)
+    await assert.rejects(() => d.host.teamPlane.reviewCandidates(card!.id, scopeOf(card!)), /working tree.*committed/i)
+    assert.match((await board(d, run.goal))[0]!.detail ?? '', /working tree.*committed/i)
+    await d.host.call('team/intent', { room: run.goal, id: card!.id, action: 'done', outcome: 'approve' })
+    await settled(d, run.id)
+    assert.equal(forge.sends.length, 0, 'a working-tree handoff cannot certify a PR review')
+  })
 }
 
 for (const binding of ['card', 'card-url', 'team'] as const) {

@@ -459,7 +459,9 @@ export const goalRig = async (
       if (!goal) return null
       const bound = await rig.flows.reviewBindingFor(goal, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
       if (!bound) return null
-      return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects, unsettled: bound.unsettled }
+      return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects, unsettled: bound.unsettled,
+        ...(bound.refusal ? { refusal: bound.refusal } : {}),
+      }
     },
     personBindingFor: async (run, card) => {
       const bound = await rig.flows.personReviewBinding(run, card)

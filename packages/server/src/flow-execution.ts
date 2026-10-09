@@ -1666,6 +1666,14 @@ export class FlowExecutions {
 
   async #externalReview(run: StoredFlowExecution, card: number): Promise<Omit<FlowClosure, 'cards'>> {
     const intent = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
+    // A working-tree snapshot has no committed candidate. A PR binding
+    // cannot turn it into a review of that PR's head, even after it is clean.
+    if (intent && run.target?.kind === 'working-diff') {
+      const why = 'This Run reviews the working tree, not a committed revision. A pull request cannot supply its review candidate.'
+      this.#team.reviewAvailability(run.goal, card, why)
+      await this.#team.flush()
+      return { subjects: [], unsettled: [], refusal: why }
+    }
     if (!intent || !this.#port.reviewTarget) return { subjects: [], unsettled: [] }
     const { seat } = this.#seatForCard(run, card)
     const pinned = run.target?.head ?? null
@@ -3274,7 +3282,7 @@ export class FlowExecutions {
     // writer's revision. Resolve the review's PR only after that walk is empty.
     if (closure.subjects.length === 0 && closure.unsettled.length === 0 && !closure.refusal) {
       const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === round.cards[0])
-      if (!run.target?.head && card && this.requiresReview(run.goal, card.id) && this.#port.reviewTarget) {
+      if (!run.target?.head && run.target?.kind !== 'working-diff' && card && this.requiresReview(run.goal, card.id) && this.#port.reviewTarget) {
         const target = await this.#port.reviewTarget(run.goal, { title: card.title, detail: card.detail }, this.#targetPr(run))
         this.#team.reviewAvailability(run.goal, card.id, 'why' in target ? target.why : null)
         await this.#team.flush()
