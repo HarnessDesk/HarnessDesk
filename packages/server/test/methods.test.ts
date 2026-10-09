@@ -35,6 +35,7 @@ test('a name that is not a method is refused, even one the prototype would answe
 test('opening in a folder without runtime board tools sends a session-linked notice', async () => {
   const root = tempDir('hd-untrusted-open-')
   const pushed: unknown[] = []
+  const indexed: unknown[] = []
   const session = { id: sessionId('s1'), runtime: runtimeId('gemini'), cwd: root }
   const runtime = {
     info: {
@@ -48,6 +49,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
     resumeSession: async (id: string) => ({ id, settings: () => ({}), options: () => ({ cwd: root }) }),
   } as unknown as AgentRuntime
   const ctx = contextWith({
+    sessionIndex: { record: (session: unknown) => indexed.push(session) },
     runtimes: { resolve: () => runtime },
     laneEnvironment: { forCheckout: () => undefined, forSession: async () => undefined },
     sessions: {
@@ -83,6 +85,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
   assert.equal(pushed.length, 2, 'a resumed session in a different folder gets its own notice')
   await dispatch(ctx, 'session/resume', { runtime: runtime.info.id, sessionId: sessionId('s3') })
   assert.equal(pushed.length, 2, 'the resumed folder is also deduplicated')
+  assert.deepEqual(indexed.map(session => (session as { id: string }).id), ['s1', 's2', 's3'])
 })
 
 const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean; health?: RuntimeHealth; signedOut?: boolean; noSignIn?: boolean } = {}): AgentRuntime =>
