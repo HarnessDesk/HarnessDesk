@@ -429,3 +429,33 @@ it('queries all accounts of the filtered agent independently of the global page'
   expect(ids()).toEqual(['filtered'])
   expect(store.getSnapshot().historyCursor).toBe('filtered-next')
 })
+
+it('opens imported history as a preview and adopts only the host sidebar event', async () => {
+  request.mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read' || method === 'session/resume') return session('preview')
+    return null
+  }) as never)
+  await store.openSession(sessionId('preview'), { runtime, preview: true } as Parameters<AppStore['openSession']>[1])
+  expect(store.getSnapshot().sessions.has(sessionKey(runtime, sessionId('preview')))).toBe(true)
+  expect(ids()).toEqual([])
+  await store.send([{ type: 'text', text: 'Continue the preview' }], sessionKey(runtime, sessionId('preview')))
+  expect(request).toHaveBeenCalledWith('turn/send', { runtime, sessionId: sessionId('preview'), input: [{ type: 'text', text: 'Continue the preview' }] })
+  expect(ids()).toEqual([])
+  handlers().onEvent(runtime, { type: 'turn/started', sessionId: sessionId('preview'), turn: { id: 'turn', status: 'inProgress', items: [] } } as unknown as AgentEvent)
+  change([row('preview')])
+  expect(ids()).toEqual(['preview'])
+})
+
+it('keeps import progress newer than an in-flight status read', async () => {
+  const status = deferred<unknown>()
+  request.mockImplementation((() => status.promise) as never)
+  const loading = store.loadHistoryImport(runtime)
+  handlers().onNotification({ method: 'history/importChanged', params: { runtime, state: 'running', count: 500, importedAt: null, lastScanAt: 2 } })
+  status.resolve({ state: 'done', count: 20, importedAt: 1, lastScanAt: 1 })
+  await loading
+  expect(store.getSnapshot().historyImports[runtime]?.count).toBe(500)
+  const revision = store.getSnapshot().historyRevision
+  handlers().onNotification({ method: 'history/importChanged', params: { runtime, state: 'done', count: 2000, importedAt: 3, lastScanAt: 3 } })
+  expect(store.getSnapshot().historyImports[runtime]?.state).toBe('done')
+  expect(store.getSnapshot().historyRevision).toBe(revision + 1)
+})

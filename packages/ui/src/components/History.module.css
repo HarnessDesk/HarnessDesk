@@ -1,0 +1,9 @@
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--hd-space-3); margin-bottom: var(--hd-space-4); }
+.search { flex: 1; min-width: 160px; }
+.hidden { display: flex; align-items: center; gap: var(--hd-space-2); }
+.scroll { max-height: 440px; overflow: auto; }
+.title { display: flex; align-items: center; gap: var(--hd-space-2); min-width: 0; }
+.name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.project { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+
+.importActions { display: inline-flex; flex-wrap: wrap; gap: var(--hd-space-2); }

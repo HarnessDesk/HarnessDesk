@@ -1,3 +1,4 @@
+import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -1854,11 +1855,13 @@ const AgentDetail = ({
   onBack,
   onOpenAccount,
   onSignIn,
+  onBrowseHistory,
 }: {
   info: RuntimeInfo
   onBack: () => void
   onOpenAccount: (runtime: RuntimeId, key: string) => void
   onSignIn: (runtime: RuntimeId) => void
+  onBrowseHistory: (id: string) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -1968,6 +1971,7 @@ const AgentDetail = ({
 
       {info.origin === 'registry' && <InstallSection info={info} />}
 
+      <AgentHistory info={info} onBrowse={onBrowseHistory} />
       <RuntimeResources runtime={info.id} />
 
       <NewSessionDefaults info={info} />
@@ -2021,10 +2025,12 @@ const AgentDetail = ({
 export const RuntimesSection = ({
   onSignIn,
   focus = null,
+  onBrowseHistory = () => {},
 }: {
   onSignIn: (runtime: RuntimeId) => void
   /** The thing inside the page to open, once — the refusal sheet's "Add Codex", "Open Cursor in Settings". */
   focus?: string | null
+  onBrowseHistory?: (id: string) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -2090,7 +2096,7 @@ export const RuntimesSection = ({
     const info = snapshot.runtimes.find((entry) => entry.id === view.runtime)
     if (info) {
       return (
-        <AgentDetail key={info.id} info={info} onBack={back} onOpenAccount={openAccount} onSignIn={onSignIn} />
+        <AgentDetail key={info.id} info={info} onBack={back} onOpenAccount={openAccount} onSignIn={onSignIn} onBrowseHistory={onBrowseHistory} />
       )
     }
   }

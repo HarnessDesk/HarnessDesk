@@ -444,6 +444,21 @@ window". The difference is visible from the other application, so hiding it
 only means meeting it there instead — which is why every agent's line shows at
 once.
 
+### Imported History
+
+Settings › Conversations › History lists metadata imported from an agent's
+settings page. The command palette also reaches History by name. Agent and
+project filters, title search and Show hidden narrow a windowed list; an
+Archived chip records the agent's archive state. Opening a row previews it in
+the main pane. Sending a message adds it to the sidebar.
+
+An importable runtime's page has a History section: Import history, a running
+count with Cancel, or the imported count and last scan with Rescan, Browse and
+Remove imported. Failed imports expose their reason on hover and can be
+retried. Remove imported keeps the agent's own files and conversations
+continued here. Opening History or returning focus rescans imported agents;
+the host limits completed rescans to once a minute.
+
 ## The conversation
 
 **The header earns each button**: title · status group · browser button ·
@@ -716,7 +731,7 @@ every group — and that row opens your profile.
 | Group | Pages |
 | --- | --- |
 | **General** | General · Appearance · Notifications · Keyboard shortcuts |
-| **Conversations** | Workspaces · Archive |
+| **Conversations** | Workspaces · History · Archive |
 | **Agents** | Runtimes · Models · Skills · Extensions |
 | **Capabilities** | Library · Plugins |
 | **Access** | Permissions · Browser |

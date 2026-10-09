@@ -366,6 +366,14 @@ test.describe('preview coverage', () => {
     await expect(page.locator('#run-dock-frame [data-slot="run-steps"]:visible')).toBeVisible()
     for (const component of (await collectCoverage(page)).covered) covered.add(component)
 
+    await page.goto('/preview.html?history')
+    await expect(page.locator('[data-frame-id="history-rows"]').getByRole('button', { name: 'Trace the slow startup', exact: true })).toBeVisible()
+    await expect(page.locator('[data-frame-id="history-agent-done"]').getByRole('button', { name: 'Browse', exact: true })).toBeVisible()
+    const historyCoverage = await collectCoverage(page)
+    expect(historyCoverage.covered).toContain('components/History.tsx#HistorySection')
+    expect(historyCoverage.covered).toContain('components/History.tsx#AgentHistory')
+    for (const component of historyCoverage.covered) covered.add(component)
+
     // Fail closed if an import-glob/configuration change silently empties the
     // inventory. These representatives prove we are still checking a root
     // component, a nested component, and a recursively discovered panel.

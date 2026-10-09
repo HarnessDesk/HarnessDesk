@@ -692,7 +692,14 @@ export class AppStore {
           // Whatever a plan had it seated on may no longer be offered at all.
           if (this.#agentsRequested) void this.loadAgentPlans()
         }
+        if (notification.method === 'history/importChanged') {
+          const { runtime, ...state } = notification.params
+          this.#historyImportReads.set(runtime, (this.#historyImportReads.get(runtime) ?? 0) + 1)
+          this.#patch({ historyImports: { ...this.#snapshot.historyImports, [runtime]: state },
+            ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
+        }
         if (notification.method === 'session/indexChanged') {
+          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1 })
           this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
@@ -2081,6 +2088,16 @@ export class AppStore {
     }
   }
 
+  #historyImportReads = new Map<RuntimeId, number>()
+
+  async loadHistoryImport(runtime: RuntimeId): Promise<void> {
+    const read = (this.#historyImportReads.get(runtime) ?? 0) + 1
+    this.#historyImportReads.set(runtime, read)
+    const state = await this.transport.request('history/status', { runtime })
+    if (this.#historyImportReads.get(runtime) !== read) return
+    this.#patch({ historyImports: { ...this.#snapshot.historyImports, [runtime]: state } })
+  }
+
   // ------------------------------------------------------------------ history
 
   /** Pages desk conversations from the host's local index, independently of agents. */
@@ -2355,6 +2372,8 @@ export class AppStore {
        * harness is doing while you work with this one.
        */
       readonly area?: AreaId
+      /** Read imported history without adding a sidebar summary before adoption. */
+      readonly preview?: boolean
       /** A layout restore rather than a person's click. */
       readonly restoring?: boolean
       /**
@@ -2387,7 +2406,7 @@ export class AppStore {
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
       this.#setSession(session)
-      this.#ensureHistorySummary(session)
+      if (!options.preview) this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
       // A conversation that reopened is the only evidence its refusal — gone

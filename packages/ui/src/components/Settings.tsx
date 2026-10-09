@@ -68,6 +68,7 @@ import { exportedSentence, restoredSentence } from '../lib/backup-words'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { summarise } from '../lib/options'
 import { presetsFor, snapshotValues, type AgentPreset } from '../state/presets'
+import { HistorySection } from './History'
 import { ArchiveSection } from './Archive'
 import { LibrarySection } from './Library'
 import { RuntimesSection, agentReadiness } from './SettingsAgents'
@@ -136,6 +137,7 @@ export type Section =
   | 'shortcuts'
   | 'workspaces'
   | 'archive'
+  | 'history'
   | 'runtimes'
   | 'models'
   | 'skills'
@@ -162,7 +164,7 @@ const MOVED: Readonly<Record<string, Section>> = {
   agents: 'runtimes',
 }
 const SECTIONS: readonly Section[] = [
-  'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive',
+  'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history',
   'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
 ]
 export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
@@ -1768,7 +1770,7 @@ export const Settings = ({
   /** Open the Library with its import flow already up — the banner's route in. */
   libraryImport?: boolean
   /** The nav rail's clicks, and the redirect off a page an agent has lost. */
-  onSection: (section: Section) => void
+  onSection: (section: Section, focus?: string) => void
   onClose: () => void
   /** Opens the sign-in page on one agent — the flows that need a field live there. */
   onSignIn: (runtime: RuntimeId) => void
@@ -1874,6 +1876,12 @@ export const Settings = ({
           label: 'Workspaces',
           icon: <FolderIcon size={14} />,
           keywords: ['folders', 'projects', 'worktrees', 'forget', 'open folder', 'checkout', 'branch'],
+        },
+        {
+          id: 'history',
+          label: 'History',
+          icon: <ArchiveIcon size={14} />,
+          keywords: ['history', 'import', 'other agents', 'past conversations'],
         },
         {
           id: 'archive',
@@ -2040,7 +2048,8 @@ export const Settings = ({
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'workspaces' && <WorkspacesSection focus={focus} />}
             {section === 'archive' && <ArchiveSection />}
-            {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} focus={focus} />}
+            {section === 'history' && <HistorySection focus={focus} onOpen={onClose} onOpenAgent={id => onSection('runtimes', id)} />}
+            {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} focus={focus} onBrowseHistory={id => onSection('history', id)} />}
             {section === 'models' && <ModelsSection />}
             {section === 'plugins' && <PluginsSection />}
             {section === 'extensions' && hasExtensions && <ExtensionsSection />}
