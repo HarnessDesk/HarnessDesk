@@ -91,6 +91,55 @@ test('folder backfill never starts an idle agent whose history needs a process',
   assert.equal(listings, 0)
 })
 
+for (const refused of [true, false]) for (const earlyReady of [false, true]) test(`folder backfill retries on ready after ${refused ? 'an idle refusal' : 'a failed first listing'} (ready while settling: ${earlyReady})`, async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-retry-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  const row = { runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null,
+    createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' as const } }
+  index.upsert(row)
+  index.upsert({ ...row, id: sessionId('absent') })
+  index.close()
+  runtime.setHealth({ state: refused ? 'idle' : 'ready' })
+  let starts = 0, listings = 0
+  runtime.start = async () => { starts++; throw new Error('background history must not start an agent') }
+  let finished!: () => void
+  const firstAttempt = new Promise<void>(resolve => { finished = resolve })
+  Object.assign(runtime, { canReadWhileIdle: () => { finished(); return false } })
+  runtime.listSessions = async () => {
+    listings++
+    if (!refused && listings === 1) { finished(); throw new Error('temporary listing failure') }
+    return { data: [{ ...row, cwd: '/synthetic/recovered' }], nextCursor: null }
+  }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await firstAttempt
+  if (!earlyReady) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(starts, 0)
+  assert.equal(listings, refused ? 0 : 1)
+  const recovered = new Promise<void>(resolve => host.addBroadcaster(event => {
+    if (event.method === 'session/indexChanged' && event.params.upserted.some(one => one.id === row.id && one.cwd)) resolve()
+  }))
+  runtime.setHealth({ state: 'ready' })
+  await Promise.race([recovered, new Promise<never>((_, reject) => {
+    const timer = setTimeout(() => reject(new Error('folder backfill did not retry on ready')), 2_000)
+    timer.unref()
+  })])
+  const rows = (await host.call('session/index', {})).data
+  assert.equal(rows.find(one => one.id === row.id)?.cwd, '/synthetic/recovered')
+  assert.equal(rows.find(one => one.id === 'absent')?.cwd, '', 'absence leaves metadata unchanged')
+  assert.equal(starts, 0)
+  assert.equal(listings, refused ? 1 : 2)
+  runtime.setHealth({ state: 'ready' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(listings, refused ? 1 : 2, 'a completed pass is not repeated')
+})
+
 test('the first sidebar page asks no runtime, even without a selected agent', async (t) => {
   const root = tempDir('hd-index-host-')
   const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),

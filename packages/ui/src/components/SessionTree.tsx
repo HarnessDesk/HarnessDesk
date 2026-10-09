@@ -1346,6 +1346,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
   const lastReveal = useRef<string | null>(null)
   const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
   const { groups, noFolder, hiddenPinned, gone } = useProjectList({ searching })
+  const noFolderGroup = useMemo<ProjectGroup>(() => ({ root: 'no-folder', name: 'No folder', sessions: noFolder, folders: [], updatedAt: 0 }), [noFolder])
   const [noFolderOpen, setNoFolderOpen] = useState(false)
   const collapsed = useMemo(
     () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace, groups)),
@@ -1611,11 +1612,11 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     () =>
       activeKey === null
         ? null
-        : groups.find((group) => activeTeamRoot !== null
+        : [...groups, noFolderGroup].find((group) => activeTeamRoot !== null
             ? projectRoots(group).includes(activeTeamRoot)
             : group.sessions.some((summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey),
           ) ?? null,
-    [activeKey, activeTeamRoot, groups],
+    [activeKey, activeTeamRoot, groups, noFolderGroup],
   )
 
   useEffect(() => {
@@ -1625,7 +1626,8 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     if (lastReveal.current !== reveal) {
       lastReveal.current = reveal
       setNavigationTarget(null)
-      if (collapsed.has(activeGroup.root)) toggle(activeGroup.root)
+      if (activeGroup === noFolderGroup) setNoFolderOpen(true)
+      else if (collapsed.has(activeGroup.root)) toggle(activeGroup.root)
       if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
       if (activeTeam) setExpanded(current => new Set(current).add(activeTeam.id))
     }
@@ -1645,7 +1647,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     if (activeIndex >= visibleCount) {
       setRevealedCount((current) => new Map(current).set(activeGroup.root, activeIndex + 1))
     }
-  }, [activeGroup, activeKey, activeTeam, collapsed, far, liftedKeys, othersOpen, revealedCount, roomsByProject, snapshot.goals, snapshot.flowExecutions, store, toggle])
+  }, [activeGroup, activeKey, activeTeam, collapsed, far, liftedKeys, noFolderGroup, othersOpen, revealedCount, roomsByProject, snapshot.goals, snapshot.flowExecutions, store, toggle])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
@@ -1889,7 +1891,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       )}
       {far.length === 0 && goneLine}
       {noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))) && !liftedKeys.has(String(sessionKey(summary.runtime, summary.id)))) &&
-        renderGroup({ root: 'no-folder', name: 'No folder', sessions: noFolder, folders: [], updatedAt: 0 }, true)}
+        renderGroup(noFolderGroup, true)}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said
           out loud, so the keyboard rows and the drag land in the same place

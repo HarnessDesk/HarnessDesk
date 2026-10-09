@@ -196,7 +196,7 @@ const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>
  * whatever URL names it, so the `store` it holds is the one the page mounts
  * its frames on. `e2e/ui-system/trajectory-layout.spec.ts` is the caller.
  */
-;(window as unknown as { __hdPreview: unknown }).__hdPreview = { store, sessionKey: PREVIEW_SESSION_KEY }
+;(window as unknown as { __hdPreview: unknown }).__hdPreview = { store, sessionKey: PREVIEW_SESSION_KEY, sidebarFolderlessStore }
 // The roster and chat share the real name role; populate this Goal's chat
 // with the existing rig messages so both treatments can be read together.
 previewMutable.patch({

@@ -137,6 +137,27 @@ it('gives an open subfolder one row, not a second empty one for its repository',
   expect(currentProject()).toBe('ui')
 })
 
+it('reveals an activated folderless row beyond overflow and preserves a later deliberate fold', () => {
+  const history = Array.from({ length: 15 }, (_, index) => ({
+    ...session(`unknown-${index}`, '', { root: '', worktree: false }), repo: null, updatedAt: 15 - index,
+  }))
+  const open = workspace(REPO, { root: REPO, worktree: false })
+  const activeSessionKey = sessionKey(runtime.id, history[14]!.id)
+  render(history, open)
+  expect(container.querySelector('[data-no-folder] button[aria-expanded]')?.getAttribute('aria-expanded')).toBe('false')
+  render(history, open, { activeSessionKey })
+  const group = container.querySelector('[data-no-folder]')!
+  const head = group.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  expect(head.getAttribute('aria-expanded')).toBe('true')
+  expect(group.querySelector('[aria-current="page"]')?.textContent).toContain('unknown-14')
+  expect(group.querySelectorAll('[data-region="session-row"]')).toHaveLength(15)
+  act(() => head.click())
+  render(history, open, { activeSessionKey, inbox: [] })
+  expect(head.getAttribute('aria-expanded')).toBe('false')
+  render(history, open, { activeSessionKey: sessionKey(runtime.id, history[0]!.id) })
+  expect(head.getAttribute('aria-expanded')).toBe('true')
+})
+
 it('keeps the cached home when an older unloaded match is returned while both clones are open', async () => {
   const home = session('home-session', '/widgets', {
     root: '/widgets', worktree: false, origin: 'github.com/acme/widgets',

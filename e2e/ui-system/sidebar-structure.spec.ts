@@ -1,4 +1,55 @@
 import { expect, test } from '@playwright/test'
+import path from 'node:path'
+import type { AppSnapshot } from '../../packages/ui/src/state/store'
+
+for (const theme of ['light', 'dark'] as const) test(`activation reveals a folderless conversation beyond overflow and respects a later fold in ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await page.goto(`/preview.html?sidebar=folderless&theme=${theme}`)
+  const sidebar = page.locator('[data-frame-id="sidebar-column"]')
+  const column = sidebar.locator('[style*="width: 240px"]')
+  await column.evaluate(node => { (node as HTMLElement).style.height = '1000px' })
+  const group = sidebar.locator('[data-no-folder]')
+  const head = group.getByRole('button', { name: 'No folder', exact: true })
+  await expect(head).toHaveAttribute('aria-expanded', 'false')
+  await page.evaluate(() => {
+    const { sidebarFolderlessStore: store } = (window as unknown as { __hdPreview: { sidebarFolderlessStore: {
+      getSnapshot(): AppSnapshot; patch(value: Partial<AppSnapshot>): void
+    } } }).__hdPreview
+    const seed = store.getSnapshot().history.find(row => row.cwd === '')!
+    const unknown = Array.from({ length: 15 }, (_, i) => ({ ...seed, id: `unknown-${i}` as typeof seed.id,
+      preview: `Saved conversation ${i + 1}`, updatedAt: 15 - i }))
+    const history = [...store.getSnapshot().history.filter(row => row.cwd !== ''), ...unknown]
+    store.patch({ history, historyIdentity: history, activeSessionKey: `${seed.runtime}\u0000unknown-14` as AppSnapshot['activeSessionKey'] })
+  })
+  if (process.env.NO_FOLDER_FRAMES_DIR && process.env.NO_FOLDER_FRAME_STATE === 'before') {
+    await expect(head).toHaveAttribute('aria-expanded', 'false')
+    await column.screenshot({ path: path.join(process.env.NO_FOLDER_FRAMES_DIR, `reveal-before-${theme}.png`) })
+  }
+  await expect(head).toHaveAttribute('aria-expanded', 'true')
+  const active = group.locator('[aria-current="page"]')
+  await expect(active).toContainText('Saved conversation 15')
+  await expect(active).toBeInViewport()
+  await expect(active).toHaveAttribute('tabindex', '0')
+  await expect(group.locator('[data-region="session-row"]')).toHaveCount(15)
+  if (process.env.NO_FOLDER_FRAMES_DIR && process.env.NO_FOLDER_FRAME_STATE !== 'before') {
+    await column.screenshot({ path: path.join(process.env.NO_FOLDER_FRAMES_DIR, `reveal-after-${theme}.png`) })
+  }
+  await head.click()
+  await page.evaluate(() => {
+    const { sidebarFolderlessStore: store } = (window as unknown as { __hdPreview: { sidebarFolderlessStore: { patch(value: Partial<AppSnapshot>): void } } }).__hdPreview
+    store.patch({ inbox: [] })
+  })
+  await expect(head).toHaveAttribute('aria-expanded', 'false')
+  await page.evaluate(() => {
+    const { sidebarFolderlessStore: store } = (window as unknown as { __hdPreview: { sidebarFolderlessStore: {
+      getSnapshot(): AppSnapshot; patch(value: Partial<AppSnapshot>): void
+    } } }).__hdPreview
+    store.patch({ activeSessionKey: `${store.getSnapshot().history.find(row => row.cwd === '')!.runtime}\u0000unknown-0` as AppSnapshot['activeSessionKey'] })
+  })
+  await expect(head).toHaveAttribute('aria-expanded', 'true')
+  await expect(group.locator('[aria-current="page"]')).toContainText('Saved conversation 1')
+})
 
 for (const theme of ['light', 'dark'] as const) test(`folderless conversations have a folded group and retain their row menus in ${theme}`, async ({ page }) => {
   await page.emulateMedia({ colorScheme: theme })
