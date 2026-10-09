@@ -6,9 +6,10 @@ import { checkoutRoot, type GitReader, type RepoHandle } from './git.js'
 import { digest, type JournalEntry, type ProvenanceJournal } from './journal.js'
 import { localValues, type WorkerCheckpoint } from './observer.js'
 import {
-  backlog, captureRange, factSource, LIMIT_PREFIX, rangeCandidates, rangeSource, reconcileProject,
+  backlog, captureRange, factSource, LIMIT_PREFIX, rangeCandidatesAsync, rangeSource, reconcileProject,
   type CommitObservation, type LinkObservation, type ProvenanceSource, type RangeCandidate, type RangeObservation,
 } from './reconcile.js'
+import { WorkSlices } from './slices.js'
 
 /** Ranges read under one check of the repository's metadata, with a turn for everything else after each. */
 const RANGE_BATCH = 8
@@ -150,8 +151,13 @@ export class Reconciler {
     })
     /** How many links the pass added: what it decided, and so whether another look could decide more. */
     const reconcile = async (): Promise<number> => {
+      const slices = new WorkSlices()
+      const latest = new Map<string, LinkObservation>()
+      for (const link of links) { await slices.step(); latest.set(link.sha, link) }
+      const rangeSources: ProvenanceSource[] = []
+      for (const range of ranges) { await slices.step(); rangeSources.push(rangeSource(range, links, false, latest)) }
       const decisions = await reconcileProject({
-        commits, sources: [...sources, ...ranges.map((range) => rangeSource(range, links))],
+        commits, sources: [...sources, ...rangeSources],
         moves: localValues(entries, 'ref'), priorLinks: links, now: Date.now(),
       }, git, signal)
       for (const link of decisions) await subject.journal.append('link', link)
@@ -162,7 +168,7 @@ export class Reconciler {
     const keys = new Set(checkpoint.rangeKeys)
     const failedBefore = new Set(checkpoint.rangePending.filter((key) => key.startsWith(LIMIT_PREFIX))
       .map((key) => key.slice(LIMIT_PREFIX.length)))
-    const candidates = rangeCandidates(commits, keys, failedBefore)
+    const candidates = await rangeCandidatesAsync(commits, keys, failedBefore)
     // Ranges never tried come first: ones that could not be read wait behind them.
     const turn = [...candidates.ready, ...candidates.retry].slice(0, RANGE_BUDGET)
     const failed = new Set<string>()

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { setImmediate } from 'node:timers/promises'
+import { WorkSlices, type SliceOptions } from './slices.js'
 
 export type JournalKind = 'ref' | 'commit' | 'range' | 'link' | 'cursor' | 'gap'
 export interface JournalEntry {
@@ -21,6 +21,9 @@ export interface JournalReadOptions {
    * immutable-by-convention records; this avoids duplicating large journals.
    */
   readonly copy?: 'deep' | 'shallow'
+  /** Number of entries already consumed by an incremental reader. */
+  readonly after?: number
+  readonly slices?: SliceOptions
 }
 export const JOURNAL_LIMIT = 64 * 1024
 export const digest = (value: unknown): string =>
@@ -114,14 +117,14 @@ export class ProvenanceJournal {
     this.#file = file
   }
 
-  async #loadOnce(): Promise<void> {
-    this.#load ??= this.#stream()
+  async #loadOnce(options: JournalReadOptions = {}): Promise<void> {
+    this.#load ??= this.#stream(options.slices)
     await this.#load
   }
 
-  async #stream(): Promise<void> {
+  async #stream(options?: SliceOptions): Promise<void> {
     let pending = Buffer.alloc(0)
-    let count = 0
+    const slices = new WorkSlices(options)
     try {
       for await (const bytes of createReadStream(this.#file, { highWaterMark: 16 * 1024 })) {
         pending = Buffer.concat([pending, bytes as Buffer])
@@ -139,7 +142,7 @@ export class ProvenanceJournal {
           this.#entries.push(entry)
           this.#ids.add(keyOf(entry.kind, value))
           pending = pending.subarray(end + 1)
-          if (++count % 200 === 0) await setImmediate()
+          await slices.step()
         }
         if (pending.length >= JOURNAL_LIMIT) throw new Error('journal-line-limit')
       }
@@ -150,10 +153,17 @@ export class ProvenanceJournal {
   }
 
   async read(options: JournalReadOptions = {}): Promise<JournalRead> {
-    await this.#loadOnce()
+    await this.#loadOnce(options)
     await this.#tail
+    const entries: JournalEntry[] = []
+    const slices = new WorkSlices(options.slices)
+    for (let at = options.after ?? 0; at < this.#entries.length; at += 1) {
+      await slices.step()
+      const entry = this.#entries[at]!
+      entries.push(options.copy === 'shallow' ? entry : structuredClone(entry))
+    }
     return {
-      entries: options.copy === 'shallow' ? [...this.#entries] : structuredClone(this.#entries),
+      entries,
       broken: this.#broken,
     }
   }

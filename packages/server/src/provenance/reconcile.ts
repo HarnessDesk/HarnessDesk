@@ -4,6 +4,7 @@ import type { CardRef, EvidenceRecord, ProvenanceSeat, SeatRecord } from '@harne
 
 import type { GitReader, ReflogMove } from './git.js'
 import { reconcile, seed, surviving, type FilePatch, type Patch, type Source } from './model.js'
+import { WorkSlices, type SliceOptions } from './slices.js'
 
 /**
  * Records have already passed EvidenceStore.read(project, 'evidence'). Both
@@ -95,6 +96,7 @@ export interface ReconcileInput {
   readonly moves: readonly ReflogMove[]
   readonly now: number
   /** Deterministic cost evidence; counts index lookups and range member reads. */
+  readonly slices?: SliceOptions
   readonly work?: { patchLookups: number; sourceRebuilds: number; rangeMembers: number }
 }
 
@@ -214,8 +216,8 @@ export const rangeSource = (
   range: RangeObservation,
   links: readonly LinkObservation[],
   restored = false,
+  latest = latestLinks(links),
 ): ProvenanceSource => {
-  const latest = latestLinks(links)
   const parts = range.commits.map((sha) => latest.get(sha))
   const seats = unique(parts.flatMap((part) => part?.seats ?? []))
   const incomplete = parts.some((part) => !part || part.coverage !== 'complete') ||
@@ -258,11 +260,11 @@ export const backlog = (pending: readonly string[]): boolean => pending.some((ke
  * separately, as `retry`, so ranges that could not be read take no place from
  * ranges that have never been tried.
  */
-export const rangeCandidates = (
+function* candidateSteps(
   commits: readonly CommitObservation[],
   captured: ReadonlySet<string>,
   failed: ReadonlySet<string> = new Set(),
-): { ready: readonly RangeCandidate[]; pending: readonly string[]; retry: readonly RangeCandidate[] } => {
+): Generator<void, { ready: readonly RangeCandidate[]; pending: readonly string[]; retry: readonly RangeCandidate[] }> {
   const bySha = new Map(commits.map((commit) => [commit.sha, commit]))
   const ready: RangeCandidate[] = []
   const retry: RangeCandidate[] = []
@@ -284,14 +286,38 @@ export const rangeCandidates = (
       current = bySha.get(from)
     }
     if (current && parts.length === 64) pending.push(`${LIMIT_PREFIX}${tip.sha}`)
+    yield
   }
   return { ready, pending, retry }
 }
 
 /** Rewrite edges are undirected; sharing a parent never joins independent branches. */
-const lineage = (moves: readonly ReflogMove[]): ((from: string, to: string) => boolean) => {
+export const rangeCandidates = (
+  ...args: Parameters<typeof candidateSteps>
+): ReturnType<typeof rangeCandidatesAsync> extends Promise<infer T> ? T : never => {
+  const steps = candidateSteps(...args)
+  let next = steps.next()
+  while (!next.done) next = steps.next()
+  return next.value
+}
+
+export const rangeCandidatesAsync = async (
+  commits: readonly CommitObservation[], captured: ReadonlySet<string>, failed: ReadonlySet<string> = new Set(),
+  slices = new WorkSlices(),
+): Promise<{ ready: readonly RangeCandidate[]; pending: readonly string[]; retry: readonly RangeCandidate[] }> => {
+  const steps = candidateSteps(commits, captured, failed)
+  let next = steps.next()
+  while (!next.done) {
+    await slices.step()
+    next = steps.next()
+  }
+  return next.value
+}
+
+const lineage = async (moves: readonly ReflogMove[], slices: WorkSlices): Promise<(from: string, to: string) => boolean> => {
   const graph = new Map<string, Set<string>>()
   for (const move of moves) {
+    await slices.step()
     if (!move.before || !move.after) continue
     for (const [a, b] of [[move.before, move.after], [move.after, move.before]] as const) {
       const neighbours = graph.get(a) ?? new Set<string>()
@@ -305,6 +331,7 @@ const lineage = (moves: readonly ReflogMove[]): ((from: string, to: string) => b
     const todo = [start]
     components.set(start, start)
     while (todo.length) {
+      await slices.step()
       for (const next of graph.get(todo.pop()!) ?? []) {
         if (components.has(next)) continue
         components.set(next, start)
@@ -327,19 +354,21 @@ export const reconcileProject = async (
   signal: AbortSignal,
 ): Promise<readonly LinkObservation[]> => {
   void git
+  const slices = new WorkSlices(input.slices)
   const output: LinkObservation[] = []
   const latest = latestLinks(input.priorLinks)
   const oldIds = new Set(input.priorLinks.map((link) => link.id))
   const observed = new Map(input.commits.map((commit) => [commit.sha, commit]))
   const sources = input.sources.filter(proven)
-  const related = lineage(input.moves)
+  const related = await lineage(input.moves, slices)
   const patchKey = (patch: Patch): string => {
     if (input.work) input.work.patchLookups += 1
     return JSON.stringify([patch.stable, patch.exact])
   }
-  const index = <T>(values: readonly T[], patch: (value: T) => Patch | null): Map<string, T[]> => {
+  const index = async <T>(values: readonly T[], patch: (value: T) => Patch | null): Promise<Map<string, T[]>> => {
     const byPatch = new Map<string, T[]>()
     for (const value of values) {
+      await slices.step()
       const fingerprint = patch(value)
       if (!fingerprint) continue
       const key = patchKey(fingerprint)
@@ -349,11 +378,12 @@ export const reconcileProject = async (
     }
     return byPatch
   }
-  const byPatch = index(sources, (source) => source.patch)
-  const unscopedByPatch = index(input.sources.filter((source) => !proven(source)), (source) => source.patch)
-  const commitsByPatch = index(input.commits, (commit) => commit.patch)
+  const byPatch = await index(sources, (source) => source.patch)
+  const unscopedByPatch = await index(input.sources.filter((source) => !proven(source)), (source) => source.patch)
+  const commitsByPatch = await index(input.commits, (commit) => commit.patch)
   const movesTo = new Map<string, ReflogMove[]>()
   for (const move of input.moves) {
+    await slices.step()
     if (!move.after) continue
     const group = movesTo.get(move.after) ?? []
     group.push(move)
@@ -364,6 +394,7 @@ export const reconcileProject = async (
   const refreshed = new Map<ProvenanceSource, ProvenanceSource>()
   const byId = new Map(sources.map((source) => [source.id, source]))
   for (const source of sources) {
+    await slices.step()
     if (source.proof.kind !== 'range') continue
     dirty.add(source)
     for (const sha of source.proof.commits) {
@@ -387,7 +418,10 @@ export const reconcileProject = async (
     return current
   }
   // One initial rebuild, then only ranges depending on a changed decision.
-  for (const source of sources) refresh(source)
+  for (const source of sources) {
+    await slices.step()
+    refresh(source)
+  }
   const decide = (commit: CommitObservation, result: Omit<LinkObservation, 'id' | 'sha' | 'at'>) => {
     const normalized = {
       ...result,
@@ -414,6 +448,7 @@ export const reconcileProject = async (
   for (const commit of [...input.commits].sort((a, b) =>
     a.firstSeenAt - b.firstSeenAt || a.sha.localeCompare(b.sha),
   )) {
+    await slices.step()
     live(signal)
     const refuse = (reason: string, sourceIds: readonly string[] = []) => decide(commit, {
       seats: [], sourceIds, evidenceIds: [], retainedPaths: [],
@@ -451,6 +486,7 @@ export const reconcileProject = async (
       // Copies already explained by the same lineage are represented by their
       // source, rather than being counted twice as known and unknown.
       for (const other of commitsByPatch.get(key) ?? []) {
+        await slices.step()
         if (other.sha === commit.sha || !other.patch) continue
         const explained = matches.some((source) => !source.proof.restored &&
           (source.proof.to === other.sha || related(source.proof.to, other.sha)),

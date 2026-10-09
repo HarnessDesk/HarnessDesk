@@ -19,6 +19,7 @@ import {
   relatedEvidence, type CommitObservation, type LinkObservation,
 } from './reconcile.js'
 import { Reconciler, type Ranges } from './reconciler.js'
+import { WorkSlices } from './slices.js'
 
 export interface ProvenancePort {
   readonly evidence: EvidencePlane
@@ -34,7 +35,8 @@ interface Project {
   handle: RepoHandle | null
   observer: RefObserver | null
   journal: ProvenanceJournal
-  entries: readonly JournalEntry[]
+  entries: JournalEntry[]
+  loadTail: Promise<void>
   seats: readonly SeatRecord[]
   facts: readonly EvidenceRecord[]
   health: CaptureHealth
@@ -183,7 +185,7 @@ export class ProvenancePlane {
   #state(project: string, handle: RepoHandle | null): Project {
     const preference = this.#preferences.get(project)
     const state: Project = {
-      project, handle, observer: null, journal: this.#journal(project), entries: [], seats: [], facts: [],
+      project, handle, observer: null, journal: this.#journal(project), entries: [], loadTail: Promise.resolve(), seats: [], facts: [],
       catchingUp: true, reconciler: new Reconciler((kind, reason) => this.#problem(state, kind, reason)),
       links: new Map(), historical: new Map(), observed: new Set(),
       issues: new Set(preference.problem ? [preference.problem] : []), fatal: !!preference.problem, pending: new Set(),
@@ -195,10 +197,19 @@ export class ProvenancePlane {
     return state
   }
 
-  async #load(state: Project): Promise<void> {
-    const read = await state.journal.read({ copy: 'shallow' })
+  #load(state: Project): Promise<void> {
+    const next = state.loadTail.then(() => this.#loadTail(state))
+    state.loadTail = next.catch(() => {})
+    return next
+  }
+
+  async #loadTail(state: Project): Promise<void> {
+    const read = await state.journal.read({ copy: 'shallow', after: state.entries.length })
     if (read.broken) throw new Error('provenance-journal-damaged')
-    for (const entry of read.entries.slice(state.entries.length)) {
+    const slices = new WorkSlices()
+    for (const entry of read.entries) {
+      await slices.step()
+      state.entries.push(entry)
       if (entry.kind === 'link' && object(entry.value)) {
         if ('restoredAt' in entry.value) {
           const link = entry.value.data as LinkObservation
@@ -215,7 +226,6 @@ export class ProvenancePlane {
         if (commit.why) state.issues.add(commit.why === 'limit-exceeded' ? 'limit-exceeded' : 'history-gap')
       }
     }
-    state.entries = read.entries
     const seats = await this.#port.evidence.store.read(state.project, 'seats')
     const facts = await this.#port.evidence.store.read(state.project, 'evidence')
     state.issues.delete('evidence-skipped')
