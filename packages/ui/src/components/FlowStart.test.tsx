@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { AgentEntry, CompiledFlow, FlowEntry, FlowPreview, FlowPreviewSeat, SeatCandidate, SeatPlan } from '@harnessdesk/protocol'
+import type { AgentEntry, CompiledFlow, FlowEntry, FlowPolicy, FlowPreview, FlowPreviewSeat, SeatCandidate, SeatPlan } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot } from '../state/snapshot'
@@ -50,20 +50,53 @@ const emptyPreview = (): FlowPreview => ({ token: 't', compiled: compiled(), sea
 const store = (options: {
   readonly entries: readonly FlowEntry[]
   readonly agents?: readonly AgentEntry[]
+  readonly runtimes?: ReturnType<typeof emptySnapshot>['runtimes']
   readonly source: (id: string) => Promise<string> | string
   readonly preview: (source: string) => Promise<FlowPreview> | FlowPreview
 }): AppStore =>
   ({
     subscribe: () => () => {},
-    getSnapshot: (() => { const snapshot = emptySnapshot(); return () => snapshot })(),
+    getSnapshot: (() => { const snapshot = { ...emptySnapshot(), runtimes: options.runtimes ?? [] }; return () => snapshot })(),
     flowGeneration: () => 0,
     flowCatalog: vi.fn().mockResolvedValue(options.entries),
     agentsIn: vi.fn().mockResolvedValue(options.agents ?? []),
     flowSource: vi.fn((_root: string, id: string) => Promise.resolve(options.source(id))),
     previewFlow: vi.fn((_root: string, source: string) => Promise.resolve(options.preview(source))),
+    modelsFor: vi.fn().mockResolvedValue([]),
   }) as unknown as AppStore
 
 const ENTRY = (id: string): FlowEntry => ({ id, origin: 'project', path: `.harnessdesk/flows/${id}.yml`, name: id, description: null, format: 'agents', problem: null, shadows: [] })
+
+const seat = (role: string, reviews: boolean): FlowPreviewSeat => ({
+  role, index: 0, agent: role, isolate: false, reviews,
+  plan: { id: role, from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'held' },
+    candidates: [candidate({ seat: { runtime: 'gamma' }, label: 'Gamma', runtimeName: 'Gamma', state: 'taken', reason: null, fix: null })] } as SeatPlan,
+})
+
+const renderTeam = async (flow: FlowPolicy, seats: readonly FlowPreviewSeat[], runtimes: ReturnType<typeof emptySnapshot>['runtimes'] = []) => {
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes })
+  const preview = { ...emptyPreview(), seats }
+  await act(async () => {
+    root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
+      flow, template: flow, preview, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {},
+    }} /></StoreProvider>)
+  })
+}
+
+it('gives the selected agent name a tooltip in the seat controls', async () => {
+  await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)], [{ id: 'gamma', presentation: { name: 'Gamma' } } as never])
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')?.title).toBe('Gamma')
+})
+
+it('marks a reviewer that returns to the seed role as fresh each round', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [seat('reviewer', true)])
+  expect(container.textContent).toContain('Fresh each round')
+})
+
+it('does not describe a one-off judge as fresh each round', async () => {
+  await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)])
+  expect(container.textContent).not.toContain('Fresh each round')
+})
 
 it('the review options preserve the review cap and require recorded approval before automatic merging', async () => {
   const flow: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES['fix-and-review']

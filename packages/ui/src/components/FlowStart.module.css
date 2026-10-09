@@ -10,11 +10,24 @@
 
 .roleControls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, 2fr); /* desk: three equal columns -> 3fr 2fr 2fr, so the agent name fits */
   gap: var(--hd-space-2);
   min-width: 0;
   width: 19em;
   max-width: 100%;
+}
+.agentSelect { min-width: 0; }
+.agentSelect select {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.roleTitle {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2);
 }
 .options {
   display: grid;
