@@ -154,6 +154,52 @@ it('Change keeps the task and Done when is the sentence sent to start', async ()
 
 const neverFlow = (): never => { throw new Error('expected current format') }
 
+it.each(['render', 'preview'])('holds Change and Details inputs until a policy %s settles, then keeps the edit', async phase => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const policy = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'task', label: 'Task', default: 'Fix the cart' }, { id: 'ticket', label: 'Ticket', default: '42' }] }
+  const store = new AppStore('ws://localhost:0/')
+  let release!: () => void
+  const delayed = new Promise<void>(resolve => { release = resolve })
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [ENTRY('fix-and-review', 'Write and review')], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+    'authoring/shape/render': async params => {
+      if (phase === 'render') await delayed
+      return { source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }
+    },
+    'authoring/start/preview': async params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      const flow = JSON.parse(input.source) as typeof policy
+      if (phase === 'preview' && flow.budget?.rounds === 5) await delayed
+      const base = emptyFlow('token')
+      return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow } } }, { vars: input.vars })
+    },
+    'flow/start-goal': () => EXECUTION,
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Write and review').click())
+  await settle()
+  act(() => button('2').click())
+  await settle()
+  expect(button('Start').disabled).toBe(true)
+  expect(button('Change').disabled).toBe(true)
+  const ticket = [...document.querySelectorAll<HTMLInputElement>('input')].find(one => one.value === '42')!
+  expect(ticket.disabled).toBe(true)
+  act(() => button('Change').click())
+  expect(document.querySelector('[aria-label="Search shapes"]')).toBeNull()
+  await act(async () => release())
+  expect(button('Change').disabled).toBe(false)
+  expect(ticket.disabled).toBe(false)
+  act(() => button('Change').click())
+  act(() => rowFor('Write and review').click())
+  await settle()
+  expect(button('2').getAttribute('aria-pressed')).toBe('true')
+  act(() => button('Start').click())
+  await settle()
+  const started = spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1] as { source: string }
+  expect(JSON.parse(started.source).budget.rounds).toBe(5)
+})
+
 it('retires Start during a policy edit and ignores an older refused render', async () => {
   const store = new AppStore('ws://localhost:0/')
   const base = emptyFlow('old-token')
@@ -208,6 +254,7 @@ it('Just a Team creates a flow-less Team with the typed completion sentence', as
   vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
   const create = vi.spyOn(store, 'createGoal').mockResolvedValue({ goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView)
   const open = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  const add = vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
   const { onClose } = render(store)
   await settle()
   act(() => rowFor('Just a Team').click())
@@ -225,6 +272,7 @@ it('Just a Team creates a flow-less Team with the typed completion sentence', as
   act(() => button('Start').click())
   await settle()
   expect(create).toHaveBeenCalledWith({ root: '/repo', sentence: 'The cause is documented', checkout: 'shared' })
+  expect(add).toHaveBeenCalledWith('team-1', { title: 'Investigate the cart' })
   expect(open).toHaveBeenCalledWith('team-1')
   expect(onClose).toHaveBeenCalledOnce()
   expect(spy.mock.calls.some(call => call[0] === 'flow/start-goal')).toBe(false)

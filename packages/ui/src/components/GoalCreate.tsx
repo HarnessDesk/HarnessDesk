@@ -24,6 +24,7 @@ export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChan
   const [isolated, setIsolated] = useState(false)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [created, setCreated] = useState<GoalView | null>(null)
+  const [taskAdded, setTaskAdded] = useState(false)
   const [seated, setSeated] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -57,6 +58,10 @@ export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChan
         })
         setCreated(goal)
       }
+      if (task?.trim() && !taskAdded) {
+        await store.teamAdd(goal.goal.id, { title: task.trim() })
+        setTaskAdded(true)
+      }
       const done = new Set(seated)
       const failures: string[] = []
       for (const agent of selected) {
@@ -89,7 +94,7 @@ export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChan
       titleAside={<><Chip tone="neutral">{root.split('/').filter(Boolean).at(-1)}</Chip>{onChangeShape && <Button variant="quiet" disabled={busy || !!created} onClick={onChangeShape}>Change</Button>}</>}
       size="xl"
       onClose={onClose}
-      footerAside={<Text role="meta">The Team opens under {root.split('/').filter(Boolean).at(-1)} in the sidebar.</Text>}
+      footerAside={<Text role="meta">{`The Team opens under ${root.split('/').filter(Boolean).at(-1)} in the sidebar.`}</Text>}
       footer={
         <>
           <Button variant="default" disabled={!valid || busy} onClick={() => void submit()}>

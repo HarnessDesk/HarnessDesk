@@ -305,7 +305,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
 
   return (
     <Dialog title={chosen ? chosen.name : 'New Team'} icon={chosen ? <IconTile tint="blue">{icon(chosen.id)}</IconTile> : undefined}
-      titleAside={<><Chip tone="neutral">{project}</Chip>{chosen && <Button variant="quiet" disabled={starting} onClick={changeShape}>Change</Button>}</>}
+      titleAside={<><Chip tone="neutral">{project}</Chip>{chosen && <Button variant="quiet" disabled={starting || policyPending} onClick={changeShape}>Change</Button>}</>}
       description={!chosen ? <Text role="muted">Pick how the agents work together. You fill in the task next.</Text> : undefined}
       size={chosen ? 'xl' : 'wide'} onClose={onClose}
       footer={chosen ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></> : undefined}

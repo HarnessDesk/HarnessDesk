@@ -325,7 +325,7 @@ export const FlowInputFields = ({ flow, scope, vars, disabled, onChange, onReadi
   <BriefInput key={`${scope}:brief`} value={vars.brief ?? ''} disabled={disabled} onChange={value => onChange('brief', value)} onReadingChange={onReadingChange} />
 ) : (
   <Field key={input.id} label={input.label}>
-    {control => <Input {...control} value={vars[input.id] ?? ''} onChange={event => onChange(input.id, event.target.value)} />}
+    {control => <Input {...control} disabled={disabled} value={vars[input.id] ?? ''} onChange={event => onChange(input.id, event.target.value)} />}
   </Field>
 ))}</>
 
@@ -604,6 +604,8 @@ interface TeamFormProps {
 const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, editingDisabled, done, details, onVar, onReadingChange, onPolicy }: TeamFormProps) => {
   const snapshot = useSnapshot()
   const hasReviewLoop = flow.rules.some(rule => rule.on === 'reviewer' && rule.then.role === flow.seed.role)
+  const mergeRules = template.rules.filter(rule => rule.then.role === 'referee')
+  const hasReviewOptions = hasReviewLoop && !template.roles.some(role => role.kind === 'check') && mergeRules.length > 0 && mergeRules.every(rule => rule.on === 'reviewer')
   const hasJudge = template.roles.some(role => role.id === 'judge') && template.roles.some(role => role.id === 'competitor')
   const judgeOn = flow.roles.some(role => role.id === 'judge')
   const editRole = (role: FlowAgentRole): void => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? role : one) })
@@ -626,7 +628,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
           </div>} />
       })}</Rows>
     </section>
-    {hasReviewLoop && <div className={styles.options}>
+    {hasReviewOptions && <div className={styles.options}>
       <Field label="Review rounds, at most">{() => <Segmented label="Review rounds, at most" value={String(Math.max(1, Math.min(3, Math.floor(((flow.budget?.rounds ?? 7) - 1) / 2))))} options={['1', '2', '3'].map(value => ({ value, label: value, disabled }))} onChange={value => onPolicy({ ...flow, budget: { rounds: Number(value) * 2 + 1, withoutProgress: flow.budget?.withoutProgress ?? 2 } })} />}</Field>
       <Field label="When the review approves">{() => <Segmented label="When the review approves" value={flow.roles.find(one => one.id === 'referee')?.kind === 'agent' ? 'merge' : 'wait'} options={[{ value: 'merge', label: 'Merge it', disabled }, { value: 'wait', label: 'Wait for me', disabled }]} onChange={value => onPolicy({ ...flow,
         roles: flow.roles.map(one => one.id !== 'referee' ? one : value === 'merge'

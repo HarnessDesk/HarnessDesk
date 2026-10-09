@@ -85,6 +85,24 @@ it('the review options preserve the review cap and require recorded approval bef
   expect(onPolicy.mock.lastCall?.[0].roles.find(role => role.id === 'referee')).toMatchObject({ kind: 'person' })
 })
 
+it('keeps a mechanically checked review on its declared path to a person', () => {
+  const flow = TEAM_START_POLICIES['review-pr']
+  const onPolicy = vi.fn()
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>))
+  expect(container.querySelector('[aria-label="When the review approves"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Review rounds, at most"]')).toBeNull()
+  expect(flow.rules.find(rule => rule.then.role === 'referee')?.when).toEqual({ every: ['passed'], evidence: [{ pr: 'open' }] })
+  expect(onPolicy).not.toHaveBeenCalled()
+})
+
+it('holds Details variables while a compact form is disabled', () => {
+  const flow = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'ticket', label: 'Ticket', default: '42' }] }
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: { ticket: '42' }, disabled: true, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {} }} /></StoreProvider>))
+  expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(true)
+})
+
 const render = (theStore: AppStore, onChange: (choice: FlowChoice | null) => void) => {
   act(() => {
     root.render(

@@ -213,11 +213,11 @@ docked panels, notices and the seat.
 
 **New session** starts a draft in the current project with the default agent,
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
-start**: New worktree…, any existing worktree, Goal…, Flow… and Team…. A
+start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. Goal, Flow and Team reuse their existing chooser and
-start screens. The plain path stays plain until somebody chooses another way
-to work.
+until its first message. New Team opens a searchable shape picker, then one
+form for the task, roles and optional Done when. Just a Team opens a shared
+board without fixed steps. Change returns to the picker and keeps the draft.
 
 **Agents**, **Dashboard** and **Plugins** each have a full row under New
 session: the same icon, label and trailing badge grammar as the conversation
