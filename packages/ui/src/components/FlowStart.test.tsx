@@ -630,3 +630,27 @@ it('changing a recorded seat preference invalidates consent until that exact cho
   await act(async () => resolve({ ...first, token: 'second' }))
   expect(change).toHaveBeenLastCalledWith({ source: 'saved', vars: {}, token: 'second', seats: { fixer: [{ runtime: 'beta' }] }, attended: undefined })
 })
+
+it.each([
+  ['Build the checkout', 'Build the checkout'],
+  ['', 'What both should attempt'],
+  ['  ', 'What both should attempt'],
+  ['Keep {{task}} literal', 'Keep {{task}} literal'],
+])('fills the seed preview from the form (%s)', async (value, expected) => {
+  const flow: import('@harnessdesk/protocol').FlowPolicy = {
+    version: 2, name: 'Comparison', inputs: [{ id: 'task', label: 'What both should attempt' }],
+    roles: [], seed: { role: 'competitor', title: '{{ task }}' },
+    rules: [{ id: 'check', on: 'competitor', then: { role: 'verify', title: 'Check the attempt' } }],
+    messaging: 'board-only', wait: 240,
+  }
+  const theStore = store({ entries: [], source: () => '', preview: () => ({ ...emptyPreview(), compiled: compiled({ flow }) }) })
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={{ source: 'saved', vars: { task: value } }} onChange={() => {}} /></StoreProvider>))
+  const rounds = () => container.querySelector('[aria-label="Rounds and rules"]')!.textContent
+  expect(rounds()).toContain(`Seed round — ${expected}`)
+  const control = container.querySelector<HTMLInputElement>('input')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(control, 'The edited task')
+    control.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(rounds()).toContain('Seed round — The edited task')
+})
