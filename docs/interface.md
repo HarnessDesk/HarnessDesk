@@ -1470,7 +1470,8 @@ side. It opens centred at 100% when the drawing fits; a smaller pane shrinks
 it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
 Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
 **The path this Run took** sits at the top left, and the minimap, where a clear
-spot is left, never covers it. Nodes cannot be moved or edited. The accessible
+spot is left, never covers it. The minimap appears only when steps extend beyond
+the viewport after panning or zooming. Nodes cannot be moved or edited. The accessible
 Steps and Rules list retains state and selection. While the Team’s Steps dock
 is open on its Steps tab, the list lives in the dock at every width, so the
 drawing keeps the whole pane. Outside the dock, and while it is put away,

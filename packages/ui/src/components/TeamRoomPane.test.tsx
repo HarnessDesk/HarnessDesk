@@ -541,6 +541,35 @@ const GOAL: GoalView = {
 
 const FLOW_DOCUMENT = { format: 'agents' as const, flow: { version: 2 as const, name: 'Review', inputs: [], roles: [], rules: [], seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 } }
 
+it('says the same stalled Run problem once on Overview, Run, Board and Chat', async () => {
+  const reason = 'The Seat for card #1 could not be opened: the project is unavailable. Lane lane-1 was retained for review; its checkout and ports were kept.\nNext: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
+  const shown = 'The Seat for card #1 could not be opened: the project is unavailable. Its checkout and ports were kept for review.\nNext: fix what stopped card #1, then choose Run again.'
+  const execution: FlowExecution = { version: 2, id: 'stalled-run', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled', end: { kind: 'stalled' }, rounds: [], operations: [], legacyRun: null, reason }
+  const { store } = rig(undefined, undefined, {}, { ...GOAL, problem: reason }, new Map([[execution.id, execution]]))
+  await render(store)
+  for (const page of ['Overview', 'Run', 'Board', 'Chat']) {
+    act(() => row(page).click())
+    await act(async () => {})
+    expect(container.textContent?.split(shown), page).toHaveLength(2)
+    expect(container.textContent, page).not.toContain('lane-1')
+    expect(container.textContent, page).not.toContain('Goal')
+    if (page === 'Run') {
+      const button = [...container.querySelectorAll('button')].find(one => one.textContent === 'Run again…')
+      expect(button?.disabled).toBe(false)
+    }
+  }
+  expect(execution.reason).toBe(reason)
+})
+
+it('offers the interrupted-check recovery only once on the Run page', async () => {
+  const execution: FlowExecution = { version: 2, id: 'interrupted-run', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled', end: { kind: 'stalled' }, rounds: [], operations: [{ key: 'check:1', kind: 'check', state: 'uncertain', card: 1, seat: null }], legacyRun: null, reason: 'This check was interrupted. Review it before running it again.' }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  act(() => row('Run').click())
+  await act(async () => {})
+  expect([...container.querySelectorAll('button')].filter(one => one.textContent === 'Review and run again…')).toHaveLength(1)
+})
+
 it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from capabilities rather than the runtime’s identity', async door => {
   const members = [
     { id: 'alpha', session: { runtime: 'codex', sessionId: 'c1' }, agent: { name: 'Alpha' }, openedAt: 1, closed: null },
@@ -783,7 +812,7 @@ it('a post goes to the conversation the audience names', async () => {
      construction and it is what an agent is addressed by; the conversation's
      own name is the line under it, when it has one. */
   const rows = menuRows().map((one) => one.textContent)
-  expect(rows[0]).toContain('Everyone in the room')
+  expect(rows[0]).toContain('Everyone in the Team')
   expect(rows[1]).toContain('Codex')
   expect(rows[1]).toContain('API migration')
   expect(rows[2]).toContain('Opus')
@@ -1623,7 +1652,7 @@ it('never wears the last room’s roster under this room’s name', async () => 
   expect(menu).not.toContain('Opus')
   /* A roster that never arrived is not an empty room, and only one of those
      two is a claim this surface may make on the host's behalf. */
-  expect(menu).toContain('Still asking the host who is in the room')
+  expect(menu).toContain('Loading the Team’s members')
 })
 
 /**
@@ -2101,14 +2130,15 @@ it("names a stalled run's own reason on the live line, lines kept, as a wait on 
   const reason = 'The Seat for card #1 could not be opened: Claude did not offer to pass a lane environment to a session when it started.\n' +
     'A round’s cards start together, so card #2 was not started either.\n' +
     'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
+  const shown = reason.slice(0, reason.indexOf('Next:')) + 'Next: fix what stopped card #1, then choose Run again.'
   const execution: FlowExecution = {
     version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled',
     rounds: [], operations: [], legacyRun: null, reason,
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
-  expect(container.querySelector('[data-slot="team-overview"] [data-kind="stall"] .whitespace-pre-line')?.textContent).toBe(reason)
-  expect(container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')?.textContent?.split(reason)).toHaveLength(2)
+  expect(container.querySelector('[data-slot="team-overview"] [data-kind="stall"] .whitespace-pre-line')?.textContent).toBe(shown)
+  expect(container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')?.textContent?.split(shown)).toHaveLength(2)
   act(() => row('Chat').click())
   await act(async () => {})
 
@@ -2119,7 +2149,7 @@ it("names a stalled run's own reason on the live line, lines kept, as a wait on 
   // It waits on you: it leads with the same pulsing light a question does.
   expect(line.querySelector('[data-slot="dot"]')).not.toBeNull()
   const words = line.querySelector<HTMLElement>('.whitespace-pre-line')!
-  expect(words.textContent).toBe(reason)
+  expect(words.textContent).toBe(shown)
 })
 
 it('offers to continue a kept answer and disables the action with the visible refusal when its Seat is gone', async () => {

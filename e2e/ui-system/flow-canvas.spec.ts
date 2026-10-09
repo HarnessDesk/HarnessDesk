@@ -10,6 +10,13 @@ const viewport = (surface: Locator) => surface.locator('.react-flow__viewport').
   const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform)
   return { x: matrix.m41, y: matrix.m42, zoom: matrix.a }
 })
+const planFits = (surface: Locator) => surface.evaluate(root => {
+  const clip = root.getBoundingClientRect()
+  return [...root.querySelectorAll('.react-flow__node')].every(node => {
+    const box = node.getBoundingClientRect()
+    return box.left >= clip.left && box.top >= clip.top && box.right <= clip.right && box.bottom <= clip.bottom
+  })
+})
 const position = (element: Locator) => element.evaluate(el => {
   const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform)
   return { x: matrix.m41, y: matrix.m42 }
@@ -277,17 +284,11 @@ for (const theme of ['light', 'dark'] as const) {
       const [a, b] = boxes
       expect(a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBe(false)
     })
-    test('fitting the Run leaves every card clear of the minimap', async ({ page }) => {
+    test('fitting the Run omits the map while all steps remain visible', async ({ page }) => {
       const surface = canvas(page, 'run')
       await surface.getByRole('button', { name: 'Fit plan' }).click()
-      expect(await surface.evaluate(root => {
-        const map = root.querySelector('.react-flow__minimap')?.getBoundingClientRect()
-        if (!map || !map.width || !map.height) return []
-        return [...root.querySelectorAll<HTMLElement>('.react-flow__node')].filter(el => {
-          const box = el.getBoundingClientRect()
-          return box.left < map.right && box.right > map.left && box.top < map.bottom && box.bottom > map.top
-        }).map(el => el.dataset.id)
-      })).toEqual([])
+      await expect.poll(() => planFits(surface)).toBe(true)
+      await expect(surface.locator('.react-flow__minimap')).toHaveCount(0)
     })
     test('deleting one step keeps a zoomed and panned viewport', async ({ page }) => {
       const surface = canvas(page)
@@ -319,6 +320,10 @@ for (const theme of ['light', 'dark'] as const) {
     })
     test('the minimap, attribution and selected rules follow the canvas tokens', async ({ page }) => {
       const surface = canvas(page)
+      await surface.getByRole('button', { name: 'Hand tool' }).click()
+      await drag(page, surface, -640, 0, true)
+      await surface.getByRole('button', { name: 'Select tool' }).click()
+      await expect(surface.locator('.react-flow__minimap')).toBeVisible()
       const background = await surface.evaluate(el => getComputedStyle(el).backgroundColor)
       for (const part of ['.react-flow__minimap', '.react-flow__attribution']) {
         expect(await surface.locator(part).evaluate(el => getComputedStyle(el).backgroundColor)).toBe(background)
@@ -445,8 +450,11 @@ for (const theme of ['light', 'dark'] as const) {
         await surface.getByRole('button', { name: 'Zoom in' }).click()
         // CSS matrices round the fitted viewport scale to six significant digits.
         await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(Math.min(2, previous * 1.2), 4)
-        await expect(minimap).toBeVisible()
-        await expect.poll(overlapsCardsAndTools).toEqual([])
+        if (await planFits(surface)) await expect(minimap).toHaveCount(0)
+        else {
+          await expect(minimap).toBeVisible()
+          await expect.poll(overlapsCardsAndTools).toEqual([])
+        }
       }
       await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(2, 5)
     })
@@ -454,6 +462,17 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto(`/preview.html?flow-canvas&routes&theme=${theme}`)
       const surface = canvas(page, 'compact'), minimap = surface.locator('.react-flow__minimap')
       await expect(surface.locator('.react-flow__node')).toHaveCount(1)
+      await expect(minimap).toHaveCount(0)
+      await surface.evaluate(el => { el.parentElement!.style.height = '140px' })
+      await expect.poll(async () => (await surface.boundingBox())?.height).toBe(140)
+      await expect.poll(() => surface.evaluate(el => {
+        const clip = el.getBoundingClientRect(), step = el.querySelector('.react-flow__node')!.getBoundingClientRect()
+        return Math.abs(step.top + step.height / 2 - clip.top - clip.height / 2)
+      })).toBeLessThan(1)
+      const clip = (await surface.boundingBox())!, step = (await surface.locator('.react-flow__node').boundingBox())!
+      // A read-only canvas already pans. Clip its top without moving the
+      // card sideways; the shorter panel still needs the 100×75 map site.
+      await drag(page, surface, 0, clip.y - step.y - 16, true)
       await expect.poll(async () => (await minimap.boundingBox())?.width).toBe(100)
       await expect.poll(async () => (await minimap.boundingBox())?.height).toBe(75)
       const folder = process.env.FLOW_CANVAS_FRAMES_DIR
@@ -470,7 +489,7 @@ for (const theme of ['light', 'dark'] as const) {
       for (const zoom of [1.2, 1.44, 1.728, 2]) {
         await surface.getByRole('button', { name: 'Zoom in' }).click()
         await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(zoom, 4)
-        if (zoom < 1.728) await expect(minimap).toBeVisible()
+        if (zoom < 1.728) await expect(minimap).toHaveCount(0)
         else {
           const folder = process.env.FLOW_CANVAS_FRAMES_DIR
           if (folder && zoom === 2) {
@@ -482,7 +501,7 @@ for (const theme of ['light', 'dark'] as const) {
       }
       expect(crowdedVisibility).toEqual([false, false])
       await surface.getByRole('button', { name: 'Fit plan' }).click()
-      await expect(minimap).toBeVisible()
+      await expect(minimap).toHaveCount(0)
     })
     test('read-only allows looking and selection, refuses every edit and shows Run state slots', async ({ page }) => {
       const surface = canvas(page, 'readonly'), write = node(surface, 'write')

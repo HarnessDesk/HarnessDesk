@@ -1285,8 +1285,8 @@ export const TeamRoomPane = ({
             </Menu>}
           </Popover>
         </div>} />
-      {goal ? <GoalHeader view={goal} /> : null}
-      {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
+      {goal ? <GoalHeader view={goal} coveredProblem={open === 'run' ? timelineRun?.reason : open === 'overview' || open === 'room' ? flowExecution?.reason : null} /> : null}
+      {flowExecution ? <FlowRunStatus execution={flowExecution} checkRecovery={open !== 'run'} /> : null}
       {runs.map((execution, index) => {
         const failure = snapshot.flowStopProblems.get(execution.id)
         return failure ? <StopRunFailure key={execution.id} number={index + 1} message={failure.message}

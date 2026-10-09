@@ -73,6 +73,13 @@ const intent = (over: Record<string, unknown>) =>
 
 const ROOM = 'room-1'
 
+it('shows the card task without the Seat completion instructions', async () => {
+  const { store } = rig([intent({ detail: 'Compare the two changes.\n\nFinish this with complete_claim and an outcome of exactly one of: done.\n\nFinish this with complete_claim\'s split as well: the agreed split of files for the "builder" round, one list of path patterns for each of its 2 cards, in card order, no two overlapping. Each of those cards will own only its own list.' })])
+  await render(store)
+  expect(container.textContent).toContain('Compare the two changes.')
+  expect(container.textContent).not.toContain('complete_claim')
+})
+
 const state = (intents: readonly unknown[], extra: Partial<TeamState> = {}): TeamState =>
   ({
     id: ROOM,

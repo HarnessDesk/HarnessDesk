@@ -556,7 +556,7 @@ const blindRound = (run: StoredFlowExecution, round: FlowRoundState): boolean =>
 export const agreedSplit = (
   rounds: readonly FlowRoundState[], before: number, source: string, target: string, width: number, intents: readonly Intent[],
 ): readonly (readonly string[])[] | string => {
-  const next = `Next: wrap this Goal, which stops this run, and start the flow again in a new Goal; the "${source}" card has to record its split of the files when it finishes — one list of paths for each "${target}" card, in card order, no two overlapping.`
+  const next = `Next: choose Run again. The "${source}" card needs to record its split of the files when it finishes — one list of paths for each "${target}" card, in card order, no two overlapping.`
   const stop = (why: string): string => `The ${width} "${target}" cards were not opened: ${why}, so each card cannot be held to its own files.\n${next}`
   const from = [...rounds].reverse().find((one) => one.role === source && one.n < before)
   if (!from) return stop(`no "${source}" round has run yet to agree a split`)
@@ -608,9 +608,8 @@ const LANE_REFUSED = 'This step needs its own checkout, ports and browser profil
  * of started. The siblings are not refused — they were never tried — and the
  * reason says so by number, because "stalled" alone read as though the whole
  * round had failed on its own. The next step is the one that clears it, in
- * order: nothing restarts a stalled round in place, a new run opens a Goal of
- * its own, and only a wrap stops this run (`stopGoal`, the wrap barrier) — so
- * wrap first, then fix the Seat and start the flow again.
+ * order: fix the opening problem, then use Run again to open a fresh Run on
+ * the same Team. The stalled round itself is never restarted in place.
  */
 export const seatRefused = (card: number, cards: readonly number[], why: string): string => {
   const siblings = cards.filter((one) => one !== card).map((one) => `#${one}`)
@@ -618,7 +617,7 @@ export const seatRefused = (card: number, cards: readonly number[], why: string)
     ? ''
     : `\nA round’s cards start together, so card${siblings.length === 1 ? '' : 's'} ${siblings.join(', ')} ${siblings.length === 1 ? 'was' : 'were'} not started either.`
   return `The Seat for card #${card} could not be opened: ${why}${together}\n` +
-    `Next: wrap this Goal, which stops this run, then fix what stopped card #${card} and start the flow again in a new Goal.`
+    `Next: fix what stopped card #${card}, then choose Run again.`
 }
 
 /** What a finished round's rule decides: fire one (with the evidence that authorized it), wait, or end the run. */

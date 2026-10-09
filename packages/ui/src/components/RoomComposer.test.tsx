@@ -532,16 +532,17 @@ it('counts towards the limit only near it, and refuses to send past it', () => {
 
   act(() => type('x'.repeat(16_001)))
   expect(send().disabled).toBe(true)
-  expect(container.textContent).toContain("the room's limit is 16,000")
+  expect(container.textContent).toContain("the Team's limit is 16,000")
 })
 
 it('an empty room says so, and a roster not yet answered does not', () => {
   rig([])
-  expect(container.textContent).toContain('No agents in this room yet')
+  expect(container.textContent).toContain('No agents in this Team yet')
+  expect(container.textContent).not.toContain('room')
 
   act(() => root.render(<div />))
   const fresh = rig(null)
-  expect(container.textContent).not.toContain('No agents in this room yet')
+  expect(container.textContent).not.toContain('No agents in this Team yet')
   expect(fresh.store).toBeDefined()
 })
 
@@ -558,7 +559,7 @@ it('an empty room says so, and a roster not yet answered does not', () => {
 it('says that sending will open the members that are not open', () => {
   rig([member(peer('claude', 'k1', 'Opus', { here: false })), GPT])
   const text = container.textContent ?? ''
-  expect(text).not.toContain('No agents in this room yet')
+  expect(text).not.toContain('No agents in this Team yet')
   expect(text).toContain('Opus is not open')
   // The other one is open, so this is the "and them too" wording.
   expect(text).toContain('sending opens it too')
@@ -663,7 +664,7 @@ it('the audience menu toggles members without closing under the pointer', () => 
 
   /* Everyone is the one row that *is* a decision, so it closes — and it clears
      the audience rather than adding to it. */
-  act(() => audienceRow('Everyone in the room').click())
+  act(() => audienceRow('Everyone in the Team').click())
   expect(chips()).toEqual([])
   expect(anchor().textContent).toContain('Everyone')
 })

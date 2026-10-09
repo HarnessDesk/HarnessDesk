@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
-import { BRIEF_CHANGED, INDEPENDENT, sourceDigest, type StoredFlowExecution } from '../src/flow-execution.js'
+import { agreedSplit, BRIEF_CHANGED, INDEPENDENT, sourceDigest, type StoredFlowExecution } from '../src/flow-execution.js'
 import { overlaps } from '../src/team.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -23,6 +23,13 @@ rules:
   - { id: decide, on: reviewer, when: { every: [approve] }, then: { role: person, title: Decide } }
 `
 const AGENTS = [agent('writer-a', ['done']), agent('writer-b', ['done']), agent('reviewer', ['approve'])]
+
+test('a missing file split points to Run again without asking for another Team', () => {
+  const reason = agreedSplit([], 1, 'Planner', 'Builder', 2, [])
+  assert.equal(typeof reason, 'string')
+  assert.match(reason as string, /Next: choose Run again\./)
+  assert.doesNotMatch(reason as string, /wrap|Goal|new Team/)
+})
 
 test('a closed Seat no longer governs a v2 flow conversation', async (t) => {
   const rig = await goalRig(t)
@@ -380,14 +387,13 @@ test('a round whose first Seat will not open says its sibling was not started, a
     now.reason,
     `The Seat for card #1 could not be opened: ${refusal}\n` +
       'A round’s cards start together, so card #2 was not started either.\n' +
-      'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.',
+      'Next: fix what stopped card #1, then choose Run again.',
   )
 
-  // The facts the advice rests on. Wrapping is what stops a stalled run — the
-  // wrap barrier, `stopGoal` — and the run it stops is this one.
+  // Wrapping remains able to stop a stalled run, but is not required to retry it.
   await rig.flows.stopGoal(run.goal, 'the Goal was wrapped')
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stopped')
-  // And starting the flow again opens a Goal of its own, not this one.
+  // A separate start, without a continuation, still opens its own Team.
   rig.beforeOpen = null
   const again = await rig.start(THREE_STAGES, AGENTS)
   assert.notEqual(again.goal, run.goal)
@@ -1289,7 +1295,7 @@ test('a split round whose agreeing card recorded no split stops, opening no card
   const now = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(now.state, 'stalled')
   assert.match(now.reason ?? '', /The 2 "dev" cards were not opened: the "contract" round \(card #1\) finished without recording a split of the files, so each card cannot be held to its own files\./)
-  assert.match(now.reason ?? '', /the "contract" card has to record its split of the files when it finishes/)
+  assert.match(now.reason ?? '', /The "contract" card needs to record its split of the files when it finishes/)
   assert.doesNotMatch(now.reason ?? '', /complete_claim/, 'a person reads this, not a tool name')
   assert.equal(rig.board(run.goal).intents.length, 1, 'no card was opened with a shared list')
   assert.deepEqual(opens(rig.events), ['open:seat-1'])

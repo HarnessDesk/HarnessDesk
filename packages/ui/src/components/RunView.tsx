@@ -4,6 +4,7 @@ import { commandShown } from '../lib/projects'
 import { openExternal } from '../lib/desktop'
 import { commitDate } from '../lib/git-refs'
 import { currentRunEnd, type RunTimelineInput, type RunTimelineRow, type runTimeline } from '../lib/run-timeline'
+import { runReasonWords } from '../lib/run-reason'
 import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import { AgentIcon, BlindIcon, CheckIcon, ReviewIcon } from './Icons'
@@ -156,7 +157,7 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
         {needsYou && <div data-slot="run-need" className={styles.need}>
           <Banner tone="warning" title={words(waiting ? waiting.title : need?.title && need.title !== 'Needs you' ? need.title : 'This Run needs your attention')}
             actions={needActions}>
-            {words(need?.detail ?? execution?.reason ?? (waiting ? 'Waiting for your answer' : 'Review the recorded details to continue.'))}
+            {words(runReasonWords(need?.detail ?? execution?.reason ?? (waiting ? 'Waiting for your answer' : 'Review the recorded details to continue.'), execution?.document.flow.rules))}
           </Banner>
         </div>}
         {showing === 'flow' ? flow : <div data-slot="run-reading" className={styles.reading}>
@@ -168,7 +169,7 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
             const cards = records.filter(one => ['card', 'check', 'person'].includes(one.kind))
             const asCards = cards.length > 1 || cards.some(one => one.kind === 'person' || one.pick || mayBeDocument(one.change))
             const reason = needsYou || ['Settled', 'Stopped', 'Needs you', 'Stopped by you', 'Stopped by the desk'].includes(row.title) ? null : words(row.title)
-            const detail = isEnd ? !needsYou && (reason || row.detail) ? [reason, row.detail ? words(row.detail) : null].filter(Boolean).join('\n') : undefined : row.detail ? words(row.detail) : undefined
+            const detail = isEnd ? !needsYou && (reason || row.detail) ? [reason, row.detail ? words(runReasonWords(row.detail, execution?.document.flow.rules)) : null].filter(Boolean).join('\n') : undefined : row.detail ? words(row.detail) : undefined
             const actions = isEnd && !needsYou ? endActions() : undefined
             const meta = [time(row), isEnd && header.end?.kind === 'stopped' ? header.end.by === 'person' ? 'By you' : 'By the desk' : null].filter(Boolean).join(' · ') || undefined
             return <TimelineItem key={row.id} state={stepState(row, records)} data-row={row.id} data-kind={row.kind}

@@ -21,6 +21,7 @@ import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } 
 import { brandForRuntime } from '../lib/brands'
 import { namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/git-refs'
+import { stepWords } from '../lib/run-timeline'
 import type { AppSnapshot } from '../state/store'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
@@ -230,7 +231,7 @@ const jobCopy = (intent: Intent, room: string, snapshot: AppSnapshot) => {
     intent.blockedReason ??
     repairLead ??
     (intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null) ??
-    intent.detail ??
+    stepWords(intent.detail) ??
     null
 
   return { assignee, holderName, note }
