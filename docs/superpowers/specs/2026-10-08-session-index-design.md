@@ -167,6 +167,8 @@ it. Insert, update and deletion maintain the corresponding FTS row in the same
 transaction, so a tool's final output replaces its running text in search.
 `transcripts/search` becomes a query against this table.
 
+Search indexes two columns: `message_text` for typed messages and answers by default, and capped `tool_text` for tool output only when the viewer asks (owner, 2026-10-08); reasoning and client scaffolding are in neither.
+
 ### `repos`: which repository a folder belongs to
 
 | column | meaning |

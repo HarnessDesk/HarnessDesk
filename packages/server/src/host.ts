@@ -3110,6 +3110,7 @@ export class Host {
     await runtimesGone
     await this.#runtimeCache.flush()
     await Promise.all(this.#runtimeNoticeWrites)
+    await this.#transcripts.close()
     this.#runtimes.clear()
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */

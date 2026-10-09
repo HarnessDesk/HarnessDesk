@@ -1,8 +1,8 @@
-import { mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { DatabaseSync, type StatementSync } from 'node:sqlite'
+import type { DatabaseSync, StatementSync } from 'node:sqlite'
 
 import { sessionIndexCursorOf, type Page, type RepoInfo, type RuntimeId, type SessionId, type SessionSummary } from '@harnessdesk/protocol'
+
+import { openSessionDatabase } from './session-database.js'
 
 import { seedSummaries } from './session-index-seed.js'
 
@@ -65,46 +65,7 @@ export class SessionIndex {
 
   constructor(file: string, onChange?: (change: SessionIndexChange) => void) {
     this.#onChange = onChange
-    if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })
-    this.#db = new DatabaseSync(file)
-    this.#db.exec('PRAGMA journal_mode = WAL')
-    const version = Number(this.#db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
-    if (version > 2) { this.#db.close(); throw new Error('Session index is from a newer schema') }
-    if (version === 0) this.#transaction(() => {
-      this.#db.exec(`CREATE TABLE sessions (
-        runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
-        title TEXT, preview TEXT, cwd TEXT NOT NULL, repo_root TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
-        archived INTEGER NOT NULL DEFAULT 0, removed_at REAL, team_id TEXT,
-        status TEXT NOT NULL DEFAULT '{"type":"notLoaded"}', git TEXT, PRIMARY KEY(runtime,id)
-      );
-      CREATE INDEX sessions_sidebar ON sessions(origin,removed_at,team_id,updated_at DESC);
-      CREATE INDEX sessions_page ON sessions(origin,removed_at,team_id,archived,updated_at DESC,runtime,id);
-      CREATE INDEX sessions_repo ON sessions(repo_root,updated_at DESC);
-      CREATE INDEX sessions_cwd ON sessions(cwd);
-      CREATE TABLE repos (cwd TEXT PRIMARY KEY, repo_root TEXT, origin_url TEXT, worktree INTEGER NOT NULL DEFAULT 0,
-        "exists" INTEGER NOT NULL, checked_at REAL NOT NULL);
-      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      PRAGMA user_version = 1;`)
-    })
-    if (version < 2) this.#transaction(() => {
-      // v1 stored archive as NOT NULL; preserve all rows, including tombstones.
-      this.#db.exec(`ALTER TABLE sessions RENAME TO sessions_v1;
-        DROP INDEX sessions_sidebar; DROP INDEX sessions_page; DROP INDEX sessions_repo; DROP INDEX sessions_cwd;
-        CREATE TABLE sessions (
-          runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
-          title TEXT, preview TEXT, cwd TEXT NOT NULL, repo_root TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
-          archived INTEGER DEFAULT 0, removed_at REAL, team_id TEXT,
-          status TEXT NOT NULL DEFAULT '{"type":"notLoaded"}', git TEXT, PRIMARY KEY(runtime,id)
-        );
-        INSERT INTO sessions SELECT * FROM sessions_v1;
-        DROP TABLE sessions_v1;
-        CREATE INDEX sessions_sidebar ON sessions(origin,removed_at,team_id,updated_at DESC);
-        CREATE INDEX sessions_page ON sessions(origin,removed_at,team_id,archived,updated_at DESC,runtime,id);
-        CREATE INDEX sessions_repo ON sessions(repo_root,updated_at DESC);
-        CREATE INDEX sessions_cwd ON sessions(cwd);
-        ALTER TABLE repos ADD COLUMN identity TEXT;
-        PRAGMA user_version = 2;`)
-    })
+    this.#db = openSessionDatabase(file)
     this.#get = this.#db.prepare(`${SELECT} WHERE s.runtime = ? AND s.id = ?`)
     this.#write = this.#db.prepare(`INSERT INTO sessions
       (runtime,id,origin,title,preview,cwd,repo_root,created_at,updated_at,archived,team_id,status,git)

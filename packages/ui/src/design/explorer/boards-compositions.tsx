@@ -16,6 +16,7 @@ import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
+import { TeamBarBoard } from '../../preview/frames-team-frame'
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
 import {
@@ -46,6 +47,8 @@ import {
   ExtensionIcon,
   FolderIcon,
   PlusIcon,
+  PlanIcon,
+  CommentIcon,
   SearchIcon,
   ShieldAlertIcon,
   SideBySideIcon,
@@ -680,6 +683,9 @@ const BadgeTabsBoard = () => (
         <TabsContent value="two">The second.</TabsContent>
       </Tabs>
     ))}
+    <Tabs defaultValue="one" aria-label="Icon tabs">
+      <TabsList><TabsTrigger value="one" data-catalog-size="icon" aria-label="Board · 2" icon={<PlanIcon />} iconOnly count={2}>Board</TabsTrigger><TabsTrigger value="two" aria-label="Chat" icon={<CommentIcon />} iconOnly>Chat</TabsTrigger></TabsList>
+    </Tabs>
   </div>
 )
 
@@ -3170,6 +3176,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'The Team overview',
     about: 'Every Seat, its state and recorded cost, with finished Seats folded.',
     render: TeamOverviewBoard,
+  },
+  {
+    id: 'team-bar',
+    title: 'The Team bar',
+    about: 'One title, status, measured segmented page tabs and participant tools, including narrow panes and Side by side.',
+    render: TeamBarBoard,
   },
   {
     id: 'room-side-by-side',

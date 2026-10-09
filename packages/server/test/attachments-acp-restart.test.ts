@@ -1,3 +1,4 @@
+import { forgetStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -70,7 +71,7 @@ const deskAt = async (
   }
   client.close()
   await halt(first)
-  if (options.forgetTranscripts) await rm(join(first.stateDir, 'transcripts'), { recursive: true, force: true })
+  if (options.forgetTranscripts) await forgetStored(first.stateDir, String(session.runtime), String(session.id))
 
   const runtime = peer(store, version, options.opens)
   const again = await start({ libraryHome: home }, first.stateDir, runtime as unknown as FakeRuntime)

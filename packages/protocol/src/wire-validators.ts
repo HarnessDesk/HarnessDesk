@@ -1028,7 +1028,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     archived: optional(literalUnion('exclude', 'only')),
   }),
   'session/search': shape({ runtime: isString, query: isString }),
-  'transcripts/search': shape({ query: isString }),
+  'transcripts/search': shape({ query: isString, includeTools: optional(isBoolean) }),
   'backup/export': isObject,
   'backup/import': shape({ backup: isObject }),
   'session/read': shape({ runtime: isString, sessionId: isString }),

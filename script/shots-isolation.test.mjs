@@ -13,6 +13,7 @@ import { InstallService } from '../packages/server/dist/src/installs/service.js'
 import { readChecks } from '../packages/server/dist/src/evidence/checks-file.js'
 import { GoalStore } from '../packages/server/dist/src/goals/store.js'
 import { SessionIndex } from '../packages/server/dist/src/session-index.js'
+import { TranscriptStore } from '../packages/server/dist/src/transcripts.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
@@ -36,17 +37,22 @@ for (const native of ['0', '1']) {
     ]
     const file = join(home, 'sessions.sqlite')
     const index = new SessionIndex(file)
+    const transcripts = new TranscriptStore(join(home, 'transcripts'))
     try {
       const rows = index.list({ pageSize: 500 }).data
       assert.deepEqual(rows.map(row => [row.runtime, row.id]).sort(), expected.sort())
       for (const row of rows) {
-        const transcript = JSON.parse(readFileSync(join(home, 'transcripts', row.runtime, `${row.id}.json`), 'utf8'))
+        const transcript = await transcripts.readSummary(row.runtime, row.id)
         assert.equal(row.title, transcript.title)
+        assert.equal(row.preview, transcript.preview)
         assert.equal(row.cwd, transcript.cwd)
         assert.equal(row.updatedAt, transcript.updatedAt)
       }
       index.upsert({ ...rows[0], runtime: 'shots-stale', id: 'stale-take', title: 'Old take' })
-    } finally { index.close() }
+    } finally {
+      index.close()
+      await transcripts.close()
+    }
     seed()
     const refreshed = new SessionIndex(file)
     try {

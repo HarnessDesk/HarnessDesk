@@ -22,6 +22,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  localStorage.clear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -135,6 +136,29 @@ it('nothing is asked for a single character', async () => {
     await new Promise((resolve) => setTimeout(resolve, 160))
   })
   expect(request).not.toHaveBeenCalledWith('transcripts/search', expect.anything())
+})
+
+it('tool output is requested only when the viewer enables it and is rendered as text', async () => {
+  const { request } = await mount()
+  request.mockImplementation(async (method: string, params: { includeTools?: boolean }) => {
+    if (method === 'transcripts/search') return params.includeTools ? [{ ...HIT, source: 'tool', line: '<img src=x onerror=alert(1)> treasure output', start: 27, end: 35 }] : []
+    return { data: [], nextCursor: null }
+  })
+  type('treasure')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 160)) })
+  const control = container.querySelector('[role="switch"][aria-label="Include tool output"]') as HTMLElement
+  expect(control).not.toBeNull()
+  expect(control.getAttribute('aria-checked')).toBe('false')
+  act(() => control.click())
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 160)) })
+  expect(request).toHaveBeenLastCalledWith('transcripts/search', { query: 'treasure', includeTools: true })
+  expect(container.textContent).toContain('<img src=x onerror=alert(1)> treasure output')
+  expect(container.textContent).toContain('Tool output')
+  expect(container.querySelector('img[src="x"]')).toBeNull()
+  act(() => control.click())
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 160)) })
+  expect(request).toHaveBeenLastCalledWith('transcripts/search', { query: 'treasure' })
+  expect(container.textContent).not.toContain('treasure output')
 })
 
 it('searches listed ACP history through the runtime capability', async () => {

@@ -55,7 +55,7 @@ describe("the room's top row", () => {
     expect(rule, 'a name that cannot shrink pushes the verbs off the row').not.toMatch(
       /flex:\s*none/,
     )
-    expect(rule).toMatch(/flex:\s*0 1 auto/)
+    expect(rule).toMatch(/flex:\s*0 100 auto/)
     // A floor, so the name never vanishes entirely — and a small one, because
     // a floor that can still overflow is not a floor.
     expect(rule).toMatch(/min-width:\s*2rem/)
@@ -96,9 +96,9 @@ describe('appearance ownership', () => {
        conversation's composer. */
     for (const part of [
       '<PaneSurface',
-      '<ToolPaneHeader ref={headerLayout.ref} variant="window" corner',
+      '<ToolPaneHeader ref={headerLayout.ref} variant="window" corner size="lg"',
       '<Bar as="header" rule="bottom"',
-      '<TabsList variant="section"',
+      '<TabsList aria-label="Team pages"',
       '<RailSection stretch="list"',
       '<NavigationGroupHeader label="Agents">',
       '<Dot state="ready" variant="presence"',

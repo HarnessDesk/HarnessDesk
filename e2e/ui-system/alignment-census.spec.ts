@@ -279,6 +279,14 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       bodyLeft = firstBodyColumn(child, !!header.querySelector('[data-slot="dock-panel-tab"] > svg'))
       if (bodyLeft !== null) break
     }
+    // A page toolbar names the outer PaneColumn, not a card's inner text or
+    // a centred date inside it. Its declared gutter remains a measured edge:
+    // moving the heading still fails the same comparison below.
+    if (header.getAttribute('data-content-inset') === 'page') {
+      const style = getComputedStyle(surface)
+      bodyLeft = surface.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) +
+        parseFloat(style.getPropertyValue('--hd-space-6'))
+    }
     // Corner rows spend a layout inset for native window controls. Compare
     // from their ordinary padding edge, retaining any additional glyph offset.
     let cornerShift = 0
@@ -418,6 +426,17 @@ test('a corner inset adjusts the header reference without hiding a real offset',
   expect((await read()).findings['header-off-body']).toHaveLength(1)
   await page.locator('h2').evaluate(element => { (element as HTMLElement).style.marginLeft = '0px' })
   await page.locator('header').evaluate(element => element.removeAttribute('data-corner'))
+  expect((await read()).findings['header-off-body']).toHaveLength(1)
+})
+
+test('a page toolbar follows the pane gutter while its cards and centred facts keep their own columns', async ({ page }) => {
+  await page.setContent(`<div id="page" style="background:white;width:600px;--hd-space-6:24px">
+    <header data-content-inset="page" style="padding-left:var(--hd-space-6)"><h2>Team</h2></header>
+    <div style="padding:24px"><div style="padding:13px;border:1px solid"><p>Run facts</p></div><p style="text-align:center">Wednesday</p></div>
+  </div>`)
+  const read = () => measure(page, '#page', 'fixture', 'page-toolbar', 'Page toolbar')
+  expect((await read()).findings['header-off-body']).toEqual([])
+  await page.locator('header').evaluate(element => { element.style.paddingLeft = '36px' })
   expect((await read()).findings['header-off-body']).toHaveLength(1)
 })
 

@@ -93,7 +93,7 @@ export const sessionMethods = {
     )
   },
 
-  'transcripts/search': (ctx, params) => ctx.transcripts.search(params.query),
+  'transcripts/search': (ctx, params) => ctx.transcripts.search(params.query, { includeTools: params.includeTools }),
 
   'session/read': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)

@@ -21,13 +21,35 @@ marks, in background batches. It migrates no bodies and leaves the old files
 unchanged. Native archive rows are withheld until the agent confirms their state;
 background reconciliation preserves the last confirmed answer when a listing fails.
 Cached repository identities answer first and are rechecked in bounded background
-passes, including after later list refreshes. The transcript writer continues to own bodies until the next slice.
+passes, including after later list refreshes.
 
 Team runs are filed under their Team. Their conversations remain reachable
 through that row, and do not also appear as loose sidebar conversations.
 
 **The rule:** the first sidebar page reads local metadata; an upgrade carries
 the list over, and Team membership decides where a conversation is filed.
+
+## The host's conversations live in SQLite
+
+The host keeps its conversation bodies in `sessions.sqlite`, beside their
+index rows. Versioned turn metadata, complete item payloads, usage and Insight
+context survive a cold recovery. Changed items update their existing occurrences;
+an unchanged turn writes nothing. Conversation facts occupy a small `bodies`
+table so deleting a body leaves the sidebar index to its own owner.
+
+Old transcript files are kept, not migrated (owner, 2026-10-08). Only the
+index's one-time metadata seed reads them. The transcript store never reads,
+writes or removes them. Backups retain their existing transcript-entry format;
+a daily database snapshot runs on a worker and keeps the newest three copies.
+
+Search covers typed messages and answers by default, and tool output only
+when asked (owner, 2026-10-08). Tool output is capped at 3,000 characters in
+the index, with its complete payload retained for recovery. Reasoning and
+client context are excluded. The palette remembers its viewer's choice and
+renders every matching line as text.
+
+**The rule:** bodies, rollback and search update in one transaction; a stored
+conversation's only copy is kept in both the backup and the daily snapshot.
 
 ---
 

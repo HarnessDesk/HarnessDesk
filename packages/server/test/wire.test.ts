@@ -1,3 +1,4 @@
+import { readStored, writeStored, editStoredTurn } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
@@ -1801,22 +1802,10 @@ test('a completed desk scan pushes the fresh turn count through the host', async
   const updatesBeforeTurn = client.notifications.length
   live.finish()
   await client.until(() => client.events.some((event) => event.type === 'turn/completed'))
-  const transcriptPath = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID), `${encodeURIComponent(session.id)}.json`)
-  await client.until(() => {
-    if (!existsSync(transcriptPath)) return false
-    try {
-      const saved = JSON.parse(readFileSync(transcriptPath, 'utf8')) as { turns?: { status: string }[] }
-      return saved.turns?.some((turn) => turn.status === 'completed') ?? false
-    } catch {
-      return false
-    }
-  }, 5_000, 'the completed synthetic transcript')
-  // The fake runtime omits wall-clock metadata. Give its synthetic stored
-  // turn a start time so the ledger can place it in today's scan window.
-  const saved = JSON.parse(readFileSync(transcriptPath, 'utf8')) as { turns: { startedAt?: number; status: string }[] }
-  assert.ok(saved.turns[0])
-  saved.turns[0].startedAt = Date.now()
-  await writeFile(transcriptPath, JSON.stringify(saved))
+  await client.until(() => readStored(harness.stateDir, FAKE_RUNTIME_ID, String(session.id))?.turns.some(turn => turn.status === 'completed') ?? false,
+    5_000, 'the completed synthetic transcript')
+  // The fake omits clocks; place its stored turn in today's ledger window.
+  editStoredTurn(harness.stateDir, FAKE_RUNTIME_ID, String(session.id), turn => { turn.startedAt = Date.now() })
   await client.until(() => client.notifications.slice(updatesBeforeTurn).some((message) =>
     'method' in message && message.method === 'usage/updated' && message.params.report.runtime === FAKE_RUNTIME_ID && !message.params.report.turns,
   ), 5_000, 'the turn-completion meter refresh')
@@ -1837,12 +1826,10 @@ test('a desk turn without a meter still creates a pushed and queryable usage rep
   harness.host.bindUsage(FAKE_RUNTIME_ID, { deskTurns: true })
   assert.deepEqual(await client.call('usage/reports', {}), [], 'no meter and no recorded turn starts without a card')
 
-  const runtimeDir = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID))
-  await mkdir(runtimeDir, { recursive: true })
-  await writeFile(join(runtimeDir, 'session-1.json'), JSON.stringify({
+  await writeStored(harness.stateDir, FAKE_RUNTIME_ID, 'session-1', {
     version: 1, runtime: FAKE_RUNTIME_ID, id: 'session-1', savedAt: Date.now(), cwd: harness.stateDir,
     turns: [{ id: 'turn-1', startedAt: Date.now(), status: 'completed', items: [{ type: 'userMessage', content: [] }] }],
-  }))
+  })
   const before = client.notifications.length
   await client.call('usage/scan', {})
   await client.until(() => client.notifications.slice(before).some((message) =>

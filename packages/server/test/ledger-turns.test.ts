@@ -6,7 +6,7 @@ import { test } from 'node:test'
 
 import { tempDir } from './scratch.js'
 
-import { runtimeId, type AgentRuntime, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type AgentRuntime, type UsageReport } from '@harnessdesk/protocol'
 
 import { DeskTranscriptTurnsSource, type DeskTranscriptExport } from '../src/ledger/desk-turns.js'
 import { Ledger } from '../src/ledger/index.js'
@@ -799,115 +799,84 @@ test('a desk scan replaces yesterday after a late overnight turn becomes countab
   ledger.close()
 })
 
-test('a broken transcript store preserves the previous desk turn count', async () => {
-  const dir = scratch()
-  const transcriptsDir = join(dir, 'transcripts')
-  const runtimeDir = join(transcriptsDir, 'cursor')
-  mkdirSync(runtimeDir, { recursive: true })
-  writeFileSync(
-    join(runtimeDir, 'session-1.json'),
-    JSON.stringify({
-      version: 1,
-      runtime: 'cursor',
-      id: 'session-1',
-      savedAt: NOON,
-      updatedAt: NOON,
-      cwd: '/work/proj',
-      turns: [{ id: 'turn-1', startedAt: NOON, status: 'completed', items: [{ type: 'userMessage' }] }],
-    }),
-  )
+const deskBody = (id: string) => ({ version: 1, runtime: 'cursor', id, savedAt: NOON, updatedAt: NOON, cwd: '/work/proj',
+  turns: [{ id: `${id}-turn`, startedAt: NOON, status: 'completed', items: [{ type: 'userMessage' }] }] })
+const editDeskDatabase = (home: string, change: (db: DatabaseSync) => void): void => {
+  const db = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try { change(db) } finally { db.close() }
+}
 
+test('a broken transcript database preserves the previous desk turn count', async t => {
+  const dir = scratch()
+  const transcripts = new TranscriptStore(join(dir, 'transcripts'))
+  t.after(() => transcripts.close())
+  await transcripts.importOne('cursor', 'session-1', deskBody('session-1'))
   let now = NOON
   const ledger = new Ledger({
-    stateDir: dir,
-    databasePath: join(dir, 'usage.sqlite'),
-    corpora: [],
-    remoteSources: [new DeskTranscriptTurnsSource('cursor', new TranscriptStore(transcriptsDir))],
-    turnRuntimes: new Set([runtimeId('cursor')]),
-    deskTurnRuntimes: new Set([runtimeId('cursor')]),
-    pricing: await pricingIn(dir),
-    now: () => now,
+    stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora: [],
+    remoteSources: [new DeskTranscriptTurnsSource('cursor', transcripts)],
+    turnRuntimes: new Set([runtimeId('cursor')]), deskTurnRuntimes: new Set([runtimeId('cursor')]),
+    pricing: await pricingIn(dir), now: () => now,
   })
-
   await ledger.scan()
   assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 1)
-
-  rmSync(transcriptsDir, { recursive: true, force: true })
-  writeFileSync(transcriptsDir, 'not a folder')
+  editDeskDatabase(dir, db => db.exec('DROP TABLE bodies'))
   now += 60_000
   await ledger.scan()
-
   assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 1)
   ledger.close()
 })
 
-test('an unreadable or malformed transcript file preserves all prior desk rows in the replacement window', async () => {
+test('malformed or unsupported database rows preserve all prior desk rows in the replacement window', async t => {
   const dir = scratch()
-  const transcriptsDir = join(dir, 'transcripts')
-  const runtimeDir = join(transcriptsDir, 'cursor')
-  mkdirSync(runtimeDir, { recursive: true })
-  for (const id of ['session-1', 'session-2']) {
-    writeFileSync(join(runtimeDir, `${id}.json`), JSON.stringify({
-      version: 1, runtime: 'cursor', id, savedAt: NOON, cwd: '/work/proj',
-      turns: [{ id: `${id}-turn`, startedAt: NOON, status: 'completed', items: [{ type: 'userMessage' }] }],
-    }))
-  }
+  const transcripts = new TranscriptStore(join(dir, 'transcripts'))
+  t.after(() => transcripts.close())
+  for (const id of ['session-1', 'session-2']) await transcripts.importOne('cursor', id, deskBody(id))
   const ledger = new Ledger({
     stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora: [],
-    remoteSources: [new DeskTranscriptTurnsSource('cursor', new TranscriptStore(transcriptsDir))],
+    remoteSources: [new DeskTranscriptTurnsSource('cursor', transcripts)],
     turnRuntimes: new Set([runtimeId('cursor')]), deskTurnRuntimes: new Set([runtimeId('cursor')]),
     pricing: await pricingIn(dir), now: () => NOON,
   })
   await ledger.scan()
   assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2)
-
-  writeFileSync(join(runtimeDir, 'session-2.json'), '{')
+  editDeskDatabase(dir, db => db.prepare("UPDATE turns SET payload='{' WHERE id='session-2'").run())
   await ledger.scan()
-  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'a malformed file cannot erase the last good count')
-
-  writeFileSync(join(runtimeDir, 'session-2.json'), JSON.stringify({ version: 1, turns: 'invalid' }))
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'a malformed row cannot erase the last good count')
+  editDeskDatabase(dir, db => db.prepare("UPDATE turns SET payload=? WHERE id='session-2'").run(JSON.stringify({ version: 2 })))
   await ledger.scan()
-  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'an invalid transcript shape cannot erase the last good count')
-
-  rmSync(join(runtimeDir, 'session-2.json'))
-  mkdirSync(join(runtimeDir, 'session-2.json'))
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'an unsupported transcript cannot erase the last good count')
+  editDeskDatabase(dir, db => db.exec('DROP TABLE items'))
   await ledger.scan()
   assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'a partial export cannot erase the last good count')
   ledger.close()
 })
 
-test('a missing runtime folder preserves prior desk rows but a present empty folder clears them', async () => {
+test('an unavailable runtime store preserves prior desk rows but a retained empty store clears them', async t => {
   const dir = scratch()
-  const transcriptsDir = join(dir, 'transcripts')
-  const runtimeDir = join(transcriptsDir, 'cursor')
+  const transcripts = new TranscriptStore(join(dir, 'transcripts'))
+  t.after(() => transcripts.close())
   const warnings: string[] = []
   const ledger = new Ledger({
     stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora: [],
-    remoteSources: [new DeskTranscriptTurnsSource('cursor', new TranscriptStore(transcriptsDir))],
+    remoteSources: [new DeskTranscriptTurnsSource('cursor', transcripts)],
     turnRuntimes: new Set([runtimeId('cursor')]), deskTurnRuntimes: new Set([runtimeId('cursor')]),
-    pricing: await pricingIn(dir), now: () => NOON,
-    log: (message) => warnings.push(message),
+    pricing: await pricingIn(dir), now: () => NOON, log: message => warnings.push(message),
   })
   await ledger.scan()
-  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 0, 'a runtime with no store begins at zero')
-  assert.deepEqual(warnings, [], 'a runtime with no saved conversation yet is normal, not a read warning')
-
-  mkdirSync(runtimeDir, { recursive: true })
-  writeFileSync(join(runtimeDir, 'session-1.json'), JSON.stringify({
-    version: 1, runtime: 'cursor', id: 'session-1', savedAt: NOON, cwd: '/work/proj',
-    turns: [{ id: 'turn-1', startedAt: NOON, status: 'completed', items: [{ type: 'userMessage' }] }],
-  }))
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 0)
+  assert.deepEqual(warnings, [])
+  await transcripts.importOne('cursor', 'session-1', deskBody('session-1'))
   await ledger.scan()
   assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 1)
-
-  rmSync(runtimeDir, { recursive: true })
+  editDeskDatabase(dir, db => db.prepare("DELETE FROM meta WHERE key='transcripts:runtime:cursor'").run())
   await ledger.scan()
-  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 1, 'an absent folder is not a successful empty export')
-  assert.equal(warnings.length, 1, 'a folder lost after a successful sync is reported')
-
-  mkdirSync(runtimeDir)
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 1, 'an absent runtime is not a successful empty export')
+  assert.equal(warnings.length, 1)
+  editDeskDatabase(dir, db => db.prepare("INSERT INTO meta VALUES('transcripts:runtime:cursor','1')").run())
+  await transcripts.forget(runtimeId('cursor'), sessionId('session-1'))
   await ledger.scan()
-  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 0, 'a present empty folder intentionally replaces the window')
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 0, 'a present empty runtime intentionally replaces the window')
   ledger.close()
 })
 

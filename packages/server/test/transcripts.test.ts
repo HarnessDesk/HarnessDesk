@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { DatabaseSync } from 'node:sqlite'
 
 import {
   runtimeId,
@@ -18,7 +19,6 @@ import {
   splitContextContent,
 } from '@harnessdesk/protocol'
 
-import { errnoOf } from '../src/errno.js'
 import { TranscriptStore } from '../src/transcripts.js'
 
 /**
@@ -55,12 +55,30 @@ const insight = (turn: string): TurnInsightContext => ({
   before: null, after: null, generation: '', observedAt: 1, loaded: null,
 })
 
+const stores = new Set<TranscriptStore>()
+const storeAt = (...args: ConstructorParameters<typeof TranscriptStore>): TranscriptStore => {
+  const store = new TranscriptStore(...args)
+  stores.add(store)
+  return store
+}
+const databaseAt = <T>(dir: string, fn: (db: DatabaseSync) => T): T => {
+  const db = new DatabaseSync(join(dir, '..', 'sessions.sqlite'))
+  try { return fn(db) } finally { db.close() }
+}
+const stripFacts = (dir: string, id: string, keys: readonly string[]): void => databaseAt(dir, db => {
+  const facts = JSON.parse(String(db.prepare('SELECT payload FROM bodies WHERE id=?').get(id)?.payload))
+  for (const key of keys) delete facts[key]
+  db.prepare('UPDATE bodies SET payload=? WHERE id=?').run(JSON.stringify(facts), id)
+})
 const withStore = async (fn: (store: TranscriptStore, dir: string) => Promise<void>): Promise<void> => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
-  try {
-    await fn(new TranscriptStore(dir), dir)
-  } finally {
-    await rm(dir, { recursive: true, force: true })
+  const home = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  const dir = join(home, 'transcripts')
+  await mkdir(dir)
+  try { await fn(storeAt(dir), dir) }
+  finally {
+    await Promise.all([...stores].map(store => store.close()))
+    stores.clear()
+    await rm(home, { recursive: true, force: true })
   }
 }
 
@@ -184,7 +202,7 @@ test('flush keeps pending Insight context during shutdown', async () => {
       }],
     })
     await store.flush()
-    const stored = JSON.parse(await readFile(join(dir, 'codex', 's1.json'), 'utf8')) as { insight?: readonly { readonly turn: string }[] }
+    const stored = (await store.exportAll())[0]!.data as { insight?: readonly { readonly turn: string }[] }
     assert.deepEqual(stored.insight, [{
       turn: 't1', startedAt: 1, endedAt: null, seat: 'seat-1', cause: { kind: 'person' }, parent: null,
       before: null, after: null, generation: '', observedAt: 1, loaded: null,
@@ -272,8 +290,7 @@ test('nothing is written for sessions without loaded items, and writes settle', 
     store.record(session([turn('t1', [item('u', 'userMessage')])]))
     store.record(session([turn('t1', [item('u', 'userMessage'), item('c', 'command')])]))
     await store.flush()
-    const files = await readdir(join(dir, 'codex'))
-    assert.deepEqual(files, ['s1.json'])
+    assert.deepEqual((await store.exportAll()).map(row => row.id), ['s1'])
     const enriched = await store.enrich(session([turn('t1', [item('u', 'userMessage')])]))
     assert.equal(enriched.turns[0]?.items.length, 2)
   })
@@ -446,42 +463,39 @@ test('search survives an empty store, an empty query, and a corrupt file', async
     await store.flush()
     assert.deepEqual(await store.search('   '), [])
     const { writeFile: write } = await import('node:fs/promises')
+    await mkdir(join(dir, 'codex'), { recursive: true })
     await write(join(dir, 'codex', 'bad.json'), 'not json at all')
     const hits = await store.search('fine conversation')
     assert.equal(hits.length, 1)
   })
 })
 
-test('a transcript stamped by a newer format is never overwritten', async () => {
-  await withStore(async (store, dir) => {
-    const { mkdir, readFile: read, writeFile: write } = await import('node:fs/promises')
-    await mkdir(join(dir, 'codex'), { recursive: true })
-    const future = JSON.stringify({ version: 2, somethingNewer: true })
-    await write(join(dir, 'codex', 's1.json'), future)
-
-    store.record(session([turn('t1', [item('u', 'userMessage')])]), { now: true })
+test('a transcript stamped by a newer format is never overwritten', async t => {
+  for (const action of ['record', 'restore']) await t.test(action, () => withStore(async (store, dir) => {
+    store.record(session([turn('old', [item('old', 'userMessage')])]), { now: true })
     await store.flush()
-    assert.equal(
-      await read(join(dir, 'codex', 's1.json'), 'utf8'),
-      future,
-      'the newer file is byte-for-byte untouched',
-    )
-  })
+    const future = JSON.stringify({ version: 2, somethingNewer: true })
+    databaseAt(dir, db => db.prepare('UPDATE bodies SET payload=? WHERE runtime=? AND id=?').run(future, 'codex', 's1'))
+    const rows = () => databaseAt(dir, db => ['bodies', 'turns', 'items', 'items_fts', 'sessions'].map(table =>
+      db.prepare(`SELECT * FROM ${table}`).all()))
+    const before = rows()
+
+    if (action === 'record') {
+      store.record(session([turn('t1', [item('u', 'userMessage')])]), { now: true })
+      await store.flush()
+    } else assert.equal(await store.importOne('codex', 's1', {
+      version: 1, runtime: 'codex', id: 's1', savedAt: Date.now() + 1000,
+      turns: [turn('restored', [item('restored', 'userMessage')])],
+    }), 'refused')
+    assert.deepEqual(rows(), before, `${action} leaves the newer body and every related row untouched`)
+  }))
 })
 
 test('a file from before the metadata still makes a presentable hit', async () => {
   await withStore(async (store, dir) => {
     store.record(talk('codex', 'old', [['userMessage', 'the first words spoken']]), { now: true })
     await store.flush()
-    // Strip the file back to the old format: no title, preview, cwd.
-    const file = join(dir, 'codex', 'old.json')
-    const { readFile: read, writeFile: write } = await import('node:fs/promises')
-    const parsed = JSON.parse(await read(file, 'utf8')) as Record<string, unknown>
-    delete parsed['title']
-    delete parsed['preview']
-    delete parsed['cwd']
-    delete parsed['updatedAt']
-    await write(file, JSON.stringify(parsed))
+    stripFacts(dir, 'old', ['title', 'preview', 'cwd', 'updatedAt'])
 
     const [hit] = await store.search('first words')
     assert.ok(hit)
@@ -634,11 +648,7 @@ test('a file from before the metadata with only context blocks is not searchable
     const opening = `${wrapContext('Handed off from Claude Code', '## Goal\nfinish')}\n${wrapContext('Git', 'On branch main.')}`
     store.record(talk('codex', 'blocks', [['userMessage', opening]]), { now: true })
     await store.flush()
-    const file = join(dir, 'codex', 'blocks.json')
-    const { readFile: read, writeFile: write } = await import('node:fs/promises')
-    const parsed = JSON.parse(await read(file, 'utf8')) as Record<string, unknown>
-    delete parsed['preview']
-    await write(file, JSON.stringify(parsed))
+    stripFacts(dir, 'blocks', ['preview'])
     assert.deepEqual(await store.search('Handed off'), [])
   })
 })
@@ -650,7 +660,7 @@ test('a typed opening after a hand-off packet survives restart, and an unclosed 
     store.record(talk('codex', 'cut', [['userMessage', '<context source="Handed off from Claude Code — “Queue work']]), { now: true })
     await store.flush()
     // A second store over the same folder is the desk after a restart.
-    const again = new TranscriptStore(dir)
+    const again = storeAt(dir)
     assert.deepEqual(await again.search('finish'), [])
     const [handed] = await again.search('Continue')
     assert.equal(handed?.summary.preview, 'Continue with migration')
@@ -672,10 +682,7 @@ const shot = (id: string): AgentItem =>
 const legacy = async (store: TranscriptStore, dir: string, id: string, turns: Turn[]): Promise<void> => {
   store.record({ ...talk('codex', id, []), turns }, { now: true })
   await store.flush()
-  const file = join(dir, 'codex', `${id}.json`)
-  const parsed = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
-  delete parsed['preview']
-  await writeFile(file, JSON.stringify(parsed))
+  stripFacts(dir, id, ['preview'])
 }
 
 test('a transcript is called by the words it opens with, and one where nobody spoke names nothing', async () => {
@@ -683,7 +690,7 @@ test('a transcript is called by the words it opens with, and one where nobody sp
   await withStore(async (store, dir) => {
     await legacy(store, dir, 'words', [turn('t1', [said('i0', 'userMessage', 'Rename the settings page')])])
     await legacy(store, dir, 'silent', [turn('t1', [shot('i0'), said('a0', 'assistantMessage', 'A quiet conversation about nothing')])])
-    const again = new TranscriptStore(dir)
+    const again = storeAt(dir)
     assert.equal((await again.search('Rename the settings'))[0]?.summary.preview, 'Rename the settings page')
     assert.equal((await again.search('quiet conversation'))[0]?.summary.preview, null)
   })
@@ -696,7 +703,7 @@ test('the fallback takes the first message that says something, not the first me
       turn('t2', [said('i1', 'userMessage', 'Retry the checkout call on a 502')]),
     ])
     // A second store over the same folder is the desk after a restart.
-    const again = new TranscriptStore(dir)
+    const again = storeAt(dir)
     assert.equal((await again.search('Retry the checkout'))[0]?.summary.preview, 'Retry the checkout call on a 502')
   })
 })
@@ -714,7 +721,7 @@ test('the fallback passes over a summary the agent wrote of its own compacted hi
     await legacy(store, dir, 'only-summary', [
       turn('t1', [said('i0', 'userMessage', '[Previous conversation summary]: Summary: 1. Primary Request and Intent: the retry path'), said('a0', 'assistantMessage', 'Quietly continuing.')]),
     ])
-    const again = new TranscriptStore(dir)
+    const again = storeAt(dir)
     assert.equal((await again.search('add the jitter'))[0]?.summary.preview, 'Now add the jitter')
     assert.equal((await again.search('Quietly continuing'))[0]?.summary.preview, null)
   })
@@ -766,121 +773,45 @@ test('exportRuntime reads only the selected runtime folder', async () => {
   })
 })
 
-test('exportRuntime rejects a store root that is a file instead of treating it as an empty runtime', async () => {
+test('exportRuntime rejects an unavailable database instead of replacing a ledger with an empty batch', async () => {
   await withStore(async (store, dir) => {
-    await rm(dir, { recursive: true, force: true })
-    await writeFile(dir, 'not a transcript folder')
-
-    await assert.rejects(store.exportRuntime(runtimeId('cursor')), errno('ENOTDIR'))
+    await store.close()
+    await rm(join(dir, '..', 'sessions.sqlite'), { force: true })
+    await mkdir(join(dir, '..', 'sessions.sqlite'))
+    await assert.rejects(store.exportRuntime(runtimeId('cursor')))
   })
 })
 
-/*
- * A folder that cannot be opened is not a store with nothing in it.
- *
- * Both readers here answered every failure to open a folder with nothing:
- * search with no hits, and the backup with fewer conversations — or none —
- * under a count that read as complete. Only a store never written, and a
- * stray file beside the runtime folders (Finder leaves `.DS_Store`), are
- * nothing. The conditions are real rather than stubbed: a mode-000 folder,
- * a 300-character name, and a folder that points at itself — ELOOP for any
- * user, root included.
- */
-
-const errno = (expected: string) => (error: unknown) => {
-  assert.equal(errnoOf(error) || errnoOf((error as Error).cause), expected)
-  return true
-}
-
-test('a store that cannot be opened is raised by search and by the backup, not read as empty', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
-  const store = new TranscriptStore(join(dir, 'n'.repeat(300)))
-  await assert.rejects(store.search('anything'), errno('ENAMETOOLONG'))
-  await assert.rejects(store.exportAll(), errno('ENAMETOOLONG'))
-})
-
-test('a store the mode refuses is raised the same way', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
-  const store = new TranscriptStore(dir)
-  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
-  await store.flush()
-  assert.equal((await store.exportAll()).length, 1, 'readable, the conversation is there')
-
-  await chmod(dir, 0o000)
-  try {
-    const readable = await readdir(dir).then(
-      () => true,
-      () => false,
-    )
-    // Modes do not apply to root, so there is no refusal here to observe.
-    if (readable) return t.skip('this user can read a directory with mode 000')
-
-    await assert.rejects(store.search('websocket'), errno('EACCES'))
-    await assert.rejects(store.exportAll(), errno('EACCES'))
-  } finally {
-    await chmod(dir, 0o700)
-  }
-})
-
-test('a backup refuses an agent’s folder it cannot open, rather than leaving that agent out', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
-  const store = new TranscriptStore(dir)
-  store.record(talk('codex', 'a', [['userMessage', 'kept']]), { now: true })
-  await store.flush()
-  const loop = join(dir, 'claude')
-  await symlink(loop, loop)
-
-  /* "Exported 3 agents and 12 conversations" over a folder of four hundred it
-     could not read is a backup somebody trusts and cannot restore from. */
-  await assert.rejects(store.exportAll(), (error: unknown) => {
-    assert.ok(error instanceof Error)
-    assert.equal(errnoOf(error.cause), 'ELOOP')
-    assert.ok(error.message.includes(loop), 'names the folder it could not read')
-    return true
+test('a database that cannot be opened is raised by search and backup, never read as empty', async () => {
+  await withStore(async (store, dir) => {
+    await store.close()
+    await writeFile(join(dir, '..', 'sessions.sqlite'), 'not a SQLite database')
+    await assert.rejects(store.search('anything'))
+    await assert.rejects(store.exportAll(), /backup was not made/)
   })
 })
 
-test('search reads past an agent’s folder it cannot open, and says which', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
-  const logged: string[] = []
-  const store = new TranscriptStore(dir, (message, details) =>
-    logged.push(`${message} ${JSON.stringify(details ?? {})}`),
-  )
-  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
-  await store.flush()
-  const loop = join(dir, 'claude')
-  await symlink(loop, loop)
-
-  // A palette search is a lookup, not a record: one folder it cannot open
-  // must not cost it the rest, but it is not passed over in silence either.
-  const hits = await store.search('websocket')
-  assert.equal(hits.length, 1, 'what could be read is still found')
-  assert.ok(
-    logged.some((line) => line.includes(JSON.stringify(loop).slice(1, -1)) && line.includes('ELOOP')),
-    'and the folder that could not be is named, with the reason',
-  )
+test('a backup refuses an invalid stored body rather than leaving the conversation out', async () => {
+  await withStore(async (store, dir) => {
+    store.record(talk('codex', 'a', [['userMessage', 'kept']]))
+    await store.flush()
+    databaseAt(dir, db => db.prepare("UPDATE bodies SET payload='broken'").run())
+    await assert.rejects(store.exportAll(), /backup was not made/)
+  })
 })
 
-test('a stray file beside the agents’ folders, and a store never written, are nothing', async (t) => {
-  // The control for the four above: these pass against the old catch-all too.
-  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
-  const logged: string[] = []
-  const store = new TranscriptStore(dir, (message) => logged.push(message))
-  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
-  await store.flush()
-  await writeFile(join(dir, '.DS_Store'), 'Finder was here', 'utf8')
-  assert.equal((await store.search('websocket')).length, 1)
-  assert.equal((await store.exportAll()).length, 1)
-  assert.deepEqual(logged, [], 'and a stray file is not worth a line')
-
-  const never = new TranscriptStore(join(dir, 'never-written'))
-  assert.deepEqual(await never.search('websocket'), [])
-  assert.deepEqual(await never.exportAll(), [])
+test('legacy folders that cannot open and stray files are never read by the database store', async () => {
+  await withStore(async (store, dir) => {
+    store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]))
+    await store.flush()
+    await writeFile(join(dir, '.DS_Store'), 'Finder was here')
+    assert.equal((await store.search('websocket')).length, 1)
+    assert.equal((await store.exportAll()).length, 1)
+  })
+  await withStore(async store => {
+    assert.deepEqual(await store.search('websocket'), [])
+    assert.deepEqual(await store.exportAll(), [])
+  })
 })
 
 test('a fuller cold read keeps the runtime notices recorded in its own turn', async () => {
@@ -888,7 +819,7 @@ test('a fuller cold read keeps the runtime notices recorded in its own turn', as
     const notice: AgentItem = { ...item('compacted', 'notice'), type: 'notice', text: 'Context was compacted', kind: 'conversation:compacted', contentKey: 'compacted', count: 2 }
     store.record(session([turn('t1', [item('u', 'userMessage'), notice])]), { now: true })
     await store.flush()
-    const restarted = new TranscriptStore(dir)
+    const restarted = storeAt(dir)
     const richer = session([turn('t1', [item('u', 'userMessage'), item('a', 'assistantMessage'), item('a2', 'assistantMessage')])])
     const enriched = await restarted.enrich(richer)
     assert.deepEqual(enriched.turns[0]?.items.filter(item => item.type === 'notice'), [notice])
@@ -903,7 +834,7 @@ test('a cold read preserves unmatched synthetic notice turns but drops omitted w
     const synthetic = turn('notice:warning', [notice])
     store.record(session([synthetic, turn('t1', [item('u', 'userMessage')]), turn('removed', [item('gone', 'userMessage')])]), { now: true })
     await store.flush()
-    const restarted = new TranscriptStore(dir)
+    const restarted = storeAt(dir)
     const enriched = await restarted.enrich(session([turn('t1', [item('u', 'userMessage')])]))
     assert.deepEqual(enriched.turns.map(turn => turn.id), ['notice:warning', 't1'])
     assert.deepEqual(enriched.turns[0], synthetic)
@@ -932,7 +863,7 @@ test('a cold richer read restores the recorded user content even after the backe
     ] } as AgentItem
     store.record(session([turn('t1', [recorded])]), { now: true })
     await store.flush()
-    const cold = new TranscriptStore(dir)
+    const cold = storeAt(dir)
     const replay = { ...item('u', 'userMessage'), type: 'userMessage', content: [{ type: 'text', text: 'Keep it' }],
       context: [{ label: 'Git', text: 'On branch main' }, { label: 'Other', text: 'typed words' }] } as AgentItem
     const result = await cold.enrich(session([turn('t1', [replay, item('a', 'assistantMessage')])]))
@@ -950,7 +881,7 @@ test('a cold resegmented read retains provenance when turn and user item ids cha
     await store.flush()
     const replay: AgentItem = { ...item('replayed-user', 'userMessage'), type: 'userMessage',
       content: [{ type: 'text', text: 'Keep it' }], context: [{ label: 'Other', text: 'typed words' }] }
-    const cold = new TranscriptStore(dir)
+    const cold = storeAt(dir)
     const result = await cold.enrich(session([turn('replayed-turn', [replay, item('answer', 'assistantMessage')])]))
     const user = result.turns[0]?.items[0]
     assert.ok(user?.type === 'userMessage')
@@ -968,7 +899,7 @@ test('recording an ACP replay before a cold read cannot overwrite stored context
       content: [{ type: 'text', text: raw, deskContext: { prefixLength: 0 } }] }
     store.record(session([turn('t1', [recorded])]), { now: true })
     await store.flush()
-    const cold = new TranscriptStore(dir)
+    const cold = storeAt(dir)
     const replay: AgentItem = { ...recorded, content: [{ type: 'text', text: 'Keep it' }],
       context: [{ label: 'Other', text: 'typed words' }] }
     cold.record(session([turn('t1', [replay])]))

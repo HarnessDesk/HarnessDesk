@@ -39,6 +39,11 @@ afterEach(() => {
   container.remove()
 })
 
+it('offers the 48px toolbar height without a screen overriding its measure', () => {
+ act(()=>root.render(<ToolPaneHeader title="Team" size="lg" />))
+ expect(container.querySelector('header')?.className).toContain('h-(--hd-space-12)')
+})
+
 it('owns the integrated pane frame and the window-corner header', () => {
   act(() => root.render(
     <ToolPane variant="integrated">
