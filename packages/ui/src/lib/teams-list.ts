@@ -61,8 +61,8 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
   execution?.state !== 'running' && execution?.state !== 'stalled' &&
   (goal ? goal.activity === 'ready-to-wrap' : execution?.state === 'settled')
  const state: TeamListState = wrapped ? 'wrapped' : needs ? 'needs-you' : unreadSeats.length ? 'unread'
-  : goal?.goal.state === 'wrapping' ? 'wrapping' : workingSeats.length ? 'working' : settled ? 'settled'
-   : execution?.state === 'stopped' ? 'stopped' : 'idle'
+  : goal?.goal.state === 'wrapping' ? 'wrapping' : workingSeats.length ? 'working' : execution?.state === 'stopped' ? 'stopped'
+   : settled ? 'settled' : 'idle'
  const ready = settled && !wrapped && state === 'settled'
  const active = !wrapped && !ready
  // The Run has start/end stamps, but no per-round transition timestamps.

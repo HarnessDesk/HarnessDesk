@@ -2022,3 +2022,81 @@ rules: []
     assert.match(rig.board(run.goal).intents[0]!.detail ?? '', /working tree.*committed/i)
   })
 }
+
+const LAND_END = `
+version: 2
+name: Successful landing
+roles:
+  land: { kind: person, outcomes: [landed, waiting, failed] }
+seed: { role: land, title: Land the change }
+rules:
+  - { on: land, when: { every: [waiting] }, then: { role: land, title: Try again } }
+complete: { land: [landed] }
+`
+
+test('a declared successful outcome completes a ruled role without asking for a person (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END, [])
+  await rig.team.intentAction(run.goal, 1, 'done', undefined, 'landed')
+  await rig.flows.flush()
+  const ended = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(ended.state, 'settled')
+  assert.deepEqual(ended.end, { kind: 'complete' })
+  assert.doesNotMatch(ended.reason ?? '', /waits for you/)
+  assert.deepEqual(await rig.flows.stopRun(run.id), ended, 'a settled end is never rewritten')
+})
+
+test('a successful check completes after its retry rule declines (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END.replace('kind: person, outcomes: [landed, waiting, failed]', 'kind: check, run: "true", timeout: 10, exits: { 0: landed }, otherwise: waiting'), [])
+  await rig.flows.flush()
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.end, { kind: 'complete' })
+})
+
+test('undeclared outcomes still wait and matching retry rules still open a round (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END, [])
+  await rig.team.intentAction(run.goal, 1, 'done', undefined, 'waiting')
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.length, 2)
+  await rig.team.intentAction(run.goal, 2, 'done', undefined, 'failed')
+  await rig.flows.flush()
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.end, { kind: 'unrouted', card: 2, outcome: 'failed' })
+})
+
+test('stopping abandons only this run’s unanswered person cards and survives a retry (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END.replace('complete: { land: [landed] }', ''), [])
+  rig.team.addIntentAsUser(run.goal, {title: 'Unrelated follow-up'})
+  const stopped = await rig.flows.stopRun(run.id)
+  const cards = rig.board(run.goal).intents
+  assert.equal(cards.find(card => card.id === 1)?.state, 'abandoned')
+  assert.equal(cards.find(card => card.id === 2)?.state, 'open')
+  assert.deepEqual(stopped.end, { kind: 'stopped', by: 'person' })
+  assert.deepEqual(await rig.flows.stopRun(run.id), stopped)
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.length, 2, 'cleanup fires no retry rule')
+})
+
+test('successful ends require all siblings and never count an abandoned card (#1548)', async t => {
+ for(const outcome of ['landed','failed',null]) {
+  const rig=await goalRig(t)
+  const source=`version: 2
+name: Sibling ends
+roles:
+  land: {kind: agent, uses: implementer, count: 2}
+seed: {role: land, title: Finish}
+rules:
+  - {on: land, when: {every: [waiting]}, then: {role: land, title: Retry}}
+complete: {land: [landed]}
+`
+  const run=await rig.start(source,[agent('implementer',['landed','waiting','failed'])])
+  await rig.team.complete(1,{outcome:'landed'},rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state,'running')
+  if(outcome===null) await rig.team.intentAction(run.goal,2,'abandon')
+  else await rig.team.complete(2,{outcome},rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.end?.kind,outcome==='landed'?'complete':'unrouted')
+ }
+})

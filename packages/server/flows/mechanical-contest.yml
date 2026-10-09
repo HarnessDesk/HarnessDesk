@@ -26,6 +26,7 @@ roles:
   referee:
     kind: person
     outcomes: [merged, dropped]
+complete: { referee: [merged, dropped] }
 seed: { role: competitor, title: "{{task}}" }
 rules:
   - id: to-decide

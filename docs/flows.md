@@ -218,12 +218,14 @@ like `fail`; pair it with a rule rather than relying on the word to execute
 anything by itself:
 
 ```yaml
+version: 2
 roles:
   land:
     kind: check
     run: node land.mjs
     exits: { 0: landed }
     otherwise: retry
+complete: { land: [landed] }
 seed: { role: land, title: Land the reviewed commit }
 rules:
   - id: try-again
@@ -236,8 +238,8 @@ budget: { rounds: 3, without-progress: 2 }
 For an existing landing rule, put an unconditional rule (omit `when:`) last to
 catch all other outcomes, including explicit `exits:` words such as `no-pr`.
 Rules still fire in file order, and the normal round and progress budgets bound
-the loop. Without a matching rule the run settles; start a new run to run its
-check again.
+the loop. Without a matching rule the declared `landed` outcome completes the run;
+other outcomes still ask for you. Start a new run to run its check again.
 
 ### Permissions
 
@@ -663,6 +665,21 @@ moves. Trigger starts use the same fetch and pin, before their first dispatch.
 A Flow with `base` starts a new Goal from a project. It cannot also reuse an
 existing Goal or name a review target; that target already chooses its own
 commit. Omit `base` to keep the existing checkout-based start behavior.
+
+**Declare a successful end.** In version 2, `complete: { land: [landed] }`
+names successful outcomes by role. The engine tries continuation rules first.
+When none matches, every card in the closed round must be done and answer one
+of that role's listed outcomes to end `complete`; a mixed round or an abandoned
+card still ends `unrouted` and asks for you. A matching rule waiting on evidence
+still waits. Role ids and outcome words must exist: checks use their exit map
+and `otherwise`, people use `outcomes`, and agents use the resolved Agent's
+`answers`. Each list has 1–64 words, each at most 200 characters.
+
+An omitted role keeps the existing behavior: a role with no outgoing rules
+completes on an answered round; unmatched outcomes of a ruled role ask for you.
+The declaration is frozen with each new Run. Existing settled Runs keep their
+recorded ends. Stopping a Run sets aside only its unanswered person cards,
+without answering them or firing a rule; follow-up cards remain open.
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
 those come from the resolved Agent named in `uses:`, the same one Settings ›

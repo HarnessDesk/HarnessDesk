@@ -699,6 +699,16 @@ const flowLayoutValidator: Validator<unknown> = (value, path = '') => {
   if (size > SHAPE_LAYOUT_SIZE_LIMIT) throw new ValidationError(path, 'expected layout metadata under 64 KiB')
   return value
 }
+const flowCompleteValidator: Validator<NonNullable<FlowPolicy['complete']>> = (value, path = '') => {
+  const record = isObject(value, path)
+  if (Object.keys(record).length > 64) throw new ValidationError(path, 'expected at most 64 roles')
+  return Object.fromEntries(Object.entries(record).map(([role, words]) => {
+    flowRoleId(role, `${path}.${role}`)
+    const outcomes = flowWordList(64, atMost(200, isFilled))(words, `${path}.${role}`)
+    if (!outcomes.length) throw new ValidationError(`${path}.${role}`, 'expected at least one successful outcome')
+    return [role, outcomes]
+  }))
+}
 const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
   version: ((value: unknown, path = '') => {
     if (value !== 2) throw new ValidationError(path, 'expected 2')
@@ -715,6 +725,7 @@ const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
   inputs: flowWordList(64, flowInputValidator) as unknown as Validator<FlowPolicy['inputs']>,
   roles: flowWordList(64, flowPolicyRoleValidator) as unknown as Validator<FlowPolicy['roles']>,
   rules: flowWordList(256, flowPolicyRuleValidator) as unknown as Validator<FlowPolicy['rules']>,
+  complete: (value, path) => value === undefined ? undefined : flowCompleteValidator(value, path),
   seed: flowThenValidator,
   messaging: literalUnion('board-only', 'members'),
   wait: goalInteger(1),

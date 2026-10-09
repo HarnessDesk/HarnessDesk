@@ -596,3 +596,28 @@ rules:
   const again = parseFlowPolicy(serializeFlowPolicy(parsed.document!.format === 'agents' ? parsed.document!.flow : (null as never)))
   assert.equal(again.document?.format === 'agents' ? again.document.flow.rules[0]!.then.split : null, 'contract')
 })
+
+
+test('successful end declarations survive parsing and serialization (#1548)', () => {
+  const parsed = parseFlowPolicy(`${source('    kind: check\n    run: "true"\n    exits: { 0: done }\n    otherwise: failed')}\ncomplete: { worker: [done], person: [done] }\n`)
+  assert.equal(parsed.document?.format, 'agents', JSON.stringify(parsed.problems))
+  if (parsed.document?.format !== 'agents') return
+  const again = parseFlowPolicy(serializeFlowPolicy(parsed.document.flow))
+  assert.equal(again.document?.format, 'agents')
+  if (again.document?.format === 'agents') assert.deepEqual(again.document.flow.complete, parsed.document.flow.complete)
+})
+
+test('malformed successful ends and unknown roles or outcomes are refused (#1548)', () => {
+  for (const complete of ['null', '[]', '{ missing: [done] }', '{ worker: [] }', '{ worker: [unknown] }', '{ worker: [3] }', '{ worker: done }']) {
+    const parsed = parseFlowPolicy(`${source('    kind: person\n    outcomes: [done]')}\ncomplete: ${complete}\n`)
+    assert.equal(parsed.document, null, complete)
+    assert.ok(parsed.problems.some(one => one.at.startsWith('complete')), JSON.stringify(parsed.problems))
+  }
+})
+
+test('an Agent must declare every successful end word when the Flow compiles (#1548)', () => {
+ const parsed=parseFlowPolicy(`${source('    kind: agent\n    uses: writer')}\ncomplete: { worker: [unknown] }\n`)
+ assert.ok(parsed.document,JSON.stringify(parsed.problems))
+ const compiled=compileFlowPolicy(parsed.document!,[agent('writer')])
+ assert.ok(compiled.problems.some(one=>one.at==='complete.worker' && one.text.includes('never answers')))
+})

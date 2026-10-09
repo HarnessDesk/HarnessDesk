@@ -78,6 +78,8 @@ export interface FlowPolicy {
   readonly base?: FlowBase
   readonly inputs: readonly FlowInput[]
   readonly roles: readonly FlowPolicyRole[]
+  /** Successful outcomes by role, read after no continuation rule matches. */
+  readonly complete?: Readonly<Record<string, readonly string[]>>
   readonly rules: readonly FlowPolicyRule[]
   readonly seed: FlowThen
   readonly messaging: 'board-only' | 'members'

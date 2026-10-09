@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
-import { DEFAULT_FLOW_BUDGET, isPersonReviewStep } from '@harnessdesk/protocol'
+import { DEFAULT_FLOW_BUDGET, completesRound, isPersonReviewStep } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceView,
@@ -698,7 +698,7 @@ export const roleAnswers = (policy: FlowPolicy, role: string, declared: readonly
   const own = policy.rules.filter((rule) => rule.on === role)
   if (own.length === 0) return declared
   if (own.some((rule) => !rule.when || (!rule.when.every?.length && !rule.when.any?.length))) return declared
-  const ownWords = wordsOf(policy, (rule) => rule.on === role)
+  const ownWords = [...wordsOf(policy, (rule) => rule.on === role), ...(Object.hasOwn(policy.complete ?? {}, role) ? policy.complete![role]! : [])]
   const borrowed = wordsOf(policy, (rule) => rule.on !== role)
   return declared.filter((word) => ownWords.includes(word) || !borrowed.includes(word))
 }
@@ -3956,8 +3956,11 @@ export class FlowExecutions {
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
       const rules = policyOf(run).rules.filter((rule) => rule.on === last.role)
       const card = cards.find((card) => !rules.some((rule) => guardHolds(rule.when ?? {}, [card.outcome ?? null]))) ?? cards[0]!
-      const complete = rules.length === 0 && cards.every((card) => card.state === 'done' && card.outcome != null)
-      await this.#finish(id, 'settled', `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`,
+      const complete = cards.every((card) => card.state === 'done' && card.outcome != null) &&
+        (Object.hasOwn(policyOf(run).complete ?? {}, last.role)
+          ? completesRound(policyOf(run), last.role, cards.map(card => card.outcome ?? null))
+          : rules.length === 0)
+      await this.#finish(id, 'settled', complete ? `${answered}; this run is complete.` : `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`,
         complete ? { kind: 'complete' } : { kind: 'unrouted', card: card.id, outcome: card.outcome ?? 'nothing' })
       return
     }
@@ -4006,6 +4009,15 @@ export class FlowExecutions {
         this.interruptChecks(goal)
         const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
         await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
+        const run = this.#get(id)
+        if (run.state === 'stopped') {
+          // A failed board save can be retried without changing the durable end.
+          const people = new Set(policyOf(run).roles.filter(role => role.kind === 'person').map(role => role.id))
+          const owned = new Set(run.rounds.filter(round => people.has(round.role)).flatMap(round => round.cards))
+          for (const card of this.#team.stateFor(goal).intents) {
+            if (owned.has(card.id) && !done(card)) await this.#team.intentAction(goal, card.id, 'abandon', run.reason ?? why)
+          }
+        }
         return tasks
       })
       // Completion uses this same queue: drain outside it, before Stop or wrap returns.
