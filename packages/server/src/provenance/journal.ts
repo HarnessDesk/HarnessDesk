@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -13,6 +13,7 @@ export interface JournalEntry {
 export interface JournalRead {
   readonly entries: readonly JournalEntry[]
   readonly broken: boolean
+  readonly generation: number
 }
 export interface JournalReadOptions {
   /**
@@ -23,6 +24,8 @@ export interface JournalReadOptions {
   readonly copy?: 'deep' | 'shallow'
   /** Number of entries already consumed by an incremental reader. */
   readonly after?: number
+  /** A compaction invalidates an older reader prefix. */
+  readonly generation?: number
   readonly slices?: SliceOptions
 }
 export const JOURNAL_LIMIT = 64 * 1024
@@ -107,14 +110,18 @@ const keyOf = (kind: JournalKind, value: unknown) => `${kind}:${(value as { id: 
 export class ProvenanceJournal {
   readonly #file: string
   #entries: JournalEntry[] = []
-  #ids = new Set<string>()
+  #ids = new Map<string, number>()
+  #sequence = 0
+  #generation = 0
+  readonly #compactOnOpen: boolean
   #load: Promise<void> | null = null
   #tail: Promise<void> = Promise.resolve()
   #broken = false
   #failed: Error | null = null
 
-  constructor(file: string) {
+  constructor(file: string, options: { compactOnOpen?: boolean } = {}) {
     this.#file = file
+    this.#compactOnOpen = !!options.compactOnOpen
   }
 
   async #loadOnce(options: JournalReadOptions = {}): Promise<void> {
@@ -125,6 +132,13 @@ export class ProvenanceJournal {
   async #stream(options?: SliceOptions): Promise<void> {
     let pending = Buffer.alloc(0)
     const slices = new WorkSlices(options)
+    // On open, keep historical observations and only the checkpoint in force
+    // in memory. Offsets let a later manifest reuse an earlier part without
+    // retaining all superseded checkpoint bytes in the heap.
+    const cursors = new Map<number, JournalEntry>()
+    const positions = new Map<number, { position: number; length: number }>()
+    let position = 0
+    let removed = 0
     try {
       for await (const bytes of createReadStream(this.#file, { highWaterMark: 16 * 1024 })) {
         pending = Buffer.concat([pending, bytes as Buffer])
@@ -135,12 +149,35 @@ export class ProvenanceJournal {
           const line: unknown = JSON.parse(raw.toString('utf8'))
           if (!Buffer.from(raw.toString('utf8')).equals(raw) || !object(line)) throw new Error('journal-shape')
           const { version, seq, kind, value, checksum } = line
-          if (version !== 1 || seq !== this.#entries.length + 1 || !kinds.has(kind as JournalKind) ||
-            !validValue(kind as JournalKind, value, this.#entries.length) ||
+          if (version !== 1 || seq !== this.#sequence + 1 || !kinds.has(kind as JournalKind) ||
+            !validValue(kind as JournalKind, value, this.#sequence) ||
             checksum !== digest({ version, seq, kind, value })) throw new Error('journal-damaged')
           const entry = { seq, kind, value } as JournalEntry
-          this.#entries.push(entry)
-          this.#ids.add(keyOf(entry.kind, value))
+          this.#sequence = entry.seq
+          if (this.#compactOnOpen && entry.kind === 'cursor') {
+            positions.set(entry.seq, { position, length: end + 1 })
+            cursors.set(entry.seq, entry)
+            if ((value as { type: string }).type === 'checkpoint') {
+              const keep = new Set([entry.seq, ...(value as { parts: number[] }).parts])
+              for (const seq of keep) {
+                if (cursors.has(seq)) continue
+                const offset = positions.get(seq)
+                if (!offset) throw new Error('provenance-invalid-checkpoint')
+                const file = await fs.open(this.#file, 'r')
+                try {
+                  const bytes = Buffer.alloc(offset.length)
+                  if ((await file.read(bytes, 0, bytes.length, offset.position)).bytesRead !== bytes.length) throw new Error('journal-short-read')
+                  const body = JSON.parse(bytes.toString('utf8')) as JournalEntry
+                  cursors.set(seq, { seq: body.seq, kind: body.kind, value: body.value })
+                } finally { await file.close() }
+              }
+              for (const seq of cursors.keys()) if (!keep.has(seq)) { cursors.delete(seq); removed += 1 }
+            }
+          } else {
+            this.#entries.push(entry)
+            this.#ids.set(keyOf(entry.kind, value), entry.seq)
+          }
+          position += end + 1
           pending = pending.subarray(end + 1)
           await slices.step()
         }
@@ -150,6 +187,11 @@ export class ProvenanceJournal {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.#broken = true
     }
+    if (this.#compactOnOpen) {
+      this.#entries = [...this.#entries, ...cursors.values()].sort((a, b) => a.seq - b.seq)
+      this.#ids = new Map(this.#entries.map((entry) => [keyOf(entry.kind, entry.value), entry.seq]))
+      if (!this.#broken) await this.#compactLoaded(true, removed > 0)
+    }
   }
 
   async read(options: JournalReadOptions = {}): Promise<JournalRead> {
@@ -157,7 +199,7 @@ export class ProvenanceJournal {
     await this.#tail
     const entries: JournalEntry[] = []
     const slices = new WorkSlices(options.slices)
-    for (let at = options.after ?? 0; at < this.#entries.length; at += 1) {
+    for (let at = options.generation !== undefined && options.generation !== this.#generation ? 0 : options.after ?? 0; at < this.#entries.length; at += 1) {
       await slices.step()
       const entry = this.#entries[at]!
       entries.push(options.copy === 'shallow' ? entry : structuredClone(entry))
@@ -165,40 +207,122 @@ export class ProvenanceJournal {
     return {
       entries,
       broken: this.#broken,
+      generation: this.#generation,
     }
   }
 
-  append(kind: JournalKind, value: unknown): Promise<void> {
+  append(kind: JournalKind, value: unknown): Promise<number> {
     // Snapshot now; the caller cannot change a queued record before its checksum.
     const saved = structuredClone(value)
     const next = this.#tail.then(async () => {
       await this.#loadOnce()
-      if (this.#broken) throw new Error('provenance-journal-damaged')
-      if (this.#failed) throw this.#failed
-      if (!validValue(kind, saved, this.#entries.length)) throw new Error('provenance-invalid-record')
-      const key = keyOf(kind, saved)
-      if (this.#ids.has(key)) return
-      const body = { version: 1, seq: this.#entries.length + 1, kind, value: saved }
-      const bytes = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
-      if (bytes.length > JOURNAL_LIMIT) throw new Error('provenance-line-limit')
-      try {
-        await fs.mkdir(dirname(this.#file), { recursive: true, mode: 0o700 })
-        const file = await fs.open(this.#file, 'a', 0o600)
-        try {
-          if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
-          await file.sync()
-        } finally {
-          await file.close()
-        }
-      } catch (error) {
-        this.#failed = error instanceof Error ? error : new Error('provenance-write-failed')
-        throw this.#failed
-      }
-      this.#entries.push({ seq: body.seq, kind, value: saved })
-      this.#ids.add(key)
+      return this.#appendLoaded(kind, saved)
     })
-    this.#tail = next.catch(() => {})
+    this.#tail = next.then(() => {}, () => {})
     return next
+  }
+
+  async #appendLoaded(kind: JournalKind, saved: unknown): Promise<number> {
+  if (this.#broken) throw new Error('provenance-journal-damaged')
+  if (this.#failed) throw this.#failed
+  if (!validValue(kind, saved, this.#entries.length)) throw new Error('provenance-invalid-record')
+  const key = keyOf(kind, saved)
+  const existing = this.#ids.get(key)
+  if (existing !== undefined) return existing
+  const body = { version: 1, seq: this.#sequence + 1, kind, value: saved }
+  const bytes = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
+  if (bytes.length > JOURNAL_LIMIT) throw new Error('provenance-line-limit')
+  try {
+    await fs.mkdir(dirname(this.#file), { recursive: true, mode: 0o700 })
+    const file = await fs.open(this.#file, 'a', 0o600)
+    try {
+      if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
+      await file.sync()
+    } finally {
+      await file.close()
+    }
+  } catch (error) {
+    this.#failed = error instanceof Error ? error : new Error('provenance-write-failed')
+    throw this.#failed
+  }
+  this.#entries.push({ seq: body.seq, kind, value: saved })
+  this.#sequence = body.seq
+  this.#ids.set(key, body.seq)
+  return body.seq
+  }
+
+  /** Parts, manifest and replacement share one queue slot, including concurrent callers. */
+  checkpoint(value: unknown): Promise<void> {
+    const saved = structuredClone(value)
+    const next = this.#tail.then(async () => {
+      await this.#loadOnce()
+      await checkpointParts((kind, value) => this.#appendLoaded(kind, value), saved)
+      await this.#compactLoaded(false)
+    })
+    this.#tail = next.then(() => {}, () => {})
+    return next
+  }
+
+  /** Serialize replacement with appends; a failed replacement never poisons the original journal. */
+  compact(force = false): Promise<boolean> {
+    const next = this.#tail.then(async () => {
+      await this.#loadOnce()
+      return this.#compactLoaded(force)
+    })
+    this.#tail = next.then(() => {}, () => {})
+    return next
+  }
+
+  async #compactLoaded(force: boolean, removedOnOpen = false): Promise<boolean> {
+    if (this.#broken) throw new Error('provenance-journal-damaged')
+    if (this.#failed) throw this.#failed
+    const manifest = this.#entries.findLast((entry) => entry.kind === 'cursor' &&
+      object(entry.value) && entry.value.type === 'checkpoint')
+    // Live: every ref, commit, range, link (including older decision ids used
+    // by amend proofs), gap and restored record is read by reconcile or backup.
+    // Only the latest complete checkpoint and its parts remain live cursors.
+    // Orphan parts and superseded manifests/parts have no reader.
+    const keep = new Set(manifest ? [manifest.seq, ...(manifest.value as { parts: number[] }).parts] : [])
+    const retained: JournalEntry[] = []
+    const slices = new WorkSlices()
+    let obsolete = 0
+    let bytes = 0
+    for (const entry of this.#entries) {
+      await slices.step()
+      if (entry.kind !== 'cursor' || keep.has(entry.seq)) retained.push(entry)
+      else { obsolete += 1; bytes += Buffer.byteLength(JSON.stringify(entry.value)) }
+    }
+    if (!obsolete && !removedOnOpen) return false
+    if (!force && obsolete * 2 <= this.#entries.length && bytes < 32 * 1024 * 1024) return false
+    // Validate before writing anything; a bad latest manifest must not erase
+    // the original bytes or fall back to a superseded decision checkpoint.
+    readCheckpoint(this.#entries)
+    const sequence = new Map(retained.map((entry, at) => [entry.seq, at + 1]))
+    const entries: JournalEntry[] = []
+    const temporary = `${this.#file}.compact-${randomUUID()}`
+    try {
+      const file = await fs.open(temporary, 'wx', 0o600)
+      try {
+        for (const entry of retained) {
+          await slices.step()
+          const value = entry === manifest ? { ...(entry.value as object), parts: (entry.value as { parts: number[] }).parts.map((seq) => sequence.get(seq)!) } : entry.value
+          const saved = { seq: entries.length + 1, kind: entry.kind, value }
+          const body = { version: 1, ...saved }
+          const bytes = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
+          if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
+          entries.push(saved)
+        }
+        await file.sync()
+      } finally { await file.close() }
+      await fs.rename(temporary, this.#file)
+      this.#entries = entries
+      this.#sequence = entries.length
+      this.#ids = new Map(entries.map((entry) => [keyOf(entry.kind, entry.value), entry.seq]))
+      this.#generation += 1
+    } finally {
+      await fs.rm(temporary, { force: true }).catch(() => {})
+    }
+    return true
   }
 
   async flush(): Promise<void> {
@@ -209,20 +333,24 @@ export class ProvenanceJournal {
 }
 
 /** Only a final manifest acknowledges its preceding parts. A torn attempt is inert. */
-export const writeCheckpoint = async (journal: ProvenanceJournal, value: unknown): Promise<void> => {
+export const writeCheckpoint = (journal: ProvenanceJournal, value: unknown): Promise<void> => {
+  // The in-memory reader fixtures implement only append; the durable journal
+  // owns the whole transaction so no compaction can renumber in-flight parts.
+  return journal.checkpoint ? journal.checkpoint(value) : checkpointParts(journal.append.bind(journal), value)
+}
+
+const checkpointParts = async (
+  append: (kind: JournalKind, value: unknown) => Promise<number>, value: unknown,
+): Promise<void> => {
   if (!checkpointValue(value)) throw new Error('provenance-invalid-checkpoint')
   const bytes = JSON.stringify(value)
   const hash = digest(value)
-  const ids: string[] = []
+  const parts: number[] = []
   for (let offset = 0; offset < bytes.length; offset += 12000) {
     const id = digest(['part', hash, offset])
-    await journal.append('cursor', { id, type: 'part', bytes: bytes.slice(offset, offset + 12000) })
-    ids.push(id)
+    parts.push(await append('cursor', { id, type: 'part', bytes: bytes.slice(offset, offset + 12000) }))
   }
-  const entries = (await journal.read({ copy: 'shallow' })).entries
-  const parts = ids.map((id) => entries.find((entry) => entry.kind === 'cursor' &&
-    (entry.value as { id: string }).id === id)!.seq)
-  await journal.append('cursor', { id: digest(['checkpoint', hash]), type: 'checkpoint', parts, hash })
+  await append('cursor', { id: digest(['checkpoint', hash]), type: 'checkpoint', parts, hash })
 }
 
 /**
@@ -232,11 +360,16 @@ export const writeCheckpoint = async (journal: ProvenanceJournal, value: unknown
  * with every scan since the desk started.
  */
 export const readCheckpoint = (entries: readonly JournalEntry[]): unknown | null => {
+  let bySequence: Map<number, JournalEntry> | null = null
   for (let at = entries.length - 1; at >= 0; at -= 1) {
     const entry = entries[at]!
     if (entry.kind !== 'cursor' || !object(entry.value) || entry.value.type !== 'checkpoint') continue
     const bytes = (entry.value.parts as number[]).map((seq) => {
-      const part = entries[seq - 1]
+      let part = entries[seq - 1]
+      if (part?.seq !== seq) {
+        bySequence ??= new Map(entries.map((entry) => [entry.seq, entry]))
+        part = bySequence.get(seq)
+      }
       if (!part || part.seq >= entry.seq || part.kind !== 'cursor' ||
         !object(part.value) || part.value.type !== 'part') throw new Error('provenance-invalid-checkpoint')
       return part.value.bytes as string

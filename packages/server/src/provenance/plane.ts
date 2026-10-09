@@ -36,6 +36,7 @@ interface Project {
   observer: RefObserver | null
   journal: ProvenanceJournal
   entries: JournalEntry[]
+  journalGeneration: number
   loadTail: Promise<void>
   seats: readonly SeatRecord[]
   facts: readonly EvidenceRecord[]
@@ -169,7 +170,7 @@ export class ProvenancePlane {
   #journal(project: string): ProvenanceJournal {
     let journal = this.#journals.get(project)
     if (!journal) {
-      journal = new ProvenanceJournal(join(this.#port.evidence.store.folderOf(project), 'provenance.ndjson'))
+      journal = new ProvenanceJournal(join(this.#port.evidence.store.folderOf(project), 'provenance.ndjson'), { compactOnOpen: true })
       this.#journals.set(project, journal)
     }
     return journal
@@ -185,7 +186,7 @@ export class ProvenancePlane {
   #state(project: string, handle: RepoHandle | null): Project {
     const preference = this.#preferences.get(project)
     const state: Project = {
-      project, handle, observer: null, journal: this.#journal(project), entries: [], loadTail: Promise.resolve(), seats: [], facts: [],
+      project, handle, observer: null, journal: this.#journal(project), entries: [], loadTail: Promise.resolve(), journalGeneration: 0, seats: [], facts: [],
       catchingUp: true, reconciler: new Reconciler((kind, reason) => this.#problem(state, kind, reason)),
       links: new Map(), historical: new Map(), observed: new Set(),
       issues: new Set(preference.problem ? [preference.problem] : []), fatal: !!preference.problem, pending: new Set(),
@@ -204,8 +205,15 @@ export class ProvenancePlane {
   }
 
   async #loadTail(state: Project): Promise<void> {
-    const read = await state.journal.read({ copy: 'shallow', after: state.entries.length })
+    const read = await state.journal.read({ copy: 'shallow', after: state.entries.length, generation: state.journalGeneration })
     if (read.broken) throw new Error('provenance-journal-damaged')
+    if (read.generation !== state.journalGeneration) {
+      state.entries = []
+      state.links.clear()
+      state.historical.clear()
+      state.observed.clear()
+      state.journalGeneration = read.generation
+    }
     const slices = new WorkSlices()
     for (const entry of read.entries) {
       await slices.step()
@@ -402,6 +410,7 @@ export class ProvenancePlane {
       await this.#preferences.load()
       this.#journals.delete(state.project)
       state.journal = this.#journal(state.project)
+      state.journalGeneration = 0
       state.entries = []
       state.links.clear()
       state.historical.clear()

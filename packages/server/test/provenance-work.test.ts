@@ -89,7 +89,7 @@ const memoryJournal = () => {
   const entries: JournalEntry[] = []
   return {
     entries,
-    append: async (kind: JournalEntry['kind'], value: unknown) => { entries.push({ seq: entries.length + 1, kind, value }) },
+    append: async (kind: JournalEntry['kind'], value: unknown) => { entries.push({ seq: entries.length + 1, kind, value }); return entries.length },
     read: async () => ({ entries: [...entries], broken: false }),
   } as unknown as ProvenanceJournal & { readonly entries: JournalEntry[] }
 }
