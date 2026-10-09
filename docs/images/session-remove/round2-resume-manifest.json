@@ -1,0 +1,77 @@
+{
+  "description": "Synthetic preview composer seeded with actual fake-host direct-resume responses. Before restores the active-only lookup mutation; after uses the repaired shared reopen.",
+  "frames": [
+    {
+      "file": "round2-before-resume-light.png",
+      "options": [
+        [
+          "model",
+          "fake-1"
+        ],
+        [
+          "tone",
+          "plain"
+        ],
+        [
+          "uppercase",
+          false
+        ]
+      ],
+      "sha256": "1bb40bacd578737c0d68ec2e2244c35e20427cef0b10e14f830f8672e61a7a0d"
+    },
+    {
+      "file": "round2-before-resume-dark.png",
+      "options": [
+        [
+          "model",
+          "fake-1"
+        ],
+        [
+          "tone",
+          "plain"
+        ],
+        [
+          "uppercase",
+          false
+        ]
+      ],
+      "sha256": "73b461b4069e885034f3ad5c1401e772e512ecb18a20df19e128d43044000fef"
+    },
+    {
+      "file": "round2-after-resume-light.png",
+      "options": [
+        [
+          "model",
+          "fake-2"
+        ],
+        [
+          "tone",
+          "cheerful"
+        ],
+        [
+          "uppercase",
+          false
+        ]
+      ],
+      "sha256": "ba37ad93a36a59e357454c270463ddc7ba88efaf16c69709618cc5f264e38926"
+    },
+    {
+      "file": "round2-after-resume-dark.png",
+      "options": [
+        [
+          "model",
+          "fake-2"
+        ],
+        [
+          "tone",
+          "cheerful"
+        ],
+        [
+          "uppercase",
+          false
+        ]
+      ],
+      "sha256": "1df473252441dad429d2784bb82a2a7f7e64d23de453ddad00cf1c28355c9620"
+    }
+  ]
+}
