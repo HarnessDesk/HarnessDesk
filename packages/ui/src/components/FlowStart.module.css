@@ -13,7 +13,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--hd-space-2);
   min-width: 0;
-  width: 26em;
+  width: 19em;
   max-width: 100%;
 }
 .agentSelect { min-width: 0; grid-column: 1 / -1; }

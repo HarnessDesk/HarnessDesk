@@ -72,16 +72,18 @@ try {
       await photograph('01-new-team')
       const name = template === 'comparison' ? 'Side by side' : 'Write and review'
       await page.getByRole('dialog').getByRole('button', { name: new RegExp(`^${name}`) }).click()
+      // The first dry run can still be installing the project's suggested
+      // check when the task field appears. Wait for its editable Seat controls.
+      await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Agent for / }).first()).toBeEnabled({ timeout: 30000 })
       const task = template === 'comparison' ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
       if (template === 'comparison') {
         const command = page.getByRole('textbox', { name: 'Check each attempt with', exact: true })
         await expect(command).toHaveValue('pnpm test')
-        await command.fill('')
-        await command.pressSequentially(TEMPLATE_CHECK)
+        await command.fill(TEMPLATE_CHECK)
         await expect(command).toHaveValue(TEMPLATE_CHECK)
       }
-      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
       await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
@@ -90,7 +92,7 @@ try {
       await reviewer.selectOption('codex-review')
       await expect(reviewer).toHaveValue('codex-review')
       if (template === 'comparison') await expect(page.getByRole('region', { name: 'Commands it runs' }).getByText(new RegExp(TEMPLATE_CHECK.replaceAll('.', '\\.')))).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
       await page.getByRole('region', { name: 'Seats this would open' }).scrollIntoViewIfNeeded()
       await photograph('03-preview')
       assert.equal(JSON.parse(readFileSync(rig.stateFile, 'utf8')).workspaces[0].shellIdentity, undefined, 'preview does not pre-admit the legacy record')

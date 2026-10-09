@@ -1252,7 +1252,8 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       snapshot.workspaces,
       snapshot.workspace,
       { identityHistory, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()),
-        seatProjects: new Map([...snapshot.goals.values()].flatMap(goal => goal.members.map(seat => [sessionKey(seat.session.runtime, seat.session.sessionId), seat.checkout.project] as const))) },
+        seatProjects: new Map([...snapshot.goals.values()].flatMap(goal => goal.members.flatMap(seat =>
+          seat.checkout?.project ? [[sessionKey(seat.session.runtime, seat.session.sessionId), seat.checkout.project] as const] : []))) },
     )
     const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, list)
     // A folder just opened has no sessions to be grouped by, and a list that
