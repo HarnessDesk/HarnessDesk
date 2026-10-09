@@ -171,14 +171,14 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
             </span>
           </Note>
         ) : (
-          <Note>Local findings — no pull request is bound to this Goal yet.</Note>
+          <Note>Local findings — no pull request is bound to this Team yet.</Note>
         )}
         {publicationError && (
           <Banner tone="danger" title="This preference could not be saved">{publicationError}</Banner>
         )}
         {fromEarlier > 0 && (
           <Note>
-            {`${fromEarlier} open finding${fromEarlier === 1 ? ' here was' : 's here were'} raised by another run of this Goal. Open one to decide it yourself; it is decided against the run that raised it.`}
+            {`${fromEarlier} open finding${fromEarlier === 1 ? ' here was' : 's here were'} raised by another run of this Team. Open one to decide it yourself; it is decided against the run that raised it.`}
           </Note>
         )}
         {state?.stale && state.error && (
@@ -205,7 +205,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                   <MetaList ink="muted">
                     <CodeText size="inherit">#<span className="select-all">{row.id}</span></CodeText>
                     <span>{blockingWords(row)}</span>
-                    {(row.origin.goal !== goal || (run && row.origin.run !== run.id)) && <span>Raised in round {row.origin.round} · of another {row.origin.goal !== goal ? 'Goal' : 'run'}</span>}
+                    {(row.origin.goal !== goal || (run && row.origin.run !== run.id)) && <span>Raised in round {row.origin.round} · of another {row.origin.goal !== goal ? 'Team' : 'run'}</span>}
                     {row.restored && <span>from a backup</span>}
                   </MetaList>
                 }

@@ -84,7 +84,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
         {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
       </>}
       <Note>This history is read-only. Ordering seats remains an explicit local action.</Note>
-      <Button size="sm" variant="outline" disabled={!comparable || ordering} title={comparable ? 'Review a local order from comparable historical seats.' : 'Two current candidates need a shared recorded brief and completed Goal.'} onClick={() => void review()}>Order by cost</Button>
+      <Button size="sm" variant="outline" disabled={!comparable || ordering} title={comparable ? 'Review a local order from comparable historical seats.' : 'Two current candidates need a shared recorded brief and completed Team.'} onClick={() => void review()}>Order by cost</Button>
       {orderProblem && !preview ? <Note tone="warn">{orderProblem}</Note> : null}
       {preview && <Dialog title="Review local seat order" onClose={() => setPreview(null)} footer={<><Button disabled={!preview.stamp || applying} onClick={() => void apply()}>{applying ? 'Saving…' : 'Apply order'}</Button><Button variant="secondary" disabled={applying} onClick={() => setPreview(null)}>Cancel</Button></>}>
         <Note>This changes the order on this machine for this Agent ID.</Note>

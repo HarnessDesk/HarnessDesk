@@ -22,4 +22,5 @@ test('host attribution uses the shared presentation notes, including missing bri
   assert.deepEqual(notes('seat'), [INSIGHT_ROW_NOTES.cohort, INSIGHT_ROW_NOTES.missingCohort])
   assert.deepEqual(notes('goal'), [INSIGHT_ROW_NOTES.goal])
   assert.deepEqual(notes('agent'), [INSIGHT_ROW_NOTES.agent])
+  assert.equal(report.breakdowns.find(part => part.dimension === 'goal')!.reason, 'Not attributed to a Team.')
 })

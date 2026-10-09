@@ -35,7 +35,7 @@ export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
             <RowButton
               key={dependency.id}
               title={dependency.sentence}
-              desc="This Goal is waiting for it."
+              desc="This Team is waiting for it."
               chevron
               onClick={() => store.openGoal(dependency.id)}
             />
