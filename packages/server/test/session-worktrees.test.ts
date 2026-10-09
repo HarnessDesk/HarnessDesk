@@ -10,6 +10,7 @@ import { StateStore } from '../src/state.js'
 import { Logger } from '../src/log.js'
 import { Worktrees } from '../src/worktree.js'
 import { SessionWorktrees } from '../src/session-worktrees.js'
+import { SessionIndex } from '../src/session-index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], {
@@ -136,6 +137,80 @@ test('Discard is bound to the confirmed inventory, asks again on changes and pre
   assert.equal(removed.discarded, true)
   assert.equal(await exists(tree.path), false)
   assert.equal(git(repo, 'rev-parse', tree.branch!), tree.head)
+})
+
+test('Discard asks again for new files inside already listed untracked or ignored directories', async t => {
+  for (const directory of ['untracked', 'ignored']) await t.test(directory, async t => {
+    const { host, pointer, tree } = await fixture(t)
+    await mkdir(join(tree.path, directory))
+    await writeFile(join(tree.path, directory, 'first.txt'), 'first synthetic file')
+    await host.call('session/archive', { ...pointer, archived: true })
+    const preview = await host.call('session/worktreePreview', pointer)
+    await writeFile(join(tree.path, directory, 'second.txt'), 'new synthetic file')
+    const result = await host.call('session/discardWorktree', { ...pointer, stamp: preview.stamp })
+    assert.equal(result.discarded, false)
+    assert.ok(result.preview?.stamp)
+    assert.notEqual(result.preview.stamp, preview.stamp)
+    assert.equal(await exists(join(tree.path, directory, 'second.txt')), true)
+    assert.equal((await host.call('session/discardWorktree', { ...pointer, stamp: result.preview.stamp })).discarded, true)
+  })
+})
+
+test('automatic cleanup keeps a detached checkout and its unique HEAD', async t => {
+  for (const method of ['session/archive', 'session/remove', 'session/delete'] as const) await t.test(method, async t => {
+    const { host, pointer, tree, repo, home } = await fixture(t)
+    git(tree.path, 'checkout', '--detach')
+    await writeFile(join(tree.path, 'tracked.txt'), 'synthetic detached commit\n')
+    git(tree.path, 'commit', '-am', 'Keep synthetic detached work')
+    const head = git(tree.path, 'rev-parse', 'HEAD')
+    assert.equal(git(repo, 'for-each-ref', '--contains', head), '')
+    if (method === 'session/archive') await host.call(method, { ...pointer, archived: true })
+    else if (method === 'session/delete') await host.call(method, pointer)
+    else {
+      await host.call(method, { ...pointer, removed: true })
+      // Run the same cleanup entry the delayed body sweep uses, after expiry.
+      const index = new SessionIndex(join(home, 'sessions.sqlite'))
+      try { await new SessionWorktrees(index, home, () => false).cleanup(pointer.runtime, pointer.sessionId) }
+      finally { index.close() }
+    }
+    assert.equal(await exists(tree.path), true)
+    assert.equal(git(tree.path, 'rev-parse', 'HEAD'), head)
+    const db = new DatabaseSync(join(home, 'sessions.sqlite'))
+    try { assert.equal(db.prepare('SELECT state FROM session_worktrees WHERE id=?').get(pointer.sessionId)?.state, 'kept') }
+    finally { db.close() }
+  })
+})
+
+test('cleanup and Discard keep a checkout admitted while removal reads are pending', async t => {
+  for (const discard of [false, true]) await t.test(discard ? 'Discard' : 'Archive', async t => {
+    const { host, pointer, tree, runtime } = await fixture(t)
+    let stamp = ''
+    if (discard) {
+      await writeFile(join(tree.path, '.env'), 'synthetic ignored file')
+      await host.call('session/archive', { ...pointer, archived: true })
+      stamp = (await host.call('session/worktreePreview', pointer)).stamp
+    }
+    const original = SessionIndex.prototype.worktreeInUse
+    let admitted: ReturnType<typeof host.call<'session/create'>> | undefined
+    // Start admission just after the first ownership check. Git's asynchronous
+    // inventory reads let the new session attach before the removal executes.
+    t.mock.method(SessionIndex.prototype, 'worktreeInUse', function (this: SessionIndex, path: string) {
+      const result = original.call(this, path)
+      if (!admitted) admitted = host.call('session/create', { runtime: runtime.info.id, options: { cwd: tree.path } })
+      return result
+    })
+    if (discard) await assert.rejects(host.call('session/discardWorktree', { ...pointer, stamp }), /still uses/)
+    else {
+      const result = await host.call('session/archive', { ...pointer, archived: true })
+      assert.match(result?.warning ?? '', /worktree stayed/i)
+    }
+    assert.ok(admitted)
+    const second = await admitted
+    assert.equal(second.cwd, tree.path)
+    assert.equal(await exists(tree.path), true)
+    if (discard) assert.equal(await exists(join(tree.path, '.env')), true)
+    assert.equal((await host.call('session/index', { archived: 'only' })).data[0]?.worktree?.state, 'kept')
+  })
 })
 
 test('launch sweeps an expired removal even without a stored body, preserving ignored content', async t => {

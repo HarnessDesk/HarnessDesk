@@ -14,7 +14,10 @@ clean checkout at once; Remove waits for the body sweep and its Undo window;
 Delete everywhere cleans up after the agent accepts the deletion. None of
 these deletes a branch. Another active conversation sharing the checkout keeps
 it, as do uncommitted files, ignored content and a refused Git removal. A
-cleanup refusal never undoes the conversation action.
+detached checkout stays too: without a branch, removing it could lose the only
+reference to its commits. Ownership is checked again after the removal's Git
+reads, immediately before the mutation. A cleanup refusal never undoes the
+conversation action.
 
 The index records the managed path, branch and whether the worktree is present,
 removed or kept. Its separate inventory survives even a deleted index row.
@@ -25,7 +28,8 @@ line explaining why.
 Archive reads the local index, including archived Team members. A kept worktree
 wears a chip whose tooltip counts changes and ignored entries. Only **Discard
 worktree…** forces removal: the confirmation lists the inventory, and the host
-rechecks the full inventory before removing it. If it changed, the person must
+rechecks the full inventory, including files inside untracked and ignored
+directories, before removing it. If it changed, the person must
 review and confirm again. The existing explicit worktree removal verb keeps its
 own policy.
 

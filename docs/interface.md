@@ -412,8 +412,8 @@ will stop first. The result toast says Moved to the Trash.
 
 **Worktrees follow the conversation.** Archive removes its clean managed
 worktree; Remove waits until Undo ends, and Delete everywhere removes it after
-the agent accepts. A branch always stays. Uncommitted work, ignored content or
-another active conversation keeps the checkout. Archive shows **Worktree kept**
+the agent accepts. A branch always stays. Uncommitted work, ignored content,
+a detached checkout or another active conversation keeps the checkout. Archive shows **Worktree kept**
 on the row's label, with counts on hover. **Discard worktree…** names what will
 be lost and asks again if that inventory changes. Returning to the conversation
 puts the worktree back from its branch; if the branch is gone, it opens in the

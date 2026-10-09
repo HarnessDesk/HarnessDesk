@@ -673,7 +673,8 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
  */
 export const remove = async (
   path: string,
-  options: { readonly force?: boolean; readonly keepIgnored?: boolean; readonly expectedInventory?: string; readonly stateDir: string },
+  options: { readonly force?: boolean; readonly keepIgnored?: boolean; readonly keepDetached?: boolean;
+    readonly expectedInventory?: string; readonly assertUnused?: () => void; readonly stateDir: string },
 ): Promise<{ readonly branch: string | null }> => {
   const main = await repositoryRoot(path)
   if (!main) throw new Error(`${path} is not a git worktree.`)
@@ -684,12 +685,18 @@ export const remove = async (
   if (!entry.managed) {
     throw new Error(`${path} was not created by HarnessDesk; remove it with git worktree remove yourself.`)
   }
+  // With no branch retaining HEAD, even a clean checkout may be the only
+  // reference to committed work. Lifecycle cleanup leaves that checkout alone.
+  if (options.keepDetached && !entry.branch) throw new Error('The detached worktree has no branch retaining its commits.')
 
   const pending = await changes(target)
   if (options.expectedInventory !== undefined && await worktreeInventoryKey(target) !== options.expectedInventory) throw new Error('The worktree changed. Review it again before discarding.')
   if (!options.force && (pending.modified > 0 || pending.untracked > 0 || options.keepIgnored && pending.ignoredCount > 0)) {
     throw new WorktreeDirtyError(target, pending)
   }
+  // Admission can change during the asynchronous Git reads above. Check the
+  // live owner at the mutation boundary, with no await before spawning Git.
+  options.assertUnused?.()
   await git(main, ['worktree', 'remove', ...(options.force ? ['--force'] : []), target]).catch((error: unknown) => {
     throw new Error(`Git would not remove the worktree at ${target}. ${gitSaid(error)}`)
   })
@@ -806,8 +813,14 @@ export const restore = async (root: string, path: string, branch: string, stateD
 }
 
 /** Full inventory, including entries beyond the display cap. */
-export const worktreeInventoryKey = async (path: string): Promise<string> => createHash('sha256')
-  .update(await git(path, ['status', '--porcelain=v1', '-z', '--ignored=matching'])).digest('hex')
+export const worktreeInventoryKey = async (path: string): Promise<string> => {
+  const status = await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching'])
+  // Status may collapse a directory ignored as a whole. Include every ignored
+  // file too, so adding one there invalidates a confirmation just like adding
+  // an untracked file. NUL boundaries preserve whitespace in Git paths.
+  const ignored = await git(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
+  return createHash('sha256').update(status).update('\0').update(ignored).digest('hex')
+}
 
 /**
  * Puts a worktree back after the main checkout refused its branch, and throws

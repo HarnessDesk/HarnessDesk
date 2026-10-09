@@ -50,7 +50,8 @@ export class SessionWorktrees {
         return 'The worktree stayed because another conversation still uses it.'
       }
       try {
-        await remove(record.path, { stateDir: this.stateDir, keepIgnored: true })
+        await remove(record.path, { stateDir: this.stateDir, keepIgnored: true, keepDetached: true,
+          assertUnused: () => this.#assertUnused(record.path) })
         this.index.worktreeState(record.path, 'removed')
       } catch {
         // Git failures, unreadable inventories and dirty trees all keep the verb successful.
@@ -89,8 +90,12 @@ export class SessionWorktrees {
   #kept(runtime: RuntimeId, id: SessionId): SessionWorktreeRecord {
     const record = this.index.worktree(runtime, id)
     if (!record || record.state !== 'kept') throw new Error('That conversation has no kept worktree.')
-    if (this.index.worktreeInUse(record.path) || this.working(record.path)) throw new Error('A conversation still uses this worktree. Archive it before discarding.')
+    this.#assertUnused(record.path)
     return record
+  }
+
+  #assertUnused(path: string): void {
+    if (this.index.worktreeInUse(path) || this.working(path)) throw new Error('A conversation still uses this worktree. Archive it before discarding.')
   }
 
   async #preview(record: SessionWorktreeRecord): Promise<HostResult<'session/worktreePreview'>> {
@@ -113,7 +118,8 @@ export class SessionWorktrees {
       this.#previews.delete(key)
       if (approved.inventory !== await worktreeInventoryKey(record.path)) return { discarded: false, preview: await this.#preview(record) }
       // This is the sole conversation-lifecycle entry that forces a removal, after confirmation.
-      await remove(record.path, { stateDir: this.stateDir, force: true, expectedInventory: approved.inventory })
+      await remove(record.path, { stateDir: this.stateDir, force: true, expectedInventory: approved.inventory,
+        assertUnused: () => { this.#kept(runtime, id) } })
       this.index.worktreeState(record.path, 'removed')
       return { discarded: true }
     })
