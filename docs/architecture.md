@@ -182,6 +182,11 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   the window's loaded index pages; agent filters page their accounts. Team members are excluded from loose rows.
   `session/list` retains the runtime history contract through
   `historyClient.nativeList`; Archive pages the local index instead.
+  Managed checkout inventory lives separately from session rows and survives
+  body or row removal. Archive, delayed Remove sweeps and deletion share the
+  checkout cleanup path; returning restores the retained branch before resume.
+  After full native archive listings, unresolved indexed ids are read individually,
+  three at a time, without delaying an index page.
   The host keeps its own copy of each session so a reload rebuilds without
   asking the backend to replay. An agent restarting under an open conversation
   — a catalogue refresh when the window regains focus, a stored key changing —
