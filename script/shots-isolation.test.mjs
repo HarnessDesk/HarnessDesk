@@ -43,8 +43,8 @@ for (const native of ['0', '1']) {
       assert.deepEqual(rows.map(row => [row.runtime, row.id]).sort(), expected.sort())
       for (const row of rows) {
         const transcript = await transcripts.readSummary(row.runtime, row.id)
-        // The rig's session rows can precede title hydration; any known title must still match.
-        assert.equal(row.title == null ? null : transcript.title, row.title)
+        assert.equal(row.title, transcript.title)
+        assert.equal(row.preview, transcript.preview)
         assert.equal(row.cwd, transcript.cwd)
         assert.equal(row.updatedAt, transcript.updatedAt)
       }

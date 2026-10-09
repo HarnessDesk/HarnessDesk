@@ -100,10 +100,13 @@ export class TranscriptDatabase {
       const { turns, insight, ...facts } = stored
       const turnIds = new Set(turns.map(turn => String(turn.id)))
       const orphanInsight = insight?.filter(context => !turnIds.has(context.turn))
-      this.db.prepare(`INSERT INTO sessions(runtime,id,origin,cwd,created_at,updated_at,body,saved_at,usage,preview)
-        VALUES(?,?,'desk',?,?,?,'full',?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET body='full',saved_at=excluded.saved_at,
+      // The writer can create the index row before any lifecycle observation.
+      // Fill its missing name, but retain a name already chosen by the person.
+      this.db.prepare(`INSERT INTO sessions(runtime,id,origin,title,cwd,created_at,updated_at,body,saved_at,usage,preview)
+        VALUES(?,?,'desk',?,?,?,?,'full',?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET body='full',saved_at=excluded.saved_at,
+          title=COALESCE(sessions.title,excluded.title),updated_at=MAX(sessions.updated_at,excluded.updated_at),
           usage=excluded.usage,preview=COALESCE(excluded.preview,sessions.preview)`)
-        .run(runtime, id, stored.cwd ?? '', stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
+        .run(runtime, id, stored.title ?? null, stored.cwd ?? '', stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
           stored.savedAt, stored.usage ? JSON.stringify(stored.usage) : null, stored.preview ?? null)
       this.db.prepare('INSERT INTO bodies(runtime,id,payload) VALUES(?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET payload=excluded.payload')
         .run(runtime, id, JSON.stringify({ ...facts, ...(insight ? { insightOrder: insight.map(context => context.turn),

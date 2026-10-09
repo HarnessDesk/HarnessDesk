@@ -28,6 +28,84 @@ const fixture = async (t: TestContext, log?: ConstructorParameters<typeof Transc
   return { home, store, db: () => new DatabaseSync(join(home, 'sessions.sqlite'), { readOnly: true }) }
 }
 
+test('recording fills missing index titles and advances preview and updated time', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('t1', [message('answer', 'kept')])])
+  const index = new SessionIndex(join(home, 'sessions.sqlite'))
+  try {
+    store.record({ ...original, title: null, preview: null })
+    await store.flush()
+    store.record({ ...original, updatedAt: 20 })
+    await store.flush()
+    const row = index.list().data[0]!
+    const stored = (await store.readSummary(original.runtime, original.id))!
+    assert.equal(row.title, original.title)
+    assert.equal(row.title, stored.title)
+    assert.equal(row.preview, stored.preview)
+    assert.equal(row.cwd, stored.cwd)
+    assert.equal(row.updatedAt, stored.updatedAt)
+  } finally { index.close() }
+})
+
+test('recording supplies a new index title and preserves a later rename', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('t1', [message('answer', 'kept')])])
+  const index = new SessionIndex(join(home, 'sessions.sqlite'))
+  try {
+    store.record(original)
+    await store.flush()
+    assert.equal(index.list().data[0]?.title, original.title)
+    index.setTitle(original.runtime, original.id, 'Person chose this name')
+    store.record({ ...original, title: 'Later agent title', preview: 'Later opening', updatedAt: 30 })
+    await store.flush()
+    assert.equal(index.list().data[0]?.title, 'Person chose this name')
+    assert.equal(index.list().data[0]?.preview, 'Later opening')
+    assert.equal(index.list().data[0]?.updatedAt, 30)
+    store.record(original)
+    await store.flush()
+    assert.equal(index.list().data[0]?.title, 'Person chose this name')
+    assert.equal(index.list().data[0]?.updatedAt, 30, 'an older transcript observation cannot move the row backwards')
+  } finally { index.close() }
+})
+
+test('a JSON metadata upgrade keeps titles and facts when SQLite recording follows', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('t1', [message('answer', 'kept')])])
+  const folder = join(home, 'transcripts', original.runtime)
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, `${original.id}.json`)
+  const legacy = JSON.stringify({ version: 1, ...original, savedAt: 10 })
+  await writeFile(file, legacy)
+  const index = new SessionIndex(join(home, 'sessions.sqlite'))
+  try {
+    await index.seed(home, { archiveCapability: () => false })
+    const seeded = index.list().data[0]!
+    assert.equal(seeded.title, original.title)
+    assert.equal(seeded.preview, original.preview)
+    assert.equal(seeded.cwd, original.cwd)
+    assert.equal(seeded.updatedAt, original.updatedAt)
+    store.record({ ...original, updatedAt: 40 })
+    await store.flush()
+    assert.equal(index.list().data[0]?.title, original.title)
+    assert.equal(index.list().data[0]?.updatedAt, 40)
+    assert.equal(await readFile(file, 'utf8'), legacy)
+  } finally { index.close() }
+})
+
+test('restoring a titled version-1 body supplies its index metadata', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('t1', [message('answer', 'kept')])])
+  assert.equal(await store.importOne(original.runtime, original.id, { version: 1, ...original, savedAt: 10 }), 'restored')
+  const index = new SessionIndex(join(home, 'sessions.sqlite'))
+  try {
+    const row = index.list().data[0]!
+    assert.equal(row.title, original.title)
+    assert.equal(row.preview, original.preview)
+    assert.equal(row.cwd, original.cwd)
+    assert.equal(row.updatedAt, original.updatedAt)
+  } finally { index.close() }
+})
+
 test('a cold database reconstructs every stored turn, item, usage and Insight field', async t => {
   const { home, store, db } = await fixture(t)
   const original = { ...session([{ ...turn('t1', [message('answer', 'kept'), tool('full output')]),
