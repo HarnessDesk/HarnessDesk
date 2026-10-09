@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { AgentEntry, FlowPolicy, FrontDoorPreview, HostMethodName } from '@harnessdesk/protocol'
+import { parseClientMessage, type AgentEntry, type FlowPolicy, type FrontDoorPreview, type HostMethodName } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
@@ -802,4 +802,78 @@ it('removing a step uses the destructive tone, and only there', async () => {
   // Neither of its siblings in the same menu carries the same tone.
   expect(menuItem('Move up').getAttribute('data-variant')).not.toBe('destructive')
   expect(menuItem('Move down').getAttribute('data-variant')).not.toBe('destructive')
+})
+
+it('removing a role also removes its completion declaration from saved source', async () => {
+  const policy: FlowPolicy = {
+    version: 2,
+    name: 'Review',
+    inputs: [],
+    roles: [
+      { id: 'reviewer', kind: 'person', outcomes: ['done'] },
+      { id: 'referee', kind: 'person', outcomes: ['merged', 'dropped'] },
+    ],
+    complete: { reviewer: ['done'], referee: ['merged', 'dropped'] },
+    rules: [{ id: 'to-referee', on: 'reviewer', then: { role: 'referee', title: 'Merge' } }],
+    seed: { role: 'reviewer', title: 'Review the change' },
+    messaging: 'board-only',
+    wait: 240,
+  }
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  renderWithSource(store, JSON.stringify(policy))
+  await settle()
+
+  // Remove the rule that still points at referee before removing the role,
+  // just as the ordered editor requires for a built-in complete role.
+  act(() => byAriaLabel('Rule to-referee actions').click())
+  await settle()
+  act(() => menuItem('Remove rule').click())
+  await settle()
+
+  act(() => byAriaLabel('referee actions').click())
+  await settle()
+  act(() => menuItem('Remove step').click())
+  await settle()
+
+  act(() => button('Source').click())
+  await settle()
+  const saved = JSON.parse((document.body.querySelector('textarea') as HTMLTextAreaElement).value) as FlowPolicy
+  expect(saved.roles.map((role) => role.id)).toEqual(['reviewer'])
+  expect(saved.complete).toEqual({ reviewer: ['done'] })
+  expect(parseClientMessage({ id: 1, method: 'authoring/shape/render', params: { policy: saved } }).method).toBe('authoring/shape/render')
+})
+
+it('renaming a role carries its completion declaration and rule reference into saved source', async () => {
+  const policy: FlowPolicy = {
+    version: 2,
+    name: 'Review',
+    inputs: [],
+    roles: [
+      { id: 'reviewer', kind: 'person', outcomes: ['done'] },
+      { id: 'referee', kind: 'person', outcomes: ['merged', 'dropped'] },
+    ],
+    complete: { reviewer: ['done'], referee: ['merged', 'dropped'] },
+    rules: [{ id: 'to-referee', on: 'reviewer', then: { role: 'referee', title: 'Merge' } }],
+    seed: { role: 'reviewer', title: 'Review the change' },
+    messaging: 'board-only',
+    wait: 240,
+  }
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  renderWithSource(store, JSON.stringify(policy))
+  await settle()
+
+  const name = [...document.body.querySelectorAll('input')].find((input) => input.value === 'referee')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'chair')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+
+  act(() => button('Source').click())
+  await settle()
+  const saved = JSON.parse((document.body.querySelector('textarea') as HTMLTextAreaElement).value) as FlowPolicy
+  expect(saved.complete).toEqual({ reviewer: ['done'], chair: ['merged', 'dropped'] })
+  expect(saved.rules[0]?.then.role).toBe('chair')
 })
