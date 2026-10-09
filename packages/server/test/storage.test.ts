@@ -9,6 +9,7 @@ import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { Logger } from '../src/log.js'
 import { Worktrees } from '../src/worktree.js'
+import { SessionIndex } from '../src/session-index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 if (process.platform === 'darwin') {
@@ -150,6 +151,10 @@ test('storage usage returns computing immediately then emits measured database, 
 test('age choices use 30, 60 and 90 days, candidates are ordered by path and a shared checkout is counted once', async t => {
   const { create, preview, host, runtime, db } = await fixture(t)
   const a = await create('Forty', 40), b = await create('Seventy', 70), c = await create('Hundred', 100)
+  const read = SessionIndex.prototype.storageWorktrees
+  t.mock.method(SessionIndex.prototype, 'storageWorktrees', function (this: SessionIndex) {
+    return [...read.call(this)].sort((a, b) => a.path < b.path ? 1 : a.path > b.path ? -1 : 0)
+  })
   assert.deepEqual((await preview([], 30)).candidates.map(row => row.path), [a.tree.path, c.tree.path, b.tree.path])
   assert.deepEqual((await preview([], 60)).candidates.map(row => row.path), [c.tree.path, b.tree.path])
   assert.deepEqual((await preview([], 90)).candidates.map(row => row.path), [c.tree.path])
@@ -158,6 +163,42 @@ test('age choices use 30, 60 and 90 days, candidates are ordered by path and a s
   await call(host, 'storage/kept')
   db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(Date.now() - 100 * days, shared.id)
   assert.deepEqual((await preview()).candidates.map(row => row.path), [a.tree.path, c.tree.path, b.tree.path])
+})
+
+test('kept worktrees are ordered by path after shared-owner deduplication, including unreadable inventories', async t => {
+  const { create, host, runtime, db } = await fixture(t)
+  const a = await create('Apple'), z = await create('Zebra')
+  const shared = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: a.tree.path } })
+  await host.call('session/close', { runtime: runtime.info.id, sessionId: shared.id })
+  await call(host, 'storage/kept')
+  db.prepare("UPDATE session_worktrees SET state='kept'").run()
+  db.prepare('UPDATE sessions SET removed_at=?').run(Date.now())
+  const read = SessionIndex.prototype.storageWorktrees
+  t.mock.method(SessionIndex.prototype, 'storageWorktrees', function (this: SessionIndex) {
+    return [...read.call(this)].sort((a, b) => a.path < b.path ? 1 : a.path > b.path ? -1 : 0)
+  })
+  await rm(z.tree.path, { recursive: true })
+  const kept = await call<import('@harnessdesk/protocol').StorageKeptWorktree[]>(host, 'storage/kept')
+  assert.deepEqual(kept.map(row => row.path), [a.tree.path, z.tree.path])
+  assert.ok(kept[0]?.changes)
+  assert.ok(kept[1]?.reason)
+})
+
+test('cleanup refusals are ordered by path with reversed inventory input', async t => {
+  const { create, preview, cleanup, db } = await fixture(t)
+  const a = await create('Apple'), z = await create('Zebra')
+  const read = SessionIndex.prototype.storageWorktrees
+  t.mock.method(SessionIndex.prototype, 'storageWorktrees', function (this: SessionIndex) {
+    return [...read.call(this)].sort((a, b) => a.path < b.path ? 1 : a.path > b.path ? -1 : 0)
+  })
+  const shown = await preview()
+  git(a.tree.path, 'worktree', 'lock', a.tree.path)
+  git(z.tree.path, 'worktree', 'lock', z.tree.path)
+  const result = await cleanup(shown)
+  assert.equal(result.removed, 0)
+  assert.equal(result.kept, 2)
+  assert.deepEqual(result.refused.map(row => row.path), [a.tree.path, z.tree.path])
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM session_worktrees WHERE state='present'").get()?.count, 2)
 })
 
 test('the removal spy sees force only after Discard or confirmed dirty cleanup; unmanaged paths are refused', async t => {

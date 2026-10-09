@@ -76,7 +76,7 @@ export class SessionWorktrees {
         try { result.push({ runtime: row.runtime, sessionId: row.id, title: row.title, path: row.path, changes: await changes(row.path) }) }
         catch (error) { result.push({ runtime: row.runtime, sessionId: row.id, title: row.title, path: row.path, reason: String(error) }) }
       }
-      return result
+      return result.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
     })
   }
 
@@ -147,6 +147,7 @@ export class SessionWorktrees {
           removed++; freedBytes += bytes
         } catch (error) { kept++; refused.push({ path: row.path, reason: error instanceof Error ? error.message : String(error) }) }
       }
+      refused.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
       return { removed, kept, freedBytes, refused }
     })
   }
