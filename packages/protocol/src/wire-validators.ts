@@ -1010,6 +1010,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/account/remove': shape({ runtime: isString }),
 
   'session/index': shape({
+    runtimes: optional(arrayOf(isString)),
     cursor: optional(isString),
     pageSize: optional((value, path) => {
       const size = goalInteger(1)(value, path)

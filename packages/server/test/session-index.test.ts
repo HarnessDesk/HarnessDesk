@@ -114,7 +114,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 1)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 2)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })
@@ -242,5 +242,61 @@ test('seed retains metadata between oversized turns and trailing insight', async
     assert.equal(summary.createdAt, 2)
     assert.equal(summary.updatedAt, 20)
     assert.equal(await readFile(file, 'utf8'), body)
+  } finally { index.close() }
+})
+
+test('runtime-scoped pages find older matches and exclude removed registrations', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    for (let i = 0; i < 60; i++) index.upsert({ ...row(`other-${i}`, 100-i), runtime: 'other' as RuntimeId })
+    index.upsert(row('match', 1))
+    assert.deepEqual(index.list({ runtimes: [runtime] }).data.map(one => one.id), ['match'])
+    assert.deepEqual(index.list({ runtimes: [] }).data, [])
+  } finally { index.close() }
+})
+
+test('native and unknown archive seeds stay withheld until an indexed id is confirmed', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-session-native-'))
+  for (const agent of ['native', 'local', 'unknown']) {
+    const folder = join(home, 'transcripts', agent)
+    await mkdir(folder, { recursive: true })
+    await writeFile(join(folder, 'seed.json'), JSON.stringify({ version: 1, runtime: agent, id: 'seed',
+      savedAt: 10, title: 'Synthetic seed', cwd: '/demo', turns: [] }))
+  }
+  const index = new SessionIndex(join(home, 'sessions.sqlite'))
+  try {
+    await index.seed(home, { archiveCapability: (id: RuntimeId) => id === 'native' ? true : id === 'local' ? false : undefined } as never)
+    assert.deepEqual(index.list().data.map(row => row.runtime), ['local'])
+    assert.deepEqual(index.list({ archived: 'only' }).data, [])
+    index.confirmArchived('native' as RuntimeId, idOf('unindexed'), false)
+    index.confirmArchived('native' as RuntimeId, idOf('seed'), true)
+    assert.deepEqual(index.list({ archived: 'only' }).data.map(row => row.runtime), ['native'])
+    assert.deepEqual(index.unresolvedArchive('unknown' as RuntimeId), ['seed'])
+  } finally { index.close() }
+})
+
+test('schema v1 upgrade retains row state, tombstones, repo answers and seed completion', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-index-v1-'))
+  const file = join(home, 'sessions.sqlite')
+  const db = new DatabaseSync(file)
+  db.exec(`CREATE TABLE sessions(runtime TEXT, id TEXT, origin TEXT, title TEXT, preview TEXT, cwd TEXT, repo_root TEXT,
+    created_at REAL, updated_at REAL, archived INTEGER NOT NULL DEFAULT 0, removed_at REAL, team_id TEXT, status TEXT, git TEXT, PRIMARY KEY(runtime,id));
+    CREATE INDEX sessions_sidebar ON sessions(origin); CREATE INDEX sessions_page ON sessions(updated_at);
+    CREATE INDEX sessions_repo ON sessions(repo_root); CREATE INDEX sessions_cwd ON sessions(cwd);
+    CREATE TABLE repos(cwd TEXT PRIMARY KEY, repo_root TEXT, origin_url TEXT, worktree INTEGER, "exists" INTEGER, checked_at REAL);
+    CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+    INSERT INTO sessions VALUES('fake','kept','desk','Retained title',NULL,'/demo',NULL,1,2,1,NULL,NULL,'{"type":"idle"}',NULL);
+    INSERT INTO sessions VALUES('fake','removed','desk',NULL,NULL,'/demo',NULL,1,2,0,3,NULL,'{"type":"idle"}',NULL);
+    INSERT INTO repos VALUES('/demo','/demo',NULL,0,1,4);
+    INSERT INTO meta VALUES('seed:transcripts:v1','1'); PRAGMA user_version=1;`)
+  db.close()
+  const index = new SessionIndex(file)
+  try {
+    await index.seed(home)
+    assert.deepEqual(index.list().data, [])
+    assert.equal(index.list({ archived: 'only' }).data[0]?.title, 'Retained title')
+    assert.deepEqual(index.repo('/demo'), { repo: { root: '/demo', worktree: false }, exists: true, checkedAt: 4 })
+    index.confirmArchived(runtime, idOf('removed'), false)
+    assert.deepEqual(index.list().data, [])
   } finally { index.close() }
 })

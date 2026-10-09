@@ -8,8 +8,8 @@ const request = (params: unknown) => parseClientMessage({ id: 1, method: 'sessio
 
 test('the sidebar index needs no runtime and accepts bounded page requests', () => {
   assert.equal(request({}).method, 'session/index')
-  assert.deepEqual(request({ cursor: 'page', pageSize: 50, archived: 'only' }).params,
-    { cursor: 'page', pageSize: 50, archived: 'only' })
+  assert.deepEqual(request({ cursor: 'page', pageSize: 50, archived: 'only', runtimes: undefined }).params,
+    { cursor: 'page', pageSize: 50, archived: 'only', runtimes: undefined })
   for (const pageSize of [0, -1, 1.5, 501, Infinity]) assert.throws(() => request({ pageSize }), ValidationError)
   assert.throws(() => request({ archived: 'both' }), ValidationError)
   assert.throws(() => request({ cursor: 3 }), ValidationError)
@@ -25,4 +25,11 @@ test('a retained row names the next boundary without losing Unicode identities',
 test('row ties follow SQLite byte ordering, including supplementary Unicode', () => {
   const rows = ['😀', '\uffff', 'a'].map(id => ({ runtime: runtimeId('agent'), id: sessionId(id), updatedAt: 42 }))
   assert.deepEqual(rows.sort(sessionIndexCompare).map(row => row.id), ['a', '\uffff', '😀'])
+})
+
+test('index runtime filters carry account identities and validate their shape', () => {
+  assert.deepEqual((request({ runtimes: ['agent', 'account'] }).params as { runtimes: unknown }).runtimes, ['agent', 'account'])
+  assert.deepEqual((request({ runtimes: [] }).params as { runtimes: unknown }).runtimes, [])
+  assert.throws(() => request({ runtimes: 'agent' }), ValidationError)
+  assert.throws(() => request({ runtimes: [3] }), ValidationError)
 })

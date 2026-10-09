@@ -1228,7 +1228,7 @@ export interface HostMethods {
 
   /** The desk's sidebar metadata, without starting or consulting an agent. */
   'session/index': {
-    params: { readonly cursor?: string; readonly pageSize?: number; readonly archived?: 'exclude' | 'only' }
+    params: { readonly cursor?: string; readonly pageSize?: number; readonly archived?: 'exclude' | 'only'; readonly runtimes?: readonly RuntimeId[] }
     result: Page<SessionSummary>
   }
   'session/list': {

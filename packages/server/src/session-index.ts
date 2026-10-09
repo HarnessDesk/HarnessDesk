@@ -13,6 +13,7 @@ export interface SessionIndexChange {
 
 export interface SessionIndexSeedOptions {
   readonly teamOf?: (runtime: RuntimeId, id: SessionId) => string | null
+  readonly archiveCapability?: (runtime: RuntimeId) => boolean | undefined
   readonly titleOf?: (runtime: RuntimeId, id: SessionId) => string | null
 }
 
@@ -25,7 +26,7 @@ interface Row {
   cwd: string
   created_at: number
   updated_at: number
-  archived: number
+  archived: number | null
   removed_at: number | null
   team_id: string | null
   status: string
@@ -36,9 +37,9 @@ interface Row {
   exists: number | null
 }
 
-interface RepoRow { repo_root: string | null; worktree: number; origin_url: string | null; exists: number; checked_at: number }
-type RepoValue = { repo: RepoInfo | null; exists: boolean; checkedAt: number }
-interface PendingFacts { title?: string | null; archived?: boolean; teamId?: string | null }
+interface RepoRow { repo_root: string | null; worktree: number; origin_url: string | null; exists: number; checked_at: number; identity: string | null }
+type RepoValue = { repo: RepoInfo | null; exists: boolean; checkedAt: number; identity?: string }
+interface PendingFacts { title?: string | null; archived?: boolean | null; teamId?: string | null }
 const pendingKey = (runtime: RuntimeId, id: SessionId): string => `pending:${JSON.stringify([runtime, id])}`
 const SELECT = `SELECT s.*, r.repo_root AS cached_root, r.worktree, r.origin_url, r."exists"
   FROM sessions s LEFT JOIN repos r ON r.cwd = s.cwd`
@@ -68,7 +69,7 @@ export class SessionIndex {
     this.#db = new DatabaseSync(file)
     this.#db.exec('PRAGMA journal_mode = WAL')
     const version = Number(this.#db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
-    if (version > 1) { this.#db.close(); throw new Error('Session index is from a newer schema') }
+    if (version > 2) { this.#db.close(); throw new Error('Session index is from a newer schema') }
     if (version === 0) this.#transaction(() => {
       this.#db.exec(`CREATE TABLE sessions (
         runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
@@ -84,6 +85,25 @@ export class SessionIndex {
         "exists" INTEGER NOT NULL, checked_at REAL NOT NULL);
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       PRAGMA user_version = 1;`)
+    })
+    if (version < 2) this.#transaction(() => {
+      // v1 stored archive as NOT NULL; preserve all rows, including tombstones.
+      this.#db.exec(`ALTER TABLE sessions RENAME TO sessions_v1;
+        DROP INDEX sessions_sidebar; DROP INDEX sessions_page; DROP INDEX sessions_repo; DROP INDEX sessions_cwd;
+        CREATE TABLE sessions (
+          runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
+          title TEXT, preview TEXT, cwd TEXT NOT NULL, repo_root TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+          archived INTEGER DEFAULT 0, removed_at REAL, team_id TEXT,
+          status TEXT NOT NULL DEFAULT '{"type":"notLoaded"}', git TEXT, PRIMARY KEY(runtime,id)
+        );
+        INSERT INTO sessions SELECT * FROM sessions_v1;
+        DROP TABLE sessions_v1;
+        CREATE INDEX sessions_sidebar ON sessions(origin,removed_at,team_id,updated_at DESC);
+        CREATE INDEX sessions_page ON sessions(origin,removed_at,team_id,archived,updated_at DESC,runtime,id);
+        CREATE INDEX sessions_repo ON sessions(repo_root,updated_at DESC);
+        CREATE INDEX sessions_cwd ON sessions(cwd);
+        ALTER TABLE repos ADD COLUMN identity TEXT;
+        PRAGMA user_version = 2;`)
     })
     this.#get = this.#db.prepare(`${SELECT} WHERE s.runtime = ? AND s.id = ?`)
     this.#write = this.#db.prepare(`INSERT INTO sessions
@@ -120,7 +140,7 @@ export class SessionIndex {
   #notify(runtime: RuntimeId, id: SessionId): void {
     if (!this.#onChange || this.#closed) return
     const row = this.#row(runtime, id)
-    this.#pending.set(JSON.stringify([runtime, id]), { runtime, id, summary: row && eligible(row) ? summaryOf(row) : null })
+    this.#pending.set(JSON.stringify([runtime, id]), { runtime, id, summary: row && eligible(row) && row.archived !== null ? summaryOf(row) : null })
     if (this.#scheduled) return
     this.#scheduled = true
     queueMicrotask(() => {
@@ -133,22 +153,22 @@ export class SessionIndex {
     })
   }
 
-  upsert(summary: SessionSummary, options: { origin?: 'desk' | 'imported'; archived?: boolean; teamId?: string | null } = {}): void {
+  upsert(summary: SessionSummary, options: { origin?: 'desk' | 'imported'; archived?: boolean | null; teamId?: string | null } = {}): void {
     this.#transaction(() => {
       const facts = this.#facts(summary.runtime, summary.id)
-      const archived = options.archived ?? facts.archived
+      const archived = options.archived === undefined ? facts.archived : options.archived
       const teamId = options.teamId === undefined ? facts.teamId : options.teamId
       this.#write.run(summary.runtime, summary.id, options.origin ?? 'desk', facts.title === undefined ? summary.title ?? null : facts.title,
         summary.preview ?? null, summary.cwd, summary.cwd, summary.createdAt, summary.updatedAt,
-        Number(archived ?? summary.archived ?? false), teamId ?? null, JSON.stringify(summary.status),
+        archived === null ? null : Number(archived ?? summary.archived ?? false), teamId ?? null, JSON.stringify(summary.status),
         summary.git ? JSON.stringify(summary.git) : null,
-        archived === undefined ? null : Number(archived), Number(teamId !== undefined))
+        archived == null ? null : Number(archived), Number(teamId !== undefined))
       this.#clearFacts(summary.runtime, summary.id)
     })
     this.#notify(summary.runtime, summary.id)
   }
 
-  list(options: { cursor?: string; pageSize?: number; archived?: 'exclude' | 'only' } = {}): Page<SessionSummary> {
+  list(options: { cursor?: string; pageSize?: number; archived?: 'exclude' | 'only'; runtimes?: readonly RuntimeId[] } = {}): Page<SessionSummary> {
     const pageSize = Math.min(500, Math.max(1, Math.floor(options.pageSize ?? 50)))
     const archived = options.archived === 'only' ? 1 : 0
     const params: (string | number)[] = [archived]
@@ -161,6 +181,11 @@ export class SessionIndex {
         typeof cursor[2] !== 'string' || cursor[3] !== archived) throw new Error('Invalid session index cursor')
       after = ' AND (s.updated_at < ? OR (s.updated_at = ? AND (s.runtime > ? OR (s.runtime = ? AND s.id > ?))))'
       params.push(cursor[0] as number, cursor[0] as number, cursor[1], cursor[1], cursor[2])
+    }
+    if (options.runtimes !== undefined) {
+      if (options.runtimes.length === 0) return { data: [], nextCursor: null }
+      after += ` AND s.runtime IN (${options.runtimes.map(() => '?').join(',')})`
+      params.push(...options.runtimes)
     }
     const rows = this.#db.prepare(`${SELECT} WHERE s.origin='desk' AND s.removed_at IS NULL AND s.team_id IS NULL
       AND s.archived = ?${after} ORDER BY s.updated_at DESC,s.runtime,s.id LIMIT ?`).all(...params, pageSize + 1) as unknown as Row[]
@@ -196,6 +221,26 @@ export class SessionIndex {
     this.#notify(runtime, id)
   }
 
+  /** Only an already indexed, retained conversation can receive authority facts. */
+  confirmArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void {
+    const row = this.#row(runtime, id)
+    if (!row || row.removed_at !== null) return
+    this.setArchived(runtime, id, archived)
+  }
+
+  unresolvedArchive(runtime: RuntimeId): readonly SessionId[] {
+    return (this.#db.prepare('SELECT id FROM sessions WHERE runtime=? AND archived IS NULL AND removed_at IS NULL').all(runtime) as { id: SessionId }[]).map(row => row.id)
+  }
+
+  archiveError(runtime: RuntimeId, error: string): void {
+    this.#db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+      .run(`archive-error:${runtime}`, error)
+  }
+
+  clearArchiveError(runtime: RuntimeId): void {
+    this.#db.prepare('DELETE FROM meta WHERE key=?').run(`archive-error:${runtime}`)
+  }
+
   setTeam(runtime: RuntimeId, id: SessionId, teamId: string | null): void {
     this.#transaction(() => {
       if (!this.#row(runtime, id)) this.#saveFacts(runtime, id, { teamId })
@@ -207,16 +252,16 @@ export class SessionIndex {
   repo(cwd: string): RepoValue | null {
     const row = this.#db.prepare('SELECT * FROM repos WHERE cwd=?').get(cwd) as unknown as RepoRow | undefined
     return row ? { repo: row.repo_root ? { root: row.repo_root, worktree: Boolean(row.worktree),
-      ...(row.origin_url ? { origin: row.origin_url } : {}) } : null, exists: Boolean(row.exists), checkedAt: row.checked_at } : null
+      ...(row.origin_url ? { origin: row.origin_url } : {}) } : null, exists: Boolean(row.exists), checkedAt: row.checked_at, ...(row.identity ? { identity: row.identity } : {}) } : null
   }
 
   putRepo(cwd: string, value: RepoValue): void {
     const previous = this.repo(cwd)
     this.#transaction(() => {
-      this.#db.prepare(`INSERT INTO repos(cwd,repo_root,origin_url,worktree,"exists",checked_at) VALUES (?,?,?,?,?,?)
+      this.#db.prepare(`INSERT INTO repos(cwd,repo_root,origin_url,worktree,"exists",checked_at,identity) VALUES (?,?,?,?,?,?,?)
         ON CONFLICT(cwd) DO UPDATE SET repo_root=excluded.repo_root,origin_url=excluded.origin_url,worktree=excluded.worktree,
-          "exists"=excluded."exists",checked_at=excluded.checked_at`).run(cwd, value.repo?.root ?? null, value.repo?.origin ?? null,
-        Number(value.repo?.worktree ?? false), Number(value.exists), value.checkedAt)
+          "exists"=excluded."exists",checked_at=excluded.checked_at,identity=excluded.identity`).run(cwd, value.repo?.root ?? null, value.repo?.origin ?? null,
+        Number(value.repo?.worktree ?? false), Number(value.exists), value.checkedAt, value.identity ?? null)
       this.#db.prepare('UPDATE sessions SET repo_root=? WHERE cwd=?').run(value.repo?.root ?? null, cwd)
     })
     if (previous && previous.exists === value.exists && JSON.stringify(previous.repo) === JSON.stringify(value.repo)) return
@@ -248,7 +293,8 @@ export class SessionIndex {
           const title = facts.title === undefined ? options.titleOf?.(summary.runtime, summary.id) ?? summary.title ?? null : facts.title
           const teamId = facts.teamId === undefined ? options.teamOf?.(summary.runtime, summary.id) ?? null : facts.teamId
           this.#write.run(summary.runtime, summary.id, 'desk', title, summary.preview ?? null, summary.cwd, summary.cwd,
-            summary.createdAt, summary.updatedAt, Number(facts.archived ?? summary.archived ?? false), teamId,
+            summary.createdAt, summary.updatedAt, facts.archived === undefined && options.archiveCapability && options.archiveCapability(summary.runtime) !== false
+              ? null : Number(facts.archived ?? summary.archived ?? false), teamId,
             JSON.stringify(summary.status), null, null, 0)
           this.#clearFacts(summary.runtime, summary.id)
           inserted.push(summary)

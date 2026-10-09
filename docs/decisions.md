@@ -18,7 +18,10 @@ read paths in this slice.
 
 An upgrade seeds the list once from the desk's transcript metadata and archive
 marks, in background batches. It migrates no bodies and leaves the old files
-unchanged. The transcript writer continues to own bodies until the next slice.
+unchanged. Native archive rows are withheld until the agent confirms their state;
+background reconciliation preserves the last confirmed answer when a listing fails.
+Cached repository identities answer first and are rechecked in bounded background
+passes, including after later list refreshes. The transcript writer continues to own bodies until the next slice.
 
 Team runs are filed under their Team. Their conversations remain reachable
 through that row, and do not also appear as loose sidebar conversations.

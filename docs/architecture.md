@@ -176,7 +176,10 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   its rows, while `session/indexChanged` carries incremental changes. Its
   first page consults neither an agent nor Git. Repository cache misses run
   in the background, four at a time; the upgrade seed reads the old stores
-  once without changing them. Team members are excluded from loose rows.
+  once without changing them. Native archive rows start unresolved, and background
+  listings confirm only indexed ids. Cached folder identities and Git configuration
+  fingerprints are revalidated without holding up a listing. Reconnects reconcile
+  the window's loaded index pages; agent filters page their accounts. Team members are excluded from loose rows.
   `session/list` retains the runtime history contract for other callers.
   The host keeps its own copy of each session so a reload rebuilds without
   asking the backend to replay. An agent restarting under an open conversation

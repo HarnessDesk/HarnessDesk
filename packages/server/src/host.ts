@@ -953,9 +953,9 @@ export class Host {
       this.#logger.warn(message, details),
     )
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
-      const firstPage = this.#sessionIndex.list()
+      const firstPage = this.#listSessionIndex({})
       for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
-      this.#push({ method: 'session/indexChanged', params: { ...change, firstPageCursor: firstPage.nextCursor ?? null } })
+      this.#push({ method: 'session/indexChanged', params: { upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
     })
     this.#sessionIndexRepos = new SessionIndexRepos(this.#sessionIndex)
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
@@ -2462,6 +2462,7 @@ export class Host {
     this.#sessionIndexSeed = this.#sessionIndex.seed(this.#state.directory, {
       teamOf: (runtime, id) => this.#indexTeamOf(runtime, id),
       titleOf: (runtime, id) => this.#names.nameOf(runtime, id),
+      archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
     }).catch((error: unknown) => this.#logger.warn('the sidebar index upgrade did not finish', { error: String(error) }))
     // Start capture after the stored names and rooms have recovered, so its
     // first project snapshot cannot describe a partially restored desk.
@@ -2925,6 +2926,7 @@ export class Host {
   #announceReady(runtime: AgentRuntime): void {
     this.#logger.info('runtime ready', { runtime: runtime.info.id, version: runtime.info.version })
     void this.#checkForUpdate(this.#runtimes.get(runtime.info.id) ?? runtime)
+    void this.#reconcileIndexArchive(runtime)
   }
 
   async dispose(): Promise<void> {
@@ -3990,8 +3992,8 @@ export class Host {
       archive: this.#archive,
       sessionIndex: {
         list: (params) => {
-          const page = this.#sessionIndex.list(params)
-          for (const row of page.data) this.#sessionIndexRepos.read(row.cwd)
+          const page = this.#listSessionIndex(params)
+          for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
           return page
         },
         record: (session) => this.#recordSessionIndex(session, true),
@@ -4001,6 +4003,7 @@ export class Host {
         },
         setArchived: (runtime, id, archived) => {
           this.#flushSessionIndex(runtime, id)
+          this.#indexArchiveChanges.set(String(sessionKey(runtime, id)), (this.#indexArchiveChanges.get(String(sessionKey(runtime, id))) ?? 0) + 1)
           this.#sessionIndex.setArchived(runtime, id, archived)
         },
         remove: (runtime, id) => {
@@ -4151,7 +4154,10 @@ export class Host {
         attach: (runtime, id, live) => this.#attach(runtime, id, live),
         withRepos: (page) => this.#withRepos(page),
         routeToHolders: (runtime, page) => this.#routeToHolders(runtime, page),
-        applyArchive: (runtime, page, filter) => this.#applyArchive(runtime, page, filter),
+        applyArchive: (runtime, page, filter) => {
+          if (runtime.info.capabilities.archiveHistory && filter === 'only') void this.#reconcileIndexArchive(runtime)
+          return this.#applyArchive(runtime, page, filter)
+        },
         busyElsewhere: (runtime, id, error) => this.#busyElsewhere(runtime, id, error),
         cannotReopen: (runtime, error) => this.#cannotReopen(runtime, error),
         releaseQuiet: async (params) => {
@@ -4680,7 +4686,20 @@ export class Host {
         continue
       }
       const outcome = await this.#transcripts.importOne(entry.runtime, entry.id, entry.data)
-      if (outcome === 'restored') transcripts.restored += 1
+      if (outcome === 'restored') {
+        transcripts.restored += 1
+        const restored = await this.#transcripts.readSummary(runtimeId(entry.runtime), makeSessionId(entry.id))
+        if (restored) {
+          await this.#archive.load()
+          const native = this.#runtimes.get(restored.runtime)?.info.capabilities.archiveHistory
+          this.#sessionIndex.upsert({ ...restored, title: this.#names.nameOf(restored.runtime, restored.id) ?? restored.title }, {
+            teamId: this.#indexTeamOf(restored.runtime, restored.id),
+            ...(native !== false ? { archived: null } : { archived: this.#archive.has(restored.runtime, restored.id) }),
+          })
+          const authority = this.#runtimes.get(restored.runtime)
+          if (authority) void this.#reconcileIndexArchive(authority)
+        }
+      }
       else transcripts.skipped += 1
     }
 
@@ -6703,6 +6722,65 @@ export class Host {
       const { runtime, id } = splitSessionKey(key as import('@harnessdesk/protocol').SessionKey)
       this.#sessionIndex.setTeam(runtime, id, this.#indexTeamOf(runtime, id))
     }
+  }
+
+  #indexStatus(row: SessionSummary): SessionSummary {
+    const record = this.registry.get(row.runtime, row.id)
+    return { ...row, status: record?.live ? record.running.size > 0 ? { type: 'active' }
+      : record.session.status.type === 'active' ? { type: 'idle' } : record.session.status : { type: 'notLoaded' } }
+  }
+
+  #listSessionIndex(params: import('@harnessdesk/protocol').HostParams<'session/index'>): Page<SessionSummary> {
+    const runtimes = [...this.#runtimes.keys()].map(runtimeId).filter(id => params.runtimes === undefined || params.runtimes.includes(id))
+    const page = this.#sessionIndex.list({ ...params, runtimes })
+    return { ...page, data: page.data.map(row => this.#indexStatus(row)) }
+  }
+
+  readonly #indexArchiveReads = new Map<RuntimeId, Promise<void>>()
+  readonly #indexArchiveChanges = new Map<string, number>()
+
+  /** Native history is archive authority only: never adopt its unrelated ids. */
+  #reconcileIndexArchive(runtime: AgentRuntime): Promise<void> {
+    if (this.#disposed || !['ready', 'idle'].includes(runtime.health().state)) return Promise.resolve()
+    const existing = this.#indexArchiveReads.get(runtime.info.id)
+    if (existing) return existing
+    const read = Promise.resolve().then(async () => {
+      await this.#sessionIndexSeed
+      if (!runtime.info.capabilities.archiveHistory) {
+        await this.#archive.load()
+        if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+        for (const id of this.#sessionIndex.unresolvedArchive(runtime.info.id)) {
+          this.#sessionIndex.confirmArchived(runtime.info.id, id, this.#archive.has(runtime.info.id, id))
+        }
+        return
+      }
+      const revisions = new Map(this.#indexArchiveChanges)
+      for (const archived of ['only', 'exclude'] as const) {
+        let cursor: string | undefined
+        const seen = new Set<string>()
+        const confirmed: SessionSummary[] = []
+        do {
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          const page = await runtime.listSessions({ archived, pageSize: 500, ...(cursor ? { cursor } : {}) })
+          confirmed.push(...page.data)
+          cursor = page.nextCursor ?? undefined
+          if (cursor && seen.has(cursor)) throw new Error('Archive listing repeated its cursor')
+          if (cursor) seen.add(cursor)
+        } while (cursor)
+        if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+        for (const row of confirmed) {
+          const key = String(sessionKey(runtime.info.id, row.id))
+          if (this.#indexArchiveChanges.get(key) !== revisions.get(key)) continue
+          this.#sessionIndex.confirmArchived(runtime.info.id, row.id, archived === 'only')
+        }
+      }
+      this.#sessionIndex.clearArchiveError(runtime.info.id)
+    }).catch((error: unknown) => {
+      if (!this.#disposed) this.#sessionIndex.archiveError(runtime.info.id, String(error))
+      this.#logger.warn('the sidebar archive authority could not be reconciled', { runtime: runtime.info.id, error: String(error) })
+    }).finally(() => { if (this.#indexArchiveReads.get(runtime.info.id) === read) this.#indexArchiveReads.delete(runtime.info.id) })
+    this.#indexArchiveReads.set(runtime.info.id, read)
+    return read
   }
 
   #cancelSessionIndex(runtime: RuntimeId, id: SessionId): void {

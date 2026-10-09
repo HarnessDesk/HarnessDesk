@@ -7,8 +7,8 @@ import { repoKey, type RepoInfo } from '@harnessdesk/protocol'
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 interface RepoCache {
-  repo(cwd: string): { repo: RepoInfo | null; exists: boolean; checkedAt: number } | null
-  putRepo(cwd: string, value: { repo: RepoInfo | null; exists: boolean; checkedAt: number }): void
+  repo(cwd: string): { repo: RepoInfo | null; exists: boolean; checkedAt: number; identity?: string } | null
+  putRepo(cwd: string, value: { repo: RepoInfo | null; exists: boolean; checkedAt: number; identity?: string }): void
 }
 
 interface Options {
@@ -28,6 +28,8 @@ export class SessionIndexRepos {
   readonly #index: RepoCache
   readonly #options: Options
   readonly #pending = new Set<string>()
+  readonly #checked = new Set<string>()
+  readonly #retries = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #queue: string[] = []
   readonly #waiters: (() => void)[] = []
   #scheduled = false
@@ -39,10 +41,13 @@ export class SessionIndexRepos {
     this.#options = options
   }
 
-  read(cwd: string): RepoInfo | null {
+  read(cwd: string, refresh = false): RepoInfo | null {
     const cached = this.#index.repo(cwd)
-    if (cached) return cached.repo
-    if (!this.#closed && !this.#pending.has(cwd)) {
+    if (!this.#closed && (refresh || !this.#checked.has(cwd)) && !this.#pending.has(cwd)) {
+      this.#checked.add(cwd)
+      const retry = this.#retries.get(cwd)
+      if (retry) clearTimeout(retry)
+      this.#retries.delete(cwd)
       this.#pending.add(cwd)
       this.#queue.push(cwd)
       if (!this.#scheduled) {
@@ -50,7 +55,7 @@ export class SessionIndexRepos {
         setImmediate(() => { this.#scheduled = false; this.#pump() })
       }
     }
-    return null
+    return cached?.repo ?? null
   }
 
   flush(): Promise<void> {
@@ -60,6 +65,8 @@ export class SessionIndexRepos {
   /** Call before closing the index, so no late background write reaches it. */
   async close(): Promise<void> {
     this.#closed = true
+    for (const timer of this.#retries.values()) clearTimeout(timer)
+    this.#retries.clear()
     await this.flush()
   }
 
@@ -77,29 +84,59 @@ export class SessionIndexRepos {
   }
 
   async #check(cwd: string): Promise<void> {
-    let exists = true
-    let repo: RepoInfo | null = null
+    const cached = this.#index.repo(cwd)
     try {
+      let exists = true
+      let repo: RepoInfo | null = null
+      let identity: string | undefined
       if (this.#options.resolve) repo = await this.#options.resolve(cwd)
       else {
-        const folder = await stat(cwd).catch(() => null)
+        if (cached?.identity) {
+          const prior = JSON.parse(cached.identity) as Fingerprint
+          if (await fingerprint(cwd, prior.paths.map(one => one.path)) === cached.identity) return
+        }
+        const watched = new Set<string>()
+        // A negative answer must notice a repository added to any ancestor.
+        for (let folder = resolve(cwd); ; folder = dirname(folder)) {
+          watched.add(join(folder, '.git'))
+          if (dirname(folder) === folder) break
+        }
+        const folder = await optionalStat(cwd)
         exists = folder?.isDirectory() ?? false
-        if (folder?.isDirectory()) repo = await repository(cwd, this.#options)
+        if (exists) repo = await repository(cwd, this.#options, watched)
+        identity = await fingerprint(cwd, [...watched])
       }
-    } catch {
-      // Unreadable metadata and non-repositories are cacheable negative answers.
-    }
-    try {
-      this.#index.putRepo(cwd, { repo, exists, checkedAt: (this.#options.now ?? Date.now)() })
+      this.#index.putRepo(cwd, { repo, exists, checkedAt: (this.#options.now ?? Date.now)(), ...(identity ? { identity } : {}) })
       this.#options.onResolved?.(cwd, repo)
     } catch {
-      // A storage or subscriber failure must not leave the background queue stuck.
+      // A failed read says nothing about existence or the cached mapping.
+      // Retain that answer and retry after the queue settles, or on a refresh.
+      if (!this.#closed && !this.#retries.has(cwd)) {
+        const timer = setTimeout(() => { this.#retries.delete(cwd); this.read(cwd, true) }, 5_000)
+        timer.unref()
+        this.#retries.set(cwd, timer)
+      }
     }
   }
+
+}
+
+const absent = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')
+const optionalStat = async (path: string) => stat(path).catch((error: unknown) => { if (absent(error)) return null; throw error })
+interface Fingerprint { cwd: string | null; paths: { path: string; real: string | null; stamp: readonly (number | string)[] | null }[] }
+const fingerprint = async (cwd: string, paths: readonly string[]): Promise<string> => {
+  const folder = await optionalStat(cwd)
+  const entries: Fingerprint['paths'] = []
+  for (const path of new Set([cwd, ...paths])) {
+    const info = await optionalStat(path)
+    entries.push({ path, real: info ? await canonical(path) : null,
+      stamp: info ? [info.dev, info.ino, info.mode, info.size, path === cwd ? 0 : info.mtimeMs] : null })
+  }
+  return JSON.stringify({ cwd: folder ? await canonical(cwd) : null, paths: entries } satisfies Fingerprint)
 }
 
 const finalNewline = (text: string): string => text.replace(/\n$/, '')
-const canonical = async (path: string): Promise<string | null> => realpath(path).catch(() => null)
+const canonical = async (path: string): Promise<string | null> => realpath(path).catch((error: unknown) => { if (absent(error)) return null; throw error })
 const same = (a: string | null, b: string): boolean => a !== null &&
   (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b)
 
@@ -110,7 +147,7 @@ const checkoutGitDir = async (folder: string): Promise<string | null> => {
     if ((await stat(dot)).isDirectory()) return canonical(dot)
     const pointer = finalNewline(await readFile(dot, 'utf8'))
     return pointer.startsWith('gitdir: ') ? canonical(resolve(folder, pointer.slice('gitdir: '.length))) : null
-  } catch { return null }
+  } catch (error) { if (absent(error)) return null; throw error }
 }
 
 type ConfigEntry = { section: string; subsection: string; name: string; value: string }
@@ -184,33 +221,39 @@ const gitDirectoryMatches = (condition: string, config: string, home: string, di
   } catch { return false }
 }
 
-const readConfig = async (path: string, home: string, gitDirs: readonly string[], seen = new Set<string>()): Promise<ConfigEntry[]> => {
+const readConfig = async (path: string, home: string, gitDirs: readonly string[], watched: Set<string>, seen = new Set<string>()): Promise<ConfigEntry[]> => {
+  watched.add(path)
   if (seen.has(path) || seen.size >= 10) return []
   seen.add(path)
   try {
-    if ((await stat(path)).size > 1024 * 1024) return []
+    if ((await stat(path)).size > 1024 * 1024) throw new Error('Repository configuration is too large to read')
     const result: ConfigEntry[] = []
     for (const entry of configEntries(await readFile(path, 'utf8'))) {
       if (entry.name === 'path' && (entry.section === 'include' ||
         (entry.section === 'includeif' && gitDirectoryMatches(entry.subsection, path, home, gitDirs)))) {
         const included = entry.value.startsWith('~/') ? join(home, entry.value.slice(2)) : resolve(dirname(path), entry.value)
-        result.push(...await readConfig(included, home, gitDirs, seen))
+        result.push(...await readConfig(included, home, gitDirs, watched, seen))
       } else result.push(entry)
     }
     return result
-  } catch { return [] }
+  } catch (error) { if (absent(error)) return []; throw error }
 }
 
 const valueOf = (entries: ConfigEntry[], section: string, name: string): string | undefined =>
   entries.findLast((entry) => entry.section === section && entry.subsection === '' && entry.name === name)?.value
 
-const repository = async (cwd: string, options: Options): Promise<RepoInfo | null> => {
+const repository = async (cwd: string, options: Options, watched: Set<string>): Promise<RepoInfo | null> => {
   const sourceEnv = options.env ?? process.env
   const env = { ...Object.fromEntries(Object.entries(sourceEnv).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' }
   const execute = options.execute ?? executeGit
   const query = (flags: readonly string[]) => execute(['-C', cwd, ...HARDENED_GIT_CONFIG, 'rev-parse', '--path-format=absolute', ...flags], env)
   const flags = ['--git-common-dir', '--git-dir', '--show-toplevel']
-  let paths = finalNewline(await query(flags)).split('\n')
+  let output: string
+  try { output = await query(flags) } catch (error) {
+    if (/not a git repository/i.test(String((error as { stderr?: string }).stderr))) return null
+    throw error
+  }
+  let paths = finalNewline(output).split('\n')
   // rev-parse cannot NUL-delimit paths. Only newline-bearing payloads need more processes.
   if (paths.length !== 3) {
     paths = []
@@ -219,9 +262,10 @@ const repository = async (cwd: string, options: Options): Promise<RepoInfo | nul
   if (paths.some((path) => path === '')) return null
   const [common, dir, here] = await Promise.all(paths.map(canonical))
   if (!common || !dir || !here || !same(await checkoutGitDir(here), dir)) return null
+  for (const path of [...paths, join(here, '.git'), join(dir, 'commondir'), join(dir, 'gitdir')]) watched.add(path)
   const home = sourceEnv.HOME ?? sourceEnv.USERPROFILE ?? homedir()
   const gitDirs = [paths[1]!, dir]
-  const local = await readConfig(join(common, 'config'), home, gitDirs)
+  const local = await readConfig(join(common, 'config'), home, gitDirs, watched)
   let root = here
   const worktree = !same(dir, common)
   if (worktree) {
@@ -232,14 +276,15 @@ const repository = async (cwd: string, options: Options): Promise<RepoInfo | nul
     if (recorded !== undefined || basename(common) === '.git') {
       if (!same(await checkoutGitDir(main), common)) return null
     }
+    watched.add(join(main, '.git'))
     root = main
   }
   const user = [
-    ...await readConfig(join(sourceEnv.XDG_CONFIG_HOME ?? join(home, '.config'), 'git', 'config'), home, gitDirs),
-    ...await readConfig(join(home, '.gitconfig'), home, gitDirs),
+    ...await readConfig(join(sourceEnv.XDG_CONFIG_HOME ?? join(home, '.config'), 'git', 'config'), home, gitDirs, watched),
+    ...await readConfig(join(home, '.gitconfig'), home, gitDirs, watched),
   ]
   const entries = [...user, ...local]
-  if (valueOf(local, 'extensions', 'worktreeconfig') === 'true') entries.push(...await readConfig(join(dir, 'config.worktree'), home, gitDirs))
+  if (valueOf(local, 'extensions', 'worktreeconfig') === 'true') entries.push(...await readConfig(join(dir, 'config.worktree'), home, gitDirs, watched))
   let originUrl = entries.find((entry) => entry.section === 'remote' && entry.subsection === 'origin' && entry.name === 'url')?.value
   if (originUrl) {
     let rewrite: ConfigEntry | undefined

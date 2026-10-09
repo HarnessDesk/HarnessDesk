@@ -140,7 +140,7 @@ import {
   type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
-import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import { agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
@@ -569,7 +569,7 @@ export class AppStore {
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
         }
         if (notification.method === 'sync') {
-          const sessions = new Map(this.#snapshot.sessions)
+          const sessions = new Map<SessionKey, Session>()
           const rawSessions = Array.isArray(notification.params.sessions)
             ? notification.params.sessions
             : []
@@ -611,6 +611,8 @@ export class AppStore {
             activeRuntime:
               this.#snapshot.activeRuntime ?? runtimes[0]?.id ?? null,
           })
+          for (const runtime of runtimes) this.#historyRemovedRuntimes.delete(runtime.id)
+          if (this.#historyLoaded || this.#historyPageChanges) void this.loadHistory({ reset: true, reconcile: true })
           void this.refreshRuntime()
         }
         if (notification.method === 'extension') {
@@ -649,6 +651,7 @@ export class AppStore {
           // than re-synced: a full sync would drop the panes' scroll and the
           // history page the user is halfway down.
           const { info } = notification.params
+          this.#historyRemovedRuntimes.delete(info.id)
           if (!this.#snapshot.runtimes.some((entry) => entry.id === info.id)) {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
           }
@@ -663,6 +666,8 @@ export class AppStore {
           // cannot put its rows back.
           this.#historyRequestId += 1
           this.#historyPageRemovedRuntimes?.add(runtime)
+          this.#historyRemovedRuntimes.add(runtime)
+          this.#historyRows = this.#historyRows.filter(row => row.runtime !== runtime)
           const runtimes = this.#snapshot.runtimes.filter((entry) => entry.id !== runtime)
           const accountsByRuntime = { ...this.#snapshot.accountsByRuntime }
           delete accountsByRuntime[runtime]
@@ -2075,10 +2080,10 @@ export class AppStore {
   // ------------------------------------------------------------------ history
 
   /** Pages desk conversations from the host's local index, independently of agents. */
-  async loadHistory(options: { reset?: boolean } = {}): Promise<void> {
-    if (this.#historyQuery || (this.#snapshot.historyLoading && !options.reset)) return
+  async loadHistory(options: { reset?: boolean; reconcile?: boolean } = {}): Promise<void> {
+    if ((this.#historyQuery && !options.reconcile) || (this.#snapshot.historyLoading && !options.reset)) return
     const requestId = ++this.#historyPageRequestId
-    const capacity = options.reset || !this.#historyLoaded ? 50 : this.#historyCapacity + 50
+    const capacity = options.reconcile ? this.#historyCapacity : options.reset || !this.#historyLoaded ? 50 : this.#historyCapacity + 50
     // Notifications received after this read started are newer than its page.
     const changes = new Map<SessionKey, SessionSummary | null>()
     this.#historyPageChanges = changes
@@ -2087,14 +2092,25 @@ export class AppStore {
     this.#historyPageRemovedRuntimes = removedRuntimes
     this.#patch({ historyLoading: true })
     try {
-      const page = await this.transport.request('session/index', {
-        pageSize: 50,
+      const runtimes = this.#snapshot.listPrefs.agent === null ? undefined : this.#snapshot.runtimes
+        .filter(info => agentKeyOf(info.id, this.#snapshot.runtimes) === this.#snapshot.listPrefs.agent).map(info => info.id)
+      const pageSize = options.reconcile ? Math.min(500, capacity) : 50
+      let page = await this.transport.request('session/index', {
+        pageSize, ...(runtimes ? { runtimes } : {}),
         ...(!options.reset && this.#historyCursor ? { cursor: this.#historyCursor } : {}),
       })
+      while (options.reconcile && capacity > 500 && page.data.length < capacity && page.nextCursor) {
+        if (requestId !== this.#historyPageRequestId) return
+        const next = await this.transport.request('session/index', {
+          pageSize: Math.min(500, capacity - page.data.length), cursor: page.nextCursor,
+          ...(runtimes ? { runtimes } : {}),
+        })
+        page = { data: [...page.data, ...next.data], nextCursor: next.nextCursor }
+      }
       if (requestId !== this.#historyPageRequestId) return
       const rows = new Map<SessionKey, SessionSummary>()
       if (!options.reset) {
-        for (const row of this.#snapshot.historyIdentity) rows.set(sessionKey(row.runtime, row.id), row)
+        for (const row of this.#historyRows) rows.set(sessionKey(row.runtime, row.id), row)
       }
       for (const row of page.data) {
         const key = sessionKey(row.runtime, row.id)
@@ -2105,8 +2121,17 @@ export class AppStore {
         if (row) rows.set(key, row)
         else rows.delete(key)
       }
-      const merged = [...rows.values()].filter(row => !row.archived && !removedRuntimes.has(row.runtime)).sort(sessionIndexCompare)
+      const merged = [...rows.values()].filter(row => !row.archived && !removedRuntimes.has(row.runtime) && this.#historyEligible(row)).sort(sessionIndexCompare)
       const history = merged.slice(0, capacity)
+      const identity = new Map(this.#snapshot.historyIdentity.map(row => [sessionKey(row.runtime, row.id), row]))
+      if (options.reset && this.#historyAgent === this.#snapshot.listPrefs.agent) for (const row of this.#historyRows) identity.delete(sessionKey(row.runtime, row.id))
+      for (const row of history) {
+        identity.set(sessionKey(row.runtime, row.id), row)
+        this.#historyExcluded.delete(sessionKey(row.runtime, row.id))
+      }
+      for (const [key, row] of changes) { if (row && identity.has(key)) identity.set(key, row); else if (!row) identity.delete(key) }
+      this.#historyRows = history
+      this.#historyAgent = this.#snapshot.listPrefs.agent
       const nextFoldersGone = this.#foldersGoneFor(history)
       this.#historyCapacity = capacity
       this.#historyLoaded = true
@@ -2120,7 +2145,7 @@ export class AppStore {
           : page.nextCursor ?? null
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
-        historyIdentity: history,
+        historyIdentity: [...identity.values()].filter(row => !this.#historyRemovedRuntimes.has(row.runtime)),
         ...(!this.#historyQuery ? { history, historyCursor: this.#historyCursor } : {}),
       })
     } catch (error) {
@@ -2134,6 +2159,11 @@ export class AppStore {
     }
   }
 
+  #historyEligible(row: SessionSummary): boolean {
+    return !this.#historyRemovedRuntimes.has(row.runtime) && (this.#snapshot.listPrefs.agent === null ||
+      agentKeyOf(row.runtime, this.#snapshot.runtimes) === this.#snapshot.listPrefs.agent)
+  }
+
   /** Applies an index change without disturbing a live search or its results. */
   #changeHistory(
     upserted: readonly SessionSummary[],
@@ -2141,36 +2171,40 @@ export class AppStore {
     firstPageCursor?: string | null,
   ): void {
     const changes = new Map<SessionKey, SessionSummary | null>()
-    for (const row of upserted) changes.set(sessionKey(row.runtime, row.id), row.archived ? null : row)
+    for (const row of upserted.filter(row => !this.#historyRemovedRuntimes.has(row.runtime))) changes.set(sessionKey(row.runtime, row.id), row.archived ? null : row)
     for (const row of removed) changes.set(sessionKey(row.runtime, row.id), null)
     for (const [key, row] of changes) {
       this.#historyPageChanges?.set(key, row)
       if (row) this.#historyExcluded.delete(key)
       else this.#historyExcluded.add(key)
     }
-    const rows = new Map(this.#snapshot.historyIdentity.map(row => [sessionKey(row.runtime, row.id), row]))
+    const identity = new Map(this.#snapshot.historyIdentity.map(row => [sessionKey(row.runtime, row.id), row]))
+    for (const [key, row] of changes) { if (row && identity.has(key)) identity.set(key, row); else if (!row) identity.delete(key) }
+    const rows = new Map(this.#historyRows.map(row => [sessionKey(row.runtime, row.id), row]))
     for (const [key, row] of changes) {
-      if (row) rows.set(key, row)
+      if (row && this.#historyEligible(row)) rows.set(key, row)
       else rows.delete(key)
     }
     const merged = [...rows.values()].sort(sessionIndexCompare)
-    const historyIdentity = merged.slice(0, this.#historyCapacity)
-    if (this.#historyCapacity === 50 && firstPageCursor !== undefined) {
-      const removedFromWindow = this.#snapshot.historyIdentity.some(row =>
+    const history = merged.slice(0, this.#historyCapacity)
+    if (this.#snapshot.listPrefs.agent === null && this.#historyCapacity === 50 && firstPageCursor !== undefined) {
+      const removedFromWindow = this.#historyRows.some(row =>
         changes.get(sessionKey(row.runtime, row.id)) === null,
       )
       // The host's replacement at row fifty may be a row this window has not
       // read yet. Keep the loaded boundary through later metadata notices too.
       if (this.#historyCursor === null) this.#historyCursor = firstPageCursor
-      else if (removedFromWindow && historyIdentity.length > 0) {
-        this.#historyCursor = sessionIndexCursorOf(historyIdentity.at(-1)!)
+      else if (removedFromWindow && history.length > 0) {
+        this.#historyCursor = sessionIndexCursorOf(history.at(-1)!)
       }
       this.#historyPageFirstCursor = this.#historyCursor
     }
     if (merged.length > this.#historyCapacity) {
-      this.#historyCursor = sessionIndexCursorOf(historyIdentity.at(-1)!)
+      this.#historyCursor = sessionIndexCursorOf(history.at(-1)!)
       if (this.#historyCapacity === 50) this.#historyPageFirstCursor = this.#historyCursor
     }
+    this.#historyRows = history
+    for (const row of history) identity.set(sessionKey(row.runtime, row.id), row)
     let sessions = this.#snapshot.sessions
     for (const row of upserted) {
       const key = sessionKey(row.runtime, row.id)
@@ -2186,9 +2220,9 @@ export class AppStore {
     const nextFoldersGone = this.#foldersGoneFor(upserted)
     this.#patch({
       ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
-      historyIdentity,
+      historyIdentity: [...identity.values()],
       ...(sessions !== this.#snapshot.sessions ? { sessions } : {}),
-      ...(!this.#historyQuery ? { history: historyIdentity, historyCursor: this.#historyCursor } : {}),
+      ...(!this.#historyQuery ? { history, historyCursor: this.#historyCursor } : {}),
     })
   }
 
@@ -2197,7 +2231,7 @@ export class AppStore {
     this.#historyQuery = query.trim()
     if (!this.#historyQuery) {
       this.#historyRequestId += 1
-      this.#patch({ history: this.#snapshot.historyIdentity, historyCursor: this.#historyCursor, historyLoading: this.#historyPageChanges !== null })
+      this.#patch({ history: this.#historyRows, historyCursor: this.#historyCursor, historyLoading: this.#historyPageChanges !== null })
       return
     }
     const runtime = this.#snapshot.activeRuntime
@@ -3012,6 +3046,7 @@ export class AppStore {
     const { runtime, id } = splitSessionKey(key)
     this.#historyPageChanges?.set(key, null)
     this.#historyExcluded.add(key)
+    this.#historyRows = this.#historyRows.filter(row => sessionKey(row.runtime, row.id) !== key)
     this.#pendingConversationNotices.delete(runtime, id)
     const { sessions, queues, tasks, history, historyIdentity, approvals } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
@@ -6832,8 +6867,10 @@ export class AppStore {
   }
 
   setListPrefs(patch: Partial<AppSnapshot['listPrefs']>): void {
+    const previousAgent = this.#snapshot.listPrefs.agent
     const listPrefs = { ...this.#snapshot.listPrefs, ...patch }
     this.#patch({ listPrefs })
+    if (patch.agent !== undefined && patch.agent !== previousAgent) void this.loadHistory({ reset: true, reconcile: true })
     void this.#writePreference({ listPrefs }, 'The list settings')
   }
 
@@ -7408,6 +7445,9 @@ export class AppStore {
   #historyCursor: string | null = null
   #historyCapacity = 50
   #historyLoaded = false
+  #historyRows: readonly SessionSummary[] = []
+  #historyAgent: RuntimeId | null = null
+  readonly #historyRemovedRuntimes = new Set<RuntimeId>()
   #historyPageFirstCursor: string | null | undefined = undefined
   #historyPageChanges: Map<SessionKey, SessionSummary | null> | null = null
   #historyPageRemovedRuntimes: Set<RuntimeId> | null = null

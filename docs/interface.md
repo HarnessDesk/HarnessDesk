@@ -261,7 +261,8 @@ counts include only loose conversations still shown there.
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`).
 The sidebar lists conversations started or continued in HarnessDesk. It reads
 the desk's local index, fifty at a time, and loads another page on reaching the
-end. Each project shows its first ten conversations with **Show more** below;
+end. An agent filter pages that agent's accounts, and **Load more conversations**
+also reaches the next page when the rows do not fill the column. Each project shows its first ten conversations with **Show more** below;
 project folds are remembered. Team conversations live under their Team's row.
 
 Clones with the same remote and linked worktrees share one project. A checkout

@@ -11,7 +11,7 @@ import { SessionIndex } from '../src/session-index.js'
 import { HARDENED_GIT_CONFIG } from '../src/git-hardening.js'
 
 const run = promisify(execFile)
-type CachedRepo = { repo: RepoInfo | null; exists: boolean; checkedAt: number }
+type CachedRepo = { repo: RepoInfo | null; exists: boolean; checkedAt: number; identity?: string }
 const memoryIndex = () => {
   const values = new Map<string, CachedRepo>()
   return { repo: (cwd: string) => values.get(cwd) ?? null, putRepo: (cwd: string, value: CachedRepo) => { values.set(cwd, value) } }
@@ -77,14 +77,17 @@ test('at most four background resolutions run at once, and flush drains the whol
   assert.equal(calls, 11)
 })
 
-test('resolver failures are cached negatives and do not reject flush', async () => {
+test('resolver failures retain no false negative and can be retried on refresh', async () => {
   let calls = 0
-  const repos = new SessionIndexRepos(memoryIndex(), { resolve: async () => { calls++; throw new Error('unreadable fixture') } })
+  const index = memoryIndex()
+  const repos = new SessionIndexRepos(index, { resolve: async () => { calls++; throw new Error('unreadable fixture') } })
   repos.read('/synthetic/unreadable')
   await repos.flush()
-  assert.equal(repos.read('/synthetic/unreadable'), null)
+  assert.equal(index.repo('/synthetic/unreadable'), null)
+  repos.read('/synthetic/unreadable', true)
   await repos.flush()
-  assert.equal(calls, 1)
+  assert.equal(calls, 2)
+  await repos.close()
 })
 
 test('closing drains pending writes and prevents later misses from starting work', async () => {
@@ -215,8 +218,10 @@ test('missing folders never spawn Git, and non-repositories persist negative ans
   repos.read(missing); repos.read(f.base)
   await repos.flush()
   assert.equal(f.calls.length, 1)
-  assert.deepEqual(index.repo(missing), { repo: null, exists: false, checkedAt: 73 })
-  assert.deepEqual(index.repo(f.base), { repo: null, exists: true, checkedAt: 73 })
+  assert.deepEqual(index.repo(missing), { repo: null, exists: false, checkedAt: 73, identity: index.repo(missing)?.identity })
+  assert.equal(typeof index.repo(missing)?.identity, 'string')
+  assert.deepEqual(index.repo(f.base), { repo: null, exists: true, checkedAt: 73, identity: index.repo(f.base)?.identity })
+  assert.equal(typeof index.repo(f.base)?.identity, 'string')
   const second = new SessionIndexRepos(index, { execute: f.execute, env: f.env })
   second.read(missing); second.read(f.base)
   await second.flush()
@@ -230,7 +235,8 @@ test('a cwd replaced by a file is a missing folder and never spawns Git', async 
   const index = memoryIndex()
   const repos = new SessionIndexRepos(index, { execute: f.execute, env: f.env, now: () => 79 })
   repos.read(cwd); await repos.flush()
-  assert.deepEqual(index.repo(cwd), { repo: null, exists: false, checkedAt: 79 })
+  assert.deepEqual(index.repo(cwd), { repo: null, exists: false, checkedAt: 79, identity: index.repo(cwd)?.identity })
+  assert.equal(typeof index.repo(cwd)?.identity, 'string')
   assert.equal(f.calls.length, 0)
 })
 
@@ -302,4 +308,63 @@ test('a linked checkout refuses a missing or replaced recorded main folder', asy
   repos = new SessionIndexRepos(memoryIndex(), { execute: f.execute, env: f.env })
   repos.read(linked); await repos.flush()
   assert.equal(repos.read(linked), null)
+})
+
+test('a new launch revalidates cached config and a missing folder without blocking reads', async () => {
+  const f = await fixture()
+  await f.git(f.repo, 'remote', 'add', 'origin', 'https://example.com/acme/first.git')
+  const index = memoryIndex()
+  const first = new SessionIndexRepos(index, { execute: f.execute, env: f.env })
+  first.read(f.repo); await first.flush(); await first.close()
+  await f.git(f.repo, 'remote', 'set-url', 'origin', 'https://example.com/acme/second.git')
+  const second = new SessionIndexRepos(index, { execute: f.execute, env: f.env })
+  assert.equal(second.read(f.repo)?.origin, 'example.com/acme/first')
+  await second.flush()
+  assert.equal(second.read(f.repo)?.origin, 'example.com/acme/second')
+  await second.close()
+  await rename(f.repo, join(f.base, 'moved'))
+  const missing = new SessionIndexRepos(index, { execute: f.execute, env: f.env })
+  assert.ok(missing.read(f.repo))
+  await missing.flush()
+  assert.equal(index.repo(f.repo)?.exists, false)
+  assert.equal(missing.read(f.repo), null)
+  await missing.close()
+})
+
+test('a failed background revalidation retains the last repository answer and retries on a later read', async () => {
+  const f = await fixture()
+  const index = memoryIndex()
+  const first = new SessionIndexRepos(index, { execute: f.execute, env: f.env })
+  first.read(f.repo); await first.flush(); await first.close()
+  await f.git(f.repo, 'config', 'remote.origin.url', 'https://example.com/acme/changed.git')
+  const refresh = new SessionIndexRepos(index, { execute: async () => { throw new Error('Synthetic read failure') }, env: f.env })
+  assert.ok(refresh.read(f.repo))
+  await refresh.flush()
+  assert.deepEqual(refresh.read(f.repo), { root: f.repo, worktree: false })
+  await refresh.close()
+  const retry = new SessionIndexRepos(index, { execute: f.execute, env: f.env })
+  retry.read(f.repo); await retry.flush()
+  assert.equal(retry.read(f.repo)?.origin, 'example.com/acme/changed')
+  await retry.close()
+})
+
+test('a later refresh resolves a retargeted folder from its new canonical identity', async () => {
+  const { symlink, unlink } = await import('node:fs/promises')
+  const f = await fixture()
+  const other = join(f.base, 'other')
+  await mkdir(other)
+  await f.git(other, 'init', '-q', '-b', 'main')
+  const alias = join(f.base, 'alias')
+  await symlink(f.repo, alias)
+  const index = memoryIndex()
+  const repos = new SessionIndexRepos(index, { execute: f.execute, env: f.env })
+  repos.read(alias); await repos.flush()
+  assert.equal(repos.read(alias)?.root, f.repo)
+  // Only remove the synthesized symlink belonging to this fixture.
+  await unlink(alias); await symlink(other, alias)
+  assert.equal(repos.read(alias, true)?.root, f.repo)
+  await repos.flush()
+  assert.equal(repos.read(alias)?.root, other)
+  assert.equal(f.calls.length, 2)
+  await repos.close()
 })

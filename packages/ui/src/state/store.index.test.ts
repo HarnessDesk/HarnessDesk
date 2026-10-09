@@ -220,6 +220,7 @@ it('keeps an upgrade batch to fifty rows and continues from its pushed cursor', 
   const cursor = sessionIndexCursorOf(seeded[49]!)
   change(seeded, [], cursor)
   expect(store.getSnapshot().history).toHaveLength(50)
+  expect(store.getSnapshot().historyIdentity).toHaveLength(50)
   expect(store.getSnapshot().historyCursor).toBe(cursor)
   request.mockResolvedValueOnce({ data: seeded.slice(50), nextCursor: null })
   await store.loadHistory()
@@ -312,4 +313,22 @@ it('keeps removed agents out of later pages and index events', async () => {
   await store.loadHistory()
   change([row('late-gone')])
   expect(ids()).toEqual(['kept'])
+})
+
+it('queries all accounts of the filtered agent independently of the global page', async () => {
+  const account = runtimeId('agent-account')
+  for (const id of [runtime, account, runtimeId('other')]) handlers().onNotification({ method: 'runtime/added', params: { info: {
+    id, slot: { agent: id === account ? runtime : id }, capabilities: {}, presentation: { name: 'Demo agent' },
+  } } } as unknown as WireNotification)
+  request.mockResolvedValueOnce({ data: [row('global', { runtime: runtimeId('other') })], nextCursor: 'global-next' })
+  await store.loadHistory({ reset: true })
+  request.mockImplementation((async (method: HostMethodName) => method === 'session/index'
+    ? { data: [row('filtered', { runtime: account })], nextCursor: 'filtered-next' } : null) as never)
+  store.setListPrefs({ agent: runtime })
+  await vi.waitFor(() => expect(ids()).toEqual(['filtered']))
+  expect(lists().at(-1)).toEqual(['session/index', { pageSize: 50, runtimes: [runtime, account] }])
+  expect(store.getSnapshot().historyIdentity.map(one => one.id)).toContain('global')
+  change([row('wrong-agent', { runtime: runtimeId('other') })], [], 'global-cursor')
+  expect(ids()).toEqual(['filtered'])
+  expect(store.getSnapshot().historyCursor).toBe('filtered-next')
 })
