@@ -35,20 +35,10 @@ it('reads comparison evidence on Side by side and maps the Run’s outcomes to c
   const bars = [...box.querySelectorAll('[data-slot="side-by-side-tile"] header')]
   expect(bars[0]?.textContent).toContain('Picked')
   expect(bars[1]?.textContent).toContain('Not kept')
-  expect(box.querySelector('[data-slot="comparison-notice"]')?.textContent).toContain('Gamma picked Attempt A')
-  await click('Merge the picked change')
-  expect(box.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
-  expect(box.textContent).toContain('Merge the picked change')
-})
-it('keeps a dismissed verdict dismissed when returning to Side by side', async () => {
-  await mount('picked')
-  await click('Dismiss verdict')
-  await click('Board')
-  const toggle = box.querySelector<HTMLButtonElement>('button[aria-label="Side by side"]')!
-  expect(toggle).not.toBeNull()
-  await act(async () => toggle.click())
+  expect(box.querySelector('[data-slot="comparison-decision"]')?.textContent).toContain('The judge picked A')
+  await click('Merge A into main')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Merge into main')
   expect(box.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
-  expect(box.querySelector('[data-slot="comparison-notice"]')).toBeNull()
 })
 it('opens the Board’s same attempt dialog from a waiting person judge', async () => {
   const { candidates, decide } = await mount('person')
@@ -86,4 +76,80 @@ it('does not carry an open picker into a later person verdict', async () => {
   }))
   expect(box.textContent).toContain('Your pick is next')
   expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('compares recorded attempt revisions through the existing diff dialog', async () => {
+  const {store} = await mount('picked')
+  const request = vi.spyOn(store.transport, 'request')
+  await click('Compare changes')
+  expect(request).toHaveBeenCalledWith('git/diffRange', expect.objectContaining({from:'a'.repeat(40), to:'b'.repeat(40)}))
+})
+it('lets the person keep B for the pending merge without rewriting the judge', async () => {
+  const {decide} = await mount('picked')
+  await click('Keep B instead')
+  const headers = [...box.querySelectorAll('[data-slot="side-by-side-tile"] header')]
+  expect(headers[0]?.textContent).toContain('Not kept')
+  expect(headers[1]?.textContent).toContain('Picked')
+  expect(box.textContent).toContain('You picked B')
+  expect(box.textContent).toContain('Judge picked A:')
+  expect(decide).not.toHaveBeenCalled()
+  await click('Merge B into main')
+  expect(document.querySelector('[role="dialog"]')?.querySelector<HTMLSelectElement>('select')?.value).toBe('b'.repeat(40))
+})
+it('shows the merged summary from the saved person receipt and restores the attempts', async () => {
+  await mount('merged')
+  expect(box.textContent).toContain('A is in main')
+  expect(box.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
+  expect(box.textContent).toContain('The attempt stays in this Run')
+  expect(box.textContent).not.toContain('7 days')
+  await click('Show the attempts')
+  expect(box.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+  expect(box.querySelector('[data-slot="comparison-decision"]')).toBeNull()
+})
+it('records completion only after a conflict-free merge and retains the merge receipt', async () => {
+  const {store} = await mount('picked')
+  const intent = vi.spyOn(store, 'teamIntent').mockResolvedValue()
+  const request = vi.spyOn(store.transport, 'request')
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(request).toHaveBeenCalledWith('git/merge', {root:'/workspace/demo-client', ref:'a'.repeat(40)})
+  expect(intent).toHaveBeenCalledWith(PREVIEW_ROOM, 6, 'done', undefined, 'merged', expect.stringContaining('"card":1'))
+  expect(box.textContent).toContain('A is in main')
+})
+it('leaves a conflicted merge awaiting the person without recording completion', async () => {
+  const {store} = await mount('picked')
+  const intent = vi.spyOn(store, 'teamIntent').mockResolvedValue()
+  const original = store.transport.request.bind(store.transport)
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string, params: never) => method === 'git/merge' ? Promise.resolve({summary:'Resolve the conflict', conflicts:['src/client.ts']}) : original(method as never, params)) as typeof store.transport.request)
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(intent).not.toHaveBeenCalled()
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
+})
+
+it('refuses a merge if the destination changed after the decision appeared', async () => {
+  const {store} = await mount('picked')
+  const original = store.transport.request.bind(store.transport)
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: never) => {
+    const result = await original(method as never, params)
+    return method === 'git/refs' ? {...result as object, branch:'release'} : result
+  }) as typeof store.transport.request)
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(dialog.textContent).toContain('The destination branch changed')
+  expect(request.mock.calls.some(([method]) => method === 'git/merge')).toBe(false)
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
+})
+
+it('keeps the question open when recording a completed merge fails', async () => {
+  const {store} = await mount('picked')
+  vi.spyOn(store, 'teamIntent').mockRejectedValue(new Error('The answer could not be saved'))
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(dialog.textContent).toContain('The answer could not be saved')
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
 })

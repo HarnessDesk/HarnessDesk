@@ -1115,9 +1115,11 @@ it('keeps the room words and audience across Chat, the grid and an expanded tile
   await clickRailWatch(pane, 'b')
   expect(sharedBox().value).toBe('Keep this draft')
   expect(pane.querySelector('[data-slot="composer-chips"]')?.textContent).toContain('a')
-  clickElement(pane.querySelector('button[aria-label="Expand a"]')!)
+  clickElement(pane.querySelector('button[aria-label="a actions"]')!)
+  clickElement(document.body.querySelector('[role="menuitem"][aria-label="Expand a"]')!)
   expect(pane.querySelector('[data-slot="composer-text"]')).toBeNull()
-  clickElement(pane.querySelector('button[aria-label="Collapse a"]')!)
+  clickElement(pane.querySelector('button[aria-label="a actions"]')!)
+  clickElement(document.body.querySelector('[role="menuitem"][aria-label="Collapse a"]')!)
   expect(sharedBox().value).toBe('Keep this draft')
   clickElement(row('Chat'))
   expect(sharedBox().value).toBe('Keep this draft')
@@ -1257,7 +1259,7 @@ it('Watch places members on Side by side tiles with their identities', async () 
   await clickRailWatch(container, 'Codex')
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
   expect(memberList().textContent).toContain('API migration')
-  expect(container.textContent).toContain('Opus')
+  expect(container.querySelector('[data-slot="side-by-side-tile"] header')?.textContent).toContain(CLAUDE.agent)
 })
 
 it('marks a queued user copy on only its recipient tile', async () => {
@@ -3478,11 +3480,11 @@ it('opens the room member card from a tile identity', async () => {
   act(() => row('Opus').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')?.click())
   await act(async () => {})
   const head = [...container.querySelectorAll('[data-slot="side-by-side-tile"] header')].find((one) =>
-    one.textContent?.includes('Opus'),
+    one.textContent?.includes(CLAUDE.agent!),
   )
-  if (!head) throw new Error('no tile head for Opus')
+  if (!head) throw new Error('no tile head for the watched member')
 
-  rest(textAt(head, 'Opus'))
+  rest(textAt(head, CLAUDE.agent!))
   expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
   vi.useRealTimers()
 })

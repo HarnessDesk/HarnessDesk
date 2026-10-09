@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
+  flowStepOf,
   currentTurn,
   isBusy,
   sessionKey,
@@ -29,6 +30,7 @@ import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverviewOf } from '@harnessdesk/client/views'
 import { clientSnapshot } from '../lib/client-snapshot'
 import { runReasonWords } from '../lib/run-reason'
+import { runSeatCosts } from '../lib/run-cost'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { TeamRuns, teamTriggerLabel, useTeamTrigger } from './TeamRuns'
@@ -69,6 +71,10 @@ import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
 import { SideBySide, sideBySideTileEntry } from './SideBySide'
 import { ComparisonVerdict } from './ComparisonVerdict'
+import { ComparisonActions } from './ComparisonActions'
+import { ComparisonSummary, ChangeStats, Row, Rows } from '../design'
+import { comparisonMergeOf, type ComparisonMergeReceipt } from '../lib/comparison-merge'
+import { sanitizeText } from '../lib/sanitize'
 import { PersonStepDialog } from './PersonStepDialog'
 import { comparisonVerdictOf } from '../lib/comparison-verdict'
 import { ChannelStream, readChannel } from './Channel'
@@ -789,10 +795,21 @@ export const TeamRoomPane = ({
   const [comparisonDismissal, setComparisonDismissal] = useState({ id: comparisonId, hidden: false })
   if (comparisonDismissal.id !== comparisonId) setComparisonDismissal({ id: comparisonId, hidden: false })
   const hasComparison = Boolean(comparisonTimeline?.rows.some(one => one.attempt))
+  const [comparisonChoice, setComparisonChoice] = useState<{id: string | null; card: number | null}>({id:comparisonId, card:null})
+  const [mergedComparison, setMergedComparison] = useState<ComparisonMergeReceipt | null>(null)
+  const [attemptsShown, setAttemptsShown] = useState<string | null>(null)
+  const mergeReceipt = flowExecution ? comparisonMergeOf(flowExecution.id, intents.filter(card => flowStepOf(card, undefined, [flowExecution])?.kind === 'person')) ?? (mergedComparison?.run === flowExecution.id ? mergedComparison : null) : null
+  const comparisonCosts = flowExecution ? runSeatCosts(flowExecution, overview.seats.map(one => ({id:one.seat, cost:one.cost}))) : null
+  const chosenAttempt = comparison?.kind === 'picked' ? comparison.judge.pick?.attempts.find(one => one.card === (comparisonChoice.id === comparisonId ? comparisonChoice.card : null)) ?? comparison.attempt : null
+  const comparisonLetters = new Map(comparisonTimeline?.rows.flatMap(row => {
+    const seat = seats.find(one => one.record.id === row.seat)
+    return seat && row.attempt ? [[seat.key, row.attempt.replace(/^Attempt /, '')] as const] : []
+  }) ?? [])
   const comparisonKeeps = new Map(comparison?.kind === 'picked' ? [...comparison.keeps].flatMap(([card, keep]) => {
     const row = comparisonTimeline?.rows.find(one => one.card === card)
     const seat = seats.find(one => one.record.id === row?.seat)
-    return seat ? [[seat.key, keep] as const] : []
+    const selected = mergeReceipt?.card ?? chosenAttempt?.card
+    return seat ? [[seat.key, selected === undefined ? keep : card === selected ? 'kept' as const : 'not-kept' as const] as const] : []
   }) : [])
   const [pickingComparison, setPickingComparison] = useState<string | null>(null)
   useEffect(() => {
@@ -1327,7 +1344,31 @@ export const TeamRoomPane = ({
           ) : open === 'findings' ? (
             goal ? <GoalFindings goal={room} /> : null
           ) : open === 'side-by-side' && grid.tiles.length > 0 ? (
-            <SideBySide
+            mergeReceipt && attemptsShown !== mergeReceipt.run ? <ComparisonSummary
+              title={`${comparisonTimeline?.rows.find(one => one.card === mergeReceipt.card)?.attempt?.replace(/^Attempt /, '') ?? 'The picked attempt'} is in ${sanitizeText(mergeReceipt.branch)}`}
+              meta={<>
+                {flowExecution?.startedAt != null && <span>{formatDuration(Math.max(0, mergeReceipt.at - flowExecution.startedAt))}</span>}
+                <span>{comparisonCosts?.ids.length ?? seats.length} agents</span>
+                <span>{comparisonCosts?.summary ?? 'Cost not recorded'}</span>
+                <span>{new Date(mergeReceipt.at).toLocaleString(undefined, {dateStyle:'medium', timeStyle:'short'})}</span>
+              </>}
+              attempts={<Rows>
+                {comparisonTimeline?.rows.filter(one => one.attempt).map(one => <Row key={one.id}
+                  mark={<Chip size="sm" tone={one.card === mergeReceipt.card ? 'brand' : 'neutral'}>{one.attempt?.replace(/^Attempt /, '')}</Chip>}
+                  title={<>{sanitizeText(seats.find(seat => seat.record.id === one.seat)?.name ?? one.attempt ?? 'Attempt')} · {one.card === mergeReceipt.card ? `merged into ${sanitizeText(mergeReceipt.branch)}` : 'not kept'}</>}
+                  desc={one.card === mergeReceipt.card ? <>{shortSha(mergeReceipt.commit)}{one.change && <> · {one.change.files} files · <ChangeStats added={one.change.added} removed={one.change.removed} /></>}</> : 'The attempt stays in this Run'}
+                  control={<Button size="sm" variant="outline" onClick={() => {
+                    setChosenRun(flowExecution!.id)
+                    setSelectedRunRows(was => new Map(was).set(flowExecution!.id, one.id))
+                    show('run')
+                  }}>{one.card === mergeReceipt.card ? 'View change' : 'Open it'}</Button>}
+                />)}
+              </Rows>}
+              checks={<>{comparisonTimeline?.rows.filter(one => one.kind === 'check').map(one => <Text key={one.id} role="meta" as="div">{one.on ? `${sanitizeText(one.on)}: ` : ''}{sanitizeText(one.title)} · {sanitizeText(one.status ?? 'Result not recorded')}</Text>)}</>}
+              judge={comparison?.kind === 'picked' && comparison.reason ? <Text role="prose">“{sanitizeText(comparison.reason)}”</Text> : <Text role="meta">Reason not recorded</Text>}
+              onShowAttempts={() => setAttemptsShown(mergeReceipt.run)}
+              onRaceAgain={flowExecution && goal?.goal.state === 'open' ? () => setAgain(flowExecution) : undefined}
+            /> : <SideBySide
               state={grid}
               onChange={setGrid}
               paneId={mount?.id ?? 'team-room'}
@@ -1347,9 +1388,10 @@ export const TeamRoomPane = ({
                   ceiling: entry.ceiling,
                   lastTurnStatus: snapshot.sessions.get(key)?.turns.at(-1)?.status,
                   keep: comparisonKeeps.get(key),
+                  label: comparisonLetters.get(key),
                 })
               }}
-              notice={hasComparison && <>
+              notice={hasComparison && comparison?.kind === 'waiting' && <>
                 <ComparisonVerdict verdict={comparison}
                   dismissed={comparisonDismissal.id === comparisonId && comparisonDismissal.hidden}
                   onDismiss={() => setComparisonDismissal({ id: comparisonId, hidden: true })}
@@ -1364,6 +1406,9 @@ export const TeamRoomPane = ({
                 {comparison?.kind === 'waiting' && pickingComparison === comparison.id && <PersonStepDialog key={comparison.id}
                   room={room} intent={comparison.card} role={comparison.step} mode="review" onClose={() => setPickingComparison(null)} />}
               </>}
+              decision={!mergeReceipt && comparison?.kind === 'picked' && chosenAttempt && flowExecution && goal && <ComparisonActions key={comparison.id}
+                room={room} root={goal.goal.root} execution={flowExecution} cards={intents} verdict={comparison} choice={chosenAttempt}
+                onKeep={card => setComparisonChoice({id:comparisonId, card})} onMerged={setMergedComparison} />}
               onOpenMember={(key) => show(key)}
               conversationProps={{ onChooseProject, onSignIn, onOpenUsage, onOpenRuntimes }}
               composer={(shown) => <>
@@ -1373,6 +1418,7 @@ export const TeamRoomPane = ({
                   room={room}
                   members={peers === null ? null : roster}
                   defaultAudience={shown}
+                  tileLabels={new Map(grid.tiles.map((key, index) => [key, comparisonLetters.get(key) ?? String.fromCharCode(65 + index)]))}
                   draftState={roomDraft}
                   messaging={messaging}
                   onTrouble={setComposerTrouble}

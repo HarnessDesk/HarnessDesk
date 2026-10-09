@@ -4,6 +4,8 @@ import { PREVIEW_ROOM, previewStore } from './harness'
 import { shapeFixture } from './run-shapes-fixture'
 import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from './side-by-side-fixture'
 import type { AppStore } from '../state/store'
+import { encodeComparisonMerge } from '../lib/comparison-merge'
+import { gitRefs } from './git-fixture'
 
 export type ComparisonScene = 'before' | 'picked' | 'person' | 'no-pass' | 'approval' | 'long-reason' | 'merged' | 'stopped' | 'combined'
 /** Recorded synthetic Run facts drive the real Team pane, chips, Run door and shared attempt dialog. */
@@ -22,6 +24,7 @@ export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppSt
   const run = { ...input.execution, goal: PREVIEW_ROOM,
     rounds: input.execution.rounds.filter(round => picked || round.n <= (scene === 'no-pass' ? 2 : 3)).map(round => ({ ...round, ...(round.n === 3 && !picked ? { state: 'running' as const, ...(person ? { seats: [] } : {}) } : {}) })),
   }
+  if (run.document.format === 'agents') run.document = {...run.document, flow:{...run.document.flow, roles:run.document.flow.roles.map(role => role.id === 'merge' && role.kind === 'person' ? {...role, outcomes:['merged']} : role)}}
   if (scene === 'stopped') { run.state = 'stopped'; run.endedAt = Date.now(); run.end = { kind: 'stopped', by: 'person' } }
   if (scene === 'merged') { run.state = 'settled'; run.endedAt = Date.now(); run.end = { kind: 'complete' }; run.rounds = run.rounds.map(round => ({ ...round, state: 'closed' })) }
   if (person && run.document.format === 'agents') run.document = { ...run.document, flow: { ...run.document.flow,
@@ -31,14 +34,14 @@ export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppSt
   const cards = input.cards.filter(card => run.rounds.some(round => round.cards.includes(card.id))).map(card => ({ ...card,
     title: card.id <= 2 ? 'Make the client retry a 502 before giving up' : card.id === 5 ? 'Pick the better attempt' : card.id === 6 ? 'Merge the picked change' : card.title,
     ...(card.id === 5 ? { state: picked ? 'done' as const : 'open' as const, outcome: picked ? 'picked' : null, note: picked ? 'Attempt A keeps retries inside the client and passes the checks.' : null } : {}),
-    ...(card.id === 5 && scene === 'long-reason' ? { note: `Attempt A keeps ${'the retries and ordering inside the client, '.repeat(12)}preserves the original request and passes the checks.` } : {}),
-    ...(card.id === 6 && scene === 'merged' ? { state: 'done' as const, outcome: 'accepted' } : {}),
+    ...(card.id === 5 && scene === 'long-reason' ? { note: `Attempt A keeps ${'the retries and ordering inside the client, '.repeat(24)}preserves the original request and passes the checks.` } : {}),
+    ...(card.id === 6 && scene === 'merged' ? { state: 'done' as const, outcome: 'merged', handoff:encodeComparisonMerge({version:1, run:run.id, card:1, revision:'a'.repeat(40), commit:'c'.repeat(40), branch:'main', at:run.endedAt!}) } : {}),
     ...(scene === 'no-pass' && card.role === 'verify' ? { outcome: 'fail' } : {}),
   }))
   const evidence = { ...input.evidence!, room: PREVIEW_ROOM, cards: input.evidence!.cards.filter(card => picked || card.card !== 5).map(card => scene !== 'no-pass' ? card : { ...card, facts: card.facts.map(view => view.record.fact.kind === 'check' ? { ...view, record: { ...view.record, fact: { ...view.record.fact, exit: 1 } } } : view) }) }
   const team = { ...snapshot.teams.get(PREVIEW_ROOM)!, channel: [], nicknames: Object.fromEntries(SIDE_BY_SIDE_KEYS.map((key, i) => [key, SIDE_BY_SIDE_MEMBERS[i]!.nickname])), name: 'Compare the retry changes', members: SIDE_BY_SIDE_KEYS.slice(0, person ? 2 : 3), intents: cards }
   const goal: GoalView = { ...PREVIEW_GOAL, activity: scene === 'merged' ? 'ready-to-wrap' : scene === 'stopped' ? 'working' : PREVIEW_GOAL.activity,
-    goal: { ...PREVIEW_GOAL.goal, id: PREVIEW_ROOM, sentence: team.name, origin: { kind: 'flow', run: run.id } }, reservation: { run: run.id }, board: team, members: person ? members.slice(0, 2) : members }
+    goal: { ...PREVIEW_GOAL.goal, root:'/workspace/demo-client', id: PREVIEW_ROOM, sentence: team.name, origin: { kind: 'flow', run: run.id } }, reservation: { run: run.id }, board: team, members: person ? members.slice(0, 2) : members }
   const sessions = new Map([...snapshot.sessions].map(([key, session]) => [key, { ...session, status: { type: 'idle' as const } }]))
   const own = previewStore({ ...snapshot, sessions, teams: new Map([[PREVIEW_ROOM, team]]), goals: new Map([[PREVIEW_ROOM, goal]]),
     flowExecutions: new Map([[run.id, run]]), flowRuns: new Map(), boardEvidence: new Map([[PREVIEW_ROOM, evidence]]),
@@ -50,5 +53,11 @@ export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppSt
       return { id: `candidate-${card.card}`, card: card.card, at: diff.fact.kind === 'diff' ? diff.fact.to : '', branch: `attempt-${card.card}`, evidence: [], holder: SIDE_BY_SIDE_MEMBERS[card.card - 1]!.nickname }
     }),
     decideFlowReview: async () => {},
+    transport: { ...own.transport, request: async (method: string, params?: unknown) => {
+      if (method === 'git/refs') return {...gitRefs(), headSha:'c'.repeat(40), branch:'main'}
+      if (method === 'git/merge') return {summary:'The recorded attempt is merged.', conflicts:[]}
+      if (method === 'git/diffRange') return {diff:'diff --git a/src/client.ts b/src/client.ts\n--- a/src/client.ts\n+++ b/src/client.ts\n@@ -1 +1 @@\n-retry(1)\n+retry(2)\n'}
+      return own.transport.request(method as never, params as never)
+    } } as AppStore['transport'],
   })
 }

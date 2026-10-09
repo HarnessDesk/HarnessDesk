@@ -1028,40 +1028,49 @@ beside that amount. Older cards show their number and **Card title not recorded*
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
-In a comparison, Side by side reserves a quiet shelf above the tiles. Before a
-pick it draws nothing there. The Run's recorded selection adds **Picked** in
-success ink to the chosen attempt's tile bar and quiet **Not kept** to the
-other; working state and approvals remain visible. The shelf names the judge
-and chosen attempt, with the recorded reason only when it is already one
-sentence. Longer recorded text scrolls within the shelf without moving the tiles.
-**Merge the picked change** opens that Run's next person step while it still
-needs an answer; it disappears after the step finishes or the Run stops and
-never merges. A person judging a waiting pick sees **Pick an attempt…**, which
-opens the Board's same attempt dialog. Dismissal survives leaving and returning
-to Side by side and ends only when the verdict changes. No passing or recorded
-selected attempt means no winner. The shelf keeps its own space at the top,
-clear of transcript tails, approvals and the shared composer dock.
+In a comparison, the recorded pick adds **Picked** and **Not kept** to the
+competitor headers. The decision card above the shared composer quotes the
+judge's reason when it is one sentence. **Merge A into main** opens the existing
+merge question for that exact recorded revision and the actual destination
+branch. **Compare changes** opens the existing diff between the two revisions.
+**Keep B instead** changes the person's pending merge choice, preserving the
+judge's recorded recommendation. A stopped Run or one without a pending person
+merge step cannot merge or change its pick. A waiting person judge sees
+**Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
+selected attempt means no decision card.
+
+A conflict-free merge records its revision, resulting commit, destination and
+time in the person step's handoff. Side by side then shows that receipt in the
+same tab body, with elapsed time, agents, recorded cost when known, each attempt,
+checks and judge. **Show the attempts** restores the tiles; **Race again** opens
+the existing Run-again form. A merge with conflicts leaves the person step
+unanswered. The receipt makes no branch retention promise and offers no Undo
+merge action.
 
 With two or more Seats visible, Side by side has one ordinary composer centred
-over the bottom of the grid. **Everyone** reaches the visible Seats; `@` picks
-one or several instead. Chat keeps the message once, and the room's words and
-audience wait across Chat, the grid and expanding a tile. A lone, expanded or
-narrow single tile uses its own composer. Panels extend to the bottom behind the floating box; their
-transcript padding, approval viewports and Browser surfaces clear the dock's measured height.
-Settings keep the ordinary four slots; differing choices read **Mixed** and
-their menus name each recipient. Unavailable recipients show their reason,
-delivery outcomes name each copy, queued copies mark their recipient tile, and
-**Stop** stops the addressed working Seats.
+over the bottom of the grid. **To: Both** reaches the visible Seats; **A** or **B**
+chooses one. `@A` and `@B`, or member names, update that same audience. The quiet
+**Waits for their turns** hint appears while either Seat is working. Chat keeps
+the message once, and the room's words and audience wait across Chat and the
+grid. A lone, expanded or narrow single tile uses its own composer. Panels
+extend to the bottom behind the floating box; transcript padding, approval
+viewports and Browser surfaces clear the dock's measured height. Settings keep
+the ordinary four slots; differing choices read **Mixed** and their menus name
+each recipient. Unavailable recipients show their reason, delivery outcomes
+name each copy, queued copies mark their recipient tile, and **Stop** stops the
+addressed working Seats.
 
-Each Side by side tile has a **Conversation | Browser** switch in its bar.
-The choice belongs to that tile and survives Expand, collapse, the narrow
-member tab strip and a restart. Browser shows the Seat's own lane profile in
-the same browser surface as the Browser pane, with its tabs and address bar;
-several isolated Seats can show live pages at once. The tile takes the
-Browser pane's place while it shows that profile, so the tabs have one live
-surface. A Seat with no page shows **Nothing open yet** and **Pages the agent
-opens appear here.** Seats that share the ordinary browser profile share one
-surface; another tile says where that browser is already shown.
+Each tile has one header line: its letter, agent mark, name and model, a state
+dot and word, any recorded pick, and its view and more buttons. Names truncate
+with their full text on hover. The **globe** opens the Seat's own browser; the
+**chat bubble** returns to its conversation. The choice survives expansion,
+collapse, narrow member tabs and a restart. Expansion is in the tile's more
+menu. A tile's browser has only back, forward, reload and an address field; the
+ordinary Browser pane retains its full toolbar. Several isolated Seats can
+show live pages at once. A Seat with no page shows **Nothing open yet** and
+**Pages the agent opens appear here.** Seats that share the ordinary browser
+profile share one surface; another tile says where that browser is already
+shown.
 
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and
