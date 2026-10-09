@@ -256,9 +256,9 @@ describe('buildYearGrid', () => {
     expect(lastWeek[2]).not.toBeNull()
   })
 
-  it('drops a clipped first month when the next month label is one or two columns away', () => {
+  it('labels the first visible month and drops it when the next month is too close', () => {
     const cases = [
-      { now: '2021-09-01T12:00:00', nextWeek: 1, nextMonth: '2020-09-07T12:00:00' },
+      { now: '2021-09-01T12:00:00', nextWeek: 0, nextMonth: '2020-09-07T12:00:00' },
       { now: '2021-09-20T12:00:00', nextWeek: 2, nextMonth: '2020-10-05T12:00:00' },
     ] as const
 
@@ -268,7 +268,7 @@ describe('buildYearGrid', () => {
         week: nextWeek,
         label: new Date(nextMonth).toLocaleDateString(undefined, { month: 'short' }),
       })
-      expect(grid.monthLabels.some((entry) => entry.week === 0)).toBe(false)
+      expect(grid.monthLabels.some((entry) => entry.week === 0)).toBe(nextWeek === 0)
     }
   })
 
@@ -336,4 +336,12 @@ describe('buildHourGrid', () => {
     expect(zero.state).toBe('empty')
     expect(toHourGridCell({ ...cell, weekday: 6, hour: 23 }, quartileLevels([cell.value])).tooltip?.title).toBe('Sunday 11 PM–12 AM')
   })
+})
+
+it('pads the year to whole weeks without inventing unscanned days outside its 365-day range', () => {
+  const now = new Date('2026-10-08T12:00:00').getTime()
+  const days = Array.from({ length: 365 }, (_, index) => ({ day: addDays(localMidnight(now), index - 364), runtime: CODEX, tokens: 1, cost: 1 }))
+  const cells = buildYearGrid(report(days), now).weeks.flat().filter(cell => cell !== null)
+  expect(cells).toHaveLength(365)
+  expect(cells.every(cell => cell.scanned)).toBe(true)
 })

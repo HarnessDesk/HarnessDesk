@@ -11,6 +11,8 @@ import { NoticesFrame } from './frames-notices'
 import { CatalogueRefusedUndo } from '../design/explorer/boards'
 import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { SiteRunPreview } from '../../site-demo/run-demo'
+import { SiteScene } from '../../site-demo/scene'
+import { isSceneName } from '../../site-demo/scenes'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
@@ -1196,11 +1198,15 @@ const FindingsPreview = () => {
   return <div className="min-h-screen bg-background p-4 text-foreground"><FindingFrames scene={new URLSearchParams(window.location.search).get('findings')} /></div>
 }
 
+const siteSceneParam = new URLSearchParams(window.location.search).get('site-scene') ?? ''
+const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('tile-browsers')
+        {siteScene
+          ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+          : new URLSearchParams(window.location.search).has('tile-browsers')
           ? <TileBrowserFrames />
           : new URLSearchParams(window.location.search).has('shape-graph')
           ? <ShapeGraphFrames />
