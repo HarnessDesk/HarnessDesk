@@ -404,9 +404,10 @@ const memberList = (): HTMLElement => {
   return found
 }
 const row = (text: string): HTMLElement => {
+  if (text === 'Side by side') return container.querySelector<HTMLElement>('button[aria-label="Side by side"][aria-pressed]')!
   const tab = [...container.querySelectorAll<HTMLElement>('[data-team-page]')].find(one => one.textContent?.startsWith(text))
   if (tab) return tab
-  if (text === 'Side by side') return container.querySelector<HTMLElement>('button[aria-label="Side by side"]')!
+
   const found = [...memberList().querySelectorAll<HTMLElement>('[data-slot="list-row"]')].find(entry => entry.textContent?.includes(text))
   if (!found) throw new Error(`no row containing ${text}`)
   return found
@@ -2265,7 +2266,7 @@ it('has no body elements between the header and the conversation — the origin,
   await act(async () => {})
 
   const header = container.querySelector('header')!
-  const afterHeader = header.nextElementSibling?.nextElementSibling
+  const afterHeader = header.nextElementSibling
   expect(afterHeader, 'nothing between the header and the split view').toBe(container.querySelector(`.${styles.split}`))
   expect(container.textContent).not.toContain('Opened from issue #42')
   expect(container.textContent).not.toContain('Up to $5')
@@ -4369,15 +4370,57 @@ it('wrapped Agent destinations are native keyboard buttons', async () => {
  expect(kept.tabIndex).toBe(0)
 })
 
-it('the Team frame has one content column and section tabs instead of a navigation rail', async () => {
+it('the Team frame puts its segmented page tabs in the same row as its title and tools', async () => {
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
  expect(container.querySelector('aside')).toBeNull()
- expect([...container.querySelectorAll('[role="tab"]')].map(one=>one.getAttribute('data-team-page'))).toEqual(['overview','run','board','room','findings'])
+ const header=container.querySelector('header')!
+ expect(header.querySelector('[aria-label="Team pages"]')).not.toBeNull()
+ expect(header.querySelector('[data-slot="tabs-list"]')?.getAttribute('data-variant')).toBe('default')
+ expect([...container.querySelectorAll('[role="tab"]')].map(one=>one.getAttribute('data-team-page'))).toEqual(['overview','run','board','room','findings','side-by-side'])
  act(()=>row('Overview').click()); await act(async()=>{})
  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
  expect(container.querySelector('header [data-slot="icon-tile"]')).toBeNull()
  expect(container.querySelector('header [data-slot="avatar-stack"]')).not.toBeNull()
+})
+
+it('folds tabs from their measured fit, restores labels on growth, and keeps counts in accessible names', async () => {
+ let width=1200
+ const callbacks: {callback:ResizeObserverCallback; targets:Set<Element>}[]=[]
+ vi.stubGlobal('ResizeObserver',class {
+  own={callback:null as unknown as ResizeObserverCallback,targets:new Set<Element>()}
+  constructor(callback:ResizeObserverCallback){this.own.callback=callback;callbacks.push(this.own)}
+  observe(target:Element){this.own.targets.add(target)}
+  unobserve(target:Element){this.own.targets.delete(target)}
+  disconnect(){this.own.targets.clear()}
+ })
+ vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+  const slot=this.dataset.slot
+  return {width:slot==='team-bar-lead'?width:slot==='tabs-label'?90:slot==='team-title-floor'?96:slot==='team-bar-status'?70:0,height:30} as DOMRect
+ })
+ try {
+  const {store}=rig(undefined,undefined,{},GOAL)
+  await render(store)
+  const board=container.querySelector<HTMLButtonElement>('[data-team-page="board"]')!
+  expect(board.getAttribute('aria-label')).toBe('Board · 2')
+  expect(board.getAttribute('data-icon-only')).toBe('false')
+  const resize=async(next:number)=>{
+   width=next
+   await act(async()=>{for(const observer of callbacks)observer.callback([...observer.targets].map(target=>({target,contentRect:{width:next}} as ResizeObserverEntry)),{} as ResizeObserver)})
+  }
+  await resize(420)
+  expect(board.getAttribute('data-icon-only')).toBe('true')
+  expect(board.querySelector('[data-slot="tabs-count"]')?.textContent).toBe('2')
+  const matches=board.matches.bind(board)
+  // jsdom does not infer keyboard focus visibility from the Tab event.
+  vi.spyOn(board,'matches').mockImplementation(selector=>selector===':focus-visible'||matches(selector))
+  act(()=>board.focus())
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,350))})
+  expect(document.querySelector('[data-slot="tooltip-content"]')?.textContent).toBe('Board · 2')
+  await resize(1200)
+  expect(board.getAttribute('data-icon-only')).toBe('false')
+  expect(board.getAttribute('aria-label')).toBe('Board · 2')
+ } finally {vi.unstubAllGlobals();vi.restoreAllMocks()}
 })
 
 it('the bar toggle opens Seat conversations and returns to the selected page when turned off', async () => {
@@ -4385,12 +4428,13 @@ it('the bar toggle opens Seat conversations and returns to the selected page whe
  await render(store)
  const board=container.querySelector<HTMLButtonElement>('[data-team-page="board"]')!
  act(()=>board.click()); await act(async()=>{})
- const toggle=container.querySelector<HTMLButtonElement>('button[aria-label="Side by side"]')!
+ const toggle=container.querySelector<HTMLButtonElement>('button[aria-label="Side by side"][aria-pressed]')!
  expect(toggle.getAttribute('aria-pressed')).toBe('false')
  act(()=>toggle.click()); await act(async()=>{})
  expect(toggle.getAttribute('aria-pressed')).toBe('true')
  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
- expect(board.getAttribute('aria-selected')).toBe('true')
+ expect(board.getAttribute('aria-selected')).toBe('false')
+ expect(container.querySelector('[data-team-page="side-by-side"]')?.getAttribute('aria-selected')).toBe('true')
  act(()=>toggle.click()); await act(async()=>{})
  expect(toggle.getAttribute('aria-pressed')).toBe('false')
  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()

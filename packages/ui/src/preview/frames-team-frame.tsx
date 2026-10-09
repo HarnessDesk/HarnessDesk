@@ -7,6 +7,7 @@ import { useTheme } from '../state/theme'
 import { emptyWorkbench } from '../state/workbench'
 import { overviewTeamStore } from './team-overview-fixture'
 import { triggerRunsStore } from './team-runs-fixture'
+import { TeamRoomPane } from '../components/TeamRoomPane'
 
 /** The real Team frame and unchanged sidebar, with placeholder-only membership. */
 export const TeamFrame = () => {
@@ -23,8 +24,10 @@ export const TeamFrame = () => {
   const own = scene === 'trigger-runs' ? triggerRunsStore() : overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' ? 'running' : 'needs-you')
   const main = {root:{kind:'pane' as const,id:'frame-team',view:{kind:'room' as const,room:'overview-team'}},focused:'frame-team',expanded:null}
   const snapshot = own.getSnapshot()
+  const base = emptyWorkbench()
+  const right = new URLSearchParams(location.search).has('right-panel') ? {...base.right, root:{kind:'stack' as const,id:'frame-browser-stack',active:'frame-browser',views:[{id:'frame-browser',view:{kind:'browser' as const,tabs:[{id:'frame-page',url:'about:blank'}],active:'frame-page',driven:'frame-page'}}]}} : base.right
   const run = [...snapshot.flowExecutions.values()].at(-1)!
-  Object.assign(snapshot, {flowExecutions:scene === 'trigger-runs' ? snapshot.flowExecutions : new Map([[run.id,{...run,target:{kind:'branch',label:'team/checkout',base:null,head:'a1b2c3d4e5f6',pr:null,dirty:false}}]]),boardEvidence:new Map([['overview-team',{room:'overview-team',stamp:1,checks:[],refused:[],unreadable:null,cards:[{card:1,running:[],facts:[{freshness:{state:'fresh'},by:null,record:{id:'frame-pr',observedAt:1,fact:{kind:'pr',number:7,head:'a1b2c3d4e5f6',state:'open',url:'https://github.com/acme/storefront/pull/7'}}}]}]}]]),workbench:{...emptyWorkbench(),main},layout:main,sidebarCollapsed:false,sidebarFloating:false,activeSessionKey:null})
+  Object.assign(snapshot, {flowExecutions:scene === 'trigger-runs' ? snapshot.flowExecutions : new Map([[run.id,{...run,target:{kind:'branch',label:'team/checkout',base:null,head:'a1b2c3d4e5f6',pr:null,dirty:false}}]]),boardEvidence:new Map([['overview-team',{room:'overview-team',stamp:1,checks:[],refused:[],unreadable:null,cards:[{card:1,running:[],facts:[{freshness:{state:'fresh'},by:null,record:{id:'frame-pr',observedAt:1,fact:{kind:'pr',number:7,head:'a1b2c3d4e5f6',state:'open',url:'https://github.com/acme/storefront/pull/7'}}}]}]}]]),workbench:{...base,main,right},layout:main,sidebarCollapsed:false,sidebarFloating:false,activeSessionKey:null})
   return own
  }, [])
  return <StoreProvider store={store}><ShellProvider actions={{chooseProject:()=>{},signIn:()=>{},openUsage:()=>{},openRuntimes:()=>{},openAgents:()=>{},reviewImports:()=>{}}}>
@@ -33,3 +36,20 @@ export const TeamFrame = () => {
   </div>
  </ShellProvider></StoreProvider>
 }
+
+const TeamBarExample = ({narrow = false, sideBySide = false}:{narrow?:boolean;sideBySide?:boolean}) => {
+ const store=useMemo(()=>overviewTeamStore('running'),[])
+ const box=useRef<HTMLDivElement>(null)
+ useEffect(()=>{
+  box.current?.querySelector<HTMLElement>('header')?.setAttribute('data-catalog-size',narrow?'sm':sideBySide?'lg':'default')
+  if(sideBySide) box.current?.querySelector<HTMLButtonElement>('[data-team-page="side-by-side"]')?.click()
+ },[narrow,sideBySide])
+ return <div ref={box} className={`h-96 w-full${narrow?' max-w-160':''}`}><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></div>
+}
+
+/** Production Team chrome at a full width, a narrowed pane and Side by side. */
+export const TeamBarBoard = () => <div className="flex flex-col gap-4">
+ <TeamBarExample />
+ <TeamBarExample narrow />
+ <TeamBarExample sideBySide />
+</div>

@@ -1203,6 +1203,14 @@ the sentence, leaving a waiting reason whole.
 
 ### A Team's Overview
 
+Every Team destination shares one 48px bar: the title, state, segmented page
+tabs, then the participants and tools. Counts stay beside their tab names.
+When the measured space cannot keep the labels and roughly twelve title
+characters, the tabs become icons with count badges; their tooltips and
+accessible names keep the full name and count. Growing the pane restores the
+labels. The title gives up its remaining width before the icons and tools do.
+Arrow keys move focus through the tabs, including Side by side.
+
 Overview is the Team's first page tab and opens by default when the
 Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
 waits on you, why it stalled or stopped, and any release still pending. It

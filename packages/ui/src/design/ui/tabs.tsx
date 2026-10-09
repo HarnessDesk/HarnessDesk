@@ -100,9 +100,15 @@ const TabsList = ({
   />
 )
 
-const TabsTrigger = ({ className, ...props }: TabsPrimitive.Tab.Props) => (
+/** An icon tab retains its full label's measure so a toolbar can test fit without toggling its layout. */
+const TabsTrigger = ({ className, icon, iconOnly = false, count, children, ...props }: TabsPrimitive.Tab.Props & {
+  icon?: React.ReactNode
+  iconOnly?: boolean
+  count?: React.ReactNode
+}) => (
   <TabsPrimitive.Tab
     data-slot="tabs-trigger"
+    {...(icon ? { 'data-icon-only': String(iconOnly) } : {})}
     className={cn(
       'relative inline-flex items-center justify-center gap-1.5 rounded-(--hd-radius-sm) border border-transparent px-2 text-sm font-medium whitespace-nowrap outline-none transition-colors',
       'text-(--hd-muted-foreground) hover:text-(--hd-foreground)',
@@ -122,10 +128,22 @@ const TabsTrigger = ({ className, ...props }: TabsPrimitive.Tab.Props) => (
       'group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:-bottom-px group-data-[orientation=horizontal]/tabs:after:h-0.5',
       'group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-px group-data-[orientation=vertical]/tabs:after:w-0.5',
       'group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:after:opacity-100',
+      icon && 'shrink-0 px-0 focus-visible:outline-offset-[calc(-1*var(--hd-ring-width))]',
+      iconOnly && 'w-(--hd-control-h)',
       className,
     )}
     {...props}
-  />
+  >
+    {icon ? <>
+      <span data-slot="tabs-label" aria-hidden={iconOnly || undefined} className={cn('inline-flex w-max items-center gap-1.5 px-2', iconOnly && 'invisible absolute pointer-events-none')}>
+        {children}{count !== undefined && <span className="text-xs font-normal text-(--hd-muted-foreground)">{count}</span>}
+      </span>
+      {iconOnly && <span aria-hidden="true" className="inline-flex items-center justify-center">
+        {icon}
+        {count !== undefined && <span data-slot="tabs-count" className="absolute top-0 right-0 min-w-(--hd-space-3) rounded-(--hd-radius-full) bg-(--hd-muted-foreground) px-(--hd-space-0-5) text-xs leading-none text-(--hd-background)">{count}</span>}
+      </span>}
+    </> : children}
+  </TabsPrimitive.Tab>
 )
 
 const TabsContent = ({ className, ...props }: TabsPrimitive.Panel.Props) => (

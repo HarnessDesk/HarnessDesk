@@ -223,6 +223,14 @@
     "pad": "0 15 0 15",
     "radius": 0
   },
+  "badge/tabs-trigger/size/icon": {
+    "h": 24,
+    "text": 13,
+    "weight": "500",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
   "banner/alert/variant/default": {
     "h": 60,
     "text": 14,
@@ -925,6 +933,30 @@
     "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "team-bar/tool-pane-header/size/default": {
+    "h": 48,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 12 0 24",
+    "radius": 0
+  },
+  "team-bar/tool-pane-header/size/lg": {
+    "h": 48,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 12 0 24",
+    "radius": 0
+  },
+  "team-bar/tool-pane-header/size/sm": {
+    "h": 48,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 12 0 24",
     "radius": 0
   },
   "tile/icon-tile/size/default": {
