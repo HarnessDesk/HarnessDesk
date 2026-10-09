@@ -8,10 +8,10 @@ import { previewStore } from './harness'
 const alpha: RuntimeInfo = { id: runtimeId('alpha'), name: 'Alpha', capabilities: NO_CAPABILITIES, presentation: { name: 'Alpha' } }
 const changes = { modified: 0, untracked: 0, files: [], ignored: [], ignoredCount: 0, unpushedCommits: 0 }
 const candidates: StorageCleanupPreview['candidates'] = [
-  { runtime: alpha.id, sessionId: sessionId('clean-a'), title: 'Trace the slow startup', path: '/preview/worktrees/startup', bytes: 1.8 * 1024 ** 3, changes, clean: true },
   { runtime: alpha.id, sessionId: sessionId('clean-b'), title: 'Review the project picker', path: '/preview/worktrees/project-picker', bytes: 0.7 * 1024 ** 3, changes, clean: true },
   { runtime: alpha.id, sessionId: sessionId('dirty'), title: 'Finish the saved draft', path: '/preview/worktrees/saved-draft', bytes: 0.9 * 1024 ** 3,
     changes: { ...changes, modified: 1, untracked: 1, files: ['src/draft.ts', 'notes.txt'], ignoredCount: 2, ignored: ['.env', 'node_modules/'] }, clean: false },
+  { runtime: alpha.id, sessionId: sessionId('clean-a'), title: 'Trace the slow startup', path: '/preview/worktrees/startup', bytes: 1.8 * 1024 ** 3, changes, clean: true },
 ]
 const keptWorktrees = [
   { runtime: alpha.id, sessionId: sessionId('removed'), title: 'Document the import flow', path: '/preview/worktrees/import-flow', changes: { ...changes, modified: 2, files: ['README.md', 'src/import.ts'], ignoredCount: 1, ignored: ['.env'] } },

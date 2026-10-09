@@ -108,6 +108,7 @@ export class SessionWorktrees {
         candidates.push({ runtime: row.runtime, sessionId: row.id, title: this.index.storageWorktrees().find(owner => owner.runtime === row.runtime && owner.id === row.id)?.title ?? null,
           path: row.path, bytes, changes: pending, clean })
       }
+      candidates.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
       const hash = createHash('sha256').update(randomUUID())
       for (const [path, inventory] of inventories) if (!inventory.clean) hash.update(JSON.stringify([path, inventory.key]))
       const inventoryToken = hash.digest('hex')

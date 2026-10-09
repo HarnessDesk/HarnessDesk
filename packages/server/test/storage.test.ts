@@ -147,18 +147,17 @@ test('storage usage returns computing immediately then emits measured database, 
   assert.deepEqual(measured.cachedPreviews, { count: 1, bytes: 123 })
 })
 
-test('age choices use 30, 60 and 90 days and a shared checkout is counted once', async t => {
+test('age choices use 30, 60 and 90 days, candidates are ordered by path and a shared checkout is counted once', async t => {
   const { create, preview, host, runtime, db } = await fixture(t)
   const a = await create('Forty', 40), b = await create('Seventy', 70), c = await create('Hundred', 100)
-  assert.equal((await preview([], 30)).candidates.length, 3)
-  assert.equal((await preview([], 60)).candidates.length, 2)
+  assert.deepEqual((await preview([], 30)).candidates.map(row => row.path), [a.tree.path, c.tree.path, b.tree.path])
+  assert.deepEqual((await preview([], 60)).candidates.map(row => row.path), [c.tree.path, b.tree.path])
   assert.deepEqual((await preview([], 90)).candidates.map(row => row.path), [c.tree.path])
   const shared = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: a.tree.path } })
   await host.call('session/close', { runtime: runtime.info.id, sessionId: shared.id })
   await call(host, 'storage/kept')
   db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(Date.now() - 100 * days, shared.id)
-  assert.equal((await preview()).candidates.filter(row => row.path === a.tree.path).length, 1)
-  assert.ok((await preview()).candidates.some(row => row.path === b.tree.path))
+  assert.deepEqual((await preview()).candidates.map(row => row.path), [a.tree.path, c.tree.path, b.tree.path])
 })
 
 test('the removal spy sees force only after Discard or confirmed dirty cleanup; unmanaged paths are refused', async t => {

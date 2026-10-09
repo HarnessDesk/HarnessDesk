@@ -750,9 +750,9 @@ change counts on hover and the same inventory confirmation as Archive.
 
 **Clean up inactive conversations** offers 30, 60 or 90 days and **Review…**.
 The review lists clean checkouts and their space, and lists unsaved or ignored
-checkouts separately. They are included only after a separate discard choice
-reveals their inventory. The confirm names how many worktrees go. Conversations
-and branches stay; reopening recreates the checkout. Open, pinned and running
+checkouts separately, each in path order. They are included only after a separate
+discard choice reveals their inventory. The confirm names how many worktrees go.
+Conversations and branches stay; reopening recreates the checkout. Open, pinned and running
 conversations and their shared worktrees stay. A toast counts removals and space
 freed; refused checkouts and their reasons remain in the review dialog.
 **Clear cached previews** asks first and explains that previews are read again
