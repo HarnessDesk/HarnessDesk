@@ -16,6 +16,19 @@
   width: 19em;
   max-width: 100%;
 }
+.agentSelect { min-width: 0; }
+.agentSelect select {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.roleTitle {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2);
+}
 .options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
