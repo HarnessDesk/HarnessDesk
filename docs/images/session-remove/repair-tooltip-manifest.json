@@ -1,0 +1,22 @@
+[
+  {
+    "file": "repair-before-menu-unlisted-light.png",
+    "title": "HarnessDesk's copy is the only record",
+    "sha256": "93d5f5ad20b695b9fb37f7a96f1e83f22afa1a7ec9c64e7debc3c95ed99aa35b"
+  },
+  {
+    "file": "repair-before-menu-unlisted-dark.png",
+    "title": "HarnessDesk's copy is the only record",
+    "sha256": "94c00b4d451ce707f32c255c6f6f64018d338e4d047776215dac4a1a5e67ad0c"
+  },
+  {
+    "file": "repair-after-menu-unlisted-light.png",
+    "title": "Alpha keeps its own copy",
+    "sha256": "93d5f5ad20b695b9fb37f7a96f1e83f22afa1a7ec9c64e7debc3c95ed99aa35b"
+  },
+  {
+    "file": "repair-after-menu-unlisted-dark.png",
+    "title": "Alpha keeps its own copy",
+    "sha256": "94c00b4d451ce707f32c255c6f6f64018d338e4d047776215dac4a1a5e67ad0c"
+  }
+]
