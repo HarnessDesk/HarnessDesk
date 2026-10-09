@@ -26,7 +26,7 @@ import {
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
 import { DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
 
-import { sessionFiles, trash } from './store.js'
+import { sessionFiles, sourceOf, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
 import { SESSION_DELETE, SESSION_DELETE_CAPABILITY, TASKS_CAPABILITY, TASKS_CLEAR, TASKS_LIST, TASKS_NOTIFICATION, TASKS_STOP } from './tasks-wire.js'
 import { DelegationRegistry } from './delegation.js'
@@ -42,6 +42,8 @@ import {
   type AttachmentInput,
   type StagedAttachments,
 } from './attachments.js'
+
+import { SESSION_SOURCE, SESSION_SOURCE_CAPABILITY } from './session-source-wire.js'
 
 const DEFAULT = 'default'
 const EFFORT_OPTION_ID = 'effort'
@@ -641,6 +643,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
         ...(response._meta ?? {}),
         harnessdesk: {
           readCeiling: true,
+          [SESSION_SOURCE_CAPABILITY]: true,
           [TASKS_CAPABILITY]: true,
           [SESSION_DELETE_CAPABILITY]: true,
           [DELEGATION_CAPABILITY]: true,
@@ -811,6 +814,11 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
   }
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (method === SESSION_SOURCE) {
+      const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
+      if (!sessionId) throw RequestError.invalidParams('A session id is required.')
+      return { source: sourceOf(sessionId) }
+    }
     if (method === SESSION_DELETE) {
       const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
       if (!sessionId) throw RequestError.invalidParams('A session id is required.')
@@ -1012,6 +1020,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(methods.agent.providers.disable, (ctx) => agent.unstable_disableProvider(ctx.params))
       .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
       .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
+      .onRequest(SESSION_SOURCE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_SOURCE, ctx.params))
       .onRequest(SESSION_DELETE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_DELETE, ctx.params))
       .onRequest(TASKS_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_LIST, ctx.params))
       .onRequest(TASKS_STOP, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_STOP, ctx.params))

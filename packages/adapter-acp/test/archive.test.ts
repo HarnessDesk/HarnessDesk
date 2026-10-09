@@ -31,6 +31,8 @@ test('an ordinary ACP agent declares neither archive nor delete, and refuses bot
 
   assert.equal(runtime.info.capabilities.archiveHistory, false)
   assert.equal(runtime.info.capabilities.deleteHistory, false)
+  assert.equal(runtime.info.capabilities.sourceTranscript, false)
+  assert.equal(await runtime.sourceOf(sessionId('x')), null)
 
   await assert.rejects(runtime.archiveSession(sessionId('x'), true), /no archive of its own/)
   await assert.rejects(runtime.deleteSession(sessionId('x')), /cannot delete a stored conversation/)

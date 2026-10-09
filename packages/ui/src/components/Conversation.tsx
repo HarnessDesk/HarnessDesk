@@ -42,6 +42,7 @@ import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import {
   Bar,
+  Banner,
   Button,
   Chip,
   HeaderStatusGroup,
@@ -831,6 +832,7 @@ export const Conversation = ({
             onClick={onScrollClick}
             data-live-transcript
           >
+            {session.deskCopy && <Banner tone="neutral" compact>HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The agent'}’s own record is unavailable.</Banner>}
             {!hasRealTurn && emptyState}
             <div ref={transcriptContent} data-transcript-content>
             {session.turns.map((turn, turnIndex) => {

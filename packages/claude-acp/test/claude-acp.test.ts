@@ -1006,3 +1006,21 @@ test('a reopened conversation replays what was said, not the plumbing around it'
     await runtime.dispose()
   }
 })
+
+
+test('the source extension crosses the real bridge with metadata only', async t => {
+  const { mkdir, writeFile, stat, rm } = await import('node:fs/promises')
+  const config = scratch('claude-source-config-')
+  const project = join(config, 'projects', '-work-project')
+  await mkdir(project, { recursive: true })
+  const path = join(project, 'source-test.jsonl')
+  await writeFile(path, 'synthetic source bytes, not parseable JSON')
+  const runtime = make({ CLAUDE_CONFIG_DIR: config })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.sourceTranscript, true)
+  const facts = await stat(path)
+  assert.deepEqual(await runtime.sourceOf('source-test' as AgentSession['id']), { path, mtimeMs: facts.mtimeMs, size: facts.size })
+  await rm(path)
+  assert.equal(await runtime.sourceOf('source-test' as AgentSession['id']), null)
+})

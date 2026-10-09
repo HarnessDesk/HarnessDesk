@@ -4,6 +4,7 @@ import type {
   RuntimeId,
   Session,
   SessionId,
+  SessionSource,
   SessionSummary,
   SessionUsage,
   TranscriptHit,
@@ -68,6 +69,7 @@ export interface Stored {
   readonly title?: string | null
   readonly preview?: string | null
   readonly cwd?: string
+  readonly createdAt?: number
   readonly updatedAt?: number
   /** Optional historical observation metadata; old transcript files deliberately read without it. */
   readonly insight?: readonly TurnInsightContext[]
@@ -230,7 +232,7 @@ export class TranscriptStore {
     this.#pending.set(key, { timer, session, insight: this.#insight.get(key) ?? [] })
   }
 
-  async #write(session: Session, insight: readonly TurnInsightContext[] = []): Promise<void> {
+  async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source: SessionSource | null }): Promise<void> {
     const key = keyOf(session.runtime, session.id)
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
@@ -244,6 +246,7 @@ export class TranscriptStore {
         title: session.title ?? null,
         preview: session.preview ?? null,
         cwd: session.cwd,
+        createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         ...(insight.length ? { insight } : {}),
       }
@@ -265,7 +268,11 @@ export class TranscriptStore {
           stored = { ...stored, turns: withDeskContext(stored.turns, current.turns),
             ...(contexts.size ? { insight: [...contexts.values()] } : {}) }
         }
-        this.#database.write(stored, session.runtime, session.id, { reconcile })
+        // An event write has not replayed the source: even a stat that matches
+        // now may describe unseen CLI work. Only a reconciled refresh can
+        // stamp the body; ordinary writes force the next idle read to refresh.
+        const source = refresh?.source ?? null
+        this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source })
         this.#snapshots.schedule()
       } catch (error) {
         this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',
@@ -309,6 +316,25 @@ export class TranscriptStore {
     return stored?.insight ?? null
   }
 
+  /** Fingerprint and body are committed together; a failed refresh never blesses a stale body. */
+  async source(runtime: RuntimeId, id: SessionId): Promise<SessionSource | null> {
+    await this.#settle(runtime, id)
+    const row = this.#database.db.prepare('SELECT source_path,source_mtime,source_size FROM sessions WHERE runtime=? AND id=?').get(runtime, id)
+    return row && typeof row.source_path === 'string' && typeof row.source_mtime === 'number' && typeof row.source_size === 'number'
+      ? { path: row.source_path, mtimeMs: row.source_mtime, size: row.source_size } : null
+  }
+
+  /** Persist only after enrich; omitted work turns, items, search and context leave together. */
+  async refresh(session: Session, source: SessionSource | null): Promise<void> {
+    await this.#settle(session.runtime, session.id)
+    const key = keyOf(session.runtime, session.id)
+    const retained = new Set(session.turns.map(turn => String(turn.id)))
+    const contexts = (this.#insight.get(key) ?? []).filter(context => retained.has(context.turn))
+    if (contexts.length) this.#insight.set(key, contexts)
+    else this.#insight.delete(key)
+    await this.#write(session, [], { source })
+  }
+
   /**
    * A session rebuilt purely from what the host stored, for when the backend
    * cannot serve it at all — an ACP agent restarted out of its idle sessions,
@@ -324,7 +350,7 @@ export class TranscriptStore {
       runtime,
       cwd: stored.cwd ?? '',
       status: { type: 'idle' },
-      createdAt: at,
+      createdAt: stored.createdAt ?? at,
       updatedAt: at,
       itemsLoaded: true,
       turns: stored.turns,
@@ -553,7 +579,7 @@ export class TranscriptStore {
     const existing = await this.#read(runtime as RuntimeId, id as SessionId)
     if (existing && existing.savedAt >= incoming.savedAt) return 'skipped'
     try {
-      this.#database.write(incoming as Stored, runtime as RuntimeId, id as SessionId)
+      this.#database.write(incoming as Stored, runtime as RuntimeId, id as SessionId, { source: null })
       this.#snapshots.schedule()
     }
     catch { return 'refused' }
@@ -694,7 +720,7 @@ const summaryOf = (stored: Stored): SessionSummary => {
     preview,
     cwd: stored.cwd ?? '',
     status: { type: 'notLoaded' },
-    createdAt: stored.updatedAt ?? stored.savedAt,
+    createdAt: stored.createdAt ?? stored.updatedAt ?? stored.savedAt,
     updatedAt: stored.updatedAt ?? stored.savedAt,
   }
 }
