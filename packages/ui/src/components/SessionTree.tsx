@@ -1316,7 +1316,11 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
 export const useProjectGroups = (options: { searching?: boolean } = {}): ProjectGroup[] =>
   useProjectList(options).groups
 
-export const SessionTree = ({ now, searching = false }: { now: number; searching?: boolean }) => {
+export const SessionTree = ({ now, searching = false, searchEmptyState = null }: {
+  now: number
+  searching?: boolean
+  searchEmptyState?: ReactNode
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const treeRef = useRef<HTMLDivElement>(null)
@@ -1368,6 +1372,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
       .map((key) => byKey.get(String(key)))
       .filter((summary): summary is SessionSummary => summary !== undefined)
   }, [groups, hiddenPinned, snapshot.listPrefs.pinnedSessions, teamKeys])
+  let hasVisibleRows = pinnedRows.length > 0
   const liftedKeys = useMemo(
     () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
     [pinnedRows],
@@ -1747,6 +1752,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
       (row) => row.kind === 'room' ? row.room.id === activeTeam?.id
         : String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
     )
+    if (open && rows.length > 0) hasVisibleRows = true
     return (
       <div key={group.root} data-project-root={group.root}>
         <GroupHead
@@ -1809,6 +1815,9 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
     )
   }
 
+  const nearContent = near.map(renderGroup)
+  const farContent = othersOpen ? far.map(renderGroup) : null
+
   return (
     <div ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>('[data-virtual-index]')
@@ -1826,7 +1835,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
           <Separator />
         </SidebarGroup>
       )}
-      {near.map(renderGroup)}
+      {nearContent}
       {far.length > 0 && (
         <div>
           <SidebarMenu><SidebarMenuItem>
@@ -1852,10 +1861,11 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
             />
             <SidebarMenuBadge aria-label={`${far.length} other projects`}>{far.length}</SidebarMenuBadge>
           </SidebarMenuItem></SidebarMenu>
-          {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}{goneLine}</SidebarGroupContent>}
+          {othersOpen && <SidebarGroupContent>{farContent}{goneLine}</SidebarGroupContent>}
         </div>
       )}
       {far.length === 0 && goneLine}
+      {searching && !hasVisibleRows && searchEmptyState}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said
           out loud, so the keyboard rows and the drag land in the same place

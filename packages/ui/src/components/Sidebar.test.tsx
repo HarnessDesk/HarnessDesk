@@ -2,7 +2,15 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, type RuntimeHealth, type RuntimeInfo, type SessionSummary } from '@harnessdesk/protocol'
+import {
+  runtimeId,
+  sessionId,
+  sessionKey,
+  type RuntimeHealth,
+  type RuntimeInfo,
+  type Session,
+  type SessionSummary,
+} from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Sidebar } from './Sidebar'
@@ -216,6 +224,33 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 240)))
     expect(searchHistory).toHaveBeenCalledWith('')
     expect(container.textContent).toContain('Retry the checkout call')
+  })
+
+  it('does not show the no-match state above an open conversation omitted from history', async () => {
+    const openSession: Session = {
+      id: sessionId('open-session'),
+      runtime: CLAUDE,
+      title: 'Visible open conversation',
+      preview: null,
+      cwd: '/workspace/repo',
+      status: { type: 'idle' },
+      createdAt: 1,
+      updatedAt: 2,
+      turns: [],
+      itemsLoaded: true,
+    }
+    mount({ sessions: new Map([[sessionKey(CLAUDE, openSession.id), openSession]]) })
+
+    const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter this list"]')!
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    act(() => {
+      setValue?.call(filter, 'needle')
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 240)))
+
+    expect(container.textContent).toContain('Visible open conversation')
+    expect(container.textContent).not.toContain('No conversations match “needle”.')
   })
 
   it('disables direct session start when the active runtime is not ready but keeps the menu reachable', () => {

@@ -246,20 +246,24 @@ export const Sidebar = ({
           ><PlusIcon size={13} /></Button>
         </NavigationGroupHeader>
         <RailSection stretch="list">
-          {snapshot.history.length === 0 && !snapshot.historyLoading && (
-            searchQuery
-              ? <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
-                  {' '}
-                  <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
-                </EmptyState>
-              : <EmptyState
-                  variant="inline"
-                  title={ready
-                    ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
-                    : 'Connect a runtime to see your sessions.'}
-                />
+          {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
+            <EmptyState
+              variant="inline"
+              title={ready
+                ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
+                : 'Connect a runtime to see your sessions.'}
+            />
           )}
-          <SessionTree now={now} searching={searchQuery.length > 0} />
+          <SessionTree
+            now={now}
+            searching={searchQuery.length > 0}
+            searchEmptyState={searchQuery && snapshot.history.length === 0 && !snapshot.historyLoading ? (
+              <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
+                {' '}
+                <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
+              </EmptyState>
+            ) : null}
+          />
           {snapshot.historyCursor && query.length === 0 && (
             <Button variant="muted" size="sm" disabled={snapshot.historyLoading} onClick={() => void store.loadHistory()}>
               Load more conversations
