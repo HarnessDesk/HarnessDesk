@@ -1,8 +1,10 @@
 import {
   runtimeId,
+  sessionId,
   sessionKey,
   type GoalView,
   type RepoInfo,
+  type Session,
   type SessionId,
   type SessionSummary,
   type TeamState,
@@ -246,5 +248,41 @@ export const sidebarProjectsUnloadedSearchFixture = (
     goals: new Map(),
     flowExecutions: new Map(),
     captureHealth: new Map(),
+  }
+}
+
+/** An open conversation absent from history, while a title search has no matches. */
+export const sidebarOpenSearchFixture = (base: AppSnapshot): AppSnapshot => {
+  const path = '/work/sidebar-search'
+  const workspace = workspaceAt(path, repoAt(path))
+  const session: Session = {
+    id: sessionId('sidebar-open-search'),
+    runtime: CODEX,
+    title: 'Retry the inventory import',
+    preview: null,
+    cwd: path,
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 2,
+    turns: [],
+    itemsLoaded: true,
+  }
+  const fixture = sidebarProjectsFixture(base)
+  return {
+    ...fixture,
+    workspace,
+    workspaces: [workspace],
+    history: [],
+    historyIdentity: [],
+    historyCursor: null,
+    historyLoading: false,
+    sessions: new Map([[sessionKey(session.runtime, session.id), session]]),
+    activeSessionKey: null,
+    teams: new Map(),
+    goals: new Map(),
+    flowExecutions: new Map(),
+    foldersGone: new Map(),
+    captureHealth: new Map(),
+    listPrefs: { ...fixture.listPrefs, pinned: [], pinnedSessions: [], collapsed: [], othersOpen: true },
   }
 }

@@ -569,6 +569,23 @@ const treeWith = (
   }
 }
 
+it.each(['project', 'Other projects', 'Team'])('does not report matches hidden by a %s fold as an empty search', (fold) => {
+  const match = summary({ id: 'needle', cwd: fold === 'Other projects' ? '/elsewhere' : '/repo' })
+  const rooms = fold === 'Team' ? [room({ id: 'team', name: 'Matching Team', members: [String(sessionKey(match.runtime, match.id))] })] : []
+  const sessions = fold === 'Other projects'
+    ? [match, summary({ id: 'second', cwd: '/second' }), summary({ id: 'third', cwd: '/third' })]
+    : [match]
+  const prefs = fold === 'project' ? { collapsed: ['/repo'] } : { othersOpen: false }
+  const { store } = treeWith(rooms, sessions, [], prefs, undefined, null, undefined, {}, false)
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <SessionTree now={3} searching searchEmptyState={<div data-testid="empty-search">No conversations match “needle”.</div>} />
+    </StoreProvider>,
+  ))
+  expect(container.querySelector('[data-region="session-row"]')).toBeNull()
+  expect(container.querySelector('[data-testid="empty-search"]')).toBeNull()
+})
+
 it('returns focus to the session row after closing its pointer-opened actions', async () => {
   const { container: tree } = treeWith([], [summary({ id: 'focus-return' })])
   const row = tree.querySelector<HTMLButtonElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')!

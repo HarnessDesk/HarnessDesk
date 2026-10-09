@@ -2,7 +2,15 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, type RuntimeHealth, type RuntimeInfo } from '@harnessdesk/protocol'
+import {
+  runtimeId,
+  sessionId,
+  sessionKey,
+  type RuntimeHealth,
+  type RuntimeInfo,
+  type Session,
+  type SessionSummary,
+} from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Sidebar } from './Sidebar'
@@ -138,6 +146,120 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(empty).not.toBeNull()
     expect(empty?.textContent).not.toContain('Connect a runtime to see your sessions.')
     expect(empty?.textContent).toContain('No sessions yet.')
+  })
+
+  it.each(['no matches', 'Agent-filtered matches'])('shows one clearable empty state with %s', async (scenario) => {
+    const conversation: SessionSummary = {
+      id: sessionId('retry'),
+      runtime: CLAUDE,
+      title: 'Retry the checkout call',
+      preview: null,
+      cwd: '/workspace/repo',
+      status: { type: 'idle' },
+      createdAt: 1,
+      updatedAt: 2,
+    }
+    let snapshot: AppSnapshot = {
+      ...emptySnapshot(),
+      status: 'open',
+      runtimes: [codex, claude],
+      activeRuntime: CLAUDE,
+      health: readyHealth,
+      healthByRuntime: { [CLAUDE]: readyHealth, [CODEX]: unavailableHealth },
+      workspace: { path: '/workspace/repo', git: { branch: 'main' } } as AppSnapshot['workspace'],
+      history: [conversation],
+      historyIdentity: [conversation],
+      listPrefs: { ...emptySnapshot().listPrefs, agent: CLAUDE },
+    }
+    const listeners = new Set<() => void>()
+    const searchHistory = vi.fn(async (query: string) => {
+      const matches: SessionSummary[] = scenario === 'no matches'
+        ? []
+        : [{ ...conversation, id: sessionId('excluded-match'), runtime: CODEX, title: 'Needle in another agent' }]
+      snapshot = { ...snapshot, history: query.trim() ? matches : [conversation], historyLoading: false }
+      for (const listener of listeners) listener()
+    })
+    const store = {
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      getSnapshot: () => snapshot,
+      loadHistory: vi.fn(),
+      searchHistory,
+      setListPrefs: vi.fn(),
+      newDraft,
+      loadWorktrees: vi.fn(async () => {}),
+      loadAgents: vi.fn(async () => {}),
+    } as unknown as AppStore
+
+    act(() => {
+      root.render(
+        <StoreProvider store={store}>
+          <Sidebar
+            onOpenSettings={() => {}}
+            onOpenPlugins={() => {}}
+            onOpenTeams={() => {}} onOpenAgents={() => {}}
+            onOpenUsage={() => {}}
+            onBrowseFolders={() => {}}
+            onSignIn={() => {}}
+            onSearch={() => {}}
+          />
+        </StoreProvider>,
+      )
+    })
+
+    const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter this list"]')!
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    act(() => {
+      setValue?.call(filter, 'needle')
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 240)))
+
+    const empty = container.querySelector('[data-slot="empty-state"]')
+    expect(empty?.textContent).toContain('No conversations match “needle”.')
+    expect(container.textContent?.match(/No conversations match “needle”\./g)).toHaveLength(1)
+    expect(container.textContent).not.toContain('No conversations yet')
+    const clear = empty?.querySelector<HTMLButtonElement>('button')!
+    expect(clear.textContent).toBe('Clear search')
+    expect(clear.tabIndex).toBe(0)
+    const tree = container.querySelector('[data-region="session-tree"]')!
+    expect(tree.contains(clear)).toBe(false)
+    expect(container.textContent).not.toContain('Needle in another agent')
+
+    act(() => clear.click())
+    expect(filter.value).toBe('')
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 240)))
+    expect(searchHistory).toHaveBeenCalledWith('')
+    expect(container.textContent).toContain('Retry the checkout call')
+  })
+
+  it('does not show the no-match state above an open conversation omitted from history', async () => {
+    const openSession: Session = {
+      id: sessionId('open-session'),
+      runtime: CLAUDE,
+      title: 'Visible open conversation',
+      preview: null,
+      cwd: '/workspace/repo',
+      status: { type: 'idle' },
+      createdAt: 1,
+      updatedAt: 2,
+      turns: [],
+      itemsLoaded: true,
+    }
+    mount({ sessions: new Map([[sessionKey(CLAUDE, openSession.id), openSession]]) })
+
+    const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter this list"]')!
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    act(() => {
+      setValue?.call(filter, 'needle')
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 240)))
+
+    expect(container.textContent).toContain('Visible open conversation')
+    expect(container.textContent).not.toContain('No conversations match “needle”.')
   })
 
   it('disables direct session start when the active runtime is not ready but keeps the menu reachable', () => {
