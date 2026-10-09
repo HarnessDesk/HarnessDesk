@@ -9,8 +9,7 @@ import { boardEvidence, freshnessReader, RunningChecks } from './board.js'
 import { assertCheckCleanup, recoverCheckProcesses } from './check-processes.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
-import { readPullRequest, type GhInCheckout } from './forge.js'
-import { boundPullRequest, repositoryOf } from '../findings/publication.js'
+import type { GhInCheckout } from './forge.js'
 import { Observer, type Look } from './observe.js'
 import { idOfLine, LINE_LIMIT, lineOf, LINE_VERSION, mintId, type StoreFile, type StoredLine } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
@@ -82,7 +81,6 @@ export const cardStart = (
 ): string | null => claimed ?? lastDiffFrom ?? seatOpened ?? null
 
 export class EvidencePlane {
-  readonly #gh: GhInCheckout | undefined
   readonly #settling = new Map<string, Set<Promise<void>>>()
   readonly #flowChecking = new Map<string, Set<Promise<unknown>>>()
   readonly #looks = new Set<Promise<void>>()
@@ -104,7 +102,6 @@ export class EvidencePlane {
   readonly #lookDrainMs: number
 
   constructor(options: EvidenceOptions, port: EvidencePort) {
-    this.#gh = options.gh
     this.#checkProcessDir = join(options.dir, 'check-processes')
     this.#port = port
     this.#now = options.now ?? Date.now
@@ -322,53 +319,6 @@ export class EvidencePlane {
       out.push({ record, freshness: await freshness(record), by: seat ? { agent: seat.agent?.name ?? null, seat: seat.seatLabel } : null })
     }
     return out
-  }
-
-  /** A review-first card's explicit or Goal-bound PR, observed now regardless of who opened it. */
-  async reviewTarget(
-    goal: string, card: Pick<Intent, 'title' | 'detail'> & { readonly id?: number }, number?: number | null,
-    checkout?: { readonly cwd: string; readonly branch: string | null },
-  ): Promise<{ readonly at: string; readonly number: number } | { readonly why: string }> {
-    const board = this.#port.board(goal)
-    if (!board) return { why: 'This review card’s Team is no longer available.' }
-    const project = await projectOf(board.cwd ?? board.root)
-    const facts = await this.factsForGoal(goal, project)
-    const bound = boundPullRequest(facts)
-    // The host's last refusal is not a new instruction naming a PR.
-    const detail = card.detail?.startsWith('Review candidates unavailable: ') ? ''
-      : (card.detail ?? '').split('\n\nReview candidates unavailable: ')[0]!
-    const text = `${card.title}\n${detail}`
-    const urls = [...text.matchAll(/https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d*)\b/g)]
-    const named = [...text.matchAll(/\b(?:PR|pull request)\s*#?([1-9]\d*)\b/gi)]
-    const numbers = new Set([...urls.map((one) => Number(one[2])), ...named.map((one) => Number(one[1]))])
-    if (numbers.size > 1 || new Set(urls.map((one) => one[1]!.toLowerCase())).size > 1) {
-      return { why: 'This review card names more than one pull request. Name one PR to offer a candidate.' }
-    }
-    const explicit = [...numbers][0] ?? number ?? null
-    const pr = explicit ?? (bound.kind === 'bound' ? bound.pr : null)
-    if (pr === null) return { why: 'No open pull request is bound to this Team or named on this card, and there is no predecessor revision to review.' }
-    if (!Number.isSafeInteger(pr) || pr < 1) return { why: 'This pull request number is not valid, so no review candidate is available.' }
-    const expectedRepo = urls[0]?.[1] ?? (explicit === null && bound.kind === 'bound' ? bound.repo : null)
-    const read = await readPullRequest(project, this.#gh, pr)
-    if (read.kind === 'none') return { why: `Pull request #${pr} was not found, so no review candidate is available.` }
-    if (read.kind === 'unreachable') return { why: `Pull request #${pr} could not be read, so no review candidate is available: ${read.why}` }
-    const repo = repositoryOf(read.pr.url, pr)
-    if (!repo || (expectedRepo && expectedRepo.toLowerCase() !== repo.toLowerCase())) return { why: `Pull request #${pr} could not be bound to the named repository, so no review candidate is available.` }
-    if (card.id !== undefined) {
-      const record: EvidenceRecord = {
-        id: mintId(), fact: { kind: 'pr', ...read.pr }, card: { board: goal, id: card.id },
-        checkout: checkout ?? null, seat: null, round: null, observedAt: this.#now(), posted: null,
-      }
-      await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
-        if (line.type !== 'evidence') return 'refused'
-        const previous = [...here, ...added].filter((one) => one.type === 'evidence' && !one.record.restored &&
-          one.record.card?.board === goal && one.record.card.id === card.id && one.record.fact.kind === 'pr').at(-1)
-        return previous?.type === 'evidence' && JSON.stringify([previous.record.fact, previous.record.checkout]) === JSON.stringify([record.fact, record.checkout])
-          ? 'duplicate' : 'add'
-      })
-    }
-    if (read.pr.state !== 'open') return { why: `Pull request #${pr} is ${read.pr.state}, so no open review candidate is available.` }
-    return { at: read.pr.head, number: pr }
   }
 
   /**

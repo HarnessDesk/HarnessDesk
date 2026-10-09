@@ -94,8 +94,8 @@ const checkRunOf = (value: unknown): CheckRun | null => {
 }
 
 /** The checkout's branch's pull request and its checks, or why there is none to read. */
-export const readPullRequest = async (cwd: string, gh: GhInCheckout = ghInCheckout, number?: number): Promise<PullRequestRead> => {
-  const answer = await gh(['pr', 'view', ...(number === undefined ? [] : [String(number)]), '--json', PR_FIELDS], cwd)
+export const readPullRequest = async (cwd: string, gh: GhInCheckout = ghInCheckout): Promise<PullRequestRead> => {
+  const answer = await gh(['pr', 'view', '--json', PR_FIELDS], cwd)
   if (answer.exitCode !== 0) {
     const said = `${answer.stderr} ${answer.stdout}`.trim()
     if (/no pull requests? found/i.test(said)) return { kind: 'none' }
@@ -112,7 +112,6 @@ export const readPullRequest = async (cwd: string, gh: GhInCheckout = ghInChecko
   if (!Number.isInteger(parsed.number) || state === undefined || !isSha(head)) {
     return { kind: 'unreachable', why: 'gh answered without a pull request number, state or head.' }
   }
-  if (number !== undefined && parsed.number !== number) return { kind: 'unreachable', why: `The forge answered for another pull request than #${number}.` }
   const ci = (Array.isArray(parsed.statusCheckRollup) ? parsed.statusCheckRollup : []).flatMap((one) => {
     const check = checkRunOf(one)
     return check ? [check] : []

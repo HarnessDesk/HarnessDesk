@@ -578,8 +578,6 @@ export const boundPullRequest = (facts: readonly EvidenceView[]): BoundPullReque
 
 /** What a closed round's batch is planned from, read when the close is processed. */
 export interface RoundPlanInput {
-  /** A round opened to review must not certify an empty batch as published. */
-  readonly reviews?: boolean
   readonly run: string
   readonly round: number
   readonly goal: string
@@ -609,13 +607,8 @@ export interface RoundPlanInput {
 export const planRound = (input: RoundPlanInput): { readonly round: PublicationRound; readonly entries: readonly PublicationEntry[] } => {
   const decided = (mode: PublicationRound['mode'], reason: string | null, bound: { repo: string; pr: number } | null, keys: readonly string[] = []): PublicationRound =>
     ({ round: input.round, mode, reason, repo: bound?.repo ?? null, pr: bound?.pr ?? null, keys, decidedAt: input.now })
-  const bound = boundPullRequest(input.facts)
-  if (input.reviews && !input.facts.some((one) => !one.record.restored && one.record.fact.kind === 'review' &&
-    one.record.card?.board === input.goal && input.cards.includes(one.record.card.id))) {
-    return { round: decided('refused', 'This review round closed without a recorded review. No verdict was recorded against an observed candidate, so nothing was posted.',
-      bound.kind === 'bound' ? bound : null), entries: [] }
-  }
   if (input.preference === false) return { round: decided('local', 'Posting is off for this Goal, so this round stays on the desk.', null), entries: [] }
+  const bound = boundPullRequest(input.facts)
   if (bound.kind === 'none') return { round: decided('local', bound.reason, null), entries: [] }
   const inRound = (record: EvidenceRecord): boolean =>
     !record.restored && record.card?.board === input.goal && input.cards.includes(record.card.id)
@@ -701,7 +694,7 @@ export const rootOf = (view: FindingView | undefined): FindingPost | null => vie
 /** A run as publishing reads it: its Goal, its rounds' cards, and finding commands still being saved. */
 export interface PublishingRun {
   readonly goal: string
-  readonly rounds: readonly { readonly n: number; readonly cards: readonly number[]; readonly reviews?: boolean }[]
+  readonly rounds: readonly { readonly n: number; readonly cards: readonly number[] }[]
   readonly pendingFindings: number
 }
 
@@ -838,7 +831,6 @@ export class Publications implements FindingPublisher {
         run, round, goal: now.goal, project, cards: closing.cards, findings: ledger.records, facts,
         preference: goal?.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
         summary: this.#port.summary?.(run) ?? false,
-        reviews: closing.reviews ?? false,
       })
       await journal.decide(plan.round, plan.entries)
       return plan.round
@@ -1122,8 +1114,7 @@ export class Publications implements FindingPublisher {
     if (!snapshot) return { refusal: `There is no flow run ${run}.` }
     const stored = this.#port.snapshot(run)
     const local = Object.values(stored?.rounds ?? {}).filter((one) => one.mode === 'local').sort((a, b) => a.round - b.round)
-    if (local.length === 0) return { refusal: Object.values(stored?.rounds ?? {}).find((one) => one.mode === 'refused')?.reason
-      ?? 'Every closed round of this run was posted or refused when it closed; none is kept on the desk.' }
+    if (local.length === 0) return { refusal: 'Every closed round of this run was posted or refused when it closed; none is kept on the desk.' }
     const goal = this.#port.goal(snapshot.goal)
     if (!goal?.open) return { refusal: 'This Goal is wrapped. Its receipt froze what was posted; nothing more is sent for it.' }
     const project = await this.#port.projectOf(snapshot.goal)
@@ -1137,7 +1128,6 @@ export class Publications implements FindingPublisher {
         run, round: kept.round, goal: snapshot.goal, project, cards: closing.cards, findings: ledger.records, facts,
         preference: goal.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
         summary: this.#port.summary?.(run) ?? false,
-        reviews: closing.reviews ?? false,
       })
       if (plan.round.mode !== 'batch') return { refusal: plan.round.reason ?? 'These rounds cannot be posted now.' }
       if (plan.entries.length === 0) continue
@@ -1177,7 +1167,7 @@ export class Publications implements FindingPublisher {
       if (!decision && !one.cards.some((card) => reviewed.has(card))) return []
       const operations = entries.filter((entry) => entry.round === one.n)
       // Every closed role has a release decision, including roles with nothing to publish.
-      const hasPublication = operations.length > 0 || one.cards.some((card) => reviewed.has(card) || findings.has(card)) || (one.reviews && decision?.mode === 'refused')
+      const hasPublication = operations.length > 0 || one.cards.some((card) => reviewed.has(card) || findings.has(card))
       const state = decision && hasPublication ? this.#publicationState(operations) : 'none'
       return [{ round: one.n, state,
         reason: operations.find((entry) => entry.state !== 'posted' && entry.reason !== null)?.reason ?? decision?.reason ?? null,

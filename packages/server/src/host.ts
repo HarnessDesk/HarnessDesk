@@ -1240,7 +1240,6 @@ export class Host {
         return {
           goal: seat.board, seat: bound.seat as SeatId, answers: bound.answers, round: bound.round,
           subjects: bound.subjects, unsettled: bound.unsettled,
-          ...(bound.refusal ? { refusal: bound.refusal } : {}),
         }
       },
       personBindingFor: async (run, card) => {
@@ -1311,7 +1310,6 @@ export class Host {
       builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
       confine: (root) => this.#confineRoom(root),
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
-      reviewTarget: (goal, card, number, checkout) => this.#evidence.reviewTarget(goal, card, number, checkout),
       fetchBase: async (root, base, run) => {
         await this.#confineRoom(root)
         return fetchFlowBase(root, base, run)
