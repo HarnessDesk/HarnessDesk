@@ -572,6 +572,69 @@ test('two Seat browsers stay live through expansion and narrow member tabs', asy
 })
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`Browser Find rechecks the four-tile height boundary in ${theme}`, async ({ page }, testInfo) => {
+    await gotoPreview(page)
+    await setPreviewDials(page, theme, 'desk')
+    const target = frame(page, 'side-by-side-four-browsers')
+    const room = target.locator('[data-side-by-side-container]')
+    await room.evaluate(node => { node.style.height = '1000px' })
+    const tiles = target.locator('[data-slot="side-by-side-tile"]')
+    await expect(tiles.locator('iframe')).toHaveCount(2)
+    const draft = target.locator('[data-shared-composer] textarea')
+    await draft.fill('Keep the retry small.')
+    // Leave 90px for the page: enough without Find, too little with it.
+    const height = await target.evaluate(node => {
+      const tile = node.querySelector('[data-slot="side-by-side-tile"]')!
+      const pane = tile.querySelector('[data-slot="tool-pane"]')!
+      const chrome = tile.querySelector('header')!.getBoundingClientRect().height
+        + [...pane.children].filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
+          .reduce((total, child) => total + child.getBoundingClientRect().height, 0)
+      const room = node.querySelector('[data-side-by-side-container]')!.getBoundingClientRect()
+      const grid = node.querySelector('[data-slot="side-by-side-grid"]')!.getBoundingClientRect()
+      return room.height - grid.height + node.querySelector<HTMLElement>('[data-shared-composer]')!.offsetHeight + 1 + 2 * (chrome + 90)
+    })
+    await room.evaluate((node, height) => { node.style.height = `${height}px` }, height)
+    await expect(tiles.locator('iframe').first()).toHaveJSProperty('clientHeight', 90)
+    await expect(target.locator('[data-slot="side-by-side-tile"][data-hidden]')).toHaveCount(0)
+    await room.scrollIntoViewIfNeeded()
+    await tiles.nth(0).getByRole('textbox', { name: 'Address', exact: true }).focus()
+    await page.keyboard.press('Meta+f')
+    const find = tiles.nth(0).getByRole('textbox', { name: 'Find in page', exact: true })
+    await expect(find).toBeVisible()
+    const seen = await target.evaluate((root, collect) => {
+      const read = new Function('document', `return ${collect}`)
+      return read({ body: root, title: document.title, querySelectorAll: root.querySelectorAll.bind(root) })
+    }, COLLECT)
+    expect(textReasons(seen, { user: USER })).toEqual([])
+    for (const guest of await target.locator('iframe').elementHandles()) {
+      const document = await guest.contentFrame()
+      expect(textReasons(await document!.evaluate(COLLECT), { user: USER })).toEqual([])
+    }
+    await testInfo.attach('find-boundary', { body: JSON.stringify({ roomHeight: height }), contentType: 'application/json' })
+    await room.screenshot({ path: testInfo.outputPath(`find-boundary-${theme}.png`) })
+    await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden])')).toHaveCount(1)
+    const geometry = await tiles.nth(0).evaluate(tile => {
+      const page = tile.querySelector('iframe')!
+      const hit = (element: Element) => {
+        const box = element.getBoundingClientRect()
+        return element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2))
+      }
+      return {
+        pageHeight: page.getBoundingClientRect().height,
+        reloadHit: hit(tile.querySelector('[aria-label="Reload"]')!),
+        footerHit: hit(page.closest('[data-slot="tool-pane"]')!.lastElementChild!),
+      }
+    })
+    await testInfo.attach('find-page', { body: JSON.stringify(geometry), contentType: 'application/json' })
+    expect(geometry.pageHeight).toBeGreaterThanOrEqual(80)
+    expect(geometry).toMatchObject({ reloadHit: true, footerHit: true })
+    await tiles.nth(0).frameLocator('iframe').getByRole('button', { name: 'Add a note' }).click()
+    await tiles.nth(0).getByRole('button', { name: 'Close find', exact: true }).click()
+    await expect(target.locator('[data-slot="side-by-side-tile"][data-hidden]')).toHaveCount(0)
+    await expect(draft).toHaveValue('Keep the retry small.')
+    await expect(tiles.nth(0).frameLocator('iframe').getByText('1 note saved')).toBeVisible()
+  })
+
   test(`four tiles keep Browser pages and controls usable in a short room in ${theme}`, async ({ page }, testInfo) => {
     await gotoPreview(page)
     await setPreviewDials(page, theme, 'desk')

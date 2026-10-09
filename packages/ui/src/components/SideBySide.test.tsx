@@ -404,14 +404,15 @@ it.each([1, 2, 3, 4])('shows exactly one shared composer for %i tiles only when 
 })
 
 const observeResizes = () => {
-  const observers: { target?: Element; resize: () => void; disconnect: Mock<() => void> }[] = []
+  const observers: { target?: Element; targets: Set<Element>; resize: () => void; disconnect: Mock<() => void> }[] = []
   vi.stubGlobal('ResizeObserver', class {
     readonly record: typeof observers[number]
     constructor(callback: () => void) {
-      this.record = { resize: callback, disconnect: vi.fn() }
+      this.record = { targets: new Set(), resize: callback, disconnect: vi.fn() }
       observers.push(this.record)
     }
-    observe(target: Element) { this.record.target = target }
+    observe(target: Element) { this.record.target = target; this.record.targets.add(target) }
+    unobserve(target: Element) { this.record.targets.delete(target) }
     disconnect() { this.record.disconnect() }
   })
   return observers
@@ -524,6 +525,55 @@ it('uses member tabs when Browser chrome and the dock cannot fit two rows, witho
     expect(shown()).toHaveLength(4)
     expect(container.querySelectorAll('[role="tab"]')).toHaveLength(0)
     expect(saved.modes).toEqual(initial.modes)
+  } finally {
+    offset.mockRestore()
+  }
+})
+
+it('rechecks late Browser chrome, Find insertion, resize and removal without a grid resize', async () => {
+  const observers = observeResizes()
+  const offset = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.hasAttribute('data-shared-composer') && !this.hidden ? 260 : 0
+  })
+  try {
+    mount({ ...baseState(fourKeys), modes: { [fourKeys[0]!]: 'browser' } }, { composer: () => <textarea aria-label="Shared message" /> })
+    const grid = container.querySelector<HTMLElement>('[data-slot="side-by-side-grid"]')!
+    measuredHeight = 660
+    act(() => observers.filter(one => one.target === grid).forEach(one => one.resize()))
+    const body = grid.querySelector('[data-mode="browser"]')!
+    const pane = document.createElement('div')
+    pane.dataset.slot = 'tool-pane'
+    const bar = document.createElement('div')
+    let barHeight = 118
+    bar.getBoundingClientRect = () => ({ height: barHeight } as DOMRect)
+    pane.append(bar)
+    await act(async () => { body.append(pane) })
+    const shown = () => grid.querySelectorAll('[data-slot="side-by-side-tile"]:not([data-hidden])')
+    expect(shown()).toHaveLength(4)
+    // A late-mounted chrome row can grow without the room or dock changing.
+    barHeight = 154
+    act(() => observers.filter(one => one.targets.has(bar)).forEach(one => one.resize()))
+    expect(shown()).toHaveLength(1)
+    // Member tabs take 36px from the live grid, but disappear on restoration.
+    const strip = grid.previousElementSibling!
+    strip.getBoundingClientRect = () => ({ height: 36 } as DOMRect)
+    measuredHeight = 624
+    act(() => observers.filter(one => one.target === grid).forEach(one => one.resize()))
+    barHeight = 118
+    act(() => observers.filter(one => one.targets.has(bar)).forEach(one => one.resize()))
+    expect(shown()).toHaveLength(4)
+    measuredHeight = 660
+    act(() => observers.filter(one => one.target === grid).forEach(one => one.resize()))
+    const find = document.createElement('div')
+    find.getBoundingClientRect = () => ({ height: 36 } as DOMRect)
+    await act(async () => { pane.append(find) })
+    expect(shown()).toHaveLength(1)
+    await act(async () => { find.remove() })
+    expect(shown()).toHaveLength(4)
+    expect(observers.some(one => one.targets.has(find))).toBe(false)
+    act(() => root!.unmount())
+    root = null
+    expect(observers.every(one => one.disconnect.mock.calls.length === 1)).toBe(true)
   } finally {
     offset.mockRestore()
   }

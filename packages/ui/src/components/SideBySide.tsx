@@ -120,6 +120,7 @@ export const SideBySide = ({
   card?: (key: SessionKey, who: React.ReactNode) => React.ReactNode
 }) => {
   const gridRef = useRef<HTMLDivElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
   /* The dock ref stays mounted even with one tile showing, so the system's
      observer sees it appear, disappear and grow with all its notices. */
   const composerRef = useComposerHeightVar(gridRef)
@@ -173,30 +174,49 @@ export const SideBySide = ({
     const grid = gridRef.current
     const dock = composerRef.current
     if (!grid || !dock) return
+    const chromeRows = (): Element[][] => [...grid.querySelectorAll('[data-mode="browser"]')].map(body => {
+      const bars = [...(body.querySelector('[data-slot="tool-pane"]')?.children ?? [])]
+        .filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
+      return body.previousElementSibling ? [body.previousElementSibling, ...bars] : bars
+    })
     const measure = (): void => {
       const tokens = getComputedStyle(grid)
       // The embedded browser has a tile header, slim address bar and footer.
       // Keep a usable page below them even before its live surface mounts.
       const chrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
-      const browserTile = Math.max(chrome || 0, ...[...grid.querySelectorAll<HTMLElement>('[data-mode="browser"]')].map(body => {
-        const pane = body.querySelector('[data-slot="tool-pane"]')
-        return (body.previousElementSibling?.getBoundingClientRect().height ?? 0)
-          + [...(pane?.children ?? [])].filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
-            .reduce((height, child) => height + child.getBoundingClientRect().height, 0)
-      })) + 80
+      const browserTile = Math.max(chrome || 0, ...chromeRows().map(rows =>
+        rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0))) + 80
       setRoom(was => {
         // Hiding the shared dock for the fallback must not immediately bring
         // the cramped grid back. Retain its clearance until it is shown again.
-        const next = { height: grid.getBoundingClientRect().height, dock: dock.hidden ? was.dock : dock.offsetHeight, browserTile }
+        // The fallback's tabs disappear with it: count their space when
+        // asking whether the two-row grid can return after chrome shrinks.
+        const height = grid.getBoundingClientRect().height + (stripRef.current?.getBoundingClientRect().height ?? 0)
+        const next = { height, dock: dock.hidden ? was.dock : dock.offsetHeight, browserTile }
         return next.height === was.height && next.dock === was.dock && next.browserTile === was.browserTile ? was : next
       })
     }
     measure()
     const gridObserver = new ResizeObserver(measure)
     const dockObserver = new ResizeObserver(measure)
+    const chromeObserver = new ResizeObserver(measure)
+    let observedChrome = new Set<Element>()
+    const watchChrome = (): void => {
+      const next = new Set(chromeRows().flat())
+      let changed = false
+      for (const row of observedChrome) if (!next.has(row)) { chromeObserver.unobserve(row); changed = true }
+      for (const row of next) if (!observedChrome.has(row)) { chromeObserver.observe(row); changed = true }
+      observedChrome = next
+      if (changed) measure()
+    }
+    // Find and a late-mounted live Browser change chrome without resizing the
+    // room or dock. Observe their rows, including rows added after this effect.
+    watchChrome()
+    const chromeMounts = new MutationObserver(watchChrome)
+    chromeMounts.observe(grid, { childList: true, subtree: true })
     gridObserver.observe(grid)
     dockObserver.observe(dock)
-    return () => { gridObserver.disconnect(); dockObserver.disconnect() }
+    return () => { gridObserver.disconnect(); dockObserver.disconnect(); chromeObserver.disconnect(); chromeMounts.disconnect() }
   }, [composerRef, state.modes])
 
   useEffect(() => {
@@ -284,7 +304,7 @@ export const SideBySide = ({
       {/* One tile at a time when the room cannot fit the grid: the system's
           tabs pick which, with their arrow keys and roving focus. */}
       {narrow && (
-        <div className={styles.strip}>
+        <div ref={stripRef} className={styles.strip}>
           <Tabs value={state.focused ?? state.tiles[0] ?? ''} onValueChange={(next) => focus(next as SessionKey)}>
             <TabsList aria-label="Side by side tiles">
               {state.tiles.map((key) => (

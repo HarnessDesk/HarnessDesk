@@ -84,7 +84,8 @@ const SideBySideRoomFrame = ({
     <Frame id={id} title={title}>
       <div data-side-by-side-container style={{ width: '100%', height: browsers || comparison === 'combined' ? 700 : 520 }}>
         <StoreProvider store={store}>
-          <MountProvider scope={{ area: 'main', id, view }}>
+          {/* Standalone rooms use the same focus owner as an undocked Team. */}
+          <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
             <FocusedWhileInside>
               <TeamRoomPane room={PREVIEW_ROOM} />
             </FocusedWhileInside>
