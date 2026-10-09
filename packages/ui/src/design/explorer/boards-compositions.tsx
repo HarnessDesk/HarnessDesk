@@ -240,6 +240,14 @@ import styles from './explorer.module.css'
 import { PlanCard } from '../patterns/PlanCard'
 import { UsageMeterRow } from '../patterns/UsageMeterRow'
 import { ComparisonNotice } from '../patterns/ComparisonNotice'
+import { ComparisonDecision } from '../patterns/ComparisonDecision'
+import { ComparisonSummary } from '../patterns/ComparisonSummary'
+import { ArrowLeftIcon, ArrowRightIcon, RetryIcon } from '../../components/Icons'
+import { Input } from '../ui/input'
+import { RoomComposer } from '../../components/RoomComposer'
+import { MergeDialog, DiffRangeDialog } from '../patterns/GitComparisonDialogs'
+import { comparisonVerdictStore } from '../../preview/comparison-verdict-fixture'
+import { gitRefs } from '../../preview/git-fixture'
 
 /**
  * The composition layer, board by board.
@@ -921,6 +929,12 @@ const ToolPaneBoard = () => {
             </Bar>
           </ToolPane>
         </Case>
+        <Case label="Seat browser — slim address bar">
+          <ToolPane variant="integrated" className="h-56 w-full" data-catalog-case="seat-browser-slim">
+            <ToolPaneBar variant="address-slim"><Button variant="ghost" size="icon-sm" aria-label="Back"><ArrowLeftIcon size={14} /></Button><Button variant="ghost" size="icon-sm" aria-label="Forward"><ArrowRightIcon size={14} /></Button><Button variant="ghost" size="icon-sm" aria-label="Reload"><RetryIcon size={14} /></Button><Input variant="chrome" aria-label="Address" value="https://example.com" readOnly /></ToolPaneBar>
+            <ToolPaneBody bleed><ToolPaneMessage>Pages the agent opens appear here.</ToolPaneMessage></ToolPaneBody>
+          </ToolPane>
+        </Case>
         <Case label="integrated tool — page failed to load">
           <ToolPane variant="integrated" className="@container/browser h-56 w-full" data-catalog-case="tool-pane-failure">
             <ToolPaneBar variant="address">http://127.0.0.1:9/</ToolPaneBar>
@@ -1038,6 +1052,7 @@ const SideBySideBoard = () => {
     paneId: string,
     store: AppStore,
     widthClass = 'h-96 w-full min-w-0',
+    sharedComposer = true,
   ) => (
     <StoreProvider store={store}>
       <div className={widthClass}>
@@ -1048,6 +1063,8 @@ const SideBySideBoard = () => {
           memberOf={memberOf}
           entryOf={(key) => entryOf(store, key)}
           onOpenMember={() => {}}
+          composer={sharedComposer ? shown => <RoomComposer room="preview-room" members={SIDE_BY_SIDE_MEMBERS.map((member, index) => ({key:SIDE_BY_SIDE_KEYS[index]!, peer:{...member, sessionId:member.id, here:true, busy:index === 0, title:null, inbound:'accept' as const, canUseBoard:true, idleOnBoard:false, onTask:null}, busy:index === 0, brand:null, canUseBoard:true, title:null}))}
+            defaultAudience={shown} tileLabels={new Map(state.tiles.map((key,index) => [key,String.fromCharCode(65+index)]))} messaging onTrouble={() => {}} onPosted={() => {}} /> : undefined}
           conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
         />
       </div>
@@ -1062,7 +1079,7 @@ const SideBySideBoard = () => {
         <Case label="Team bar — Side by side · disabled with its reason">
           <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={false} disabled title="Seat an Agent to show conversations side by side"><SideBySideIcon size={14} /></Button>
         </Case>
-        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore)}</Case>
+        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore, undefined, false)}</Case>
         <Case className="col-span-full" label="room — Side by side · two members, waiting for you">{grid(waiting, setWaiting, 'catalog-side-by-side-waiting', waitingStore)}</Case>
         <Case className="col-span-full" label="room — Side by side · four members, tile states and ceiling">{grid(four, setFour, 'catalog-side-by-side-four', statesStore)}</Case>
         <Case label="room — Side by side · narrow tabs">
@@ -2918,6 +2935,59 @@ const HeaderStatusBoard = () => (
   </div>
 )
 
+const GITCOMPARISONDIALOGS_CATALOG_VARIANTS = ['default'] as const
+const GITCOMPARISONDIALOGS_CATALOG_SIZES = ['default'] as const
+const GITCOMPARISONDIALOGS_CATALOG_STATES = ['default'] as const
+const GitComparisonDialogsBoard = () => {
+  const store = useMemo(() => comparisonVerdictStore('picked'), [])
+  const [dialog, setDialog] = useState<'merge' | 'compare' | null>(null)
+  return <StoreProvider store={store}>
+    <Specimen measure="wide" caption="The same recorded-revision questions in Changes and Side by side">
+      {GITCOMPARISONDIALOGS_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
+        {GITCOMPARISONDIALOGS_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size}>
+          {GITCOMPARISONDIALOGS_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} className="flex gap-2">
+            <Button onClick={() => setDialog('merge')}>Merge a recorded revision</Button>
+            <Button onClick={() => setDialog('compare')}>Compare two revisions</Button>
+            {dialog === 'merge' && <MergeDialog root="/workspace/demo-client" refs={{...gitRefs(), branch:'main'}} fixedRef={'a'.repeat(40)} expectedBranch="main" onDone={() => setDialog(null)} />}
+            {dialog === 'compare' && <DiffRangeDialog root="/workspace/demo-client" from={'a'.repeat(40)} to={'b'.repeat(40)} onDone={() => setDialog(null)} />}
+          </div>)}
+        </div>)}
+      </div>)}
+    </Specimen>
+  </StoreProvider>
+}
+
+const COMPARISONDECISION_CATALOG_VARIANTS = ['default'] as const
+const COMPARISONDECISION_CATALOG_SIZES = ['default'] as const
+const COMPARISONDECISION_CATALOG_STATES = ['default', 'disabled'] as const
+const ComparisonDecisionBoard = () => <Specimen measure="wide" caption="Recorded pick and unavailable merge">
+  <div className="grid gap-4">
+    {COMPARISONDECISION_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} data-catalog-case={state}>
+      <ComparisonDecision title="The judge picked A" reason="“A keeps the retry inside the client.”" mergeLabel="Merge A into main"
+        mergeRefusal={state === 'disabled' ? 'This Run has no pending person merge step.' : undefined}
+        onMerge={() => {}} onCompare={() => {}} keepLabel="Keep B instead" onKeep={() => {}} />
+    </div>)}
+    {COMPARISONDECISION_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
+      {COMPARISONDECISION_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size} data-catalog-case="person-pick">
+        <ComparisonDecision title="You picked B" reason="Judge picked A: “A keeps the retry inside the client.”" mergeLabel="Merge B into main" onMerge={() => {}} onCompare={() => {}} keepLabel="Keep A instead" onKeep={() => {}} />
+      </div>)}
+    </div>)}
+  </div>
+</Specimen>
+const COMPARISONSUMMARY_CATALOG_VARIANTS = ['default'] as const
+const COMPARISONSUMMARY_CATALOG_SIZES = ['default'] as const
+const COMPARISONSUMMARY_CATALOG_STATES = ['default'] as const
+const ComparisonSummaryBoard = () => <Specimen measure="wide" caption="Confirmed merge receipt">
+  {COMPARISONSUMMARY_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
+    {COMPARISONSUMMARY_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size}>
+      {COMPARISONSUMMARY_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} data-catalog-case="merged" className="h-96">
+        <ComparisonSummary title="A is in main" meta="4m 12s · 3 agents · $0.40" attempts={<Text role="prose">A · merged into main · abc1234 · 2 files · +42<br />B · not kept · The attempt stays in this Run</Text>}
+          checks={<Text role="prose">Checks passed on both</Text>} judge={<Text role="prose">“A keeps the retry inside the client.”</Text>} onShowAttempts={() => {}} onRaceAgain={() => {}} />
+      </div>)}
+    </div>)}
+  </div>)}
+</Specimen>
+
 const COMPARISONNOTICE_CATALOG_VARIANTS = ['default'] as const
 const COMPARISONNOTICE_CATALOG_SIZES = ['default'] as const
 const COMPARISONNOTICE_CATALOG_STATES = ['default', 'needs-you', 'empty'] as const
@@ -2950,6 +3020,9 @@ const ComparisonNoticeBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
+  { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },
+  { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },
   { id: 'comparison-notice', title: 'Comparison notice', about: 'The real comparison shelf, with a recorded pick, a waiting person and text that scrolls without moving the tiles.', render: ComparisonNoticeBoard },
   { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
   { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },

@@ -104,21 +104,22 @@ const CardFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
  *
  * `editor` is the fixed height a preview stands at. `lines` is a window that
  * grows with what it shows up to a bound and scrolls past it; the bound is
- * `maxHeight`, in pixels, because it is measured from the content's own type
- * (so many lines at the editor's size and leading), which no token can know.
+ * `maxHeight`, in pixels, for measured content, or `maxLines` at the system's
+ * body leading for a reading passage.
  */
 const CardViewport = ({
   className,
   size = 'editor',
   maxHeight,
+  maxLines,
   style,
   ...props
-}: React.ComponentProps<'div'> & { size?: 'editor' | 'lines'; maxHeight?: number }) => (
+}: React.ComponentProps<'div'> & { size?: 'editor' | 'lines'; maxHeight?: number; maxLines?: number }) => (
   <div
     data-slot="card-viewport"
     data-size={size}
     className={cn(size === 'editor' && 'h-44', size === 'lines' && 'overflow-auto', className)}
-    style={size === 'lines' && maxHeight !== undefined ? { ...style, maxHeight } : style}
+    style={size === 'lines' ? { ...style, ...(maxHeight !== undefined ? {maxHeight} : maxLines !== undefined ? {maxHeight: `calc(var(--hd-line) * ${maxLines})`} : {}) } : style}
     {...props}
   />
 )

@@ -1394,7 +1394,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'git/pull': shape({ root: isString }),
   'git/push': shape({ root: isString }),
   'git/fetch': shape({ root: isString }),
-  'git/merge': shape({ root: isString, ref: isString }),
+  'git/merge': shape({ root: isString, ref: isString, expectedBranch: optional(isString) }),
   'git/rebase': shape({ root: isString, onto: isString }),
   'git/checkoutCommit': shape({ root: isString, sha: isString }),
   'git/renameBranch': shape({ root: isString, from: isString, to: isString }),

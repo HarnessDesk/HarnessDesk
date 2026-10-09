@@ -35,7 +35,7 @@ for (const width of [256, 320]) test(`a ${width}px waiting tile keeps its member
   })
   await page.evaluate(async () => { await document.fonts.ready })
   await expect.poll(() => tile.evaluate(element => element.getBoundingClientRect().width)).toBe(width)
-  const lines = await tile.locator('header').getByText('Beta', { exact: true }).evaluate(element => {
+  const lines = await tile.locator('header').getByText('Assistant B', { exact: true }).evaluate(element => {
     const range = document.createRange()
     range.selectNodeContents(element)
     return new Set([...range.getClientRects()].map(rect => rect.top)).size
@@ -90,7 +90,7 @@ test('the waiting grid case renders the shipped dialog and badge', async ({ page
   const waiting = caseLabel(page, 'room — Side by side · two members, waiting for you')
   await expect(waiting.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
   await expect(waiting.getByRole('dialog', { name: 'Run this command?' })).toBeVisible()
-  await expect(waiting.locator('[data-slot="side-by-side-tile"][aria-label="Beta"]').getByText('Waiting for you', { exact: true })).toBeVisible()
+  await expect(waiting.locator('[data-slot="side-by-side-tile"][aria-label="Beta"]').getByText('Waiting', { exact: true })).toBeVisible()
 })
 
 test('the waiting tab case renders the shipped mark and dialog', async ({ page }) => {

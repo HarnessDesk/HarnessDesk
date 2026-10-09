@@ -589,6 +589,7 @@ export const Conversation = ({
   const key = useSessionKey()
   const pane = usePane()
   const scroll = useRef<HTMLDivElement>(null)
+  const transcriptContent = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(true)
   const status = paneStatus(session, snapshot.approvals, key)
   const worktree = session
@@ -673,12 +674,22 @@ export const Conversation = ({
     if (!pinned) return
     const element = scroll.current
     if (!element) return
-    element.dataset.autoscrolling = 'true'
-    element.scrollTop = element.scrollHeight
-    // A no-op assignment (already at the bottom) fires no `scroll` event at
-    // all, which would otherwise leave the mark to swallow the next real one.
-    const frame = requestAnimationFrame(() => delete element.dataset.autoscrolling)
-    return () => cancelAnimationFrame(frame)
+    let frame = 0
+    const follow = () => {
+      element.dataset.autoscrolling = 'true'
+      element.scrollTop = element.scrollHeight
+      // A no-op assignment fires no event; do not swallow the reader's next scroll.
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => delete element.dataset.autoscrolling)
+    }
+    follow()
+    // A tile can finish laying out after its transcript mounts. Dock padding,
+    // viewport changes and late text layout also change the bottom without a
+    // new item. Observe both boxes while following; a reader's release stops it.
+    const observer = new ResizeObserver(follow)
+    observer.observe(element)
+    if (transcriptContent.current) observer.observe(transcriptContent.current)
+    return () => {observer.disconnect(); cancelAnimationFrame(frame)}
   }, [items, pinned, session?.id])
 
   // Switching sessions always starts at the bottom of the new transcript.
@@ -821,6 +832,7 @@ export const Conversation = ({
             data-live-transcript
           >
             {!hasRealTurn && emptyState}
+            <div ref={transcriptContent} data-transcript-content>
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
@@ -866,6 +878,7 @@ export const Conversation = ({
                 </div>
               )
             })}
+            </div>
           </PaneColumn>
         ) : session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
           // An existing conversation whose messages could not be restored —

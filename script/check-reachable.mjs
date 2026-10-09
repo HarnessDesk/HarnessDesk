@@ -55,8 +55,6 @@ const CALLERS = ['packages/ui/src', 'packages/desktop/electron', 'packages/clien
  * true, and those are worse than no claim at all.
  */
 const UNREACHED = {
-  'team/state':
-    'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
 }

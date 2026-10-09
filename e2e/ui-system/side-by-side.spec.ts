@@ -1,5 +1,90 @@
 import { expect, test, type Page } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`floating dock fades across the whole grid in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({width:1440, height:900})
+    await page.goto('/preview.html?comparison-verdict')
+    await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
+    const frame = page.locator('[data-frame-id="comparison-picked"]')
+    await frame.locator('[data-side-by-side-container]').scrollIntoViewIfNeeded()
+    const coverage = () => frame.locator('[data-shared-composer]').evaluate(dock => {
+      const grid = dock.parentElement!.getBoundingClientRect()
+      const fade = dock.getBoundingClientRect()
+      const column = dock.querySelector('textarea')!.getBoundingClientRect()
+      const style = getComputedStyle(dock)
+      // The same top fade band must cover points both inside and outside the
+      // centered message column, without moving the column to the grid edge.
+      const y = fade.top + parseFloat(style.paddingTop) / 2
+      const xs = [grid.left + 8, column.left - 8, (column.left + column.right) / 2, column.right + 8, grid.right - 8]
+      return {
+        spansGrid: Math.abs(fade.left - grid.left) < 1 && Math.abs(fade.right - grid.right) < 1,
+        coversBand: xs.every(x => x >= fade.left && x <= fade.right && y >= fade.top && y < fade.bottom),
+        centeredColumn: Math.abs((column.left + column.right) / 2 - (grid.left + grid.right) / 2) < 1 && column.width < grid.width,
+        gradient: style.backgroundImage,
+      }
+    })
+    await expect.poll(async () => (await coverage()).spansGrid).toBe(true)
+    expect(await coverage()).toMatchObject({coversBand:true, centeredColumn:true})
+    expect((await coverage()).gradient).toContain('linear-gradient')
+    const clipped = await page.addStyleTag({content:'[data-shared-composer] { max-width: 800px !important; margin-inline: auto !important; }'})
+    expect(await coverage()).toMatchObject({spansGrid:false, coversBand:false})
+    await clipped.evaluate(node => node.remove())
+    await expect.poll(async () => (await coverage()).spansGrid).toBe(true)
+  })
+
+  test(`tile transcripts open at latest and follow dock resizing in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({width:1440, height:900})
+    await page.goto('/preview.html?side-by-side')
+    await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
+    const frame = page.locator('[data-frame-id="comparison-picked"]')
+    const scrollers = frame.locator('[data-live-transcript]')
+    const atLatest = () => scrollers.evaluateAll(nodes => nodes.length === 2 && nodes.every(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1))
+    await expect.poll(atLatest).toBe(true)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(0)
+    // The measured dock covers the decision, delivery row and wait hint alike.
+    const dock = frame.locator('[data-shared-composer]')
+    await dock.evaluate(node => {node.style.paddingTop = '100px'})
+    await expect.poll(atLatest).toBe(true)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(0)
+    await dock.evaluate(node => {node.style.paddingTop = ''})
+    await expect.poll(atLatest).toBe(true)
+  })
+
+  test(`text scrolls under the floating composer while the other tile stays at latest in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({width:1440, height:900})
+    await page.goto('/preview.html?comparison-verdict')
+    await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
+    const frame = page.locator('[data-frame-id="comparison-picked"]')
+    const scrollers = frame.locator('[data-live-transcript]')
+    await expect(scrollers.nth(0).locator('[data-part="answer"]')).toHaveCount(5)
+    await expect.poll(() => scrollers.evaluateAll(nodes => nodes.every(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1))).toBe(true)
+    await frame.locator('[data-side-by-side-container]').scrollIntoViewIfNeeded()
+    const dock = frame.locator('[data-shared-composer]')
+    const top = (await dock.boundingBox())!.y
+    const left = scrollers.nth(0)
+    const line = left.locator('[data-part="answer"] p').nth(2)
+    await left.evaluate((node, dockTop) => {
+      const line = node.querySelectorAll('[data-part="answer"] p')[2]!
+      node.scrollTop += line.getBoundingClientRect().top - dockTop - 70
+    }, top)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(1)
+    const lineBox = (await line.boundingBox())!
+    const dockBox = (await dock.boundingBox())!
+    expect(lineBox.y).toBeLessThan(dockBox.y + dockBox.height)
+    expect(lineBox.y + lineBox.height).toBeGreaterThan(dockBox.y)
+    expect(await page.evaluate(({x,y}) => Boolean(document.elementFromPoint(x,y)?.closest('[data-shared-composer]')), {
+      x:Math.max(lineBox.x,dockBox.x)+20, y:lineBox.y+lineBox.height/2,
+    })).toBe(true)
+    const last = (await scrollers.nth(1).locator('[data-part="answer"]').last().boundingBox())!
+    expect(last.y + last.height).toBeLessThan(dockBox.y)
+    const position = await left.evaluate(node => node.scrollTop)
+    await dock.evaluate(node => {node.style.paddingTop = '100px'})
+    await expect.poll(() => scrollers.nth(1).evaluate(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(1)
+    expect(await left.evaluate(node => node.scrollTop)).toBe(position)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(1)
+  })
+}
+
 const dial = (page: Page, label: string) =>
   page.locator('label').filter({ hasText: new RegExp(`^${label}`) }).locator('select').first()
 
@@ -73,7 +158,6 @@ const expectGridLayout = async (target: ReturnType<typeof grid>) => {
 
 const removeDelta = async (page: Page) => {
   await grid(page, 'side-by-side-four').locator('[data-slot="side-by-side-tile"]')
-    .filter({ has: page.getByText('Delta', { exact: true }) })
     .getByRole('button', { name: 'Delta actions' }).click()
   await expect(page.getByRole('menuitem', { name: 'Take off the grid' })).toBeVisible({ timeout: 10_000 })
   await page.getByRole('menuitem', { name: 'Take off the grid' }).click()
@@ -233,12 +317,16 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   await shortTileMutation.evaluate((style) => style.remove())
 })
 
+const tileAction = async (target: ReturnType<Page['locator']>, label: string) => {
+  await target.getByRole('button', {name:`${label.split(' ').slice(1).join(' ')} actions`, exact:true}).click()
+  await target.page().getByRole('menuitem', {name:label, exact:true}).click()
+}
+
 test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Escape returns', async ({ page }) => {
   await gotoPreview(page)
   await setPreviewDials(page, 'dark', 'desk')
   const target = grid(page, 'side-by-side-four')
-  const alpha = frame(page, 'side-by-side-four').getByRole('button', { name: 'Expand Alpha' })
-  await alpha.click()
+  await tileAction(frame(page, 'side-by-side-four'), 'Expand Alpha')
   await expectExpansion(target, 1)
   const expanded = await expandedGeometry(target)
   expect(expanded).toMatchObject({ all: 4, shown: 1, hidden: 3, fills: true })
@@ -262,7 +350,7 @@ test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Es
 
   await page.keyboard.press('Escape')
   await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
-  await alpha.click()
+  await tileAction(frame(page, 'side-by-side-four'), 'Expand Alpha')
   await expectExpansion(target, 1)
   // Expansion moves the member's hover target under the pointer. A card that
   // opens while the next assertions run consumes Escape before the receipt's
@@ -346,7 +434,7 @@ test('a tile chord immediately after focus survives CPU throttling', async ({ pa
   }
 })
 
-test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord', async ({ page }) => {
+test('a narrow tile fits its identity, and bare ⌘1 is not a grid chord', async ({ page }) => {
   await gotoPreview(page)
   await setPreviewDials(page, 'dark', 'studio')
   await setWidth(page, 'side-by-side-two', 420)
@@ -398,7 +486,7 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(0)
 })
 
-test('a name longer than the bar wraps whole, clear of the state chip and the actions', async ({ page }) => {
+test('a long name truncates in one line, clear of the state and actions', async ({ page }) => {
   await gotoPreview(page)
   await setWidth(page, 'side-by-side-two', 420)
   const header = frame(page, 'side-by-side-two').locator('[data-slot="side-by-side-tile"] header').first()
@@ -415,8 +503,8 @@ test('a name longer than the bar wraps whole, clear of the state chip and the ac
       inside: named.right <= box(bar).right + 0.5 && named.bottom <= box(bar).bottom + 0.5 && named.top >= box(bar).top - 0.5,
     }
   })
-  expect(measured).toEqual({ whole: true, overlaps: 0, inside: true })
-  // A name three times as long still sits inside the bar, which grows for it.
+  expect(measured).toEqual({ whole: false, overlaps: 0, inside: true })
+  // Longer text stays inside the same one-line bar.
   await header.locator('[data-role="row"]').evaluate((node, text) => { node.textContent = text }, `${long} ${long} ${long}`)
   expect(await header.evaluate((bar) => {
     const name = bar.querySelector<HTMLElement>('[data-role="row"]')!.getBoundingClientRect()
@@ -430,7 +518,7 @@ test('a grid of tiles draws no composer in any tile, and an expanded tile draws 
   await setWidth(page, 'side-by-side-two', 1200)
   const target = grid(page, 'side-by-side-two')
   await expect(target.locator('[data-slot="side-by-side-tile"] textarea')).toHaveCount(0, { timeout: 10_000 })
-  await target.locator('button[aria-label^="Expand "]').first().click()
+  await tileAction(target, 'Expand Alpha')
   await expectExpansion(target, 1)
   await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')).toHaveCount(1, { timeout: 10_000 })
 })
@@ -439,16 +527,15 @@ test('a draft typed in an expanded tile is waiting when the tile is expanded aga
   await gotoPreview(page)
   await setWidth(page, 'side-by-side-two', 1200)
   const target = grid(page, 'side-by-side-two')
-  const expand = target.locator('button[aria-label="Expand Alpha"]')
-  await expand.click()
+  await tileAction(target, 'Expand Alpha')
   await expectExpansion(target, 1)
   const box = target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')
   await box.fill('half a thought, kept')
   await expect(box).toHaveValue('half a thought, kept', { timeout: 10_000 })
-  await target.locator('button[aria-label="Collapse Alpha"]').click()
+  await tileAction(target, 'Collapse Alpha')
   await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
   await expect(target.locator('[data-slot="side-by-side-tile"] textarea')).toHaveCount(0, { timeout: 10_000 })
-  await expand.click()
+  await tileAction(target, 'Expand Alpha')
   await expectExpansion(target, 1)
   await expect(box).toHaveValue('half a thought, kept')
 })
@@ -466,19 +553,19 @@ test('two Seat browsers stay live through expansion and narrow member tabs', asy
   await beta.getByRole('button', { name: 'Add a note' }).click()
   await expect(alpha.getByText('1 note saved')).toBeVisible()
   await expect(beta.getByText('2 notes saved')).toBeVisible()
-  await target.getByRole('button', { name: 'Expand Alpha' }).click()
+  await tileAction(target, 'Expand Alpha')
   await expect(tiles.nth(1)).toHaveAttribute('data-hidden', '')
-  await target.getByRole('button', { name: 'Collapse Alpha' }).click()
+  await tileAction(target, 'Collapse Alpha')
   await expect(beta.getByText('2 notes saved')).toBeVisible()
   await setWidth(page, 'side-by-side-browsers', 420)
   const strip = target.getByRole('tablist', { name: 'Side by side tiles' })
   await strip.getByRole('tab', { name: 'Beta' }).click()
   await expect(beta.getByText('2 notes saved')).toBeVisible()
-  await expect(tiles.nth(1).getByRole('radio', { name: 'Browser', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await expect(tiles.nth(1).getByRole('button', { name: 'Back to the conversation', exact: true })).toBeVisible()
   await strip.getByRole('tab', { name: 'Alpha' }).click()
   await expect(alpha.getByText('1 note saved')).toBeVisible()
-  await tiles.nth(0).getByRole('radio', { name: 'Conversation', exact: true }).click()
+  await tiles.nth(0).getByRole('button', { name: 'Back to the conversation', exact: true }).click()
   await expect(tiles.nth(0).locator('iframe')).toHaveCount(0)
   await strip.getByRole('tab', { name: 'Beta' }).click()
-  await expect(tiles.nth(1).getByRole('radio', { name: 'Browser', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await expect(tiles.nth(1).getByRole('button', { name: 'Back to the conversation', exact: true })).toBeVisible()
 })

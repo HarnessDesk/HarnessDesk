@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { FileChange, Turn } from '@harnessdesk/protocol'
+import { withGitMutation } from './git-mutation.js'
 
 /**
  * The few things the host does *to* a repository, as opposed to reading it
@@ -403,10 +404,10 @@ export const checkout = async (
   root: string,
   branch: string,
   options: { readonly create?: boolean } = {},
-): Promise<void> => {
+): Promise<void> => withGitMutation(root, async () => {
   await checkoutPreflight(root, branch)
   await git(root, options.create ? ['checkout', '-b', branch] : ['checkout', branch])
-}
+})
 
 /** Where the repository root is, for a folder that may be inside one. */
 export const topLevel = async (root: string, signal?: AbortSignal): Promise<string | null> => {

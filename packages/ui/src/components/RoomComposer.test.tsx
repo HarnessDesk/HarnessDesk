@@ -83,7 +83,7 @@ const GEMINI = member(peer('cursor', 'g1', 'Gemini'))
 /* One snapshot object for every rig. `useSyncExternalStore` compares identity,
    so a getter that mints a fresh snapshot re-renders forever — the same trap
    the room pane keeps `NO_ENTRIES` for. */
-const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true, defaultAudience?: readonly SessionKey[], view: AppSnapshot = snapshot) => {
+const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true, defaultAudience?: readonly SessionKey[], view: AppSnapshot = snapshot, tileLabels?: ReadonlyMap<SessionKey, string>) => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: (): AppSnapshot => view,
@@ -101,6 +101,7 @@ const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messag
           members={members}
           messaging={messaging}
           defaultAudience={defaultAudience}
+          tileLabels={tileLabels}
           onTrouble={trouble}
           onPosted={posted}
         />
@@ -836,4 +837,54 @@ it('a wrapped Team disables the room composer with its reason', () => {
  Object.assign(snapshot,{goals:new Map([[ROOM,{goal:{id:ROOM,state:'wrapped'}} as never]])})
  try { rig();expect(box().disabled).toBe(true);expect(box().placeholder).toBe('This Team is wrapped') }
  finally {Object.assign(snapshot,{goals:new Map()})}
+})
+
+const tileLabels = new Map([[OPUS.key, 'A'], [GPT.key, 'B']])
+const recipient = () => container.querySelector<HTMLButtonElement>('button[title^="This message reaches"]')!
+const pickRecipient = (label: string) => {
+  act(() => recipient().click())
+  const option = [...document.body.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(one => one.textContent?.trim() === label)!
+  expect(option).toBeDefined()
+  act(() => option.click())
+}
+it('names the actual visible letters when the original A tile is absent', () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key], snapshot, new Map([[OPUS.key,'B'],[GPT.key,'C']]))
+  expect(box().placeholder).toBe('Message both, or @B / @C')
+})
+it('routes To: Both, A and B through the shared draft and existing delivery paths', async () => {
+  const { store } = rig([OPUS, GPT], true, [OPUS.key, GPT.key], snapshot, tileLabels)
+  expect(box().placeholder).toBe('Message both, or @A / @B')
+  expect(recipient().textContent).toContain('To: Both')
+  act(() => type('both'))
+  act(() => send().click())
+  await act(async () => {})
+  expect(store.teamHandout).toHaveBeenLastCalledWith(ROOM, 'both', [{ runtime:'claude', sessionId:'k1' }, { runtime:'codex', sessionId:'c1' }])
+  pickRecipient('A')
+  expect(recipient().textContent).toContain('To: A')
+  act(() => type('only A'))
+  act(() => send().click())
+  await act(async () => {})
+  expect(store.teamPost).toHaveBeenLastCalledWith(ROOM, 'only A', { runtime:'claude', sessionId:'k1' })
+  pickRecipient('B')
+  act(() => type('only B'))
+  act(() => send().click())
+  await act(async () => {})
+  expect(store.teamPost).toHaveBeenLastCalledWith(ROOM, 'only B', { runtime:'codex', sessionId:'c1' })
+  pickRecipient('Both')
+  expect(recipient().textContent).toContain('To: Both')
+})
+it('keeps @A and @B picks in step with the To control', () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key], snapshot, tileLabels)
+  act(() => type('@B'))
+  act(() => press('Enter'))
+  expect(chips()).toEqual(['GPT'])
+  expect(recipient().textContent).toContain('To: B')
+  act(() => type('@A'))
+  act(() => press('Enter'))
+  expect(chips()).toEqual(['GPT', 'Opus'])
+  expect(recipient().textContent).toContain('To: Both')
+})
+it('shows the quiet queue hint while either tile is working', () => {
+  rig([{...OPUS, busy:true}, GPT], true, [OPUS.key, GPT.key], snapshot, tileLabels)
+  expect(container.textContent).toContain('Waits for their turns')
 })

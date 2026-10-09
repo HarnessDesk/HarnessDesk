@@ -211,3 +211,7 @@ export { FlowCanvas, FLOW_CANVAS_CARD_WIDTH, FLOW_CANVAS_RUN_CARD_HEIGHT, type F
 
 export { HeaderStatusGroup, HeaderStatusReading, useHeaderStatusGroup } from './patterns/HeaderStatusGroup'
 export { ComparisonNotice } from './patterns/ComparisonNotice'
+export { ComparisonDecision } from './patterns/ComparisonDecision'
+export { ComparisonSummary } from './patterns/ComparisonSummary'
+
+export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'

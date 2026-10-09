@@ -19,6 +19,13 @@ const ANSWERS = [
   'Three attempts with a growing pause, and a 502 after the last one surfaces as it did before.',
 ] as const
 
+const PRIOR_TURNS = [
+  ['Read the request path before making a change.', 'The client sends a single request and returns the response to its caller. I am checking where the status is handled so the retry stays inside the same boundary.'],
+  ['Keep the retry budget small and explicit.', 'The plan uses three attempts. Each attempt keeps the original request, and only a temporary service response starts another one. A permanent failure still returns immediately.'],
+  ['Cover the final failed attempt as well as recovery.', 'The synthetic test returns two temporary failures followed by success. A second case uses all three attempts and checks that the final response reaches the caller without another request.'],
+  ['Check that the pause does not change request ordering.', 'Each attempt waits for the previous response before it starts. The pause grows within the retry budget, and the test controls time so it checks the ordering without waiting in real time.'],
+] as const
+
 type SideBySideFixtureOptions = {
   /** Hold Beta on a command approval, so its tile and tab both wait for the person. */
   readonly browsers?: boolean
@@ -37,6 +44,13 @@ const exchange = (key: string, index: number, options: SideBySideFixtureOptions)
   options.ready && index === 3
     ? []
     : [
+    ...PRIOR_TURNS.map(([prompt, answer], turn) => ({
+      id: `${key}-prior-${turn}`, status:'completed' as const,
+      items:[
+        {id:`${key}-prior-${turn}-u`, type:'userMessage' as const, content:[{type:'text' as const, text:prompt}]},
+        {id:`${key}-prior-${turn}-a`, type:'assistantMessage' as const, phase:'final' as const, text:answer},
+      ],
+    })),
     {
       id: `${key}-t1`,
       status: (index === 0 && options.working) || (index === 1 && options.waiting)
