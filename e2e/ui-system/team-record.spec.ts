@@ -113,7 +113,7 @@ for (const theme of ['light','dark'] as const) {
   }
   await expect(rail.locator('[data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
   await expect(rail.locator('[data-slot="list-row"]').filter({hasText:'Beta'})).toBeVisible()
-  await expect(frame.getByRole('button',{name:'Seat an Agent in this Goal',exact:true})).toHaveCount(0)
+  await expect(frame.getByRole('button',{name:'Seat an Agent in this Team',exact:true})).toHaveCount(0)
   for (const name of ['Hold messages at the board']) {
    await expect(frame.getByRole('button',{name,exact:true})).toBeDisabled()
    await expect(frame.getByRole('button',{name,exact:true})).toHaveAttribute('title','This Team is wrapped')
@@ -179,7 +179,7 @@ for (const theme of ['light','dark'] as const) {
   const dialog=page.locator('[data-slot="dialog-content"]')
   const board=async(open:Locator)=>{ await open.getByRole('tab',{name:/^Board/}).click() }
   const cases:{name:string,action:string,ask:(open:Locator)=>Promise<void>}[]=[
-   {name:'seating an Agent',action:'Seat Agent',ask:async open=>{ await (await members(open)).getByRole('button',{name:'Seat an Agent in this Goal',exact:true}).click() }},
+   {name:'seating an Agent',action:'Seat Agent',ask:async open=>{ await (await members(open)).getByRole('button',{name:'Seat an Agent in this Team',exact:true}).click() }},
    {name:'adding work',action:'Add to board',ask:async open=>{ await board(open); await open.getByRole('button',{name:/^New job/}).click(); await dialog.getByLabel('What needs doing').fill('Check the retry budget') }},
    {name:'stopping a card',action:'Stop it',ask:async open=>{ await board(open); await open.getByRole('button',{name:'What to do with #1',exact:true}).click(); await page.getByRole('menuitem',{name:/^Stop it/}).click() }},
   ]
