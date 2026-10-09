@@ -16,6 +16,10 @@ Its real Dashboard bands play Limits → Spend → By agent → Year over the
 same fictional year as the website camera fixtures. Page changes are cuts,
 as in the existing dashboard clip; the shape filters, chart mode and heatmap
 tabs receive real mouse clicks. No agent or external service runs.
+Each table or chart fills the reading column's available height. Website
+demo presentations supply the agents' names and marks; the underlying history
+remains synthetic, with two owner-approved public demo accounts and the
+remaining accounts at `example.com`.
 
 The parent owns scaling: keep the iframe at its logical size, then apply a
 CSS transform with its origin at the top left. After the frame posts
@@ -42,6 +46,6 @@ node script/site-scenes.mjs
 ```
 
 It checks both themes, build boot, pause/resume, live theme, loop closure,
-reduced motion, content bounds, iframe scaling and requests confined to local
-assets. Frames and the first/middle/last contact sheet go to
+reduced motion, content bounds and height fill, iframe scaling and requests
+confined to local assets. Frames and the four-stage contact sheet go to
 `.lead-out/site-scenes/`; keep `.lead-out/` in `.git/info/exclude`.

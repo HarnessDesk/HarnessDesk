@@ -42,10 +42,36 @@ it('registers only the approved dashboard with its fixed logical size', () => {
   expect(SCENES.dashboard).toMatchObject({ width: 960, height: 600, duration: 16_000 })
 })
 
+it('uses website runtime presentations and keeps every ledger reference on that roster', () => {
+  const data = dashboardData()
+  const snapshot = data.store.getSnapshot()
+  expect(snapshot.runtimes.map(info => info.presentation)).toEqual([
+    expect.objectContaining({ name: 'Codex', brand: 'codex' }),
+    expect.objectContaining({ name: 'Claude Code', brand: 'claudecode' }),
+    expect.objectContaining({ name: 'Gemini', brand: 'geminicli' }),
+  ])
+  const roster = new Set(snapshot.runtimes.map(info => info.id))
+  const accounts = new Set(snapshot.usage.map(report => report.account))
+  expect(accounts).toEqual(new Set(['shane@harnessdesk.app', 'olivia@harnessdesk.app', 'review@example.com', 'studio@example.com', 'api@example.com']))
+  const ledger = data.ledger(365, 'runtime')
+  expect(ledger.daily.every(row => roster.has(row.runtime))).toBe(true)
+  expect(ledger.hourly!.every(row => roster.has(row.runtime))).toBe(true)
+  expect(ledger.rows.every(row => roster.has(row.runtime!))).toBe(true)
+  expect(new Set(ledger.rows.map(row => row.key))).toEqual(roster)
+  expect(ledger.coverage.hoursKnownFor!.every(id => roster.has(id))).toBe(true)
+})
+
 it.each(['light', 'dark'] as const)('boots the shipping dashboard in %s, paused, and follows live theme messages', async theme => {
   await act(async () => root.render(<StrictMode><SiteScene name="dashboard" theme={theme} /></StrictMode>))
   expect(host.textContent).toContain('What is left')
   expect(host.querySelector('table')).not.toBeNull()
+  expect(host.textContent).toContain('Claude Code')
+  expect(host.textContent).toContain('Codex')
+  expect(host.textContent).toContain('Gemini')
+  expect(host.querySelector('.brand-codex')).not.toBeNull()
+  expect(host.querySelector('.brand-claudecode')).not.toBeNull()
+  expect(host.querySelector('.brand-geminicli')).not.toBeNull()
+  expect(host.textContent).not.toMatch(/Alpha|Beta|Gamma/)
   expect(host.querySelector('[aria-label="Window navigation"]')).toBeNull()
   await step(5000)
   expect(host.querySelector('[data-scene-stage]')?.getAttribute('data-scene-stage')).toBe('limits')
@@ -95,6 +121,9 @@ it('recalibrates the synthetic year and quota reset times together', () => {
   expect(data.store.getSnapshot().usage.every(report => report.fetchedAt === now - 60_000)).toBe(true)
   expect(data.store.getSnapshot().usage[0]!.lanes[0]!.resetsAt).toBe(now + 70 * 60_000)
   expect(data.ledger(365, 'runtime')).toBe(year)
+  const next = dashboardData(now + 86_400_000).ledger(365, 'runtime')
+  expect(Math.max(...next.daily.map(day => day.day))).toBe(today.getTime() + 86_400_000)
+  expect(Math.max(...year.daily.map(day => day.day))).toBe(today.getTime())
 })
 
 it('switches to the Year still when the system reduces motion during By agent', async () => {

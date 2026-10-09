@@ -58,6 +58,12 @@ try {
       })
       if (measured.bad.length) await sceneBox.screenshot({ path: join(out, 'geometry-failure.png') })
       assert.deepEqual(measured, { width: scene.width, height: scene.height, scrollX: 0, scrollY: 0, pageWidth: scene.width, pageHeight: scene.height, bad: [] })
+      const fill = await stage.evaluate(box => {
+        const content = box.querySelector('[data-slot="chart-frame"], [data-slot="plans-table"]')
+        const bottom = box.getBoundingClientRect().bottom - parseFloat(getComputedStyle(box).paddingBottom)
+        return { bottom, contentBottom: content?.getBoundingClientRect().bottom }
+      })
+      assert.ok(Math.abs(fill.bottom - fill.contentBottom) <= 2, `Panel must fill its reading column: ${JSON.stringify(fill)}`)
     }
     const shot = async label => {
       await geometry()
@@ -143,8 +149,8 @@ try {
   await expect(embed.frameLocator('iframe').locator('[data-site-scene]')).toHaveCSS('width', '960px')
   assert.deepEqual(await embed.locator('iframe').boundingBox(), { x: 0, y: 0, width: 480, height: 300 })
   await embed.close()
-  const sheet = await browser.newPage({ viewport: { width: 1440, height: 692 } })
-  await sheet.setContent(`<style>body{margin:0;background:#eee;font:14px sans-serif}main{display:grid;grid-template-columns:repeat(3,480px)}figure{margin:0}figcaption{padding:8px;height:20px}img{width:480px;height:300px;display:block}</style><main>${frames.filter(frame => !frame.file.includes('-spend')).map(frame => `<figure><figcaption>${frame.label}</figcaption><img src="data:image/png;base64,${frame.buffer.toString('base64')}"></figure>`).join('')}</main>`)
+  const sheet = await browser.newPage({ viewport: { width: 1920, height: 692 } })
+  await sheet.setContent(`<style>body{margin:0;background:#eee;font:14px sans-serif}main{display:grid;grid-template-columns:repeat(4,480px)}figure{margin:0}figcaption{padding:8px;height:20px}img{width:480px;height:300px;display:block}</style><main>${frames.map(frame => `<figure><figcaption>${frame.label}</figcaption><img src="data:image/png;base64,${frame.buffer.toString('base64')}"></figure>`).join('')}</main>`)
   await sheet.screenshot({ path: join(out, 'sheet.png') })
   writeFileSync(join(out, 'report.json'), JSON.stringify({ views: Object.keys(SCENES), themes: ['light', 'dark'], frames: frames.map(frame => frame.file), passed: true }, null, 2))
   console.log('PASS iframe scaling; contact sheet and frames written to .lead-out/site-scenes')

@@ -24,10 +24,41 @@
   background: var(--hd-foreground);
   box-shadow: 0 0 0 var(--hd-space-1) color-mix(in srgb, var(--hd-foreground) 15%, transparent);
   pointer-events: none;
+  will-change: transform;
   z-index: 1;
 }
-.site-dashboard [role="group"][aria-label*="per agent"] { height: 216px; }
-.site-dashboard [role="group"][aria-label$="this year"] { height: 254px; }
+.site-dashboard > section,
+.site-dashboard [data-slot="chart-frame"],
+.site-dashboard [data-slot="plans-table"],
+.site-dashboard [data-slot="table-container"] {
+  flex: 1;
+  min-height: 0;
+}
+.site-dashboard [data-slot="plans-table"] { display: flex; flex-direction: column; }
+.site-dashboard [data-slot="table"] { height: 100%; }
+.site-dashboard [data-slot="table-header"] { height: var(--hd-table-head-h); }
+.site-dashboard [data-slot="chart-frame"] {
+  display: flex;
+  flex-direction: column;
+}
+.site-dashboard [data-slot="chart-card"]:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.site-dashboard [data-slot="chart-card"]:nth-child(2) > div:first-child,
+.site-dashboard [data-slot="day-columns"] > div:first-child {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.site-dashboard [role="group"][aria-label^="Tokens or cost per day"] {
+  flex: 1;
+  height: 100%;
+}
+/* DayColumns' intrinsic plot height is inline; the camera fills its parent. */
+.site-dashboard [data-slot="day-columns"] > div > :is([role="group"], [aria-hidden]) { height: 100% !important; }
 .site-dashboard [role="group"][aria-label^="Tokens or cost per day"] { min-width: 0; }
 .site-dashboard [role="group"][aria-label^="Tokens or cost per day"] :is([data-level], [data-state]) { aspect-ratio: auto; height: 100%; }
 .site-scene[data-scene-motion="reduce"] * { animation: none; transition: none; }

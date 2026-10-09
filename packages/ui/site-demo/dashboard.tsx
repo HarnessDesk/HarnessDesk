@@ -5,7 +5,8 @@ import { RANGES, Spend, tintsForRoster, type Pivot } from '../src/components/usa
 import type { HeatView } from '../src/components/UsageActivity'
 import type { HeatMetric, HourMetric } from '../src/lib/heat'
 import { byUrgency, runway } from '../src/lib/usage'
-import { SITE_NOW, siteLedger, siteUsage } from '../src/preview/site-stills-data'
+import { SITE_NOW } from '../src/preview/site-stills-data'
+import { sceneUsage, siteSceneLedger, sceneRuntime, sceneRuntimeInfo } from '../src/preview/site-scene-data'
 import { previewStore } from '../src/preview/harness'
 import { PaneColumn, Segmented } from '../src/design'
 import type { LedgerReport } from '@harnessdesk/protocol'
@@ -26,11 +27,11 @@ export const dashboardData = (now = Date.now()) => {
     date.setDate(date.getDate() - Math.round((civilDay(SITE_NOW) - civilDay(day)) / 86_400_000))
     return date.getTime()
   }
-  const usage = siteUsage().map(report => ({ ...report, fetchedAt: report.fetchedAt + delta,
+  const usage = sceneUsage.map(report => ({ ...report, fetchedAt: report.fetchedAt + delta,
     lanes: report.lanes.map(lane => ({ ...lane, resetsAt: lane.resetsAt === null ? null : lane.resetsAt + delta })),
   }))
   const base = previewStore().getSnapshot()
-  const runtimes = base.runtimes.filter(info => usage.some(report => report.runtime === info.id))
+  const runtimes = base.runtimes.filter(info => usage.some(report => report.runtime === sceneRuntime(info.id))).map(sceneRuntimeInfo)
   const accountsByRuntime = Object.fromEntries(runtimes.map(info => [info.id, {
     ...base.accountsByRuntime[info.id], signInMethods: [],
     accounts: usage.filter(report => report.runtime === info.id).map(report => ({ kind: 'oauth' as const, label: report.account!, email: report.account! })),
@@ -41,7 +42,7 @@ export const dashboardData = (now = Date.now()) => {
     const key = `${days}:${groupBy}`
     const cached = ledgers.get(key)
     if (cached) return cached
-    const report = siteLedger({ days, groupBy })
+    const report = siteSceneLedger(days, groupBy)
     const snapped = { ...report, scannedAt: report.scannedAt === null ? null : report.scannedAt + delta,
       daily: report.daily.map(day => ({ ...day, day: snapDay(day.day) })),
       coverage: { ...report.coverage, earliestDay: report.coverage.earliestDay == null ? report.coverage.earliestDay : snapDay(report.coverage.earliestDay) },
