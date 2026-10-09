@@ -93,6 +93,45 @@ const requestSpy = (store: AppStore, handlers: Partial<Record<HostMethodName, (p
     return null
   }) as never)
 
+it('the seed preview follows input defaults, edits and clearing in the front door', async () => {
+  const base = emptyFlow('token')
+  const flow: FlowPreview = {
+    ...base,
+    compiled: {
+      ...base.compiled,
+      document: { format: 'agents', flow: {
+        version: 2, name: 'Review', inputs: [{ id: 'task', label: 'Task', default: 'Initial task' }],
+        roles: [], seed: { role: 'reviewer', title: '{{ task }}' },
+        rules: [{ id: 'check', on: 'reviewer', then: { role: 'verify', title: 'Check the task' } }],
+        messaging: 'board-only', wait: 240,
+      } },
+    },
+  }
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')],
+    'agent/list': () => [],
+    'flow/source': () => 'saved flow',
+    'authoring/start/preview': params => previewOf(flow, { vars: (params as { vars: Record<string, string> }).vars }),
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+  const rounds = () => document.body.querySelector('[aria-label="Rounds and rules"]')!.textContent
+  expect(rounds()).toContain('Seed round — Initial task')
+  for (const [value, expected] of [['Edited task', 'Edited task'], ['Keep {{task}} literal', 'Keep {{task}} literal'], ['', 'Task']]) {
+    const label = [...document.body.querySelectorAll('label')].find(one => one.textContent === 'Task')!
+    const field = document.getElementById(label.htmlFor) as HTMLInputElement
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await settle()
+    expect(rounds()).toContain(`Seed round — ${expected}`)
+  }
+})
+
 it('review is choice then Start: two clicks, one start call', async () => {
   const preview = previewOf(emptyFlow('strict-token'))
   const store = new AppStore('ws://localhost:0/')
