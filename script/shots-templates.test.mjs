@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { createTemplateRig, TEMPLATE_PUBLISH_BRANCH } from './shots/template-rig.mjs'
+import { createTemplateRig, TEMPLATE_TASK, TEMPLATE_PUBLISH_BRANCH } from './shots/template-rig.mjs'
 import { GhFindingForge } from '../packages/server/dist/src/findings/forge.js'
 import { markerOf, publicationKey, sha256 } from '../packages/server/dist/src/findings/publication.js'
 
@@ -24,10 +24,34 @@ test('the template rig restores only a legacy project record and keeps all trans
   assert.ok(publisher.ceilings.publish, 'the scripted publisher can qualify the shipped publish step')
   assert.equal(runtimes.find(one => one.provider === 'scripted-reviewer').ceilings.publish, undefined, 'the reviewer cannot publish')
   assert.deepEqual(rig.errors, [])
-  writeFileSync(join(rig.repo, 'rig-attempt-1.txt'), 'Attempt 1: retry transient responses.\n')
+  writeFileSync(join(rig.repo, 'rig-attempt.txt'), 'Attempt 1: retry transient responses.\n')
   rig.release('checks')
   const checked = execFileSync(process.execPath, ['.harnessdesk/rig-check.mjs'], { cwd: rig.repo, env: { TERM: 'dumb' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   assert.match(checked, /Retry attempt passed/, 'the check does not depend on desk environment variables')
+})
+
+test('Side by side scripted attempts can declare the same file in their isolated checkouts (#1562)', { timeout: 60000 }, async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-template-claims-'))
+  const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'work') })
+  t.after(async () => { await rig.dispose(); rmSync(directory, { recursive: true, force: true }) })
+  const source = await rig.host.call('flow/source', { root: rig.repo, id: 'comparison' })
+  const vars = { task: TEMPLATE_TASK }
+  const preview = await rig.host.call('flow/preview', { root: rig.repo, source, vars })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const run = await rig.host.call('flow/start-goal', { root: rig.repo, source, vars, token: preview.token, sentence: TEMPLATE_TASK })
+  const until = Date.now() + 30000
+  let attempts
+  do {
+    assert.deepEqual(rig.errors, [], 'both scripted claim_work calls succeeded')
+    const execution = await rig.host.call('flow/execution', { run: run.id })
+    assert.notEqual(execution.state, 'stalled', execution.reason)
+    attempts = (await rig.host.call('goal/read', { goal: run.goal })).board.intents.filter(one => one.role === 'competitor')
+    if (attempts.length === 2 && attempts.every(one => one.files.includes('rig-attempt.txt'))) break
+    await new Promise(done => setTimeout(done, 50))
+  } while (Date.now() < until)
+  assert.equal(attempts.length, 2)
+  assert.ok(attempts.every(one => one.state === 'claimed' && one.files.includes('rig-attempt.txt')))
+  assert.equal(new Set((await rig.host.call('goal/read', { goal: run.goal })).members.filter(one => one.role === 'competitor').map(one => one.checkout.cwd)).size, 2)
 })
 
 test('the disposable forge keeps its PR head and refuses every unscripted operation', async t => {
