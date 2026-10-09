@@ -30,6 +30,35 @@ left column and which gutter. Each screen chose, and a read of the source on
 The fix is not more tokens. It is one frame that every page is placed in, so
 that a screen chooses *what it is* and the frame answers how it is drawn.
 
+### Why a drawing and the app never matched
+
+The owner's question on reviewing the first sketches was why the app never
+looks like the drawing — the type thinner, the padding different on every
+screen. Five causes, each checked in the source:
+
+1. **The type is rendered thinner than drawn.** `app.css` sets
+   `-webkit-font-smoothing: antialiased` on `body` (since 0.1.0). On macOS
+   that switches off the stroke thickening the system applies by default, and
+   Geist at 400 is already a light face at 13–14px. The sketches were drawn in
+   a different face altogether, so what was approved was never the app.
+2. **A page with no width.** A Team's Findings view at a wide window: content
+   12px from the sidebar and running to the window's edge, a key 1,600px from
+   its value, a button stretched across the page, a switch stopped mid-page,
+   and four different left edges (342, 332, 332, 350). Nothing told the page
+   what width it was, so it took all of it.
+3. **One role, several components.** A menu row is `PopoverOption` (14px,
+   about 36 tall, 12 uses), `MenuItem` (13px, 30 tall, 171 uses) and
+   `DropdownMenuItem` (25 uses). Each uses only tokens, so the strict audit
+   reads zero: it refuses a literal, not two different tokens for one role, and
+   it never measures what renders.
+4. **The sketch left content out.** The real ⋯ menu carries earned second
+   lines, long names and CJK titles; a sketch of four short words is cleaner
+   because it is emptier.
+5. **No page layer, and numbers only in prose.** The system has tokens,
+   components and patterns, but no page template, so every screen lays out its
+   own page. And a number written in a spec reaches code only through someone
+   reading it; when it does not, nothing fails.
+
 ## Decisions
 
 1. **One shell.** Every page is shown in the main area beside the same left
@@ -49,6 +78,18 @@ that a screen chooses *what it is* and the frame answers how it is drawn.
 7. **Things you browse or manage are pages; preferences are Settings.**
    Library and Plugins leave Settings and become pages with their own sidebar
    rows.
+8. **Type renders with the system's default smoothing.** The `antialiased`
+   line goes; no size or weight changes with it.
+9. **The frame is a measured contract, not prose** — step 0 below, before any
+   screen moves:
+   - a **page template** is the only way a page sets its width and margins;
+   - **one component per role** (one menu row, one facts card, one settings
+     row), and the audit refuses a second;
+   - the numbers in this spec live in code, and a **rendered check** fails when
+     the app differs from them;
+   - drawings for this work are **rendered from the real components** in the
+     catalogue, in Geist, with real content; a chat sketch only picks a
+     direction.
 
 ## The frame
 
@@ -153,13 +194,34 @@ A page picks one of three widths by what it holds:
 
 | Width | Measure | Margin | Used by |
 | --- | --- | --- | --- |
-| reading | `--hd-column` 736, centred | 24 | conversation, Settings, an Agent, Team Overview, Run timeline |
+| reading | `--hd-column` 736, centred | 24 | conversation, Settings, an Agent, Team Overview, Run timeline, Findings |
 | wide | `--hd-page-wide` 1320, centred | 24 | Teams list, Agents list, Library, Plugins, Dashboard |
 | canvas | none | 8 | Board, Flow, Changes review, terminal, diff |
 
 Below the bar, every page starts its content 24px down (8 on a canvas).
 Inside, the existing rhythm holds and is now the only rhythm: label → card 8,
 section → section 32, card 16, row 12, dialog 24.
+
+**The page template is the only way in.** A page renders
+`<Page width="reading" | "wide" | "canvas">` and composes blocks inside it —
+`Section`, `SummaryList`, `Rows`, `Table`, `EmptyState`, the view bar. A
+screen writes no page-level `max-width`, padding or outer margin of its own,
+and the audit refuses one. Inside a page:
+
+- **One left edge.** Every block starts at the column's edge; a block that
+  needs an icon hangs it before the edge rather than moving its text.
+- **Facts are one card.** Several facts about one thing are a `SummaryList`:
+  key and value side by side within the column, never a key at one edge of
+  the window and its value at the other.
+- **Buttons are as wide as their words.** A view's own verb ("Decide this
+  run") is an outline button in its view bar, not a bar across the page.
+- **A switch is a settings row.** Its control keeps the row's end, inside the
+  column.
+
+A Team's Findings is the first acceptance example: a reading page whose view
+bar holds `12 open · 8 blocking`, Decide this run and All | Open | Blocking,
+and whose column holds the round's facts as one card, the post-to-PR switch as
+a row, and the findings as one list.
 
 **No page head.** The title is in the bar. A page that needs one sentence of
 explanation opens its content with it, in secondary ink; most pages need none.
@@ -182,7 +244,11 @@ outline verb).
 
 **The menu.** Minimum 200, padding 4, radius 10. Rows 30 tall at radius 6 (the
 surface radius less its padding), a 16px icon, 8px gap, 13px label and one
-trailing slot for a shortcut, a check or a chevron. A group label is 12/500 in
+trailing slot for a shortcut, a check or a chevron. A row that earns a second
+line (rule 9: a consequence, a varying fact) keeps the same label and adds the
+line at 12/16 in secondary ink; it grows by that line and 6px of padding above
+and below, its icon centred on the label's line. That is the only menu row:
+`PopoverOption` and the vendored dropdown item render through it. A group label is 12/500 in
 secondary ink. A separator is a 1px rule with 4px around it. **The wide menu**
 is the same at up to 340: a submenu, a 28px search field on top for a long
 list, a list of agents with meters, a muted footer line under a separator.
@@ -231,9 +297,11 @@ to the nonexistent `--hd-topbar-h` is fixed in the same pass.
 | `TabsList` default, `Segmented`, `PanelPill` | one switcher; the dock keeps `DockPanelTabs` |
 | `AppWindow`, `WindowNav`, `WindowPage` | retired; `WindowNav`'s groups move into the left column's Settings mode |
 | `PageHead`, `DetailHead`, `BackLink` | retired; the crumb in the window bar replaces them |
-| `PaneColumn` | gains `width="reading" \| "wide" \| "canvas"` as the one way a page sets its measure |
+| `Page` (new, in `design/patterns`) | the page template: `width="reading" \| "wide" \| "canvas"`, built on `PaneColumn`; the one way a page sets its measure and margins |
 | `Popover` + `PopoverOption`, `Popover` + `Menu`, `DropdownMenuContent`, the branch flyout | the menu and the wide menu |
 | `HeaderStatusGroup`'s hover card, `PopoverContent` | the info card |
+| the frame contract (new, in `design/`) | the numbers in this spec, read by the components and by the rendered check |
+| `app.css` `body` | loses `-webkit-font-smoothing: antialiased` |
 | `App.tsx` window flags | one main destination in the workbench state, with history |
 
 ## Order of work
@@ -241,6 +309,12 @@ to the nonexistent `--hd-topbar-h` is fixed in the same pass.
 The system changes before the screens (rule 12), and each step lands on its
 own with the app working:
 
+0. **The contract.** Default font smoothing. The frame's numbers in one
+   module in `design/` (bar, rail row, menu row, info card, page widths and
+   margins, type role per slot), read by the components and by the check. The
+   `Page` template. The rendered check (below), starting with the menus, the
+   bars and the Findings page, the rest joining as each step lands. The audit
+   rules: no page-level width or padding in a screen; one component per role.
 1. **Tokens.** Bar height 40 and the window-button position; the named widths
    and menu tokens; dead tokens out. Every screen moves with it; re-record
    `metrics.json`.
@@ -261,16 +335,45 @@ own with the app working:
    describe the new frame; `docs/decisions.md` records why the full-window
    shell went.
 
+## How it stays one app
+
+A screen feels built by a different person when it was: each screen laid out
+its own page, picked its own close-enough component and was checked alone.
+Four things stop that here.
+
+1. **Screens compose; they do not lay out.** The template sets the width and
+   margins, the bars set the top, the blocks set the inside. A screen that
+   needs layout CSS of its own is a sign the system lacks a block, and the
+   block is added to the system first (rule 12).
+2. **One hand moves the pages.** Step 5 is done by one writer, in order,
+   against this spec and the check — not spread across parallel lanes that
+   each interpret it.
+3. **Every page is judged on one wall.** The catalogue gains a page wall:
+   every destination rendered from the real code at the same width, side by
+   side, light and dark. A review looks at the wall, where a different gutter
+   or a heavier title is visible at once, not at one screen alone.
+4. **Drift fails a check.** The rendered check below measures the result, not
+   the source, so a token-clean screen that still differs is caught.
+
 ## How it is checked
 
 - `node script/design-audit.mjs --strict` stays at zero; a bar, page or popup
-  that hand-sets a height, padding or width where a token exists fails it.
+  that hand-sets a height, padding or width where a token exists fails it, and
+  so does a page-level width or padding in a screen or a second component for
+  a role that has one.
+- **The rendered check** (`e2e/ui-system/frame-contract.spec.ts`) opens every
+  destination, bar, rail and popup in `preview.html`, in both themes, at a wide
+  window and at 720, and compares computed values with the contract module:
+  font family and smoothing, size, weight and line height per slot; bar, row
+  and control heights; padding, gap and radius; content width; and that every
+  block on a page shares the column's left edge.
 - `e2e/ui-system/container-insets.spec.ts` gains the page widths and the
   panel content edge; a new check measures that every top-of-column row in a
   window is 40 and that their bottoms share one y.
 - The catalogue (`design.html`) shows the window bar on every destination, the
-  view bar on every Team view, the left column in both modes, and the three
-  popups, from the real components; `node script/ui-catalog.mjs` passes.
+  view bar on every Team view, the left column in both modes, the three
+  popups and the page wall, from the real components with real-length content
+  (second lines, long names, CJK titles); `node script/ui-catalog.mjs` passes.
 - Each step is looked at in the built app in light and dark, at a wide window
   and at 720, with frames from the rig.
 
