@@ -194,6 +194,8 @@ const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
 export class TranscriptStore {
   readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session; insight: readonly TurnInsightContext[] }>()
   readonly #writes = new Map<string, Promise<boolean>>()
+  /** A failed save must not reuse an older body's stamp or timestamp on retry. */
+  readonly #failedWrites = new Set<string>()
   readonly #insight = new Map<string, readonly TurnInsightContext[]>()
   readonly #database: TranscriptDatabase
   readonly #snapshots: DailySessionSnapshots
@@ -217,6 +219,7 @@ export class TranscriptStore {
       if (pending) clearTimeout(pending.timer)
       this.#pending.delete(key)
       this.#insight.delete(key)
+      this.#failedWrites.delete(key)
     }
   }
 
@@ -253,6 +256,7 @@ export class TranscriptStore {
     const key = keyOf(session.runtime, session.id)
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
+      const preserveSource = refresh?.preserveSource && !this.#failedWrites.has(key)
       let stored: Stored = {
         version: FORMAT,
         runtime: session.runtime,
@@ -283,7 +287,7 @@ export class TranscriptStore {
           const contexts = new Map((current.insight ?? []).filter(context => retained.has(context.turn)).map(context => [context.turn, context]))
           for (const context of insight) contexts.set(context.turn, context)
           stored = { ...stored, turns: withDeskContext(stored.turns, current.turns),
-            ...(refresh?.preserveSource ? { savedAt: current.savedAt } : {}),
+            ...(preserveSource ? { savedAt: current.savedAt } : {}),
             ...(contexts.size ? { insight: [...contexts.values()] } : {}) }
         }
         // An event write has not replayed the source: even a stat that matches
@@ -291,12 +295,14 @@ export class TranscriptStore {
         // stamp the body; ordinary writes force the next idle read to refresh.
         // A release adds no source work. Read the current stamp inside this
         // queued write, after any older event write has invalidated it.
-        const source = refresh?.preserveSource ? this.#storedSource(session.runtime, session.id) : refresh?.source ?? null
+        const source = preserveSource ? this.#storedSource(session.runtime, session.id) : refresh?.source ?? null
         this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source })
         this.#snapshots.schedule()
         this.onWrite()
+        this.#failedWrites.delete(key)
         return true
       } catch (error) {
+        this.#failedWrites.add(key)
         this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',
           { session: session.id, error: String(error) })
         return false
@@ -658,6 +664,7 @@ export class TranscriptStore {
     // Wait out a write already in flight, or the deletion races it.
     await this.#writes.get(key)?.catch(() => {})
     this.#writes.delete(key)
+    this.#failedWrites.delete(key)
     this.#database.forget(runtime, id, options)
   }
 
@@ -709,6 +716,7 @@ export class TranscriptStore {
     await this.flush()
     await this.#snapshots.close()
     this.#database.close()
+    this.#failedWrites.clear()
   }
 
 }

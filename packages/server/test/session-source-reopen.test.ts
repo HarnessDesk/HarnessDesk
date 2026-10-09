@@ -6,7 +6,9 @@ import { test, type TestContext } from 'node:test'
 import { itemId, sessionId, turnId, type Session } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
+import { SessionIndex } from '../src/session-index.js'
 import { TranscriptStore } from '../src/transcripts.js'
+import { TranscriptDatabase } from '../src/transcript-database.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 
@@ -78,6 +80,40 @@ test('a runtime without the capability still reads the agent on every reopen', a
   await r.read()
   await r.read()
   assert.equal(r.reads(), 2)
+})
+
+for (const failureCount of [0, 1, 2]) test(`a source-less read of new completed work advances the backup body version after ${failureCount} failed writes`, async t => {
+  const r = await rig(t, false)
+  const original = await r.read()
+  const index = new SessionIndex(join(r.dir, 'sessions.sqlite'))
+  index.promote(original.runtime, original.id)
+  assert.equal(index.isImported(original.runtime, original.id), false)
+  index.close()
+  const store = new TranscriptStore(join(r.dir, 'transcripts'))
+  const backup = new TranscriptStore(join(r.dir, 'backup', 'transcripts'))
+  t.after(async () => { await store.close(); await backup.close() })
+  const first = (await store.exportAll())[0]!
+  assert.equal(await backup.importOne(first.runtime, first.id, first.data), 'restored')
+  const firstSavedAt = (first.data as { savedAt: number }).savedAt
+  t.mock.method(Date, 'now', () => firstSavedAt + 100)
+  if (failureCount) {
+    const write = TranscriptDatabase.prototype.write
+    let failed = 0
+    t.mock.method(TranscriptDatabase.prototype, 'write', function (this: TranscriptDatabase, ...args: Parameters<TranscriptDatabase['write']>) {
+      if (failed++ < failureCount) throw new Error('Synthetic transient write refusal')
+      return write.apply(this, args)
+    })
+  }
+  r.setReplay({ ...original, updatedAt: 30, turns: [...original.turns, turn('t2', 'Synthetic new answer')] })
+  await r.read()
+  if (failureCount === 2) {
+    assert.equal(r.host.registry.get(original.runtime, original.id)?.session.itemsLoaded, true)
+    await r.host.call('session/close', { runtime: original.runtime, sessionId: original.id })
+  }
+  const latest = (await store.exportAll())[0]!
+  assert.ok((latest.data as { savedAt: number }).savedAt > firstSavedAt)
+  assert.equal(await backup.importOne(latest.runtime, latest.id, latest.data), 'restored')
+  assert.deepEqual((await backup.exportAll())[0]!.data, latest.data)
 })
 
 test('an unavailable changed source marks a held idle transcript as the desk copy', async t => {

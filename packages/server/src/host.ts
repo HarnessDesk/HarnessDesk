@@ -6347,7 +6347,12 @@ export class Host {
     const session = restored.cwd ? { ...read, cwd: restored.cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) } : read
     this.#recordSessionIndex(session, true)
     this.#sessionIndex.opened(runtime.info.id, id)
-    if (!runtime.info.capabilities.sourceTranscript && this.#sessionIndex.isImported(runtime.info.id, id)) await this.#transcripts.refresh(session, null)
+    // A closed source-less replay may contain new work without desk events.
+    // Save its new version before release reuses the persisted timestamp.
+    if (!runtime.info.capabilities.sourceTranscript &&
+      (this.#sessionIndex.isImported(runtime.info.id, id) || !this.registry.get(runtime.info.id, id)?.live)) {
+      await this.#transcripts.refresh(session, null)
+    }
     return session
   }
 
