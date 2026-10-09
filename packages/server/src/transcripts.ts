@@ -13,7 +13,7 @@ import type {
 } from '@harnessdesk/protocol'
 import { isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
-import { TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
+import { InvalidTranscriptBodyError, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
 import { DailySessionSnapshots } from './session-snapshots.js'
 import { publicationsIn, withPublications } from './publications.js'
 
@@ -250,7 +250,12 @@ export class TranscriptStore {
       try {
         // Only stored user messages are needed for provenance; large command
         // and tool payloads never make a round trip on the write path.
-        const current = this.#database.read(session.runtime, session.id, true)
+        let current: Stored | null = null
+        try { current = this.#database.read(session.runtime, session.id, true) }
+        catch (error) {
+          if (!(error instanceof InvalidTranscriptBodyError)) throw error
+          this.log('invalid retained transcript ignored', { session: session.id, error: String(error) })
+        }
         if (current) {
           const retained = new Set(stored.turns.map(turn => String(turn.id)))
           const contexts = new Map((current.insight ?? []).filter(context => retained.has(context.turn)).map(context => [context.turn, context]))

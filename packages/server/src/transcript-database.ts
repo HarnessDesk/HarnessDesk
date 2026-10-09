@@ -20,6 +20,14 @@ interface TurnRow { turn_id: string; seq: number; payload: string; insight: stri
 interface ItemRow { seq: number; item_id: string; position: number; payload: string }
 type Facts = Omit<Stored, 'turns' | 'insight'> & { insightOrder?: readonly string[]; orphanInsight?: readonly TurnInsightContext[] }
 
+/** A single body's JSON is unusable; this does not indicate a database failure. */
+export class InvalidTranscriptBodyError extends Error {}
+
+const decodeBody = <T>(decode: () => T): T => {
+  try { return decode() }
+  catch (error) { throw new InvalidTranscriptBodyError('A stored transcript cannot be decoded', { cause: error }) }
+}
+
 /** Row storage only. The TranscriptStore above it owns reconciliation and settle. */
 export class TranscriptDatabase {
   #db: DatabaseSync | undefined
@@ -31,29 +39,38 @@ export class TranscriptDatabase {
   read(runtime: string, id: string, messagesOnly = false): Stored | null {
     const row = this.db.prepare('SELECT payload FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
     if (!row) return null
-    const { insightOrder, orphanInsight, ...facts } = JSON.parse(String(row.payload)) as Facts
-    if (facts.version !== 1) return null
+    const parsed = decodeBody(() => {
+      const value = JSON.parse(String(row.payload)) as Facts | null
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid transcript facts')
+      return value
+    })
+    if (parsed.version !== 1) return null
     const rows = this.db.prepare('SELECT * FROM turns WHERE runtime=? AND id=? ORDER BY seq').all(runtime, id) as unknown as TurnRow[]
-    const itemsByTurn = new Map<string, AgentItem[]>()
     const itemRows = this.db.prepare(`SELECT turn_id,payload FROM items WHERE runtime=? AND id=?${messagesOnly ? " AND kind='userMessage'" : ''} ORDER BY position,seq`)
       .all(runtime, id) as unknown as { turn_id: string; payload: string }[]
-    for (const row of itemRows) {
-      const items = itemsByTurn.get(row.turn_id) ?? []
-      items.push(JSON.parse(row.payload) as AgentItem)
-      itemsByTurn.set(row.turn_id, items)
-    }
-    const contexts = new Map((orphanInsight ?? []).map(context => [context.turn, context]))
-    const turns = rows.map(row => {
-      const metadata = JSON.parse(row.payload) as { version: number; turn: Omit<Turn, 'items'> }
-      if (metadata.version !== 1) throw new Error('A stored turn has an unsupported format')
-      if (row.insight) contexts.set(row.turn_id, JSON.parse(row.insight) as TurnInsightContext)
-      return { ...metadata.turn, items: itemsByTurn.get(row.turn_id) ?? [] }
+    // Keep all SQL reads outside this boundary: only this conversation's
+    // decoding can be ignored when a later live record is available.
+    return decodeBody(() => {
+      const { insightOrder, orphanInsight, ...facts } = parsed
+      const itemsByTurn = new Map<string, AgentItem[]>()
+      for (const row of itemRows) {
+        const items = itemsByTurn.get(row.turn_id) ?? []
+        items.push(JSON.parse(row.payload) as AgentItem)
+        itemsByTurn.set(row.turn_id, items)
+      }
+      const contexts = new Map((orphanInsight ?? []).map(context => [context.turn, context]))
+      const turns = rows.map(row => {
+        const metadata = JSON.parse(row.payload) as { version: number; turn: Omit<Turn, 'items'> }
+        if (metadata.version !== 1) throw new Error('A stored turn has an unsupported format')
+        if (row.insight) contexts.set(row.turn_id, JSON.parse(row.insight) as TurnInsightContext)
+        return { ...metadata.turn, items: itemsByTurn.get(row.turn_id) ?? [] }
+      })
+      return { ...facts, turns, ...(insightOrder ? { insight: insightOrder.map(id => {
+        const context = contexts.get(id)
+        if (!context) throw new Error('A stored turn context is missing')
+        return context
+      }) } : {}) }
     })
-    return { ...facts, turns, ...(insightOrder ? { insight: insightOrder.map(id => {
-      const context = contexts.get(id)
-      if (!context) throw new Error('A stored turn context is missing')
-      return context
-    }) } : {}) }
   }
 
   write(stored: Stored, runtime = stored.runtime, id = stored.id): void {

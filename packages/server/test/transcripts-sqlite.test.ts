@@ -76,6 +76,24 @@ test('one changed turn among 76 writes one turn and one changed item, including 
   } finally { await cold.close() }
 })
 
+test('a corrupt retained body does not prevent later live turns from being saved', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('t1', [message('m1', 'first answer')])])
+  store.record(original)
+  await store.flush()
+  const database = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try {
+    const corruptions = ['not JSON', JSON.stringify({ version: 1, insightOrder: {}, savedAt: 1 })]
+    for (const [index, payload] of corruptions.entries()) {
+      database.prepare('UPDATE bodies SET payload=? WHERE runtime=? AND id=?').run(payload, original.runtime, original.id)
+      const live = session([...original.turns, turn('t2', [message('m2', `later answer ${index}`)])])
+      store.record(live)
+      await store.flush()
+      assert.deepEqual((await store.recover(live.runtime, live.id))?.turns, live.turns)
+    }
+  } finally { database.close() }
+})
+
 test('item occurrence sequences survive completion and repeated IDs stay distinct', async t => {
   const { store, db } = await fixture(t)
   store.record(session([turn('t1', [tool('running words', 'running'), message('same', 'one'), message('same', 'two')]), turn('t2', [message('same', 'three')])]))
