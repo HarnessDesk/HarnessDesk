@@ -160,6 +160,15 @@ test('a configuration that forces API-key login leaves nothing to drive', async 
   await assert.rejects(() => runtime.login('apiKey'), /cannot be started from the interface/)
 })
 
+test('restored account without an observed sign-in policy offers no invented methods', async t => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  runtime.restoreObservations({ account: { accounts: [], signInMethods: [] } })
+  assert.deepEqual((await runtime.getAccount()).signInMethods, [])
+  assert.equal(runtime.health().state, 'idle')
+  assert.deepEqual(runtime.resourceProcessIds(), [])
+})
+
 test('browser sign-in returns a URL and finishes as an event, never a poll', async (t) => {
   const runtime = makeRuntime({ FAKE_CODEX_ACCOUNT: 'signedOut', FAKE_CODEX_LOGIN: 'succeed' })
   t.after(() => runtime.dispose())

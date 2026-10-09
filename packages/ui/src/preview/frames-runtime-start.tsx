@@ -1,4 +1,4 @@
-import { NO_CAPABILITIES, runtimeId, type ConfigOption, type RuntimeInfo } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES, runtimeId, type AuthMethod, type ConfigOption, type RuntimeInfo } from '@harnessdesk/protocol'
 import { Composer } from '../components/Composer'
 import { RuntimesSection } from '../components/SettingsAgents'
 import { StoreProvider } from '../state/context'
@@ -10,6 +10,7 @@ import { previewStore } from './harness'
 export const RuntimeStartFrames = () => {
   const state = new URLSearchParams(window.location.search).get('runtime-start') ?? 'cold'
   const controls = new URLSearchParams(window.location.search).get('controls')
+  const signInFlows = new URLSearchParams(window.location.search).get('signin-flows')
   const store = useMemo(() => {
     const runtimes: RuntimeInfo[] = ['Alpha', 'Beta'].map(name => ({
       id: runtimeId(name.toLowerCase()), name, version: name === 'Beta' && state === 'cold' ? null : '1.0.0',
@@ -26,7 +27,14 @@ export const RuntimeStartFrames = () => {
     })
     if (controls === 'signin') {
       const patch = (store as unknown as { patch: (values: Partial<ReturnType<typeof store.getSnapshot>>) => void }).patch
-      patch({ accountsByRuntime: { ...store.getSnapshot().accountsByRuntime, [runtimeId('beta')]: { accounts: [], signInMethods: state === 'signin-before' ? [] : [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' }] } } })
+      const methods: readonly AuthMethod[] = signInFlows === null
+        ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' }]
+        : [
+          { id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' },
+          { id: 'cli-code', label: 'Sign in with a code', flow: 'deviceCode' },
+          { id: 'cli-key', label: 'Use an API key', flow: 'external' },
+        ].filter(method => signInFlows.split(',').includes(method.flow)) as AuthMethod[]
+      patch({ accountsByRuntime: { ...store.getSnapshot().accountsByRuntime, [runtimeId('beta')]: { accounts: [], signInMethods: state === 'signin-before' ? [] : methods } } })
     }
     if (controls) {
       store.runtimeResources = async () => []
@@ -48,6 +56,6 @@ export const RuntimeStartFrames = () => {
       }) as typeof store.transport.request
     }
     return store
-  }, [state, controls])
+  }, [state, controls, signInFlows])
   return <Frame id="runtime-start" title={controls === 'settings' ? 'Agent settings after warm-up' : controls === 'composer' ? 'Choosing an idle agent' : controls === 'signin' ? 'Cached signed-out agent' : 'Runtimes at launch'}><StoreProvider store={store}><div className="mx-auto max-w-[760px] px-8 py-10">{controls === 'composer' ? <Composer onChooseProject={() => {}} /> : <RuntimesSection focus={controls === 'settings' || controls === 'signin' ? 'beta' : undefined} onSignIn={() => {}} />}</div></StoreProvider></Frame>
 }

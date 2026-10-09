@@ -9,6 +9,7 @@ import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import { runtimeId, type AgentRuntime, type ModelInfo, type WireNotification } from '@harnessdesk/protocol'
 import { Host, Logger, StateStore } from '../src/index.js'
 import { CredentialBroker } from '../src/credentials.js'
+import { RuntimeCache } from '../src/runtime-cache.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 const silent = new Logger('test', { console: false, level: 'error' })
@@ -90,6 +91,53 @@ for (const adapter of ['acp', 'codex'] as const) {
     await host.call('session/create', { runtime: runtimeId('cached'), options: { cwd: dir } })
     await waitFor(() => notifications.some(n => n.method === 'event' && n.params.event.type === 'catalog/changed'))
     assert.ok(notifications.some(n => n.method === 'event' && n.params.event.type === 'account/changed'))
+  })
+}
+
+for (const [forced, methods] of [
+  ['api', ['apiKey']],
+  ['chatgpt', ['chatgpt', 'chatgptDeviceCode']],
+  ['', ['chatgpt', 'chatgptDeviceCode', 'apiKey']],
+] as const) {
+  test(`cached account preserves ${forced || 'unrestricted'} sign-in policy through live reads and disk`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-cached-signin-policy-'))
+    const make = (policy: string) => new CodexRuntime({ id: runtimeId('signin'), binaryPath: codex, clientName: 'test',
+      env: { HOME: dir, CODEX_HOME: dir, FAKE_CODEX_ACCOUNT: 'signedOut', FAKE_CODEX_FORCED_LOGIN: policy } })
+    const live = make(forced)
+    let host = makeHost(dir, [new FakeRuntime(), live])
+    t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await host.start()
+    await host.call('session/create', { runtime: live.info.id, options: { cwd: dir } })
+    const account = await host.call('runtime/account', { runtime: live.info.id })
+    assert.deepEqual(account.signInMethods.map(method => method.id), methods)
+    await host.dispose()
+
+    const cache = new RuntimeCache(join(dir, 'runtime-cache.json'), error => { throw error })
+    await cache.load()
+    const restored = make('')
+    t.after(() => restored.dispose())
+    restored.restoreObservations(cache.get('signin'))
+    assert.deepEqual((await restored.getAccount()).signInMethods.map(method => method.id), methods,
+      'a cached account must not reconstruct a forbidden flow')
+    assert.equal(restored.health().state, 'idle')
+    assert.deepEqual(restored.resourceProcessIds(), [])
+    host = makeHost(dir, [new FakeRuntime(), restored])
+    await host.start()
+    assert.deepEqual((await host.call('runtime/account', { runtime: restored.info.id })).signInMethods.map(method => method.id), methods)
+    assert.equal(restored.health().state, 'idle')
+    assert.deepEqual(restored.resourceProcessIds(), [])
+
+    await restored.start()
+    assert.deepEqual((await host.call('runtime/account', { runtime: restored.info.id })).signInMethods.map(method => method.id),
+      ['chatgpt', 'chatgptDeviceCode', 'apiKey'], 'a live read replaces the cached restriction')
+    await host.dispose()
+    const refreshed = make('api')
+    t.after(() => refreshed.dispose())
+    const refreshedCache = new RuntimeCache(join(dir, 'runtime-cache.json'), error => { throw error })
+    await refreshedCache.load()
+    refreshed.restoreObservations(refreshedCache.get('signin'))
+    assert.deepEqual((await refreshed.getAccount()).signInMethods.map(method => method.id),
+      ['chatgpt', 'chatgptDeviceCode', 'apiKey'], 'the new live policy survives another restart')
   })
 }
 
@@ -239,7 +287,7 @@ for (const adapter of ['acp', 'codex'] as const) {
     const runtime: AgentRuntime = adapter === 'acp'
       ? new AcpRuntime({ id: 'signin', name: 'Sign in', command: process.execPath, args: [peer], account: { login: { command: process.execPath, args: ['-e', 'process.exit(0)'] } } })
       : new CodexRuntime({ id: runtimeId('signin'), name: 'Sign in', binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir } })
-    await writeFile(join(dir, 'runtime-cache.json'), JSON.stringify({ version: 1, runtimes: { signin: { account: { accounts: [], signInMethods: [] }, start: { readyMs: 100, modelsMs: 100 } } } }))
+    await writeFile(join(dir, 'runtime-cache.json'), JSON.stringify({ version: 1, runtimes: { signin: { account: { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] }, start: { readyMs: 100, modelsMs: 100 } } } }))
     const host = makeHost(dir, [new FakeRuntime(), runtime])
     t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
     await host.start()

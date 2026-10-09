@@ -2718,7 +2718,11 @@ Missing observations mean not known yet. A live answer replaces them and sends
 the existing catalogue and account events. Account records keep only kind, name,
 plan and whether the name is anonymous; no email field, sign-in payload,
 credential, token or key is copied into this cache. Agent-owned authentication
-remains in the agent's home or the credential broker.
+remains in the agent's home or the credential broker. The account observation
+also keeps only the permitted sign-in flow kinds, so restoring it cannot offer
+a method forbidden by the last effective configuration. Descriptors are rebuilt
+by the adapter; without an observed policy it offers no invented method. A live
+read replaces the recorded policy along with the account display fields.
 
 Automatic catalogue refresh skips idle agents. An explicit refresh is intent and
 still starts one through the host. File-based usage meters and process-cost
