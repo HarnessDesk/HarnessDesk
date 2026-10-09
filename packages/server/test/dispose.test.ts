@@ -17,6 +17,8 @@ import {
 import { Host, Logger, StateStore } from '../src/index.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
 import { Team } from '../src/team.js'
+import { SessionIndex } from '../src/session-index.js'
+import { TranscriptStore } from '../src/transcripts.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 import { shippedAgentsCopy } from './fixtures/harness.js'
 
@@ -324,4 +326,50 @@ test('a host disposed before start() ever runs makes no roster watch', async (t)
     [],
     'a host disposed before start() ever ran made no watch to notice this',
   )
+})
+
+test('session observations before start do not schedule worktree inventory reads', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-inventory-'))
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), catalogRefreshMs: 0 })
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const runtime = new FakeRuntime()
+  host.register(runtime)
+  const original = SessionIndex.prototype.worktree
+  let reads = 0
+  t.mock.method(SessionIndex.prototype, 'worktree', function (this: SessionIndex, ...args: Parameters<SessionIndex['worktree']>) {
+    reads++
+    return original.apply(this, args)
+  })
+  await runtime.createSession({ cwd: stateDir })
+  assert.equal(reads, 0)
+})
+
+test('the quit waits for a removal sweep parked during startup before closing its database', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-sweep-'))
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), catalogRefreshMs: 0 })
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let arrive!: () => void
+  const parked = new Promise<void>(resolve => { arrive = resolve })
+  t.after(async () => { release(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const original = TranscriptStore.prototype.sweepRemoved
+  t.mock.method(TranscriptStore.prototype, 'sweepRemoved', async function (this: TranscriptStore, before: number) {
+    arrive()
+    await gate
+    await original.call(this, before)
+  })
+  const starting = host.start()
+  await parked
+  let closed = false
+  const quitting = host.dispose().then(() => { closed = true })
+  // Join the quit at its database boundary without a timing assumption.
+  const indexClosed = new Promise<void>(resolve => {
+    const close = SessionIndex.prototype.close
+    t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) { close.call(this); resolve() })
+  })
+  // A correct quit waits here; release from the next event-loop turn.
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.equal(closed, false)
+  release()
+  await Promise.all([starting, quitting, indexClosed])
 })

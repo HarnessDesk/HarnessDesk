@@ -50,9 +50,9 @@ export class SessionWorktrees {
         return 'The worktree stayed because another conversation still uses it.'
       }
       try {
-        await remove(record.path, { stateDir: this.stateDir, keepIgnored: true, keepDetached: true,
+        const removed = await remove(record.path, { stateDir: this.stateDir, keepIgnored: true, keepDetached: true,
           assertUnused: () => this.#assertUnused(record.path) })
-        this.index.worktreeState(record.path, 'removed')
+        this.index.worktreeState(record.path, 'removed', removed.branch)
       } catch {
         // Git failures, unreadable inventories and dirty trees all keep the verb successful.
         this.index.worktreeState(record.path, 'kept')
@@ -118,9 +118,9 @@ export class SessionWorktrees {
       this.#previews.delete(key)
       if (approved.inventory !== await worktreeInventoryKey(record.path)) return { discarded: false, preview: await this.#preview(record) }
       // This is the sole conversation-lifecycle entry that forces a removal, after confirmation.
-      await remove(record.path, { stateDir: this.stateDir, force: true, keepDetached: true, expectedInventory: approved.inventory,
+      const removed = await remove(record.path, { stateDir: this.stateDir, force: true, keepDetached: true, expectedInventory: approved.inventory,
         assertUnused: () => { this.#kept(runtime, id) } })
-      this.index.worktreeState(record.path, 'removed')
+      this.index.worktreeState(record.path, 'removed', removed.branch)
       return { discarded: true }
     })
   }

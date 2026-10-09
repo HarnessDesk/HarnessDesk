@@ -715,6 +715,7 @@ export class Host {
   #sessionIndexSeed: Promise<void> = Promise.resolve()
   readonly #indexPending = new Map<string, Session>()
   #removalSweep: ReturnType<typeof setTimeout> | undefined
+  #removalSweepWork: Promise<void> | null = null
   readonly #indexTimers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #indexTeams = new Map<string, string>()
   /** The transcript as the host watched it, for reads the backend returns thin. */
@@ -833,6 +834,7 @@ export class Host {
    * roster's watch, so a quit that lands first leaves none to leak.
    */
   #disposed = false
+  #startCalled = false
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -2423,9 +2425,18 @@ export class Host {
   }
 
   async start(): Promise<void> {
-    this.#goalWriter = await acquireDeskWriter(this.#state.directory)
+    if (this.#disposed) return
+    this.#startCalled = true
+    const writer = await acquireDeskWriter(this.#state.directory)
+    if (this.#disposed) {
+      await writer.release()
+      return
+    }
+    this.#goalWriter = writer
     await this.#state.load()
+    if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
+    if (this.#disposed) return
     this.#scheduleRemovalSweep()
     await this.#runtimeCache.load()
     for (const runtime of this.#runtimes.values()) runtime.restoreObservations?.(this.#runtimeCache.get(String(runtime.info.id)))
@@ -2537,6 +2548,7 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    if (this.#disposed) return
     for (const state of this.#team.states()) this.#indexTeam(state)
     this.#sessionIndexSeed = this.#sessionIndex.seed(this.#state.directory, {
       teamOf: (runtime, id) => this.#indexTeamOf(runtime, id),
@@ -3083,6 +3095,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    clearTimeout(this.#removalSweep)
     this.#historyImport.close()
     clearTimeout(this.#cacheEvictionTimer)
     for (const start of this.#directRuntimeStarts.values()) start.reject(new Error('The desk is closing.'))
@@ -3157,6 +3170,7 @@ export class Host {
     await this.#terminals.dispose()
     clearTimeout(this.#removalSweep)
     await this.#transcripts.flush()
+    await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
     await this.#sessionIndexSeed
     await this.#sessionIndexRepos.close()
@@ -7135,18 +7149,25 @@ export class Host {
     return read
   }
 
-  async #sweepRemoved(before: number): Promise<void> {
-    const records = this.#sessionIndex.expiredWorktrees(before)
-    await this.#transcripts.sweepRemoved(before)
-    for (const row of records) {
-      if (!this.#sessionIndex.isRemoved(row.runtime, row.id)) continue
-      const warning = await this.#sessionWorktrees.cleanup(row.runtime, row.id)
-      if (warning) this.#push({ method: 'session/worktreeKept', params: { runtime: row.runtime, sessionId: row.id, message: warning } })
-    }
+  #sweepRemoved(before: number): Promise<void> {
+    if (!this.#startCalled || this.#disposed) return Promise.resolve()
+    if (this.#removalSweepWork) return this.#removalSweepWork
+    this.#removalSweepWork = (async () => {
+      const records = this.#sessionIndex.expiredWorktrees(before)
+      await this.#transcripts.sweepRemoved(before)
+      for (const row of records) {
+        if (this.#disposed) return
+        if (!this.#sessionIndex.isRemoved(row.runtime, row.id)) continue
+        const warning = await this.#sessionWorktrees.cleanup(row.runtime, row.id)
+        if (warning) this.#push({ method: 'session/worktreeKept', params: { runtime: row.runtime, sessionId: row.id, message: warning } })
+      }
+    })().finally(() => { this.#removalSweepWork = null })
+    return this.#removalSweepWork
   }
 
   #scheduleRemovalSweep(): void {
     clearTimeout(this.#removalSweep)
+    if (!this.#startCalled || this.#disposed) return
     const removals = this.#transcripts.removedBodies()
     const deadlines = [...removals.map(row => row.removed_at + SESSION_REMOVE_UNDO_MS), ...this.registry.removalDeadlines(), ...this.#sessionIndex.expiredWorktrees(Number.MAX_SAFE_INTEGER).map(row => {
       const dbRow = this.#sessionIndex.removalTime(row.runtime, row.id); return (dbRow ?? Date.now()) + SESSION_REMOVE_UNDO_MS
@@ -7206,7 +7227,9 @@ export class Host {
       createdAt: session.createdAt, updatedAt: session.updatedAt,
       status: session.status, git: session.git ?? null,
     }, { origin: 'imported', teamId: this.#indexTeamOf(session.runtime, session.id) })
-    void this.#sessionWorktrees.remember(session.runtime, session.id).catch(error => this.#logger.warn('conversation worktree inventory could not be read', { error: String(error) }))
+    if (this.#startCalled && !this.#disposed) {
+      void this.#sessionWorktrees.remember(session.runtime, session.id).catch(error => this.#logger.warn('conversation worktree inventory could not be read', { error: String(error) }))
+    }
   }
 
   #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {
@@ -7284,6 +7307,7 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (this.#disposed) return
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()

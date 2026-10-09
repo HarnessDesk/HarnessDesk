@@ -402,9 +402,9 @@ export class SessionIndex {
     this.#notify(record.runtime, record.id, false)
   }
 
-  worktreeState(path: string, state: SessionWorktreeRecord['state']): void {
+  worktreeState(path: string, state: SessionWorktreeRecord['state'], branch?: string | null): void {
     const records = this.#db.prepare('SELECT * FROM session_worktrees WHERE path=?').all(path) as unknown as SessionWorktreeRecord[]
-    for (const record of records) this.rememberWorktree({ ...record, state })
+    for (const record of records) this.rememberWorktree({ ...record, state, ...(branch === undefined ? {} : { branch }) })
   }
 
   worktreeInUse(path: string): boolean {
