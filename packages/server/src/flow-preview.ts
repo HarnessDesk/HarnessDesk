@@ -54,6 +54,8 @@ export interface FlowPreviewPort {
   providerOf?(runtime: string, cwd: string): Promise<string | null>
   /** The checkout whose runtime configuration an opened role would read. */
   checkoutPath?(root: string, lane: boolean): Promise<string>
+  /** Checks the selected project's admission and the first round's checkout without creating authority or a lane. */
+  seatProjectProblem?(root: string, cwd: string, isolate: boolean): Promise<string | null>
   /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
   pluginToolsProblem?(runtime: string, root: string, lane: boolean): Promise<string | null>
   /** The selected model's actual effort and thinking controls, using the runtime's session-opening refusal. */
@@ -352,6 +354,10 @@ export class FlowPreviews {
         // `rolesAtPredecessor` uses the same `handedCheckout` rule as a run;
         // either an isolated role or a role opened on handed work reads its lane.
         const lane = role.isolate || compiled.document.flow.base !== undefined || atPredecessor.has(role.id)
+        if (role.id === compiled.document.flow.seed.role && this.#port.seatProjectProblem) {
+          const problem = await this.#port.seatProjectProblem(root, cwd, lane)
+          if (problem) problems.push({ level: 'error', at: `roles.${role.id}.seat[${binding.index}]`, text: problem })
+        }
         const checkout = await this.#port.checkoutPath?.(cwd, lane) ?? cwd
         // A lane does not exist until the run opens it, so nothing can read its
         // configuration yet; it is cut from this project, whose own is the best

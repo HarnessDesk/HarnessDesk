@@ -231,6 +231,7 @@ export interface Intent {
 export type TeamActor =
   | { readonly kind: 'user' }
   | { readonly kind: 'trigger'; readonly trigger: string }
+  | { readonly kind: 'flow'; readonly name: string }
   | {
       readonly kind: 'agent'
       readonly runtime: RuntimeId

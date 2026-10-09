@@ -268,6 +268,7 @@ export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => 
     return FLOW_EXECUTION({
       target: FLOW_TARGETS.branch,
       state: 'stalled',
+      end: { kind: 'stalled' },
       rounds: [{ n: 1, role: 'fixer', cards: [1, 2], seats: [], evidence: [], state: 'running', cause: 'seed' }],
       reason: SEAT_REFUSED_REASON,
     })

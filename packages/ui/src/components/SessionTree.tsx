@@ -1251,7 +1251,9 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       shown.filter((summary) => summary.cwd !== ''),
       snapshot.workspaces,
       snapshot.workspace,
-      { identityHistory, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()) },
+      { identityHistory, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()),
+        seatProjects: new Map([...snapshot.goals.values()].flatMap(goal => goal.members.flatMap(seat =>
+          seat.checkout?.project ? [[sessionKey(seat.session.runtime, seat.session.sessionId), seat.checkout.project] as const] : []))) },
     )
     const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, list)
     // A folder just opened has no sessions to be grouped by, and a list that
@@ -1325,7 +1327,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     })
     const noFolder = shown.filter((summary) => summary.cwd === '').sort((a, b) => b.updatedAt - a.updatedAt)
     return { groups, noFolder, hiddenPinned, gone }
-  }, [snapshot.history, snapshot.historyIdentity, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
+  }, [snapshot.history, snapshot.historyIdentity, snapshot.goals, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
 }
 
 /** The projects alone: what the section's own controls act on. */

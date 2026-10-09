@@ -1,4 +1,34 @@
-import type { FlowEntry } from '@harnessdesk/protocol'
+import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
+
+/** The existing comparison form edits the policy itself; the engine receives only concrete commands and routes. */
+export const withAttemptCheck = (flow: FlowPolicy, template: FlowPolicy, command: string): FlowPolicy => {
+  const run = command.trim() ? command : ''
+  const previous = flow.roles.find(role => role.id === 'verify' && role.kind === 'check')
+  if (run && previous?.kind === 'check') return { ...flow, roles: flow.roles.map(role => role === previous ? { ...previous, check: { ...previous.check, run } } : role) }
+  const fallback = template.roles.find(role => role.id === 'verify' && role.kind === 'check')
+  const destination = flow.rules.find(rule => (rule.on === 'competitor' || rule.on === 'verify') && (rule.then.role === 'judge' || rule.then.role === 'referee'))
+  if (!destination) return flow
+  const entryWhen = flow.rules.find(rule => rule.on === 'competitor' && rule.then.role === 'verify')?.when
+    ?? (destination.on === 'competitor' ? destination.when : undefined)
+  const rules = flow.rules.filter(rule => rule.on !== 'verify' && rule.then.role !== 'verify' && rule.id !== destination.id)
+  const roles = flow.roles.filter(role => role.id !== 'verify')
+  if (!run) return { ...flow, roles, rules: [{ id: destination.id, on: 'competitor', ...(entryWhen ? { when: entryWhen } : {}), then: destination.then }, ...rules] }
+  const check = previous?.kind === 'check' ? previous.check : fallback?.kind === 'check' ? fallback.check
+    : { onRequest: true, timeout: 900, exits: { '0': 'pass' }, otherwise: 'fail' }
+  const before = roles.findIndex(role => role.id === destination.then.role)
+  roles.splice(before < 0 ? roles.length : before, 0, { id: 'verify', kind: 'check', check: { ...check, run } })
+  const declared = fallback?.kind === 'check' ? template.rules.filter(rule => rule.on === 'verify' || rule.then.role === 'verify') : []
+  const handoff = declared.find(rule => rule.on === 'verify' && (rule.then.role === 'judge' || rule.then.role === 'referee'))
+  if (handoff) return { ...flow, roles, rules: [
+    ...declared.map(rule => rule === handoff ? { ...rule, id: destination.id, then: destination.then } : rule),
+    ...rules,
+  ] }
+  return { ...flow, roles, rules: [
+    { id: 'to-verify', on: 'competitor', ...(entryWhen ? { when: entryWhen } : {}), then: { role: 'verify', title: 'Check the attempt' } },
+    { ...destination, on: 'verify', when: { any: ['pass'] } },
+    ...rules,
+  ] }
+}
 
 const FRESH = ['fix-and-review', 'comparison', 'independent-review', 'investigation']
 const USAGE = 'hd-team-shape-starts'

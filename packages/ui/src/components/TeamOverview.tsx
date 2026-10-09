@@ -131,7 +131,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               <div className="flex flex-wrap gap-3">
                 {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}
                 {run.startedAt !== null && <Text role="meta">Started {new Date(run.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>}
-                {run.reviewRounds && <Text role="meta">Reviews {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
+                {run.reviewRounds && <Text role="meta">Rounds {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
                 <Text role="meta" numeric title={run.total.money === null && run.total.turns === null ? 'Recorded usage is unavailable' : undefined}>
                   {[run.total.money !== null ? `$${run.total.money.toFixed(2)}` : null,
                     run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || '—'}

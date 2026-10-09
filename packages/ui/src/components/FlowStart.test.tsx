@@ -9,6 +9,7 @@ import { emptySnapshot } from '../state/snapshot'
 import type { AppStore } from '../state/store'
 import { FlowStart, type FlowChoice } from './FlowStart'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
+import { withAttemptCheck } from '../lib/team-start'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -96,6 +97,82 @@ it('marks a reviewer that returns to the seed role as fresh each round', async (
 it('does not describe a one-off judge as fresh each round', async () => {
   await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)])
   expect(container.textContent).not.toContain('Fresh each round')
+})
+
+it.each([false, true])('keeps the attempt check editable when empty, including a saved checked template (%s)', checked => {
+  const original: FlowPolicy = TEAM_START_POLICIES.comparison
+  const baseline = { ...original, roles: original.roles.filter(role => role.kind !== 'check'), rules: [
+    { id: 'to-judge', on: 'competitor', then: { role: 'judge', title: 'Pick the best attempt' } },
+    ...original.rules.filter(rule => rule.on === 'judge'),
+  ] }
+  const template = checked ? withAttemptCheck(baseline, baseline, 'npm test') : baseline
+  let current: FlowPolicy = template
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const onPolicy = (policy: FlowPolicy) => { current = policy; paint() }
+  const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
+  act(paint)
+  const label = [...container.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))
+  expect(label).toBeDefined()
+  const field = document.getElementById(label!.htmlFor) as HTMLInputElement
+  const type = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  type('npm test')
+  expect(current.roles.find(role => role.id === 'verify')).toMatchObject({ kind: 'check', check: { run: 'npm test' } })
+  expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+  type('')
+  expect(current.roles.some(role => role.kind === 'check')).toBe(false)
+  expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'competitor', then: { role: 'judge' } })
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
+  expect(container.textContent).toContain('Leave empty to let the judge read the attempts directly.')
+  const judge = () => container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="A judge picks the better one"]')!
+  act(() => judge().click())
+  expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'competitor', then: { role: 'referee' } })
+  act(() => judge().click())
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
+  act(() => judge().click())
+  type('node check.mjs')
+  expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+  act(() => judge().click())
+  expect(current.rules.filter(rule => rule.on === 'competitor').map(rule => rule.then.role)).toEqual(['verify'])
+  expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+})
+
+it('keeps a saved custom check’s success and incoming guards through clearing, restoring and judge toggles', () => {
+  const base: FlowPolicy = TEAM_START_POLICIES.comparison
+  const success = { any: ['clean'], evidence: [{ check: 'verify' }] }
+  const template: FlowPolicy = { ...base, roles: [base.roles[0]!, {
+    id: 'verify', kind: 'check', check: { run: 'node original.mjs', timeout: 37, exits: { '0': 'clean' }, otherwise: 'bad' },
+  }, ...base.roles.slice(1)], rules: [
+    { id: 'project-check', on: 'competitor', when: { every: ['published'] }, then: { role: 'verify', title: 'Check the attempts' } },
+    { id: 'retry', on: 'verify', when: { any: ['bad'] }, then: { role: 'competitor', title: 'Repair the attempts' } },
+    { id: 'to-judge', on: 'verify', when: success, then: { role: 'judge', title: 'Pick the best attempt' } },
+    ...base.rules.filter(rule => rule.on === 'judge'),
+  ] }
+  let current = template
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const onPolicy = (flow: FlowPolicy) => { current = flow; paint() }
+  const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
+  act(paint)
+  const label = [...container.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))!
+  const field = document.getElementById(label.htmlFor) as HTMLInputElement
+  const type = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="A judge picks the better one"]')!.click())
+  type('')
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-person')?.when).toEqual({ every: ['published'] })
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual({ every: ['published'] })
+  type('node replacement.mjs')
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-person')?.when).toEqual(success)
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual(success)
+  expect(current.rules.find(rule => rule.id === 'retry')).toEqual(template.rules.find(rule => rule.id === 'retry'))
 })
 
 it('the review options preserve the review cap and require recorded approval before automatic merging', async () => {

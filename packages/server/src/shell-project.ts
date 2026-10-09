@@ -30,7 +30,7 @@ const assertBoundary = async (root: string): Promise<void> => {
   }
 }
 
-/** Captured only by workspace open and persisted in the host's state directory. */
+/** Captured by an explicit workspace open or Team start and persisted in the host's state directory. */
 export const captureShellProject = async (opened: string): Promise<ShellProjectIdentity> => {
   await assertBoundary(opened)
   const checkout = await shellCheckoutIdentity(opened)

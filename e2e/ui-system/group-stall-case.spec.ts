@@ -1,33 +1,34 @@
 import { expect, test } from '@playwright/test'
 
-/**
- * The catalogue's stalled-round case: a run whose round could not seat its
- * first card. The header says Needs you, and the room's live line carries the
- * host's own reason whole — the refusal, the sibling held back, the way on —
- * one line per line it was written as, never cut to one.
- */
-test('a round stalled on a Seat names why and what to do on the live line, lines kept', async ({ page }) => {
+/** The Run owns its refusal; the other Team destinations lead there. */
+test('a stopped Team keeps its full reason on Run and a recovery link on the other pages', async ({ page }, info) => {
   await page.goto('/design.html?view=group')
   await page.evaluate(async () => { await document.fonts.ready })
-
   const wrap = page.locator('[data-testid="group-run-stalled-on-a-seat"]')
   await expect(wrap).toBeVisible()
   await wrap.scrollIntoViewIfNeeded()
   await expect(wrap.locator('header').filter({ hasText: 'Needs you' }).first()).toBeVisible()
-
-  const line = wrap.locator('[data-slot="room-live-line"][data-kind="stall"]')
-  await expect(line).toBeVisible()
-  await expect(line).toContainText('The Seat for card #1 could not be opened')
-  await expect(line).toContainText('card #2 was not started either')
-  await expect(line).toContainText('Next: wrap this Goal, which stops this run, then fix what stopped card #1')
-
-  // Four lines as written: the refusal wraps rather than truncating, and each
-  // written line starts on its own.
-  const words = line.locator('.whitespace-pre-line')
-  const { height, lineHeight, overflow } = await words.evaluate((el) => {
-    const style = getComputedStyle(el)
-    return { height: el.getBoundingClientRect().height, lineHeight: parseFloat(style.lineHeight), overflow: el.scrollWidth > el.clientWidth + 1 }
-  })
-  expect(overflow).toBe(false)
-  expect(height).toBeGreaterThanOrEqual(lineHeight * 4 - 1)
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => { document.body.toggleAttribute('data-hd-dark-theme', value === 'dark'); document.documentElement.style.colorScheme = value }, theme)
+    for (const name of ['Overview', 'Board', 'Chat', 'Run']) {
+      await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
+      if (name === 'Run') {
+        const reason = wrap.locator('[data-slot="run-need"]')
+        await expect(reason).toContainText('The Seat for card #1 could not be opened')
+        await expect(reason).toContainText('card #2 was not started either')
+        await expect(reason).toContainText('Next: fix what stopped card #1, then choose Run again.')
+        await expect(wrap.getByText(/The Seat for card #1 could not be opened/)).toHaveCount(1)
+        await expect(wrap.getByRole('button', { name: 'Run again…', exact: true })).toBeVisible()
+      } else {
+        await expect(wrap.getByText(/The Seat for card #1 could not be opened/)).toHaveCount(0)
+        const recovery = wrap.getByRole('button', { name: 'Review stopped Run', exact: true })
+        await expect(recovery).toBeVisible()
+        await recovery.click()
+        await expect(wrap.locator('[data-slot="run-need"]')).toContainText('The Seat for card #1 could not be opened')
+        await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
+      }
+      await expect(wrap).not.toContainText('wrap this Goal')
+      await info.attach(`stopped-${name.toLowerCase()}-${theme}`, { body: await wrap.screenshot(), contentType: 'image/png' })
+    }
+  }
 })

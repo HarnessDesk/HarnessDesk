@@ -5,6 +5,7 @@ import { runtimeId, DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowAgentRole, ty
 import { ActionError, Banner, Button, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { boundInputValues } from '../lib/shapes'
+import { withAttemptCheck } from '../lib/team-start'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -608,6 +609,9 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
   const hasReviewOptions = hasReviewLoop && !template.roles.some(role => role.kind === 'check') && mergeRules.length > 0 && mergeRules.every(rule => rule.on === 'reviewer')
   const hasJudge = template.roles.some(role => role.id === 'judge') && template.roles.some(role => role.id === 'competitor')
   const judgeOn = flow.roles.some(role => role.id === 'judge')
+  const attemptCheck = flow.roles.find(role => role.id === 'verify' && role.kind === 'check')
+  const checkBefore = attemptCheck ? 'verify' : 'competitor'
+  const incoming = flow.rules.find(rule => rule.on === checkBefore && (rule.then.role === 'judge' || rule.then.role === 'referee'))
   const editRole = (role: FlowAgentRole): void => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? role : one) })
   return <div className={styles.flow}>
     <section aria-label="Who does what">
@@ -640,10 +644,15 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
     </div>}
     {hasJudge && <Rows><Row title="A judge picks the better one" control={<Switch aria-label="A judge picks the better one" checked={judgeOn} disabled={disabled} onCheckedChange={on => onPolicy({ ...flow,
       roles: on ? [...flow.roles, ...template.roles.filter(role => role.id === 'judge')] : flow.roles.filter(role => role.id !== 'judge'),
-      rules: on ? [...flow.rules.filter(rule => rule.id !== 'to-person'), ...template.rules.filter(rule => rule.on === 'judge' || rule.then.role === 'judge')]
-        : [...flow.rules.filter(rule => rule.on !== 'judge' && rule.then.role !== 'judge'), { id: 'to-person', on: 'verify', when: { any: ['pass'] }, then: { role: 'referee', title: 'Choose and merge an attempt' } }],
+      rules: on ? [...flow.rules.filter(rule => rule.id !== 'to-person'), ...template.rules.filter(rule => rule.on === 'judge' || rule.then.role === 'judge').map(rule => {
+        if (rule.then.role !== 'judge') return rule
+        const when = attemptCheck ? (rule.on === 'verify' ? rule.when : { any: ['pass'] }) : incoming?.when
+        return { id: rule.id, on: checkBefore, ...(when ? { when } : {}), then: rule.then }
+      })]
+        : [...flow.rules.filter(rule => rule.on !== 'judge' && rule.then.role !== 'judge'), { id: 'to-person', on: checkBefore, ...(incoming?.when ? { when: incoming.when } : {}), then: { role: 'referee', title: 'Choose and merge an attempt' } }],
     })} />} /></Rows>}
-    {flow.roles.filter(role => role.kind === 'check').map(role => role.kind === 'check' && <Field key={role.id} label={hasJudge ? 'Check each attempt with' : `Check · ${role.id}`}>{control => <Input {...control} disabled={editingDisabled} value={role.check.run} onChange={event => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? { ...role, check: { ...role.check, run: event.target.value } } : one) })} />}</Field>)}
+    {hasJudge && <Field label="Check each attempt with" hint={judgeOn ? 'Leave empty to let the judge read the attempts directly.' : 'Leave empty to choose from the attempts directly.'}>{control => <Input {...control} disabled={editingDisabled} value={attemptCheck?.kind === 'check' ? attemptCheck.check.run : ''} onChange={event => onPolicy(withAttemptCheck(flow, template, event.target.value))} />}</Field>}
+    {flow.roles.filter(role => role.kind === 'check' && (!hasJudge || role.id !== 'verify')).map(role => role.kind === 'check' && <Field key={role.id} label={`Check · ${role.id}`}>{control => <Input {...control} disabled={editingDisabled} value={role.check.run} onChange={event => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? { ...role, check: { ...role.check, run: event.target.value } } : one) })} />}</Field>)}
     {done}
     <details className={styles.details}><summary><Text as="span" role="muted">Details</Text></summary><div className={styles.flow}>
       {details}

@@ -17,10 +17,11 @@ import { TeamBoardList, JOB_COLUMN_CLASS, type JobColumn } from './TeamBoardList
 import { chipOf, ciVerdict, isCurrent, standingWords } from '../lib/evidence'
 import { openExternal } from '../lib/desktop'
 import { runtimeTint } from '../lib/accounts'
-import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
+import { FACT_COLUMNS, flowStepOf, evidenceForCard, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
 import { namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/git-refs'
+import { stepWords } from '../lib/run-timeline'
 import type { AppSnapshot } from '../state/store'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
@@ -230,7 +231,7 @@ const jobCopy = (intent: Intent, room: string, snapshot: AppSnapshot) => {
     intent.blockedReason ??
     repairLead ??
     (intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null) ??
-    intent.detail ??
+    stepWords(intent.detail) ??
     null
 
   return { assignee, holderName, note }
@@ -445,7 +446,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         intent.id,
         placeCard({
           intent,
-          evidence: evidence?.cards.find((one) => one.card === intent.id),
+          evidence: evidenceForCard(intent, intents, evidence, flowRun, executions),
+          flowStep: role,
           stranded: strandedFor(intent, now, attached) !== null,
           holderWaits: intent.claim
             ? waiting.has(sessionKey(intent.claim.runtime, intent.claim.sessionId as SessionId))
@@ -668,7 +670,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             }} renderRow={(intent, columns) => (
             <IntentCard key={intent.id} listGrouped={layout.compact} listColumns={columns} intent={intent} room={room}
               placement={placed.get(intent.id) ?? null} now={now} attached={attached}
-              evidence={evidence?.cards.find(one => one.card === intent.id)} checks={evidence ?? NO_CHECKS}
+              evidence={evidenceForCard(intent, intents, evidence, flowRun, executions)} checks={evidence ?? NO_CHECKS}
               onRunCheck={name => runCheck(intent.id, name)}
               onAssign={goal && !intent.claim && intent.state === 'open' ? () => setAssigning(intent.id) : undefined}
               onOpenHolder={() => openHolder(intent)}
@@ -705,7 +707,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                       placement={placed.get(intent.id) ?? null}
                       now={now}
                       attached={attached}
-                      evidence={evidence?.cards.find((one) => one.card === intent.id)}
+                      evidence={evidenceForCard(intent, intents, evidence, flowRun, executions)}
                       checks={evidence ?? NO_CHECKS}
                       onRunCheck={(name) => runCheck(intent.id, name)}
                       onAssign={goal && !intent.claim && intent.state === 'open' ? () => setAssigning(intent.id) : undefined}

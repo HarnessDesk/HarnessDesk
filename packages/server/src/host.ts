@@ -8,9 +8,10 @@ import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -1683,6 +1684,7 @@ export class Host {
       },
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       checkoutPath: previewCheckout,
+      seatProjectProblem: (root, cwd, isolate) => this.#teamSeatProjectProblem(root, cwd, isolate),
       pluginToolsProblem: async (runtimeName, root, lane) => {
         const runtime = this.#runtimes.get(runtimeId(runtimeName))
         if (!runtime || !runtime.info.capabilities.pluginTools) return null
@@ -1840,6 +1842,10 @@ export class Host {
       revision: async (cwd: string) => {
         const revision = await revisionOf(cwd)
         return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
+      },
+      checkoutUnused: async (cwd: string) => {
+        const changes = await this.#worktrees.changes(cwd)
+        return changes.modified === 0 && changes.untracked === 0 && changes.ignoredCount === 0
       },
       changed: (view, options) => {
         if (options?.install !== false && !this.#publishingTeamProjection) {
@@ -3680,7 +3686,74 @@ export class Host {
   #shellProject: string | null = null
   #shellCheckoutRoot: string | null = null
 
-  /** Only person-opened projects admit shell authority; session listings never do. */
+  /** A preview may inspect the selected folder; only Start persists its admission. */
+  async #teamProjectIdentity(folder: string): Promise<ShellProjectIdentity> {
+    await this.#confineRoom(folder)
+    const real = await realpath(folder)
+    if (!(await stat(real)).isDirectory()) throw new Error('Choose a project folder, then preview again.')
+    const selected = this.#state.state.workspaces.find(entry => samePath(entry.path, folder))
+    if (selected && isShellProjectIdentity(selected.shellIdentity) &&
+      (typeof selected.realPath !== 'string' || !samePath(selected.realPath, real) ||
+        !await shellProjectUnchanged(selected.realPath, selected.shellIdentity))) {
+      throw new Error('The project checkout changed. Open the project folder again, then preview again.')
+    }
+    // An existing identity must still agree. Starting a Team never silently
+    // replaces a captured boundary that changed since the person opened it.
+    await this.#admitShellProject(real, real)
+    // Another opened checkout may admit this repository, but its identity
+    // cannot be saved as this folder's: the next Seat validates that pairing.
+    return captureShellProject(real)
+  }
+
+  async #admitTeamProject(folder: string): Promise<void> {
+    const shellIdentity = await this.#teamProjectIdentity(folder)
+    const realPath = await realpath(folder)
+    const described = await describeWorkspace(folder)
+    await this.#state.touchWorkspace({ ...described, lastOpenedAt: Date.now(), realPath, shellIdentity })
+    this.#boardRoots.clear()
+    void this.#watchProjects()
+  }
+
+  async #teamSeatProjectProblem(root: string, cwd: string, isolate: boolean): Promise<string | null> {
+    try {
+      const identity = await this.#teamProjectIdentity(root)
+      const real = await realpath(cwd)
+      const checkout = await shellCheckoutIdentity(real)
+      const checkoutRoot = checkout?.checkoutRoot ?? real
+      if (checkout && (!identity.gitCommonDir || !samePath(checkout.gitCommonDir, identity.gitCommonDir))) {
+        return 'The Team checkout belongs to another project. Open the project folder again, then preview again.'
+      }
+      if (!samePath(checkoutRoot, identity.checkoutRoot) &&
+        !samePath(await this.#worktrees.shellRoot(identity.project, checkoutRoot, identity.gitCommonDir, identity.checkoutRoot), checkoutRoot)) {
+        return 'The Team checkout is no longer available. Open the project folder again, then preview again.'
+      }
+      if (isolate) {
+        if (!identity.gitCommonDir || !(await revisionOf(real))?.head) return 'Choose a Git project with an initial commit, then preview again.'
+        // Follow the same main-checkout resolution as allocation, without
+        // creating its container. The nearest existing parent must be usable.
+        let parent = dirname(await managedWorktreePath(real, this.#state.directory, 'lane-preview'))
+        for (;;) {
+          const info = await stat(parent).catch(error => {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+            throw error
+          })
+          if (info) {
+            if (!info.isDirectory()) throw new Error('The checkout parent is not a folder')
+            await access(parent, constants.W_OK | constants.X_OK)
+            break
+          }
+          const above = dirname(parent)
+          if (above === parent) throw new Error('No checkout parent is available')
+          parent = above
+        }
+      }
+      return null
+    } catch {
+      return 'The project cannot open its attempts here. Open the project folder again, then preview again.'
+    }
+  }
+
+  /** Only person-opened or explicitly selected Team projects admit shell authority; session listings never do. */
   async #admitShellProject(project: string | null | undefined, checkout?: string): Promise<ShellProjectIdentity | undefined> {
     if (!project || !isAbsolute(project)) return undefined
     const real = await realpath(project).catch(() => undefined)
@@ -4532,6 +4605,7 @@ export class Host {
         topLevel: (path, signal) => gitOps.topLevel(path, signal),
         realPath: (path) => this.#realPath(path),
         confineRoom: (folder) => this.#confineRoom(folder),
+        admitTeamProject: (folder) => this.#admitTeamProject(folder),
         open: (path) => this.#openWorkspace(path),
         gitStatus: (path, signal) => gitService.status(path, signal),
         repoOf: (cwd) => this.#repoOf(cwd),

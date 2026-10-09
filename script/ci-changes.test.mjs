@@ -19,7 +19,7 @@ const check = (paths, expected, event = 'pull_request') => {
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
     assert.equal(output.browser, expected[0])
     assert.equal(output.native, String(expected[1]))
-    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/run-ending.spec.ts'])
+    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

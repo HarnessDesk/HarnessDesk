@@ -1,4 +1,4 @@
-import { normalizedRepoKey, repoKey, sessionKey, type SessionSummary, type TeamState, type WorkspaceEntry } from '@harnessdesk/protocol'
+import { normalizedRepoKey, repoKey, sessionKey, type SessionKey, type SessionSummary, type TeamState, type WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { isPathInside, relativeTo, shortPath } from './paths'
 
@@ -198,11 +198,16 @@ export const groupByProject = (
   workspaces: readonly (string | WorkspaceEntry)[],
   /** The folder the app has open, if any: it may claim its project's home. */
   current: WorkspaceEntry | null = null,
-  options: { identityHistory?: readonly SessionSummary[]; goneFolders?: ReadonlySet<string> } = {},
+  options: { identityHistory?: readonly SessionSummary[]; goneFolders?: ReadonlySet<string>; seatProjects?: ReadonlyMap<SessionKey, string> } = {},
 ): ProjectGroup[] => {
+  const ownerOf = (summary: SessionSummary): SessionSummary => {
+    const root = options.seatProjects?.get(sessionKey(summary.runtime, summary.id))
+    return root ? { ...summary, repo: { ...summary.repo, root, worktree: summary.cwd !== root } } : summary
+  }
+  history = history.map(ownerOf)
   // Visibility never decides repository identity, aliases or the home. Opened
   // checkouts also supply facts before their first history page arrives.
-  const facts = options.identityHistory ?? history
+  const facts = options.identityHistory?.map(ownerOf) ?? history
   const visible = new Map(
     history.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
   )

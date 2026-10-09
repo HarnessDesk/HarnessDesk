@@ -101,7 +101,12 @@ for (const theme of ['light', 'dark'] as const) {
    ['stalled', 'Choose the target before this Run can continue'],
   ]) {
    const overview = page.locator(`#team-overview-live-${scene} [data-slot="team-overview"]`)
-   await expect(overview.locator('[aria-label="Run"] [data-slot="room-live-line"]')).toContainText(sentence!)
+   if (scene === 'stalled') {
+    // A stalled Run owns its refusal; Overview keeps the action that opens it.
+    await expect(overview.locator('[data-slot="room-live-line"]')).toHaveCount(0)
+    await expect(overview).not.toContainText(sentence!)
+    await expect(page.locator(`#team-overview-live-${scene}`).getByRole('button', { name: 'Review stopped Run', exact: true })).toBeVisible()
+   } else await expect(overview.locator('[aria-label="Run"] [data-slot="room-live-line"]')).toContainText(sentence!)
    await expect(overview.locator('[data-slot="room-run-reason"]')).toHaveCount(0)
    // Clickable names keep the whole cell centre; the role keeps the name's left edge.
    for (const row of await overview.locator('[data-slot="table-row"][data-seat]').all()) {
@@ -130,6 +135,12 @@ for (const theme of ['light', 'dark'] as const) {
       return hit!==null&&el.contains(hit)
      })).toBe(true)
     }
+   }
+   if (scene === 'stalled') {
+    const frame = page.locator(`#team-overview-live-${scene}`)
+    await frame.getByRole('button', { name: 'Review stopped Run', exact: true }).click()
+    await expect(frame.locator('[data-slot="run-view"]').first()).toContainText(sentence!)
+    expect((await frame.textContent())?.split(sentence!)).toHaveLength(2)
    }
   }
  })
