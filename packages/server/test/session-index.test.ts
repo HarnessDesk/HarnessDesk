@@ -138,7 +138,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 6)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 7)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })

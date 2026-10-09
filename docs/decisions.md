@@ -7,6 +7,34 @@ the rule is the last line of its section.
 
 ---
 
+## Storage cleanup is reviewed on demand and keeps every branch
+
+Settings › Conversations › Storage measures the conversation database and its
+WAL files, daily snapshots, cached preview bodies and managed checkout containers.
+A bounded asynchronous filesystem walk never follows symlinks. The first read
+answers with Measuring; a host notification supplies the cached result. Cleanup
+and confirmed Discard refresh that measurement. A failed measurement stays
+unavailable with its reason rather than becoming a zero.
+
+Cleanup previews inactive worktrees after 30, 60 or 90 days, across conversation
+states. Live, busy, open and pinned conversations are excluded, as is a shared
+worktree when any owner is ineligible. Deleted conversations retain their title
+and last-active time with their checkout inventory; an older inventory whose
+activity is unknown is kept. Only present checkouts are bulk candidates; kept
+checkouts of removed or deleted conversations have their own Discard action.
+
+Clean worktrees are selected by default. A separate choice reveals the modified,
+untracked and ignored inventory before including those checkouts. Confirmation
+is bound to a host-held token over the non-clean inventories. The host recomputes
+eligibility and inventory immediately before removal and checks ownership again
+at the existing Git mutation boundary. A newly dirty tree stays; an inventory
+changed since review is refused. A refusal on one checkout does not stop the rest,
+and its reason stays in the result dialog. No worktree is removed in the background,
+no unmanaged checkout is removed, and no branch or conversation is deleted.
+
+**The rule:** confirm the shown inventory; recheck it and every owner before
+removing a checkout through the existing conversation worktree path.
+
 ## Worktrees follow their conversations; wrapping a Team archives its members
 
 A managed worktree is part of the conversation's lifecycle. Archive removes a
@@ -26,8 +54,8 @@ before resuming the agent. A missing branch opens the main checkout with one
 line explaining why.
 
 Archive reads the local index, including archived Team members. A kept worktree
-wears a chip whose tooltip counts changes and ignored entries. Only **Discard
-worktree…** forces removal: the confirmation lists the inventory, and the host
+wears a chip whose tooltip counts changes and ignored entries. **Discard
+worktree…** and the explicitly selected dirty Storage cleanup force removal: the confirmation lists the inventory, and the host
 rechecks the full inventory, including files inside untracked and ignored
 directories, before removing it. If it changed, the person must
 review and confirm again. Discard also refuses a detached checkout; a branch

@@ -70,6 +70,7 @@ import { summarise } from '../lib/options'
 import { presetsFor, snapshotValues, type AgentPreset } from '../state/presets'
 import { HistorySection } from './History'
 import { ArchiveSection } from './Archive'
+import { StorageSection } from './Storage'
 import { LibrarySection } from './Library'
 import { RuntimesSection, agentReadiness } from './SettingsAgents'
 import { PluginsSection } from './PluginsSection'
@@ -138,6 +139,7 @@ export type Section =
   | 'workspaces'
   | 'archive'
   | 'history'
+  | 'storage'
   | 'runtimes'
   | 'models'
   | 'skills'
@@ -164,7 +166,7 @@ const MOVED: Readonly<Record<string, Section>> = {
   agents: 'runtimes',
 }
 const SECTIONS: readonly Section[] = [
-  'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history',
+  'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage',
   'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
 ]
 export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
@@ -1884,6 +1886,12 @@ export const Settings = ({
           keywords: ['history', 'import', 'other agents', 'past conversations'],
         },
         {
+          id: 'storage',
+          label: 'Storage',
+          icon: <FolderIcon size={14} />,
+          keywords: ['storage', 'disk', 'space', 'clean up', 'worktrees', 'cache'],
+        },
+        {
           id: 'archive',
           label: 'Archive',
           icon: <ArchiveIcon size={14} />,
@@ -2048,6 +2056,7 @@ export const Settings = ({
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'workspaces' && <WorkspacesSection focus={focus} />}
             {section === 'archive' && <ArchiveSection />}
+            {section === 'storage' && <StorageSection />}
             {section === 'history' && <HistorySection focus={focus} onOpen={onClose} onOpenAgent={id => onSection('runtimes', id)} />}
             {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} focus={focus} onBrowseHistory={id => onSection('history', id)} />}
             {section === 'models' && <ModelsSection />}

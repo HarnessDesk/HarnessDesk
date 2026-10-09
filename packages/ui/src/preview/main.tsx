@@ -93,6 +93,7 @@ import { PanelFrames } from './frames-panels'
 import { CoverageFrames, NoticePlacementFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
+import { StorageFrames } from './frames-storage'
 import { HistoryFrames } from './frames-history'
 import { RuntimeStartFrames } from './frames-runtime-start'
 import { TranscriptFrames } from './frames-transcript'
@@ -562,6 +563,7 @@ const Preview = () => {
   )
   const [dashboardScope, setDashboardScope] = useState<RuntimeId | null>(null)
   const dashboardStore = useMemo(() => usagePreviewStore(), [])
+  if (new URLSearchParams(window.location.search).has('storage')) return <StorageFrames />
   if (new URLSearchParams(window.location.search).has('history')) return <HistoryFrames />
   if (new URLSearchParams(window.location.search).has('icon-followups')) return <IconFollowupsFrames />
   return (

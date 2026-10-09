@@ -15,7 +15,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
   try {
     db.exec('PRAGMA journal_mode = WAL')
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
-    if (version > 6) throw new Error('Session index is from a newer schema')
+    if (version > 7) throw new Error('Session index is from a newer schema')
     if (version === 0) transaction(db, () => {
       db.exec(`CREATE TABLE sessions (
         runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
@@ -109,6 +109,17 @@ export function openSessionDatabase(file: string): DatabaseSync {
           root TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(runtime,id));
         CREATE INDEX session_worktrees_path ON session_worktrees(path);
         PRAGMA user_version = 6;`)
+    })
+    if (version < 7) transaction(db, () => {
+      db.exec(`ALTER TABLE session_worktrees ADD COLUMN title TEXT;
+        ALTER TABLE session_worktrees ADD COLUMN updated_at REAL;
+        UPDATE session_worktrees SET title=(SELECT title FROM sessions s WHERE s.runtime=session_worktrees.runtime AND s.id=session_worktrees.id),
+          updated_at=(SELECT updated_at FROM sessions s WHERE s.runtime=session_worktrees.runtime AND s.id=session_worktrees.id);
+        CREATE TRIGGER worktree_facts_update AFTER UPDATE OF title,updated_at ON sessions BEGIN
+          UPDATE session_worktrees SET title=new.title,updated_at=new.updated_at WHERE runtime=new.runtime AND id=new.id; END;
+        CREATE TRIGGER worktree_facts_delete BEFORE DELETE ON sessions BEGIN
+          UPDATE session_worktrees SET title=old.title,updated_at=old.updated_at WHERE runtime=old.runtime AND id=old.id; END;
+        PRAGMA user_version = 7;`)
     })
     return db
   } catch (error) { db.close(); throw error }

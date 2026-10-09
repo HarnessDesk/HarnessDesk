@@ -1,16 +1,21 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { access } from 'node:fs/promises'
 import { join, resolve, relative, sep } from 'node:path'
-import type { HostResult, RuntimeId, SessionId } from '@harnessdesk/protocol'
+import type { HostParams, HostResult, RuntimeId, SessionId, StorageCandidate, StorageKeptWorktree } from '@harnessdesk/protocol'
 import { SessionIndex, type SessionWorktreeRecord } from './session-index.js'
 import { changes, list, remove, restore, repositoryRoot, samePath, worktreeInventoryKey, branchExists } from './worktree.js'
+import { diskBytes } from './storage-walk.js'
 
 /** Conversation-owned inventory survives removal of the conversation's body or row. */
 export class SessionWorktrees {
   #tail: Promise<unknown> = Promise.resolve()
   readonly #previews = new Map<string, { path: string; inventory: string; stamp: string }>()
+  readonly #cleanups = new Map<string, { days: number; at: number; inventories: Map<string, { key: string; clean: boolean }> }>()
   constructor(private readonly index: SessionIndex, private readonly stateDir: string,
-    private readonly working: (path: string) => boolean) {}
+    private readonly working: (path: string) => boolean,
+    private readonly live: (runtime: RuntimeId, id: SessionId) => boolean = () => false,
+    private readonly removeWorktree: typeof remove = remove,
+    private readonly liveAtPath: (path: string) => boolean = () => false) {}
 
   #serial<T>(work: () => Promise<T>): Promise<T> {
     const next = this.#tail.then(work)
@@ -50,7 +55,7 @@ export class SessionWorktrees {
         return 'The worktree stayed because another conversation still uses it.'
       }
       try {
-        const removed = await remove(record.path, { stateDir: this.stateDir, keepIgnored: true, keepDetached: true,
+        const removed = await this.removeWorktree(record.path, { stateDir: this.stateDir, keepIgnored: true, keepDetached: true,
           assertUnused: () => this.#assertUnused(record.path) })
         this.index.worktreeState(record.path, 'removed', removed.branch)
       } catch {
@@ -58,6 +63,90 @@ export class SessionWorktrees {
         this.index.worktreeState(record.path, 'kept')
         return 'The worktree stayed. Review it in Archive before discarding it.'
       }
+    })
+  }
+
+  kept(): Promise<readonly StorageKeptWorktree[]> {
+    return this.#serial(async () => {
+      const rows = this.index.storageWorktrees().filter(row => row.state === 'kept' && row.hidden)
+      const seen = new Set<string>(), result: StorageKeptWorktree[] = []
+      for (const row of rows) {
+        if (seen.has(row.path)) continue
+        seen.add(row.path)
+        try { result.push({ runtime: row.runtime, sessionId: row.id, title: row.title, path: row.path, changes: await changes(row.path) }) }
+        catch (error) { result.push({ runtime: row.runtime, sessionId: row.id, title: row.title, path: row.path, reason: String(error) }) }
+      }
+      return result
+    })
+  }
+
+  #inactive(params: HostParams<'storage/cleanupPreview'>): SessionWorktreeRecord[] {
+    const before = Date.now() - params.olderThanDays * 86_400_000
+    const excluded = new Set(params.exclude.map(row => JSON.stringify([row.runtime, row.sessionId])))
+    const eligible = (row: { runtime: RuntimeId; id: SessionId; updatedAt: number | null }) =>
+      row.updatedAt !== null && row.updatedAt < before && !this.live(row.runtime, row.id) && !excluded.has(JSON.stringify([row.runtime, row.id]))
+    const rows = this.index.storageWorktrees(), seen = new Set<string>(), result: SessionWorktreeRecord[] = []
+    for (const row of rows) {
+      if (row.state !== 'present' || !eligible(row) || seen.has(row.path) || this.working(row.path) || this.liveAtPath(row.path)) continue
+      if (rows.some(other => samePath(other.path, row.path) && (other.state !== 'present' || !eligible(other)))) continue
+      if (this.index.storageOwners(row.path).some(other => !eligible(other))) continue
+      seen.add(row.path); result.push(row)
+    }
+    return result
+  }
+
+  cleanupPreview(params: HostParams<'storage/cleanupPreview'>): Promise<HostResult<'storage/cleanupPreview'>> {
+    return this.#serial(async () => {
+      const candidates: StorageCandidate[] = [], inventories = new Map<string, { key: string; clean: boolean }>()
+      for (const row of this.#inactive(params)) {
+        // Inventory read failure aborts the preview; it never means clean.
+        const key = await worktreeInventoryKey(row.path), pending = await changes(row.path)
+        const bytes = await diskBytes(row.path)
+        if (key !== await worktreeInventoryKey(row.path)) throw new Error('A worktree changed while reading it. Review again.')
+        const clean = pending.modified === 0 && pending.untracked === 0 && pending.ignoredCount === 0
+        inventories.set(row.path, { key, clean })
+        candidates.push({ runtime: row.runtime, sessionId: row.id, title: this.index.storageWorktrees().find(owner => owner.runtime === row.runtime && owner.id === row.id)?.title ?? null,
+          path: row.path, bytes, changes: pending, clean })
+      }
+      const hash = createHash('sha256').update(randomUUID())
+      for (const [path, inventory] of inventories) if (!inventory.clean) hash.update(JSON.stringify([path, inventory.key]))
+      const inventoryToken = hash.digest('hex')
+      // A token is a host-held confirmation, never an inventory supplied by a client.
+      while (this.#cleanups.size >= 20) this.#cleanups.delete(this.#cleanups.keys().next().value!)
+      this.#cleanups.set(inventoryToken, { days: params.olderThanDays, at: Date.now(), inventories })
+      return { candidates, cleanBytes: candidates.filter(row => row.clean).reduce((sum, row) => sum + row.bytes, 0), inventoryToken }
+    })
+  }
+
+  cleanupInactive(params: HostParams<'storage/cleanup'>): Promise<HostResult<'storage/cleanup'>> {
+    return this.#serial(async () => {
+      const shown = this.#cleanups.get(params.inventoryToken)
+      if (!shown || shown.days !== params.olderThanDays || Date.now() - shown.at > 15 * 60_000) throw new Error('Review the worktrees before removing them.')
+      this.#cleanups.delete(params.inventoryToken)
+      let removed = 0, kept = 0, freedBytes = 0
+      const refused: { path: string; reason: string }[] = []
+      for (const row of this.#inactive(params)) {
+        const approved = shown.inventories.get(row.path)
+        if (!approved) continue // A newly eligible tree was never shown.
+        try {
+          if (!approved.clean && !params.includeDirty) { kept++; continue }
+          const pending = await changes(row.path)
+          const dirty = pending.modified > 0 || pending.untracked > 0 || pending.ignoredCount > 0
+          if (dirty && (approved.clean || !params.includeDirty)) { kept++; continue }
+          const key = await worktreeInventoryKey(row.path)
+          if (dirty && key !== approved.key) throw new Error('The worktree changed since you looked. Review it again.')
+          // Count what actually goes now, never the earlier size estimate.
+          const bytes = await diskBytes(row.path)
+          const result = await this.removeWorktree(row.path, { stateDir: this.stateDir, keepIgnored: true, keepDetached: true,
+            ...(dirty ? { force: true, expectedInventory: approved.key } : {}),
+            assertUnused: () => {
+              if (!this.#inactive(params).some(candidate => samePath(candidate.path, row.path))) throw new Error('A conversation now uses this worktree.')
+            } })
+          this.index.worktreeState(row.path, 'removed', result.branch)
+          removed++; freedBytes += bytes
+        } catch (error) { kept++; refused.push({ path: row.path, reason: error instanceof Error ? error.message : String(error) }) }
+      }
+      return { removed, kept, freedBytes, refused }
     })
   }
 
@@ -117,8 +206,8 @@ export class SessionWorktrees {
       if (!approved || approved.stamp !== stamp || !samePath(approved.path, record.path)) throw new Error('Review the worktree before discarding it.')
       this.#previews.delete(key)
       if (approved.inventory !== await worktreeInventoryKey(record.path)) return { discarded: false, preview: await this.#preview(record) }
-      // This is the sole conversation-lifecycle entry that forces a removal, after confirmation.
-      const removed = await remove(record.path, { stateDir: this.stateDir, force: true, keepDetached: true, expectedInventory: approved.inventory,
+      // Discard and confirmed dirty Storage cleanup are the two lifecycle paths that force removal.
+      const removed = await this.removeWorktree(record.path, { stateDir: this.stateDir, force: true, keepDetached: true, expectedInventory: approved.inventory,
         assertUnused: () => { this.#kept(runtime, id) } })
       this.index.worktreeState(record.path, 'removed', removed.branch)
       return { discarded: true }

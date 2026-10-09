@@ -366,6 +366,17 @@ test.describe('preview coverage', () => {
     await expect(page.locator('#run-dock-frame [data-slot="run-steps"]:visible')).toBeVisible()
     for (const component of (await collectCoverage(page)).covered) covered.add(component)
 
+    await page.goto('/preview.html?storage=page')
+    await expect(page.getByRole('button', { name: 'Review…', exact: true })).toBeVisible()
+    const storageCoverage = await collectCoverage(page)
+    expect(storageCoverage.covered).toContain('components/Storage.tsx#StorageSection')
+    for (const component of storageCoverage.covered) covered.add(component)
+    await page.getByRole('button', { name: 'Discard worktree…', exact: true }).first().click()
+    await expect(page.getByRole('alertdialog', { name: 'Discard worktree?' })).toBeVisible()
+    const discardCoverage = await collectCoverage(page)
+    expect(discardCoverage.covered).toContain('components/DiscardWorktree.tsx#DiscardWorktree')
+    for (const component of discardCoverage.covered) covered.add(component)
+
     await page.goto('/preview.html?history')
     await expect(page.locator('[data-frame-id="history-rows"]').getByRole('button', { name: 'Trace the slow startup', exact: true })).toBeVisible()
     await expect(page.locator('[data-frame-id="history-agent-done"]').getByRole('button', { name: 'Browse', exact: true })).toBeVisible()
