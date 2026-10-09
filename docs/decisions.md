@@ -30,8 +30,10 @@ wears a chip whose tooltip counts changes and ignored entries. Only **Discard
 worktree…** forces removal: the confirmation lists the inventory, and the host
 rechecks the full inventory, including files inside untracked and ignored
 directories, before removing it. If it changed, the person must
-review and confirm again. The existing explicit worktree removal verb keeps its
-own policy.
+review and confirm again. Discard also refuses a detached checkout; a branch
+must retain its current commit before its folder can go. This reads the live
+checkout, even when the inventory still records a former branch. The existing
+explicit worktree removal verb keeps its own policy.
 
 Wrapping a Team archives its idle member conversations through the same archive
 path, including the agent's archive when it has one. Working members and archive

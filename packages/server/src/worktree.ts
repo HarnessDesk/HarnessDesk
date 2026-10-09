@@ -686,8 +686,8 @@ export const remove = async (
     throw new Error(`${path} was not created by HarnessDesk; remove it with git worktree remove yourself.`)
   }
   // With no branch retaining HEAD, even a clean checkout may be the only
-  // reference to committed work. Lifecycle cleanup leaves that checkout alone.
-  if (options.keepDetached && !entry.branch) throw new Error('The detached worktree has no branch retaining its commits.')
+  // reference to committed work. Cleanup and confirmed Discard both keep it.
+  if (options.keepDetached && !entry.branch) throw new Error('The detached worktree has no branch retaining its commits. Create or check out a branch at its current commit before discarding it.')
 
   const pending = await changes(target)
   if (options.expectedInventory !== undefined && await worktreeInventoryKey(target) !== options.expectedInventory) throw new Error('The worktree changed. Review it again before discarding.')

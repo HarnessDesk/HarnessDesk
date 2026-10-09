@@ -415,7 +415,9 @@ worktree; Remove waits until Undo ends, and Delete everywhere removes it after
 the agent accepts. A branch always stays. Uncommitted work, ignored content,
 a detached checkout or another active conversation keeps the checkout. Archive shows **Worktree kept**
 on the row's label, with counts on hover. **Discard worktree…** names what will
-be lost and asks again if that inventory changes. Returning to the conversation
+be lost and asks again if that inventory changes. A detached checkout is kept
+even after confirmation: create or check out a branch at its current commit
+before discarding its folder. Returning to the conversation
 puts the worktree back from its branch; if the branch is gone, it opens in the
 main checkout and says so.
 

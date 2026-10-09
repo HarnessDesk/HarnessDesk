@@ -262,3 +262,21 @@ it('asks for another confirmation when the discard inventory changed', async () 
   expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('new.txt')
   expect(request.mock.calls.filter(([method]) => method === 'session/discardWorktree')).toHaveLength(1)
 })
+
+it('shows a detached Discard refusal and requires a fresh review', async () => {
+  const row = { ...summary('kept', 'fake'), worktree: { path: '/synthetic/worktrees/task', branch: null, state: 'kept' as const } }
+  const { request } = await mount([runtime('fake', 'Demo Agent')], { fake: [row] })
+  request.mockImplementation(async (method: string) => {
+    if (method === 'session/worktreePreview') return {
+      changes: { modified: 0, untracked: 0, unpushedCommits: 1, files: [], ignored: [], ignoredCount: 0 }, stamp: 'detached',
+    }
+    throw new Error('The detached worktree has no branch retaining its commits. Create or check out a branch at its current commit before discarding it.')
+  })
+  await act(async () => (container.querySelector('button[aria-label="Conversation kept actions"]') as HTMLButtonElement).click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent === 'Discard worktree…')!.click())
+  await act(async () => button('Discard worktree')!.click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Create or check out a branch at its current commit')
+  expect(button('Discard worktree')!.disabled).toBe(true)
+  expect(button('Review again')).toBeDefined()
+  expect(container.textContent).toContain('Worktree kept')
+})

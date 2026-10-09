@@ -18,7 +18,7 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, 
     GIT_COMMITTER_NAME: 'Jane Doe', GIT_COMMITTER_EMAIL: 'dev@example.com' },
 }).trim()
 const exists = async (path: string) => access(path).then(() => true, () => false)
-async function fixture(t: { after(fn: () => Promise<void>): void }) {
+async function fixture(t: { after(fn: () => Promise<void>): void }, detached = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'hd-session-trees-')))
   const repo = join(root, 'repo'), home = join(root, 'home')
   execFileSync('git', ['init', '-q', '-b', 'main', repo])
@@ -33,9 +33,16 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
   await host.start()
   const worktrees = new Worktrees(home)
   const tree = await worktrees.create(repo, { name: 'Synthetic task' })
+  if (detached) await detachCommit(tree.path)
   const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: tree.path } })
   const pointer = { runtime: runtime.info.id, sessionId: session.id }
   return { root, repo, home, host, runtime, worktrees, tree, session, pointer }
+}
+
+async function detachCommit(path: string) {
+  git(path, 'checkout', '--detach')
+  await writeFile(join(path, 'tracked.txt'), 'synthetic detached commit\n')
+  git(path, 'commit', '-am', 'Keep synthetic detached work')
 }
 
 test('Archive removes a clean managed worktree, retains its branch, and Unarchive puts it back', async t => {
@@ -178,6 +185,31 @@ test('automatic cleanup keeps a detached checkout and its unique HEAD', async t 
     const db = new DatabaseSync(join(home, 'sessions.sqlite'))
     try { assert.equal(db.prepare('SELECT state FROM session_worktrees WHERE id=?').get(pointer.sessionId)?.state, 'kept') }
     finally { db.close() }
+  })
+})
+
+test('Discard refuses a detached checkout even when its recorded branch is stale', async t => {
+  for (const detached of [true, false]) await t.test(detached ? 'admitted detached' : 'detached after admission', async t => {
+    const { host, pointer, tree, repo } = await fixture(t, detached)
+    if (!detached) await writeFile(join(tree.path, '.env'), 'synthetic ignored file')
+    await host.call('session/archive', { ...pointer, archived: true })
+    if (!detached) await detachCommit(tree.path)
+    const head = git(tree.path, 'rev-parse', 'HEAD')
+    assert.equal(git(repo, 'for-each-ref', '--contains', head), '')
+    const row = (await host.call('session/index', { archived: 'only' })).data[0]!
+    assert.equal(row.worktree?.branch, detached ? null : tree.branch)
+    const preview = await host.call('session/worktreePreview', pointer)
+    await assert.rejects(host.call('session/discardWorktree', { ...pointer, stamp: preview.stamp }), /detached worktree/)
+    assert.equal(await exists(tree.path), true)
+    assert.equal(git(tree.path, 'rev-parse', 'HEAD'), head)
+    assert.equal(git(repo, 'for-each-ref', '--contains', head), '')
+    assert.equal((await host.call('session/index', { archived: 'only' })).data[0]?.worktree?.state, 'kept')
+    // Attaching HEAD to a branch makes Discard safe, with a fresh confirmation.
+    git(tree.path, 'checkout', '-b', 'retained-detached-work')
+    const attached = await host.call('session/worktreePreview', pointer)
+    assert.equal((await host.call('session/discardWorktree', { ...pointer, stamp: attached.stamp })).discarded, true)
+    assert.equal(await exists(tree.path), false)
+    assert.equal(git(repo, 'rev-parse', 'retained-detached-work'), head)
   })
 })
 

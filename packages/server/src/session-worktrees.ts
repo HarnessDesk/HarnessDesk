@@ -118,7 +118,7 @@ export class SessionWorktrees {
       this.#previews.delete(key)
       if (approved.inventory !== await worktreeInventoryKey(record.path)) return { discarded: false, preview: await this.#preview(record) }
       // This is the sole conversation-lifecycle entry that forces a removal, after confirmation.
-      await remove(record.path, { stateDir: this.stateDir, force: true, expectedInventory: approved.inventory,
+      await remove(record.path, { stateDir: this.stateDir, force: true, keepDetached: true, expectedInventory: approved.inventory,
         assertUnused: () => { this.#kept(runtime, id) } })
       this.index.worktreeState(record.path, 'removed')
       return { discarded: true }
