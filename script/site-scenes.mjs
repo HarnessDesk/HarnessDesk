@@ -57,9 +57,10 @@ try {
     const year = page.getByRole('region', { name: 'When it ran', exact: true })
     const settle = async () => { await page.clock.runFor(64); await page.evaluate(() => new Promise(done => queueMicrotask(done))) }
     const geometry = async () => {
+      await expect(sceneBox).toHaveAttribute('data-site-scene', name)
       const measured = await sceneBox.evaluate(box => {
         const rect = box.getBoundingClientRect()
-        const bad = [...box.querySelectorAll('table, [data-section-head], [data-slot="chart-frame"]')].filter(node => {
+        const bad = [...box.querySelectorAll('table, [data-section-head], [data-slot="chart-frame"], [role="group"]')].filter(node => {
           const one = node.getBoundingClientRect()
           return one.width && (one.x < rect.x || one.right > rect.right + 1)
         }).map(node => node.getBoundingClientRect().toJSON())
@@ -82,9 +83,9 @@ try {
       await settle()
       const file = `${name}-${theme}-${label}.png`
       const buffer = await sceneBox.screenshot({ path: join(out, file), animations: 'disabled' })
-      frames.push({ file, label: `${theme} · ${label}`, buffer })
+      frames.push({ file, label: `${name} · ${theme} · ${label}`, width: scene.width, height: scene.height, buffer })
     }
-    const exercise = async capture => {
+    const exerciseDashboard = async capture => {
       await expect(cost).toBeVisible()
       assert.equal(await sceneBox.evaluate(box => box.scrollTop), 0, 'Must open at the top')
       await expect(sceneBox.locator('[data-scene-pointer]')).toHaveCount(0)
@@ -165,11 +166,110 @@ try {
       await year.getByRole('radio', { name: 'Year', exact: true }).click()
       await expect(year.getByRole('radio', { name: 'Year', exact: true })).toHaveAttribute('aria-checked', 'true')
     }
+    const fit = async () => {
+      await geometry()
+      const height = await sceneBox.evaluate(box => ({ content: box.scrollHeight, panel: box.clientHeight }))
+      assert.ok(height.content <= height.panel, `${name} must fit without vertical scrolling: ${height.content} > ${height.panel}`)
+      assert.deepEqual(await sceneBox.locator('[role="group"]').evaluateAll(groups => groups.filter(group => group.scrollWidth > group.clientWidth + 1).map(group => group.getAttribute('aria-label'))), [], 'Plots must fit without horizontal scrolling')
+    }
+    const heatGeometry = async label => {
+      await fit()
+      const facts = await year.locator('[data-slot="chart-card"]').first().evaluate(card => [...card.children].map(node => node.getBoundingClientRect().top))
+      assert.ok(facts.every(top => Math.abs(top - facts[0]) <= 1), 'Activity stats must fit on one row')
+      const heat = year.getByRole('group', { name: label, exact: true })
+      const bounds = await heat.boundingBox()
+      assert.ok(bounds.x >= 20 && bounds.x + bounds.width <= scene.width - 20, 'Heatmap must keep the panel gutter')
+      assert.ok(await heat.locator('[data-level]').evaluateAll(cells => cells.every(cell => {
+        const rect = cell.getBoundingClientRect()
+        return rect.width > 0 && Math.abs(rect.width - rect.height) <= 0.1
+      })), 'Every heatmap cell must stay square')
+      const labels = await heat.locator(':scope > span[aria-hidden="true"]').all()
+      for (const label of labels) {
+        const rect = await label.boundingBox()
+        assert.ok(rect.x >= bounds.x && rect.x + rect.width <= bounds.x + bounds.width + 1, 'Heatmap labels must fit')
+      }
+    }
+    const exerciseFocused = async capture => {
+      assert.equal(await sceneBox.evaluate(box => box.scrollTop), 0, 'Must open at the top')
+      await expect(sceneBox.locator('[data-scene-pointer]')).toHaveCount(0)
+      assert.ok(await sceneBox.evaluate(box => {
+        const style = getComputedStyle(box)
+        return style.borderWidth === '0px' && style.borderRadius === '0px'
+      }), 'The website owns the panel frame')
+      const sections = await sceneBox.locator('section[aria-label]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))
+      assert.deepEqual(sections, [name === 'dashboard-spend' ? 'What it cost' : name === 'dashboard-limits' ? 'What is left' : 'When it ran'])
+      if (name === 'dashboard-spend') {
+        await expect(cost.getByText('Rescan', { exact: true })).toHaveCount(0)
+        await expect(cost).not.toContainText('days scanned')
+        const before = await cost.innerHTML()
+        await cost.getByRole('radio', { name: 'Line', exact: true }).click()
+        await expect(cost.getByRole('radio', { name: 'Line', exact: true })).toHaveAttribute('aria-checked', 'true')
+        assert.notEqual(await cost.innerHTML(), before)
+        await fit()
+        await cost.getByRole('radio', { name: 'Bars', exact: true }).click()
+        for (const range of [7, 90, 30]) {
+          await cost.getByRole('radio', { name: `${range}d`, exact: true }).click()
+          await expect(cost).toContainText(`Last ${range} days`)
+          await fit()
+        }
+        const plot = cost.locator('[role="group"]').first()
+        await plot.hover({ position: { x: 160, y: 70 } })
+        await expect(cost.locator('[data-slot="chart-tip"]')).toBeVisible()
+      } else if (name === 'dashboard-limits') {
+        await fit()
+        await expect(accounts).toContainText('shane@harnessdesk.app')
+        await expect(accounts).toContainText('olivia@harnessdesk.app')
+        await expect(accounts.locator('tbody > tr')).toHaveCount(6)
+        const firstAccount = accounts.getByRole('button', { name: /Details for shane/ })
+        const before = await accounts.innerHTML()
+        await firstAccount.click()
+        await expect(firstAccount).toHaveAttribute('aria-expanded', 'true')
+        assert.notEqual(await accounts.innerHTML(), before)
+        await expect(accounts).toContainText('Value')
+        await expect(accounts).toContainText('$3,148')
+        await geometry()
+        assert.ok(await sceneBox.evaluate(box => box.scrollHeight > box.clientHeight), 'Expanded account must scroll inside the panel')
+        await page.mouse.move(scene.width / 2, scene.height - 40)
+        await page.mouse.wheel(0, 300)
+        await settle()
+        await expect.poll(() => sceneBox.evaluate(box => box.scrollTop)).toBeGreaterThan(0)
+        assert.equal(await page.evaluate(() => scrollY), 0, 'Wheel must not scroll the parent page')
+        await sceneBox.evaluate(box => { box.scrollTop = 0 })
+        await firstAccount.click()
+        await expect(firstAccount).toHaveAttribute('aria-expanded', 'false')
+        for (const filter of ['Windows', 'Allowances', 'Balances', 'All']) {
+          await page.getByRole('radio', { name: new RegExp(`^${filter}\\b`) }).click()
+        }
+        await expect(accounts.locator('tbody > tr')).toHaveCount(6)
+        await firstAccount.click()
+      } else {
+        await expect(year).toContainText('141.6B')
+        await expect(year.locator('[data-state="not-scanned"]')).toHaveCount(0)
+        await heatGeometry('Tokens or cost per day, this year')
+        await year.getByRole('radio', { name: 'Cost', exact: true }).click()
+        await heatGeometry('Tokens or cost per day, this year')
+        const before = await year.innerHTML()
+        await year.getByRole('radio', { name: 'By agent', exact: true }).click()
+        assert.notEqual(await year.innerHTML(), before)
+        await heatGeometry('Tokens or cost per day, per agent, last 13 weeks')
+        await year.getByRole('radio', { name: 'By hour', exact: true }).click()
+        await heatGeometry('Tokens or calls by local weekday and hour, this year')
+        await year.getByRole('radio', { name: 'Calls', exact: true }).click()
+        await expect(year).toContainText('calls this year')
+        await heatGeometry('Tokens or calls by local weekday and hour, this year')
+        await year.getByRole('radio', { name: 'Year', exact: true }).click()
+        await year.getByRole('radio', { name: 'Tokens', exact: true }).click()
+        const heat = year.getByRole('group', { name: 'Tokens or cost per day, this year', exact: true })
+        await heat.locator('[data-level]').last().hover()
+        await expect(year.locator('[data-slot="chart-tip"]')).toBeVisible()
+      }
+      if (capture) await shot('view')
+    }
     for (const [origin, capture] of [[buildOrigin, false], [previewOrigin, true]]) {
       await page.goto(capture ? `${origin}preview.html?site-scene=${name}&theme=${theme}` : `${origin}?view=${name}&theme=${theme}`)
       await page.clock.runFor(600)
       await page.evaluate(() => document.fonts.ready)
-      await exercise(capture)
+      await (name === 'dashboard' ? exerciseDashboard : exerciseFocused)(capture)
       await page.evaluate(value => postMessage({ type: 'theme', value }, '*'), theme === 'light' ? 'dark' : 'light')
       await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'light' ? 1 : 0)
     }
@@ -178,28 +278,40 @@ try {
       await page.goto(`${buildOrigin}?view=${name}&theme=${theme}${explicit ? '&motion=reduce' : ''}`)
       await page.clock.runFor(600)
       await expect(sceneBox).toHaveAttribute('data-scene-motion', 'reduce')
-      await cost.getByRole('radio', { name: 'Line', exact: true }).click()
+      const control = name === 'dashboard-limits'
+        ? accounts.getByRole('button', { name: /Details for shane/ })
+        : name === 'dashboard-activity'
+          ? year.getByRole('radio', { name: 'By agent', exact: true })
+          : cost.getByRole('radio', { name: 'Line', exact: true })
+      await control.click()
       await page.evaluate(() => postMessage({ type: 'visible', value: false }, '*'))
       await page.clock.fastForward(60_000)
-      await expect(cost.getByRole('radio', { name: 'Line', exact: true })).toHaveAttribute('aria-checked', 'true')
-      await breakdown.getByRole('radio', { name: 'by model', exact: true }).click()
-      await expect(breakdown).toContainText('claude-opus-5-5')
+      await expect(control).toHaveAttribute(name === 'dashboard-limits' ? 'aria-expanded' : 'aria-checked', 'true')
+      if (name === 'dashboard') {
+        await breakdown.getByRole('radio', { name: 'by model', exact: true }).click()
+        await expect(breakdown).toContainText('claude-opus-5-5')
+      } else if (name !== 'dashboard-limits') await fit()
     }
     assert.deepEqual(external, [], 'The embed made an external request')
     assert.deepEqual(errors, [], 'Scene errors')
     await page.close()
-    console.log(`PASS ${name}/${theme}: build and preview controls, tooltips, internal wheel scrolling, theme, reduced motion, square cells, local requests`)
+    console.log(`PASS ${name}/${theme}: build and preview controls, theme, reduced motion, geometry, local requests`)
   }
-  const embed = await browser.newPage({ viewport: { width: 480, height: 300 } })
-  await embed.setContent(`<style>html,body{margin:0;overflow:hidden}iframe{width:960px;height:600px;border:0;transform:scale(.5);transform-origin:0 0}</style><iframe src="${buildOrigin}?view=dashboard&motion=reduce"></iframe>`)
-  await expect(embed.frameLocator('iframe').locator('[data-site-scene]')).toHaveCSS('width', '960px')
-  assert.deepEqual(await embed.locator('iframe').boundingBox(), { x: 0, y: 0, width: 480, height: 300 })
-  await embed.close()
+  for (const [name, scene] of Object.entries(SCENES)) {
+    const scale = name === 'dashboard' ? .5 : 1
+    const width = scene.width * scale, height = scene.height * scale
+    const embed = await browser.newPage({ viewport: { width, height } })
+    await embed.setContent(`<style>html,body{margin:0;overflow:hidden}iframe{width:${scene.width}px;height:${scene.height}px;border:0;transform:scale(${scale});transform-origin:0 0}</style><script>window.ready=false;addEventListener('message',event=>{if(event.data?.type==='hdDemoReady')window.ready=true})</script><iframe src="${buildOrigin}?view=${name}&motion=reduce"></iframe>`)
+    await expect(embed.frameLocator('iframe').locator('[data-site-scene]')).toHaveCSS('width', `${scene.width}px`)
+    await expect.poll(() => embed.evaluate(() => window.ready)).toBe(true)
+    assert.deepEqual(await embed.locator('iframe').boundingBox(), { x: 0, y: 0, width, height })
+    await embed.close()
+  }
   const sheet = await browser.newPage({ viewport: { width: 1440, height: 672 } })
-  await sheet.setContent(`<style>body{margin:0;background:#eee;font:14px sans-serif}main{display:grid;grid-template-columns:repeat(3,480px)}figure{margin:0}figcaption{padding:8px;height:20px}img{width:480px;height:300px;display:block}</style><main>${frames.map(frame => `<figure><figcaption>${frame.label}</figcaption><img src="data:image/png;base64,${frame.buffer.toString('base64')}"></figure>`).join('')}</main>`)
-  await sheet.screenshot({ path: join(out, 'sheet.png') })
+  await sheet.setContent(`<style>body{margin:0;background:#eee;font:14px sans-serif}main{display:grid;grid-template-columns:repeat(3,480px)}figure{margin:0}figcaption{padding:8px;height:20px}img{width:480px;height:auto;display:block}</style><main>${frames.map(frame => `<figure><figcaption>${frame.label}</figcaption><img width="${frame.width}" height="${frame.height}" src="data:image/png;base64,${frame.buffer.toString('base64')}"></figure>`).join('')}</main>`)
+  await sheet.screenshot({ path: join(out, 'sheet.png'), fullPage: true })
   writeFileSync(join(out, 'report.json'), JSON.stringify({ views: Object.keys(SCENES), themes: ['light', 'dark'], frames: frames.map(frame => frame.file), passed: true }, null, 2))
-  console.log('PASS iframe scaling; six frames and contact sheet written to .lead-out/site-scenes')
+  console.log(`PASS iframe scaling; ${frames.length} frames and contact sheet written to .lead-out/site-scenes`)
 } finally {
   await browser?.close()
   await preview.close()

@@ -1196,12 +1196,14 @@ const FindingsPreview = () => {
   return <div className="min-h-screen bg-background p-4 text-foreground"><FindingFrames scene={new URLSearchParams(window.location.search).get('findings')} /></div>
 }
 
+const siteSceneParam = new URLSearchParams(window.location.search).get('site-scene') ?? ''
+const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {isSceneName(new URLSearchParams(window.location.search).get('site-scene') ?? '')
-          ? <SiteScene name="dashboard" theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+        {siteScene
+          ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('tile-browsers')
           ? <TileBrowserFrames />
           : new URLSearchParams(window.location.search).has('shape-graph')

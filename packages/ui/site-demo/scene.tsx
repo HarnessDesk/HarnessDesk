@@ -35,7 +35,7 @@ const SceneBody = ({ name, motion, data }: { name: SceneName; motion?: 'reduce';
   }, [data])
   return <div data-site-scene={name} data-scene-motion={reduced ? 'reduce' : 'interactive'}
     className="site-scene" style={{ width: scene.width, height: scene.height }}>
-    <DashboardScene data={data} />
+    <DashboardScene data={data} view={name} />
   </div>
 }
 

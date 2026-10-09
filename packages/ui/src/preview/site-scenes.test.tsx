@@ -36,9 +36,62 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
 })
 
-it('registers only the approved Dashboard at 960 × 600', () => {
-  expect(Object.keys(SCENES)).toEqual(['dashboard'])
+it('registers the full Dashboard and three focused 672 × 432 views', () => {
+  expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity'])
   expect(SCENES.dashboard).toMatchObject({ width: 960, height: 600 })
+  for (const name of ['dashboard-spend', 'dashboard-limits', 'dashboard-activity'] as const) {
+    expect(SCENES[name]).toEqual({ width: 672, height: 432 })
+  }
+})
+
+it.each(['light', 'dark'] as const)('boots focused Spend in %s and changes the chart with Line', async theme => {
+  await act(async () => root.render(<SiteScene name="dashboard-spend" theme={theme} />))
+  expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label'))).toEqual(['What it cost'])
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
+  const scene = host.querySelector<HTMLElement>('[data-site-scene]')!
+  expect([scene.style.width, scene.style.height]).toEqual(['672px', '432px'])
+  expect(host.textContent).not.toContain('Rescan')
+  const before = host.innerHTML
+  await press('Line')
+  expect(host.innerHTML).not.toBe(before)
+  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Line')
+  await press('7d')
+  expect(host.textContent).toContain('Last 7 days')
+  await act(async () => message({ type: 'theme', value: theme === 'light' ? 'dark' : 'light' }))
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'light')
+})
+
+it.each(['light', 'dark'] as const)('boots focused Limits in %s and opens and closes the first account', async theme => {
+  await act(async () => root.render(<SiteScene name="dashboard-limits" theme={theme} />))
+  expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label'))).toEqual(['What is left'])
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
+  expect(host.textContent).toContain('Windows')
+  expect(host.textContent).toContain('Allowances')
+  expect(host.textContent).toContain('Balances')
+  expect(host.querySelectorAll('tbody > tr')).toHaveLength(6)
+  const account = host.querySelector<HTMLElement>('button[aria-expanded]')!
+  const before = host.innerHTML
+  await act(async () => account.click())
+  expect(account.getAttribute('aria-expanded')).toBe('true')
+  expect(host.innerHTML).not.toBe(before)
+  expect(host.textContent).toContain('Value')
+  await act(async () => account.click())
+  expect(account.getAttribute('aria-expanded')).toBe('false')
+})
+
+it.each(['light', 'dark'] as const)('boots focused Activity in %s and changes to By agent with reduced motion', async theme => {
+  await act(async () => root.render(<SiteScene name="dashboard-activity" theme={theme} motion="reduce" />))
+  expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label'))).toEqual(['When it ran'])
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
+  expect(host.textContent).toContain('141.6B')
+  const before = host.innerHTML
+  await press('By agent')
+  expect(host.innerHTML).not.toBe(before)
+  expect(host.querySelector('[aria-label="Tokens or cost per day, per agent, last 13 weeks"]')).not.toBeNull()
+  await act(async () => { message({ type: 'visible', value: false }); vi.advanceTimersByTime(60_000) })
+  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('By agent')
+  await press('Cost')
+  expect(host.textContent).not.toContain('141.6B')
 })
 
 it.each(['light', 'dark'] as const)('boots the entire shipping Dashboard in %s at cost, and follows live theme messages', async theme => {

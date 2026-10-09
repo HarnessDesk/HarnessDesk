@@ -6,10 +6,23 @@ Build the production renderer for embedding with:
 pnpm --filter @harnessdesk/ui build:site-demo
 ```
 
-`packages/ui/site-demo/scenes.ts` registers **dashboard**. The older demo
-views keep their existing entry points. Load
-`index.html?view=dashboard&theme=light` or `theme=dark` at **960 × 600** logical
-pixels. The iframe has no window shell, sidebar or page heading.
+`packages/ui/site-demo/scenes.ts` registers these views. The older demo
+views keep their existing entry points. Load `index.html?view=<view>&theme=light`
+or `theme=dark` at the registered logical size.
+
+| View | Logical size | Content |
+| --- | --- | --- |
+| `dashboard` | 960 × 600 | All Dashboard bands, scrolling inside |
+| `dashboard-spend` | 672 × 432 | What it cost, chart mode and range |
+| `dashboard-limits` | 672 × 432 | What is left, shape filters and expandable accounts |
+| `dashboard-activity` | 672 × 432 | When it ran, stats and all three heatmap views |
+
+The iframe has no window shell, sidebar or page heading. The focused views
+paint the app's surface with a 20px inset, without a frame, border or radius;
+the website owns the surrounding panel. Spend and Activity fit without scrolling,
+including after changing their controls. Limits scrolls inside when an account
+opens. All three reuse the full Dashboard's fictional data and shipping controls;
+their layout adjustments are scoped to the site views.
 
 The shipping Dashboard bands open at **What it cost**, beside **Where it
 went**, followed by **What is left** and **When it ran**. The window scrolls
@@ -41,8 +54,8 @@ message. `?motion=reduce` and the system's reduced-motion preference disable
 transitions and animations without changing the selected view or disabling
 controls. Fonts and assets are local.
 
-The identical scene is available at
-`preview.html?site-scene=dashboard&theme=light` for synthetic frames. Run the
+The identical scenes are available at
+`preview.html?site-scene=<view>&theme=light` for synthetic frames. Run the
 focused browser proof through the machine-wide gate:
 
 ```sh
@@ -52,6 +65,8 @@ node script/site-scenes.mjs
 It scans the built bundle for allowed addresses and preserved persona,
 exercises the build and preview in both themes, and checks controls, tooltips,
 internal wheel scrolling, live theme changes, reduced motion, square calendar
-cells, month-label bounds, iframe scaling and local-only requests. Six frames
-(top, expanded accounts and year, light and dark) and `sheet.png` go to
+cells, month-label bounds, iframe scaling and local-only requests. It also checks
+the focused views' size, unframed surface, scrolling and fit in every chart range
+and heatmap mode. Twelve frames (the full Dashboard's top, expanded accounts and
+year, plus the three focused views, all in light and dark) and `sheet.png` go to
 `.lead-out/site-scenes/`; keep `.lead-out/` in `.git/info/exclude`.
