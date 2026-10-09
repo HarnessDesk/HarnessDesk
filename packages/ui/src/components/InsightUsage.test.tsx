@@ -7,6 +7,7 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { InsightUsage } from './InsightUsage'
 import { Usage } from './Usage'
+import { usagePreviewStore } from '../preview/usage-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -377,6 +378,17 @@ it('states Historical Seats once beneath the table and omits a restated footer r
  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
  expect(container.querySelector('tbody')?.textContent).not.toContain('Historical Seats')
  expect([...container.querySelectorAll('[data-slot="note"]')].filter(n => n.textContent === 'Historical Seats')).toHaveLength(1)
+ expect(container.querySelector('tfoot td')?.textContent).toBe('Not attributed to a Team')
+})
+
+it('shows the host Team attribution reason once in the realistic project usage preview', async () => {
+ const store = usagePreviewStore()
+ const shown = await store.readUsageInsight({ root: '/work/storefront', from: 0, to: 10 })
+ await act(async () => {
+   root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>)
+   await Promise.resolve()
+ })
+ expect(shown.breakdowns.find(part => part.dimension === 'goal')?.reason).toBe('Not attributed to a Team.')
  expect(container.querySelector('tfoot td')?.textContent).toBe('Not attributed to a Team')
 })
 

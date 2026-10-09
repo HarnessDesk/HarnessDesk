@@ -286,11 +286,12 @@ export class GoalPlane {
       ?? executions.find((one) => one.id === origin)
       ?? (named === null ? executions.at(-1) : undefined)
     const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled'
-    // A completed Run has already accepted its attempts and the person's final
-    // answer. Their finished cards are history, not fresh requests for evidence;
-    // follow-up cards and independent waits still determine Team attention.
-    const completedCards = current?.state === 'settled' && current.end?.kind === 'complete'
-      ? new Set(current.rounds.flatMap(round => round.cards)) : new Set<number>()
+    // Successfully completed Runs have already accepted their attempts and the
+    // person's final answer, including predecessors retained after Run again.
+    // Their done cards stay history; follow-ups and independent waits still count.
+    const completedCards = new Set(executions
+      .filter(one => one.state === 'settled' && one.end?.kind === 'complete')
+      .flatMap(one => one.rounds.flatMap(round => round.cards)))
     const placements = board.intents.filter(intent => intent.state !== 'done' || !completedCards.has(intent.id)).map((intent) => {
       const step = flowStepOf(intent, run, executions)
       return placeCard({
