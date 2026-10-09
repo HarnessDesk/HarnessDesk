@@ -2655,7 +2655,6 @@ export class Host {
       const startedAt = performance.now()
       await runtime.start()
       if (this.#disposed) return
-      this.#coldRuntimes.delete(id)
       const readyAt = performance.now()
       this.#runtimeCache.update(id, { start: { readyMs: readyAt - startedAt, modelsMs: null } })
       this.#announceReady(runtime)
@@ -2664,6 +2663,7 @@ export class Host {
       this.#logger.warn('runtime failed to start', { runtime: runtime.info.id, error: String(error) })
       throw error
     }).finally(() => {
+      this.#coldRuntimes.delete(id)
       if (this.#startingRuntimes.get(id) === attempt) this.#startingRuntimes.delete(id)
     })
     this.#startingRuntimes.set(id, attempt)
@@ -8068,11 +8068,11 @@ export class Host {
     } else if (health.state !== 'starting') {
       const direct = this.#directRuntimeStarts.get(id)
       this.#directRuntimeStarts.delete(id)
+      if (direct) this.#coldRuntimes.delete(id)
       if (health.state === 'ready') direct?.resolve()
       else direct?.reject(new Error(health.state === 'unavailable' ? health.message ?? 'The agent did not start.' : 'The agent stopped while starting.'))
       const owner = this.#runtimeSources.get(id)
       if (health.state === 'ready' && direct && owner) {
-        this.#coldRuntimes.delete(id)
         const readyAt = performance.now()
         this.#runtimeCache.update(id, { start: { readyMs: readyAt - direct.startedAt, modelsMs: null } })
         void this.#observeRuntime(owner, readyAt)

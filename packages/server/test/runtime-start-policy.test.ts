@@ -280,6 +280,45 @@ for (const method of ['agent/seat', 'agent/seat/dry'] as const) {
   })
 }
 
+for (const method of ['agent/seat/dry', 'agent/seat'] as const) {
+  for (const owner of ['host', 'adapter'] as const) {
+    test(`${method} does not retry a failed first ${owner} start`, async t => {
+      class FailingRuntime extends FakeRuntime {
+        starts = 0
+        override async start() {
+          this.starts++
+          this.setHealth({ state: 'starting' })
+          this.setHealth({ state: 'unavailable', reason: 'crashed', message: 'Synthetic first-start failure' })
+          throw new Error('Synthetic first-start failure')
+        }
+      }
+      const dir = await mkdtemp(join(tmpdir(), 'hd-failed-first-start-'))
+      const runtime = new FailingRuntime({ id: runtimeId('failed') })
+      const host = makeHost(dir, [new FakeRuntime(), runtime])
+      t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+      await mkdir(join(dir, 'agents', 'reviewer'), { recursive: true })
+      await writeFile(join(dir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\npermission: read\nprefer: [failed]\n---\nRead the diff.\n')
+      await host.start()
+      await host.call('workspace/open', { path: dir })
+      assert.equal(runtime.starts, 0)
+      if (owner === 'adapter') await assert.rejects(runtime.start(), /Synthetic first-start failure/)
+      for (let read = 0; read < 3; read++) {
+        if (method === 'agent/seat') {
+          await assert.rejects(host.call('agent/seat', { id: 'reviewer', cwd: dir }), /Synthetic first-start failure/)
+        } else {
+          const plans = await host.call('agent/seat/dry', { ids: ['reviewer'] })
+          assert.equal(plans[0]?.candidates[0]?.state, 'passed')
+          assert.deepEqual(plans[0]?.candidates[0]?.reason, { kind: 'unavailable', detail: 'Synthetic first-start failure' })
+        }
+      }
+      assert.equal(runtime.starts, 1, 'repeated preflight reports the failed first start without trying again')
+      assert.equal(runtime.sessions.size, 0)
+      await assert.rejects(host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }), /Synthetic first-start failure/)
+      assert.equal(runtime.starts, 2, 'an explicit live start can still try again')
+    })
+  }
+}
+
 for (const initialState of ['idle', 'unavailable'] as const) {
   for (const method of ['flow/preview', 'agent/seat'] as const) {
     test(`${method} passes a held ${initialState} startup over within the startup deadline`, { timeout: 5000 }, async t => {
