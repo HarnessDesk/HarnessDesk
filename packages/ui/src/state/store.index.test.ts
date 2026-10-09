@@ -341,6 +341,28 @@ it('keeps a pending search loading when index reconciliation completes', async (
   expect(ids()).toEqual(['match'])
 })
 
+it('settles a pending search when its runtime is removed during index reconciliation', async () => {
+  handlers().onNotification({ method: 'runtime/added', params: { info: {
+    id: runtime, capabilities: { searchHistory: true }, presentation: { name: 'Demo agent' },
+  } } } as unknown as WireNotification)
+  await store.selectRuntime(runtime)
+  const search = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+  const page = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+  request.mockImplementation(((method: HostMethodName) => method === 'session/search'
+    ? search.promise : method === 'session/index' ? page.promise : Promise.resolve(null)) as never)
+
+  const searching = store.searchHistory('needle')
+  const reconciling = store.loadHistory({ reset: true, reconcile: true })
+  handlers().onNotification({ method: 'runtime/removed', params: { runtime } })
+  page.resolve({ data: [], nextCursor: null })
+  await reconciling
+  search.resolve({ data: [row('removed-match')], nextCursor: null })
+  await searching
+
+  expect(store.getSnapshot().historyLoading).toBe(false)
+  expect(ids()).toEqual([])
+})
+
 it('keeps removed agents out of later pages and index events', async () => {
   change([row('gone')])
   handlers().onNotification({ method: 'runtime/removed', params: { runtime } })

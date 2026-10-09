@@ -675,7 +675,7 @@ export class AppStore {
           delete healthByRuntime[runtime]
           this.#patch({
             runtimes,
-            historyLoading: this.#historyPageChanges !== null,
+            historyLoading: this.#historyQuery ? false : this.#historyPageChanges !== null,
             accountsByRuntime,
             healthByRuntime,
             activeRuntime:
