@@ -48,9 +48,31 @@ for (const theme of ['light', 'dark'] as const) {
     const many = page.locator('#run-view-many [data-slot="run-scroll"]')
     expect(await many.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
     const rig = page.locator('#run-view-team')
-    await rig.getByRole('tab', { name: 'Run 1', exact: true }).click()
+    await rig.getByRole('tab', { name: 'Run · 1', exact: true }).click()
     await expect(rig.locator('[data-slot="run-view"]')).toBeVisible()
     await expect(rig.locator('[data-slot="run-need"]')).toContainText('Ended without a next step')
+  })
+
+  test(`Team tab names and counts survive folding and growth in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const header = page.locator('#run-view-team header').first()
+    const names = ['Overview', 'Run · 1', 'Board · 4', 'Chat', 'Findings', 'Side by side']
+    for (const width of [1440, 680, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      const iconOnly = width === 680
+      await expect(header.locator(`[data-icon-only="${iconOnly}"]`)).toHaveCount(names.length)
+      for (const name of names) {
+        const tab = header.getByRole('tab', { name, exact: true })
+        await expect(tab).toHaveAccessibleName(name)
+        if (iconOnly) {
+          await tab.hover()
+          await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText(name)
+        }
+      }
+    }
+    await header.getByRole('tab', { name: 'Run · 1', exact: true }).click()
+    await expect(page.locator('#run-view-team [data-slot="run-view"]')).toBeVisible()
   })
 
   test(`Run findings keep damaged history visible at narrow width in ${theme}`, async ({ page }) => {

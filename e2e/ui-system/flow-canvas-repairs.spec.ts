@@ -215,7 +215,7 @@ for (const theme of ['light', 'dark'] as const) {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?run-view&theme=${theme}`)
         const rig = page.locator('#run-view-team')
-        await rig.getByRole('tab', { name: 'Run 1', exact: true }).click()
+        await rig.getByRole('tab', { name: 'Run · 1', exact: true }).click()
         await rig.getByRole('radio', { name: 'Flow', exact: true }).click()
         const need = rig.locator('[data-slot="run-need"]')
         const canvas = rig.locator('[data-slot="flow-canvas"]')

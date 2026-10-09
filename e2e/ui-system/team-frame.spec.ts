@@ -12,14 +12,14 @@ const captureFrame = async (page: import('@playwright/test').Page, name: string)
 }
 
 for (const theme of ['light','dark'] as const) {
- test(`Team frame: one sidebar, section tabs and a reversible layout toggle in ${theme}`, async ({page}) => {
+ test(`Team frame: one sidebar, segmented tabs and a reversible layout toggle in ${theme}`, async ({page}) => {
   await page.setViewportSize({width:1440,height:900})
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
   if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme','')
   else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme','')
   const team=page.locator('[data-slot="team-room"]')
-  await expect(team.getByRole('tab')).toHaveCount(5)
+  await expect(team.getByRole('tab')).toHaveCount(6)
   await expect(team.locator('aside')).toHaveCount(0)
   await expect(page.locator('[data-slot="workbench-rail"]')).toHaveCount(1)
   const header=team.locator('header').first()
@@ -28,10 +28,10 @@ for (const theme of ['light','dark'] as const) {
   await expect(header.getByRole('button',{name:'Wrap',exact:true})).toHaveCount(0)
   await expect(header.getByRole('button',{name:'Pull request #7',exact:true})).toBeVisible()
   const aligned = await team.evaluate(el => {
-   const title = el.querySelector('[data-slot="team-overview"] [data-slot="card"]')!.getBoundingClientRect()
-   const tab = el.querySelector('[data-team-page="overview"]')!
-   const range = document.createRange(); range.selectNodeContents(tab.firstChild!)
-   return Math.abs(title.left - range.getBoundingClientRect().left)
+   const card = el.querySelector('[data-slot="team-overview"] [data-slot="card"]')!.getBoundingClientRect()
+   const title = el.querySelector('[data-team-title]')!
+   const range = document.createRange(); range.selectNodeContents(title.firstChild!)
+   return Math.abs(card.left - range.getBoundingClientRect().left)
   })
   expect(aligned).toBeLessThan(2)
   await page.evaluate(async () => { await document.fonts.ready })
@@ -40,7 +40,7 @@ for (const theme of ['light','dark'] as const) {
   const toggle=header.getByRole('button',{name:'Side by side',exact:true})
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed','true')
-  await expect(team.getByRole('tab',{name:/^Board/})).toHaveAttribute('aria-selected','true')
+  await expect(team.getByRole('tab',{name:'Side by side',exact:true})).toHaveAttribute('aria-selected','true')
   await expect(team.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed','false')
@@ -48,7 +48,7 @@ for (const theme of ['light','dark'] as const) {
   await header.getByRole('button',{name:'More',exact:true}).click()
   await expect(page.getByRole('menuitem',{name:'Fill the window',exact:true})).toBeVisible()
  })
- test(`Team frame: folded tools and scrolling tabs stay reachable in ${theme}`, async ({page}) => {
+ test(`Team frame: folded tools and icon tabs stay reachable in ${theme}`, async ({page}) => {
   await page.setViewportSize({width:320,height:760})
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-frame&theme=${theme}`)
@@ -66,6 +66,8 @@ for (const theme of ['light','dark'] as const) {
   const overview=team.getByRole('tab',{name:/^Overview/})
   await overview.focus()
   await page.keyboard.press('End')
+  await expect(team.getByRole('tab',{name:'Side by side',exact:true})).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
   const findings=team.getByRole('tab',{name:/^Findings/})
   await expect(findings).toBeFocused()
   await page.keyboard.press('Enter')
@@ -170,19 +172,19 @@ for (const theme of ['light','dark'] as const) {
  })
 }
 
-test('Team page tab labels share the content column edge', async ({page}) => {
+test('the Team title shares the content column edge', async ({page}) => {
  await page.goto('/preview.html?team-frame=running')
  const edges=await page.locator('[data-slot="team-room"]').evaluate(el=>{
   const card=el.querySelector('[data-slot="team-overview"] [data-slot="card"]')!
-  const tab=el.querySelector('[data-team-page="overview"]')!
-  const range=document.createRange();range.selectNodeContents(tab.firstChild!)
+  const title=el.querySelector('[data-team-title]')!
+  const range=document.createRange();range.selectNodeContents(title.firstChild!)
   return {card:card.getBoundingClientRect().left,label:range.getBoundingClientRect().left}
  })
  expect(Math.abs(edges.card-edges.label)).toBeLessThanOrEqual(1)
 })
 
 for (const theme of ['light', 'dark'] as const) {
- test(`Team frame: header and page tabs share the reading edge in ${theme}`, async ({page}) => {
+ test(`Team frame: header and page tabs share one row on every page in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
   const team=page.locator('[data-slot="team-room"]')
@@ -191,8 +193,8 @@ for (const theme of ['light', 'dark'] as const) {
    const edges=await team.evaluate(el=>{
     const title=el.querySelector('header [data-role="subject"]')!
     const tab=el.querySelector('[data-team-page="overview"]')!
-    const range=document.createRange();range.selectNodeContents(tab.firstChild!)
-    return {title:title.getBoundingClientRect().left,tab:range.getBoundingClientRect().left}
+    const a=title.getBoundingClientRect(),b=tab.getBoundingClientRect()
+    return {title:a.top+a.height/2,tab:b.top+b.height/2}
    })
    expect(Math.abs(edges.title-edges.tab),name).toBeLessThanOrEqual(1)
   }

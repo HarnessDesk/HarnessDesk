@@ -1036,7 +1036,7 @@ observation age and qualifications; differing amount qualifications remain
 beside that amount. Older cards show their number and **Card title not recorded**
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
-A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+A Team has one content column under its 48px bar. The title, state, segmented page tabs, member faces and tools share that row. Overview, Run, Board, Chat and Findings keep their counts; Side by side is another tab and returns to the selected page when switched off. When measured space is short, the tabs become icons with count badges, full names and counts in tooltips and accessible names. A Team with no Run keeps its Run tab disabled and explains why on hover. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
 In a comparison, Side by side reserves a quiet shelf above the tiles. Before a
 pick it draws nothing there. The Run's recorded selection adds **Picked** in
 success ink to the chosen attempt's tile bar and quiet **Not kept** to the
@@ -1211,6 +1211,14 @@ then one column when that row no longer fits. Its readings move beneath
 the sentence, leaving a waiting reason whole.
 
 ### A Team's Overview
+
+Every Team destination shares one 48px bar: the title, state, segmented page
+tabs, then the participants and tools. Counts stay beside their tab names.
+When the measured space cannot keep the labels and roughly twelve title
+characters, the tabs become icons with count badges; their tooltips and
+accessible names keep the full name and count. Growing the pane restores the
+labels. The title gives up its remaining width before the icons and tools do.
+Arrow keys move focus through the tabs, including Side by side.
 
 Overview is the Team's first page tab and opens by default when the
 Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what

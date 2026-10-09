@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   currentTurn,
@@ -59,6 +59,10 @@ import {
   MessageOffIcon,
   MoreIcon,
   PlanIcon,
+  OverviewIcon,
+  HistoryIcon,
+  SummaryIcon,
+  ReviewIcon,
   PlusIcon,
   PullRequestIcon,
   ShieldOffIcon,
@@ -120,6 +124,9 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
   ToolPaneHeader,
   ToolPaneHeaderDivider,
   ToolPaneNotice,
@@ -187,7 +194,7 @@ const OriginChip = ({ status, name }: { readonly status: TriggerGoalStatus; read
   )
 }
 
-/** Only Receipt needs header columns; other destinations keep their original header DOM. */
+/** Every Team destination shares one measured title, tabs and tools row. */
 export const TeamRoomPane = ({
   room,
   onChooseProject = () => undefined,
@@ -207,6 +214,7 @@ export const TeamRoomPane = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const noRunReasonId = useId()
   const goal = snapshot.goals.get(room)
   const record = isRecord(goal)
   const [stoppingRun, setStoppingRun] = useState<string | null>(null)
@@ -1006,6 +1014,37 @@ export const TeamRoomPane = ({
   useEffect(() => { void store.loadBoardEvidence(room).catch(() => undefined) }, [store, room])
   const pullRequest = runPullRequest(open === 'run' ? timelineRun : flowExecution, snapshot.boardEvidence.get(room))
   const findingCount = snapshot.findingRuns.get(flowExecution?.id ?? '')?.open
+  const barLead = useRef<HTMLDivElement>(null)
+  const [iconTabs, setIconTabs] = useState(false)
+  // Labels keep their intrinsic width when folded. Measure what is left after
+  // the fixed controls and twelve title characters, so growing can unfold too.
+  useLayoutEffect(() => {
+    const lead = barLead.current
+    if (!lead) return
+    const list = lead.querySelector<HTMLElement>('[data-slot="tabs-list"]')!
+    const titleFloor = lead.querySelector<HTMLElement>('[data-slot="team-title-floor"]')!
+    const name = lead.querySelector<HTMLElement>('[data-team-title]')!
+    let disposed = false
+    const measure = () => {
+      const width = lead.getBoundingClientRect().width
+      if (disposed || width <= 0) return
+      const style = getComputedStyle(list)
+      const px = (value: string) => Number.parseFloat(value) || 0
+      const labels = [...list.querySelectorAll<HTMLElement>('[data-slot="tabs-label"]')]
+      const tabsWidth = labels.reduce((sum, label) => sum + label.getBoundingClientRect().width + px(getComputedStyle(label.parentElement!).borderLeftWidth) + px(getComputedStyle(label.parentElement!).borderRightWidth), 0)
+        + px(style.paddingLeft) + px(style.paddingRight) + Math.max(0, labels.length - 1) * px(style.columnGap)
+      const fixed = [...lead.children].filter(child => !child.contains(list) && child !== name)
+        .reduce((sum, child) => sum + child.getBoundingClientRect().width, 0)
+      const gap = px(getComputedStyle(lead).columnGap) * Math.max(0, lead.children.length - 1)
+      setIconTabs(tabsWidth + fixed + Math.min(name.scrollWidth || titleFloor.getBoundingClientRect().width, titleFloor.getBoundingClientRect().width) + gap > width)
+    }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(lead)
+    for (const element of [list, ...lead.children, ...list.querySelectorAll('[data-slot="tabs-label"]')]) observer?.observe(element)
+    void document.fonts?.ready.then(measure)
+    return () => { disposed = true; observer?.disconnect() }
+  }, [title, findingCount, intents.length, runs.length, held, goal?.receipt, triggerKind, runState?.label, triggerControl.view?.state, roster.length])
   const toggleSideBySide = () => {
     if (open === 'side-by-side') return show(selectedPage.current)
     if (roster.length === 0) return
@@ -1029,17 +1068,15 @@ export const TeamRoomPane = ({
         onClose={() => setAgain(null)} onStarted={next => { setAgain(null); setChosenRun(next.id); show('run'); void store.loadTeamRuns(room) }} />}
       {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
 
-      <ToolPaneHeader ref={headerLayout.ref} variant="window" corner className={`${styles.bar} hd-drag`}
+      <ToolPaneHeader ref={headerLayout.ref} variant="window" corner size="lg" className={`${styles.bar} hd-drag`}
         data-window-controls={sidebarPlacement(snapshot) !== 'column' ? '' : undefined}
         contentInset={open === 'receipt' && sidebarPlacement(snapshot) === 'column' ? 'reading' : 'page'}
         hint={root ? goal && goal.goal.cwd !== root ? `${root} — working in ${goal.goal.cwd}` : root : undefined}
         title={title} aria-label={title}
-        lead={<>
+        lead={<div ref={barLead} data-slot="team-bar-lead" className={styles.barLead}>
           {sidebarPlacement(snapshot) !== 'column' && <WindowControls />}
-          <Text role="subject" className={styles.barName} title={title}>{title}</Text>
-        </>}
-        actions={<div className={`${styles.barVerbs} hd-no-drag`}>
-          <div className={styles.barFacts}>
+          <Text role="subject" data-team-title="" className={styles.barName} title={title}>{title}<span aria-hidden data-slot="team-title-floor" className={styles.titleFloor} /></Text>
+          <div data-slot="team-bar-status" className={styles.barStatus}>
             {runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
             {triggerKind && <span data-team-trigger-source=""><Chip tint="amber" title={triggerSourceTitle}>
               <span data-team-trigger-label="full">{teamTriggerLabel(originStatus, triggerControl.view)}</span>
@@ -1049,6 +1086,42 @@ export const TeamRoomPane = ({
               {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}
             </Chip>}
             {originStatus && <OriginChip status={originStatus} name={title} />}
+          </div>
+          <Tabs value={singleMember ? null : open} className={`${styles.tabs} hd-no-drag`}>
+            <TabsList aria-label="Team pages" data-icon-tabs={iconTabs ? '' : undefined}>
+              {([
+                {value:'overview',label:'Overview',Icon:OverviewIcon,count:overview.needsYou.length || undefined},
+                ...(goal?.receipt ? [{value:'receipt' as const,label:'Receipt',Icon:SummaryIcon,count:undefined}] : []),
+                {value:'run',label:triggerKind ? 'Runs' : 'Run',Icon:HistoryIcon,count:runs.length || undefined},
+                {value:'board',label:'Board',Icon:PlanIcon,count:intents.length},
+                {value:'room',label:'Chat',Icon:CommentIcon,count:held > 0 ? held : undefined},
+                ...(goal ? [{value:'findings' as const,label:'Findings',Icon:ReviewIcon,count:findingCount}] : []),
+                ...(!record && roster.length > 0 ? [{value:'side-by-side' as const,label:'Side by side',Icon:SideBySideIcon,count:undefined}] : []),
+              ] as const).map(tab => {
+                const name = tab.count === undefined ? tab.label : `${tab.label} · ${tab.count}${tab.value === 'room' ? ' held' : ''}`
+                const disabled = tab.value === 'run' && !triggerKind && runs.length === 0
+                const reason = disabled ? 'This Team has no Run yet' : undefined
+                return <Tooltip key={tab.value}>
+                  <TabsTrigger render={<TooltipTrigger />} value={tab.value} data-team-page={tab.value} aria-label={name}
+                    className={disabled ? 'aria-disabled:pointer-events-auto' : undefined}
+                    aria-describedby={disabled ? noRunReasonId : undefined}
+                    icon={<tab.Icon />} iconOnly={iconTabs} count={tab.count}
+                    disabled={disabled} title={disabled && !iconTabs ? reason : tab.value === 'room' ? 'Everyone in this Team' : undefined}
+                    onClick={() => {
+                      if (disabled) return
+                      if (tab.value === 'side-by-side') { if (open !== 'side-by-side') toggleSideBySide(); return }
+                      if (tab.value === 'run' && triggerKind) setChosenRun(null)
+                      show(tab.value)
+                    }}>{tab.label}</TabsTrigger>
+                  {disabled && <span id={noRunReasonId} className="sr-only">{reason}</span>}
+                  {iconTabs && <TooltipContent side="bottom">{name}{reason && ` — ${reason}`}</TooltipContent>}
+                </Tooltip>
+              })}
+            </TabsList>
+          </Tabs>
+        </div>}
+        actions={<div className={`${styles.barVerbs} hd-no-drag`}>
+          <div className={styles.barFacts}>
             <Popover title="Team members" align="right" triggerVariant={{variant:'ghost',size:'content-min',className:'min-w-(--hd-target-min)'}}
               label={<><span aria-hidden className="flex items-center gap-(--hd-space-1)">{allSeats.length === 0 ? <AgentIcon size={14} /> : <AvatarStack size="sm" members={allSeats.map(seat => {
                 const entry = roster.find(one => one.key === seat.key)
@@ -1203,16 +1276,6 @@ export const TeamRoomPane = ({
             </Menu>}
           </Popover>
         </div>} />
-      <Tabs value={singleMember ? null : open === 'side-by-side' ? selectedPage.current : open} className={styles.tabs}>
-        <TabsList variant="section" contentInset={open === 'receipt' && sidebarPlacement(snapshot) === 'column' ? 'reading' : undefined} aria-label="Team pages">
-          <TabsTrigger value="overview" onClick={() => show('overview')} data-team-page="overview">Overview{overview.needsYou.length > 0 && <Text role="meta" numeric tone="warning">{overview.needsYou.length}</Text>}</TabsTrigger>
-          {goal?.receipt && <TabsTrigger value="receipt" onClick={() => show('receipt')} data-team-page="receipt">Receipt</TabsTrigger>}
-          <TabsTrigger value="run" onClick={() => { if (triggerKind) setChosenRun(null); show('run') }} data-team-page="run" disabled={!triggerKind && runs.length === 0} title={!triggerKind && runs.length === 0 ? 'This Team has no Run yet' : undefined}>{triggerKind ? 'Runs' : 'Run'}{runs.length > 0 && <Text role="meta" numeric>{runs.length}</Text>}</TabsTrigger>
-          <TabsTrigger value="board" onClick={() => show('board')} data-team-page="board">Board<Text role="meta" numeric>{intents.length}</Text></TabsTrigger>
-          <TabsTrigger value="room" onClick={() => show('room')} data-team-page="room" title="Everyone in this Team">Chat{held > 0 && <Text role="meta" numeric>{held} held</Text>}</TabsTrigger>
-          {goal && <TabsTrigger value="findings" onClick={() => show('findings')} data-team-page="findings">Findings{findingCount !== undefined && <Text role="meta" numeric>{findingCount}</Text>}</TabsTrigger>}
-        </TabsList>
-      </Tabs>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
       {runs.map((execution, index) => {

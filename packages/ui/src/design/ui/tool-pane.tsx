@@ -69,6 +69,7 @@ const ToolPaneHeader = ({
   corner = false,
   variant = 'default',
   hint,
+  size = 'default',
   contentInset,
   ...props
 }: Omit<React.ComponentProps<'header'>, 'title'> & {
@@ -83,6 +84,8 @@ const ToolPaneHeader = ({
   /** Leave room for the native window controls when this pane owns the corner. */
   corner?: boolean
   variant?: 'default' | 'window'
+  /** The larger single-row toolbar uses the scale's 48px step. */
+  size?: 'default' | 'lg'
   /** Align the title with board text, a reading page, receipt content, or a framed table. */
   contentInset?: 'board' | 'page' | 'reading' | 'reading-table'
   hint?: string
@@ -90,6 +93,7 @@ const ToolPaneHeader = ({
   <header
     data-slot="tool-pane-header"
     data-variant={variant}
+    data-content-inset={contentInset}
     title={hint}
     {...(corner ? { 'data-corner': '' } : {})}
     className={cn(
@@ -98,7 +102,8 @@ const ToolPaneHeader = ({
          it happened to be, which put it at 45 — one off the bar above it, and
          one off the bar in the panel beside it, which was 47 by the same
          arithmetic. */
-      'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
+      'flex shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
+      size === 'lg' ? 'h-(--hd-space-12)' : 'h-(--hd-bar-h)',
       variant === 'default' && 'px-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
