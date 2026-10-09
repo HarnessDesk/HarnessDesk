@@ -1,7 +1,7 @@
 /** Deterministic website loops. The camera and pointer live only in this recorder. */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -15,49 +15,48 @@ const move = (at, target) => ({ at, kind: 'move', target })
 const click = (at, target) => ({ at, kind: 'click', target })
 const stage = (at, value) => ({ at, kind: 'stage', value })
 const reset = { at: 7000, kind: 'reset' }
-const scene = (preview, width, height, crop, caption, actions) => ({ preview, width, height, crop, scale: 2, duration: 8, fps: 24, caption, actions: [...actions, reset] })
+const scene = (preview, caption, actions) => ({ preview, width: 800, height: 500, scale: 2, duration: 8, fps: 24, caption, actions: [...actions, reset] })
 
 export const CLIP_SCENES = {
-  teams: scene('teams-table', 720, 1050, '[data-slot="teams-page"] [data-slot="table-container"], [data-slot="dialog-content"]',
+  teams: scene('teams-table',
     'Teams settle, then the start preview shows the Brief, Task and three Seats.', [
       move(600, role('button', 'Open Retry the checkout call on a 502')), click(1400, role('button', 'Open Retry the checkout call on a 502')),
-      move(2100, css('[data-site-start] textarea')), move(3300, css('[aria-label="Seats this would open"]')),
-      { at: 4300, kind: 'reveal', target: role('button', 'Start') },
+      move(2100, css('[data-site-start] textarea')), { at: 3300, kind: 'pan', value: true },
       move(4700, role('button', 'Start')), move(6000, role('button', 'Back to Teams')),
     ]),
-  run: scene('run-short', 800, 1350, '[aria-label="Run timeline"]',
+  run: scene('run-short',
     'Write, review, request changes, repair, approve, then the person decides.', [stage(1100, 1), stage(2400, 2), stage(3600, 3), stage(4900, 4)]),
-  race: scene('race-run', 900, 1000, '[aria-label="Run timeline"]',
+  race: scene('race-run',
     'Two attempts progress; the judge records Picked and Not kept.', [stage(2200, 1), stage(4200, 2)]),
-  browser: scene('browser-tile', 800, 660, '[data-slot="side-by-side-tile"]',
+  browser: scene('browser-tile',
     'A Seat’s Browser loads the local Acme storefront, scrolls and follows a link.', [
       { at: 900, kind: 'scroll', value: 20 }, move(2100, { ...role('link', 'Our story'), guest: true }),
       click(3100, { ...role('link', 'Our story'), guest: true }), { at: 4500, kind: 'scroll', value: 0 },
       move(5200, { ...role('link', 'Shop'), guest: true }), click(6200, { ...role('link', 'Shop'), guest: true }),
     ]),
-  handoff: scene('handoff-dialog', 800, 740, '[role="dialog"]',
+  handoff: scene('handoff-dialog',
     'Choose Summary, Full transcript or Files changed, then rest on Hand off.', [
       move(600, role('radio', 'Full transcript')), click(1400, role('radio', 'Full transcript')),
       move(2400, role('radio', 'Files changed only')), click(3200, role('radio', 'Files changed only')),
       move(4200, role('radio', 'Summary')), click(5000, role('radio', 'Summary')), move(5600, role('button', 'Hand off to Reviewer')),
     ]),
-  library: scene('library', 900, 1100, '[data-slot="library-toolbar"]',
+  library: scene('library',
     'Select a skill to read its definition and see the agents that load it.', [
       move(800, css('button[aria-expanded]:has-text("code-review")')), click(1600, css('button[aria-expanded]:has-text("code-review")')),
       move(2700, role('button', 'Read the definition')), click(3500, role('button', 'Read the definition')),
-      move(5700, role('button', 'Close')), click(6500, role('button', 'Close')),
+      { at: 4300, kind: 'read' }, move(5700, role('button', 'Close')), click(6500, role('button', 'Close')),
     ]),
-  permissions: scene('plugin-permissions', 800, 850, '[data-release-still] > div',
+  permissions: scene('plugin-permissions',
     'Project docs shows its Tools and Access; the plugin is turned off and back on.', [
       move(900, role('switch', 'Disable Project docs')), click(1700, role('switch', 'Disable Project docs')),
       move(3700, role('switch', 'Enable Project docs')), click(4500, role('switch', 'Enable Project docs')),
     ]),
-  dashboard: scene('dash-plans', 960, 1000, '[data-slot="app-window"]',
+  dashboard: scene('dash-plans',
     'Plan limits, Spend, By agent and Year share the same placeholder history.', [
-      move(700, role('button', 'Spend')), click(1500, role('button', 'Spend')),
-      move(2700, role('button', 'Activity')), click(3400, role('button', 'Activity')),
-      move(3900, role('radio', 'By agent')), click(4500, role('radio', 'By agent')),
-      move(5200, role('radio', 'Year')), click(5900, role('radio', 'Year')),
+      { at: 1500, kind: 'cut', value: 'Spend' },
+      { at: 3400, kind: 'cut', value: 'Activity' },
+      { at: 4500, kind: 'select', value: 'By agent' },
+      { at: 5900, kind: 'select', value: 'Year' },
     ]),
 }
 
@@ -66,7 +65,7 @@ export const assertLoopClosed = (first, last) => {
   if (!first.equals(last)) throw new Error('The clip loop does not close: first and last frames differ.')
 }
 export const assertClipLimits = (clip, duration) => {
-  if (!(clip.width > 0 && clip.width <= 1600 && clip.bytes > 0 && clip.bytes <= 1_500_000)
+  if (!(clip.width === 1600 && clip.height === 1000 && clip.bytes > 0 && clip.bytes <= 1_500_000)
     || Math.abs(clip.duration - duration) > 1 / 24 || clip.codec !== 'h264' || clip.pixelFormat !== 'yuv420p' || clip.audio) {
     throw new Error(`The encoded clip exceeds its contract: ${JSON.stringify(clip)}`)
   }
@@ -76,6 +75,21 @@ export const assertTargetInCamera = (camera, box) => {
   if (x < camera.x || x >= camera.x + camera.width || y < camera.y || y >= camera.y + camera.height) {
     throw new Error(`The real pointer target is outside the camera: ${JSON.stringify({ camera, box })}`)
   }
+}
+
+/** Guest DOM rects are in the iframe's CSS pixels, before the camera's zoom. */
+export const guestTargetBox = (iframe, viewport, box) => ({
+  x: iframe.x + box.x * iframe.width / viewport.width,
+  y: iframe.y + box.y * iframe.height / viewport.height,
+  width: box.width * iframe.width / viewport.width,
+  height: box.height * iframe.height / viewport.height,
+})
+
+const targetBox = async (page, target) => {
+  const element = locator(page, target)
+  if (!target.guest) return element.boundingBox()
+  const guest = await element.evaluate(node => ({ box: node.getBoundingClientRect().toJSON(), viewport: { width: innerWidth, height: innerHeight } }))
+  return guestTargetBox(await page.locator('iframe').boundingBox(), guest.viewport, guest.box)
 }
 
 /** Protect any existing referenced asset, regardless of extension or directory alias. */
@@ -134,11 +148,11 @@ const restore = async (page, name) => {
   if (name === 'library') {
     if (await page.getByRole('button', { name: 'Close', exact: true }).count()) await page.getByRole('button', { name: 'Close', exact: true }).click()
     const skill = page.locator('button[aria-expanded]:has-text("code-review")').first()
-    if (await skill.getAttribute('aria-expanded') === 'true') await skill.click()
+    if (await skill.getAttribute('aria-expanded') === 'true') await skill.evaluate(node => node.click())
   }
   if (name === 'permissions' && await page.getByRole('switch', { name: 'Enable Project docs', exact: true }).count()) await page.getByRole('switch', { name: 'Enable Project docs', exact: true }).click()
   if (name === 'dashboard') {
-    await page.getByRole('button', { name: 'Plans', exact: true }).click()
+    await page.getByRole('button', { name: 'Plans', exact: true, includeHidden: true }).evaluate(node => node.click())
   }
   if (name === 'browser') await page.frames()[1].evaluate(() => { history.replaceState(null, '', '/storefront'); window.scrollTo(0, 0) })
   if (name === 'handoff') await page.getByRole('radio', { name: 'Summary', exact: true }).click()
@@ -147,11 +161,13 @@ const restore = async (page, name) => {
 }
 
 const action = async (page, name, event) => {
-  if (event.kind === 'reveal') await locator(page, event.target).evaluate(node => node.scrollIntoView({ block: 'nearest', behavior: 'instant' }))
+  if (event.kind === 'read') await page.getByRole('heading', { name: 'Code review', exact: true }).evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }))
+  if (event.kind === 'select') await page.getByRole('radio', { name: event.value, exact: true, includeHidden: true }).evaluate(node => node.click())
+  if (event.kind === 'cut') await page.getByRole('button', { name: event.value, exact: true, includeHidden: true }).evaluate(node => node.click())
   if (event.kind === 'stage') await stagePage(page, event.value)
   if (event.kind === 'click') {
     const target = locator(page, event.target)
-    const box = await target.boundingBox()
+    const box = await targetBox(page, event.target)
     if (!box || !await target.isVisible() || !await target.isEnabled()) throw new Error(`${name}: a click target is unavailable`)
     if (event.target.guest) assertTargetInCamera(await page.locator('iframe').boundingBox(), box)
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
@@ -167,36 +183,86 @@ const action = async (page, name, event) => {
   if (event.kind === 'reset') await restore(page, name)
 }
 
-/** Union of actual content edges across the story, so the camera never jumps. */
-const camera = async (page, name, scene) => {
-  const boxes = []
-  const measure = async () => {
-    let content
-    if (name === 'library') content = page.locator('[data-release-still] [data-slot="pane-column"], [role="dialog"]').filter({ visible: true })
-    else if (name === 'permissions') content = page.locator('[data-release-still] [data-slot="pane-column"]').first()
-    else if (name === 'dashboard') content = page.locator(scene.crop)
-    else content = page.locator(scene.crop).filter({ visible: true })
-    for (const element of await content.all()) {
-      const box = await element.boundingBox()
-      if (!box) throw new Error(`${name}: missing production content edge`)
-      if (name === 'browser') {
-        const end = await page.locator('iframe').boundingBox()
-        box.height = end.y + end.height - box.y
-      }
-      boxes.push(box)
+/** A fixed landscape camera; only the recorded surface is zoomed, never the app UI. */
+export const setupCamera = async (page, name) => {
+  await page.evaluate(name => { document.body.dataset.clipScene = name }, name)
+  await page.addStyleTag({ content: `
+    html, body { overflow: hidden !important; }
+    [data-release-still], [data-slot="dialog-overlay"] { visibility: hidden; }
+    [data-slot="app-window"] > div { grid-template-columns: minmax(0, 1fr) !important; }
+    [data-slot="app-window-page"] { overflow: visible !important; }
+    [aria-label="Window navigation"] { display: none !important; }
+    [data-clip-surface] { position: fixed !important; margin: 0 !important; max-width: none !important;
+      max-height: none !important; height: auto !important; transform: none !important; overflow: visible !important; }
+    [data-clip-surface], [data-clip-surface] * { visibility: visible; }
+    body[data-clip-scene="library"] [data-clip-surface] table { min-width: 0; table-layout: fixed; }
+    body[data-clip-scene="library"] [data-clip-surface] th { width: 110px; }
+    body[data-clip-scene="library"] [data-clip-surface] th:first-child { width: 230px; }
+    body[data-clip-scene="library"] [data-clip-surface] th button { width: 210px; }
+    body[data-clip-scene="permissions"] [data-clip-surface] [data-slot="form-stack"] { gap: 12px; }
+    [data-clip-omit], [data-clip-omit] * { visibility: hidden !important; }
+    body[data-clip-scene="dashboard"] [data-clip-surface] [role="group"][aria-label^="Tokens or cost per day"] { min-width: 0; }
+    body[data-clip-scene="dashboard"] [data-clip-surface] [role="group"][aria-label*="per agent"] { height: 216px; }
+    body[data-clip-scene="dashboard"] [data-clip-surface] [role="group"][aria-label$="this year"] { height: 254px; }
+    body[data-clip-scene="dashboard"] [data-clip-surface] [role="group"][aria-label^="Tokens or cost per day"] :is([data-level], [data-state]) { aspect-ratio: auto; height: 100%; }
+  ` })
+  if (name === 'permissions') await page.getByText('About', { exact: true }).evaluate(node => node.closest('[data-section-head]')?.setAttribute('data-clip-omit', ''))
+  // Widen the Teams page before measuring so the real responsive table is mounted.
+  if (name === 'teams') await page.locator('[data-slot="teams-page"]').evaluate(node => { node.style.width = '736px' })
+  await settle(page)
+  if (name === 'teams') await page.locator('[data-slot="teams-page"] [data-slot="table-container"]').waitFor({ state: 'attached' })
+}
+
+export const focusCamera = async (page, name, pan, panToEnd = false) => {
+  let selector, width = 600, zoom = 1.28, follow = false
+  const dialogSelector = '[role="dialog"]:not([data-slot="app-window"])'
+  const dialog = page.locator(dialogSelector)
+  if (name === 'run' || name === 'race') {
+    selector = '[aria-label="Run timeline"]'; width = name === 'run' ? 410 : 490; zoom = name === 'run' ? 1.85 : 1.55; follow = true
+  } else if (name === 'teams') {
+    selector = await dialog.count() ? dialogSelector : '[data-slot="teams-page"] [data-slot="table-container"]'
+    width = 580; zoom = 1.32; follow = !!await dialog.count() && panToEnd
+  } else if (name === 'library') {
+    selector = await dialog.count() ? dialogSelector : '[data-release-still] [data-slot="table-container"]'
+    follow = !await dialog.count()
+  } else if (name === 'handoff') { selector = dialogSelector; width = 710; zoom = 1.08 }
+  else if (name === 'permissions') { selector = '[data-release-still] [data-slot="pane-column"]'; width = 710; zoom = 1.08 }
+  else if (name === 'browser') { selector = '[data-slot="side-by-side-tile"]'; width = 710; zoom = 1.08 }
+  else {
+    selector = await page.locator('[data-slot="plans-table"]').count() ? '[data-slot="plans-table"]'
+      : await page.locator('[aria-label="What it cost"] [data-slot="chart-frame"]').count()
+        ? '[aria-label="What it cost"] [data-slot="chart-frame"]' : '[aria-label="When it ran"] [data-slot="chart-frame"]'
+    width = 680; zoom = 1.12
+  }
+  const target = page.locator(selector).first()
+  if (!await target.count()) throw new Error(`${name}: missing camera subject: ${selector}`)
+  return target.evaluate((node, { width, zoom, follow, pan, name }) => {
+    for (const old of document.querySelectorAll('[data-clip-surface]')) if (old !== node) {
+      old.removeAttribute('data-clip-surface'); old.removeAttribute('style')
     }
+    const changed = !node.hasAttribute('data-clip-surface')
+    node.setAttribute('data-clip-surface', '')
+    Object.assign(node.style, { width: `${width}px`, zoom: String(zoom), left: `${(800 - width * zoom) / 2 / zoom}px` })
+    if (node.matches('[data-slot="side-by-side-tile"]')) node.style.setProperty('height', `${468 / zoom}px`, 'important')
+    if (name === 'library' && node.getAttribute('role') === 'dialog') node.style.setProperty('height', `${468 / zoom}px`, 'important')
+    // Dialog content is normally bounded to the viewport by its own scroller.
+    for (const child of node.querySelectorAll('[data-slot="modal-dialog-body"]')) child.style.maxHeight = 'none'
+    const height = node.getBoundingClientRect().height
+    const destination = follow ? Math.max(0, height - 468) : 0
+    const offset = changed || pan === null ? destination : pan + (destination - pan) * 0.12
+    node.style.top = `${(16 - offset - (document.body.dataset.clipScene === 'permissions' ? 60 : 0)) / zoom}px`
+    return offset
+  }, { width, zoom, follow, pan, name })
+}
+
+/** A temporary recording and its destination may be on different filesystems. */
+export const publishClipFile = (source, destination, rename = renameSync) => {
+  try { rename(source, destination) }
+  catch (error) {
+    if (error.code !== 'EXDEV') throw error
+    copyFileSync(source, destination)
+    rmSync(source)
   }
-  await measure()
-  for (const event of scene.actions) {
-    if (event.kind !== 'move') { await action(page, name, event); await settle(page); await measure() }
-  }
-  if (!boxes.length) throw new Error(`${name}: missing production crop`)
-  const x = Math.floor(Math.min(...boxes.map(box => box.x)))
-  const y = Math.floor(Math.min(...boxes.map(box => box.y)))
-  const width = Math.ceil(Math.max(...boxes.map(box => box.x + box.width))) - x
-  const height = Math.ceil(Math.max(...boxes.map(box => box.y + box.height))) - y
-  if (x < 0 || y < 0 || x + width > scene.width || y + height > scene.height) throw new Error(`${name}: content does not fit the camera: ${JSON.stringify({ x, y, width, height, boxes })}`)
-  return { x, y, width, height }
 }
 
 const pointer = async page => page.evaluate(() => {
@@ -257,7 +323,10 @@ export const shootClips = async ({ app, out, requested = [], themes = ['light', 
       await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'dark' ? 1 : 0)
       await prepare(page, name)
       process.stdout.write(`Prepared ${take}\n`)
-      const clip = await camera(page, name, scene)
+      await setupCamera(page, name)
+      let panToEnd = false
+      let pan = await focusCamera(page, name, null)
+      const clip = { x: 0, y: 0, width: scene.width, height: scene.height }
       process.stdout.write(`Camera ${take}: ${clip.width}×${clip.height}\n`)
       await pointer(page)
       const rest = { x: clip.x + clip.width - 20, y: clip.y + clip.height - 20 }
@@ -271,17 +340,22 @@ export const shootClips = async ({ app, out, requested = [], themes = ['light', 
         while (next < scene.actions.length && scene.actions[next].at <= time) {
           const event = scene.actions[next++]
           if (event.kind === 'move') {
-            const box = await locator(page, event.target).boundingBox()
+            const box = await targetBox(page, event.target)
             if (!box) throw new Error(`${take}: pointer target is absent`)
             try { assertTargetInCamera(clip, box) } catch (error) { throw new Error(`${take} at ${event.at}: ${JSON.stringify(event.target)}: ${error.message}`) }
             if (event.target.guest) assertTargetInCamera(await page.locator('iframe').boundingBox(), box)
             path = { at: time, from: point, to: { x: box.x + box.width / 2, y: box.y + box.height / 2 } }
           } else {
-            if (event.kind === 'click') assertTargetInCamera(clip, await locator(page, event.target).boundingBox())
+            if (event.kind === 'pan') panToEnd = event.value
+            if (event.kind === 'reset') panToEnd = false
+            if (event.kind === 'click') assertTargetInCamera(clip, await targetBox(page, event.target))
             await action(page, name, event)
+            pan = await focusCamera(page, name, event.kind === 'reset' ? null : pan, panToEnd)
             if (event.kind === 'reset') path = { at: time, from: point, to: rest }
           }
         }
+        // The closing hold reconstructs the exact opening camera after React settles.
+        pan = await focusCamera(page, name, time >= scene.actions.at(-1).at ? null : pan, panToEnd)
         if (path) {
           const t = ease(Math.min(1, (time - path.at) / 600))
           point = { x: path.from.x + (path.to.x - path.from.x) * t, y: path.from.y + (path.to.y - path.from.y) * t }
@@ -300,7 +374,7 @@ export const shootClips = async ({ app, out, requested = [], themes = ['light', 
         '-c:v', 'libx264', '-preset', 'medium', '-crf', '24', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', video])
       const info = probe(video), stream = info.streams.find(stream => stream.codec_type === 'video')
       const bytes = statSync(video).size, duration = Number(info.format.duration)
-      assertClipLimits({ width: stream.width, bytes, duration, codec: stream.codec_name, pixelFormat: stream.pix_fmt, audio: info.streams.some(stream => stream.codec_type === 'audio') }, scene.duration)
+      assertClipLimits({ width: stream.width, height: stream.height, bytes, duration, codec: stream.codec_name, pixelFormat: stream.pix_fmt, audio: info.streams.some(stream => stream.codec_type === 'audio') }, scene.duration)
       ffmpeg(['-i', join(frames, '0000.png'), '-vf', 'scale=min(1600\\,iw):-2', '-frames:v', '1', '-q:v', '2', join(frames, `${take}.jpg`)])
       ffmpeg(['-i', join(frames, '0000.png'), '-vf', 'scale=min(1600\\,iw):-2', '-frames:v', '1', join(frames, 'poster.png')])
       // The supplied ffmpeg build has no WebP encoder; use the installed WebP tool.
@@ -308,7 +382,7 @@ export const shootClips = async ({ app, out, requested = [], themes = ['light', 
       for (const ext of ['mp4', 'webp', 'jpg']) {
         const destination = join(out, `${take}.${ext}`)
         assertClipDestination(app, destination)
-        renameSync(join(frames, `${take}.${ext}`), destination)
+        publishClipFile(join(frames, `${take}.${ext}`), destination)
       }
       for (const [label, index] of [['first', 0], ['middle', Math.floor(times.length / 2)], ['last', times.length - 1]]) {
         contact.push({ take, label, pixels: readFileSync(join(frames, `${String(index).padStart(4, '0')}.png`)).toString('base64') })
@@ -326,7 +400,7 @@ export const shootClips = async ({ app, out, requested = [], themes = ['light', 
     await sheet.screenshot({ path: join(scratch, 'sheet.png'), fullPage: true })
     await sheet.close()
     assertClipDestination(app, join(out, 'sheet.png'))
-    renameSync(join(scratch, 'sheet.png'), join(out, 'sheet.png'))
+    publishClipFile(join(scratch, 'sheet.png'), join(out, 'sheet.png'))
     assertClipDestination(app, join(out, 'clips.json'))
     writeFileSync(join(out, 'clips.json'), `${JSON.stringify(results, null, 2)}\n`)
     return results

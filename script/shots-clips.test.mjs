@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -10,9 +10,9 @@ test('eight website stories have readable, double-resolution content cameras and
   assert.ok(clips.CLIP_SCENES, 'the website recorder is implemented')
   assert.deepEqual(Object.keys(clips.CLIP_SCENES), ['teams', 'run', 'race', 'browser', 'handoff', 'library', 'permissions', 'dashboard'])
   for (const scene of Object.values(clips.CLIP_SCENES)) {
-    assert.ok(scene.width >= 720 && scene.width <= 960)
+    assert.equal(scene.width, 800)
+    assert.equal(scene.height, 500)
     assert.equal(scene.scale, 2)
-    assert.ok(scene.crop)
     assert.ok(scene.duration >= 6 && scene.duration <= 9)
     assert.equal(scene.actions.at(-1).kind, 'reset')
     assert.ok(scene.actions.at(-1).at < scene.duration * 1000 - 500)
@@ -32,9 +32,9 @@ test('the capture cadence is fixed and a mismatching last frame refuses encoding
 
 test('encoded artifacts refuse excessive width, bytes, wrong codec, format, duration or audio', () => {
   assert.equal(typeof clips.assertClipLimits, 'function')
-  const good = { width: 1600, bytes: 1_400_000, duration: 8, codec: 'h264', pixelFormat: 'yuv420p', audio: false }
+  const good = { width: 1600, height: 1000, bytes: 1_400_000, duration: 8, codec: 'h264', pixelFormat: 'yuv420p', audio: false }
   assert.doesNotThrow(() => clips.assertClipLimits(good, 8))
-  for (const patch of [{ width: 1602 }, { bytes: 1_500_001 }, { duration: 7 }, { codec: 'vp9' }, { pixelFormat: 'yuv444p' }, { audio: true }]) {
+  for (const patch of [{ width: 1602 }, { height: 1600 }, { width: 800, height: 500 }, { bytes: 1_500_001 }, { duration: 7 }, { codec: 'vp9' }, { pixelFormat: 'yuv444p' }, { audio: true }]) {
     assert.throws(() => clips.assertClipLimits({ ...good, ...patch }, 8), /clip/i)
   }
 })
@@ -71,4 +71,32 @@ test('clips and posters never replace a referenced destination, including symlin
     writeFileSync(join(root, 'README.md'), reference)
     assert.throws(() => clips.assertClipDestination(root, join(assets, name)), /referenced/, reference)
   }
+})
+
+test('publishing across filesystems falls back only for EXDEV and keeps failed sources', t => {
+  const root = mkdtempSync(join(tmpdir(), 'hd-clips-publish-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const source = join(root, 'source'), destination = join(root, 'destination')
+  writeFileSync(source, 'recorded bytes')
+  const crossDevice = () => { throw Object.assign(new Error('cross device'), { code: 'EXDEV' }) }
+  assert.equal(typeof clips.publishClipFile, 'function')
+  clips.publishClipFile(source, destination, crossDevice)
+  assert.equal(readFileSync(destination, 'utf8'), 'recorded bytes')
+  assert.throws(() => readFileSync(source), { code: 'ENOENT' })
+  writeFileSync(source, 'keep on failure')
+  assert.throws(() => clips.publishClipFile(source, join(root, 'missing/destination'), crossDevice), { code: 'ENOENT' })
+  assert.equal(readFileSync(source, 'utf8'), 'keep on failure')
+  assert.throws(() => clips.publishClipFile(source, destination, () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }) }), { code: 'EACCES' })
+  assert.equal(readFileSync(destination, 'utf8'), 'recorded bytes')
+})
+
+
+test('guest pointer targets include the recorded iframe zoom and offset', () => {
+  assert.equal(typeof clips.guestTargetBox, 'function')
+  const iframe = { x: 16, y: 80, width: 768, height: 432 }
+  const guest = { x: 300, y: 20, width: 100, height: 40 }
+  assert.deepEqual(clips.guestTargetBox(iframe, { width: 640, height: 360 }, guest),
+    { x: 376, y: 104, width: 120, height: 48 })
+  assert.deepEqual(clips.guestTargetBox(iframe, { width: 768, height: 432 }, guest),
+    { x: 316, y: 100, width: 100, height: 40 })
 })
