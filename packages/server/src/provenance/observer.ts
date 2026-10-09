@@ -7,7 +7,7 @@ import type { GitReader, LogCursor, RepoHandle, ReflogMove } from './git.js'
 import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, type JournalEntry, writeCheckpoint } from './journal.js'
 import { moves } from './model.js'
 import { backlog, type CommitObservation } from './reconcile.js'
-import { WorkSlices } from './slices.js'
+import { WorkSlices, type SliceOptions } from './slices.js'
 
 export interface ObserverCheckpoint {
   readonly generation: number
@@ -42,6 +42,7 @@ export interface RefObserverOptions {
   readonly watch?: typeof watch
   readonly pollMs?: number
   readonly debounceMs?: number
+  readonly slices?: SliceOptions
 }
 
 /** One active scan and one dirty bit, including wakes arriving between awaits. */
@@ -84,6 +85,10 @@ export class Coalesced {
 }
 
 let watchers = 0
+// Git and durable writes are asynchronous. A scan batches up to 200 visits or
+// five seconds of elapsed work; yielding separately bounds synchronous slices.
+const SCAN_ITEMS = 200
+const SCAN_MS = 5000
 /**
  * What a checkpoint durably says. Every scan moves its generation and its time
  * forward; a scan that found nothing else to record says what the last one
@@ -287,7 +292,6 @@ export class RefObserver {
     // not been acknowledged. Keep ancestry visits provisional until it is.
     const walked = new Set<string>()
     const hasWalked = (sha: string) => (!earlierWindow && this.#walked.has(sha)) || walked.has(sha)
-    const discarded = new Set<string>()
     // One check of the repository's metadata covers everything this batch reads.
     await git.batch(signal, async (reader) => {
       const unread = frontier.filter((sha) => !hasWalked(sha))
@@ -301,15 +305,16 @@ export class RefObserver {
           const clock = clocks.get(sha)
           if (clock !== undefined && clock !== null && clock < historyFloor) {
             walked.add(sha)
-            discarded.add(sha)
             this.#options.outsideWindow?.(sha)
           } else remaining.push(sha)
         }
         frontier.splice(0, frontier.length, ...remaining)
       }
       const began = performance.now()
-      while (frontier.length && visited < 200 && performance.now() - began < 50) {
+      const slices = new WorkSlices(this.#options.slices)
+      while (frontier.length && visited < SCAN_ITEMS && performance.now() - began < SCAN_MS) {
         signal.throwIfAborted()
+        await slices.step()
         const sha = frontier.shift()!
         visited += 1
         if (hasWalked(sha)) continue
@@ -319,7 +324,6 @@ export class RefObserver {
         // remain intact, and admitted diff facts are still read by Reconciler.
         if (object?.committedAt !== undefined && object.committedAt !== null && object.committedAt < historyFloor) {
           walked.add(sha)
-          discarded.add(sha)
           this.#options.outsideWindow?.(sha)
           continue
         }
@@ -337,7 +341,6 @@ export class RefObserver {
           if (target && target !== sha) {
             if (first && !baseline.includes(target)) baseline.push(target)
             if (!commits.has(target) && !frontier.includes(target)) frontier.unshift(target)
-            captured += 1
             continue
           }
         }
@@ -382,13 +385,12 @@ export class RefObserver {
     signal.throwIfAborted()
     const durable = lasting(next)
     const priorState = lasting(prior)
-    const onlyDiscarded = discarded.size > 0 &&
-      digest(frontier) === digest(prior.frontier.filter((sha) => !discarded.has(sha))) &&
-      lasting({ ...next, frontier: prior.frontier }) === priorState
-    // Below-floor frontier entries are disposable work. Leaving them in the
-    // saved cursor is safe on restart; removing them alone must not serialize
-    // the full range index, nor cause an unchanged later scan to do so.
-    if (durable !== this.#written && durable !== priorState && !onlyDiscarded) {
+    const onlyFrontier = captured === 0 && lasting({ ...next, frontier: prior.frontier }) === priorState
+    // Below-floor IDs and walks through durable observations are disposable
+    // work: the saved cursor and observed parent edges can replay them. Peeling
+    // a tag is not a capture. Frontier-only progress must not rewrite the full
+    // range index or advance capturedThrough while no new observation is made.
+    if (durable !== this.#written && durable !== priorState && !onlyFrontier) {
       await writeCheckpoint(journal, next)
       this.#written = durable
     }

@@ -12,12 +12,13 @@ import type { SeatRecord } from '@harnessdesk/protocol'
 import type { EvidencePlane } from '../src/evidence/plane.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { admitProject, gitReader, type GitReader } from '../src/provenance/git.js'
-import { ProvenanceJournal, readCheckpoint } from '../src/provenance/journal.js'
+import { ProvenanceJournal, readCheckpoint, type JournalEntry } from '../src/provenance/journal.js'
 import { Coalesced, RefObserver, type WorkerCheckpoint } from '../src/provenance/observer.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
 import { makeRepo } from './fixtures/provenance-repo.js'
 import type { Repo } from './fixtures/provenance-repo.js'
 
+const noWatch = (() => { const watcher = { on: () => watcher, close: () => {} }; return watcher }) as unknown as typeof watch
 const waitUntil = async (condition: () => boolean | Promise<boolean>, name: string): Promise<void> => {
   const deadline = Date.now() + 10000
   while (!await condition()) {
@@ -30,6 +31,112 @@ const deferred = () => {
   const promise = new Promise<void>((done) => { resolve = done })
   return { promise, resolve }
 }
+
+for (const cost of [0, 100]) test(`an in-window frontier captures a bounded batch before checkpointing with ${cost}ms fake reads`, async (t) => {
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const sha = (n: number) => n.toString(16).padStart(40, '0')
+  const frontier = Array.from({ length: 450 }, (_, n) => sha(n + 1000))
+  const saved: WorkerCheckpoint = { generation: 1, refs: [['refs/heads/main', sha(2000)]], heads: [], logs: [],
+    frontier, capturedThrough: 1, scanStartedAt: 1, openedAt: 1, historyFloor: 0,
+    baseline: [], rangeKeys: Array.from({ length: 13000 }, (_, n) => `range-${n}`), rangePending: [] }
+  const entries: JournalEntry[] = []
+  const checkpoints: unknown[] = []
+  const journal = {
+    read: async () => ({ entries: [...entries], broken: false }),
+    append: async (kind: JournalEntry['kind'], value: unknown) => { entries.push({ seq: entries.length + 1, kind, value }); return entries.length },
+    checkpoint: async (value: unknown) => { checkpoints.push(value) },
+    flush: async () => {},
+  } as unknown as ProvenanceJournal
+  let clock = 0
+  t.mock.method(performance, 'now', () => clock)
+  const expectedBatch = cost ? 50 : 200
+  const expectedScans = Math.ceil(frontier.length / expectedBatch)
+  let scans = 0
+  const problems: string[] = []
+  const git: GitReader = {
+    snapshot: async () => {
+      if (++scans > expectedScans) throw new Error('scan-work-budget-exceeded')
+      return { refs: new Map(saved.refs), heads: new Map(), takenAt: 1000 + clock }
+    },
+    reflogs: async () => ({ moves: [], cursors: new Map(), gaps: [], more: false }),
+    commit: async (id) => { clock += cost; return { sha: id, tree: id, parents: [], committedAt: 1 } },
+    patch: async () => ({ stable: sha(3000), exact: sha(3001), files: ['file'] }),
+    files: async () => [], kinds: async () => new Map(), ancestors: async () => [],
+    batch: (_signal, work) => work(git), close: async () => {},
+  }
+  const batches: number[] = []
+  let observed = 0
+  let yields = 0
+  const observer = new RefObserver({ git, journal, watch: noWatch, pollMs: 0, now: () => 1000 + clock,
+    slices: { yield: async () => { yields += 1 } },
+    problem: (_kind, reason) => { problems.push(reason) },
+    changed: () => { const count = entries.filter((entry) => entry.kind === 'commit').length; batches.push(count - observed); observed = count },
+  })
+  t.after(() => observer.close())
+  await observer.start(handle, saved)
+  await observer.idle()
+  assert.equal(batches[0], expectedBatch, 'slow asynchronous Git reads must not reduce a scan to one commit')
+  assert.equal(observed, frontier.length)
+  assert.equal(batches.length, expectedScans)
+  assert.equal(checkpoints.length, expectedScans, 'one checkpoint per completed batch, rather than per commit')
+  assert.ok(yields >= Math.floor(frontier.length / 100), 'the larger batch still yields within bounded item slices')
+  assert.deepEqual(problems, [])
+  assert.deepEqual(observer.checkpoint!.frontier, [])
+})
+
+for (const mode of ['frontier', 'below-floor', 'tag']) test(`replaying ${mode} work for durably observed commits writes no checkpoint`, async (t) => {
+  const tag = mode === 'tag'
+  const below = mode === 'below-floor'
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const sha = (n: number) => n.toString(16).padStart(40, '0')
+  const known = Array.from({ length: below ? 350 : 21 }, (_, n) => sha(n + 100))
+  const tip = tag ? sha(500) : known[0]!
+  const saved: WorkerCheckpoint = { generation: 1, refs: [['refs/heads/main', tip]], heads: [], logs: [],
+    frontier: tag ? [tip] : known, capturedThrough: 1, scanStartedAt: 1, openedAt: 11, historyFloor: below ? 10 : 0,
+    baseline: [], rangeKeys: [], rangePending: [] }
+  const entries: JournalEntry[] = known.map((id, n) => ({ seq: n + 1, kind: 'commit', value: {
+    id: `commit-${id}`, sha: id, tree: id, parents: [], firstSeenAt: 1, fingerprintVersion: 1,
+    discoveredBy: [], checkoutHints: [], window: { from: null, to: 1 }, patch: null, files: [], why: null,
+  } }))
+  const checkpoints: unknown[] = []
+  const journal = {
+    read: async () => ({ entries: [...entries], broken: false }),
+    append: async () => { assert.fail('no new observation is expected') },
+    checkpoint: async (value: unknown) => { checkpoints.push(value) },
+    flush: async () => {},
+  } as unknown as ProvenanceJournal
+  let clock = 0
+  let reads = 0
+  let scans = 0
+  t.mock.method(performance, 'now', () => clock)
+  const git: GitReader = {
+    snapshot: async () => ({ refs: new Map(saved.refs), heads: new Map(), takenAt: 1000 + clock }),
+    reflogs: async () => ({ moves: [], cursors: new Map(), gaps: [], more: false }),
+    commitTimes: below ? async (ids) => new Map(ids.map((id) => [id, 1])) : undefined,
+    commit: async (id) => { reads += 1; clock += 100; return tag && id === tip ? null : { sha: id, tree: id, parents: [], committedAt: 1 } },
+    patch: async () => { assert.fail('known commits must not be fingerprinted again') }, files: async () => [],
+    kinds: async () => new Map(), ancestors: async () => [known[0]!],
+    batch: (_signal, work) => work(git), close: async () => {},
+  }
+  const observer = new RefObserver({ git, journal, watch: noWatch, pollMs: 0, now: () => 1000 + clock,
+    historyFloor: () => saved.historyFloor!, changed: () => { scans += 1 }, problem: () => { assert.fail('replay should succeed') },
+  })
+  t.after(() => observer.close())
+  await observer.start(handle, saved)
+  await observer.idle()
+  assert.equal(observer.checkpoint!.capturedThrough, saved.capturedThrough, 'replay and tag peeling are not new captures')
+  assert.equal(checkpoints.length, 0, 'durable observations already retain the frontier replay needs')
+  assert.equal(entries.length, known.length)
+  assert.deepEqual(observer.checkpoint!.frontier, [])
+  if (below) {
+    assert.equal(reads, 0, 'the clock batch discards even already-journalled IDs before individual reads')
+    assert.equal(scans, 1, 'the full below-floor frontier drains together')
+  }
+})
 
 test('wake returns immediately and microtask bursts coalesce without concurrent scans', async () => {
   const gate = deferred()
@@ -348,6 +455,8 @@ test('unavailable watches use real polling and say capture is degraded', async (
 test('parent work beyond the batch survives checkpoint replay and abort never writes a cursor', async (t) => {
   const f = await observed(t)
   await f.observer.close()
+  let clock = 0
+  t.mock.method(performance, 'now', () => clock)
   const start = readCheckpoint((await f.journal.read()).entries) as WorkerCheckpoint
   const tip = 'e'.repeat(40)
   const parent = 'd'.repeat(40)
@@ -362,7 +471,7 @@ test('parent work beyond the batch survives checkpoint replay and abort never wr
         await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
         signal.throwIfAborted()
       }
-      await delay(55)
+      clock += 6000
       return { sha, tree: sha, parents: [parent] }
     },
     kinds: async (shas) => new Map(shas.map((sha) => [sha, 'commit'])),
@@ -372,6 +481,7 @@ test('parent work beyond the batch survives checkpoint replay and abort never wr
   const handle = await admitProject(f.repo.dir, f.repo.stateDir, [f.repo.dir])
   t.after(() => gitReader(handle).close())
   const observer = new RefObserver({ git: fake, journal: f.journal, changed: () => {}, problem: () => {}, pollMs: 60000 })
+  t.after(() => observer.close())
   await observer.start(handle, start)
   await waitUntil(() => entered, 'second parent read')
   const before = readCheckpoint((await f.journal.read()).entries) as WorkerCheckpoint

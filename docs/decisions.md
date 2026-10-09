@@ -1205,6 +1205,15 @@ range index while no new observation is made. Completed range keys remain in
 the checkpoint because reconciliation uses them to avoid repeating Git work;
 the journal and backup formats keep their existing contracts.
 
+An in-window scan walks up to 200 commits or five seconds of elapsed Git and
+storage work, yielding every 100 items or 20 ms within that batch. It writes one
+checkpoint after the batch and immediately continues unfinished work. The scan's
+elapsed budget includes asynchronous I/O, so it is separate from the synchronous
+slice budget that keeps the host responsive. Walking an already journalled
+commit or peeling a tag does not move the capture clock. Frontier-only replay
+writes no checkpoint: the saved frontier and durable parent edges can repeat
+that work after a restart without losing an observation.
+
 ## A Goal is finite; Seats and receipts are the authority
 
 Rooms accumulated three competing truths: a member array, the conversations
