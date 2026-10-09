@@ -13,7 +13,7 @@ import type {
 } from '@harnessdesk/protocol'
 import { isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
-import { InvalidTranscriptBodyError, NewerTranscriptFormatError, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
+import { decodeBody, InvalidTranscriptBodyError, NewerTranscriptFormatError, readTranscriptFacts, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
 import { DailySessionSnapshots } from './session-snapshots.js'
 import { publicationsIn, withPublications } from './publications.js'
 
@@ -478,16 +478,22 @@ export class TranscriptStore {
       const text = String(row.text)
       const hit = lineMatch(message ? text : text.slice(0, TOOL_INDEX_CAP), needle)
       if (!hit) continue
-      const facts = JSON.parse(String(row.facts)) as Omit<Stored, 'turns'>
-      if (facts.version !== FORMAT) continue
-      // Old backup entries can lack a preview. Only their user messages are
-      // needed to derive one; tool payloads never make a search round trip.
-      const stored = facts.preview == null
-        ? this.#database.read(String(row.runtime), String(row.id), true)
-        : { ...facts, turns: [] }
-      if (!stored) continue
-      hits.push({ summary: summaryOf(stored), ...hit, source: message ? 'message' : 'tool' } as TranscriptHit)
       seen.add(key)
+      try {
+        const facts = readTranscriptFacts(String(row.facts))
+        if (!facts) continue
+        // Old backup entries can lack a preview. Only their user messages are
+        // needed to derive one; tool payloads never make a search round trip.
+        const stored = facts.preview == null
+          ? this.#database.read(String(row.runtime), String(row.id), true)
+          : { ...facts, turns: [] }
+        if (!stored) continue
+        const summary = decodeBody(() => summaryOf(stored))
+        hits.push({ summary, ...hit, source: message ? 'message' : 'tool' } as TranscriptHit)
+      } catch (error) {
+        if (!(error instanceof InvalidTranscriptBodyError || error instanceof NewerTranscriptFormatError)) throw error
+        this.log('invalid transcript omitted from search', { runtime: row.runtime, session: row.id, error: String(error) })
+      }
       if (hits.length >= limit) break
     }
     return hits

@@ -25,7 +25,7 @@ export class InvalidTranscriptBodyError extends Error {}
 /** The body belongs to a newer build and must remain untouched. */
 export class NewerTranscriptFormatError extends Error {}
 
-const decodeBody = <T>(decode: () => T): T => {
+export const decodeBody = <T>(decode: () => T): T => {
   try { return decode() }
   catch (error) {
     if (error instanceof NewerTranscriptFormatError) throw error
@@ -33,7 +33,7 @@ const decodeBody = <T>(decode: () => T): T => {
   }
 }
 
-const readFacts = (payload: string): Facts | null => decodeBody(() => {
+export const readTranscriptFacts = (payload: string): Facts | null => decodeBody(() => {
   const value = JSON.parse(payload) as Facts | null
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid transcript facts')
   if (typeof value.version === 'number' && value.version > 1) throw new NewerTranscriptFormatError('A stored transcript has a newer format')
@@ -51,7 +51,7 @@ export class TranscriptDatabase {
   read(runtime: string, id: string, messagesOnly = false): Stored | null {
     const row = this.db.prepare('SELECT payload FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
     if (!row) return null
-    const parsed = readFacts(String(row.payload))
+    const parsed = readTranscriptFacts(String(row.payload))
     if (!parsed) return null
     const rows = this.db.prepare('SELECT * FROM turns WHERE runtime=? AND id=? ORDER BY seq').all(runtime, id) as unknown as TurnRow[]
     const itemRows = this.db.prepare(`SELECT turn_id,payload FROM items WHERE runtime=? AND id=?${messagesOnly ? " AND kind='userMessage'" : ''} ORDER BY position,seq`)
@@ -94,7 +94,7 @@ export class TranscriptDatabase {
       // have observed this body before another connection upgraded it.
       const current = this.db.prepare('SELECT payload FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
       if (current) {
-        try { readFacts(String(current.payload)) }
+        try { readTranscriptFacts(String(current.payload)) }
         catch (error) { if (!(error instanceof InvalidTranscriptBodyError)) throw error }
       }
       const { turns, insight, ...facts } = stored

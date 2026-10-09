@@ -18,9 +18,9 @@ const session = (turns: readonly Turn[], id = 's1'): Session => ({
   runtime: runtimeId('demo'), id: sessionId(id), cwd: '/demo/project', createdAt: 1, updatedAt: 2,
   title: 'A stored conversation', preview: 'Opening words', status: { type: 'idle' }, itemsLoaded: true, turns,
 })
-const fixture = async (t: TestContext) => {
+const fixture = async (t: TestContext, log?: ConstructorParameters<typeof TranscriptStore>[1]) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-sqlite-transcripts-'))
-  const store = new TranscriptStore(join(home, 'transcripts'))
+  const store = new TranscriptStore(join(home, 'transcripts'), log)
   t.after(async () => {
     await store.close()
     await rm(home, { recursive: true, force: true })
@@ -176,6 +176,49 @@ test('search reads matching text and metadata without decoding unrelated or full
     assert.equal(hit?.source, 'tool')
     assert.equal(hit?.summary.title, 'A stored conversation')
   } finally { database.close() }
+})
+
+test('search skips only invalid conversations, including corrupt preview fallback rows', async t => {
+  for (const corruption of ['facts JSON', 'facts shape', 'fallback turn', 'fallback item']) await t.test(corruption, async t => {
+    const logs: { message: string; details?: Record<string, unknown> }[] = []
+    const { home, store } = await fixture(t, (message, details) => { logs.push({ message, details }) })
+    for (const id of ['good', 'bad']) {
+      store.record(session([turn('t1', [message('m1', 'shared needle'), message('m2', 'another needle')])], id))
+    }
+    await store.flush()
+    logs.length = 0
+    const database = new DatabaseSync(join(home, 'sessions.sqlite'))
+    try {
+      database.prepare("UPDATE sessions SET saved_at=9999999999999 WHERE id='bad'").run()
+      if (corruption.startsWith('facts')) {
+        database.prepare("UPDATE bodies SET payload=? WHERE id='bad'").run(corruption === 'facts JSON' ? 'not JSON' : 'null')
+      } else {
+        const facts = JSON.parse(String(database.prepare("SELECT payload FROM bodies WHERE id='bad'").get()?.payload))
+        delete facts.preview
+        database.prepare("UPDATE bodies SET payload=? WHERE id='bad'").run(JSON.stringify(facts))
+        if (corruption === 'fallback turn') database.prepare("UPDATE turns SET payload='not JSON' WHERE id='bad'").run()
+        else database.prepare("UPDATE items SET kind='userMessage',payload='null' WHERE id='bad'").run()
+      }
+      const hits = await store.search('needle', { limit: 1 })
+      assert.deepEqual(hits.map(hit => hit.summary.id), ['good'])
+      assert.equal(logs.length, 1, 'the invalid conversation is logged once, not once per matching item')
+      assert.equal(logs[0]?.details?.session, 'bad')
+    } finally { database.close() }
+  })
+})
+
+test('search still rejects a database query failure', async t => {
+  const { home, store } = await fixture(t)
+  store.record(session([turn('t1', [message('m', 'needle')])]))
+  await store.flush()
+  const database = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try {
+    database.exec('ALTER TABLE turns RENAME TO unavailable_turns')
+    await assert.rejects(store.search('needle'), /no such table/)
+  } finally {
+    database.exec('ALTER TABLE unavailable_turns RENAME TO turns')
+    database.close()
+  }
 })
 
 test('rollback and forget remove body, item, turn and FTS rows atomically while retaining the index', async t => {
