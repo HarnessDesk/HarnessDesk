@@ -22,6 +22,7 @@ import { memoryMethods } from './memory.js'
 import { pluginMethods } from './plugins.js'
 import { runtimeExtensionMethods } from './runtime-extensions.js'
 import { runtimeMethods } from './runtimes.js'
+import { historyMethods } from './history.js'
 import { sessionMethods } from './sessions.js'
 import { teamMethods } from './team.js'
 import { terminalMethods } from './terminals.js'
@@ -65,6 +66,7 @@ export const hostMethods: HostMethodTable = {
   ...libraryMethods,
   ...laneMethods,
   ...sessionMethods,
+  ...historyMethods,
   ...turnMethods,
   ...workspaceMethods,
   ...terminalMethods,
@@ -101,6 +103,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   libraryMethods,
   laneMethods,
   sessionMethods,
+  historyMethods,
   turnMethods,
   workspaceMethods,
   terminalMethods,

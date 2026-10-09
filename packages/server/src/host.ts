@@ -52,6 +52,7 @@ import {
   type AgentRuntime,
   type ArchiveFilter,
   type AgentSession,
+  type SessionSource,
   type ConfigOption,
   type OptionValue,
   type FlowSeat,
@@ -199,6 +200,7 @@ import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
+import { HistoryImport } from './history-import.js'
 import { SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
@@ -485,6 +487,8 @@ export interface HostOptions {
    * one, `RuntimeInfo.update` is never set and nothing else changes.
    */
   readonly updates?: { updateFor(info: RuntimeInfo): Promise<RuntimeUpdate | null> }
+  /** Maximum retained preview payload bytes; full and live bodies are never evicted. */
+  readonly cachedBodyCapBytes?: number
   /**
    * How often to re-ask runtimes what they offer — see `CatalogRefresher`.
    * Zero disables the timer; "Refresh models" still works.
@@ -701,6 +705,8 @@ export class Host {
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
   /** Sidebar metadata; the transcript store continues to own conversation bodies. */
+  readonly #historyImport: HistoryImport
+  #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
   readonly #sessionIndex: SessionIndex
   readonly #sessionIndexRepos: SessionIndexRepos
   #sessionIndexSeed: Promise<void> = Promise.resolve()
@@ -965,14 +971,31 @@ export class Host {
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
+      () => this.#scheduleCacheEviction(),
     )
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
       const firstPage = this.#listSessionIndex({})
-      for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
+      if (change.resolveRepos !== false) for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
       this.#push({ method: 'session/indexChanged', params: { upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
     })
     this.#sessionIndexRepos = new SessionIndexRepos(this.#sessionIndex)
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
+    this.#historyImport = new HistoryImport({
+      index: this.#sessionIndex, archive: this.#archive,
+      resolve: runtime => this.#runtime({ runtime }),
+      start: runtime => this.#ensureStarted(runtime),
+      list: (runtime, query) => this.#runtimeHistoryReaders.get(runtime)!(query),
+      archiveGuard: runtime => {
+        const revisions = new Map(this.#indexArchiveChanges)
+        return id => {
+          const key = String(sessionKey(runtime, id))
+          return this.#indexArchiveChanges.get(key) === revisions.get(key)
+        }
+      },
+      changed: (runtime, state) => this.#push({ method: 'history/importChanged', params: { runtime, ...state } }),
+    })
+    this.#evictCached()
+
     this.#seatHeldCards = new SeatHeldCards(join(this.#state.directory, 'seat-held-cards.json'))
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
     // Beside `agents.json` and everything else the desk keeps, so a test rig or
@@ -2111,6 +2134,7 @@ export class Host {
   register(runtime: AgentRuntime): void {
     const id = runtime.info.id
     if (this.#runtimes.has(id)) {
+      this.#historyImport.cancel(id)
       this.#logger.warn('a runtime with this id was already registered; replacing it', {
         runtime: id,
       })
@@ -2183,7 +2207,20 @@ export class Host {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
             if (key !== 'listHooks' && typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
-            return Reflect.apply(member, target, args)
+            // A runtime can answer create/fork with an id the desk already holds.
+            // Snapshot before its registration event, which also seeds genuinely new ids.
+            const held = key === 'createSession' || key === 'forkSession'
+              ? new Set(this.registry.all().filter(record => record.runtime === id).map(record => record.session.id))
+              : null
+            const result = await Reflect.apply(member, target, args)
+            if (held) {
+              const live = result as AgentSession
+              if (!held.has(live.id)) {
+                this.#attach(managed, live.id, live)
+                this.#sessionIndex.promote(id, live.id)
+              }
+            }
+            return result
           }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'sourceOf' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
         }
         return member.bind(target)
@@ -2220,6 +2257,7 @@ export class Host {
    * keep sending turns to a runtime nothing can resolve.
    */
   async unregister(id: RuntimeId): Promise<void> {
+    this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
     this.registry.detachAll(id)
@@ -3031,6 +3069,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#historyImport.close()
+    clearTimeout(this.#cacheEvictionTimer)
     for (const start of this.#directRuntimeStarts.values()) start.reject(new Error('The desk is closing.'))
     this.#directRuntimeStarts.clear()
     for (const reads of this.#accountReads.values()) reads.dispose()
@@ -4114,6 +4154,41 @@ export class Host {
           this.#sessionIndex.remove(runtime, id)
         },
       },
+      history: {
+        import: runtime => this.#historyImport.import(runtime),
+        cancel: runtime => this.#historyImport.cancel(runtime),
+        status: runtime => this.#historyImport.status(runtime),
+        list: async params => {
+          if (params.repoRoot !== undefined) {
+            // A cold folder cannot match repo_root yet. Resolve the candidate
+            // folders through the bounded pass before applying that filter.
+            const folders = new Set<string>()
+            let cursor: string | undefined
+            do {
+              const candidates = this.#sessionIndex.history({ ...params, repoRoot: undefined, cursor, pageSize: 500 })
+              for (const row of candidates.data) folders.add(row.cwd)
+              cursor = candidates.nextCursor ?? undefined
+            } while (cursor)
+            for (const cwd of folders) this.#sessionIndexRepos.read(cwd, true)
+            await this.#sessionIndexRepos.flush()
+          }
+          const page = this.#sessionIndex.history(params)
+          for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
+          return { ...page, data: page.data.map(row => ({ ...row, ...this.#indexStatus(row) })) }
+        },
+        removeImported: async runtime => {
+          this.#historyImport.cancel(runtime)
+          await this.#transcripts.flush()
+          const removed = this.#sessionIndex.removeImported(runtime)
+          this.#transcripts.forgetMemory(removed)
+          for (const row of removed) this.#cancelSessionIndex(row.runtime, row.id)
+          return { removed: removed.length }
+        },
+        clearCached: async () => {
+          await this.#transcripts.flush()
+          return this.#evictCached(0)
+        },
+      },
       names: this.#names,
       terminals: this.#terminals,
       worktrees: this.#worktrees,
@@ -4805,7 +4880,10 @@ export class Host {
         if (restored) {
           await this.#archive.load()
           const native = this.#runtimes.get(restored.runtime)?.info.capabilities.archiveHistory
-          this.#sessionIndex.upsert({ ...restored, title: this.#names.nameOf(restored.runtime, restored.id) ?? restored.title }, {
+          const title = this.#names.nameOf(restored.runtime, restored.id) ?? restored.title ?? null
+          // A verified restore is an explicit metadata replacement, not a listing.
+          this.#sessionIndex.setTitle(restored.runtime, restored.id, title)
+          this.#sessionIndex.upsert({ ...restored, title }, {
             teamId: this.#indexTeamOf(restored.runtime, restored.id),
             ...(native !== false ? { archived: null } : { archived: this.#archive.has(restored.runtime, restored.id) }),
           })
@@ -5429,7 +5507,7 @@ export class Host {
     try {
       const live = await this.#liveFor(runtime.info.id, id)
       const session = await this.#transcripts.enrich(await runtime.readSession(live.id))
-      if (source) await this.#transcripts.refresh(session, source.source)
+      if (source) await this.#cacheRead(session, source.source)
       return session
     } catch (error) {
       if (kept && source) return { ...kept, deskCopy: true }
@@ -6163,6 +6241,19 @@ export class Host {
    * asked, and what it says is folded in (`SessionRegistry.upsert`).
    */
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+    const session = await this.#readTranscript(runtime, id)
+    this.#recordSessionIndex(session, true)
+    this.#sessionIndex.opened(runtime.info.id, id)
+    if (!runtime.info.capabilities.sourceTranscript && this.#sessionIndex.isImported(runtime.info.id, id)) await this.#transcripts.refresh(session, null)
+    return session
+  }
+
+  async #cacheRead(session: Session, source: SessionSource | null): Promise<void> {
+    this.#recordSessionIndex(session, true)
+    await this.#transcripts.refresh(session, source)
+  }
+
+  async #readTranscript(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
     const scoped = await this.#scopedRead(runtime, id)
@@ -6176,12 +6267,12 @@ export class Host {
       const session = { ...await this.#transcripts.enrich(await runtime.readSession(id)),
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
       // Read the fingerprint before replay, so a concurrent append always forces another refresh.
-      if (source) await this.#transcripts.refresh(session, source.source)
+      if (source) await this.#cacheRead(session, source.source)
       else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
         // Startup can negotiate this capability inside readSession. A stat
         // taken now could include an append the replay missed, so leave it
         // unstamped until a subsequent read captures metadata before replay.
-        await this.#transcripts.refresh(session, null)
+        await this.#cacheRead(session, null)
       }
       return session
     } catch (error) {
@@ -6945,6 +7036,20 @@ export class Host {
     return read
   }
 
+  #evictCached(cap = this.options.cachedBodyCapBytes ?? 500 * 1024 * 1024): { count: number; bytes: number } {
+    return this.#transcripts.evictCached(cap, (runtime, id) => Boolean(this.registry.get(runtime, id)?.live))
+  }
+
+  #scheduleCacheEviction(): void {
+    if (this.#disposed || this.#cacheEvictionTimer) return
+    this.#cacheEvictionTimer = setTimeout(() => {
+      this.#cacheEvictionTimer = undefined
+      try { this.#evictCached() }
+      catch (error) { this.#logger.warn('cached bodies could not be evicted', { error: String(error) }) }
+    }, 800)
+    this.#cacheEvictionTimer.unref()
+  }
+
   #cancelSessionIndex(runtime: RuntimeId, id: SessionId): void {
     const key = String(sessionKey(runtime, id))
     const timer = this.#indexTimers.get(key)
@@ -6975,7 +7080,7 @@ export class Host {
       title: named ?? session.title ?? null, preview: session.preview ?? null,
       createdAt: session.createdAt, updatedAt: session.updatedAt,
       status: session.status, git: session.git ?? null,
-    }, { teamId: this.#indexTeamOf(session.runtime, session.id) })
+    }, { origin: 'imported', teamId: this.#indexTeamOf(session.runtime, session.id) })
   }
 
   #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {
@@ -6983,6 +7088,7 @@ export class Host {
     if (existing) {
       existing.live = live
       this.#recordSessionIndex(existing.session, true)
+      this.#sessionIndex.opened(runtime.info.id, id)
       return existing.session
     }
     // `session/started` normally arrives first and seeds the registry; this is
@@ -7001,6 +7107,7 @@ export class Host {
     }
     const session = this.registry.upsert(seeded, live).session
     this.#recordSessionIndex(session, true)
+    this.#sessionIndex.opened(runtime.info.id, id)
     return session
   }
 
@@ -7098,6 +7205,7 @@ export class Host {
     ) {
       return
     }
+    if (event.type === 'session/title') this.#sessionIndex.setTitle(runtime, event.sessionId, event.title)
     this.#noteDelegation(runtime, event)
     if (event.type === 'turn/started') {
       const key = String(sessionKey(runtime, event.sessionId))
@@ -7179,6 +7287,9 @@ export class Host {
       if (seated?.board) this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
     }
     if (event.type === 'turn/started' && record) {
+      // The opened row already owns its Team facts. Promotion publishes it immediately;
+      // ordinary metadata follows the settle window without another dispatch lookup.
+      this.#sessionIndex.promote(runtime, record.session.id)
       this.#sendingNow.delete(recordKey(record))
       const seat = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime && candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
       this.#turnInsight.start({ runtime, session: record.session.id, turn: String(event.turn.id), at: Date.now(), seat: seat?.id ?? null, before: record.session.usage ?? null })
