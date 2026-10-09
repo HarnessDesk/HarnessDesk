@@ -1073,7 +1073,10 @@ with their full text on hover. The **globe** opens the Seat's own browser; the
 collapse, narrow member tabs and a restart. Expansion is in the tile's more
 menu. A tile's browser has only back, forward, reload and an address field; the
 ordinary Browser pane retains its full toolbar. Several isolated Seats can
-show live pages at once. A Seat with no page shows **Nothing open yet** and
+show live pages at once. When two rows cannot fit the Browser controls, a
+usable page and the shared dock, member tabs show one tile at a time; making
+the room taller restores the grid without reloading its pages.
+A Seat with no page shows **Nothing open yet** and
 **Pages the agent opens appear here.** Seats that share the ordinary browser
 profile share one surface; another tile says where that browser is already
 shown.

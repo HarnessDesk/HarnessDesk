@@ -30,9 +30,10 @@ let store: AppStore
 let saved: SideBySideState
 
 let measuredWidth = 1200
+let measuredHeight = 700
 const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
   if (this.getAttribute('data-slot') === 'side-by-side-grid') {
-    return { x: 0, y: 0, top: 0, left: 0, right: measuredWidth, bottom: 700, width: measuredWidth, height: 700, toJSON: () => ({}) } as DOMRect
+    return { x: 0, y: 0, top: 0, left: 0, right: measuredWidth, bottom: measuredHeight, width: measuredWidth, height: measuredHeight, toJSON: () => ({}) } as DOMRect
   }
   return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) } as DOMRect
 })
@@ -78,6 +79,7 @@ const baseState = (tileKeys = keys.slice(0, 2)): SideBySideState => ({
 const mount = (initial = baseState(), opts: { width?: number; onOpenMember?: (key: SessionKey) => void; composer?: (shown: readonly SessionKey[]) => ReactNode } = {}) => {
   const opened = opts.onOpenMember ?? vi.fn()
   measuredWidth = opts.width ?? 1200
+  measuredHeight = 700
   store = new AppStore('ws://localhost:0/')
   vi.spyOn(store, 'loadLanePreferences').mockResolvedValue()
   container = document.createElement('div')
@@ -467,7 +469,8 @@ it.each([2, 3, 4])('clears the measured dock and notices only beneath the bottom
     const grid = container.querySelector<HTMLElement>('[data-slot="side-by-side-grid"]')!
     if (count > 2) expect(grid.style.gridTemplateRows).toContain('100% + var(--composer-h')
     const dock = grid.querySelector('[data-shared-composer]')!
-    const observer = observers.find((one) => one.target === dock)!
+    // A browser resize notifies every observer of this same dock.
+    const observer = { resize: () => observers.filter(one => one.target === dock).forEach(one => one.resize()) }
     // The grid's first width measurement reveals the initially empty dock;
     // the browser then reports its new size to the already mounted observer.
     act(() => observer.resize())
@@ -487,8 +490,40 @@ it.each([2, 3, 4])('clears the measured dock and notices only beneath the bottom
     expect(grid.style.getPropertyValue('--composer-h')).toBe('260px')
     act(() => root!.unmount())
     root = null
-    expect(observer.disconnect).toHaveBeenCalledOnce()
     expect(observers.every((one) => one.disconnect.mock.calls.length === 1)).toBe(true)
+  } finally {
+    offset.mockRestore()
+  }
+})
+
+it('uses member tabs when Browser chrome and the dock cannot fit two rows, without losing tile choices', () => {
+  const observers = observeResizes()
+  const offset = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.hasAttribute('data-shared-composer') && !this.hidden ? 260 : 0
+  })
+  try {
+    const initial = { ...baseState(fourKeys), modes: { [fourKeys[0]!]: 'browser' as const, [fourKeys[1]!]: 'browser' as const } }
+    mount(initial, { composer: () => <textarea aria-label="Shared message" /> })
+    const grid = container.querySelector<HTMLElement>('[data-slot="side-by-side-grid"]')!
+    grid.style.setProperty('--hd-bar-h', '46px')
+    grid.style.setProperty('--hd-control-h', '26px')
+    const resize = () => act(() => observers.filter(one => one.target === grid).forEach(one => one.resize()))
+    measuredHeight = 520
+    resize()
+    const shown = () => container.querySelectorAll('[data-slot="side-by-side-tile"]:not([data-hidden])')
+    expect(shown()).toHaveLength(1)
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(4)
+    expect(container.querySelectorAll('[data-hidden][inert]')).toHaveLength(3)
+    expect(saved.modes).toEqual(initial.modes)
+    expect(saved.tiles).toEqual(fourKeys)
+    // The hidden dock's zero height cannot oscillate us back into the grid.
+    act(() => observers.filter(one => one.target?.hasAttribute('data-shared-composer')).forEach(one => one.resize()))
+    expect(shown()).toHaveLength(1)
+    measuredHeight = 700
+    resize()
+    expect(shown()).toHaveLength(4)
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(0)
+    expect(saved.modes).toEqual(initial.modes)
   } finally {
     offset.mockRestore()
   }

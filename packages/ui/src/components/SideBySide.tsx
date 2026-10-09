@@ -9,6 +9,7 @@ import {
   focusTile,
   pinTile,
   removeTile,
+  SEAM_WIDTH,
   setTileMode,
   type SideBySideState,
 } from '../lib/side-by-side'
@@ -123,17 +124,22 @@ export const SideBySide = ({
      observer sees it appear, disappear and grow with all its notices. */
   const composerRef = useComposerHeightVar(gridRef)
   const [width, setWidth] = useState(0)
+  const [room, setRoom] = useState({ height: 0, dock: 0, browserTile: 0 })
   const [composing, setComposing] = useState(false)
   const focusedPane = useIsFocusedPane()
   /* A tile never claims the keyboard that what encloses the grid says is
      elsewhere; it can only narrow it to one tile. */
   const keyboardAbove = useContext(KeyboardHereContext) !== false
-  const shown = displayFor(state, width)
+  const fitting = displayFor(state, width)
+  const fittingRows = Math.ceil(fitting.shown.length / fitting.columns)
+  const shortBrowserGrid = fittingRows > 1 && fitting.shown.some(key => state.modes[key] === 'browser')
+    && room.height > 0 && (room.height - (composer ? room.dock : 0) - SEAM_WIDTH) / fittingRows < room.browserTile
+  const shown = shortBrowserGrid ? displayFor(state, 0) : fitting
   const sharedComposer = composer !== undefined && shown.shown.length >= 2
-  /* Narrow is about the room's width, not about what is shown: an expanded
-     tile in a narrow room keeps the strip, so the member can still be
-     switched without first pressing Esc. */
-  const narrow = state.tiles.length > 1 && columnsThatFit(width) < 2
+  /* Tabs select a member when width or Browser height constrains the grid.
+     An expanded tile in a narrow room also keeps the strip, so the member
+     can still be switched without first pressing Esc. */
+  const narrow = state.tiles.length > 1 && (columnsThatFit(width) < 2 || shortBrowserGrid)
   /* The tile a chord just chose, whose composer takes the keyboard once it
      is drawn: a chord moves the keys, not only the highlight. */
   const typeInto = useRef<SessionKey | null>(null)
@@ -162,6 +168,36 @@ export const SideBySide = ({
     observer.observe(grid)
     return () => observer.disconnect()
   }, [])
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    const dock = composerRef.current
+    if (!grid || !dock) return
+    const measure = (): void => {
+      const tokens = getComputedStyle(grid)
+      // The embedded browser has a tile header, slim address bar and footer.
+      // Keep a usable page below them even before its live surface mounts.
+      const chrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
+      const browserTile = Math.max(chrome || 0, ...[...grid.querySelectorAll<HTMLElement>('[data-mode="browser"]')].map(body => {
+        const pane = body.querySelector('[data-slot="tool-pane"]')
+        return (body.previousElementSibling?.getBoundingClientRect().height ?? 0)
+          + [...(pane?.children ?? [])].filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
+            .reduce((height, child) => height + child.getBoundingClientRect().height, 0)
+      })) + 80
+      setRoom(was => {
+        // Hiding the shared dock for the fallback must not immediately bring
+        // the cramped grid back. Retain its clearance until it is shown again.
+        const next = { height: grid.getBoundingClientRect().height, dock: dock.hidden ? was.dock : dock.offsetHeight, browserTile }
+        return next.height === was.height && next.dock === was.dock && next.browserTile === was.browserTile ? was : next
+      })
+    }
+    measure()
+    const gridObserver = new ResizeObserver(measure)
+    const dockObserver = new ResizeObserver(measure)
+    gridObserver.observe(grid)
+    dockObserver.observe(dock)
+    return () => { gridObserver.disconnect(); dockObserver.disconnect() }
+  }, [composerRef, state.modes])
 
   useEffect(() => {
     const onCommand = (event: Event): void => {
@@ -245,7 +281,7 @@ export const SideBySide = ({
     <div className={styles.root} onKeyDown={onKeyDown}>
       {notice}
       {!sharedComposer && decision && <PaneColumn inset="bars">{decision}</PaneColumn>}
-      {/* One tile at a time when the room is too narrow for two: the system's
+      {/* One tile at a time when the room cannot fit the grid: the system's
           tabs pick which, with their arrow keys and roving focus. */}
       {narrow && (
         <div className={styles.strip}>
