@@ -6092,7 +6092,7 @@ export class Host {
         // freshly mapped session, and returning the registry's own object
         // here would let a caller that edits what it was given edit the
         // record the host is holding.
-        return { ...held.session }
+        return { ...held.session, ...(source ? { deskCopy: true } : {}) }
       }
       // The backend cannot serve it — but the host may have watched it
       // happen. A read-only copy beats an unopenable conversation.

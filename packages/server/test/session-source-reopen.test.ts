@@ -80,6 +80,18 @@ test('a runtime without the capability still reads the agent on every reopen', a
   assert.equal(r.reads(), 2)
 })
 
+test('an unavailable changed source marks a held idle transcript as the desk copy', async t => {
+  const r = await rig(t)
+  const original = await r.read()
+  const live = await r.runtime.resumeSession(original.id, { cwd: r.dir })
+  r.host.registry.upsert(original, live)
+  await writeFile(r.path, 'changed source that cannot be replayed')
+  r.runtime.readSession = async () => { throw new Error('synthetic read refusal') }
+  const recovered = await r.read()
+  assert.deepEqual(recovered.turns, original.turns)
+  assert.equal('deskCopy' in recovered && recovered.deskCopy, true)
+})
+
 for (const kind of ['empty', 'partial', 'rollback'] as const) {
   test(`changed source ${kind} replay persists the enrich history contract`, async t => {
     const r = await rig(t)
