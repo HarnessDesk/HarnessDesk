@@ -553,12 +553,14 @@ export class TranscriptStore {
   }
 
   #export(runtime?: string): { runtime: string; id: string; data: unknown }[] {
-    const rows = this.#database.db.prepare(`SELECT runtime,id FROM bodies${runtime === undefined ? '' : ' WHERE runtime=?'} ORDER BY runtime,id`)
+    const rows = this.#database.db.prepare(`SELECT b.runtime,b.id,s.origin,s.last_opened_at FROM bodies b
+      JOIN sessions s ON s.runtime=b.runtime AND s.id=b.id${runtime === undefined ? '' : ' WHERE b.runtime=?'} ORDER BY b.runtime,b.id`)
       .all(...(runtime === undefined ? [] : [runtime]))
     return rows.map(row => {
       const data = this.#database.read(String(row.runtime), String(row.id))
       if (!data) throw new Error('A stored transcript is invalid; its runtime export cannot replace the ledger window')
-      return { runtime: String(row.runtime), id: String(row.id), data }
+      return { runtime: String(row.runtime), id: String(row.id), data: row.origin === 'imported'
+        ? { ...data, origin: 'imported', lastOpenedAt: Number(row.last_opened_at) } : data }
     })
   }
 
@@ -583,21 +585,24 @@ export class TranscriptStore {
     id: string,
     data: unknown,
   ): Promise<'restored' | 'skipped' | 'refused'> {
-    const incoming = data as Partial<Stored>
+    const incoming = data as Partial<Stored> & { origin?: 'desk' | 'imported'; lastOpenedAt?: number }
     if (
       typeof incoming !== 'object' ||
       incoming === null ||
       incoming.version !== FORMAT ||
       !Array.isArray(incoming.turns) ||
       incoming.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items)) ||
-      typeof incoming.savedAt !== 'number'
+      typeof incoming.savedAt !== 'number' ||
+      (incoming.origin !== undefined && incoming.origin !== 'desk' && incoming.origin !== 'imported') ||
+      (incoming.lastOpenedAt !== undefined && (!Number.isFinite(incoming.lastOpenedAt) || incoming.lastOpenedAt < 0))
     ) {
       return 'refused'
     }
     const existing = await this.#read(runtime as RuntimeId, id as SessionId)
     if (existing && existing.savedAt >= incoming.savedAt) return 'skipped'
     try {
-      this.#database.write(incoming as Stored, runtime as RuntimeId, id as SessionId, { source: null })
+      const { origin, lastOpenedAt, ...stored } = incoming
+      this.#database.write(stored as Stored, runtime as RuntimeId, id as SessionId, { source: null, origin, lastOpenedAt })
       this.#snapshots.schedule()
     }
     catch { return 'refused' }

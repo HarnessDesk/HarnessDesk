@@ -119,7 +119,7 @@ export interface HostContext {
     import(runtime: RuntimeId): void
     cancel(runtime: RuntimeId): void
     status(runtime: RuntimeId): HostResult<'history/status'>
-    list(params: HostParams<'history/list'>): HostResult<'history/list'>
+    list(params: HostParams<'history/list'>): Promise<HostResult<'history/list'>>
     removeImported(runtime: RuntimeId): Promise<HostResult<'history/removeImported'>>
     clearCached(): Promise<HostResult<'history/clearCached'>>
   }

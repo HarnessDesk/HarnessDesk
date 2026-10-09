@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { mkdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
@@ -85,6 +86,67 @@ test('native archive state comes from both authoritative listings; local archive
   }
 })
 
+test('native import pages cannot overwrite newer archive or unarchive actions', async t => {
+  for (const archived of [true, false]) await t.test(archived ? 'archive' : 'unarchive', async t => {
+    const { host, runtime, root } = fixture(t, true)
+    const index = new SessionIndex(join(root, 'sessions.sqlite'))
+    index.upsert(row('desk'), { archived: !archived })
+    index.upsert(row('imported'), { origin: 'imported', archived: !archived })
+    index.close()
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    let requested!: () => void
+    const waiting = new Promise<void>(resolve => { requested = resolve })
+    runtime.listSessions = async query => {
+      if (query?.archived !== (archived ? 'exclude' : 'only')) return { data: [], nextCursor: null }
+      requested()
+      await held
+      return { data: ['desk', 'imported', 'unseen', 'unchanged'].map(id => row(id, 99)), nextCursor: null }
+    }
+    host.register(runtime)
+    await host.call('history/import', { runtime: runtime.info.id })
+    await waiting
+    for (const id of ['desk', 'imported', 'unseen']) {
+      await host.call('session/archive', { runtime: runtime.info.id, sessionId: sessionId(id), archived })
+    }
+    release()
+    assert.equal((await finished(host)).state, 'done')
+    const db = new DatabaseSync(join(root, 'sessions.sqlite'))
+    t.after(() => db.close())
+    for (const id of ['desk', 'imported', 'unseen']) assert.equal(db.prepare('SELECT archived FROM sessions WHERE id=?').get(id)?.archived, Number(archived), id)
+    assert.equal(db.prepare("SELECT archived FROM sessions WHERE id='unchanged'").get()?.archived, Number(!archived))
+    assert.equal(db.prepare("SELECT updated_at FROM sessions WHERE id='imported'").get()?.updated_at, 99, 'metadata still refreshes')
+  })
+})
+
+test('the first project-filtered History page resolves cold folders beyond the unfiltered first page', async t => {
+  const { host, runtime, root } = fixture(t)
+  const canonicalRoot = await realpath(root)
+  const repo = join(canonicalRoot, 'repo'), nested = join(repo, 'nested'), other = join(canonicalRoot, 'other')
+  await mkdir(nested, { recursive: true })
+  await mkdir(other)
+  execFileSync('git', ['init', '-q', repo])
+  execFileSync('git', ['init', '-q', other])
+  runtime.listSessions = async () => ({ data: [
+    ...Array.from({ length: 60 }, (_, i) => ({ ...row(`other-${i}`, 100 + i), cwd: other })),
+    ...['target-a', 'target-b'].map(id => ({ ...row(id), cwd: nested })),
+  ], nextCursor: null })
+  host.register(runtime)
+  await host.call('history/import', { runtime: runtime.info.id })
+  await finished(host)
+  const db = new DatabaseSync(join(root, 'sessions.sqlite'))
+  t.after(() => db.close())
+  assert.equal(db.prepare('SELECT count(*) AS n FROM repos').get()?.n, 0, 'import leaves repository resolution cold')
+  const first = await host.call('history/list', { repoRoot: repo, query: 'target', runtimes: [runtime.info.id], pageSize: 1 })
+  assert.deepEqual(first.data.map(row => row.id), ['target-a'])
+  assert.equal(first.data[0]?.repo?.root, repo)
+  assert.ok(first.nextCursor)
+  const second = await host.call('history/list', { repoRoot: repo, query: 'target', runtimes: [runtime.info.id], pageSize: 1, cursor: first.nextCursor })
+  assert.deepEqual(second.data.map(row => row.id), ['target-b'])
+  assert.equal(second.nextCursor, null)
+  assert.equal(db.prepare('SELECT count(*) AS n FROM repos WHERE cwd=?').get(other)?.n, 0, 'title-filtered folders alone are resolved')
+})
+
 test('cancel and failed pages preserve completed pages, and can restart immediately', async t => {
   const { host, runtime, root } = fixture(t)
   let release!: (page: Page<SessionSummary>) => void
@@ -127,16 +189,17 @@ test('an account without listHistory is refused before starting or listing', asy
 
 test('History queries escape wildcards, filter runtime/project/hidden and page tied timestamps stably', async t => {
   const { host, runtime, root } = fixture(t)
-  runtime.listSessions = async () => ({ data: [row('a'), row('b'), { ...row('c'), title: '100%_done' }], nextCursor: null })
+  const project = await realpath(root)
+  execFileSync('git', ['init', '-q', project])
+  runtime.listSessions = async () => ({ data: [row('a'), row('b'), { ...row('c'), title: '100%_done' }].map(row => ({ ...row, cwd: project })), nextCursor: null })
   host.register(runtime)
   await host.call('history/import', { runtime: runtime.info.id })
   await finished(host)
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
-  index.putRepo('/synthetic/project', { repo: { root: '/synthetic', worktree: false }, exists: true, checkedAt: 1 })
   index.remove(runtime.info.id, sessionId('b'))
   index.upsert({ ...row('other'), runtime: runtimeId('other') }, { origin: 'imported' })
   index.close()
-  const listed = await host.call('history/list', { query: '%_', repoRoot: '/synthetic', runtimes: [runtime.info.id] })
+  const listed = await host.call('history/list', { query: '%_', repoRoot: project, runtimes: [runtime.info.id] })
   assert.deepEqual(listed.data.map((one: SessionSummary) => one.id), ['c'])
   assert.equal((await host.call('history/list', { query: 'DONE' })).data.length, 1)
   assert.equal((await host.call('history/list', { runtimes: [] })).data.length, 0)

@@ -1,8 +1,8 @@
-import type { AgentRuntime, HistoryImportState, ListSessionsQuery, Page, RuntimeId, SessionSummary } from '@harnessdesk/protocol'
+import type { AgentRuntime, HistoryImportState, ListSessionsQuery, Page, RuntimeId, SessionId, SessionSummary } from '@harnessdesk/protocol'
 import type { SessionArchive } from './archive.js'
 import type { SessionIndex } from './session-index.js'
 
-interface Job { cancelled: boolean; readonly runtime: AgentRuntime; readonly scanAt: number }
+interface Job { cancelled: boolean; readonly runtime: AgentRuntime; readonly scanAt: number; readonly archiveUnchanged: (id: SessionId) => boolean }
 
 /** Metadata only: no transcript read, repository resolution or agent-file write. */
 export class HistoryImport {
@@ -14,6 +14,7 @@ export class HistoryImport {
     resolve(runtime: RuntimeId): AgentRuntime
     start(runtime: AgentRuntime): Promise<void>
     list(runtime: AgentRuntime, query: ListSessionsQuery): Promise<Page<SessionSummary>>
+    archiveGuard(runtime: RuntimeId): (id: SessionId) => boolean
     changed(runtime: RuntimeId, state: HistoryImportState): void
     now?: () => number
   }) { ports.index.interruptImports() }
@@ -27,7 +28,7 @@ export class HistoryImport {
     const now = this.ports.now?.() ?? Date.now()
     const previous = this.status(id)
     if (this.#jobs.has(id) || (previous?.state === 'done' && now - previous.lastScanAt < 60_000)) return
-    const job: Job = { runtime, cancelled: false, scanAt: now }
+    const job: Job = { runtime, cancelled: false, scanAt: now, archiveUnchanged: this.ports.archiveGuard(id) }
     this.#jobs.set(id, job)
     this.#save(id, job, 'running')
     void this.#run(id, job)
@@ -57,7 +58,7 @@ export class HistoryImport {
           const page = await this.ports.list(job.runtime, { archived, pageSize: 500, ...(cursor ? { cursor } : {}) })
           if (!this.#current(id, job)) return
           this.ports.index.importPage(page.data.map(row => ({ ...row, runtime: id })), row => job.runtime.info.capabilities.archiveHistory
-            ? archived === 'only' : this.ports.archive.has(id, row.id))
+            ? job.archiveUnchanged(row.id) ? archived === 'only' : null : this.ports.archive.has(id, row.id))
           this.#save(id, job, 'running')
           cursor = page.nextCursor ?? undefined
           if (cursor && seen.has(cursor)) throw new Error('History listing repeated its cursor')

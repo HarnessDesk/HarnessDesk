@@ -172,7 +172,7 @@ export class SessionIndex {
   }
 
   /** One page, one transaction. Desk metadata/body and removal tombstones win. */
-  importPage(rows: readonly SessionSummary[], archivedOf: (row: SessionSummary) => boolean): void {
+  importPage(rows: readonly SessionSummary[], archivedOf: (row: SessionSummary) => boolean | null): void {
     const changed: { runtime: RuntimeId; id: SessionId }[] = []
     this.#transaction(() => {
       const write = this.#db.prepare(`INSERT INTO sessions(runtime,id,origin,title,cwd,repo_root,created_at,updated_at,archived)
@@ -183,11 +183,14 @@ export class SessionIndex {
           repo_root=CASE WHEN sessions.origin='imported' THEN excluded.repo_root ELSE sessions.repo_root END,
           created_at=CASE WHEN sessions.origin='imported' THEN excluded.created_at ELSE sessions.created_at END,
           updated_at=CASE WHEN sessions.origin='imported' THEN excluded.updated_at ELSE sessions.updated_at END,
-          archived=excluded.archived WHERE sessions.removed_at IS NULL`)
+          archived=COALESCE(excluded.archived,sessions.archived) WHERE sessions.removed_at IS NULL`)
       for (const row of rows) {
         const previous = this.#row(row.runtime, row.id)
         if (previous?.removed_at != null) continue
-        const archived = Number(archivedOf(row))
+        // A null observation is stale. Keep an action on an existing row or
+        // the pending mark for a conversation this page has not inserted yet.
+        const observed = archivedOf(row) ?? previous?.archived ?? this.#facts(row.runtime, row.id).archived ?? null
+        const archived = observed === null ? null : Number(observed)
         write.run(row.runtime, row.id, row.title ?? null, row.cwd, row.cwd, row.createdAt, row.updatedAt, archived)
         if (previous?.origin === 'desk' && previous.archived !== archived) changed.push(row)
       }

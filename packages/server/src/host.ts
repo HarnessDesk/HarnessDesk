@@ -973,6 +973,13 @@ export class Host {
       resolve: runtime => this.#runtime({ runtime }),
       start: runtime => this.#ensureStarted(runtime),
       list: (runtime, query) => this.#runtimeHistoryReaders.get(runtime)!(query),
+      archiveGuard: runtime => {
+        const revisions = new Map(this.#indexArchiveChanges)
+        return id => {
+          const key = String(sessionKey(runtime, id))
+          return this.#indexArchiveChanges.get(key) === revisions.get(key)
+        }
+      },
       changed: (runtime, state) => this.#push({ method: 'history/importChanged', params: { runtime, ...state } }),
     })
     this.#evictCached()
@@ -4045,7 +4052,20 @@ export class Host {
         import: runtime => this.#historyImport.import(runtime),
         cancel: runtime => this.#historyImport.cancel(runtime),
         status: runtime => this.#historyImport.status(runtime),
-        list: params => {
+        list: async params => {
+          if (params.repoRoot !== undefined) {
+            // A cold folder cannot match repo_root yet. Resolve the candidate
+            // folders through the bounded pass before applying that filter.
+            const folders = new Set<string>()
+            let cursor: string | undefined
+            do {
+              const candidates = this.#sessionIndex.history({ ...params, repoRoot: undefined, cursor, pageSize: 500 })
+              for (const row of candidates.data) folders.add(row.cwd)
+              cursor = candidates.nextCursor ?? undefined
+            } while (cursor)
+            for (const cwd of folders) this.#sessionIndexRepos.read(cwd, true)
+            await this.#sessionIndexRepos.flush()
+          }
           const page = this.#sessionIndex.history(params)
           for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
           return { ...page, data: page.data.map(row => ({ ...row, ...this.#indexStatus(row) })) }
