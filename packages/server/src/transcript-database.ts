@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { typedUserText, type AgentItem, type RuntimeId, type SessionSource, type SessionId, type Turn, type TurnInsightContext } from '@harnessdesk/protocol'
-import { openSessionDatabase, transaction } from './session-database.js'
+import { dropSessionBody, openSessionDatabase, transaction } from './session-database.js'
 import type { Stored } from './transcripts.js'
 
 export const TOOL_INDEX_CAP = 3000
@@ -81,7 +81,10 @@ export class TranscriptDatabase {
     })
   }
 
-  write(stored: Stored, runtime = stored.runtime, id = stored.id, options: { readonly reconcile?: boolean; readonly source?: SessionSource | null } = {}): void {
+  write(stored: Stored, runtime = stored.runtime, id = stored.id, options: {
+    readonly reconcile?: boolean; readonly source?: SessionSource | null
+    readonly origin?: 'desk' | 'imported'; readonly lastOpenedAt?: number
+  } = {}): void {
     const version = Number(this.db.prepare('PRAGMA data_version').get()?.data_version)
     if (version !== this.#dataVersion) { this.#fingerprints.clear(); this.#dataVersion = version }
     const key = JSON.stringify([runtime, id])
@@ -102,12 +105,12 @@ export class TranscriptDatabase {
       const orphanInsight = insight?.filter(context => !turnIds.has(context.turn))
       // The writer can create the index row before any lifecycle observation.
       // Fill its missing name, but retain a name already chosen by the person.
-      this.db.prepare(`INSERT INTO sessions(runtime,id,origin,title,cwd,created_at,updated_at,body,saved_at,usage,preview)
-        VALUES(?,?,'desk',?,?,?,?,'full',?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET body='full',saved_at=excluded.saved_at,
+      this.db.prepare(`INSERT INTO sessions(runtime,id,origin,title,cwd,created_at,updated_at,body,saved_at,usage,preview,last_opened_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET body=CASE WHEN sessions.origin='imported' THEN 'cached' ELSE 'full' END,saved_at=excluded.saved_at,
           title=COALESCE(sessions.title,excluded.title),updated_at=MAX(sessions.updated_at,excluded.updated_at),
-          usage=excluded.usage,preview=COALESCE(excluded.preview,sessions.preview)`)
-        .run(runtime, id, stored.title ?? null, stored.cwd ?? '', stored.createdAt ?? stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
-          stored.savedAt, stored.usage ? JSON.stringify(stored.usage) : null, stored.preview ?? null)
+          usage=excluded.usage,preview=COALESCE(excluded.preview,sessions.preview),last_opened_at=MAX(COALESCE(sessions.last_opened_at,0),excluded.last_opened_at)`)
+        .run(runtime, id, options.origin ?? 'desk', stored.title ?? null, stored.cwd ?? '', stored.createdAt ?? stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
+          options.origin === 'imported' ? 'cached' : 'full', stored.savedAt, stored.usage ? JSON.stringify(stored.usage) : null, stored.preview ?? null, options.lastOpenedAt ?? 0)
       if (options.source !== undefined) this.db.prepare('UPDATE sessions SET source_path=?,source_mtime=?,source_size=? WHERE runtime=? AND id=?')
         .run(options.source?.path ?? null, options.source?.mtimeMs ?? null, options.source?.size ?? null, runtime, id)
       this.db.prepare('INSERT INTO bodies(runtime,id,payload) VALUES(?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET payload=excluded.payload')
@@ -162,10 +165,33 @@ export class TranscriptDatabase {
 
   forget(runtime: RuntimeId, id: SessionId): void {
     transaction(this.db, () => {
-      for (const table of ['items', 'turns', 'bodies']) this.db.prepare(`DELETE FROM ${table} WHERE runtime=? AND id=?`).run(runtime, id)
-      this.db.prepare("UPDATE sessions SET body='none',saved_at=NULL,usage=NULL,source_path=NULL,source_mtime=NULL,source_size=NULL WHERE runtime=? AND id=?").run(runtime, id)
+      dropSessionBody(this.db, runtime, id)
     })
     this.#fingerprints.delete(JSON.stringify([runtime, id]))
+  }
+
+  /** Sizing reads counters, never payloads. Full and live bodies are retained. */
+  evictCached(cap: number, live: (runtime: RuntimeId, id: SessionId) => boolean): {
+    count: number; bytes: number; removed: readonly { runtime: RuntimeId; id: SessionId }[]
+  } {
+    const result = transaction(this.db, () => {
+      let total = Number(this.db.prepare("SELECT COALESCE(SUM(body_bytes),0) AS bytes FROM sessions WHERE body='cached'").get()?.bytes)
+      const removed: { runtime: RuntimeId; id: SessionId }[] = []
+      let bytes = 0
+      if (total <= cap) return { count: 0, bytes, removed }
+      const rows = this.db.prepare("SELECT runtime,id,body_bytes FROM sessions WHERE body='cached' ORDER BY last_opened_at,runtime,id").all() as unknown as { runtime: RuntimeId; id: SessionId; body_bytes: number }[]
+      for (const row of rows) {
+        if (total <= cap) break
+        if (live(row.runtime, row.id)) continue
+        dropSessionBody(this.db, row.runtime, row.id)
+        total -= row.body_bytes
+        bytes += row.body_bytes
+        removed.push({ runtime: row.runtime, id: row.id })
+      }
+      return { count: removed.length, bytes, removed }
+    })
+    for (const row of result.removed) this.#fingerprints.delete(JSON.stringify([row.runtime, row.id]))
+    return result
   }
 
   close(): void { this.#db?.close(); this.#db = undefined; this.#fingerprints.clear(); this.#dataVersion = -1 }

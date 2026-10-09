@@ -108,6 +108,64 @@ test('desk lifecycle and title/archive changes update the index across a restart
   assert.equal((await reopened.call('session/index', {})).data[0]?.title, 'Review the cache')
 })
 
+test('accepted agent titles replace an already-titled desk row', async (t) => {
+  for (const nameHistory of [false, true]) await t.test(nameHistory ? 'native naming' : 'host naming', async (t) => {
+    const root = tempDir('hd-index-title-')
+    const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+      builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+    t.after(() => host.dispose())
+    const runtime = new FakeRuntime({ capabilities: { nameHistory } })
+    host.register(runtime)
+    await host.start()
+    const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+    const live = runtime.sessions.get(String(session.id))!
+    await live.setTitle('Earlier task')
+    assert.equal((await host.call('session/index', {})).data[0]?.title, 'Earlier task')
+    await live.setTitle('Review the cache')
+    assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, 'Review the cache')
+    assert.equal((await host.call('session/index', {})).data[0]?.title, 'Review the cache')
+  })
+})
+
+test('an accepted native title clear removes the indexed title', async (t) => {
+  const root = tempDir('hd-index-title-clear-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { nameHistory: true } })
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const live = runtime.sessions.get(String(session.id))!
+  await live.setTitle('Earlier task')
+  assert.equal((await host.call('session/index', {})).data[0]?.title, 'Earlier task')
+  live.title = null
+  runtime.emit({ type: 'session/title', sessionId: session.id, title: null })
+  assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, null)
+  assert.equal((await host.call('session/index', {})).data[0]?.title, null)
+})
+
+test('a host rename rejects later agent titles and clears, including after a refresh', async (t) => {
+  const root = tempDir('hd-index-title-guard-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { nameHistory: false } })
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const title = 'Person chose this name'
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: session.id, title })
+  const agentTitleBefore = host.registry.get(runtime.info.id, session.id)?.session.title
+  for (const agentTitle of ['Agent chose this name', null]) {
+    runtime.emit({ type: 'session/title', sessionId: session.id, title: agentTitle })
+    assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, agentTitleBefore)
+    assert.equal((await host.call('session/index', {})).data[0]?.title, title)
+  }
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: session.id })
+  assert.equal((await host.call('session/index', {})).data[0]?.title, title)
+})
+
 test('removed runtimes stay absent from later pages and a fresh host', async (t) => {
   const root = tempDir('hd-index-removed-')
   const options = { logger: silent, state: new StateStore(join(root, 'state.json')),
@@ -235,4 +293,55 @@ test('a persisted active row without a live handle is not loaded after restart',
   host.register(new FakeRuntime())
   t.after(() => host.dispose())
   assert.deepEqual((await host.call('session/index', {})).data[0]?.status, { type: 'notLoaded' })
+})
+
+test('reading and resuming external history previews it until its first turn', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-preview-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const external = await runtime.createSession({ cwd: root })
+  const id = sessionId(String(external.id))
+  host.register(runtime)
+  await host.start()
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: id })
+  assert.deepEqual((await host.call('session/index', {})).data, [])
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: id })
+  assert.deepEqual((await host.call('session/index', {})).data, [], 'resume is a preview too')
+  const changes: import('@harnessdesk/protocol').WireNotification[] = []
+  host.addBroadcaster(event => changes.push(event))
+  await runtime.sessions.get(String(id))!.send([{ type: 'text', text: 'Continue this synthetic conversation' }])
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal((await host.call('session/index', {})).data[0]?.id, id)
+  assert.equal(changes.filter(event => event.method === 'session/indexChanged' && event.params.upserted.some(row => row.id === id)).length, 1)
+})
+
+test('a Team preview promotes on its turn while staying out of the sidebar', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { DatabaseSync } = await import('node:sqlite')
+  const root = tempDir('hd-index-team-preview-')
+  execFileSync('git', ['init', '-q', root])
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const external = await runtime.createSession({ cwd: root })
+  host.register(runtime)
+  await host.start()
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: external.id })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.setTeam(runtime.info.id, sessionId(String(external.id)), 'synthetic-team')
+  index.close()
+  const room = await host.teamPlane.createRoom(root, 'Synthetic Team')
+  await host.teamPlane.joinRoom(room.id, runtime.info.id, String(external.id))
+  await external.send([{ type: 'text', text: 'Continue this synthetic Team task' }])
+  assert.equal((await host.call('session/index', {})).data.length, 0)
+  const db = new DatabaseSync(join(root, 'sessions.sqlite'))
+  try {
+    assert.equal(db.prepare('SELECT origin FROM sessions WHERE id=?').get(external.id)?.origin, 'desk')
+    assert.equal(db.prepare('SELECT team_id FROM sessions WHERE id=?').get(external.id)?.team_id, room.id)
+  } finally { db.close() }
 })

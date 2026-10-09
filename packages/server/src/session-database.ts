@@ -15,7 +15,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
   try {
     db.exec('PRAGMA journal_mode = WAL')
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
-    if (version > 4) throw new Error('Session index is from a newer schema')
+    if (version > 5) throw new Error('Session index is from a newer schema')
     if (version === 0) transaction(db, () => {
       db.exec(`CREATE TABLE sessions (
         runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
@@ -78,6 +78,35 @@ export function openSessionDatabase(file: string): DatabaseSync {
         ALTER TABLE sessions ADD COLUMN source_size INTEGER;
         PRAGMA user_version = 4;`)
     })
+    if (version < 5) transaction(db, () => {
+      db.exec(`ALTER TABLE sessions ADD COLUMN last_opened_at REAL;
+        ALTER TABLE sessions ADD COLUMN body_bytes INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE imports(runtime TEXT PRIMARY KEY, imported_at REAL, count INTEGER NOT NULL DEFAULT 0,
+          last_scan_at REAL NOT NULL, state TEXT NOT NULL, error TEXT);
+        CREATE INDEX sessions_history ON sessions(origin,updated_at DESC,runtime,id);
+        CREATE INDEX sessions_cached ON sessions(body,last_opened_at,runtime,id);`)
+      // Count existing payloads once on migration; subsequent writes maintain
+      // the estimate incrementally, including UTF-8 and Insight payloads.
+      for (const table of ['bodies', 'turns', 'items']) {
+        const bytes = table === 'turns' ? "length(CAST(payload AS BLOB))+COALESCE(length(CAST(insight AS BLOB)),0)" : 'length(CAST(payload AS BLOB))'
+        db.exec(`UPDATE sessions SET body_bytes=body_bytes+COALESCE((SELECT SUM(${bytes}) FROM ${table}
+          WHERE ${table}.runtime=sessions.runtime AND ${table}.id=sessions.id),0);`)
+        const of = (prefix: string) => bytes.replaceAll('payload', `${prefix}.payload`).replaceAll('insight', `${prefix}.insight`)
+        db.exec(`CREATE TRIGGER ${table}_bytes_insert AFTER INSERT ON ${table} BEGIN
+            UPDATE sessions SET body_bytes=body_bytes+${of('new')} WHERE runtime=new.runtime AND id=new.id; END;
+          CREATE TRIGGER ${table}_bytes_delete AFTER DELETE ON ${table} BEGIN
+            UPDATE sessions SET body_bytes=body_bytes-${of('old')} WHERE runtime=old.runtime AND id=old.id; END;
+          CREATE TRIGGER ${table}_bytes_update AFTER UPDATE ON ${table} BEGIN
+            UPDATE sessions SET body_bytes=body_bytes-${of('old')}+${of('new')} WHERE runtime=new.runtime AND id=new.id; END;`)
+      }
+      db.exec('PRAGMA user_version = 5')
+    })
     return db
   } catch (error) { db.close(); throw error }
+}
+
+/** Caller holds the transaction; FTS triggers delete the search rows too. */
+export function dropSessionBody(db: DatabaseSync, runtime: string, id: string): void {
+  for (const table of ['items', 'turns', 'bodies']) db.prepare(`DELETE FROM ${table} WHERE runtime=? AND id=?`).run(runtime, id)
+  db.prepare("UPDATE sessions SET body='none',body_bytes=0,saved_at=NULL,usage=NULL,source_path=NULL,source_mtime=NULL,source_size=NULL WHERE runtime=? AND id=?").run(runtime, id)
 }
