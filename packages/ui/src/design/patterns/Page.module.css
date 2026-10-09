@@ -1,4 +1,5 @@
-/* A page's column. The measure is the page's kind, never the screen's choice. */
+/* A page's column. The measure is the page's kind, never the screen's choice;
+   the gutter is PaneColumn's reading inset, which equals --hd-page-gutter. */
 
 .page {
   box-sizing: border-box;
@@ -7,7 +8,6 @@
   gap: var(--hd-space-2);
   width: 100%;
   margin-inline: auto;
-  padding: var(--hd-page-gutter);
 }
 
 .page[data-width='reading'] {
