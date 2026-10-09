@@ -66,8 +66,7 @@ screen. Five causes, each checked in the source:
    the Teams list, Library, Plugins, Changes review and Settings become pages
    in main. Only Settings changes the left column, and only its contents.
 2. **One bar height, 40px**, for every row that touches the top of a column:
-   the window bar, the view bar, the panel bar, the left column's top row and
-   its seat row.
+   the window bar, the panel bar, the left column's top row and its seat row.
 3. **One top row for the left column**: window buttons, sidebar toggle and
    back/forward, then notifications and search. The wordmark row is dropped.
 4. **Flat panels.** Columns meet at hairlines and every bar sits on one
@@ -156,7 +155,7 @@ one Team, and seven other destinations are drawn *over* the workbench by
 | Destination | Left column | Width | Bar |
 | --- | --- | --- | --- |
 | Conversation (solo, draft) | Sessions | reading | window bar |
-| Team (Overview, Run, Board, Chat, Findings, Runs) | Sessions | per view | window bar + view bar |
+| Team (Overview, Run, Board, Chat, Findings, Runs) | Sessions | per view | window bar, its views as tabs |
 | Teams list | Sessions | wide | window bar, filters as tabs |
 | Agents list · an Agent | Sessions | wide · reading | window bar; an Agent adds `Agents ›` |
 | Library | Sessions | wide | window bar, its views as tabs |
@@ -187,6 +186,11 @@ One container, whatever main shows.
   16px icon, 8px gap, 13px label, one trailing slot for a count or a dot,
   a grey selected fill. A row inside a group starts at the same x as one
   outside it.
+- **A list, never a tree of views.** Every row is a thing you open — a
+  session, a Team, a page — and opening it fills main. A Team is one row; its
+  views (Overview, Run, Board, Chat, Findings, Runs) are tabs in the window
+  bar, and its seats are in its Overview and the Details tool, not rows under
+  it. Opening the Team returns to the view it was last on.
 - **Group label:** 13px/500, secondary ink, in both modes.
 - **Seat row (40):** you, at the bottom, with the gear that opens Settings.
   The gear reads as pressed while Settings is open.
@@ -223,14 +227,28 @@ place and ⋯:
 9. **⋯** — always last; every page verb that is not a tool lives here.
 
 No filled button in any bar. A page's one creation verb (New Team, New job,
-New agent) is an outline button before ⋯. The existing fold rules (by the
-bar's own width, at 520 and 400) carry over unchanged.
+New agent) is an outline button before ⋯.
 
-**The view bar** is the optional second row, used by a Team's views. It never
-repeats the title — the selected tab already says it. Left: the view's
-summary facts (`0 to do · 0 working · 2 need you`, `Run 1 · Stalled ·
-Round 1 of 4`). Right: the view's actions and its view switch (Board | List,
-Timeline | Flow). Run, Board, Findings and Runs all use it.
+**A view's own controls ride in the same bar.** There is no second row under
+the window bar — no view bar, no toolbar across the top of the content. A
+Team's tabs name its views; the selected view adds, after the spacer and
+before ⋯:
+
+- its layout as icon toggles (Board | List, Timeline | Flow, Thread | Side by
+  side), each with its name as the title;
+- a filter as one button naming the current choice and its count
+  (`Open 12 ⌄`), whose menu lists the others;
+- its verb (Decide this run, Stop run…, New job).
+
+The view's summary (`12 open · 8 blocking`, `Round 2 of 4`) is the first
+card of its content or the Details tool, never a strip of its own.
+
+**The bar folds to keep its title readable.** When the title would be
+narrower than 180px, the bar first drops the state chip and the words of any
+verb that has an icon (the icon stays, the words become its title), then
+folds its tabs into one button naming the current tab, whose menu lists them
+all. A verb without an icon keeps its words. Facts fold the same way they do
+today.
 
 **The panel bar** heads the right and bottom panels: pill tabs when the stack
 holds several views, the view's title when it holds one, and the panel verbs
@@ -299,7 +317,7 @@ section → section 32, card 16, row 12, dialog 24.
 
 **The page template is the only way in.** A page renders
 `<Page width="reading" | "wide" | "canvas">` and composes blocks inside it —
-`Section`, `SummaryList`, `Rows`, `Table`, `EmptyState`, the view bar. A
+`Section`, `SummaryList`, `Rows`, `Table`, `EmptyState`. A
 screen writes no page-level `max-width`, padding or outer margin of its own,
 and the audit refuses one. Inside a page:
 
@@ -309,14 +327,14 @@ and the audit refuses one. Inside a page:
   key and value side by side within the column, never a key at one edge of
   the window and its value at the other.
 - **Buttons are as wide as their words.** A view's own verb ("Decide this
-  run") is an outline button in its view bar, not a bar across the page.
+  run") is an outline button in the window bar, not a bar across the page.
 - **A switch is a settings row.** Its control keeps the row's end, inside the
   column.
 
-A Team's Findings is the first acceptance example: a reading page whose view
-bar holds `12 open · 8 blocking`, Decide this run and All | Open | Blocking,
-and whose column holds the round's facts as one card, the post-to-PR switch as
-a row, and the findings as one list.
+A Team's Findings is the first acceptance example: the window bar holds the
+Team, its tabs with Findings selected, `Open 12 ⌄` and Decide this run; the
+reading column holds the round's facts as one card (`12 open · 8 blocking`
+among them), the post-to-PR switch as a row, and the findings as one list.
 
 **No page head.** The title is in the bar. A page that needs one sentence of
 explanation opens its content with it, in secondary ink; most pages need none.
@@ -329,7 +347,7 @@ outline verb).
 
 - One panel shell for the right and bottom panels, headed by the panel bar.
 - **A view inside a panel never draws its own title bar.** One that needs a
-  toolbar — search, a filter, a switch — uses the view bar.
+  toolbar — search, a filter, a switch — puts it in the panel bar.
 - Panel content is sections: a group label over rows. Rows keep their own 12px
   edge; prose uses 16. No cards inside a panel and no 24px reading gutter in a
   280–460px column.
@@ -387,7 +405,7 @@ to the nonexistent `--hd-topbar-h` is fixed in the same pass.
 | --- | --- |
 | `Bar` | the one bar; `size="lg"` (48) is removed |
 | Conversation header, Team header (`TeamRoomPane`) | the window bar, built from one `WindowBar` pattern with the nine slots |
-| Run header, Board header, Findings header, Runs head | the view bar (`ViewBar`) |
+| Run header, Board header, Findings header, Runs head | the window bar's view slots (layout toggles, filter, verb); `ViewBar` from step 0 is retired when the shell lands |
 | `DockPanelBar`, `ToolPaneHeader`, `PanelTools` | the panel bar; a docked inspector drops its own `PanelTools` |
 | `TabsList` default, `Segmented`, `PanelPill` | one switcher; the dock keeps `DockPanelTabs` |
 | `AppWindow`, `WindowNav`, `WindowPage` | retired; `WindowNav`'s groups move into the left column's Settings mode |
@@ -418,7 +436,8 @@ own with the app working:
    the status bar; destinations register their slots instead of drawing
    headers (`useTopBar`, panel view bodies, status facts). The conversation,
    Team and draft headers are deleted as they move; Run, Board, Findings and
-   Runs use `ViewBar`; the docked inspector loses its second bar and its
+   Runs register their layout toggles, filter and verb in the window bar, and
+   step 0's `ViewBar` goes; the docked inspector loses its second bar and its
    titled cards; app-wide facts move to the status bar; the right-panel
    toggle leaves the window-buttons row for the top bar's end.
 3. **Popups.** The menu, the wide menu and the info card; every popup in the
@@ -492,7 +511,7 @@ Each kind of content has one block, drawn one way everywhere:
 | State | `Chip` | one shape, 22 tall, a tone per state, three words at most; the longer reason is its title |
 | Facts in a bar | the facts pill | at most four facts, a mark and a short value each, never the same fact twice |
 | A choice of action | menu row | as in Popups |
-| A page's or view's verb | outline button in the bar or view bar | as wide as its words, never a full-width bar |
+| A page's or view's verb | outline button in the window bar | as wide as its words, never a full-width bar |
 | Nothing yet | `EmptyState` | one sentence and at most one action, centred in the column |
 | What sending or a run will do | the composer tail line | one paragraph per line; names and sentence flow as text |
 
@@ -538,8 +557,8 @@ Four things stop that here.
 - `e2e/ui-system/container-insets.spec.ts` gains the page widths and the
   panel content edge; a new check measures that every top-of-column row in a
   window is 40 and that their bottoms share one y.
-- The catalogue (`design.html`) shows the window bar on every destination, the
-  view bar on every Team view, the left column in both modes, the three
+- The catalogue (`design.html`) shows the window bar on every destination and
+  every Team view, folded and unfolded, the left column in both modes, the three
   popups and the page wall, from the real components with real-length content
   (second lines, long names, CJK titles); `node script/ui-catalog.mjs` passes.
 - Each step is looked at in the built app in light and dark, at a wide window
