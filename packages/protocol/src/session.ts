@@ -460,6 +460,8 @@ export interface Session {
   readonly usage?: SessionUsage | null
   readonly goal?: SessionGoal | null
   readonly turns: readonly Turn[]
+  /** Served from the desk because the agent’s own record is unavailable. */
+  readonly deskCopy?: boolean
   readonly itemsLoaded: boolean
   /**
    * The turns begin at a reopen that brought no history back — an agent that

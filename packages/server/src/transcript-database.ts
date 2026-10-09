@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { typedUserText, type AgentItem, type RuntimeId, type SessionId, type Turn, type TurnInsightContext } from '@harnessdesk/protocol'
+import { typedUserText, type AgentItem, type RuntimeId, type SessionSource, type SessionId, type Turn, type TurnInsightContext } from '@harnessdesk/protocol'
 import { openSessionDatabase, transaction } from './session-database.js'
 import type { Stored } from './transcripts.js'
 
@@ -81,7 +81,7 @@ export class TranscriptDatabase {
     })
   }
 
-  write(stored: Stored, runtime = stored.runtime, id = stored.id, options: { readonly reconcile?: boolean } = {}): void {
+  write(stored: Stored, runtime = stored.runtime, id = stored.id, options: { readonly reconcile?: boolean; readonly source?: SessionSource | null } = {}): void {
     const version = Number(this.db.prepare('PRAGMA data_version').get()?.data_version)
     if (version !== this.#dataVersion) { this.#fingerprints.clear(); this.#dataVersion = version }
     const key = JSON.stringify([runtime, id])
@@ -108,6 +108,8 @@ export class TranscriptDatabase {
           usage=excluded.usage,preview=COALESCE(excluded.preview,sessions.preview)`)
         .run(runtime, id, stored.title ?? null, stored.cwd ?? '', stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
           stored.savedAt, stored.usage ? JSON.stringify(stored.usage) : null, stored.preview ?? null)
+      if (options.source !== undefined) this.db.prepare('UPDATE sessions SET source_path=?,source_mtime=?,source_size=? WHERE runtime=? AND id=?')
+        .run(options.source?.path ?? null, options.source?.mtimeMs ?? null, options.source?.size ?? null, runtime, id)
       this.db.prepare('INSERT INTO bodies(runtime,id,payload) VALUES(?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET payload=excluded.payload')
         .run(runtime, id, JSON.stringify({ ...facts, ...(insight ? { insightOrder: insight.map(context => context.turn),
           ...(orphanInsight?.length ? { orphanInsight } : {}) } : {}) }))
@@ -161,7 +163,7 @@ export class TranscriptDatabase {
   forget(runtime: RuntimeId, id: SessionId): void {
     transaction(this.db, () => {
       for (const table of ['items', 'turns', 'bodies']) this.db.prepare(`DELETE FROM ${table} WHERE runtime=? AND id=?`).run(runtime, id)
-      this.db.prepare("UPDATE sessions SET body='none',saved_at=NULL,usage=NULL WHERE runtime=? AND id=?").run(runtime, id)
+      this.db.prepare("UPDATE sessions SET body='none',saved_at=NULL,usage=NULL,source_path=NULL,source_mtime=NULL,source_size=NULL WHERE runtime=? AND id=?").run(runtime, id)
     })
     this.#fingerprints.delete(JSON.stringify([runtime, id]))
   }

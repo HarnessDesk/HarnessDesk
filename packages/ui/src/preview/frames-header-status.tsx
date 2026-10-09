@@ -28,7 +28,7 @@ export const HeaderStatusFrames = () => {
     const cwd = '/work/project'
     const sessions = new Map(snapshot.sessions)
     sessions.set(PREVIEW_SESSION_KEY, {
-      ...session, cwd,
+      ...session, cwd, deskCopy: query.has('desk-copy'),
       turns: query.has('running') ? [...session.turns, { id: turnId('header-running'), status: 'inProgress', items: [] }] : session.turns,
       settings: { ...session.settings, cwd, model: session.settings?.model ?? 'model-a' },
     })

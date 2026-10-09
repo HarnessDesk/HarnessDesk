@@ -115,3 +115,14 @@ const taken = (path: string): boolean => {
     return false
   }
 }
+
+/** Metadata only; sidecar directories are not conversation bodies. */
+export const sourceOf = (id: string, configDir = claudeConfigDir()) => {
+  const path = sessionFiles(id, configDir).find(path => path.endsWith('.jsonl'))
+  if (!path) return null
+  try { const facts = statSync(path); return { path, mtimeMs: facts.mtimeMs, size: facts.size } }
+  catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return null
+    throw error
+  }
+}

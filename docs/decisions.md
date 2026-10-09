@@ -53,6 +53,29 @@ conversation's only copy is kept in both the backup and the daily snapshot.
 
 ---
 
+## The agent’s record is the authority on reopen
+
+An adapter that can name a conversation’s source declares that capability and
+returns its path, modification time and size. The host saves those facts with
+the body in the same SQLite transaction. An unchanged file serves the stored
+body without reading the agent. A changed file is read through the agent and
+reconciled by `TranscriptStore.enrich` before it is saved: lossy replay keeps
+commands, reasoning, notices, publications and recorded context authorship.
+Empty and partial replay retain the history they did not answer for; rollback
+removes omitted work, search rows and Insight context together.
+
+A missing source, or an agent that cannot serve the conversation, leaves the
+desk’s copy readable. One quiet line names it as HarnessDesk’s copy and names
+the agent through its presentation. A filesystem read error does not prove
+that a source is gone. Runtimes without the source capability retain their
+existing read and reconciliation path. Nothing writes to or deletes the
+agent’s record, and old desk transcript files remain untouched.
+
+**The rule:** the agent’s file is the authority while it exists; the desk’s
+body is the fallback, and a failed refresh never updates its source fingerprint.
+
+---
+
 ## Content names share one medium weight
 
 The owner's 2A decision on 2026-10-03 changes content person and agent names
