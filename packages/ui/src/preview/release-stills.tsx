@@ -35,7 +35,19 @@ const capabilityStore = () => {
   const request = own.transport.request.bind(own.transport)
   own.transport.request = async (method, params) => method === 'library/read' ? STILL_LIBRARY
     : method === 'audit/query' ? [] : request(method, params)
-  return own
+  if (!new URLSearchParams(window.location.search).has('site-clip')) return own
+  let snapshot = own.getSnapshot()
+  const listeners = new Set<() => void>()
+  return new Proxy(own, { get(target, key) {
+    if (key === 'getSnapshot') return () => snapshot
+    if (key === 'subscribe') return (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }
+    if (key === 'setPluginEnabled') return async (id: string, enabled: boolean) => {
+      snapshot = { ...snapshot, plugins: snapshot.plugins.map(plugin => plugin.identity.id === id
+        ? { ...plugin, enabled } : plugin) }
+      for (const listener of listeners) listener()
+    }
+    return Reflect.get(target, key)
+  } })
 }
 
 const names = [...STILL_RUNTIMES.map(runtime => runtime.presentation.name), 'Judge']

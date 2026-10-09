@@ -47,6 +47,7 @@ import { selectScenes } from './selection.mjs'
 import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 import { shootStills } from './stills.mjs'
+import { shootClips } from './clips.mjs'
 
 /**
  * What is on the board, and what has been said in the room.
@@ -108,6 +109,12 @@ const PROVENANCE_SHOTS = (() => {
 })()
 
 // This route mounts only synthetic preview stores and opens no desktop window.
+if (has('site-clips')) {
+  if (!flag('out')) throw new Error('--site-clips requires --out <dir>; media never defaults to the repository assets.')
+  await shootClips({ app: APP, out: OUT, themes: THEMES,
+    requested: argv.flatMap((one, i) => one === '--scene' && argv[i + 1] ? [argv[i + 1]] : []) })
+  process.exit(0)
+}
 if (has('release-stills')) {
   await shootStills({ app: APP, out: OUT, themes: THEMES,
     requested: argv.flatMap((one, i) => one === '--scene' && argv[i + 1] ? [argv[i + 1]] : []) })
