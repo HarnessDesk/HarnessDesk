@@ -2078,6 +2078,39 @@ test('stopping abandons only this run’s unanswered person cards and survives a
   assert.equal(rig.board(run.goal).intents.length, 2, 'cleanup fires no retry rule')
 })
 
+test('failed Stop cleanup reports failure and restart retries only its unanswered person cards (#1548)', async t => {
+  let refuseAbandon = true
+  const rig = await goalRig(t, {
+    mutate: async (snapshot, refused) => {
+      const board = snapshot()
+      if (refuseAbandon && board?.intents.some(card => card.id === 1 && card.state === 'abandoned')) {
+        const error = new Error('the person-card save failed')
+        refused?.(error)
+        throw error
+      }
+    },
+  })
+  const run = await rig.start(LAND_END, [])
+  rig.team.addIntentAsUser(run.goal, { title: 'Unrelated follow-up' })
+  await rig.team.flush()
+  await assert.rejects(rig.flows.stopRun(run.id, 'Stopped for review'), /person card #1.*could not be saved/i)
+  const stopped = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open', 'a failed board save rolled back')
+  await assert.rejects(rig.flows.stopRun(run.id), /person card #1.*could not be saved/i, 'the public Stop retry still attempts cleanup')
+
+  await rig.restart()
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open', 'failed startup cleanup remains pending')
+  assert.ok(rig.logs.some(line => /person.*restart/i.test(line)), 'startup says why cleanup failed')
+  refuseAbandon = false
+  await rig.restart()
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'abandoned')
+  assert.equal(rig.board(run.goal).intents[1]?.state, 'open')
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0], stopped, 'cleanup preserves the recorded end')
+  assert.deepEqual(await rig.flows.stopRun(run.id), stopped, 'Stop remains idempotent')
+  assert.equal(rig.board(run.goal).intents.length, 2, 'cleanup dispatches no retry round')
+})
+
 test('successful ends require all siblings and never count an abandoned card (#1548)', async t => {
  for(const outcome of ['landed','failed',null]) {
   const rig=await goalRig(t)

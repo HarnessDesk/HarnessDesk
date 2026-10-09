@@ -223,23 +223,25 @@ roles:
   land:
     kind: check
     run: node land.mjs
-    exits: { 0: landed }
+    exits: { 0: landed, 1: no-pr }
     otherwise: retry
 complete: { land: [landed] }
 seed: { role: land, title: Land the reviewed commit }
 rules:
   - id: try-again
     on: land
-    when: { every: retry }
+    when: { every: [retry, no-pr] }
     then: { role: land, title: Try landing again }
 budget: { rounds: 3, without-progress: 2 }
 ```
 
-For an existing landing rule, put an unconditional rule (omit `when:`) last to
-catch all other outcomes, including explicit `exits:` words such as `no-pr`.
-Rules still fire in file order, and the normal round and progress budgets bound
-the loop. Without a matching rule the declared `landed` outcome completes the run;
-other outcomes still ask for you. Start a new run to run its check again.
+For an existing landing rule, list every outcome that should retry in its
+`when: { every: [...] }`, including explicit `exits:` words such as `no-pr`.
+Leave successful outcomes out: a matching rule takes priority over `complete`,
+so an unconditional fallback would retry `landed` too. Rules still fire in file
+order, and the normal round and progress budgets bound the loop. Without a
+matching rule the declared `landed` outcome completes the run; other outcomes
+still ask for you. Start a new run to run its check again.
 
 ### Permissions
 
@@ -680,6 +682,8 @@ completes on an answered round; unmatched outcomes of a ruled role ask for you.
 The declaration is frozen with each new Run. Existing settled Runs keep their
 recorded ends. Stopping a Run sets aside only its unanswered person cards,
 without answering them or firing a rule; follow-up cards remain open.
+If a card cannot be saved, the Run stays stopped and **Retry stop…** finishes
+its cleanup. Restart also retries those cards, keeping the recorded end intact.
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
 those come from the resolved Agent named in `uses:`, the same one Settings ›

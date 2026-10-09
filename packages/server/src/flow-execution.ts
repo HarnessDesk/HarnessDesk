@@ -3998,6 +3998,22 @@ export class FlowExecutions {
 
   // ----------------------------------------------------------------- stop
 
+  /** The stopped run and its frozen rounds retain the cleanup owed after a failed board save. */
+  async #abandonStoppedPeople(id: string): Promise<void> {
+    const run = this.#get(id)
+    if (run.state !== 'stopped' || run.goal === '') return
+    const people = new Set(policyOf(run).roles.filter(role => role.kind === 'person').map(role => role.id))
+    const owned = new Set(run.rounds.filter(round => people.has(round.role)).flatMap(round => round.cards))
+    for (const card of this.#team.stateFor(run.goal).intents) {
+      if (!owned.has(card.id) || done(card)) continue
+      await this.#team.intentAction(run.goal, card.id, 'abandon', run.reason ?? undefined)
+      // The window's board action rolls back a failed save without throwing.
+      // Stop must report that failure so its existing Retry stop stays available.
+      const saved = this.#team.stateFor(run.goal).intents.find(one => one.id === card.id)
+      if (saved && !done(saved)) throw new Error(`Person card #${card.id} could not be saved as abandoned. Retry stop to finish this run's cleanup.`)
+    }
+  }
+
   async stop(id: string, why = 'the person stopped this flow', by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     const goal = this.#get(id).goal
     this.#stopRequests.set(id, (this.#stopRequests.get(id) ?? 0) + 1)
@@ -4009,15 +4025,7 @@ export class FlowExecutions {
         this.interruptChecks(goal)
         const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
         await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
-        const run = this.#get(id)
-        if (run.state === 'stopped') {
-          // A failed board save can be retried without changing the durable end.
-          const people = new Set(policyOf(run).roles.filter(role => role.kind === 'person').map(role => role.id))
-          const owned = new Set(run.rounds.filter(round => people.has(round.role)).flatMap(round => round.cards))
-          for (const card of this.#team.stateFor(goal).intents) {
-            if (owned.has(card.id) && !done(card)) await this.#team.intentAction(goal, card.id, 'abandon', run.reason ?? why)
-          }
-        }
+        await this.#abandonStoppedPeople(id)
         return tasks
       })
       // Completion uses this same queue: drain outside it, before Stop or wrap returns.
@@ -4268,6 +4276,12 @@ export class FlowExecutions {
       if (!run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
       await this.#queue.within(run.id, () => this.#dropBase(run)).catch((error: unknown) => {
         this.#port.log('an aborted Flow base ref could not be removed at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'stopped') continue
+      await this.#queue.within(run.id, () => this.#abandonStoppedPeople(run.id)).catch((error: unknown) => {
+        this.#port.log('a stopped flow run could not abandon its person cards at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })
     }
     for (const run of [...this.#runs.values()]) {
