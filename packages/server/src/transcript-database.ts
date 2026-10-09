@@ -81,7 +81,7 @@ export class TranscriptDatabase {
     })
   }
 
-  write(stored: Stored, runtime = stored.runtime, id = stored.id): void {
+  write(stored: Stored, runtime = stored.runtime, id = stored.id, options: { readonly reconcile?: boolean } = {}): void {
     const version = Number(this.db.prepare('PRAGMA data_version').get()?.data_version)
     if (version !== this.#dataVersion) { this.#fingerprints.clear(); this.#dataVersion = version }
     const key = JSON.stringify([runtime, id])
@@ -112,7 +112,9 @@ export class TranscriptDatabase {
         const context = contexts.get(String(turn.id))
         const fingerprint = createHash('sha256').update(JSON.stringify([seq, turn, context ?? null])).digest('hex')
         next.set(String(turn.id), fingerprint)
-        if (previous.get(String(turn.id)) === fingerprint) continue
+        // A failed retained-body read makes the saved fingerprints untrusted.
+        // Reconcile the rows, keeping each existing item's sequence below.
+        if (!options.reconcile && previous.get(String(turn.id)) === fingerprint) continue
         const { items, ...metadata } = turn
         this.db.prepare(`INSERT INTO turns(runtime,id,turn_id,seq,payload,insight,fingerprint) VALUES(?,?,?,?,?,?,?)
           ON CONFLICT(runtime,id,turn_id) DO UPDATE SET seq=excluded.seq,payload=excluded.payload,insight=excluded.insight,fingerprint=excluded.fingerprint`)

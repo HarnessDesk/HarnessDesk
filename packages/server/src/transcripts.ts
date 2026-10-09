@@ -251,9 +251,11 @@ export class TranscriptStore {
         // Only stored user messages are needed for provenance; large command
         // and tool payloads never make a round trip on the write path.
         let current: Stored | null = null
+        let reconcile = false
         try { current = this.#database.read(session.runtime, session.id, true) }
         catch (error) {
           if (!(error instanceof InvalidTranscriptBodyError)) throw error
+          reconcile = true
           this.log('invalid retained transcript ignored', { session: session.id, error: String(error) })
         }
         if (current) {
@@ -263,7 +265,7 @@ export class TranscriptStore {
           stored = { ...stored, turns: withDeskContext(stored.turns, current.turns),
             ...(contexts.size ? { insight: [...contexts.values()] } : {}) }
         }
-        this.#database.write(stored)
+        this.#database.write(stored, session.runtime, session.id, { reconcile })
         this.#snapshots.schedule()
       } catch (error) {
         this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',

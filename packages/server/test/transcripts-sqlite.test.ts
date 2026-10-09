@@ -95,6 +95,51 @@ test('a corrupt retained body does not prevent later live turns from being saved
   } finally { database.close() }
 })
 
+test('a live save reconciles corrupt retained rows even when their turn fingerprints still match', async t => {
+  for (const corruption of ['turn', 'user message']) for (const restart of [false, true]) {
+    await t.test(`${corruption}, ${restart ? 'cold' : 'warm'} writer`, async t => {
+      const { home, store } = await fixture(t)
+      const original = session([turn('t1', [
+        { id: itemId('ask'), type: 'userMessage', content: [{ type: 'text', text: 'first question' }] },
+        message('answer', 'first answer'), tool('retained output'),
+      ])])
+      store.record(original)
+      await store.flush()
+      const database = new DatabaseSync(join(home, 'sessions.sqlite'))
+      const sequences = database.prepare('SELECT item_id,seq FROM items ORDER BY seq').all()
+      const fingerprint = database.prepare('SELECT fingerprint FROM turns').get()?.fingerprint
+      if (corruption === 'turn') database.prepare("UPDATE turns SET payload='not JSON'").run()
+      else database.prepare("UPDATE items SET payload='not JSON' WHERE kind='userMessage'").run()
+      assert.equal(database.prepare('SELECT fingerprint FROM turns').get()?.fingerprint, fingerprint)
+      let writer = store
+      try {
+        if (restart) {
+          await store.close()
+          writer = new TranscriptStore(join(home, 'transcripts'))
+        }
+        const live = session([...original.turns, turn('t2', [message('later', 'later answer')])])
+        writer.record(live)
+        await writer.flush()
+        await t.test('recovery', async () => {
+          assert.deepEqual((await writer.recover(live.runtime, live.id))?.turns, live.turns)
+        })
+        await t.test('backup round trip', async t => {
+          const exported = await writer.exportAll()
+          const { store: fresh } = await fixture(t)
+          for (const row of exported) assert.equal(await fresh.importOne(row.runtime, row.id, row.data), 'restored')
+          assert.deepEqual(await fresh.exportAll(), exported)
+          assert.deepEqual((await fresh.recover(live.runtime, live.id))?.turns, live.turns)
+        })
+        assert.deepEqual(database.prepare("SELECT item_id,seq FROM items WHERE turn_id='t1' ORDER BY seq").all(), sequences)
+        assert.equal((await writer.search('first question'))[0]?.line, 'first question')
+      } finally {
+        if (writer !== store) await writer.close()
+        database.close()
+      }
+    })
+  }
+})
+
 test('the write transaction protects a newer body even when an earlier read was supported', async t => {
   const { home, store } = await fixture(t)
   store.record(session([turn('t1', [message('m', 'original answer')])]))
