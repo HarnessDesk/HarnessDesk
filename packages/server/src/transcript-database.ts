@@ -17,7 +17,7 @@ export function toolOutput(item: AgentItem): string {
 const textOf = (item: AgentItem): string => item.type === 'assistantMessage' ? item.text ?? ''
   : item.type === 'userMessage' ? Array.isArray(item.content) ? typedUserText(item.content) : '' : toolOutput(item)
 interface TurnRow { turn_id: string; seq: number; payload: string; insight: string | null; fingerprint: string }
-interface ItemRow { seq: number; item_id: string; position: number; payload: string }
+interface ItemRow { seq: number; item_id: string; position: number; kind: string; payload: string }
 type Facts = Omit<Stored, 'turns' | 'insight'> & { insightOrder?: readonly string[]; orphanInsight?: readonly TurnInsightContext[] }
 
 /** A single body's JSON is unusable; this does not indicate a database failure. */
@@ -112,15 +112,20 @@ export class TranscriptDatabase {
         const context = contexts.get(String(turn.id))
         const fingerprint = createHash('sha256').update(JSON.stringify([seq, turn, context ?? null])).digest('hex')
         next.set(String(turn.id), fingerprint)
-        // A failed retained-body read makes the saved fingerprints untrusted.
-        // Reconcile the rows, keeping each existing item's sequence below.
-        if (!options.reconcile && previous.get(String(turn.id)) === fingerprint) continue
         const { items, ...metadata } = turn
+        const existing = this.db.prepare('SELECT seq,item_id,position,kind,payload FROM items WHERE runtime=? AND id=? AND turn_id=? ORDER BY position,seq')
+          .all(runtime, id, turn.id) as unknown as ItemRow[]
+        // A fingerprint describes the live turn, not the retained rows' integrity.
+        // Matching the live JSON validates every payload and its claimed identity
+        // under the write lock, without decoding large tool or reasoning objects.
+        if (!options.reconcile && previous.get(String(turn.id)) === fingerprint && existing.length === items.length &&
+          existing.every((row, position) => {
+            const item = items[position]!
+            return row.position === position && row.item_id === String(item.id ?? '') && row.kind === item.type && row.payload === JSON.stringify(item)
+          })) continue
         this.db.prepare(`INSERT INTO turns(runtime,id,turn_id,seq,payload,insight,fingerprint) VALUES(?,?,?,?,?,?,?)
           ON CONFLICT(runtime,id,turn_id) DO UPDATE SET seq=excluded.seq,payload=excluded.payload,insight=excluded.insight,fingerprint=excluded.fingerprint`)
           .run(runtime, id, turn.id, seq, JSON.stringify({ version: 1, turn: metadata }), context ? JSON.stringify(context) : null, fingerprint)
-        const existing = this.db.prepare('SELECT seq,item_id,position,payload FROM items WHERE runtime=? AND id=? AND turn_id=? ORDER BY position,seq')
-          .all(runtime, id, turn.id) as unknown as ItemRow[]
         const byId = new Map<string, ItemRow[]>()
         for (const row of existing) { const occurrences = byId.get(row.item_id) ?? []; occurrences.push(row); byId.set(row.item_id, occurrences) }
         const retained = new Set<number>()
@@ -130,7 +135,7 @@ export class TranscriptDatabase {
           const seq = row?.seq ?? sequence++
           retained.add(seq)
           const payload = JSON.stringify(item)
-          if (row?.payload === payload && row.position === position) continue
+          if (row?.payload === payload && row.position === position && row.kind === item.type) continue
           const text = textOf(item)
           const message = item.type === 'userMessage' || item.type === 'assistantMessage'
           this.db.prepare(`INSERT INTO items(runtime,id,seq,turn_id,item_id,position,kind,role,text,message_text,tool_text,payload)

@@ -96,20 +96,27 @@ test('a corrupt retained body does not prevent later live turns from being saved
 })
 
 test('a live save reconciles corrupt retained rows even when their turn fingerprints still match', async t => {
-  for (const corruption of ['turn', 'user message']) for (const restart of [false, true]) {
-    await t.test(`${corruption}, ${restart ? 'cold' : 'warm'} writer`, async t => {
+  const corruptions = [
+    { name: 'turn', kind: null, payload: 'not JSON' },
+    { name: 'user message', kind: 'userMessage', payload: 'not JSON' },
+    ...['assistantMessage', 'toolCall', 'reasoning'].flatMap(kind =>
+      ['not JSON', 'null'].map(payload => ({ name: `${kind} ${payload}`, kind, payload }))),
+  ]
+  for (const corruption of corruptions) for (const restart of [false, true]) {
+    await t.test(`${corruption.name}, ${restart ? 'cold' : 'warm'} writer`, async t => {
       const { home, store } = await fixture(t)
       const original = session([turn('t1', [
         { id: itemId('ask'), type: 'userMessage', content: [{ type: 'text', text: 'first question' }] },
         message('answer', 'first answer'), tool('retained output'),
+        { id: itemId('reasoning'), type: 'reasoning', summary: ['retained summary'], content: ['retained reasoning'] },
       ])])
       store.record(original)
       await store.flush()
       const database = new DatabaseSync(join(home, 'sessions.sqlite'))
       const sequences = database.prepare('SELECT item_id,seq FROM items ORDER BY seq').all()
       const fingerprint = database.prepare('SELECT fingerprint FROM turns').get()?.fingerprint
-      if (corruption === 'turn') database.prepare("UPDATE turns SET payload='not JSON'").run()
-      else database.prepare("UPDATE items SET payload='not JSON' WHERE kind='userMessage'").run()
+      if (corruption.kind === null) database.prepare('UPDATE turns SET payload=?').run(corruption.payload)
+      else database.prepare('UPDATE items SET payload=? WHERE kind=?').run(corruption.payload, corruption.kind)
       assert.equal(database.prepare('SELECT fingerprint FROM turns').get()?.fingerprint, fingerprint)
       let writer = store
       try {
@@ -158,6 +165,24 @@ test('the write transaction protects a newer body even when an earlier read was 
     assert.equal(database.prepare("SELECT count(*) AS n FROM items_fts WHERE items_fts MATCH 'original'").get()?.n, 1)
     assert.equal(database.prepare("SELECT count(*) AS n FROM items_fts WHERE items_fts MATCH 'replacement'").get()?.n, 0)
   } finally { writer.close(); database.close() }
+})
+
+test('matching turn fingerprints still verify retained item payload identities and kinds', async t => {
+  const items: readonly AgentItem[] = [message('answer', 'first answer'), tool('retained output'),
+    { id: itemId('reasoning'), type: 'reasoning', summary: ['retained summary'], content: ['retained reasoning'] }]
+  for (const item of items) for (const field of ['id', 'type']) {
+    await t.test(`${item.type} ${field}`, () => {
+      const database = new TranscriptDatabase(':memory:')
+      try {
+        const original = { ...session([turn('t1', [item])]), version: 1 as const, savedAt: 1 }
+        database.write(original)
+        assert.ok(database.read(original.runtime, original.id, true), 'provenance was read before the row changed')
+        database.db.prepare('UPDATE items SET payload=?').run(JSON.stringify({ ...item, [field]: 'different' }))
+        database.write(original)
+        assert.deepEqual(database.read(original.runtime, original.id)?.turns, original.turns)
+      } finally { database.close() }
+    })
+  }
 })
 
 test('item occurrence sequences survive completion and repeated IDs stay distinct', async t => {
