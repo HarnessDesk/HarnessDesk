@@ -620,7 +620,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
           )}
 
           {flow && compiled?.format === 'agents' && (
-            <FlowPreviewReport preview={flow} flow={compiled.flow} warnings={warnings} roster={roster} />
+            <FlowPreviewReport preview={flow} flow={compiled.flow} warnings={warnings} roster={roster} vars={vars} />
           )}
 
           {startProblem && <ActionError>{startProblem}</ActionError>}

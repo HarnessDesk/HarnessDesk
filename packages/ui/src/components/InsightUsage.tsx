@@ -97,7 +97,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     })()
     return () => { current = false }
   }, [store, report, root, teamIds, history, historyAttempt])
-  if (!root) return <Note>Choose a project to see its Goals.</Note>
+  if (!root) return <Note>Choose a project to see its Teams.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
   const failedSources = report.sources.filter((source) => source.problem !== null)
@@ -115,15 +115,15 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   }
   const groupNote = commonRowNote(breakdown?.rows ?? [])
   const retrying = teamIds.some(team => history.retrying.has(team))
-  const unattributedLabel = view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'
+  const unattributedLabel = view === 'goal' ? 'Not attributed to a Team' : 'Not attributed to an Agent'
   const unattributedReason = breakdown?.reason ?? 'No unique historical Seat could be established.'
   const showReason = unattributedReason.replace(/[.]$/, '') !== unattributedLabel
   return <>
     {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}
-    {!breakdown || breakdown.rows.length === 0 ? <Rows><EmptyState variant="row" title={!breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} description={breakdown?.reason ?? 'Unknown historical usage remains unassigned.'} /></Rows> : null}
+    {!breakdown || breakdown.rows.length === 0 ? <Rows><EmptyState variant="row" title={!breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Team usage was recorded' : 'No Agent usage was recorded'} description={breakdown?.reason ?? 'Unknown historical usage remains unassigned.'} /></Rows> : null}
     {breakdown && <Table variant="framed" className="table-fixed">
       <TableHeader><TableRow>
-        <TableHead className="w-1/2">{view === 'goal' ? 'Goal' : 'Agent'}</TableHead>
+        <TableHead className="w-1/2">{view === 'goal' ? 'Team' : 'Agent'}</TableHead>
         <TableHead numeric>Runs</TableHead><TableHead numeric>Seats</TableHead>
         {hasAmounts && <TableHead numeric>Cost</TableHead>}
         {view === 'goal' && <TableHead className="w-12"><span className="sr-only">Open</span></TableHead>}

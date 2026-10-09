@@ -4350,7 +4350,7 @@ it('a wrapped receipt has one state, a reading gutter, and a rail without moot c
  await render(store)
  expect(container.textContent).toContain('Wrapped')
  expect(container.textContent).not.toContain('This Team is wrapped. Its receipt is kept here.')
- expect(container.querySelector('button[aria-label="Seat an Agent in this Goal"]')).toBeNull()
+ expect(container.querySelector('button[aria-label="Seat an Agent in this Team"]')).toBeNull()
  expect(railRows().some(text => text.includes('Side by side'))).toBe(false)
  expect(railRows().some(text => text.includes('unclaimed'))).toBe(false)
  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)

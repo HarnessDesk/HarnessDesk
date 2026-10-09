@@ -171,7 +171,7 @@ export class InsightPlane implements InsightReadApi {
       id: randomUUID(), generatedAt, query, goals: allGoals, seats, goal: null, receipt: null, totals: total, elapsedMs: total.activeMs,
       breakdowns: [
         { dimension: 'seat', rows: seatRows, unattributed: unallocated, reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.' },
-        { dimension: 'goal', rows: goalRows, unattributed: unallocated, reason: 'Not attributed to a Goal.' },
+        { dimension: 'goal', rows: goalRows, unattributed: unallocated, reason: 'Not attributed to a Team.' },
         { dimension: 'agent', rows: agentRows, unattributed: unallocated, reason: 'Recorded usage without a historical Agent Seat remains unassigned.' },
       ],
       sources, recordedSpend: [], provenance: { state: 'unavailable', note: 'Commit associations are unavailable; recorded usage is still shown.' }, gaps: detail.gaps,

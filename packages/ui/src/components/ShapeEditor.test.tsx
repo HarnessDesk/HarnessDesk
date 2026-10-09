@@ -352,6 +352,31 @@ it('the footer has exactly one primary action; the rest are secondary, an overfl
   expect(button('Every time…').getAttribute('data-variant')).toBe('secondary')
 })
 
+it('the seed preview follows input defaults, edits and clearing in the shape editor', async () => {
+  const policy: FlowPolicy = {
+    version: 2, name: 'Review', inputs: [{ id: 'task', label: 'Task', default: 'Initial task' }],
+    roles: [], seed: { role: 'reviewer', title: '{{ task }}' },
+    rules: [{ id: 'check', on: 'reviewer', then: { role: 'verify', title: 'Check the task' } }],
+    messaging: 'board-only', wait: 240,
+  }
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  renderWithSource(store, JSON.stringify(policy))
+  await settle()
+  const rounds = () => document.body.querySelector('[aria-label="Rounds and rules"]')!.textContent
+  expect(rounds()).toContain('Seed round — Initial task')
+  const label = [...document.body.querySelectorAll('label')].find(one => one.textContent === 'Task')!
+  const field = document.getElementById(label.htmlFor) as HTMLInputElement
+  for (const [value, expected] of [['Edited task', 'Edited task'], ['Keep {{task}} literal', 'Keep {{task}} literal'], ['', 'Task']]) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await settle()
+    expect(rounds()).toContain(`Seed round — ${expected}`)
+  }
+})
+
 it('a typed input survives a dry run and reaches Start, never reset to its default', async () => {
   const store = new AppStore('ws://localhost:0/')
   const spy = fakeHost(store)
