@@ -199,7 +199,7 @@ export const RaceStart = ({ root, task, onClose }: RaceStartProps) => {
           )}
           <Note>Both seats run in their own isolated checkout, lane and browser profile, at the same ceiling.</Note>
           {previewProblem && <Banner tone="danger" title="This comparison will not run yet">{previewProblem}</Banner>}
-          {preview && !identical && <FlowPreviewReport preview={preview} flow={preview.compiled.document.format === 'agents' ? preview.compiled.document.flow : null} warnings={preview.problems.filter((one) => one.level === 'warning')} roster={new Map(roster.map((entry) => [entry.id, entry]))} />}
+          {preview && !identical && <FlowPreviewReport vars={{ task }} preview={preview} flow={preview.compiled.document.format === 'agents' ? preview.compiled.document.flow : null} warnings={preview.problems.filter((one) => one.level === 'warning')} roster={new Map(roster.map((entry) => [entry.id, entry]))} />}
           {startProblem && <ActionError>{startProblem}</ActionError>}
         </>
       )}

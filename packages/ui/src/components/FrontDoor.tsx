@@ -368,7 +368,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
           )}
 
           {flow && compiled?.format === 'agents' && (
-            <FlowPreviewReport preview={flow} flow={compiled.flow} warnings={warnings} roster={roster} />
+            <FlowPreviewReport preview={flow} flow={compiled.flow} warnings={warnings} roster={roster} vars={vars} />
           )}
 
           {startProblem && <ActionError>{startProblem}</ActionError>}

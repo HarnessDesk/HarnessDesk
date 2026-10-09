@@ -610,3 +610,67 @@ test('wrap never credits a released or reopened claim when a person finishes the
     assert.deepEqual(preview.receipt.cards, [{ id: 1, title: 'Bound the retry', resolution: 'finished', reason: null }], boundary)
   }
 })
+
+test('a Run completed by its person does not keep its finished attempts in Team attention', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  const cards = [intent(1, { state: 'done', role: 'competitor' }), intent(2, { state: 'done', role: 'close', outcome: 'merged' })]
+  await proof.store.save({ ...document, board: { ...document.board, nextIntent: 3, intents: cards }, goal: { ...document.goal, revision: 1 } }, 0)
+  const execution = {
+    version: 2, id: 'flow-1', goal: 'g1', state: 'settled', end: { kind: 'complete' }, reason: null, operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'competitor', kind: 'agent' }, { id: 'close', kind: 'person', outcomes: ['merged'] }] } },
+    rounds: [{ n: 1, role: 'competitor', cards: [1], seats: [], state: 'closed', cause: 'seed', evidence: [] },
+      { n: 2, role: 'close', cards: [2], seats: [], state: 'closed', cause: 'after:1:close', evidence: [] }],
+  } as unknown as FlowExecution
+  proof.port.executions = () => [execution]
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
+
+  // Run again keeps this Team's board: a completed predecessor stays history
+  // when the reservation and live Run select its successor instead.
+  const next = { ...execution, id: 'flow-2', continues: execution.id, state: 'running', end: undefined,
+    rounds: [{ ...execution.rounds[0]!, cards: [3], state: 'running' }],
+  } as FlowExecution
+  const continued = proof.store.read('g1')
+  await proof.store.save({ ...continued,
+    goal: { ...continued.goal, revision: 2, origin: { kind: 'flow', run: execution.id } },
+    flowReservation: { run: next.id, operation: 'start' },
+    board: { ...continued.board, nextIntent: 4, intents: [...cards, intent(3, { state: 'open', role: 'competitor' })] },
+  }, 1)
+  proof.port.flowLive = () => true
+  proof.port.executions = () => [execution, next]
+  assert.equal((await proof.plane.view('g1')).activity, 'working', 'a live successor never revives completed predecessor attention')
+  // The active-Run fallback has the same rule once the reservation is gone.
+  const running = proof.store.read('g1')
+  await proof.store.save({ ...running, goal: { ...running.goal, revision: 3 }, flowReservation: undefined }, 2)
+  assert.equal((await proof.plane.view('g1')).activity, 'working')
+  proof.seats.push(seat('waiting'))
+  proof.port.waits = () => true
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'a separate Seat request still needs its person')
+  proof.port.waits = () => false
+  proof.port.executions = () => [execution, { ...next, state: 'settled', end: { kind: 'complete' },
+    rounds: next.rounds.map(round => ({ ...round, state: 'closed' })) }]
+  proof.port.flowLive = () => false
+  const finished = proof.store.read('g1')
+  await proof.store.save({ ...finished, goal: { ...finished.goal, revision: 4 },
+    flowReservation: { run: next.id, operation: 'start' },
+    board: { ...finished.board, intents: [...cards, intent(3, { state: 'done', role: 'competitor' })] },
+  }, 3)
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap', 'both successfully completed Runs remain history')
+
+  // Settling this Run never answers follow-up work or a separate held request.
+  proof.port.held = () => true
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
+  proof.port.held = () => false
+  const settled = proof.store.read('g1')
+  await proof.store.save({ ...settled, board: { ...settled.board, nextIntent: 5, intents: [...settled.board.intents, intent(4, { state: 'done' })] }, goal: { ...settled.goal, revision: 5 } }, 4)
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'unchecked follow-up work remains attention')
+
+  const followUp = proof.store.read('g1')
+  await proof.store.save({ ...followUp,
+    board: { ...followUp.board, intents: followUp.board.intents.filter(card => card.id !== 4) },
+    goal: { ...followUp.goal, revision: 6 },
+  }, 5)
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
+  proof.port.executions = () => [execution, { ...next, state: 'settled', end: { kind: 'unrouted', card: 3, outcome: 'merged' } }]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'an unrouted ending still waits')
+})
