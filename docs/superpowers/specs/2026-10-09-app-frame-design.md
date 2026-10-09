@@ -65,8 +65,9 @@ screen. Five causes, each checked in the source:
    column. The full-window shell (`AppWindow`) is retired: Agents, Dashboard,
    the Teams list, Library, Plugins, Changes review and Settings become pages
    in main. Only Settings changes the left column, and only its contents.
-2. **One bar height, 40px**, for every row that touches the top of a column:
-   the window bar, the panel bar, the left column's top row and its seat row.
+2. **One bar height, 40px**: the top bar (one row across main and the right
+   panel), the left column's top row and its seat row. A panel has no bar of
+   its own.
 3. **One top row for the left column**: window buttons, sidebar toggle and
    back/forward, then notifications and search. The wordmark row is dropped.
 4. **Flat panels.** Columns meet at hairlines and every bar sits on one
@@ -89,6 +90,16 @@ screen. Five causes, each checked in the source:
    - drawings for this work are **rendered from the real components** in the
      catalogue, in Geist, with real content; a chat sketch only picks a
      direction.
+10. **The left column is a list.** A row is a thing you open; a Team is one
+    row and its views are tabs in the top bar.
+11. **Nothing in the top bar moves between views (option B).** A view's
+    layout and filter live in one View icon; its verb is in words, placed
+    before View so the words grow into the spacer; ⋯ is last at the window's
+    right edge on every page. Tabs and verbs keep their words; only tools are
+    icons.
+12. **The right panel belongs to a piece of work** — a conversation, a draft,
+    a Team — and has no bar of its own: no tabs, no split, no move, no zoom.
+    Lists, an Agent's page and Settings have none.
 
 ## The frame
 
@@ -100,13 +111,12 @@ bottom bar are fixed.** Every destination had drawn its own header, so a
 draft's bar, a conversation's and a Team's were three different rows, and a
 docked inspector drew its own titled cards under the panel's strip. So:
 
-- **Five regions, always in the same places, each drawn by one shell
-  component:** the left column, the top bar, main, the right panel (the
-  bottom panel wears the same frame), and the status bar along the window's
-  foot.
+- **Six regions, always in the same places, each drawn by one shell
+  component:** the left column, the top bar, main, the right panel, the
+  bottom panel (the terminal), and the status bar along the window's foot.
 - **A page draws none of them.** It declares what goes in their slots — the
-  top bar's place, state, tabs, facts, tools and ⋯ items through one hook; a
-  panel view's body only; its status facts — and the shell renders them. The
+  top bar's place, state, tabs, verb, View options and ⋯ items through one
+  hook; a tool's body only; its status facts — and the shell renders them. The
   conversation header, the Team bar and the draft's header stop being
   components of their own.
 - **The top bar is one component on every destination** — a draft, a
@@ -114,11 +124,12 @@ docked inspector drew its own titled cards under the panel's strip. So:
   the same places and the panel toggle and ⋯ always where they were.
 - **The status bar holds what is true of the whole app, not of the page:**
   plan usage, the other agents, background tasks, sync and updates. Those
-  leave the top bar, whose facts are only the page's own (branch, ceiling,
-  context).
-- **A panel is one frame.** Its strip (pill tabs, panel verbs) and its quiet
-  footer line are the shell's; a view supplies a body of sections — a label
-  over rows or a facts card — never a titled card or a header of its own.
+  leave the top bar. A page's own facts (a conversation's branch, ceiling and
+  context; a Team's seats, trigger and pull request) leave it too, for the
+  right panel's Details tool: the top bar carries no facts pill.
+- **A panel is one frame with no bar.** The tool icons in the top bar row
+  choose what it shows, and its quiet footer line is the shell's; a tool
+  supplies a body of sections — never a titled card or a header of its own.
 
 ### The frame's fixed rules
 
@@ -133,10 +144,22 @@ Approved by the owner: the frame is fixed rather than freely arranged.
 | Bottom panel | 240 | drag 120 to half the window | the terminal only |
 | Status bar | 28 | — | app-wide facts and the terminal's toggle |
 
-- **The right panel's tools are a fixed set of icons** at the end of the top
-  bar, standing over the panel's column while it is open. Pressing one opens
-  the panel on that tool; pressing the lit one closes it; the panel toggle is
-  always last. No tool opens anywhere else, and the panel does not split.
+- **The right panel's tools are a fixed set of four icons** — Details,
+  Changes, Activity, Browser — then the panel toggle, then ⋯, at the end of
+  the top bar, standing over the panel's column while it is open. Pressing one
+  opens the panel on that tool; pressing the lit one closes it. No tool opens
+  anywhere else.
+- **A right panel belongs to a piece of work.** A conversation, a draft and a
+  Team have one; the Teams list, Agents, an Agent's page, Library, Plugins,
+  Dashboard and Settings have none — no tool icons, and their bar ends at ⋯.
+  The panel comes back as it was when work is in main again. A draft's
+  Changes and Activity are greyed until it is sent.
+- **The panel has no bar and no arrangement of its own.** No tabs, no split
+  (side by side or one above the other), no move to the bottom panel or the
+  left column, no zoom, no collapse chevron. The lit tool is its title; the
+  lit tool or the panel toggle closes it; its seam widens it to 640; and
+  anything that needs the whole width opens as a page in main (Changes
+  review).
 - **Only seams drag.** A view is never dragged between regions, and nothing
   docks in the left column. Double-clicking a seam restores its default.
 - **The frame folds on its own:** at 1280 and wider every region stands;
@@ -152,24 +175,25 @@ one Team, and seven other destinations are drawn *over* the workbench by
 `App.tsx` state flags (`settingsOpen`, `usageOpen`, `agentsOpen`,
 `teamsOpen`). After this change main holds exactly one **destination**:
 
-| Destination | Left column | Width | Bar |
-| --- | --- | --- | --- |
-| Conversation (solo, draft) | Sessions | reading | window bar |
-| Team (Overview, Run, Board, Chat, Findings, Runs) | Sessions | per view | window bar, its views as tabs |
-| Teams list | Sessions | wide | window bar, filters as tabs |
-| Agents list · an Agent | Sessions | wide · reading | window bar; an Agent adds `Agents ›` |
-| Library | Sessions | wide | window bar, its views as tabs |
-| Plugins | Sessions | wide | window bar |
-| Dashboard | Sessions | wide | window bar, its views as tabs |
-| Changes review | Sessions | canvas | window bar |
-| Settings › a section | Settings nav | reading | window bar, `Settings ›` |
+| Destination | Left column | Width | Bar | Right panel |
+| --- | --- | --- | --- | --- |
+| Conversation (solo, draft) | Sessions | reading | top bar | the four tools |
+| Team (Overview, Run, Board, Chat, Findings, Runs) | Sessions | per view | top bar, its views as tabs | the four tools |
+| Teams list | Sessions | wide | top bar, filters as tabs | none |
+| Agents list · an Agent | Sessions | wide · reading | top bar; an Agent adds `Agents ›` | none |
+| Library | Sessions | wide | top bar, its views as tabs | none |
+| Plugins | Sessions | wide | top bar | none |
+| Dashboard | Sessions | wide | top bar, its views as tabs | none |
+| Changes review | Sessions | canvas | top bar | none |
+| Settings › a section | Settings nav | reading | top bar, `Settings ›` | none |
 
 A page is a destination like a conversation: it goes through ⌘[ and ⌘], it
 is restored with the project, and opening a conversation from it (an Agent's
 "Start a conversation", a Team row) replaces it in main rather than closing a
 window. The workbench stays mounted under every page, so a conversation's
 scroll, a terminal's screen and a page's history survive a visit to Settings.
-The right and bottom panels stay where they are on every destination.
+The bottom panel stays on every destination; the right panel shows on a piece
+of work only.
 
 Sign in keeps its own surface: it is a first-run gate, not a page.
 
@@ -177,7 +201,7 @@ Sign in keeps its own surface: it is a first-run gate, not a page.
 
 One container, whatever main shows.
 
-- **Width:** `--hd-sidebar-width` 240, draggable 200–520. The 244 literal and
+- **Width:** `--hd-sidebar-width` 240, draggable 200–360. The 244 literal and
   the unused 275 go.
 - **Top row (40):** window buttons, sidebar toggle, back and forward … then
   notifications and search. Back and forward fold away below 240 (⌘[ and ⌘]
@@ -195,8 +219,8 @@ One container, whatever main shows.
 - **Seat row (40):** you, at the bottom, with the gear that opens Settings.
   The gear reads as pressed while Settings is open.
 - **Sessions mode:** New session ⌄, then one row each for Teams, Agents,
-  Library, Plugins and Dashboard, then Projects and the session tree, then the
-  docked panels above the seat row.
+  Library, Plugins and Dashboard, then Projects and the session tree. Nothing
+  docks in the column.
 - **Settings mode:** the top row and seat row stay; the middle becomes Back
   (where New session was), Search settings, and the settings groups.
 
@@ -206,57 +230,55 @@ Skills, Extensions; Permissions, Browser.
 
 ### Bars
 
-Three bars, one height (`--hd-bar-h` 40), one padding (`--hd-bar-pad` 8, the
-leading words at `--hd-bar-ink`), one gap (`--hd-bar-gap` 6), one icon button
-(28), one divider (1 × 14).
+One top bar, one height (`--hd-bar-h` 40), one padding (`--hd-bar-pad` 8,
+the leading words at `--hd-bar-ink`), one gap (`--hd-bar-gap` 6), one icon
+button (28), one divider (1 × 14).
 
-**The window bar** heads main. Its slots, left to right, each optional except
-place and ⋯:
+**The top bar** runs across main and the right panel's column. Its slots,
+left to right, each optional except place and ⋯:
 
 1. **lead** — sidebar toggle, back, forward; only while the left column is not
    standing beside main (the existing rule).
 2. **place** — `Parent ›` in muted ink when the page is a child, then the
    title at 14/500. A crumb is a link to its parent.
-3. **state** — at most one chip (Needs you, Working, Read only).
-4. **tabs** — the page's sub-navigation, with counts beside their names.
+3. **state** — at most one chip (Needs you, Working, Idle, Built in).
+4. **tabs** — the page's sub-navigation, in words, with counts beside their
+   names: a Team's views, a list's filters, a page's sections.
 5. spacer.
-6. **facts** — one pill of read-only facts (branch, plan meter, the Team's
-   faces). Hovering it opens its info card.
-7. divider.
-8. **tools** — icon buttons; a toggle reads as pressed while on.
-9. **⋯** — always last; every page verb that is not a tool lives here.
+6. **verb** — the page's or view's one verb, in words, as an outline button:
+   New Team, New job, Start a conversation, Decide this run, Stop run….
+7. **View** — on a Team view only: one icon whose menu holds the view's
+   layout (Board | List, Timeline | Flow, Thread | Side by side) and its
+   filter (All | Open | Blocking). A dot on it says a filter is narrowing the
+   view. Greyed on a view with nothing to choose (Overview).
+8. **tools** — on a piece of work only: Details, Changes, Activity, Browser,
+   then the panel toggle. They stand over the panel's column while it is open.
+9. **⋯** — always last, at the window's right edge, on every destination;
+   every verb on the subject that is not slot 6 lives here.
 
-No filled button in any bar. A page's one creation verb (New Team, New job,
-New agent) is an outline button before ⋯.
+**Why this order: nothing moves.** Icons have one width and words do not.
+The worded verb comes before the View icon, so its words grow leftwards into
+the spacer, and every icon keeps its place: View is at one x on every Team
+view, the tools and the panel toggle at one x on every piece of work, and ⋯
+at one x on every page. The tabs sit after the title and change only when
+the title does. Tabs and verbs keep their words — "Findings", "Run" and
+"Decide this run" have no icon anyone reads without hovering; only tools,
+which are used over and over, are icons.
 
-**A view's own controls ride in the same bar.** There is no second row under
-the window bar — no view bar, no toolbar across the top of the content. A
-Team's tabs name its views; the selected view adds, after the spacer and
-before ⋯:
+No filled button in any bar, and no facts pill: a page's facts are in Details
+(on a piece of work) or in its own content (on a page).
 
-- its layout as icon toggles (Board | List, Timeline | Flow, Thread | Side by
-  side), each with its name as the title;
-- a filter as one button naming the current choice and its count
-  (`Open 12 ⌄`), whose menu lists the others;
-- its verb (Decide this run, Stop run…, New job).
-
-The view's summary (`12 open · 8 blocking`, `Round 2 of 4`) is the first
-card of its content or the Details tool, never a strip of its own.
+**No second row.** There is no view bar and no toolbar across the top of the
+content. A view's summary (`12 open · 8 blocking`, `Round 2 of 4`) is the first
+card of its content or a row in Details, never a strip of its own.
 
 **The bar folds to keep its title readable.** When the title would be
 narrower than 180px, the bar first drops the state chip and the words of any
 verb that has an icon (the icon stays, the words become its title), then
 folds its tabs into one button naming the current tab, whose menu lists them
-all. A verb without an icon keeps its words. Facts fold the same way they do
-today.
+all. A verb without an icon keeps its words.
 
-**The panel bar** heads the right and bottom panels: pill tabs when the stack
-holds several views, the view's title when it holds one, and the panel verbs
-(move, split, zoom, close) at the end behind a divider.
-
-**One switcher.** Page tabs, filters and view switches are one component at
-one size. The dock's pill tabs stay a different shape on purpose: they switch
-between different tools, not views of one thing.
+**One switcher.** Page tabs and list filters are one component at one size.
 
 ### Where things go
 
@@ -267,39 +289,64 @@ there, a menu elsewhere, controls that come and go. One rule each:
 **Main or a panel.**
 - **Main** holds the subject you are working on: one conversation, one Team
   view, one page. Exactly one.
-- **The right panel** holds what you consult *about* the subject in main —
-  Changes, Activity, Agents, Background tasks, Trajectory, Run details,
-  Steps, the browser, a file, the repository's history. It follows main's
-  subject.
+- **The right panel** holds what you consult *about* the subject in main, in
+  four tools, and follows main's subject:
+  - **Details** — the subject's facts, then the list that belongs to it. A
+    conversation: its Agent, ceiling, folder, branch and context, then its
+    Plan. A draft: where it will start. A Team: its Run (Flow and Flow file,
+    budget, rounds without progress, what started it, the commit and branch,
+    the pull request), then its Seats.
+  - **Changes** — the subject's diff: a conversation's uncommitted work, a
+    Team's branch against its base.
+  - **Activity** — what the subject did, newest first.
+  - **Browser** — the page it is building.
 - **The bottom panel** holds what runs beside it — the terminal.
-- A page never opens in a panel and an inspector never becomes a page. The
-  one recorded pair is Changes (the panel: what just happened) and Changes
-  review (the page: reading a day's work).
+- A page never opens in a panel and a tool never becomes a page. The one
+  recorded pair is Changes (the tool: what just happened) and Changes review
+  (the page: reading a day's work).
 
-**The bar's right side.** Left to right, decided by what a control *does*:
-- **Facts** say what is true and do not act. A fact may open its own detail
-  — the branch its git menu, the meter its plan usage, a scope its choices —
-  but never runs a verb.
-- **Tools** open or toggle something beside main (the browser, the terminal,
-  a split) or leave the app (the pull request on its forge). Always icons
-  with a tooltip, pressed while on. The right-panel toggle is the last tool
-  on every destination, with its count badge.
-- **The creation verb**, on a list page only, is the one worded button.
-- **⋯** holds every other verb on the subject, grouped, the View group last.
+Today's panel views fold into those four: Run details into a Team's Details;
+Changes into Changes; Activity, Trajectory and Background tasks into
+Activity; a conversation's subagents into its Details list. **Steps** is not a
+panel at all: it is the Run tab's Timeline in main — steps taken, then not
+reached, with identical rounds folded into one row — and the View menu's Flow
+layout draws the same steps as a graph. A file, an image preview, the
+repository's history and plugin panels are placed by step 2's inventory, each
+into a tool or a page; none adds a fifth icon without a decision here.
 
-| Destination | Facts | Tools | Verb |
-| --- | --- | --- | --- |
-| Conversation | state, branch, context, plan | browser, terminal, panel | — |
-| Team | faces, plan | hold messages, pull request, panel | — |
-| Teams · Agents · Library · Plugins | — | panel | New Team · New agent · Add · Install |
-| An Agent | ceiling | panel | Start a conversation |
-| Dashboard | scope | refresh, panel | — |
-| Settings › a section | — | — | — |
+**What the Team bar held, and where it went:**
 
-**Controls do not come and go.** A destination's tools are fixed by its kind.
-One that does not apply now is shown disabled with its reason as its title,
-never removed. A fact with nothing to say is left out of the pill. The only
-time a tool moves is the narrow-bar fold into ⋯ › View.
+| Today | After |
+| --- | --- |
+| The faces and the members popover | Details › Seats: a row per seat (name; Agent, model and ceiling; a state chip), + to seat an Agent; a row's menu opens its conversation, watches it beside, messages it, sets its messages to Accept, Hold or Refuse, or takes it out of the Team |
+| Side by side, both a tab and a toggle | Chat's View menu, one place |
+| Hold messages | the Chat composer's Send to menu, with a Holding messages chip in the composer while it is on |
+| The pull request button | Details' Pull request row, and ⋯ › Open pull request |
+| The trigger chips, "at a1b2c3d on main" | Details (Started by, At) |
+| Wrap…, Fill the window | ⋯ |
+| The goal strip and notices under the bar | the page's first card, or a banner at the top of its content |
+
+**The bar per destination.** ⋯ ends every row.
+
+| Destination | Tabs | Verb | View | Tools |
+| --- | --- | --- | --- | --- |
+| New session | — | — | — | four; Changes and Activity greyed until sent |
+| Conversation | — | — | — | four |
+| Team · Overview | its views | — | greyed | four |
+| Team · Run | its views | Stop run… | Timeline, Flow | four |
+| Team · Board | its views | New job | Board, List | four |
+| Team · Chat | its views | — | Thread, Side by side | four |
+| Team · Findings | its views | Decide this run | All, Open, Blocking | four |
+| Teams | Active, Needs you, Settled | New Team | — | — |
+| Agents · Plugins | — | New agent · Install | — | — |
+| An Agent | — | Start a conversation | — | — |
+| Library · Dashboard | their sections | Add (Library) | — | — |
+| Settings › a section | — | — | — | — |
+
+**Controls do not come and go.** A destination's slots are fixed by its
+kind. A control that does not apply now is greyed with its reason as its
+title, never removed — the View icon on Overview, Changes and Activity on a
+draft. The only time a control moves is the bar's fold.
 
 ### Pages
 
@@ -327,12 +374,13 @@ and the audit refuses one. Inside a page:
   key and value side by side within the column, never a key at one edge of
   the window and its value at the other.
 - **Buttons are as wide as their words.** A view's own verb ("Decide this
-  run") is an outline button in the window bar, not a bar across the page.
+  run") is an outline button in the top bar, not a bar across the page.
 - **A switch is a settings row.** Its control keeps the row's end, inside the
   column.
 
-A Team's Findings is the first acceptance example: the window bar holds the
-Team, its tabs with Findings selected, `Open 12 ⌄` and Decide this run; the
+A Team's Findings is the first acceptance example: the top bar holds the
+Team, its tabs with Findings selected, Decide this run and the View icon
+(its menu: All, Open, Blocking; its dot on while Open is chosen); the
 reading column holds the round's facts as one card (`12 open · 8 blocking`
 among them), the post-to-PR switch as a row, and the findings as one list.
 
@@ -345,12 +393,15 @@ outline verb).
 
 ### Panels
 
-- One panel shell for the right and bottom panels, headed by the panel bar.
-- **A view inside a panel never draws its own title bar.** One that needs a
-  toolbar — search, a filter, a switch — puts it in the panel bar.
+- **The right panel has no bar.** The tool icons in the top bar row are its
+  tabs; the panel starts with its body.
+- **A tool never draws a title bar or a titled card.** Search or a filter it
+  needs is the first row of its body, inside its content edge.
 - Panel content is sections: a group label over rows. Rows keep their own 12px
   edge; prose uses 16. No cards inside a panel and no 24px reading gutter in a
-  280–460px column.
+  320–640px column. Every Details body is the same two sections: the
+  subject's facts, then its list (Seats, Plan).
+- **The bottom panel** is the terminal; several terminals are its own tabs.
 - Panels stay flat: a hairline on the edge they meet main.
 
 ### Popups
@@ -368,16 +419,17 @@ list, a list of agents with meters, a muted footer line under a separator.
 Long names wrap to a second line rather than widening it.
 
 **The info card.** 288 wide, padding 12, facts only, opened by hover or focus
-on a facts pill. It never carries actions and never stacks on top of a menu.
+on a fact in the status bar or on a name. It never carries actions and never
+stacks on top of a menu.
 
 `PopoverOption` (the 36px row) is retired into the menu row; the vendored
 dropdown, `Popover` + `Menu`, and the branch flyout all render the one menu.
 
 ### Windows that are not wide
 
-The existing order is kept, at the new heights: the sidebar floats first, the
-right panel covers main second, bars fold by their own width. The left
-column's Settings mode floats the same way.
+As the frame's fixed rules say: below 1280 an opened right panel floats over
+main; below 1000 the left column floats too; the top bar folds by its title's
+room. The left column's Settings mode floats the same way.
 
 ## Tokens
 
@@ -404,12 +456,13 @@ to the nonexistent `--hd-topbar-h` is fixed in the same pass.
 | Piece | Becomes |
 | --- | --- |
 | `Bar` | the one bar; `size="lg"` (48) is removed |
-| Conversation header, Team header (`TeamRoomPane`) | the window bar, built from one `WindowBar` pattern with the nine slots |
-| Run header, Board header, Findings header, Runs head | the window bar's view slots (layout toggles, filter, verb); `ViewBar` from step 0 is retired when the shell lands |
-| `DockPanelBar`, `ToolPaneHeader`, `PanelTools` | the panel bar; a docked inspector drops its own `PanelTools` |
-| `TabsList` default, `Segmented`, `PanelPill` | one switcher; the dock keeps `DockPanelTabs` |
+| Conversation header, Team header (`TeamRoomPane`), draft header | the top bar, built from one `TopBar` pattern with the nine slots |
+| Run header, Board header, Findings header, Runs head | the top bar's verb and View slots; `ViewBar` from step 0 is retired when the shell lands |
+| `DockPanelBar`, `ToolPaneHeader`, `PanelTools`, `PanelActions` (split, move, zoom), `DockPanelTabs`, `PanelPill` | retired: the right panel has no bar; its tabs are the top bar's tool icons |
+| Run details, Changes, Activity, Trajectory, Background tasks, Agents (subagents) views | the four tools (Details, Changes, Activity, Browser); Steps becomes the Run tab's Timeline |
+| `TabsList` default, `Segmented` | one switcher |
 | `AppWindow`, `WindowNav`, `WindowPage` | retired; `WindowNav`'s groups move into the left column's Settings mode |
-| `PageHead`, `DetailHead`, `BackLink` | retired; the crumb in the window bar replaces them |
+| `PageHead`, `DetailHead`, `BackLink` | retired; the crumb in the top bar replaces them |
 | `Page` (new, in `design/patterns`) | the page template: `width="reading" \| "wide" \| "canvas"`, built on `PaneColumn`; the one way a page sets its measure and margins |
 | `Popover` + `PopoverOption`, `Popover` + `Menu`, `DropdownMenuContent`, the branch flyout | the menu and the wide menu |
 | `HeaderStatusGroup`'s hover card, `PopoverContent` | the info card |
@@ -434,12 +487,14 @@ own with the app working:
    `metrics.json`.
 2. **The fixed shell.** The shell renders the top bar, the panel frame and
    the status bar; destinations register their slots instead of drawing
-   headers (`useTopBar`, panel view bodies, status facts). The conversation,
-   Team and draft headers are deleted as they move; Run, Board, Findings and
-   Runs register their layout toggles, filter and verb in the window bar, and
-   step 0's `ViewBar` goes; the docked inspector loses its second bar and its
-   titled cards; app-wide facts move to the status bar; the right-panel
-   toggle leaves the window-buttons row for the top bar's end.
+   headers (`useTopBar`, tool bodies, status facts). It starts with an
+   inventory of every panel view, each placed in one of the four tools or a
+   page. The conversation, Team and draft headers are deleted as they move;
+   Run, Board, Findings and Runs register their verb and View menu, and step
+   0's `ViewBar` goes; the panel bar, its split/move/zoom menu and the docked
+   inspectors' own bars and titled cards go; page facts move to Details and
+   app-wide facts to the status bar; the right-panel toggle leaves the
+   window-buttons row for its place before ⋯.
 3. **Popups.** The menu, the wide menu and the info card; every popup in the
    app renders one of the three.
 4. **The left column.** One top row; one row anatomy; the seat row's gear; the
@@ -504,14 +559,13 @@ Each kind of content has one block, drawn one way everywhere:
 
 | Content | Block | How it is drawn |
 | --- | --- | --- |
-| Facts about one thing | `SummaryList` | one card; key and value on one baseline at the same size, the key in secondary ink in a fixed column (132 on a page, 96 in an info card), one line; numbers sit beside their key, never at the far edge; a value is a word or a phrase — a sentence becomes a short value plus one earned line; paths, branches and accounts truncate in the middle and never break mid-word |
+| Facts about one thing | `SummaryList` | one card; key and value on one baseline at the same size, the key in secondary ink in a fixed column (132 on a page, 92 in a panel, 96 in an info card), one line; numbers sit beside their key, never at the far edge; a value is a word or a phrase — a sentence becomes a short value plus one earned line; paths, branches and accounts truncate in the middle and never break mid-word |
 | A setting | `Row` | in a card; title, optional earned line, the control at the row's end |
 | An item in a list (finding, Team, Agent, job) | `ListRow` in `Rows` | title 14/500; one meta line 12 in secondary ink (kind, short id in mono); one status chip; a chevron when it opens something |
 | An event (chat, activity, timeline) | `Event` | face 20, who and what in one sentence, the time at the end; a body of at most two lines with Show all; hashes shortened in mono, links by name (`#1559`), never a raw URL; a feed sits on the composer, not at the top of an empty page |
 | State | `Chip` | one shape, 22 tall, a tone per state, three words at most; the longer reason is its title |
-| Facts in a bar | the facts pill | at most four facts, a mark and a short value each, never the same fact twice |
 | A choice of action | menu row | as in Popups |
-| A page's or view's verb | outline button in the window bar | as wide as its words, never a full-width bar |
+| A page's or view's verb | outline button in the top bar's verb slot | as wide as its words, never a full-width bar |
 | Nothing yet | `EmptyState` | one sentence and at most one action, centred in the column |
 | What sending or a run will do | the composer tail line | one paragraph per line; names and sentence flow as text |
 
@@ -556,8 +610,10 @@ Four things stop that here.
   in their columns.
 - `e2e/ui-system/container-insets.spec.ts` gains the page widths and the
   panel content edge; a new check measures that every top-of-column row in a
-  window is 40 and that their bottoms share one y.
-- The catalogue (`design.html`) shows the window bar on every destination and
+  window is 40 and that their bottoms share one y, and that ⋯ lands at one x
+  on every destination, the View icon at one x on every Team view, and the
+  tools at one x on every piece of work.
+- The catalogue (`design.html`) shows the top bar on every destination and
   every Team view, folded and unfolded, the left column in both modes, the three
   popups and the page wall, from the real components with real-length content
   (second lines, long names, CJK titles); `node script/ui-catalog.mjs` passes.
