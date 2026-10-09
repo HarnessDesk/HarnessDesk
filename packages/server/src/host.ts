@@ -5489,7 +5489,8 @@ export class Host {
 
   /**
    * Reads what the reopened conversation actually loaded, appends it as the
-   * Seat's next epoch, and records the Seat beside the session again. A
+   * Seat's next epoch. The caller records the Seat beside the session only
+   * after admitting and upserting its registry entry. A
    * failure closes the reopened handle rather than leave it running on a
    * filter nobody could record.
    */
@@ -5497,7 +5498,6 @@ export class Host {
     try {
       const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key, { reopen: reopened.prepared, seatKeys: this.#attachments.keysOf(reopened.seat.id) })
       await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
-      this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     } catch (error) {
       await this.#letGo(runtime.info.id, live.id, live)
       throw new Error(
@@ -6214,6 +6214,7 @@ export class Host {
     const record = this.registry.upsert(session, live)
     this.#recordSessionIndex(record.session, true)
     if (reopened && !removed) await this.#finishReopen(runtime, live, reopened)
+    if (reopened) this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
       session: String(id),
