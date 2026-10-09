@@ -674,7 +674,7 @@ export class Host {
   readonly #observingRuntimes = new Map<string, Promise<void>>()
   readonly #modelsReadyAt = new Map<string, number>()
   /** Native metadata before registry rows are added, with the same lifecycle guard. */
-  readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, AgentRuntime['listSessions']>()
+  readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, (query?: ListSessionsQuery, startIfNeeded?: boolean) => ReturnType<AgentRuntime['listSessions']>>()
   readonly #accountReads = new Map<string, AccountReads>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #directRuntimeStarts = new Map<string, { startedAt: number; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>()
@@ -2168,10 +2168,12 @@ export class Host {
     const surfaces = new WeakMap<object, object>()
     const accountReads = new AccountReads(id, this.#logger)
     this.#accountReads.set(id, accountReads)
-    const listHistory = (query?: ListSessionsQuery) => this.#withRuntimeRead(runtime, async () => {
+    const listHistory = (query?: ListSessionsQuery, startIfNeeded = true) => this.#withRuntimeRead(runtime, async () => {
       await this.#waitForRuntimeStop(runtime)
       const starting = this.#startingRuntimes.get(String(id)) ?? this.#directRuntimeStarts.get(String(id))?.promise
       if (starting) await starting
+      if (!startIfNeeded && (!['ready', 'idle'].includes(runtime.health().state) || runtime.health().state === 'idle' &&
+        runtime.canReadWhileIdle?.({ method: 'listSessions', query }) === false)) return { data: [], nextCursor: null }
       if (runtime.health().state === 'idle' && runtime.canReadWhileIdle?.({
         method: 'listSessions', query,
       }) === false) await this.#ensureStarted(runtime)
@@ -6353,7 +6355,8 @@ export class Host {
     if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
     const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
     const read = await this.#readTranscript(runtime, id)
-    const session = restored.cwd ? { ...read, cwd: restored.cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) } : read
+    const cwd = restored.cwd || indexed?.cwd || read.cwd
+    const session = { ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) }
     this.#recordSessionIndex(session, true)
     this.#sessionIndex.opened(runtime.info.id, id)
     // A closed source-less replay may contain new work without desk events.
@@ -6383,6 +6386,8 @@ export class Host {
     try {
       const session = { ...await this.#transcripts.enrich(await runtime.readSession(id)),
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
+      if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
+      session.cwd = this.#sessionIndex.get(runtime.info.id, id)?.cwd || session.cwd
       // Read the fingerprint before replay, so a concurrent append always forces another refresh.
       if (source) await this.#cacheRead(session, source.source)
       else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
@@ -7127,8 +7132,9 @@ export class Host {
   readonly #archiveViewRefresh = new Map<RuntimeId, number>()
   readonly #indexArchiveReads = new Map<RuntimeId, Promise<void>>()
   readonly #indexArchiveChanges = new Map<string, number>()
+  readonly #indexFolderBackfills = new Set<RuntimeId>()
 
-  /** Native history is archive authority only: never adopt its unrelated ids. */
+  /** Native history confirms archives and repairs metadata, without adopting unrelated ids. */
   #reconcileIndexArchive(runtime: AgentRuntime): Promise<void> {
     if (this.#disposed || !['ready', 'idle'].includes(runtime.health().state)) return Promise.resolve()
     const existing = this.#indexArchiveReads.get(runtime.info.id)
@@ -7140,6 +7146,24 @@ export class Host {
         if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
         for (const id of this.#sessionIndex.unresolvedArchive(runtime.info.id)) {
           this.#sessionIndex.confirmArchived(runtime.info.id, id, this.#archive.has(runtime.info.id, id))
+        }
+        if (!runtime.info.capabilities.listHistory || this.#indexFolderBackfills.has(runtime.info.id) || !this.#sessionIndex.hasMissingFolders(runtime.info.id)) return
+        this.#indexFolderBackfills.add(runtime.info.id)
+        // One launch pass, at most 10,000 history rows. It observes ready agents
+        // through their guarded native reader and never starts one for history.
+        let cursor: string | undefined
+        const seen = new Set<string>()
+        for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime || !['ready', 'idle'].includes(runtime.health().state)) return
+          const page = await this.#runtimeHistoryReaders.get(runtime)!({ pageSize: 500, ...(cursor ? { cursor } : {}) }, false)
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          for (const row of page.data.slice(0, 500)) {
+            if (this.#sessionIndex.fillMissingMetadata({ ...row, runtime: runtime.info.id })) this.#sessionIndexRepos.read(row.cwd)
+          }
+          cursor = page.nextCursor ?? undefined
+          if (!cursor || !this.#sessionIndex.hasMissingFolders(runtime.info.id)) return
+          if (seen.has(cursor)) throw new Error('Folder listing repeated its cursor')
+          seen.add(cursor)
         }
         return
       }
@@ -7158,6 +7182,7 @@ export class Host {
         } while (cursor)
         if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
         for (const row of confirmed) {
+          if (this.#sessionIndex.fillMissingMetadata({ ...row, runtime: runtime.info.id })) this.#sessionIndexRepos.read(row.cwd)
           const key = String(sessionKey(runtime.info.id, row.id))
           if (this.#indexArchiveChanges.get(key) !== revisions.get(key)) continue
           this.#sessionIndex.confirmArchived(runtime.info.id, row.id, archived === 'only')
@@ -7174,6 +7199,7 @@ export class Host {
           const key = String(sessionKey(runtime.info.id, id))
           try {
             const read = await runtime.readSession(id)
+            if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime && this.#sessionIndex.fillMissingMetadata(read)) this.#sessionIndexRepos.read(read.cwd)
             if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime &&
               this.#indexArchiveChanges.get(key) === revisions.get(key) && typeof read.archived === 'boolean') {
               this.#sessionIndex.confirmArchived(runtime.info.id, id, read.archived)

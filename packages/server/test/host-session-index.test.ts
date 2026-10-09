@@ -8,6 +8,89 @@ import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
+for (const nativeArchive of [false, true]) test(`listing recovers only missing folders and names (native archive: ${nativeArchive})`, async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-')
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  const runtime = new FakeRuntime()
+  Object.assign(runtime.info.capabilities, { archiveHistory: nativeArchive })
+  const summary = (id: string, cwd: string, title: string | null) => ({ runtime: runtime.info.id, id: sessionId(id), cwd, title,
+    createdAt: 1, updatedAt: 10, status: { type: 'notLoaded' as const } })
+  for (const row of [summary('missing', '', null), summary('known', '/synthetic/accepted', 'Accepted title'), summary('absent', '', null)]) {
+    index.upsert(row, { archived: nativeArchive ? null : false })
+  }
+  index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  let calls = 0
+  let listed!: () => void
+  const listing = new Promise<void>(resolve => { listed = resolve })
+  runtime.listSessions = async query => {
+    calls++
+    if (query?.archived === 'only') return { data: [], nextCursor: null }
+    if (!query?.cursor) return { data: [summary('known', '/synthetic/other', 'Other title')], nextCursor: 'next' }
+    listed()
+    return { data: [summary('missing', '/synthetic/recovered', 'Recovered title')], nextCursor: null }
+  }
+  host.register(runtime)
+  assert.equal(calls, 0)
+  await host.start()
+  await Promise.race([listing, new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('folder backfill never listed')), 2_000); timer.unref() })])
+  // The observable index notification is the completion signal, not a sleep.
+  for (let turn = 0; turn < 100; turn++) {
+    const rows = (await host.call('session/index', {})).data
+    if (rows.find(row => row.id === 'missing')?.cwd) break
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  t.after(() => persisted.close())
+  assert.equal(persisted.get(runtime.info.id, sessionId('missing'))?.cwd, '/synthetic/recovered')
+  assert.equal(persisted.get(runtime.info.id, sessionId('missing'))?.title, 'Recovered title')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.cwd, '/synthetic/accepted')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.title, 'Accepted title')
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.cwd, '')
+  const previous = calls
+  await host.call('session/index', { archived: 'only' })
+  await new Promise(resolve => setImmediate(resolve))
+  if (!nativeArchive) assert.equal(calls, previous, 'remaining unknown rows do not trigger another launch pass')
+  runtime.history.push(summary('absent', '/synthetic/opened', 'Recovered on open'), summary('known', '/synthetic/other', 'Other title'))
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: sessionId('absent') })
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: sessionId('known') })
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.cwd, '/synthetic/opened')
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.title, 'Recovered on open')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.cwd, '/synthetic/accepted')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.title, 'Accepted title')
+})
+
+test('folder backfill never starts an idle agent whose history needs a process', async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-idle-')
+  const runtime = new FakeRuntime()
+  Object.assign(runtime.info.capabilities, { archiveHistory: false })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null, createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' } })
+  index.close()
+  let starts = 0, listings = 0
+  let inspected!: () => void
+  const inspection = new Promise<void>(resolve => { inspected = resolve })
+  runtime.health = () => ({ state: 'idle' })
+  runtime.start = async () => { starts++; throw new Error('background history must not start an agent') }
+  runtime.listSessions = async () => { listings++; return { data: [], nextCursor: null } }
+  Object.assign(runtime, { canReadWhileIdle: () => { inspected(); return false } })
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await inspection
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(starts, 0)
+  assert.equal(listings, 0)
+})
+
 test('the first sidebar page asks no runtime, even without a selected agent', async (t) => {
   const root = tempDir('hd-index-host-')
   const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),

@@ -107,6 +107,25 @@ const currentProject = (): string | null =>
 const currentProjectRoot = (): string | null =>
   container.querySelector<HTMLElement>('[data-current]')?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot ?? null
 
+it('files unknown folders in one folded group after projects, keeping root and row actions', () => {
+  const unknown = (id: string) => ({ ...session(id, '', { root: '', worktree: false }), title: null, preview: `First prompt ${id}`, repo: null })
+  render([unknown('one'), unknown('two'), session('root', '/', { root: '/', worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { listPrefs: { ...emptySnapshot().listPrefs, othersOpen: true } })
+  expect(projects()).toEqual(['repo', '/'])
+  const group = container.querySelector('[data-no-folder]')!
+  expect(group).not.toBeNull()
+  const head = group.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  expect(head.textContent).toContain('No folder')
+  expect(head.getAttribute('aria-expanded')).toBe('false')
+  expect(group.querySelector('[data-slot="sidebar-menu-action"]')).toBeNull()
+  expect(group.compareDocumentPosition(container.querySelector('[data-project-root="/"]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  expect(group.textContent).not.toContain('First prompt')
+  act(() => head.click())
+  expect(group.textContent).toContain('First prompt one')
+  expect(group.textContent).toContain('First prompt two')
+  expect(group.querySelectorAll('[data-region="session-row"]')).toHaveLength(2)
+  expect(group.querySelectorAll('[aria-label^="Actions for First prompt"]')).toHaveLength(2)
+})
+
 it('gives an open subfolder one row, not a second empty one for its repository', () => {
   // The subfolder is the project's home — grouping lets the folder you have
   // open claim it — so the list must look for it under that name too. Asking

@@ -1,5 +1,25 @@
 import { expect, test } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) test(`folderless conversations have a folded group and retain their row menus in ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?sidebar=folderless&theme=${theme}`)
+  const sidebar = page.locator('[data-frame-id="sidebar-column"]')
+  const group = sidebar.locator('[data-no-folder]')
+  const head = group.getByRole('button', { name: 'No folder', exact: true })
+  await expect(head).toHaveAttribute('aria-expanded', 'false')
+  await expect(group.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(0)
+  await expect(sidebar.locator('[data-project-root=""]')).toHaveCount(0)
+  await expect(sidebar.locator('[data-project-root="/"]')).toBeVisible()
+  await head.click()
+  await expect(group).toContainText('Restore the project picker')
+  await expect(group).toContainText('Explain the retry settings')
+  await expect(group).toContainText('Untitled session')
+  await group.locator('[data-slot="sidebar-menu-button"]').filter({ hasText: 'Restore the project picker' }).hover()
+  await group.locator('[aria-label="Actions for Restore the project picker"]').click()
+  await expect(page.getByRole('menuitem', { name: 'Archive', exact: true })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Remove from HarnessDesk', exact: true })).toBeVisible()
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`external Seat activation reveals its Team and preserves a later fold — ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

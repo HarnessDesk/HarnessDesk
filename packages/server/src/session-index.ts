@@ -456,6 +456,22 @@ export class SessionIndex {
     this.#notify(runtime, id)
   }
 
+  hasMissingFolders(runtime: RuntimeId): boolean {
+    return !!this.#db.prepare("SELECT 1 FROM sessions WHERE runtime=? AND cwd='' AND removed_at IS NULL LIMIT 1").get(runtime)
+  }
+
+  /** Agent observations repair old metadata; they never rename or move known rows. */
+  fillMissingMetadata(row: Pick<SessionSummary, 'runtime' | 'id' | 'cwd' | 'title'>): boolean {
+    const previous = this.#row(row.runtime, row.id)
+    if (!previous || previous.removed_at !== null || previous.cwd !== '') return false
+    const title = this.#facts(row.runtime, row.id).title
+    const result = this.#db.prepare(`UPDATE sessions SET cwd=?,repo_root=(SELECT repo_root FROM repos WHERE cwd=?),
+      title=COALESCE(title,?) WHERE runtime=? AND id=? AND cwd='' AND removed_at IS NULL`)
+      .run(row.cwd, row.cwd, title === undefined ? row.title ?? null : title, row.runtime, row.id)
+    if (result.changes) this.#notify(row.runtime, row.id)
+    return result.changes > 0 && row.cwd !== ''
+  }
+
   repo(cwd: string): RepoValue | null {
     const row = this.#db.prepare('SELECT * FROM repos WHERE cwd=?').get(cwd) as unknown as RepoRow | undefined
     return row ? { repo: row.repo_root ? { root: row.repo_root, worktree: Boolean(row.worktree),
@@ -482,20 +498,31 @@ export class SessionIndex {
   }
 
   seed(stateDir: string, options: SessionIndexSeedOptions = {}): Promise<void> {
-    if (this.#closed || this.#db.prepare("SELECT 1 FROM meta WHERE key='seed:transcripts:v1'").get()) return Promise.resolve()
+    if (this.#closed || this.#db.prepare("SELECT 1 FROM meta WHERE key='seed:transcripts:previews:v1'").get()) return Promise.resolve()
     if (this.#seeding) return this.#seeding
     this.#seeding = this.#seed(stateDir, options).finally(() => { this.#seeding = null })
     return this.#seeding
   }
 
   async #seed(stateDir: string, options: SessionIndexSeedOptions): Promise<void> {
+    const seeded = !!this.#db.prepare("SELECT 1 FROM meta WHERE key='seed:transcripts:v1'").get()
     for await (const batch of seedSummaries(stateDir)) {
       if (this.#closed) return
       const inserted: SessionSummary[] = []
       this.#transaction(() => {
         for (const summary of batch) {
           // Live writes, prior batches and deletion tombstones always win.
-          if (this.#row(summary.runtime, summary.id) || this.isRemoved(summary.runtime, summary.id)) continue
+          if (this.isRemoved(summary.runtime, summary.id)) continue
+          const previous = this.#row(summary.runtime, summary.id)
+          if (previous) {
+            if (previous.title === null && previous.preview === null && summary.preview) {
+              this.#db.prepare('UPDATE sessions SET preview=? WHERE runtime=? AND id=? AND title IS NULL AND preview IS NULL AND removed_at IS NULL')
+                .run(summary.preview, summary.runtime, summary.id)
+              inserted.push(summary)
+            }
+            continue
+          }
+          if (seeded) continue
           const facts = this.#facts(summary.runtime, summary.id)
           const title = facts.title === undefined ? options.titleOf?.(summary.runtime, summary.id) ?? summary.title ?? null : facts.title
           const teamId = facts.teamId === undefined ? options.teamOf?.(summary.runtime, summary.id) ?? null : facts.teamId
@@ -509,7 +536,10 @@ export class SessionIndex {
       })
       for (const summary of inserted) this.#notify(summary.runtime, summary.id)
     }
-    if (!this.#closed) this.#transaction(() => this.#db.prepare("INSERT INTO meta(key,value) VALUES('seed:transcripts:v1','1') ON CONFLICT DO NOTHING").run())
+    if (!this.#closed) this.#transaction(() => {
+      this.#db.prepare("INSERT INTO meta(key,value) VALUES('seed:transcripts:v1','1') ON CONFLICT DO NOTHING").run()
+      this.#db.prepare("INSERT INTO meta(key,value) VALUES('seed:transcripts:previews:v1','1') ON CONFLICT DO NOTHING").run()
+    })
   }
 
   close(): void {

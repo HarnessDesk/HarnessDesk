@@ -1161,6 +1161,7 @@ const firstAsk = (session: Session): string | null => {
  */
 export interface ProjectList {
   readonly groups: ProjectGroup[]
+  readonly noFolder: SessionSummary[]
   readonly hiddenPinned: SessionSummary[]
   /** Folders that no longer exist and have not been forgotten, each once. */
   readonly gone: readonly string[]
@@ -1247,7 +1248,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     // pinned it, then the rest by the chosen order. A worktree you have open
     // is the project it is a checkout of, so the row it leads is that one.
     const list = groupByProject(
-      shown,
+      shown.filter((summary) => summary.cwd !== ''),
       snapshot.workspaces,
       snapshot.workspace,
       { identityHistory, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()) },
@@ -1322,7 +1323,8 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       if (snapshot.listPrefs.sort === 'name') return a.name.localeCompare(b.name)
       return b.updatedAt - a.updatedAt
     })
-    return { groups, hiddenPinned, gone }
+    const noFolder = shown.filter((summary) => summary.cwd === '').sort((a, b) => b.updatedAt - a.updatedAt)
+    return { groups, noFolder, hiddenPinned, gone }
   }, [snapshot.history, snapshot.historyIdentity, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
 }
 
@@ -1343,7 +1345,8 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const lastReveal = useRef<string | null>(null)
   const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
-  const { groups, hiddenPinned, gone } = useProjectList({ searching })
+  const { groups, noFolder, hiddenPinned, gone } = useProjectList({ searching })
+  const [noFolderOpen, setNoFolderOpen] = useState(false)
   const collapsed = useMemo(
     () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace, groups)),
     [snapshot.listPrefs.collapsed, snapshot.workspace, groups],
@@ -1380,12 +1383,12 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions))
       .filter(hasConversation).map(one => String(one.key)))), [snapshot.teams, snapshot.goals, snapshot.flowExecutions])
   const pinnedRows = useMemo(() => {
-    const byKey = new Map([...groups.flatMap((group) => group.sessions), ...hiddenPinned].map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
+    const byKey = new Map([...groups.flatMap((group) => group.sessions), ...noFolder, ...hiddenPinned].map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
     return snapshot.listPrefs.pinnedSessions
       .filter(key => !teamKeys.has(String(key)))
       .map((key) => byKey.get(String(key)))
       .filter((summary): summary is SessionSummary => summary !== undefined)
-  }, [groups, hiddenPinned, snapshot.listPrefs.pinnedSessions, teamKeys])
+  }, [groups, noFolder, hiddenPinned, snapshot.listPrefs.pinnedSessions, teamKeys])
   const liftedKeys = useMemo(
     () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
     [pinnedRows],
@@ -1486,7 +1489,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       if (virtual && project && Number.isInteger(current) && Number.isInteger(count)) {
         const nextIndex = current + direction
         if (nextIndex >= 0 && nextIndex < count) {
-          const root = project.parentElement?.dataset.projectRoot
+          const root = project.parentElement?.dataset.navigationRoot
           if (root) setNavigationTarget({ root, index: nextIndex })
           const mounted = project.querySelector<HTMLButtonElement>(`[data-virtual-index="${nextIndex}"] [data-slot="sidebar-menu-button"]`)
           if (mounted) focus(mounted)
@@ -1506,7 +1509,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       if (virtual && windowedProject) {
         const count = Number(virtual.dataset.virtualCount)
         const targetIndex = event.key === 'Home' ? 0 : count - 1
-        const root = windowedProject.parentElement?.dataset.projectRoot
+        const root = windowedProject.parentElement?.dataset.navigationRoot
         if (root && Number.isInteger(targetIndex) && targetIndex >= 0) {
           setNavigationTarget({ root, index: targetIndex })
           const mounted = windowedProject.querySelector<HTMLButtonElement>(`[data-virtual-index="${targetIndex}"] [data-slot="sidebar-menu-button"]`)
@@ -1581,7 +1584,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
         if (!labels[nextIndex]?.toLocaleLowerCase().startsWith(query)) continue
         event.preventDefault()
         if (virtual && windowedProject) {
-          const root = windowedProject.parentElement?.dataset.projectRoot
+          const root = windowedProject.parentElement?.dataset.navigationRoot
           if (root) {
             setNavigationTarget({ root, index: nextIndex })
             const mounted = windowedProject.querySelector<HTMLButtonElement>(`[data-virtual-index="${nextIndex}"] [data-slot="sidebar-menu-button"]`)
@@ -1594,7 +1597,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
   }, [])
   const teamRows = new Map(teamsInput(snapshot).map(input => [input.team.id, teamListRow(input)]))
   // A fold hides matches without removing them from the search results.
-  const hasSearchRows = pinnedRows.length > 0 || groups.some((group) =>
+  const hasSearchRows = pinnedRows.length > 0 || noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id)))) || groups.some((group) =>
     group.sessions.some((summary) => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))))
     || projectRoots(group).some((root) => (roomsByProject.get(root) ?? []).some((room) => teamRows.get(room.id)?.active)),
   )
@@ -1721,8 +1724,8 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
      end of "Other projects" when that fold is drawn, and under the projects
      when there is no fold. Not a project, and not a row to open. */
   const goneLine = gone.length > 0 ? <GoneFolders folders={gone} /> : null
-  const renderGroup = (group: ProjectGroup) => {
-    const open = !collapsed.has(group.root)
+  const renderGroup = (group: ProjectGroup, folderless = false) => {
+    const open = folderless ? noFolderOpen : !collapsed.has(group.root)
     const allRooms = projectRoots(group)
       .flatMap((root) => roomsByProject.get(root) ?? [])
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -1771,8 +1774,11 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
         : String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
     )
     return (
-      <div key={group.root} data-project-root={group.root}>
-        <GroupHead
+      <div key={group.root} data-navigation-root={group.root} data-project-root={folderless ? undefined : group.root} data-no-folder={folderless ? '' : undefined}>
+        {folderless ? <SidebarMenu><SidebarMenuItem>
+          <SidebarMenuButton label="No folder" icon={<DisclosureChevron open={open} size="xs" className={styles.groupChevron} />}
+            aria-expanded={open} onClick={() => setNoFolderOpen(value => !value)} />
+        </SidebarMenuItem></SidebarMenu> : <GroupHead
           group={group}
           open={open}
           pinned={pinnedRoots.includes(group.root)}
@@ -1781,7 +1787,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
           onToggleAll={toggleAll}
           onNewWorktree={(root) => store.askNewWorktree(root)}
           drag={drag}
-        />
+        />}
         {open && !searching && allRooms.length === 0 && group.sessions.length === 0 && (
           <Text as="div" role="meta" className={styles.groupBlank}>
             No conversations yet — ⌘N starts one here.
@@ -1832,13 +1838,13 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     )
   }
 
-  const nearContent = near.map(renderGroup)
-  const farContent = othersOpen ? far.map(renderGroup) : null
+  const nearContent = near.map(group => renderGroup(group))
+  const farContent = othersOpen ? far.map(group => renderGroup(group)) : null
 
   const tree = (
     <div ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>('[data-virtual-index]')
-      const root = row?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot
+      const root = row?.closest<HTMLElement>('[data-navigation-root]')?.dataset.navigationRoot
       if (root && row) setNavigationTarget({ root, index: Number(row.dataset.virtualIndex) })
     }} role="group" aria-label="Conversations" data-region="session-tree">
       {pinnedRows.length > 0 && (
@@ -1882,6 +1888,8 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
         </div>
       )}
       {far.length === 0 && goneLine}
+      {noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))) && !liftedKeys.has(String(sessionKey(summary.runtime, summary.id)))) &&
+        renderGroup({ root: 'no-folder', name: 'No folder', sessions: noFolder, folders: [], updatedAt: 0 }, true)}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said
           out loud, so the keyboard rows and the drag land in the same place

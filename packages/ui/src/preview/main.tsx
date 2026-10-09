@@ -76,6 +76,7 @@ import { PublicationCard } from '../components/Publication'
 import { usagePreviewStore } from './usage-fixture'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
 import {
+  sidebarFolderlessFixture,
   sidebarOpenSearchFixture,
   sidebarProjectsFixture,
   sidebarProjectsUnloadedSearchFixture,
@@ -177,6 +178,7 @@ const emptyConversationStore = SHOW_EMPTY ? previewStore({
   }]]),
 }) : store
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
+const sidebarFolderlessStore = previewStore(sidebarFolderlessFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
 const sidebarProjectsSearchBeforeStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot(), true))
 const sidebarOpenSearchStore = previewStore(sidebarOpenSearchFixture(store.getSnapshot()))
@@ -1060,6 +1062,7 @@ const Preview = () => {
           >
             <Mount with={SIDEBAR_VARIANT_PARAM === 'open-search'
               ? sidebarOpenSearchStore
+              : SIDEBAR_VARIANT_PARAM === 'folderless' ? sidebarFolderlessStore
               : SIDEBAR_VARIANT_PARAM === 'projects-search-before'
               ? sidebarProjectsSearchBeforeStore
               : SIDEBAR_VARIANT_PARAM === 'projects-search'
