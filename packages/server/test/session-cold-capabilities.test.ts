@@ -110,6 +110,41 @@ test('a known host-only archive works offline without starting its agent', async
   assert.equal(starts, 0)
 })
 
+test('a cold native rename reaches the agent and survives later history reads', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-cold-name-'))
+  const runtime = new CodexRuntime({ id: runtimeId('native'), binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir, FAKE_CODEX_MUTABLE_HISTORY: '1' } })
+  const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
+  host.register(new FakeRuntime())
+  host.register(runtime)
+  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await host.start()
+  assert.equal(runtime.health().state, 'idle')
+  assert.equal(runtime.info.capabilities.nameHistory, false)
+  const target = sessionId('thread-2')
+  const title = 'Review the startup policy'
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: target, title })
+  const listed = await host.call('session/list', { runtime: runtime.info.id })
+  const native = await runtime.listSessions()
+  assert.equal(native.data.find(row => row.id === target)?.title, title, 'the agent keeps the name')
+  assert.equal(runtime.health().state, 'ready')
+  await assert.rejects(readFile(join(dir, 'names.json'), 'utf8'), { code: 'ENOENT' })
+  assert.equal(listed.data.find(row => row.id === target)?.title, title, 'learning native naming cannot discard the name')
+  const indexed = await host.call('session/index', { runtimes: [runtime.info.id] })
+  assert.equal(indexed.data.find(row => row.id === target)?.title, title)
+})
+
+test('a known host-only name works offline without starting its agent', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-offline-name-'))
+  const runtime = new AcpRuntime({ id: 'offline', name: 'Offline agent', command: join(dir, 'missing-agent') })
+  runtime.start = async () => { assert.fail('a local rename must not start an agent') }
+  const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
+  host.register(runtime)
+  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: id, title: 'Offline conversation' })
+  const names = JSON.parse(await readFile(join(dir, 'names.json'), 'utf8')) as { entries: { sessionId: string; name: string }[] }
+  assert.deepEqual(names.entries, [{ runtime: runtime.info.id, sessionId: id, name: 'Offline conversation' }])
+})
+
 for (const method of ['session/archive', 'session/delete'] as const) {
   test(`${method} learns native history support on first use without a cache`, async t => {
     const dir = await mkdtemp(join(tmpdir(), 'hd-cold-history-'))

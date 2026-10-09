@@ -302,6 +302,7 @@ export const sessionMethods = {
 
   'session/setTitle': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
+    if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
     // The runtime's own name when it keeps one, the host's when it does
     // not. Never both: see `SessionNames`. ACP has no way to name a
     // session at all, so this used to reach the adapter and throw — the
