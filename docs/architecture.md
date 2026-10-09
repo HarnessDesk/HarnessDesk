@@ -365,6 +365,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   host never writes memory itself, and no citation, live or backup-restored,
   authorizes anything beyond satisfying the one dependency edge it created.
 
+The window's door checks Host and Origin. HTTP requests and WebSocket upgrades
+must name `127.0.0.1` or `localhost` with the bound port in Host. Upgrades and
+HTTP methods other than GET, HEAD and OPTIONS accept a present Origin only
+when it is this server's HTTP origin or one explicitly supplied through
+`ServeOptions.allowedOrigins`. Clients without Origin retain the existing
+token gates. The packaged window, development window and native rigs load
+the server's own origin; the UI's standalone dev server has no host proxy.
+
 The wire is a token-gated loopback WebSocket. `packages/protocol/src/wire.ts`
 declares every method with its params and result, `wire-validators.ts` checks
 every inbound frame before the host sees it, and one module under
