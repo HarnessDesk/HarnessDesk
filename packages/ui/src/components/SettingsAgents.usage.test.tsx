@@ -118,6 +118,7 @@ const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = 
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    transport: { request: vi.fn(async () => null) },
     loadAccounts: vi.fn(async () => {}),
     limitsFor: vi.fn(async () => limits),
     readPlan: vi.fn(async () => ({ entry: null, suggestion: null, refusal: null })),

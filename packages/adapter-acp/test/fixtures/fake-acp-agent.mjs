@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
+if (process.env.FAKE_ACP_SPAWNS) appendFileSync(process.env.FAKE_ACP_SPAWNS, `${process.pid}\n`)
 const REFUSES_AT_START = process.env.FAKE_ACP_REFUSE_TOOLS_WHILE ? existsSync(process.env.FAKE_ACP_REFUSE_TOOLS_WHILE) : false
 
 /**
@@ -997,7 +998,9 @@ const handleTaskPrompt = (state, text) => {
 }
 
 const handlers = {
-  initialize: (id, params) => {
+  initialize: async (id, params) => {
+    const startDelay = Number(process.env.FAKE_ACP_START_DELAY_MS ?? 0)
+    if (startDelay > 0) await new Promise(resolve => setTimeout(resolve, startDelay))
     // The refusals from the agent's side: a client that offers fs or terminal is a
     // client this fake refuses, so the declines can never quietly regress.
     const caps = params?.clientCapabilities ?? {}
@@ -1102,7 +1105,9 @@ const handlers = {
     lifetime({ type: 'close', sessionId: params.sessionId })
     reply(id, {})
   },
-  'session/new': (id, params) => {
+  'session/new': async (id, params) => {
+    const modelDelay = Number(process.env.FAKE_ACP_MODEL_DELAY_MS ?? 0)
+    if (modelDelay > 0) await new Promise(resolve => setTimeout(resolve, modelDelay))
     // FAKE_ACP_SLOW_OPEN_MS=<n> answers an open that carries no tool server n ms
     // late, as a loaded machine does: the retry after a refusal then lands
     // after the refusal has been seen (#215).

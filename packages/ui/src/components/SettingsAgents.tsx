@@ -1602,6 +1602,7 @@ export const NewSessionDefaults = ({
   empty?: string
 }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
   const [options, setOptions] = useState<readonly ConfigOption[] | null>(null)
 
   useEffect(() => {
@@ -1612,7 +1613,7 @@ export const NewSessionDefaults = ({
     return () => {
       cancelled = true
     }
-  }, [store, info.id])
+  }, [store, info.id, snapshot.healthByRuntime[info.id]?.state])
 
   const pick = (id: string, value: OptionValue): void => {
     void store.setNewSessionDefault(info.id, id, value).then(setOptions)
@@ -1868,6 +1869,10 @@ const AgentDetail = ({
   const [confirmingRemove, setConfirmingRemove] = useState(false)
 
   useEffect(() => {
+    void store.transport.request('runtime/warm', { runtime: info.id }).catch(() => {})
+  }, [store, info.id])
+
+  useEffect(() => {
     let cancelled = false
     void store.healthFor(info.id).then((loaded) => {
       if (!cancelled) setHealth(loaded)
@@ -1878,7 +1883,7 @@ const AgentDetail = ({
     return () => {
       cancelled = true
     }
-  }, [store, info.id])
+  }, [store, info.id, snapshot.healthByRuntime[info.id]?.state])
 
   const update = describeUpdate(info)
   const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null

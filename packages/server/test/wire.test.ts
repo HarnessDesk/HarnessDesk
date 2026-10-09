@@ -3702,18 +3702,28 @@ test('HTTP token gate cannot be bypassed by non-root SPA routes (#429)', async (
   await writeFile(join(uiDir, 'bundle.js'), 'console.log("bundle")')
 
   const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-gate-state-'))
-  t.after(() => rm(stateDir, { recursive: true, force: true }))
+  let disposeHost: (() => Promise<void>) | undefined
+  let closeServer: (() => Promise<void>) | undefined
+  t.after(async () => {
+    try {
+      await closeServer?.()
+    } finally {
+      try {
+        await disposeHost?.()
+      } finally {
+        await rm(stateDir, { recursive: true, force: true })
+      }
+    }
+  })
 
   const host = new Host({
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
   })
+  disposeHost = () => host.dispose()
   await host.start()
   const server = await serve({ host, logger: silent, port: 0, uiRoot: uiDir, token: 'secret-token' })
-  t.after(async () => {
-    await server.close()
-    await host.dispose()
-  })
+  closeServer = () => server.close()
 
   // 1. Root without token -> 401
   const resRootNoToken = await fetch(`${server.url}/`)

@@ -63,6 +63,7 @@ it('keeps an unavailable agent and its consequence visible while ordinary taglin
     },
   }
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     selectRuntime: vi.fn(async () => {}),
@@ -118,6 +119,7 @@ it('a conversation seated as an Agent shows the Agent and the seat it took — e
     seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]),
   }
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     readSeatAgent: vi.fn(),
@@ -170,6 +172,7 @@ const settle = () => act(async () => {})
 it('a not-loaded declaration earns a hint the seat label alone cannot carry, read by the Seat’s own immutable id', async () => {
   const snapshot = seatedFixture()
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     readSeatAgent: vi.fn(),
@@ -208,6 +211,7 @@ it('a fully loaded seat earns no hint — silence is not "nothing to say", it is
   const snapshot = seatedFixture()
   const identity = { kind: 'skill' as const, name: 'review', digest: 'a'.repeat(64), source: 'library' as const, pathLabel: 'p' }
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     readSeatAgent: vi.fn(),

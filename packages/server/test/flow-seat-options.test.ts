@@ -79,6 +79,9 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
   host.register(runtime)
   t.after(() => host.dispose())
   await host.start()
+  // These tests also call the raw adapter directly. Join its background
+  // launch before exercising those live option reads.
+  await host.call('runtime/models', { runtime: runtime.info.id })
   await host.call('workspace/open', { path: root })
   return { host, root, runtime, stateDir }
 }
