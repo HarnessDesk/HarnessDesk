@@ -213,3 +213,5 @@ export { HeaderStatusGroup, HeaderStatusReading, useHeaderStatusGroup } from './
 export { ComparisonNotice } from './patterns/ComparisonNotice'
 export { ComparisonDecision } from './patterns/ComparisonDecision'
 export { ComparisonSummary } from './patterns/ComparisonSummary'
+
+export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'

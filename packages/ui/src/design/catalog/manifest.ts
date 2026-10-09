@@ -166,6 +166,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  GitComparisonDialogs: ['default'],
   ComparisonNotice: ['default'],
   ComparisonDecision: ['default'],
   ComparisonSummary: ['default'],
@@ -266,6 +267,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  GitComparisonDialogs: ['default'],
   ComparisonNotice: ['default', 'needs-you', 'empty'],
   ComparisonDecision: ['default', 'disabled'],
   ComparisonSummary: ['default'],
@@ -392,6 +394,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  GitComparisonDialogs: 'packages/ui/src/components/ComparisonActions.tsx',
   ComparisonNotice: 'packages/ui/src/components/ComparisonVerdict.tsx',
   ComparisonDecision: 'packages/ui/src/components/ComparisonActions.tsx',
   ComparisonSummary: 'packages/ui/src/components/TeamRoomPane.tsx',
@@ -430,6 +433,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  GitComparisonDialogs: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonNotice: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonDecision: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonSummary: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -577,6 +581,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['GitComparisonDialogs', 'git-comparison-dialogs', 'Shared merge and revision-diff questions for Changes and Side by side'],
   ['ComparisonDecision', 'comparison-decision', 'A recorded comparison recommendation and the person merge, compare and keep actions'],
   ['ComparisonSummary', 'comparison-summary', 'The confirmed merge receipt in the Side by side reading column'],
   ['ComparisonNotice', 'comparison-notice', 'A comparison verdict shelf with recorded text, an unanswered next step and reserved space after dismissal'],

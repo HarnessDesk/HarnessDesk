@@ -245,6 +245,9 @@ import { ComparisonSummary } from '../patterns/ComparisonSummary'
 import { ArrowLeftIcon, ArrowRightIcon, RetryIcon } from '../../components/Icons'
 import { Input } from '../ui/input'
 import { RoomComposer } from '../../components/RoomComposer'
+import { MergeDialog, DiffRangeDialog } from '../patterns/GitComparisonDialogs'
+import { comparisonVerdictStore } from '../../preview/comparison-verdict-fixture'
+import { gitRefs } from '../../preview/git-fixture'
 
 /**
  * The composition layer, board by board.
@@ -1049,6 +1052,7 @@ const SideBySideBoard = () => {
     paneId: string,
     store: AppStore,
     widthClass = 'h-96 w-full min-w-0',
+    sharedComposer = true,
   ) => (
     <StoreProvider store={store}>
       <div className={widthClass}>
@@ -1059,8 +1063,8 @@ const SideBySideBoard = () => {
           memberOf={memberOf}
           entryOf={(key) => entryOf(store, key)}
           onOpenMember={() => {}}
-          composer={shown => <RoomComposer room="preview-room" members={SIDE_BY_SIDE_MEMBERS.map((member, index) => ({key:SIDE_BY_SIDE_KEYS[index]!, peer:{...member, sessionId:member.id, here:true, busy:index === 0, title:null, inbound:'accept' as const, canUseBoard:true, idleOnBoard:false, onTask:null}, busy:index === 0, brand:null, canUseBoard:true, title:null}))}
-            defaultAudience={shown} tileLabels={new Map(state.tiles.map((key,index) => [key,String.fromCharCode(65+index)]))} messaging onTrouble={() => {}} onPosted={() => {}} />}
+          composer={sharedComposer ? shown => <RoomComposer room="preview-room" members={SIDE_BY_SIDE_MEMBERS.map((member, index) => ({key:SIDE_BY_SIDE_KEYS[index]!, peer:{...member, sessionId:member.id, here:true, busy:index === 0, title:null, inbound:'accept' as const, canUseBoard:true, idleOnBoard:false, onTask:null}, busy:index === 0, brand:null, canUseBoard:true, title:null}))}
+            defaultAudience={shown} tileLabels={new Map(state.tiles.map((key,index) => [key,String.fromCharCode(65+index)]))} messaging onTrouble={() => {}} onPosted={() => {}} /> : undefined}
           conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
         />
       </div>
@@ -1075,7 +1079,7 @@ const SideBySideBoard = () => {
         <Case label="Team bar — Side by side · disabled with its reason">
           <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={false} disabled title="Seat an Agent to show conversations side by side"><SideBySideIcon size={14} /></Button>
         </Case>
-        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore)}</Case>
+        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore, undefined, false)}</Case>
         <Case className="col-span-full" label="room — Side by side · two members, waiting for you">{grid(waiting, setWaiting, 'catalog-side-by-side-waiting', waitingStore)}</Case>
         <Case className="col-span-full" label="room — Side by side · four members, tile states and ceiling">{grid(four, setFour, 'catalog-side-by-side-four', statesStore)}</Case>
         <Case label="room — Side by side · narrow tabs">
@@ -2931,6 +2935,28 @@ const HeaderStatusBoard = () => (
   </div>
 )
 
+const GITCOMPARISONDIALOGS_CATALOG_VARIANTS = ['default'] as const
+const GITCOMPARISONDIALOGS_CATALOG_SIZES = ['default'] as const
+const GITCOMPARISONDIALOGS_CATALOG_STATES = ['default'] as const
+const GitComparisonDialogsBoard = () => {
+  const store = useMemo(() => comparisonVerdictStore('picked'), [])
+  const [dialog, setDialog] = useState<'merge' | 'compare' | null>(null)
+  return <StoreProvider store={store}>
+    <Specimen measure="wide" caption="The same recorded-revision questions in Changes and Side by side">
+      {GITCOMPARISONDIALOGS_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
+        {GITCOMPARISONDIALOGS_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size}>
+          {GITCOMPARISONDIALOGS_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} className="flex gap-2">
+            <Button onClick={() => setDialog('merge')}>Merge a recorded revision</Button>
+            <Button onClick={() => setDialog('compare')}>Compare two revisions</Button>
+            {dialog === 'merge' && <MergeDialog root="/workspace/demo-client" refs={{...gitRefs(), branch:'main'}} fixedRef={'a'.repeat(40)} expectedBranch="main" onDone={() => setDialog(null)} />}
+            {dialog === 'compare' && <DiffRangeDialog root="/workspace/demo-client" from={'a'.repeat(40)} to={'b'.repeat(40)} onDone={() => setDialog(null)} />}
+          </div>)}
+        </div>)}
+      </div>)}
+    </Specimen>
+  </StoreProvider>
+}
+
 const COMPARISONDECISION_CATALOG_VARIANTS = ['default'] as const
 const COMPARISONDECISION_CATALOG_SIZES = ['default'] as const
 const COMPARISONDECISION_CATALOG_STATES = ['default', 'disabled'] as const
@@ -2994,6 +3020,7 @@ const ComparisonNoticeBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
   { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },
   { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },
   { id: 'comparison-notice', title: 'Comparison notice', about: 'The real comparison shelf, with a recorded pick, a waiting person and text that scrolls without moving the tiles.', render: ComparisonNoticeBoard },

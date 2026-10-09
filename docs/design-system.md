@@ -1462,6 +1462,18 @@ A recorded step or Seat state, toned once for the Flow list and Run dock. Unknow
 
 A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
 
+### `MergeDialog`
+
+`packages/ui/src/design/patterns/GitComparisonDialogs.tsx`
+
+The toolbar's Merge: pick what joins the current branch.
+
+### `DiffRangeDialog`
+
+`packages/ui/src/design/patterns/GitComparisonDialogs.tsx`
+
+“Diff against current”: the plain difference between two revisions.
+
 ### `useHeaderStatusGroup`
 
 `packages/ui/src/design/patterns/HeaderStatusGroup.tsx`

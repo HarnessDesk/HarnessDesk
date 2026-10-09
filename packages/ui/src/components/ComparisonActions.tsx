@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { flowStepOf, type FlowExecution, type GitMergeOutcome, type GitRefsSummary, type Intent } from '@harnessdesk/protocol'
-import { ComparisonDecision } from '../design'
+import { ComparisonDecision, DiffRangeDialog, MergeDialog } from '../design'
 import type { ComparisonVerdictModel } from '../lib/comparison-verdict'
 import { encodeComparisonMerge, type ComparisonMergeReceipt } from '../lib/comparison-merge'
 import type { RunAttempt } from '../lib/run-timeline'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore } from '../state/context'
-import { DiffRangeDialog, MergeDialog } from './GitDialogs'
 
 /** Presents the Run's pick using the same Git dialogs and person completion as the workbench. */
 export const ComparisonActions = ({ room, root, execution, cards, verdict, choice, onKeep, onMerged }: {

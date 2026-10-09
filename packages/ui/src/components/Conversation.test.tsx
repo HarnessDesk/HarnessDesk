@@ -143,6 +143,8 @@ const expectNoticeBelowEmptyState = () => {
   const notice = transcript?.querySelector('[data-turn^="notice:"]')
   expect(empty).not.toBeNull()
   expect(empty?.getAttribute('data-height')).toBe('content')
+  // Empty-state height belongs to the reading pane, not the measured turn body.
+  expect(empty?.parentElement === transcript).toBe(true)
   expect(notice).not.toBeNull()
   expect(empty!.compareDocumentPosition(notice!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 }

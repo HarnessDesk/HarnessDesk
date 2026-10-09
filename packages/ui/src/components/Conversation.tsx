@@ -831,8 +831,8 @@ export const Conversation = ({
             onClick={onScrollClick}
             data-live-transcript
           >
-            <div ref={transcriptContent} data-transcript-content>
             {!hasRealTurn && emptyState}
+            <div ref={transcriptContent} data-transcript-content>
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,

@@ -767,6 +767,22 @@
     "pad": "40 40 40 40",
     "radius": 0
   },
+  "git-comparison-dialogs/div/size/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "git-comparison-dialogs/div/variant/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "list/avatar/size/default": {
     "h": 24,
     "text": 14,
