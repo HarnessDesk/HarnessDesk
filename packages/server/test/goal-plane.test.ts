@@ -610,3 +610,29 @@ test('wrap never credits a released or reopened claim when a person finishes the
     assert.deepEqual(preview.receipt.cards, [{ id: 1, title: 'Bound the retry', resolution: 'finished', reason: null }], boundary)
   }
 })
+
+test('a Run completed by its person does not keep its finished attempts in Team attention', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  const cards = [intent(1, { state: 'done', role: 'competitor' }), intent(2, { state: 'done', role: 'close', outcome: 'merged' })]
+  await proof.store.save({ ...document, board: { ...document.board, nextIntent: 3, intents: cards }, goal: { ...document.goal, revision: 1 } }, 0)
+  const execution = {
+    version: 2, id: 'flow-1', goal: 'g1', state: 'settled', end: { kind: 'complete' }, reason: null, operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'competitor', kind: 'agent' }, { id: 'close', kind: 'person', outcomes: ['merged'] }] } },
+    rounds: [{ n: 1, role: 'competitor', cards: [1], seats: [], state: 'closed', cause: 'seed', evidence: [] },
+      { n: 2, role: 'close', cards: [2], seats: [], state: 'closed', cause: 'after:1:close', evidence: [] }],
+  } as unknown as FlowExecution
+  proof.port.executions = () => [execution]
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
+
+  // Settling this Run never answers follow-up work or a separate held request.
+  proof.port.held = () => true
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
+  proof.port.held = () => false
+  const settled = proof.store.read('g1')
+  await proof.store.save({ ...settled, board: { ...settled.board, nextIntent: 4, intents: [...cards, intent(3, { state: 'done' })] }, goal: { ...settled.goal, revision: 2 } }, 1)
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'unchecked follow-up work remains attention')
+
+  proof.port.executions = () => [{ ...execution, end: { kind: 'unrouted', card: 2, outcome: 'merged' } }]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'an unrouted ending still waits')
+})
