@@ -1,12 +1,272 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { mkdir, open, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { test } from 'node:test'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
+import { SessionIndex } from '../src/session-index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
+
+const deferred = () => {
+  let resolve!: () => void
+  const promise = new Promise<void>(yes => { resolve = yes })
+  return { promise, resolve }
+}
+
+for (const reading of ['folder page', 'archive page', 'omitted read'] as const) test(`shutdown drains a late index ${reading} without applying it`, { timeout: 10_000 }, async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const nativeArchive = reading !== 'folder page'
+  const root = tempDir('hd-index-shutdown-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: nativeArchive } })
+  runtime.setHealth({ state: 'ready' })
+  const row = { runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null,
+    createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' as const } }
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert(row, { archived: nativeArchive ? null : false })
+  index.close()
+  const entered = deferred(), answer = deferred(), stopping = deferred()
+  let settled = false, listings = 0, writes = 0
+  const late = async () => {
+    entered.resolve()
+    await answer.promise
+    settled = true
+    return { ...row, cwd: '/synthetic/recovered', archived: true, turns: [], itemsLoaded: true }
+  }
+  runtime.listSessions = async () => {
+    listings++
+    if (reading === 'omitted read') return { data: [], nextCursor: null }
+    return { data: [await late()], nextCursor: 'next' }
+  }
+  runtime.readSession = late
+  const dispose = runtime.dispose.bind(runtime)
+  runtime.dispose = async () => { stopping.resolve(); await dispose() }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(async () => { answer.resolve(); await host.dispose() })
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await entered.promise
+  // Count even attempted writes: a closed SQLite handle must never be reached.
+  for (const method of ['fillMissingMetadata', 'confirmArchived', 'clearArchiveError', 'archiveError'] as const) {
+    const original = SessionIndex.prototype[method]
+    t.mock.method(SessionIndex.prototype, method, function (this: SessionIndex, ...args: unknown[]) {
+      writes++
+      return Reflect.apply(original, this, args)
+    })
+  }
+  const close = SessionIndex.prototype.close
+  t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) {
+    assert.equal(settled, true, 'index closes only after its in-flight authority read settles')
+    return close.call(this)
+  })
+  let disposed = false
+  runtime.setHealth({ state: 'ready' }) // Queue a readiness retry behind the current read.
+  const shutdown = host.dispose().then(() => { disposed = true })
+  void shutdown.catch(() => {})
+  await stopping.promise
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(disposed, false)
+  answer.resolve()
+  await shutdown
+  assert.equal(settled, true)
+  assert.equal(writes, 0, 'late answers are abandoned once shutdown starts')
+  assert.equal(listings, reading === 'omitted read' ? 2 : 1, 'no next page or readiness retry starts')
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  assert.equal(persisted.get(row.runtime, row.id)?.cwd, '')
+  close.call(persisted)
+  await rm(root, { recursive: true, force: true })
+  runtime.setHealth({ state: 'ready' })
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(readdir(root), { code: 'ENOENT' })
+})
+
+test('shutdown waits for the seed first-prompt stream to finish', { timeout: 10_000 }, async t => {
+  const root = tempDir('hd-seed-shutdown-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const folder = join(root, 'transcripts', runtime.info.id)
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, 'old.json')
+  await writeFile(file, JSON.stringify({ version: 1, runtime: runtime.info.id, id: 'old', cwd: '', updatedAt: 1,
+    turns: [{ items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Synthetic first prompt' }] }] }] }))
+  const handle = await open(file, 'r')
+  const prototype = Object.getPrototypeOf(handle) as typeof handle
+  await handle.close()
+  const stream = prototype.createReadStream
+  const entered = deferred(), answer = deferred(), stopping = deferred()
+  let finished = false
+  t.mock.method(prototype, 'createReadStream', function (this: typeof handle, ...args: Parameters<typeof stream>) {
+    const original = stream.apply(this, args)
+    return Readable.from((async function* () {
+      entered.resolve()
+      await answer.promise
+      try { for await (const chunk of original) yield chunk }
+      finally { finished = true }
+    })())
+  })
+  const dispose = runtime.dispose.bind(runtime)
+  runtime.dispose = async () => { stopping.resolve(); await dispose() }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0, idleStopMs: 0 })
+  t.after(async () => { answer.resolve(); await host.dispose() })
+  host.register(runtime)
+  await host.start()
+  await entered.promise
+  const close = SessionIndex.prototype.close
+  t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) {
+    assert.equal(finished, true, 'the seed stream finishes before the index closes')
+    return close.call(this)
+  })
+  const shutdown = host.dispose()
+  await stopping.promise
+  assert.equal(finished, false)
+  answer.resolve()
+  await shutdown
+  assert.equal(finished, true)
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  assert.equal(persisted.list().data.length, 0, 'a late seed batch is abandoned')
+  await persisted.seed(root)
+  assert.equal(persisted.list().data[0]?.preview, 'Synthetic first prompt', 'the next launch can finish the seed')
+  close.call(persisted)
+  await rm(root, { recursive: true, force: true })
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(readdir(root), { code: 'ENOENT' })
+})
+
+for (const nativeArchive of [false, true]) test(`listing recovers only missing folders and names (native archive: ${nativeArchive})`, async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-')
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  const runtime = new FakeRuntime()
+  Object.assign(runtime.info.capabilities, { archiveHistory: nativeArchive })
+  const summary = (id: string, cwd: string, title: string | null) => ({ runtime: runtime.info.id, id: sessionId(id), cwd, title,
+    createdAt: 1, updatedAt: 10, status: { type: 'notLoaded' as const } })
+  for (const row of [summary('missing', '', null), summary('known', '/synthetic/accepted', 'Accepted title'), summary('absent', '', null)]) {
+    index.upsert(row, { archived: nativeArchive ? null : false })
+  }
+  index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  let calls = 0
+  let listed!: () => void
+  const listing = new Promise<void>(resolve => { listed = resolve })
+  runtime.listSessions = async query => {
+    calls++
+    if (query?.archived === 'only') return { data: [], nextCursor: null }
+    if (!query?.cursor) return { data: [summary('known', '/synthetic/other', 'Other title')], nextCursor: 'next' }
+    listed()
+    return { data: [summary('missing', '/synthetic/recovered', 'Recovered title')], nextCursor: null }
+  }
+  host.register(runtime)
+  assert.equal(calls, 0)
+  await host.start()
+  await Promise.race([listing, new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('folder backfill never listed')), 2_000); timer.unref() })])
+  // The observable index notification is the completion signal, not a sleep.
+  for (let turn = 0; turn < 100; turn++) {
+    const rows = (await host.call('session/index', {})).data
+    if (rows.find(row => row.id === 'missing')?.cwd) break
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  t.after(() => persisted.close())
+  assert.equal(persisted.get(runtime.info.id, sessionId('missing'))?.cwd, '/synthetic/recovered')
+  assert.equal(persisted.get(runtime.info.id, sessionId('missing'))?.title, 'Recovered title')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.cwd, '/synthetic/accepted')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.title, 'Accepted title')
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.cwd, '')
+  const previous = calls
+  await host.call('session/index', { archived: 'only' })
+  await new Promise(resolve => setImmediate(resolve))
+  if (!nativeArchive) assert.equal(calls, previous, 'remaining unknown rows do not trigger another launch pass')
+  runtime.history.push(summary('absent', '/synthetic/opened', 'Recovered on open'), summary('known', '/synthetic/other', 'Other title'))
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: sessionId('absent') })
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: sessionId('known') })
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.cwd, '/synthetic/opened')
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.title, 'Recovered on open')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.cwd, '/synthetic/accepted')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.title, 'Accepted title')
+})
+
+test('folder backfill never starts an idle agent whose history needs a process', async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-idle-')
+  const runtime = new FakeRuntime()
+  Object.assign(runtime.info.capabilities, { archiveHistory: false })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null, createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' } })
+  index.close()
+  let starts = 0, listings = 0
+  let inspected!: () => void
+  const inspection = new Promise<void>(resolve => { inspected = resolve })
+  runtime.health = () => ({ state: 'idle' })
+  runtime.start = async () => { starts++; throw new Error('background history must not start an agent') }
+  runtime.listSessions = async () => { listings++; return { data: [], nextCursor: null } }
+  Object.assign(runtime, { canReadWhileIdle: () => { inspected(); return false } })
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await inspection
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(starts, 0)
+  assert.equal(listings, 0)
+})
+
+for (const refused of [true, false]) for (const earlyReady of [false, true]) test(`folder backfill retries on ready after ${refused ? 'an idle refusal' : 'a failed first listing'} (ready while settling: ${earlyReady})`, async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-retry-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  const row = { runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null,
+    createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' as const } }
+  index.upsert(row)
+  index.upsert({ ...row, id: sessionId('absent') })
+  index.close()
+  runtime.setHealth({ state: refused ? 'idle' : 'ready' })
+  let starts = 0, listings = 0
+  runtime.start = async () => { starts++; throw new Error('background history must not start an agent') }
+  let finished!: () => void
+  const firstAttempt = new Promise<void>(resolve => { finished = resolve })
+  Object.assign(runtime, { canReadWhileIdle: () => { finished(); return false } })
+  runtime.listSessions = async () => {
+    listings++
+    if (!refused && listings === 1) { finished(); throw new Error('temporary listing failure') }
+    return { data: [{ ...row, cwd: '/synthetic/recovered' }], nextCursor: null }
+  }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await firstAttempt
+  if (!earlyReady) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(starts, 0)
+  assert.equal(listings, refused ? 0 : 1)
+  const recovered = new Promise<void>(resolve => host.addBroadcaster(event => {
+    if (event.method === 'session/indexChanged' && event.params.upserted.some(one => one.id === row.id && one.cwd)) resolve()
+  }))
+  runtime.setHealth({ state: 'ready' })
+  await Promise.race([recovered, new Promise<never>((_, reject) => {
+    const timer = setTimeout(() => reject(new Error('folder backfill did not retry on ready')), 2_000)
+    timer.unref()
+  })])
+  const rows = (await host.call('session/index', {})).data
+  assert.equal(rows.find(one => one.id === row.id)?.cwd, '/synthetic/recovered')
+  assert.equal(rows.find(one => one.id === 'absent')?.cwd, '', 'absence leaves metadata unchanged')
+  assert.equal(starts, 0)
+  assert.equal(listings, refused ? 1 : 2)
+  runtime.setHealth({ state: 'ready' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(listings, refused ? 1 : 2, 'a completed pass is not repeated')
+})
 
 test('the first sidebar page asks no runtime, even without a selected agent', async (t) => {
   const root = tempDir('hd-index-host-')

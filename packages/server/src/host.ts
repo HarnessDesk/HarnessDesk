@@ -674,7 +674,7 @@ export class Host {
   readonly #observingRuntimes = new Map<string, Promise<void>>()
   readonly #modelsReadyAt = new Map<string, number>()
   /** Native metadata before registry rows are added, with the same lifecycle guard. */
-  readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, AgentRuntime['listSessions']>()
+  readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, (query?: ListSessionsQuery, startIfNeeded?: boolean) => Promise<Page<SessionSummary> | null>>()
   readonly #accountReads = new Map<string, AccountReads>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #directRuntimeStarts = new Map<string, { startedAt: number; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>()
@@ -715,6 +715,7 @@ export class Host {
   readonly #sessionIndex: SessionIndex
   readonly #sessionIndexRepos: SessionIndexRepos
   #sessionIndexSeed: Promise<void> = Promise.resolve()
+  readonly #sessionIndexAbort = new AbortController()
   readonly #indexPending = new Map<string, Session>()
   #removalSweep: ReturnType<typeof setTimeout> | undefined
   #removalSweepWork: Promise<void> | null = null
@@ -1000,7 +1001,7 @@ export class Host {
       index: this.#sessionIndex, archive: this.#archive,
       resolve: runtime => this.#runtime({ runtime }),
       start: runtime => this.#ensureStarted(runtime),
-      list: (runtime, query) => this.#runtimeHistoryReaders.get(runtime)!(query),
+      list: async (runtime, query) => (await this.#runtimeHistoryReaders.get(runtime)!(query))!,
       archiveGuard: runtime => {
         const revisions = new Map(this.#indexArchiveChanges)
         return id => {
@@ -2168,10 +2169,12 @@ export class Host {
     const surfaces = new WeakMap<object, object>()
     const accountReads = new AccountReads(id, this.#logger)
     this.#accountReads.set(id, accountReads)
-    const listHistory = (query?: ListSessionsQuery) => this.#withRuntimeRead(runtime, async () => {
+    const listHistory = (query?: ListSessionsQuery, startIfNeeded = true) => this.#withRuntimeRead(runtime, async () => {
       await this.#waitForRuntimeStop(runtime)
       const starting = this.#startingRuntimes.get(String(id)) ?? this.#directRuntimeStarts.get(String(id))?.promise
       if (starting) await starting
+      if (!startIfNeeded && (!['ready', 'idle'].includes(runtime.health().state) || runtime.health().state === 'idle' &&
+        runtime.canReadWhileIdle?.({ method: 'listSessions', query }) === false)) return null
       if (runtime.health().state === 'idle' && runtime.canReadWhileIdle?.({
         method: 'listSessions', query,
       }) === false) await this.#ensureStarted(runtime)
@@ -2199,7 +2202,7 @@ export class Host {
         }
         if (typeof member !== 'function') return member
         if (key === 'listSessions') {
-          return async (query?: ListSessionsQuery) => this.#withHostHistory(id, await listHistory(query), query)
+          return async (query?: ListSessionsQuery) => this.#withHostHistory(id, (await listHistory(query))!, query)
         }
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
           const read = (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
@@ -2558,6 +2561,7 @@ export class Host {
     if (this.#disposed) return
     for (const state of this.#team.states()) this.#indexTeam(state)
     this.#sessionIndexSeed = this.#sessionIndex.seed(this.#state.directory, {
+      signal: this.#sessionIndexAbort.signal,
       teamOf: (runtime, id) => this.#indexTeamOf(runtime, id),
       titleOf: (runtime, id) => this.#names.nameOf(runtime, id),
       archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
@@ -3107,6 +3111,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#sessionIndexAbort.abort()
     clearTimeout(this.#removalSweep)
     this.#historyImport.close()
     clearTimeout(this.#cacheEvictionTimer)
@@ -3185,6 +3190,9 @@ export class Host {
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
     await this.#sessionIndexSeed
+    // No page or readiness retry can start after the disposed flag above.
+    // Drain existing authority reads before closing their index and repo queue.
+    await Promise.all(this.#indexArchiveReads.values())
     await this.#sessionIndexRepos.close()
     await this.#storage.close()
     await this.#sessionWorktrees.settled()
@@ -6353,7 +6361,8 @@ export class Host {
     if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
     const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
     const read = await this.#readTranscript(runtime, id)
-    const session = restored.cwd ? { ...read, cwd: restored.cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) } : read
+    const cwd = restored.cwd || indexed?.cwd || read.cwd
+    const session = { ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) }
     this.#recordSessionIndex(session, true)
     this.#sessionIndex.opened(runtime.info.id, id)
     // A closed source-less replay may contain new work without desk events.
@@ -6383,6 +6392,8 @@ export class Host {
     try {
       const session = { ...await this.#transcripts.enrich(await runtime.readSession(id)),
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
+      if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
+      session.cwd = this.#sessionIndex.get(runtime.info.id, id)?.cwd || session.cwd
       // Read the fingerprint before replay, so a concurrent append always forces another refresh.
       if (source) await this.#cacheRead(session, source.source)
       else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
@@ -7127,19 +7138,42 @@ export class Host {
   readonly #archiveViewRefresh = new Map<RuntimeId, number>()
   readonly #indexArchiveReads = new Map<RuntimeId, Promise<void>>()
   readonly #indexArchiveChanges = new Map<string, number>()
+  readonly #indexFolderBackfills = new Set<RuntimeId>()
 
-  /** Native history is archive authority only: never adopt its unrelated ids. */
+  /** Native history confirms archives and repairs metadata, without adopting unrelated ids. */
   #reconcileIndexArchive(runtime: AgentRuntime): Promise<void> {
     if (this.#disposed || !['ready', 'idle'].includes(runtime.health().state)) return Promise.resolve()
     const existing = this.#indexArchiveReads.get(runtime.info.id)
     if (existing) return existing
     const read = Promise.resolve().then(async () => {
       await this.#sessionIndexSeed
+      if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
       if (!runtime.info.capabilities.archiveHistory) {
         await this.#archive.load()
         if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
         for (const id of this.#sessionIndex.unresolvedArchive(runtime.info.id)) {
           this.#sessionIndex.confirmArchived(runtime.info.id, id, this.#archive.has(runtime.info.id, id))
+        }
+        if (!runtime.info.capabilities.listHistory || this.#indexFolderBackfills.has(runtime.info.id) || !this.#sessionIndex.hasMissingFolders(runtime.info.id)) return
+        // One launch pass, at most 10,000 history rows. It observes ready agents
+        // through their guarded native reader and never starts one for history.
+        let cursor: string | undefined
+        const seen = new Set<string>()
+        for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime || !['ready', 'idle'].includes(runtime.health().state)) return
+          const page = await this.#runtimeHistoryReaders.get(runtime)!({ pageSize: 500, ...(cursor ? { cursor } : {}) }, false)
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          // A guarded refusal is not an empty listing. Consume the launch pass
+          // only after the agent actually answers its first page.
+          if (page === null) return
+          this.#indexFolderBackfills.add(runtime.info.id)
+          for (const row of page.data.slice(0, 500)) {
+            if (this.#sessionIndex.fillMissingMetadata({ ...row, runtime: runtime.info.id })) this.#sessionIndexRepos.read(row.cwd)
+          }
+          cursor = page.nextCursor ?? undefined
+          if (!cursor || !this.#sessionIndex.hasMissingFolders(runtime.info.id)) return
+          if (seen.has(cursor)) throw new Error('Folder listing repeated its cursor')
+          seen.add(cursor)
         }
         return
       }
@@ -7150,7 +7184,8 @@ export class Host {
         const confirmed: SessionSummary[] = []
         do {
           if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
-          const page = await this.#runtimeHistoryReaders.get(runtime)!({ archived, pageSize: 500, ...(cursor ? { cursor } : {}) })
+          const page = (await this.#runtimeHistoryReaders.get(runtime)!({ archived, pageSize: 500, ...(cursor ? { cursor } : {}) }))!
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
           confirmed.push(...page.data)
           cursor = page.nextCursor ?? undefined
           if (cursor && seen.has(cursor)) throw new Error('Archive listing repeated its cursor')
@@ -7158,6 +7193,7 @@ export class Host {
         } while (cursor)
         if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
         for (const row of confirmed) {
+          if (this.#sessionIndex.fillMissingMetadata({ ...row, runtime: runtime.info.id })) this.#sessionIndexRepos.read(row.cwd)
           const key = String(sessionKey(runtime.info.id, row.id))
           if (this.#indexArchiveChanges.get(key) !== revisions.get(key)) continue
           this.#sessionIndex.confirmArchived(runtime.info.id, row.id, archived === 'only')
@@ -7174,6 +7210,7 @@ export class Host {
           const key = String(sessionKey(runtime.info.id, id))
           try {
             const read = await runtime.readSession(id)
+            if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime && this.#sessionIndex.fillMissingMetadata(read)) this.#sessionIndexRepos.read(read.cwd)
             if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime &&
               this.#indexArchiveChanges.get(key) === revisions.get(key) && typeof read.archived === 'boolean') {
               this.#sessionIndex.confirmArchived(runtime.info.id, id, read.archived)
@@ -7181,7 +7218,7 @@ export class Host {
           } catch { /* Retry unresolved rows on the next completed pass. */ }
         }
       }))
-      this.#sessionIndex.clearArchiveError(runtime.info.id)
+      if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime) this.#sessionIndex.clearArchiveError(runtime.info.id)
     }).catch((error: unknown) => {
       if (!this.#disposed) this.#sessionIndex.archiveError(runtime.info.id, String(error))
       this.#logger.warn('the sidebar archive authority could not be reconciled', { runtime: runtime.info.id, error: String(error) })
@@ -8412,6 +8449,12 @@ export class Host {
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     const id = String(runtime)
+    const authority = this.#runtimes.get(runtime)
+    if (health.state === 'ready' && authority && !authority.info.capabilities.archiveHistory && !this.#indexFolderBackfills.has(runtime)) {
+      // A ready signal may arrive while the guarded idle read is settling.
+      // Retry after it, without turning a background read into an agent start.
+      void (this.#indexArchiveReads.get(runtime) ?? Promise.resolve()).then(() => this.#reconcileIndexArchive(authority))
+    }
     // Background startup returns before readiness. Count its quiet time from
     // readiness too, rather than adding a whole interval after a delayed poll.
     if (health.state === 'ready' && this.#runtimeIsIdle(runtime, false)) {

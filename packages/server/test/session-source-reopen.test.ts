@@ -91,29 +91,31 @@ for (const failureCount of [0, 1, 2]) test(`a source-less read of new completed 
   index.close()
   const store = new TranscriptStore(join(r.dir, 'transcripts'))
   const backup = new TranscriptStore(join(r.dir, 'backup', 'transcripts'))
-  t.after(async () => { await store.close(); await backup.close() })
-  const first = (await store.exportAll())[0]!
-  assert.equal(await backup.importOne(first.runtime, first.id, first.data), 'restored')
-  const firstSavedAt = (first.data as { savedAt: number }).savedAt
-  t.mock.method(Date, 'now', () => firstSavedAt + 100)
-  if (failureCount) {
-    const write = TranscriptDatabase.prototype.write
-    let failed = 0
-    t.mock.method(TranscriptDatabase.prototype, 'write', function (this: TranscriptDatabase, ...args: Parameters<TranscriptDatabase['write']>) {
-      if (failed++ < failureCount) throw new Error('Synthetic transient write refusal')
-      return write.apply(this, args)
-    })
-  }
-  r.setReplay({ ...original, updatedAt: 30, turns: [...original.turns, turn('t2', 'Synthetic new answer')] })
-  await r.read()
-  if (failureCount === 2) {
-    assert.equal(r.host.registry.get(original.runtime, original.id)?.session.itemsLoaded, true)
-    await r.host.call('session/close', { runtime: original.runtime, sessionId: original.id })
-  }
-  const latest = (await store.exportAll())[0]!
-  assert.ok((latest.data as { savedAt: number }).savedAt > firstSavedAt)
-  assert.equal(await backup.importOne(latest.runtime, latest.id, latest.data), 'restored')
-  assert.deepEqual((await backup.exportAll())[0]!.data, latest.data)
+  // These stores own snapshot workers too; close them before the rig removes its home.
+  try {
+    const first = (await store.exportAll())[0]!
+    assert.equal(await backup.importOne(first.runtime, first.id, first.data), 'restored')
+    const firstSavedAt = (first.data as { savedAt: number }).savedAt
+    t.mock.method(Date, 'now', () => firstSavedAt + 100)
+    if (failureCount) {
+      const write = TranscriptDatabase.prototype.write
+      let failed = 0
+      t.mock.method(TranscriptDatabase.prototype, 'write', function (this: TranscriptDatabase, ...args: Parameters<TranscriptDatabase['write']>) {
+        if (failed++ < failureCount) throw new Error('Synthetic transient write refusal')
+        return write.apply(this, args)
+      })
+    }
+    r.setReplay({ ...original, updatedAt: 30, turns: [...original.turns, turn('t2', 'Synthetic new answer')] })
+    await r.read()
+    if (failureCount === 2) {
+      assert.equal(r.host.registry.get(original.runtime, original.id)?.session.itemsLoaded, true)
+      await r.host.call('session/close', { runtime: original.runtime, sessionId: original.id })
+    }
+    const latest = (await store.exportAll())[0]!
+    assert.ok((latest.data as { savedAt: number }).savedAt > firstSavedAt)
+    assert.equal(await backup.importOne(latest.runtime, latest.id, latest.data), 'restored')
+    assert.deepEqual((await backup.exportAll())[0]!.data, latest.data)
+  } finally { await Promise.all([store.close(), backup.close()]) }
 })
 
 test('an unavailable changed source marks a held idle transcript as the desk copy', async t => {

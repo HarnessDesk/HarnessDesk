@@ -40,6 +40,22 @@ import { captureHealth } from './provenance-fixture'
  */
 
 const CODEX = runtimeId('codex')
+
+/** Old conversations whose agent has not recovered their folder yet. */
+export const sidebarFolderlessFixture = (seed: AppSnapshot): AppSnapshot => {
+  const history: SessionSummary[] = [
+    { id: sessionId('folderless-one'), runtime: CODEX, title: null, preview: 'Restore the project picker', cwd: '', createdAt: 1, updatedAt: 10, status: { type: 'notLoaded' } },
+    { id: sessionId('folderless-two'), runtime: CODEX, title: null, preview: 'Explain the retry settings', cwd: '', createdAt: 1, updatedAt: 9, status: { type: 'notLoaded' } },
+    { id: sessionId('folderless-empty'), runtime: CODEX, title: null, preview: null, cwd: '', createdAt: 1, updatedAt: 8, status: { type: 'notLoaded' } },
+    { id: sessionId('root-folder'), runtime: CODEX, title: null, preview: 'Check the root folder', cwd: '/', createdAt: 1, updatedAt: 7, status: { type: 'notLoaded' } },
+    { id: sessionId('known-folder'), runtime: CODEX, title: 'Review the checkout retry', cwd: '/work/widgets', createdAt: 1, updatedAt: 6, status: { type: 'notLoaded' } },
+  ]
+  const workspace = { path: '/work/widgets', name: 'widgets', lastOpenedAt: 1 }
+  return { ...seed, history, historyIdentity: history, sessions: new Map(), workspace, workspaces: [workspace],
+    activeSessionKey: null, teams: new Map(), goals: new Map(), flowExecutions: new Map(),
+    foldersGone: new Map(), tasks: new Map(), queues: new Map(), inbox: [], approvals: [],
+    listPrefs: { ...seed.listPrefs, pinned: [], pinnedSessions: [], collapsed: [], othersOpen: true } }
+}
 const CLAUDE = runtimeId('claude')
 const CURSOR = runtimeId('cursor')
 

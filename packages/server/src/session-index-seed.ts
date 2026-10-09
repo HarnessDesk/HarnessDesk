@@ -2,7 +2,7 @@ import { open, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
 
-import type { RuntimeId, SessionId, SessionSummary } from '@harnessdesk/protocol'
+import { openingOfContent, type RuntimeId, type SessionId, type SessionSummary, type UserContent } from '@harnessdesk/protocol'
 
 const WINDOW = 64 * 1_024
 const BATCH = 32
@@ -66,7 +66,7 @@ const valueStart = (text: string, end: number): number => {
 }
 
 /** Read only complete root members; nested titles are never mistaken for metadata. */
-const headerFields = (text: string): Metadata => {
+const headerFields = (text: string, wanted = FIELDS): Metadata => {
   const fields: Metadata = {}
   let cursor = after(text, 0)
   if (text[cursor++] !== '{') return fields
@@ -81,7 +81,7 @@ const headerFields = (text: string): Metadata => {
     cursor = after(text, cursor)
     const end = valueEnd(text, cursor)
     if (end < 0) break
-    if (FIELDS.has(key)) fields[key] = JSON.parse(text.slice(cursor, end + 1)) as unknown
+    if (wanted.has(key)) fields[key] = JSON.parse(text.slice(cursor, end + 1)) as unknown
     cursor = after(text, end + 1)
     if (text[cursor++] !== ',') break
   }
@@ -164,6 +164,50 @@ const streamedFields = async (handle: Awaited<ReturnType<typeof open>>): Promise
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
+/** Keep one person's message at a time, skipping assistant/tool bodies in chunks. */
+const firstPreview = async (handle: Awaited<ReturnType<typeof open>>): Promise<string | null> => {
+  let depth = 0, quoted = false, escape = false
+  let item = '', collecting = false
+  let keyToken = '', lastKey = '', rootKey = '', turnKey = ''
+  const typeField = new Set(['type'])
+  for await (const chunk of handle.createReadStream({ start: 0, encoding: 'utf8', autoClose: false, highWaterMark: WINDOW })) {
+    for (const char of String(chunk)) {
+      if (!quoted && char === '{' && depth === 4 && rootKey === 'turns' && turnKey === 'items') { item = ''; collecting = true }
+      if (collecting) item += char
+      if (quoted) {
+        if (depth === 1 || depth === 3) keyToken += char
+        if (escape) escape = false
+        else if (char === '\\') escape = true
+        else if (char === '"') {
+          quoted = false
+          if (depth === 1 || depth === 3) lastKey = JSON.parse(keyToken) as string
+        }
+        continue
+      }
+      if (char === '"') { quoted = true; keyToken = '"' }
+      else if (char === ':' && depth === 1) rootKey = lastKey
+      else if (char === ':' && depth === 3) turnKey = lastKey
+      else if (char === '{' || char === '[') depth++
+      else if (char === '}' || char === ']') {
+        if (char === '}' && depth === 5 && collecting) {
+          const value = JSON.parse(item) as { type?: unknown; content?: unknown }
+          if (value.type === 'userMessage' && Array.isArray(value.content)) {
+            const opening = openingOfContent(value.content as UserContent[]).slice(0, 120)
+            if (opening) return opening
+          }
+          item = ''; collecting = false
+        }
+        depth--
+      } else if (char === ',' && depth === 5 && collecting) {
+        const type = headerFields(item, typeField).type
+        if (typeof type === 'string' && type !== 'userMessage') { item = ''; collecting = false }
+      }
+    }
+    await setImmediate()
+  }
+  return null
+}
 const readSummary = async (file: string, runtime: string, id: string): Promise<SessionSummary | null> => {
   const handle = await open(file, 'r')
   try {
@@ -187,6 +231,7 @@ const readSummary = async (file: string, runtime: string, id: string): Promise<S
     // metadata in neither window. Scan structurally in bounded async chunks.
     if (!('cwd' in fields) || !('updatedAt' in fields)) fields = await streamedFields(handle)
     if (fields.version !== 1 || fields.runtime !== runtime || fields.id !== id) return null
+    if (fields.title == null && fields.preview == null) fields.preview = await firstPreview(handle)
     const timestamp = finite(fields.updatedAt) ? fields.updatedAt : finite(fields.savedAt) ? fields.savedAt : stat.mtimeMs
     return { runtime: runtime as RuntimeId, id: id as SessionId,
       title: typeof fields.title === 'string' ? fields.title : null,

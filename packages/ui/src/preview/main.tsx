@@ -76,6 +76,7 @@ import { PublicationCard } from '../components/Publication'
 import { usagePreviewStore } from './usage-fixture'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
 import {
+  sidebarFolderlessFixture,
   sidebarOpenSearchFixture,
   sidebarProjectsFixture,
   sidebarProjectsUnloadedSearchFixture,
@@ -177,6 +178,7 @@ const emptyConversationStore = SHOW_EMPTY ? previewStore({
   }]]),
 }) : store
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
+const sidebarFolderlessStore = previewStore(sidebarFolderlessFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
 const sidebarProjectsSearchBeforeStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot(), true))
 const sidebarOpenSearchStore = previewStore(sidebarOpenSearchFixture(store.getSnapshot()))
@@ -194,7 +196,7 @@ const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>
  * whatever URL names it, so the `store` it holds is the one the page mounts
  * its frames on. `e2e/ui-system/trajectory-layout.spec.ts` is the caller.
  */
-;(window as unknown as { __hdPreview: unknown }).__hdPreview = { store, sessionKey: PREVIEW_SESSION_KEY }
+;(window as unknown as { __hdPreview: unknown }).__hdPreview = { store, sessionKey: PREVIEW_SESSION_KEY, sidebarFolderlessStore }
 // The roster and chat share the real name role; populate this Goal's chat
 // with the existing rig messages so both treatments can be read together.
 previewMutable.patch({
@@ -1060,6 +1062,7 @@ const Preview = () => {
           >
             <Mount with={SIDEBAR_VARIANT_PARAM === 'open-search'
               ? sidebarOpenSearchStore
+              : SIDEBAR_VARIANT_PARAM === 'folderless' ? sidebarFolderlessStore
               : SIDEBAR_VARIANT_PARAM === 'projects-search-before'
               ? sidebarProjectsSearchBeforeStore
               : SIDEBAR_VARIANT_PARAM === 'projects-search'

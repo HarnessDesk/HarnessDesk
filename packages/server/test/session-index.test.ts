@@ -17,6 +17,55 @@ const row = (id: string, updatedAt = 10, cwd = '/demo/project'): SessionSummary 
 })
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
+test('seed gives old folderless conversations their first typed prompt as a preview', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-folderless-seed-'))
+  const folder = join(home, 'transcripts', runtime)
+  await mkdir(folder, { recursive: true })
+  const body = JSON.stringify({ version: 1, runtime, id: 'old', savedAt: 10, turns: [{ items: [
+    { type: 'assistantMessage', text: 'x'.repeat(150_000) },
+    { type: 'userMessage', content: [{ type: 'image', url: 'synthetic' }] },
+    { type: 'userMessage', content: [{ type: 'text', text: 'Restore the project picker' }] },
+    { type: 'userMessage', content: [{ type: 'text', text: 'A later request' }] },
+  ] }] })
+  await writeFile(join(folder, 'old.json'), body)
+  const index = new SessionIndex(':memory:')
+  try {
+    await index.seed(home)
+    const seeded = index.list().data[0]!
+    assert.equal(seeded.cwd, '')
+    assert.equal(seeded.title, null)
+    assert.equal(seeded.preview, 'Restore the project picker')
+    assert.equal(await readFile(join(folder, 'old.json'), 'utf8'), body)
+  } finally { index.close() }
+})
+
+test('a completed old seed fills missing previews without changing existing metadata or reviving removed rows', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-preview-upgrade-'))
+  const folder = join(home, 'transcripts', runtime)
+  await mkdir(folder, { recursive: true })
+  for (const id of ['old', 'removed', 'unseen']) await writeFile(join(folder, `${id}.json`), JSON.stringify({ version: 1, runtime, id, savedAt: 1,
+    turns: [{ items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Recover this opening' }] }] }] }))
+  const file = join(home, 'sessions.sqlite')
+  const initial = new SessionIndex(file)
+  initial.upsert({ ...row('old', 50, '/synthetic/kept'), title: null, preview: null })
+  initial.upsert({ ...row('removed'), title: null, preview: null })
+  initial.remove(runtime, idOf('removed'))
+  initial.close()
+  const db = new DatabaseSync(file)
+  db.prepare("INSERT INTO meta(key,value) VALUES('seed:transcripts:v1','1')").run()
+  db.close()
+  const index = new SessionIndex(file)
+  try {
+    await index.seed(home)
+    const old = index.get(runtime, idOf('old'))!
+    assert.equal(old.preview, 'Recover this opening')
+    assert.equal(old.cwd, '/synthetic/kept')
+    assert.equal(old.updatedAt, 50)
+    assert.equal(old.title, null)
+    assert.equal(index.list().data.length, 1)
+  } finally { index.close() }
+})
+
 test('first page of 5,000 rows across 450 folders is an indexed query under 50 ms', () => {
   const index = new SessionIndex(':memory:')
   try {
