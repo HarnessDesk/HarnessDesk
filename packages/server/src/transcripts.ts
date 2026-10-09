@@ -69,6 +69,7 @@ export interface Stored {
   readonly title?: string | null
   readonly preview?: string | null
   readonly cwd?: string
+  readonly createdAt?: number
   readonly updatedAt?: number
   /** Optional historical observation metadata; old transcript files deliberately read without it. */
   readonly insight?: readonly TurnInsightContext[]
@@ -200,7 +201,6 @@ export class TranscriptStore {
   constructor(
     directory: string,
     private readonly log: (message: string, details?: Record<string, unknown>) => void = () => {},
-    private readonly sourceOf?: (runtime: RuntimeId, id: SessionId) => Promise<SessionSource | null | undefined>,
   ) {
     this.#database = new TranscriptDatabase(join(dirname(directory), 'sessions.sqlite'))
     this.#snapshots = new DailySessionSnapshots(this.#database.file, {
@@ -246,6 +246,7 @@ export class TranscriptStore {
         title: session.title ?? null,
         preview: session.preview ?? null,
         cwd: session.cwd,
+        createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         ...(insight.length ? { insight } : {}),
       }
@@ -267,7 +268,10 @@ export class TranscriptStore {
           stored = { ...stored, turns: withDeskContext(stored.turns, current.turns),
             ...(contexts.size ? { insight: [...contexts.values()] } : {}) }
         }
-        const source = refresh ? refresh.source : await this.sourceOf?.(session.runtime, session.id).catch(() => null)
+        // An event write has not replayed the source: even a stat that matches
+        // now may describe unseen CLI work. Only a reconciled refresh can
+        // stamp the body; ordinary writes force the next idle read to refresh.
+        const source = refresh?.source ?? null
         this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source })
         this.#snapshots.schedule()
       } catch (error) {
@@ -346,7 +350,7 @@ export class TranscriptStore {
       runtime,
       cwd: stored.cwd ?? '',
       status: { type: 'idle' },
-      createdAt: at,
+      createdAt: stored.createdAt ?? at,
       updatedAt: at,
       itemsLoaded: true,
       turns: stored.turns,
@@ -716,7 +720,7 @@ const summaryOf = (stored: Stored): SessionSummary => {
     preview,
     cwd: stored.cwd ?? '',
     status: { type: 'notLoaded' },
-    createdAt: stored.updatedAt ?? stored.savedAt,
+    createdAt: stored.createdAt ?? stored.updatedAt ?? stored.savedAt,
     updatedAt: stored.updatedAt ?? stored.savedAt,
   }
 }

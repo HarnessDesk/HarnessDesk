@@ -73,6 +73,10 @@ agent’s record, and old desk transcript files remain untouched.
 
 **The rule:** the agent’s file is the authority while it exists; the desk’s
 body is the fallback, and a failed refresh never updates its source fingerprint.
+Only a successful reconciliation saves a fingerprint captured before replay.
+Ordinary event writes invalidate it: a newer file may contain CLI work the
+held conversation never saw. A source capability learned during the first
+replay leaves that body unstamped until the next read can capture it safely.
 
 ---
 

@@ -953,11 +953,6 @@ export class Host {
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
-      async (runtime, id) => {
-        if (this.#disposed) return undefined
-        const agent = this.#runtimes.get(runtime)
-        return agent?.info.capabilities.sourceTranscript && agent.sourceOf ? agent.sourceOf(id) : null
-      },
     )
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
       const firstPage = this.#listSessionIndex({})
@@ -6073,7 +6068,10 @@ export class Host {
       // Read the fingerprint before replay, so a concurrent append always forces another refresh.
       if (source) await this.#transcripts.refresh(session, source.source)
       else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
-        await this.#transcripts.refresh(session, await runtime.sourceOf(id).catch(() => null))
+        // Startup can negotiate this capability inside readSession. A stat
+        // taken now could include an append the replay missed, so leave it
+        // unstamped until a subsequent read captures metadata before replay.
+        await this.#transcripts.refresh(session, null)
       }
       return session
     } catch (error) {

@@ -106,7 +106,7 @@ export class TranscriptDatabase {
         VALUES(?,?,'desk',?,?,?,?,'full',?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET body='full',saved_at=excluded.saved_at,
           title=COALESCE(sessions.title,excluded.title),updated_at=MAX(sessions.updated_at,excluded.updated_at),
           usage=excluded.usage,preview=COALESCE(excluded.preview,sessions.preview)`)
-        .run(runtime, id, stored.title ?? null, stored.cwd ?? '', stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
+        .run(runtime, id, stored.title ?? null, stored.cwd ?? '', stored.createdAt ?? stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
           stored.savedAt, stored.usage ? JSON.stringify(stored.usage) : null, stored.preview ?? null)
       if (options.source !== undefined) this.db.prepare('UPDATE sessions SET source_path=?,source_mtime=?,source_size=? WHERE runtime=? AND id=?')
         .run(options.source?.path ?? null, options.source?.mtimeMs ?? null, options.source?.size ?? null, runtime, id)

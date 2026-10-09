@@ -124,10 +124,11 @@ test('cold reopen preserves every stored field and source stamp with the agent u
     diff: 'synthetic diff', plan: [{ step: 'Read the cache', status: 'completed' as const }] }] }
   const insight = [{ turn: 't1', startedAt: 10, endedAt: 20, seat: 'demo-seat', cause: { kind: 'person' as const },
     parent: null, before: null, after: null, generation: '', observedAt: 20, loaded: null }]
+  const stamp = await store.source(full.runtime, full.id)
   store.record(full, { insight })
   await store.flush()
+  await store.refresh(full, stamp)
   const expected = await store.exportAll()
-  const stamp = await store.source(full.runtime, full.id)
   await store.close()
   await r.host.dispose()
   const agent = new FakeRuntime()
@@ -142,6 +143,7 @@ test('cold reopen preserves every stored field and source stamp with the agent u
   assert.deepEqual(recovered.turns, full.turns)
   assert.deepEqual(recovered.usage, full.usage)
   assert.equal(recovered.title, full.title)
+  assert.equal(recovered.createdAt, full.createdAt)
   assert.equal(recovered.deskCopy, false)
   const reopened = new TranscriptStore(join(r.dir, 'transcripts'))
   try {
@@ -177,6 +179,78 @@ test('source append during replay leaves a fingerprint that forces a subsequent 
   await r.read()
   await r.read()
   assert.equal(reads, 2)
+})
+
+test('an ordinary record cannot bless source work it has not reconciled', async t => {
+  const r = await rig(t)
+  const original = await r.read()
+  await writeFile(r.path, 'synthetic source continued outside the desk')
+  r.setReplay({ ...original, updatedAt: 30, turns: [...original.turns, turn('t2', 'new CLI answer')] })
+  const live = await r.runtime.resumeSession(original.id, { cwd: r.dir })
+  r.host.registry.upsert(original, live)
+  r.runtime.emit({ type: 'session/title', sessionId: original.id, title: 'Synthetic title' })
+  // The read flushes the ordinary event record before inspecting its stamp.
+  const refreshed = await r.read()
+  assert.equal(r.reads(), 2, 'the CLI append still requires an authoritative read')
+  assert.deepEqual(refreshed.turns.map(turn => turn.id), ['t1', 't2'])
+  assert.deepEqual((await r.stored())[0]?.turns, refreshed.turns)
+})
+
+test('first-read capability negotiation cannot bless an append during replay', async t => {
+  const r = await rig(t, false)
+  const original = await r.read()
+  let reads = 0
+  r.runtime.readSession = async () => {
+    reads++
+    Object.assign(r.runtime.info.capabilities, { sourceTranscript: true })
+    if (reads === 1) {
+      await writeFile(r.path, 'synthetic append after the first replay snapshot')
+      return original
+    }
+    return { ...original, updatedAt: 30, turns: [...original.turns, turn('t2', 'concurrent CLI answer')] }
+  }
+  await r.read()
+  const refreshed = await r.read()
+  assert.equal(reads, 2, 'a newly negotiated capability needs a pre-replay fingerprint')
+  assert.deepEqual(refreshed.turns.map(turn => turn.id), ['t1', 't2'])
+  assert.deepEqual((await r.stored())[0]?.turns, refreshed.turns)
+  await r.read()
+  assert.equal(reads, 2, 'the reconciled fingerprint is reusable')
+})
+
+test('cached reads preserve the creation time with and without a held session', async t => {
+  const r = await rig(t)
+  const original = await r.read()
+  const live = await r.runtime.resumeSession(original.id, { cwd: r.dir })
+  r.host.registry.upsert(original, live)
+  const held = await r.read()
+  assert.equal(held.createdAt, original.createdAt)
+  assert.equal(held.updatedAt, original.updatedAt)
+  await r.host.dispose()
+  const cold = new Host({ logger: silent, state: new StateStore(join(r.dir, 'state.json')),
+    builtinAgents: join(r.dir, 'agents'), libraryHome: join(r.dir, 'library'), catalogRefreshMs: 0, idleStopMs: 0 })
+  cold.register(r.runtime)
+  t.after(() => cold.dispose())
+  const cached = await cold.call('session/read', { runtime: original.runtime, sessionId: original.id })
+  assert.equal(cached.createdAt, original.createdAt)
+  assert.equal(cached.updatedAt, original.updatedAt)
+  assert.equal(r.reads(), 1)
+  const store = new TranscriptStore(join(r.dir, 'transcripts'))
+  try {
+    assert.equal((await store.readSummary(original.runtime, original.id))?.createdAt, original.createdAt)
+  } finally { await store.close() }
+})
+
+test('old backup bodies without a creation time keep the historical recovery fallback', async t => {
+  const r = await rig(t)
+  const original = await r.read()
+  const store = new TranscriptStore(join(r.dir, 'transcripts'))
+  try {
+    const data = (await store.exportAll())[0]!.data as { createdAt?: number }
+    const { createdAt, ...legacy } = data
+    assert.equal(await store.importOne(original.runtime, 'legacy', legacy), 'restored')
+    assert.equal((await store.recover(original.runtime, sessionId('legacy')))?.createdAt, original.updatedAt)
+  } finally { await store.close() }
 })
 
 test('changed lossy replay persists the stored work and original timing', async t => {
