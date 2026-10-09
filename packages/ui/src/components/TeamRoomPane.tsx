@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   currentTurn,
@@ -214,6 +214,7 @@ export const TeamRoomPane = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const noRunReasonId = useId()
   const goal = snapshot.goals.get(room)
   const record = isRecord(goal)
   const [stoppingRun, setStoppingRun] = useState<string | null>(null)
@@ -1099,16 +1100,21 @@ export const TeamRoomPane = ({
               ] as const).map(tab => {
                 const name = tab.count === undefined ? tab.label : `${tab.label} · ${tab.count}${tab.value === 'room' ? ' held' : ''}`
                 const disabled = tab.value === 'run' && !triggerKind && runs.length === 0
+                const reason = disabled ? 'This Team has no Run yet' : undefined
                 return <Tooltip key={tab.value}>
                   <TabsTrigger render={<TooltipTrigger />} value={tab.value} data-team-page={tab.value} aria-label={name}
+                    className={disabled ? 'aria-disabled:pointer-events-auto' : undefined}
+                    aria-describedby={disabled ? noRunReasonId : undefined}
                     icon={<tab.Icon />} iconOnly={iconTabs} count={tab.count}
-                    disabled={disabled} title={disabled ? 'This Team has no Run yet' : tab.value === 'room' ? 'Everyone in this Team' : undefined}
+                    disabled={disabled} title={disabled && !iconTabs ? reason : tab.value === 'room' ? 'Everyone in this Team' : undefined}
                     onClick={() => {
+                      if (disabled) return
                       if (tab.value === 'side-by-side') { if (open !== 'side-by-side') toggleSideBySide(); return }
                       if (tab.value === 'run' && triggerKind) setChosenRun(null)
                       show(tab.value)
                     }}>{tab.label}</TabsTrigger>
-                  {iconTabs && <TooltipContent side="bottom">{name}</TooltipContent>}
+                  {disabled && <span id={noRunReasonId} className="sr-only">{reason}</span>}
+                  {iconTabs && <TooltipContent side="bottom">{name}{reason && ` — ${reason}`}</TooltipContent>}
                 </Tooltip>
               })}
             </TabsList>

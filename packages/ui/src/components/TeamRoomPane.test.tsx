@@ -4411,6 +4411,12 @@ it('folds tabs from their measured fit, restores labels on growth, and keeps cou
   await resize(420)
   expect(board.getAttribute('data-icon-only')).toBe('true')
   expect(board.querySelector('[data-slot="tabs-count"]')?.textContent).toBe('2')
+  const run=container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+  expect(run.getAttribute('aria-disabled')).toBe('true')
+  const reason=document.getElementById(run.getAttribute('aria-describedby') ?? '')
+  expect(reason?.textContent).toBe('This Team has no Run yet')
+  await act(async()=>run.click())
+  expect(run.getAttribute('aria-selected')).toBe('false')
   const matches=board.matches.bind(board)
   // jsdom does not infer keyboard focus visibility from the Tab event.
   vi.spyOn(board,'matches').mockImplementation(selector=>selector===':focus-visible'||matches(selector))

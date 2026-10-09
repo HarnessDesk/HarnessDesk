@@ -1,7 +1,43 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
 for (const theme of ['light', 'dark'] as const) {
+ test(`a disabled Run icon explains why it is unavailable in ${theme}`, async ({page}) => {
+  await page.setViewportSize({width:1440,height:900})
+  await page.emulateMedia({colorScheme:theme})
+  await page.goto(`/preview.html?team-frame=no-run&right-panel&theme=${theme}`)
+  if(theme==='dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme','')
+  else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme','')
+  const header=page.locator('[data-slot="team-room"] header').first()
+  const run=header.getByRole('tab',{name:'Run',exact:true})
+  await expect(run).toHaveAttribute('data-icon-only','true')
+  await expect(run).toHaveAttribute('aria-disabled','true')
+  expect(await run.evaluate(el=>getComputedStyle(el).pointerEvents)).not.toBe('none')
+  await expect(run).toHaveAccessibleDescription('This Team has no Run yet')
+  await run.hover()
+  await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText('Run — This Team has no Run yet')
+  const directory=process.env.TEAM_BAR_SHOTS_DIR
+  if(directory){
+   await page.evaluate(()=>document.fonts.ready)
+   const seen=await page.evaluate(collect=>new Function(`return ${collect}`)(),COLLECT)
+   expect(textReasons(seen,{user:USER})).toEqual([])
+   mkdirSync(directory,{recursive:true})
+   await page.screenshot({path:`${directory}/after-no-run-tooltip-${theme}.png`})
+  }
+  await run.click({force:true})
+  await expect(run).toHaveAttribute('aria-selected','false')
+  await expect(header.getByRole('tab',{name:'Chat',exact:true})).toHaveAttribute('aria-selected','true')
+  await header.getByRole('tab',{name:'Overview',exact:true}).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(run).toBeFocused()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Space')
+  await expect(run).toHaveAttribute('aria-selected','false')
+  await expect(header.getByRole('tab',{name:'Chat',exact:true})).toHaveAttribute('aria-selected','true')
+  await page.keyboard.press('ArrowRight')
+  await expect(header.getByRole('tab',{name:'Board · 0',exact:true})).toBeFocused()
+ })
  test(`one measured Team bar, count tooltips and keyboard tabs in ${theme}`, async ({page}) => {
   await page.setViewportSize({width:1440,height:900})
   await page.emulateMedia({colorScheme:theme})
