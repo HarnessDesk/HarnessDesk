@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import noticeCss from './Notices.module.css?raw'
 
 const { toast } = vi.hoisted(() => {
-  const toast = Object.assign(vi.fn(), { error: vi.fn(), warning: vi.fn(), promise: vi.fn() })
+  const toast = Object.assign(vi.fn(), { error: vi.fn(), warning: vi.fn(), promise: vi.fn(), dismiss: vi.fn() })
   return { toast }
 })
 vi.mock('../ui/toast', () => ({ toast }))
@@ -212,4 +212,16 @@ it('reveals a complete title when a title-only Inbox message expands', async () 
   await act(() => root.render(<InboxList messages={[{ id: 'long', title, read: false }]} />))
   await act(() => button(title).click())
   expect(host.querySelector('[data-part="inbox-full-title"]')?.textContent).toBe(title)
+})
+
+it('an Undo deadline dismisses the toast even when its ordinary duration is paused', () => {
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(1_000)
+    toast.mockReturnValue('undo')
+    showToast({ id: 'undo', title: 'Removed from HarnessDesk' }, { expiresAt: 9_000 })
+    expect(toast).toHaveBeenLastCalledWith('Removed from HarnessDesk', { id: 'undo', duration: 8_000 })
+    vi.advanceTimersByTime(8_000)
+    expect(toast.dismiss).toHaveBeenCalledWith('undo')
+  } finally { vi.useRealTimers() }
 })

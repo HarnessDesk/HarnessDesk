@@ -500,3 +500,22 @@ it('retains preview status when a saved pane already has a live session at recon
   expect(store.getSnapshot().previewSessions.has(key)).toBe(true)
   expect(ids()).toEqual([])
 })
+
+it('Remove updates only its row and offers Undo without a history reload', async () => {
+  change([row('one'), row('two')])
+  request.mockImplementation((async (method: HostMethodName, params: { removed?: boolean }) => {
+    if (method === 'session/remove' && params.removed === false) change([row('one')])
+    return { undoUntil: Date.now() + 8_000 }
+  }) as never)
+  await store.removeSession(sessionId('one'), runtime)
+  expect(ids()).toEqual(['two'])
+  const notice = store.getSnapshot().notices.at(-1)!
+  expect(notice.message).toBe('Removed from HarnessDesk')
+  expect(notice.action?.label).toBe('Undo')
+  await notice.action!.run()
+  await vi.waitFor(() => expect(ids()).toEqual(['one', 'two']))
+  expect(request.mock.calls).toEqual([
+    ['session/remove', { runtime, sessionId: sessionId('one'), removed: true }],
+    ['session/remove', { runtime, sessionId: sessionId('one'), removed: false }],
+  ])
+})

@@ -961,7 +961,8 @@ export class CursorAcpBridge {
           // Cursor keeps them, so it serves the extension that can.
           _meta: {
             harnessdesk: {
-              [SESSION_DELETE_CAPABILITY]: true,
+              [SESSION_DELETE_CAPABILITY]: 'trash',
+              readableHistory: false,
               [INSTRUCTIONS_CAPABILITY]: true,
               sessionEnvironment: true,
             },

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`runtime sign-out and Archive refusal stay truthful and visible in ${theme}`, async ({ page }) => {
+  test(`runtime sign-out and Archive refusal stay truthful in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html')
     const runtimes = page.locator('[data-frame-id="runtimes-status"]')
@@ -12,21 +12,12 @@ for (const theme of ['light', 'dark'] as const) {
 
     const archive = page.locator('[data-frame-id="settings-archive"]')
     await archive.getByRole('button', { name: 'Review the workspace settings actions', exact: true }).first().click()
-    const refused = page.getByRole('menuitem', { name: 'Delete…', exact: true })
+    const refused = page.getByRole('menuitem', { name: 'Delete everywhere…', exact: true })
     await expect(refused).toBeDisabled()
-    const description = await refused.getAttribute('aria-describedby')
-    const reason = page.locator(`[id="${description}"]`)
-    await expect(reason).toBeVisible()
-    await expect(reason).toHaveText('Alpha keeps no way to delete one.')
-    const geometry = await reason.evaluate(el => {
-      const rect = el.getBoundingClientRect()
-      return { width: rect.width, height: rect.height, position: getComputedStyle(el).position }
-    })
-    expect(geometry.width).toBeGreaterThan(1)
-    expect(geometry.height).toBeGreaterThan(1)
-    expect(geometry.position).not.toBe('absolute')
+    await expect(refused).toHaveAttribute('title', 'Alpha keeps no way to delete one.')
+    await expect(refused).toHaveText('Delete everywhere…')
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('menuitem', { name: 'Delete…', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: 'Delete everywhere…', exact: true })).toHaveCount(0)
   })
 
   test(`the table family shares row centres, density and selection in ${theme}`, async ({ page }) => {

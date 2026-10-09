@@ -81,10 +81,20 @@ export class TranscriptDatabase {
     })
   }
 
+  isRemoved(runtime: string, id: string): boolean {
+    return this.db.prepare('SELECT removed_at FROM sessions WHERE runtime=? AND id=?').get(runtime, id)?.removed_at != null ||
+      !!this.db.prepare('SELECT 1 FROM meta WHERE key=?').get(`deleted:${JSON.stringify([runtime, id])}`)
+  }
+
+  removedBodies(): readonly { runtime: RuntimeId; id: SessionId; removed_at: number }[] {
+    return this.db.prepare("SELECT runtime,id,removed_at FROM sessions WHERE removed_at IS NOT NULL AND body <> 'none'").all() as unknown as { runtime: RuntimeId; id: SessionId; removed_at: number }[]
+  }
+
   write(stored: Stored, runtime = stored.runtime, id = stored.id, options: {
     readonly reconcile?: boolean; readonly source?: SessionSource | null
     readonly origin?: 'desk' | 'imported'; readonly lastOpenedAt?: number
   } = {}): void {
+    if (this.isRemoved(runtime, id)) return
     const version = Number(this.db.prepare('PRAGMA data_version').get()?.data_version)
     if (version !== this.#dataVersion) { this.#fingerprints.clear(); this.#dataVersion = version }
     const key = JSON.stringify([runtime, id])
@@ -163,9 +173,18 @@ export class TranscriptDatabase {
     this.#fingerprints.set(key, next)
   }
 
-  forget(runtime: RuntimeId, id: SessionId): void {
+  forget(runtime: RuntimeId, id: SessionId, options: { deleteIndex?: boolean; removedBefore?: number } = {}): void {
     transaction(this.db, () => {
+      if (options.removedBefore !== undefined) {
+        const at = this.db.prepare('SELECT removed_at FROM sessions WHERE runtime=? AND id=?').get(runtime, id)?.removed_at
+        if (at == null || Number(at) > options.removedBefore) return
+      }
       dropSessionBody(this.db, runtime, id)
+      if (options.deleteIndex) {
+        this.db.prepare('DELETE FROM sessions WHERE runtime=? AND id=?').run(runtime, id)
+        this.db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT DO NOTHING').run(`deleted:${JSON.stringify([runtime, id])}`, '1')
+        for (const prefix of ['pending', 'removed-origin']) this.db.prepare('DELETE FROM meta WHERE key=?').run(`${prefix}:${JSON.stringify([runtime, id])}`)
+      }
     })
     this.#fingerprints.delete(JSON.stringify([runtime, id]))
   }

@@ -77,7 +77,7 @@ const shapes: readonly RuntimeShape[] = [
       }
       return {
         canSteer: runtime.info.capabilities.steer,
-        canDeleteHistory: runtime.info.capabilities.deleteHistory,
+        canDeleteHistory: runtime.info.capabilities.deleteHistory === 'trash',
         failNextModelPick: () => { failNextModelPick = true },
       }
     },
@@ -115,7 +115,7 @@ const shapes: readonly RuntimeShape[] = [
       }
       return {
         canSteer: runtime.info.capabilities.steer,
-        canDeleteHistory: runtime.info.capabilities.deleteHistory,
+        canDeleteHistory: runtime.info.capabilities.deleteHistory === 'trash',
         failNextModelPick: () => { failNextModelPick = true },
       }
     },

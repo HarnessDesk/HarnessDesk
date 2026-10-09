@@ -38,7 +38,7 @@ afterEach(() => {
   container.remove()
 })
 
-const runtime = (id: string, name: string, over: Record<string, boolean> = {}): RuntimeInfo =>
+const runtime = (id: string, name: string, over: Partial<RuntimeInfo['capabilities']> = {}): RuntimeInfo =>
   ({
     id,
     name,
@@ -103,7 +103,7 @@ const type = (value: string): void => {
 }
 
 it('asks each agent for the archive itself, not for everything', async () => {
-  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: true })
+  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: 'trash' })
   const { request } = await mount([codex], { codex: [summary('a', 'codex')] })
 
   expect(request).toHaveBeenCalledWith('session/list', { runtime: 'codex', archived: 'only' })
@@ -137,7 +137,7 @@ it('gives an agent a heading only when it has something', async () => {
 })
 
 it('offers Restore to everyone and Delete only where it is real', async () => {
-  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: true })
+  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: 'trash' })
   const dsh = runtime('dsh', 'DeepSeek Harness')
   await mount([codex, dsh], {
     codex: [summary('a', 'codex')],
@@ -145,20 +145,18 @@ it('offers Restore to everyone and Delete only where it is real', async () => {
   })
 
   expect(button('Restore')?.getAttribute('data-variant')).toBe('outline')
-  expect(button('Delete…')).toBeUndefined()
+  expect(button('Delete everywhere…')).toBeUndefined()
   await act(async () => (container.querySelector('button[aria-label="Conversation a actions"]') as HTMLButtonElement).click())
   const allowed = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
-  expect(allowed.textContent).toBe('Delete…')
+  expect(allowed.textContent).toBe('Delete everywhere…')
   expect(allowed.getAttribute('aria-disabled')).not.toBe('true')
   await act(async () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   await act(async () => (container.querySelector('button[aria-label="Conversation b actions"]') as HTMLButtonElement).click())
   const refused = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
   expect(refused.getAttribute('aria-disabled')).toBe('true')
   expect(refused.hasAttribute('data-disabled')).toBe(true)
-  const refusal = document.getElementById(refused.getAttribute('aria-describedby')!)!
-  expect(refusal.textContent)
-    .toBe('DeepSeek Harness keeps no way to delete one.')
-  expect(refusal.closest('.sr-only')).toBeNull()
+  expect(refused.title).toBe('DeepSeek Harness keeps no way to delete one.')
+  expect(refused.getAttribute('aria-describedby')).toBeNull()
   await act(async () => refused.click())
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(document.body.textContent).not.toContain('Delete conversation')
@@ -166,12 +164,12 @@ it('offers Restore to everyone and Delete only where it is real', async () => {
 })
 
 it('does not offer "Archive instead" for something already archived', async () => {
-  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: true })
+  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: 'trash' })
   await mount([codex], { codex: [summary('a', 'codex')] })
 
   await act(async () => (container.querySelector('button[aria-label="Conversation a actions"]') as HTMLButtonElement).click())
   await act(async () => (document.body.querySelector('[role="menuitem"]') as HTMLElement).click())
-  expect(document.body.textContent).toContain('Delete conversation')
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Delete "Conversation a" everywhere?')
   // A button that would do nothing reads as one that failed.
   expect(button('Archive instead')).toBeUndefined()
   expect(document.body.textContent).not.toContain('archive it instead')
