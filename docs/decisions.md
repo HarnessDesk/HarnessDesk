@@ -7,6 +7,30 @@ the rule is the last line of its section.
 
 ---
 
+## The sidebar reads the desk's conversation index
+
+The sidebar lists conversations started or continued in HarnessDesk, rather
+than asking every agent for its history at launch. A local SQLite metadata
+index answers the first page without an agent or a Git process; repository
+identities fill in from a persistent cache and background checks. Later
+changes update rows. The palette and archive retain their existing history
+read paths in this slice.
+
+An upgrade seeds the list once from the desk's transcript metadata and archive
+marks, in background batches. It migrates no bodies and leaves the old files
+unchanged. Native archive rows are withheld until the agent confirms their state;
+background reconciliation preserves the last confirmed answer when a listing fails.
+Cached repository identities answer first and are rechecked in bounded background
+passes, including after later list refreshes. The transcript writer continues to own bodies until the next slice.
+
+Team runs are filed under their Team. Their conversations remain reachable
+through that row, and do not also appear as loose sidebar conversations.
+
+**The rule:** the first sidebar page reads local metadata; an upgrade carries
+the list over, and Team membership decides where a conversation is filed.
+
+---
+
 ## Content names share one medium weight
 
 The owner's 2A decision on 2026-10-03 changes content person and agent names

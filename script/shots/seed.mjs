@@ -24,6 +24,8 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, wr
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { SessionIndex } from '../../packages/server/dist/src/session-index.js'
+import { TranscriptStore } from '../../packages/server/dist/src/transcripts.js'
 import { CAST, CONTEXT_CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
 import { HOME, NATIVE_CODEX, SHOT_ENV, WORK } from './config.mjs'
 
@@ -116,7 +118,7 @@ const RESIDUE = [
   'intake.json', 'triggers-machine.json', 'triggers-key.bin', 'triggers-preferences.json',
   'triggers-desk-posts.json', 'triggers-cursors.json', 'archive.json', 'names.json',
   'credentials.json', 'lanes', 'worktrees', 'desk-writer.lock', 'desk-writer-recovery',
-  'browser-profile', 'library',
+  'browser-profile', 'library', 'sessions.sqlite', 'sessions.sqlite-wal', 'sessions.sqlite-shm',
 ]
 
 /**
@@ -334,8 +336,33 @@ const storeFor = (agentId) =>
     }),
   )
 
+// Camera histories must also be conversations retained by the desk: the
+// sidebar reads only its local index, never an agent's list. Use the normal
+// transcript writer and upgrade seed instead of manufacturing renderer rows.
+const transcripts = new TranscriptStore(join(HOME, 'transcripts'))
+const writeStore = (agentId, runtime, store, retained = true) => {
+  writeFileSync(join(HOME, 'stores', `${agentId}.json`), JSON.stringify(store, null, 1))
+  if (!retained) return
+  for (const conversation of Object.values(store)) {
+    const updatedAt = Date.parse(conversation.updatedAt)
+    transcripts.record({
+      runtime, id: conversation.sessionId, cwd: conversation.cwd, title: conversation.title,
+      preview: conversation.turns[0]?.[0], createdAt: updatedAt, updatedAt,
+      status: { type: 'idle' }, itemsLoaded: true,
+      turns: conversation.turns.map(([ask, answer], n) => ({
+        id: `${conversation.sessionId}-turn-${n}`, status: 'completed',
+        items: [
+          { id: `${n}-user`, type: 'userMessage', content: [{ type: 'text', text: ask }] },
+          { id: `${n}-answer`, type: 'assistantMessage', text: answer },
+        ],
+      })),
+    }, { now: true })
+  }
+}
 for (const agent of CAST) {
-  writeFileSync(join(HOME, 'stores', `${agent.id}.json`), JSON.stringify(storeFor(agent.id), null, 1))
+  // The native fixture owns its own conversations; camera Codex history is
+  // relevant only when the all-camera roster is selected.
+  writeStore(agent.id, rigRuntimeId(agent.id), storeFor(agent.id), !NATIVE_CODEX || agent.id !== 'codex')
 }
 
 /**
@@ -358,14 +385,17 @@ const CONTEXT_AGENTS = process.env['HD_SHOTS_CONTEXT'] === '1' ? CONTEXT_CAST : 
 for (const agent of CONTEXT_AGENTS) {
   const [title, answer] = agent.conversation
   const id = `${agent.id}-0`
-  writeFileSync(
-    join(HOME, 'stores', `${agent.id}.json`),
-    JSON.stringify(
-      { [id]: { sessionId: id, cwd: roots.storefront, title, updatedAt: new Date().toISOString(), turns: [[title, answer]] } },
-      null,
-      1,
-    ),
-  )
+  writeStore(agent.id, agent.id, {
+    [id]: { sessionId: id, cwd: roots.storefront, title, updatedAt: new Date().toISOString(), turns: [[title, answer]] },
+  })
+}
+
+await transcripts.flush()
+const sessionIndex = new SessionIndex(join(HOME, 'sessions.sqlite'))
+try {
+  await sessionIndex.seed(HOME, { archiveCapability: () => false })
+} finally {
+  sessionIndex.close()
 }
 
 /**

@@ -12,12 +12,14 @@ import { Sidebar } from './Sidebar'
 let container: HTMLDivElement
 let root: Root
 let newDraft: ReturnType<typeof vi.fn>
+let loadHistory: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   newDraft = vi.fn()
+  loadHistory = vi.fn()
 })
 
 afterEach(() => {
@@ -73,6 +75,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    loadHistory,
     searchHistory: vi.fn(async () => {}),
     newDraft,
     loadWorktrees: vi.fn(async () => {}),
@@ -269,4 +272,13 @@ it('Teams is a top-level destination and marks its selected page', () => {
   const entry = container.querySelector<HTMLButtonElement>('button[aria-label="Teams"]')
   expect(entry).not.toBeNull()
   expect(entry?.getAttribute('aria-current')).toBe('page')
+})
+
+
+it('offers paging when a short filtered list cannot produce a scroll event', () => {
+  mount({ historyCursor: 'older-filtered', listPrefs: { ...emptySnapshot().listPrefs, agent: CLAUDE } })
+  const more = [...container.querySelectorAll('button')].find(button => button.textContent === 'Load more conversations')
+  expect(more).toBeDefined()
+  act(() => more?.click())
+  expect(loadHistory).toHaveBeenCalledOnce()
 })

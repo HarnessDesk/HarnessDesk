@@ -120,7 +120,7 @@ describe('listing conversations before anything opens them', () => {
   const LIVE = '/w/live-checkout'
 
   it('marks a folder in foldersGone immediately on listing, before any click', async () => {
-    answers['session/list'] = {
+    answers['session/index'] = {
       data: [
         {
           id: sessionId('ghost'),
@@ -153,7 +153,7 @@ describe('listing conversations before anything opens them', () => {
   })
 
   it('forgets the folder when a subsequent listing finds it restored', async () => {
-    answers['session/list'] = {
+    answers['session/index'] = {
       data: [
         {
           id: sessionId('ghost'),
@@ -172,7 +172,7 @@ describe('listing conversations before anything opens them', () => {
     expect(store.getSnapshot().foldersGone.has(GONE)).toBe(true)
 
     // The folder is restored; the next listing reflects that.
-    answers['session/list'] = {
+    answers['session/index'] = {
       data: [
         {
           id: sessionId('ghost'),
@@ -197,7 +197,7 @@ describe('listing conversations before anything opens them', () => {
     expect(store.getSnapshot().foldersGone.get(GONE)).toBe(SAID)
 
     // A later listing confirms the folder is gone; it does not overwrite the agent's sentence.
-    answers['session/list'] = {
+    answers['session/index'] = {
       data: [
         {
           id: sessionId('s-1'),
@@ -235,7 +235,7 @@ describe('when the transcript could not be read either', () => {
     /* The sidebar row is where the folder is written down when nothing was
        painted — so the list is loaded the way the app loads it, and only then
        do the reads start failing. */
-    answers['session/list'] = {
+    answers['session/index'] = {
       data: ['s-1', 's-2', 's-3'].map((id) => ({
         id: sessionId(id),
         runtime: RUNTIME,

@@ -254,14 +254,14 @@ it('moves into an unmounted windowed conversation and mounts it before focusing'
 
   const target = container.querySelector<HTMLButtonElement>('[data-virtual-index="30"] [data-slot="sidebar-menu-button"]')
   expect(target).not.toBeNull()
-  expect(target?.closest('[data-virtual-count]')?.getAttribute('data-virtual-count')).toBe('55')
+  expect(target?.closest('[data-virtual-count]')?.getAttribute('data-virtual-count')).toBe('60')
   const windowed = container.querySelector('[data-virtual-project="true"]')!
   const focusRow = (key: string) => {
     const active = document.activeElement as HTMLButtonElement
     act(() => active.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
   }
   act(() => target!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
-  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('54')
+  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('59')
   act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
   expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('0')
   act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
@@ -598,7 +598,7 @@ it('draws a Working conversation once inside its project and includes it in the 
     status: { type: 'active' },
   }) as SessionSummary & { turns: unknown[] }
   active.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
-  const others = Array.from({ length: 5 }, (_, index) => summary({ id: `session-${index}` }))
+  const others = Array.from({ length: 10 }, (_, index) => summary({ id: `session-${index}` }))
   const { container: tree } = treeWith([], [active, ...others], [active], {}, undefined, sessionKey('codex', sessionId(active.id)))
 
   expect(rowTitles(tree).filter((title) => title === 'session-active')).toHaveLength(1)
@@ -703,40 +703,40 @@ it('opens Other projects when the active session belongs to a far project', () =
   expect(fold?.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent).toBe('4')
 })
 
-it('aligns the N more row with the project and conversation label column', () => {
-  const sessions = Array.from({ length: 6 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
+it('shows ten conversations and a Show more control with the remaining count in its title', () => {
+  const sessions = Array.from({ length: 25 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
   const { container: tree } = treeWith([], sessions)
-  const more = [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '1 more')
-  expect(more?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
+  const more = [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Show more')!
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(10)
+  expect(more.title).toBe('15 more conversations')
+  expect(more.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
+  act(() => more.click())
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(25)
+  expect([...tree.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Show more')).toBe(false)
 })
 
-it('reveals 25 conversations at a time and reports how many remain', () => {
+it('reveals 25 additional conversations at a time', () => {
   const sessions = Array.from({ length: 40 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
   const { container: tree } = treeWith([], sessions)
   const rows = () => tree.querySelectorAll('[data-region="session-row"]').length
-  const more = () => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '35 more')
-
-  expect(rows()).toBe(5)
-  expect(more()).toBeTruthy()
-  act(() => more()!.click())
-  expect(rows()).toBe(30)
-  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === '10 more')).toBe(true)
-  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '10 more')!.click())
+  const more = () => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Show more')!
+  expect(rows()).toBe(10)
+  expect(more().title).toBe('30 more conversations')
+  act(() => more().click())
+  expect(rows()).toBe(35)
+  expect(more().title).toBe('5 more conversations')
+  act(() => more().click())
   expect(rows()).toBe(40)
-  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === 'more')).toBe(false)
 })
 
 it('windows a project after the revealed list grows past 50 rows', () => {
   const sessions = Array.from({ length: 70 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
   const { container: tree } = treeWith([], sessions)
-  const clickMore = (label: string) => act(() => {
-    [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === label)!.click()
-  })
-
-  clickMore('65 more')
-  clickMore('40 more')
-  expect([...tree.querySelectorAll('[data-region="session-row"]')].length).toBeLessThan(55)
-  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === '15 more')).toBe(true)
+  const more = () => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Show more')!
+  act(() => more().click())
+  act(() => more().click())
+  expect([...tree.querySelectorAll('[data-region="session-row"]')].length).toBeLessThan(60)
+  expect(more().title).toBe('10 more conversations')
 })
 
 it('only mutates the row whose selected conversation slice changed', () => {
@@ -763,11 +763,11 @@ it('only mutates the row whose selected conversation slice changed', () => {
   })
 })
 
-it('expands the active session beyond the five-row preview', () => {
+it('expands the active session beyond the ten-row preview', () => {
   const active = summary({ id: 'active', updatedAt: 1 })
   const sessions = [
     active,
-    ...Array.from({ length: 5 }, (_, index) =>
+    ...Array.from({ length: 10 }, (_, index) =>
       summary({ id: `session-${index + 1}`, updatedAt: index + 2 }),
     ),
   ]
@@ -2333,4 +2333,30 @@ it('names a recorded typed lookalike from its pasted first line', () => {
   expect(row?.textContent).toContain('<context source="Git"')
   expect(row?.textContent).not.toContain('Untitled session')
   expect(row?.textContent).not.toContain('the page it was looking at')
+})
+
+it('keeps a 25-conversation project folded across rerenders and remounts', () => {
+  const sessions = Array.from({ length: 25 }, (_, index) => summary({ id: `fold-session-${index}` }))
+  const mounted = treeWith([], sessions, [], {}, undefined, null, new Map(), {
+    toggleCollapsed: vi.fn((folder: string) => {
+      const snapshot = mounted.store.getSnapshot()
+      mounted.update({ listPrefs: { ...snapshot.listPrefs, collapsed: [folder] } })
+    }),
+  })
+  expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(10)
+  const project = container.querySelector<HTMLButtonElement>('[data-project-root] [data-draggable]')!
+  act(() => project.click())
+  expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
+  mounted.update({ history: [...sessions] })
+  expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
+  act(() => root.render(null))
+  act(() => root.render(<StoreProvider store={mounted.store}><SessionTree now={4} /></StoreProvider>))
+  expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
+  expect(mounted.store.getSnapshot().listPrefs.collapsed).toEqual(['/repo'])
+})
+
+it('keeps an archived held conversation out of the loose project rows', () => {
+  const archived = summary({ id: 'archived-held', archived: true })
+  const { container: tree } = treeWith([], [], [archived])
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
 })
