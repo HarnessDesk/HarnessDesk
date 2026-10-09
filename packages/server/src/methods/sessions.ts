@@ -84,6 +84,21 @@ const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sess
   return null
 }
 
+/** Archive authority and worktree cleanup are shared by the row and Team wrap. */
+export const archiveConversation = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId; archived: boolean }) => {
+  const runtime = ctx.runtimes.resolve(params)
+  const id = makeSessionId(params.sessionId)
+  if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
+  const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
+  const restored = params.archived ? {} : await ctx.sessionWorktrees.prepare(runtime.info.id, id)
+  if (runtime.info.capabilities.archiveHistory) await runtime.archiveSession(id, params.archived)
+  else await ctx.archive.set(runtime.info.id, id, params.archived)
+  if (params.archived && runtime.info.capabilities.resume) await ctx.sessions.releaseQuiet({ runtime: runtime.info.id, sessionId: id })
+  ctx.sessionIndex.setArchived(runtime.info.id, id, params.archived)
+  const warning = params.archived ? await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered) : restored.warning
+  return warning ? { warning } : null
+}
+
 /**
  * Conversations as the host holds them: listing and search across the
  * runtime's own store and the host's, opening, reopening, forking, and the
@@ -182,6 +197,8 @@ export const sessionMethods = {
     const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
     if (frozenSeat?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozenSeat.runtimeServers }
     if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
+    const restored = await ctx.sessionWorktrees.prepare(runtime.info.id, sessionId)
+    if (restored.cwd) options = { ...options, cwd: restored.cwd, knownCwd: restored.cwd }
     const record = ctx.registry.forReopen(runtime.info.id, sessionId)
     const scoped = !record?.live && (record?.restedOptions !== undefined || ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false))
     const resolve = async (): Promise<AgentSession> => {
@@ -251,37 +268,24 @@ export const sessionMethods = {
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
-  'session/archive': async (ctx, params) => {
-    const runtime = ctx.runtimes.resolve(params)
-    const id = makeSessionId(params.sessionId)
-    if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
-    // The runtime's own archive when it has one, the host's when it does
-    // not. Never both: see `SessionArchive`.
-    if (runtime.info.capabilities.archiveHistory) {
-      await runtime.archiveSession(id, params.archived)
-    } else {
-      await ctx.archive.set(runtime.info.id, id, params.archived)
-    }
-    // The release the quiet sweep makes, so unarchiving reopens the
-    // conversation with the picks it was left with.
-    if (params.archived && runtime.info.capabilities.resume) {
-      await ctx.sessions.releaseQuiet({ runtime: runtime.info.id, sessionId: id })
-    }
-    ctx.sessionIndex.setArchived(runtime.info.id, id, params.archived)
-    return null
-  },
+  'session/archive': archiveConversation,
+  'session/worktreePreview': (ctx, params) => ctx.sessionWorktrees.preview(params.runtime, makeSessionId(params.sessionId)),
+  'session/discardWorktree': (ctx, params) => ctx.sessionWorktrees.discard(params.runtime, makeSessionId(params.sessionId), params.stamp),
 
   'session/remove': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
     if (params.removed) {
+      const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
       await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
       await ctx.transcripts.flushSession(runtime.info.id, id)
       const result = ctx.sessionIndex.setRemoved(runtime.info.id, id, true)
       ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: false } })
-      return result
+      return { ...result, ...(!remembered ? { warning: 'The worktree stayed because its inventory could not be read.' } : {}) }
     }
-    return ctx.sessionIndex.setRemoved(runtime.info.id, id, false)
+    const result = ctx.sessionIndex.setRemoved(runtime.info.id, id, false)
+    await ctx.sessionWorktrees.prepare(runtime.info.id, id)
+    return result
   },
 
   'session/delete': async (ctx, params) => {
@@ -294,12 +298,14 @@ export const sessionMethods = {
     await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
     // The agent's copy first: if it refuses, the stopped conversation's
     // index and body remain available here.
+    const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
     const outcome = await runtime.deleteSession(id)
     // Then everything the host was holding about it. A transcript left
     // behind would be re-enriched onto the next session that reused the
     // id, and an archive mark left behind is a row hidden forever.
     await ctx.transcripts.forget(runtime.info.id, id, { deleteIndex: true })
     ctx.sessionIndex.deleted(runtime.info.id, id)
+    const warning = await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered)
     await ctx.archive.forget(runtime.info.id, id)
     await ctx.names.forget(runtime.info.id, id)
     const record = ctx.registry.get(runtime.info.id, id)
@@ -313,6 +319,7 @@ export const sessionMethods = {
     // Every window, not only the one that asked: another may be drawing it.
     ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: true } })
     return {
+      ...(warning ? { warning } : {}),
       disposition: outcome?.disposition ?? 'trash',
       ...(outcome?.removed !== undefined ? { removed: outcome.removed } : {}),
     }

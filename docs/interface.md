@@ -410,6 +410,20 @@ says it moves to the Trash and the agent can no longer resume it, and offers
 Move to Trash and Keep. A running conversation's confirmation also says it
 will stop first. The result toast says Moved to the Trash.
 
+**Worktrees follow the conversation.** Archive removes its clean managed
+worktree; Remove waits until Undo ends, and Delete everywhere removes it after
+the agent accepts. A branch always stays. Uncommitted work, ignored content,
+a detached checkout or another active conversation keeps the checkout. Archive shows **Worktree kept**
+on the row's label, with counts on hover. **Discard worktree…** names what will
+be lost and asks again if that inventory changes. A detached checkout is kept
+even after confirmation: create or check out a branch at its current commit
+before discarding its folder. Returning to the conversation
+puts the worktree back from its branch; if the branch is gone, it opens in the
+main checkout and says so.
+
+Wrapping a Team archives its idle conversations too. A working member stays,
+and the receipt counts how many stayed.
+
 **Every agent can archive, whether or not it has an archive.** When an agent
 supports archiving natively (like Codex), HarnessDesk triggers it directly. For
 agents connected via the Agent Client Protocol (ACP), which provides no archive
@@ -439,7 +453,7 @@ journey nobody is making. Settings is where the places you go to on purpose
 already are, under its own heading — **Conversations › Archive** — and ⌘K still
 reaches it by the name people type, "Archive".
 
-The page groups by agent, and the line under each heading says whose archive it
+The page reads the local conversation index, groups by agent, and the line under each heading says whose archive it
 is showing: an agent with one of its own is told to the user as such, and an
 agent without gets "the conversation is untouched and still listed in its own
 window". The difference is visible from the other application, so hiding it

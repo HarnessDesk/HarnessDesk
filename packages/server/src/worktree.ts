@@ -673,7 +673,8 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
  */
 export const remove = async (
   path: string,
-  options: { readonly force?: boolean; readonly stateDir: string },
+  options: { readonly force?: boolean; readonly keepIgnored?: boolean; readonly keepDetached?: boolean;
+    readonly expectedInventory?: string; readonly assertUnused?: () => void; readonly stateDir: string },
 ): Promise<{ readonly branch: string | null }> => {
   const main = await repositoryRoot(path)
   if (!main) throw new Error(`${path} is not a git worktree.`)
@@ -684,11 +685,18 @@ export const remove = async (
   if (!entry.managed) {
     throw new Error(`${path} was not created by HarnessDesk; remove it with git worktree remove yourself.`)
   }
+  // With no branch retaining HEAD, even a clean checkout may be the only
+  // reference to committed work. Cleanup and confirmed Discard both keep it.
+  if (options.keepDetached && !entry.branch) throw new Error('The detached worktree has no branch retaining its commits. Create or check out a branch at its current commit before discarding it.')
 
   const pending = await changes(target)
-  if (!options.force && (pending.modified > 0 || pending.untracked > 0)) {
+  if (options.expectedInventory !== undefined && await worktreeInventoryKey(target) !== options.expectedInventory) throw new Error('The worktree changed. Review it again before discarding.')
+  if (!options.force && (pending.modified > 0 || pending.untracked > 0 || options.keepIgnored && pending.ignoredCount > 0)) {
     throw new WorktreeDirtyError(target, pending)
   }
+  // Admission can change during the asynchronous Git reads above. Check the
+  // live owner at the mutation boundary, with no await before spawning Git.
+  options.assertUnused?.()
   await git(main, ['worktree', 'remove', ...(options.force ? ['--force'] : []), target]).catch((error: unknown) => {
     throw new Error(`Git would not remove the worktree at ${target}. ${gitSaid(error)}`)
   })
@@ -788,6 +796,30 @@ const bringHomeInCheckout = async (
   }
   await rm(target, { recursive: true, force: true })
   return { branch: entry.branch, from, root: main, ...(warning ? { warning } : {}) }
+}
+
+export const branchExists = async (root: string, branch: string): Promise<boolean> =>
+  git(root, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).then(() => true, (error: unknown) => {
+    if ((error as { code?: number }).code === 1) return false
+    throw error
+  })
+
+/** Recreate the same managed path from its retained branch; no new branch. */
+export const restore = async (root: string, path: string, branch: string, stateDir: string): Promise<void> => {
+  const home = await worktreeHomePath(root, stateDir)
+  if (!isManagedWorktree(path, home)) throw new Error('That path is not a managed worktree.')
+  await mkdir(home, { recursive: true })
+  await personGit(root, ['worktree', 'add', path, branch])
+}
+
+/** Full inventory, including entries beyond the display cap. */
+export const worktreeInventoryKey = async (path: string): Promise<string> => {
+  const status = await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching'])
+  // Status may collapse a directory ignored as a whole. Include every ignored
+  // file too, so adding one there invalidates a confirmation just like adding
+  // an untracked file. NUL boundaries preserve whitespace in Git paths.
+  const ignored = await git(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
+  return createHash('sha256').update(status).update('\0').update(ignored).digest('hex')
 }
 
 /**

@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import { join, relative, isAbsolute, sep } from 'node:path'
 import {
   CodexAppServer,
   CodexError,
@@ -1083,7 +1084,14 @@ export class CodexRuntime implements AgentRuntime {
       }
       throw error
     }
-    return mapSession(thread, {
+    const home = this.#codexHome ?? join(homedir(), '.codex')
+    const inside = (folder: string) => {
+      if (!thread.path) return false
+      const path = relative(join(home, folder), thread.path)
+      return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+    }
+    const archived = inside('archived_sessions') ? true : inside('sessions') ? false : undefined
+    return { ...(archived === undefined ? {} : { archived }), ...mapSession(thread, {
       runtime: this.#id,
       skip: this.#automatic(),
       // Whole by construction when paged. A turn read whole says for itself,
@@ -1094,7 +1102,7 @@ export class CodexRuntime implements AgentRuntime {
       // read path `AcpSession` already has. A thread this process never
       // opened has none, and the ring stays off until its next turn.
       usage: this.#sessions.get(id)?.usage ?? null,
-    })
+    }) }
   }
 
   async archiveSession(id: SessionId, archived: boolean): Promise<void> {

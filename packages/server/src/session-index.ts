@@ -30,12 +30,20 @@ interface Row {
   archived: number | null
   removed_at: number | null
   team_id: string | null
+  worktree_path: string | null
+  worktree_branch: string | null
+  worktree_state: SessionWorktreeRecord['state'] | null
   status: string
   git: string | null
   cached_root: string | null
   worktree: number | null
   origin_url: string | null
   exists: number | null
+}
+
+export interface SessionWorktreeRecord {
+  runtime: RuntimeId; id: SessionId; path: string; branch: string | null; root: string
+  state: 'present' | 'removed' | 'kept'
 }
 
 interface RepoRow { repo_root: string | null; worktree: number; origin_url: string | null; exists: number; checked_at: number; identity: string | null }
@@ -52,6 +60,7 @@ const summaryOf = (row: Row): SessionSummary => ({
   createdAt: row.created_at, updatedAt: row.updated_at, status: JSON.parse(row.status) as SessionSummary['status'],
   ...(row.git ? { git: JSON.parse(row.git) as SessionSummary['git'] } : {}),
   repo: row.cached_root ? { root: row.cached_root, worktree: Boolean(row.worktree), ...(row.origin_url ? { origin: row.origin_url } : {}) } : null,
+  ...(row.worktree_path && row.worktree_state ? { worktree: { path: row.worktree_path, branch: row.worktree_branch, state: row.worktree_state } } : {}),
   archived: Boolean(row.archived), ...(row.exists === null ? {} : { folderGone: !row.exists }),
 })
 
@@ -152,7 +161,7 @@ export class SessionIndex {
   list(options: { cursor?: string; pageSize?: number; archived?: 'exclude' | 'only'; runtimes?: readonly RuntimeId[] } = {}): Page<SessionSummary> {
     const pageSize = Math.min(500, Math.max(1, Math.floor(options.pageSize ?? 50)))
     const archived = options.archived === 'only' ? 1 : 0
-    const params: (string | number)[] = [archived]
+    const params: (string | number)[] = [archived, archived]
     let after = ''
     if (options.cursor) {
       let cursor: unknown
@@ -168,7 +177,7 @@ export class SessionIndex {
       after += ` AND s.runtime IN (${options.runtimes.map(() => '?').join(',')})`
       params.push(...options.runtimes)
     }
-    const rows = this.#db.prepare(`${SELECT} WHERE s.origin='desk' AND s.removed_at IS NULL AND s.team_id IS NULL
+    const rows = this.#db.prepare(`${SELECT} WHERE s.origin='desk' AND s.removed_at IS NULL AND (? = 1 OR s.team_id IS NULL)
       AND s.archived = ?${after} ORDER BY s.updated_at DESC,s.runtime,s.id LIMIT ?`).all(...params, pageSize + 1) as unknown as Row[]
     const data = rows.slice(0, pageSize)
     const last = data.at(-1)
@@ -346,7 +355,7 @@ export class SessionIndex {
   /** Only an already indexed, retained conversation can receive authority facts. */
   confirmArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void {
     const row = this.#row(runtime, id)
-    if (!row || row.removed_at !== null) return
+    if (!row || row.removed_at !== null || row.archived === Number(archived)) return
     this.setArchived(runtime, id, archived, false)
   }
 
@@ -368,6 +377,60 @@ export class SessionIndex {
       if (!this.#row(runtime, id)) this.#saveFacts(runtime, id, { teamId })
       else this.#db.prepare('UPDATE sessions SET team_id=? WHERE runtime=? AND id=? AND removed_at IS NULL').run(teamId, runtime, id)
     })
+    this.#notify(runtime, id)
+  }
+
+  get(runtime: RuntimeId, id: SessionId): SessionSummary | null {
+    const row = this.#row(runtime, id)
+    return row ? summaryOf(row) : null
+  }
+
+  worktree(runtime: RuntimeId, id: SessionId): SessionWorktreeRecord | null {
+    return this.#db.prepare('SELECT * FROM session_worktrees WHERE runtime=? AND id=?').get(runtime, id) as unknown as SessionWorktreeRecord ?? null
+  }
+
+  rememberWorktree(record: SessionWorktreeRecord): void {
+    const previous = this.worktree(record.runtime, record.id)
+    if (previous && previous.path === record.path && previous.branch === record.branch && previous.root === record.root && previous.state === record.state) return
+    this.#transaction(() => {
+      this.#db.prepare(`INSERT INTO session_worktrees(runtime,id,path,branch,root,state) VALUES(?,?,?,?,?,?)
+        ON CONFLICT(runtime,id) DO UPDATE SET path=excluded.path,branch=excluded.branch,root=excluded.root,state=excluded.state`)
+        .run(record.runtime, record.id, record.path, record.branch, record.root, record.state)
+      this.#db.prepare('UPDATE sessions SET worktree_path=?,worktree_branch=?,worktree_state=? WHERE runtime=? AND id=?')
+        .run(record.path, record.branch, record.state, record.runtime, record.id)
+    })
+    this.#notify(record.runtime, record.id, false)
+  }
+
+  worktreeState(path: string, state: SessionWorktreeRecord['state'], branch?: string | null): void {
+    const records = this.#db.prepare('SELECT * FROM session_worktrees WHERE path=?').all(path) as unknown as SessionWorktreeRecord[]
+    for (const record of records) this.rememberWorktree({ ...record, state, ...(branch === undefined ? {} : { branch }) })
+  }
+
+  worktreeInUse(path: string): boolean {
+    return !!this.#db.prepare(`SELECT 1 FROM sessions WHERE (cwd=? OR substr(cwd,1,length(?)+1)=? || '/')
+      AND removed_at IS NULL AND (archived IS NULL OR archived=0) LIMIT 1`).get(path, path, path)
+  }
+
+  managedCandidates(stateDir: string): readonly { runtime: RuntimeId; id: SessionId }[] {
+    const prefix = stateDir.replace(/\/$/, '') + '/worktrees/'
+    return this.#db.prepare('SELECT runtime,id FROM sessions WHERE removed_at IS NULL AND substr(cwd,1,length(?))=?')
+      .all(prefix, prefix) as unknown as { runtime: RuntimeId; id: SessionId }[]
+  }
+
+  removalTime(runtime: RuntimeId, id: SessionId): number | null { return this.#row(runtime, id)?.removed_at ?? null }
+
+  expiredWorktrees(before: number): readonly { runtime: RuntimeId; id: SessionId }[] {
+    return this.#db.prepare(`SELECT s.runtime,s.id FROM sessions s JOIN session_worktrees w USING(runtime,id)
+      WHERE removed_at<=? AND w.state='present'`).all(before) as unknown as { runtime: RuntimeId; id: SessionId }[]
+  }
+
+  teamMembers(team: string): readonly SessionSummary[] {
+    return (this.#db.prepare(`${SELECT} WHERE s.team_id=? AND s.removed_at IS NULL`).all(team) as unknown as Row[]).map(summaryOf)
+  }
+
+  setCwd(runtime: RuntimeId, id: SessionId, cwd: string): void {
+    this.#db.prepare('UPDATE sessions SET cwd=? WHERE runtime=? AND id=?').run(cwd, runtime, id)
     this.#notify(runtime, id)
   }
 

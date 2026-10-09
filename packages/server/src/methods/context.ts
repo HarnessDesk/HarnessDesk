@@ -128,6 +128,7 @@ export interface HostContext {
   }
   readonly names: SessionNames
   readonly terminals: Terminals
+  readonly sessionWorktrees: import('../session-worktrees.js').SessionWorktrees
   readonly worktrees: Worktrees
   readonly team: Team
   readonly flows: Flows

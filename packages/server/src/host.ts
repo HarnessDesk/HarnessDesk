@@ -1,3 +1,5 @@
+import { SessionWorktrees } from './session-worktrees.js'
+import { archiveConversation } from './methods/sessions.js'
 import { readProcessTable, resourcesFromProcessTable } from './runtime-resources.js'
 import { retainRuntimeNotice } from './runtime-notices.js'
 import { AccountReads } from './account-reads.js'
@@ -707,11 +709,13 @@ export class Host {
   /** Sidebar metadata; the transcript store continues to own conversation bodies. */
   readonly #historyImport: HistoryImport
   #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
+  readonly #sessionWorktrees: SessionWorktrees
   readonly #sessionIndex: SessionIndex
   readonly #sessionIndexRepos: SessionIndexRepos
   #sessionIndexSeed: Promise<void> = Promise.resolve()
   readonly #indexPending = new Map<string, Session>()
   #removalSweep: ReturnType<typeof setTimeout> | undefined
+  #removalSweepWork: Promise<void> | null = null
   readonly #indexTimers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #indexTeams = new Map<string, string>()
   /** The transcript as the host watched it, for reads the backend returns thin. */
@@ -830,6 +834,7 @@ export class Host {
    * roster's watch, so a quit that lands first leaves none to leak.
    */
   #disposed = false
+  #startCalled = false
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -979,6 +984,9 @@ export class Host {
       if (change.resolveRepos !== false) for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
       this.#push({ method: 'session/indexChanged', params: { upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
     })
+    this.#sessionWorktrees = new SessionWorktrees(this.#sessionIndex, this.#state.directory, path =>
+      this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
+        (isBusy(session) || (this.registry.get(session.runtime, session.id)?.running.size ?? 0) > 0)))
     this.#sessionIndexRepos = new SessionIndexRepos(this.#sessionIndex)
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
     this.#historyImport = new HistoryImport({
@@ -2417,9 +2425,18 @@ export class Host {
   }
 
   async start(): Promise<void> {
-    this.#goalWriter = await acquireDeskWriter(this.#state.directory)
+    if (this.#disposed) return
+    this.#startCalled = true
+    const writer = await acquireDeskWriter(this.#state.directory)
+    if (this.#disposed) {
+      await writer.release()
+      return
+    }
+    this.#goalWriter = writer
     await this.#state.load()
-    await this.#transcripts.sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
+    if (this.#disposed) return
+    await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
+    if (this.#disposed) return
     this.#scheduleRemovalSweep()
     await this.#runtimeCache.load()
     for (const runtime of this.#runtimes.values()) runtime.restoreObservations?.(this.#runtimeCache.get(String(runtime.info.id)))
@@ -2531,11 +2548,17 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    if (this.#disposed) return
     for (const state of this.#team.states()) this.#indexTeam(state)
     this.#sessionIndexSeed = this.#sessionIndex.seed(this.#state.directory, {
       teamOf: (runtime, id) => this.#indexTeamOf(runtime, id),
       titleOf: (runtime, id) => this.#names.nameOf(runtime, id),
       archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
+    }).then(async () => {
+      for (const row of this.#sessionIndex.managedCandidates(this.#state.directory)) {
+        if (this.#disposed) return
+        await this.#sessionWorktrees.remember(row.runtime, row.id).catch(() => {})
+      }
     }).catch((error: unknown) => this.#logger.warn('the sidebar index upgrade did not finish', { error: String(error) }))
     // Start capture after the stored names and rooms have recovered, so its
     // first project snapshot cannot describe a partially restored desk.
@@ -3072,6 +3095,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    clearTimeout(this.#removalSweep)
     this.#historyImport.close()
     clearTimeout(this.#cacheEvictionTimer)
     for (const start of this.#directRuntimeStarts.values()) start.reject(new Error('The desk is closing.'))
@@ -3146,9 +3170,11 @@ export class Host {
     await this.#terminals.dispose()
     clearTimeout(this.#removalSweep)
     await this.#transcripts.flush()
+    await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
     await this.#sessionIndexSeed
     await this.#sessionIndexRepos.close()
+    await this.#sessionWorktrees.settled()
     this.#sessionIndex.close()
     await this.#gateways.dispose()
     this.#usage?.dispose()
@@ -3936,6 +3962,21 @@ export class Host {
     }
   }
 
+  async #archiveTeamMembers(team: string): Promise<{ archived: number; stayed: number }> {
+    let archived = 0, stayed = 0
+    const known = this.#sessionIndex.teamMembers(team)
+    for (const row of known) {
+      const record = this.registry.get(row.runtime, row.id)
+      if (record && (record.running.size > 0 || isBusy(record.session) || record.queue.messages.length > 0)) { stayed++; continue }
+      if (row.archived) { archived++; continue }
+      try {
+        await archiveConversation(this.#context, { runtime: row.runtime, sessionId: row.id, archived: true })
+        archived++
+      } catch { stayed++ }
+    }
+    return { archived, stayed }
+  }
+
   async #finishGoalWrap(operation: Extract<GoalOperation, { kind: 'wrap' }>): Promise<void> {
     const document = this.#goalStore.read(operation.goal)
     if (document.operation === null && document.receipt?.id === operation.receipt.id) return
@@ -3953,8 +3994,10 @@ export class Host {
     const unreviewed = { resolution: 'dropped' as const, reason: 'Added while the Goal was wrapping, so it was never reviewed.' }
     const setAside = document.board.intents.filter((intent) => !resolutions.has(intent.id))
       .map((intent) => ({ id: intent.id, ...unreviewed }))
-    const receipt: GoalReceipt = setAside.length === 0 ? operation.receipt
-      : { ...operation.receipt, cards: [...operation.receipt.cards, ...setAside] }
+    const archiveResult = await this.#archiveTeamMembers(operation.goal)
+    const archivedReceipt = { ...operation.receipt, conversations: archiveResult }
+    const receipt: GoalReceipt = setAside.length === 0 ? archivedReceipt
+      : { ...archivedReceipt, cards: [...operation.receipt.cards, ...setAside] }
     /*
      * Every card a receipt Seat held already lost its claim, and had its stop
      * recorded, before this ever ran (`GoalPlane#stageWrap` reads it, and
@@ -4141,6 +4184,14 @@ export class Host {
       sessionIndex: {
         list: (params) => {
           const page = this.#listSessionIndex(params)
+          if (params.archived === 'only') {
+            for (const runtime of this.#runtimes.values()) {
+              const last = this.#archiveViewRefresh.get(runtime.info.id) ?? 0
+              if (Date.now() - last < 60_000) continue
+              this.#archiveViewRefresh.set(runtime.info.id, Date.now())
+              void this.#reconcileIndexArchive(runtime)
+            }
+          }
           for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
           return page
         },
@@ -4220,6 +4271,7 @@ export class Host {
       names: this.#names,
       terminals: this.#terminals,
       worktrees: this.#worktrees,
+      sessionWorktrees: this.#sessionWorktrees,
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
@@ -6164,11 +6216,13 @@ export class Host {
     // — never on the runtime's own defaults, which would load every ambient
     // skill and server its approval was there to keep out.
     const reopened = await this.#reopenAttachments(runtime, id)
+    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
       const frozen = this.#evidence.seats.latestKeptOf(runtime.info.id, String(id))
       const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await resumeSeatSession(runtime, id, {
+        ...(restored.cwd ? { cwd: restored.cwd, knownCwd: restored.cwd } : {}),
         ...(route ? { route } : {}),
         ...(frozen?.runtimeServers !== undefined ? { runtimeServers: frozen.runtimeServers } : {}),
         ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
@@ -6277,7 +6331,11 @@ export class Host {
    * asked, and what it says is folded in (`SessionRegistry.upsert`).
    */
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
-    const session = await this.#readTranscript(runtime, id)
+    const indexed = this.#sessionIndex.get(runtime.info.id, id)
+    if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
+    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
+    const read = await this.#readTranscript(runtime, id)
+    const session = restored.cwd ? { ...read, cwd: restored.cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) } : read
     this.#recordSessionIndex(session, true)
     this.#sessionIndex.opened(runtime.info.id, id)
     if (!runtime.info.capabilities.sourceTranscript && this.#sessionIndex.isImported(runtime.info.id, id)) await this.#transcripts.refresh(session, null)
@@ -7025,6 +7083,7 @@ export class Host {
     return { ...page, data: page.data.map(row => this.#indexStatus(row)) }
   }
 
+  readonly #archiveViewRefresh = new Map<RuntimeId, number>()
   readonly #indexArchiveReads = new Map<RuntimeId, Promise<void>>()
   readonly #indexArchiveChanges = new Map<string, number>()
 
@@ -7063,6 +7122,24 @@ export class Host {
           this.#sessionIndex.confirmArchived(runtime.info.id, row.id, archived === 'only')
         }
       }
+      // Some native listings omit their own ids. Only a per-thread answer
+      // can resolve them; absence and failed reads prove nothing.
+      const omitted = [...this.#sessionIndex.unresolvedArchive(runtime.info.id)]
+      let next = 0
+      await Promise.all(Array.from({ length: Math.min(3, omitted.length) }, async () => {
+        while (next < omitted.length) {
+          const id = omitted[next++]!
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          const key = String(sessionKey(runtime.info.id, id))
+          try {
+            const read = await runtime.readSession(id)
+            if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime &&
+              this.#indexArchiveChanges.get(key) === revisions.get(key) && typeof read.archived === 'boolean') {
+              this.#sessionIndex.confirmArchived(runtime.info.id, id, read.archived)
+            }
+          } catch { /* Retry unresolved rows on the next completed pass. */ }
+        }
+      }))
       this.#sessionIndex.clearArchiveError(runtime.info.id)
     }).catch((error: unknown) => {
       if (!this.#disposed) this.#sessionIndex.archiveError(runtime.info.id, String(error))
@@ -7072,15 +7149,34 @@ export class Host {
     return read
   }
 
+  #sweepRemoved(before: number): Promise<void> {
+    if (!this.#startCalled || this.#disposed) return Promise.resolve()
+    if (this.#removalSweepWork) return this.#removalSweepWork
+    this.#removalSweepWork = (async () => {
+      const records = this.#sessionIndex.expiredWorktrees(before)
+      await this.#transcripts.sweepRemoved(before)
+      for (const row of records) {
+        if (this.#disposed) return
+        if (!this.#sessionIndex.isRemoved(row.runtime, row.id)) continue
+        const warning = await this.#sessionWorktrees.cleanup(row.runtime, row.id)
+        if (warning) this.#push({ method: 'session/worktreeKept', params: { runtime: row.runtime, sessionId: row.id, message: warning } })
+      }
+    })().finally(() => { this.#removalSweepWork = null })
+    return this.#removalSweepWork
+  }
+
   #scheduleRemovalSweep(): void {
     clearTimeout(this.#removalSweep)
+    if (!this.#startCalled || this.#disposed) return
     const removals = this.#transcripts.removedBodies()
-    const deadlines = [...removals.map(row => row.removed_at + SESSION_REMOVE_UNDO_MS), ...this.registry.removalDeadlines()]
+    const deadlines = [...removals.map(row => row.removed_at + SESSION_REMOVE_UNDO_MS), ...this.registry.removalDeadlines(), ...this.#sessionIndex.expiredWorktrees(Number.MAX_SAFE_INTEGER).map(row => {
+      const dbRow = this.#sessionIndex.removalTime(row.runtime, row.id); return (dbRow ?? Date.now()) + SESSION_REMOVE_UNDO_MS
+    })]
     if (deadlines.length === 0 || this.#disposed) return
     const due = Math.min(...deadlines)
     this.#removalSweep = setTimeout(() => {
       this.registry.sweepRemoved(Date.now())
-      void this.#transcripts.sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS).then(() => this.#scheduleRemovalSweep())
+      void this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS).then(() => this.#scheduleRemovalSweep())
         .catch(error => this.#logger.warn('removed conversation bodies could not be swept', { error: String(error) }))
     }, Math.max(0, due - Date.now()))
     this.#removalSweep.unref()
@@ -7131,6 +7227,9 @@ export class Host {
       createdAt: session.createdAt, updatedAt: session.updatedAt,
       status: session.status, git: session.git ?? null,
     }, { origin: 'imported', teamId: this.#indexTeamOf(session.runtime, session.id) })
+    if (this.#startCalled && !this.#disposed) {
+      void this.#sessionWorktrees.remember(session.runtime, session.id).catch(error => this.#logger.warn('conversation worktree inventory could not be read', { error: String(error) }))
+    }
   }
 
   #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {
@@ -7208,6 +7307,7 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (this.#disposed) return
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()

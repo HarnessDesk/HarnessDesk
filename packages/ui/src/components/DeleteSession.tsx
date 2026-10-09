@@ -21,8 +21,8 @@ export const DeleteSession = ({ summary, onClose }: { summary: SessionSummary; o
     setBusy(true)
     setError(null)
     try {
-      await store.deleteSession(summary.id, summary.runtime)
-      store.notice('info', 'Moved to the Trash')
+      const outcome = await store.deleteSession(summary.id, summary.runtime)
+      store.notice('info', ['Moved to the Trash', outcome?.warning].filter(Boolean).join('. '))
       onClose()
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown))

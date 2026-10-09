@@ -20,7 +20,10 @@ export const goalMethods = {
     return null
   },
   'goal/preview': (ctx, params) => ctx.goals.preview(params.goal, params.choices),
-  'goal/wrap': (ctx, params) => ctx.goals.wrap(params.goal, params.stamp, params.choices),
+  'goal/wrap': async (ctx, params) => {
+    const receipt = await ctx.goals.wrap(params.goal, params.stamp, params.choices)
+    return await ctx.goals.receipt(params.goal) ?? receipt
+  },
   'goal/receipt': (ctx, params) => ctx.goals.receipt(params.goal),
   'goal/cite': async (ctx, params) => {
     await ctx.goals.cite(params.goal, params.citation)

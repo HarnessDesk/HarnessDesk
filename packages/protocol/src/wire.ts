@@ -1316,12 +1316,20 @@ export interface HostMethods {
   }
   'session/archive': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly archived: boolean }
-    result: null
+    result: { readonly warning?: string } | null
   }
   /** Remove the desk's copy, or Undo during the body retention window. */
   'session/remove': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly removed: boolean }
-    result: { readonly undoUntil: number | null }
+    result: { readonly undoUntil: number | null; readonly warning?: string }
+  }
+  'session/worktreePreview': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    result: { readonly changes: WorktreeChanges; readonly stamp: string }
+  }
+  'session/discardWorktree': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly stamp: string }
+    result: { readonly discarded: boolean; readonly preview?: { readonly changes: WorktreeChanges; readonly stamp: string } }
   }
   'session/delete': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
@@ -2918,6 +2926,11 @@ export type WireNotification =
        */
       readonly method: 'evidence/changed'
       readonly params: { readonly room: string; readonly evidence: BoardEvidence }
+    }
+  | {
+      /** A deferred Remove sweep kept the conversation's worktree. */
+      readonly method: 'session/worktreeKept'
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly message: string }
     }
   | {
       /**

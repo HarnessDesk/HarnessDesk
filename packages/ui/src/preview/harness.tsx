@@ -1946,6 +1946,25 @@ class PreviewStore {
   // --- the wire, method-aware ----------------------------------------------
   transport = {
     request: async (method: string, params?: unknown): Promise<unknown> => {
+      if (method === 'session/index') {
+        const query = params as { runtimes?: string[]; archived?: string }
+        if (query.archived !== 'only') return { data: [], nextCursor: null }
+        return { data: (query.runtimes ?? []).map((runtime, index) => ({
+          id: `archived-${runtime}`, runtime, title: 'Review the workspace settings', preview: null,
+          cwd: PREVIEW_ROOT, status: { type: 'notLoaded' }, createdAt: now - 86_400_000,
+          updatedAt: now - 3_600_000, archived: true,
+          ...(index === 0 ? { worktree: { path: '/synthetic/worktrees/storefront/review-settings', branch: 'harnessdesk/review-settings', state: 'kept' } } : {}),
+        })), nextCursor: null }
+      }
+      if (method === 'session/worktreePreview') return { changes: {
+        modified: 1, untracked: 1, unpushedCommits: 2, files: ['src/settings.ts', 'notes.txt'],
+        ignored: ['.env', 'build/'], ignoredCount: 2,
+      }, stamp: 'synthetic-confirmation' }
+      if (method === 'session/discardWorktree') return { discarded: true }
+      if (method === 'worktree/changes') return {
+        modified: 1, untracked: 1, unpushedCommits: 2, files: ['src/settings.ts', 'notes.txt'],
+        ignored: ['.env', 'build/'], ignoredCount: 2,
+      }
       if (method === 'session/list') {
         const runtime = (params as { runtime: string }).runtime
         return { data: [{ id: `archived-${runtime}`, runtime, title: 'Review the workspace settings', preview: null, cwd: PREVIEW_ROOT, status: { type: 'notLoaded' }, createdAt: now - 86_400_000, updatedAt: now - 3_600_000, archived: true }], nextCursor: null }

@@ -304,7 +304,7 @@ const thread = (overrides = {}) => {
     createdAt: 1_700_000_000,
     updatedAt: 1_700_000_100,
     status: workingThreads.has(overrides.id ?? THREAD) ? { type: 'active', activeFlags: [] } : { type: 'idle' },
-    path: '/tmp/rollout.jsonl',
+    path: process.env.FAKE_CODEX_ROLLOUT_HOME ? `${process.env.FAKE_CODEX_ROLLOUT_HOME}/${archivedThreads.has(describedId) ? 'archived_sessions' : 'sessions'}/rollout.jsonl` : '/tmp/rollout.jsonl',
     cwd: cwdByThread.get(describedId) ?? settingsState.cwd,
     cliVersion: version,
     source: 'vscode',
@@ -2252,6 +2252,7 @@ rl.on('line', (line) => {
       // A thread the listing does not hold is one this process started, or
       // one of the unlisted histories.
       const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread({ id: params.threadId, sessionId: params.threadId, parentThreadId: childParents.get(params.threadId) ?? null })
+      if (process.env.FAKE_CODEX_ROLLOUT_HOME) stored.path = thread({ id: params.threadId }).path
       const history = historyOf(params.threadId)
       if (!params.includeTurns) {
         replyAfterHold(childParents.has(params.threadId) ? process.env.FAKE_CODEX_DELEGATE_READ_GATE : null,
