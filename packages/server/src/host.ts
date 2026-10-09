@@ -8055,6 +8055,11 @@ export class Host {
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     const id = String(runtime)
+    // Background startup returns before readiness. Count its quiet time from
+    // readiness too, rather than adding a whole interval after a delayed poll.
+    if (health.state === 'ready' && this.#runtimeIsIdle(runtime, false)) {
+      if (!this.#idleSince.has(id)) this.#idleSince.set(id, Date.now())
+    } else this.#idleSince.delete(id)
     // Installation checks and explicit catalogue refresh can restart inside the
     // adapter. They pay the same measured cost as a host-owned start.
     if (health.state === 'starting' && !this.#startingRuntimes.has(id)) {
