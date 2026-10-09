@@ -4,6 +4,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
+import type { SeatRecord } from '@harnessdesk/protocol'
 import type { GitReader } from '../src/provenance/git.js'
 import { admitProject, gitReader } from '../src/provenance/git.js'
 import { captureHealth } from '../src/provenance/health.js'
@@ -35,7 +36,74 @@ const history = () => {
   return { git, fingerprinted, excluded }
 }
 
+test('a wider local Seat window lets History retry detached excluded commits without a capture toggle', async (t) => {
+  const repo = await makeRepo()
+  await writeFile(join(repo.dir, '.git/refs/heads/main'), `${sha(500)}\n`)
+  const store = new EvidenceStore(repo.stateDir)
+  const file = join(store.folderOf(repo.dir), 'provenance.ndjson')
+  const script = scriptedGit()
+  const fingerprinted: string[] = []
+  const run: typeof script.run = async (executable, args, options) => {
+    if (args.includes('log')) {
+      const ids = options.input!.toString('utf8').trim().split('\n')
+      return Buffer.from(`${ids.map((id) => `${id} ${Number.parseInt(id, 16) * DAY / 1000}`).join('\n')}\n`)
+    }
+    const at = args.indexOf('cat-file')
+    if (at >= 0 && args[at + 1] === 'commit') {
+      const id = args[at + 2]!
+      // Independent roots: the detached request cannot be rediscovered from main.
+      return Buffer.from(`tree ${id}\ncommitter Jane Doe <dev@example.com> ${Number.parseInt(id, 16) * DAY / 1000} +0000\n\nfixture\n`)
+    }
+    if (args.includes('diff-tree')) fingerprinted.push(args.findLast((arg) => /^[a-f0-9]{40}$/.test(arg))!)
+    return script.run(executable, args, options)
+  }
+  let notify = () => {}
+  const nextScan = () => new Promise<void>((resolve) => { notify = resolve })
+  const plane = new ProvenancePlane({ evidence: { store } as EvidencePlane, stateDir: repo.stateDir,
+    projects: () => [repo.dir], reader: { run }, now: () => firstOpened, log: () => {},
+    push: (notice) => {
+      if (notice.method === 'provenance/changed' && notice.params.health.state === 'healthy' && notice.params.health.pending === 0) notify()
+    },
+  })
+  t.after(() => plane.close())
+  const ready = nextScan()
+  await plane.start()
+  await ready
+  const ids = [sha(440), sha(400)]
+  const excluded = nextScan()
+  assert.ok((await plane.read(repo.dir, ids)).commits.every((commit) => commit.state === 'pending'))
+  await excluded
+  assert.ok((await plane.read(repo.dir, ids)).commits.every((commit) => commit.reason === 'not-observed'))
+  assert.ok(!fingerprinted.includes(sha(440)))
+  const opening: Omit<SeatRecord, 'closed'> = {
+    id: 'earlier-seat', agent: null, briefDigest: null, seat: { runtime: 'fixture' }, seatLabel: 'Recorded Seat', passedOver: [],
+    standing: { kind: 'permission', permission: 'read' }, ceiling: null,
+    checkout: { cwd: repo.dir, project: repo.dir, branch: 'topic', head: null },
+    session: { runtime: 'fixture', sessionId: 'session-earlier' }, board: null, role: null, openedAt: 430 * DAY,
+  }
+  await store.append(repo.dir, 'seats', [{ type: 'seat', record: opening }])
+  // The evidence wake reads the Seat; the next wake evaluates the wider floor.
+  for (let wake = 0; wake < 2; wake += 1) {
+    const scanned = nextScan()
+    plane.evidenceChanged(repo.dir)
+    await scanned
+  }
+  assert.equal((readCheckpoint((await new ProvenanceJournal(file).read()).entries) as WorkerCheckpoint).historyFloor, 429 * DAY)
+  const retried = nextScan()
+  assert.equal((await plane.read(repo.dir, [sha(440)])).commits[0]!.state, 'pending', 'an old exclusion must not suppress the now-eligible request')
+  await retried
+  assert.ok(fingerprinted.includes(sha(440)))
+  assert.equal((await plane.read(repo.dir, [sha(440)])).commits[0]!.reason, 'no-seat-evidence')
+  const stillOld = nextScan()
+  assert.equal((await plane.read(repo.dir, [sha(400)])).commits[0]!.state, 'pending')
+  await stillOld
+  assert.equal((await plane.read(repo.dir, [sha(400)])).commits[0]!.reason, 'not-observed')
+  assert.ok(!fingerprinted.includes(sha(400)))
+  assert.equal((await plane.status(repo.dir))[0]!.state, 'healthy')
+})
+
 test('a 500-commit repository opened at 450 captures the recent window and stops at its floor', async (t) => {
+  t.mock.method(performance, 'now', () => 0)
   const repo = await makeRepo()
   const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
   t.after(() => gitReader(handle).close())

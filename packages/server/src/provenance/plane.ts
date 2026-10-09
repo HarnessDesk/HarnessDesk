@@ -299,10 +299,18 @@ export class ProvenancePlane {
           openedAt = Math.min(openedAt, (entry.value as unknown as CommitObservation).firstSeenAt)
         }
       }
+      let excludedFloor = checkpoint?.historyFloor ?? Infinity
       const observer = new RefObserver({
         git, journal: state.journal, now, openedAt,
-        historyFloor: () => Math.max(0, state.seats.reduce((earliest, seat) =>
-          seat.restored ? earliest : Math.min(earliest, seat.openedAt), openedAt) - 86400000),
+        historyFloor: () => {
+          const floor = Math.max(0, state.seats.reduce((earliest, seat) =>
+            seat.restored ? earliest : Math.min(earliest, seat.openedAt), openedAt) - 86400000)
+          // An exclusion proves only that an ID predates this window. Clear
+          // before this scan adds exclusions under an earlier local Seat floor.
+          if (floor < excludedFloor) state.excluded.clear()
+          excludedFloor = Math.min(excludedFloor, floor)
+          return floor
+        },
         outsideWindow: (sha) => { state.pending.delete(sha); state.excluded.add(sha) },
         changed: () => {
           void this.#load(state).then(() => { state.catchingUp = false; this.#publish(state) })

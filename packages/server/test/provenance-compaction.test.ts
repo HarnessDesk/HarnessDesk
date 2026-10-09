@@ -126,6 +126,50 @@ test('automatic compaction failure leaves validated history and backups readable
   assert.deepEqual(readCheckpoint(reopened.entries), checkpoint())
 })
 
+for (const retry of ['compact', 'checkpoint']) test(`sparse replay after failed opening compaction supports a ${retry} retry`, async (t) => {
+  const file = join(tempDir('compact-sparse-retry-'), 'provenance.ndjson')
+  let seq = 0
+  const lines: string[] = []
+  const append = (kind: string, value: unknown): number => {
+    const body = { version: 1, seq: ++seq, kind, value }
+    lines.push(JSON.stringify({ ...body, checksum: digest(body) }))
+    return seq
+  }
+  append('gap', gap('kept'))
+  for (let generation = 1; generation <= 3; generation += 1) {
+    const value = checkpoint(generation)
+    const bytes = JSON.stringify(value)
+    const hash = digest(value)
+    const parts: number[] = []
+    for (let offset = 0; offset < bytes.length; offset += 12000) {
+      parts.push(append('cursor', { id: digest(['part', hash, offset]), type: 'part', bytes: bytes.slice(offset, offset + 12000) }))
+    }
+    append('cursor', { id: digest(['checkpoint', hash]), type: 'checkpoint', parts, hash })
+  }
+  await fs.writeFile(file, `${lines.join('\n')}\n`)
+  const original = await fs.readFile(file)
+  const journal = new ProvenanceJournal(file, { compactOnOpen: true })
+  const rename = t.mock.method(fs, 'rename', async () => { throw new Error('injected-sparse-rename') })
+  await assert.rejects(journal.read(), /injected-sparse-rename/)
+  rename.mock.restore()
+  assert.deepEqual(await fs.readFile(file), original)
+  const sparse = await journal.read()
+  assert.equal(sparse.broken, false)
+  assert.ok(sparse.entries.at(-1)!.seq > sparse.entries.length)
+  assert.deepEqual(readCheckpoint(sparse.entries), checkpoint(3))
+  assert.equal(await journal.append('gap', gap('later')), seq + 1, 'appends follow the durable sequence, not the retained count')
+  if (retry === 'compact') assert.equal(await journal.compact(true), true, 'retry must replace the still-uncompacted file')
+  else await writeCheckpoint(journal, checkpoint(4))
+  const refreshed = await journal.read({ after: sparse.entries.length, generation: sparse.generation })
+  assert.ok(refreshed.generation > sparse.generation)
+  const reopened = await journalAt(file).read()
+  assert.equal(reopened.broken, false)
+  assert.equal(reopened.entries.at(-1)!.seq, reopened.entries.length)
+  assert.deepEqual(readCheckpoint(reopened.entries), checkpoint(retry === 'compact' ? 3 : 4))
+  assert.deepEqual(await exportProvenance({ projects: async () => ['/work/project'], journal: () => journal }),
+    { version: 1, projects: [{ project: '/work/project', entries: ['kept', 'later'].map((id) => ({ kind: 'gap', value: gap(id) })) }] })
+})
+
 
 test('concurrent checkpoint writes and compaction cannot renumber parts still being written', async () => {
   const journal = journalAt(join(tempDir('compact-concurrent-'), 'provenance.ndjson'))

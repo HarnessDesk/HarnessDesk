@@ -140,7 +140,6 @@ export class ProvenanceJournal {
     const cursors = new Map<number, JournalEntry>()
     const positions = new Map<number, { position: number; length: number }>()
     let position = 0
-    let removed = 0
     try {
       for await (const bytes of createReadStream(this.#file, { highWaterMark: 16 * 1024 })) {
         pending = Buffer.concat([pending, bytes as Buffer])
@@ -173,7 +172,7 @@ export class ProvenanceJournal {
                   cursors.set(seq, { seq: body.seq, kind: body.kind, value: body.value })
                 } finally { await file.close() }
               }
-              for (const seq of cursors.keys()) if (!keep.has(seq)) { cursors.delete(seq); removed += 1 }
+              for (const seq of cursors.keys()) if (!keep.has(seq)) cursors.delete(seq)
             }
           } else {
             this.#entries.push(entry)
@@ -194,7 +193,7 @@ export class ProvenanceJournal {
       this.#ids = new Map(this.#entries.map((entry) => [keyOf(entry.kind, entry.value), entry.seq]))
       if (!this.#broken) {
         try {
-          await this.#compactLoaded(true, removed > 0)
+          await this.#compactLoaded(true)
         } catch (error) {
           // Replay has already validated and retained the original history.
           // Report this replacement failure once, without poisoning later
@@ -240,7 +239,9 @@ export class ProvenanceJournal {
   async #appendLoaded(kind: JournalKind, saved: unknown): Promise<number> {
     if (this.#broken) throw new Error('provenance-journal-damaged')
     if (this.#failed) throw this.#failed
-    if (!validValue(kind, saved, this.#entries.length)) throw new Error('provenance-invalid-record')
+    // Opening replay may have dropped obsolete cursors before replacement
+    // failed. Its retained count is not the original file's sequence prefix.
+    if (!validValue(kind, saved, this.#sequence)) throw new Error('provenance-invalid-record')
     const key = keyOf(kind, saved)
     const existing = this.#ids.get(key)
     if (existing !== undefined) return existing
@@ -288,7 +289,7 @@ export class ProvenanceJournal {
     return next
   }
 
-  async #compactLoaded(force: boolean, removedOnOpen = false): Promise<boolean> {
+  async #compactLoaded(force: boolean): Promise<boolean> {
     if (this.#broken) throw new Error('provenance-journal-damaged')
     if (this.#failed) throw this.#failed
     const manifest = this.#entries.findLast((entry) => entry.kind === 'cursor' &&
@@ -307,8 +308,11 @@ export class ProvenanceJournal {
       if (entry.kind !== 'cursor' || keep.has(entry.seq)) retained.push(entry)
       else { obsolete += 1; bytes += Buffer.byteLength(JSON.stringify(entry.value)) }
     }
-    if (!obsolete && !removedOnOpen) return false
-    if (!force && obsolete * 2 <= this.#entries.length && bytes < 32 * 1024 * 1024) return false
+    // Sparse sequences mean opening replay removed cursors only in memory.
+    // Until rename succeeds, that replacement remains due, including retries.
+    const sparse = this.#sequence > this.#entries.length
+    if (!obsolete && !sparse) return false
+    if (!force && !sparse && obsolete * 2 <= this.#entries.length && bytes < 32 * 1024 * 1024) return false
     // Validate before writing anything; a bad latest manifest must not erase
     // the original bytes or fall back to a superseded decision checkpoint.
     readCheckpoint(this.#entries)
