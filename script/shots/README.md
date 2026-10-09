@@ -35,6 +35,50 @@ at September 30, 2026, with the camera in America/Los_Angeles. A month-end
 camera gives the year grid room to name its final month. The manifest records
 each crop's logical size and scale. Open every PNG after the automated audit.
 
+## Looping website clips
+
+```sh
+node script/shots/shoot.mjs --site-clips --out .lead-out/site-clips
+node script/shots/shoot.mjs --site-clips --scene browser --theme dark --out /tmp/hd-clips
+node --test script/shots-clips.test.mjs
+```
+
+`--out` is required. This headless preview take needs no agent, account, native
+window or seeded desk. It records `teams`, `run`, `race`, `browser`, `handoff`,
+`library`, `permissions` and `dashboard` in light and dark. Every story lasts
+eight seconds at 24 fps. Playwright's clock advances once per frame while the
+date stays frozen at September 30, 2026. Device scale is 2, with a 720–960px
+camera viewport and a fixed crop measured from the production DOM edges across
+the story. The recorder injects the neutral pointer and eases it between real
+targets; actual mouse events drive the shipped controls.
+
+The Runs stage the same synthetic round records that make the stills, through
+the production Run selector. The Teams camera opens the existing start-preview
+fields and Seats in a dialog; it illustrates preparation, without starting
+work. The permissions camera uses the existing plugin enable switch beside
+Tools and Access: Access rows currently describe grants and are not editable
+per grant. Dashboard visits Plans (the account limits), Spend, Activity's
+By agent and Year views, using the same fictional year as the stills.
+All Browser requests to `acme.dev` are fulfilled from `acme-storefront.html`;
+other external requests are blocked.
+
+Every parent and embedded document passes `audit.mjs` before each frame is
+written. A mismatching first/last source frame refuses encoding. Existing
+assets referenced by README or documentation cannot be overwritten, including
+through directory aliases. H.264 video uses `yuv420p`, CRF 24, fast start and no
+audio; encoded clips are at most 1600px wide and 1.5 MB. Each take writes
+`<scene>-<theme>.mp4`, a first-frame `.webp` and `.jpg`, plus `clips.json` with
+the crop size, scale, fps, duration, bytes, caption and loop hashes. `sheet.png`
+shows first, middle and last frames for each take. Inspect every poster and the
+sheet before publishing; keep generated media outside the committed code.
+
+The supplied ffmpeg build lacks a WebP encoder, so posters use the installed
+`cwebp` tool. Defaults are `/opt/homebrew/bin/ffmpeg` and
+`/opt/homebrew/bin/cwebp`; override `HD_SHOTS_FFMPEG`, `HD_SHOTS_FFPROBE` and
+`HD_SHOTS_CWEBP` for another installation. Clips are recorded serially; on a
+shared worker, run the take through the machine-wide gate. For a local Lead
+handoff, add `.lead-out/` to `.git/info/exclude` before capturing the set.
+
 ## Scripted repair loop
 
 Build the Node packages and renderer, then record a complete repair loop without

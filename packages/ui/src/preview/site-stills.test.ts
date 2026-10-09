@@ -1,8 +1,30 @@
 import { describe, expect, it, vi } from 'vitest'
 import { runTimeline } from '../lib/run-timeline'
-import { SITE_NOW, siteHistory, siteLedger, siteRun, siteUsage, siteStartPreview } from './site-stills-data'
+import { SITE_NOW, siteHistory, siteLedger, siteRun, siteUsage, siteStartPreview, siteClipRun } from './site-stills-data'
 
 describe('compact website fixtures', () => {
+  it('arrives in recorded round order, keeps open findings until repair and withholds race picks until the judge closes', () => {
+    for (let stage = 0; stage < 5; stage++) {
+      const input = siteClipRun('review', stage)
+      expect(input.execution.rounds).toHaveLength(stage + 1)
+      expect(input.execution.rounds.at(-1)?.state).toBe('running')
+      expect(input.cards.filter(card => card.state === 'done')).toHaveLength(stage)
+      expect(input.cards.at(-1)?.state).toBe(stage === 4 ? 'open' : 'claimed')
+      if (stage < 4) expect(runTimeline(input).rows.some(row => row.kind === 'card' && row.working)).toBe(true)
+      expect(input.findings?.length).toBe(stage >= 2 ? 1 : 0)
+      if (stage === 2) expect(input.findings![0]!.lifecycle.state).toBe('open')
+      if (stage === 4) {
+        const rows = runTimeline(input).rows
+        expect(rows.some(row => row.status === 'Request changes')).toBe(true)
+        expect(rows.some(row => row.status === 'Approve')).toBe(true)
+        expect(rows.some(row => row.kind === 'person')).toBe(true)
+      }
+    }
+    expect(runTimeline(siteClipRun('race', 0)).rows.filter(row => row.keep)).toHaveLength(0)
+    expect(runTimeline(siteClipRun('race', 1)).rows.filter(row => row.keep)).toHaveLength(0)
+    expect(runTimeline(siteClipRun('race', 2)).rows.filter(row => row.keep).map(row => row.keep)).toEqual(['kept', 'not-kept'])
+    expect(siteClipRun('review', 0)).toEqual(siteClipRun('review', 0))
+  })
   it('keeps website usage independent when the Dashboard stages its four accounts', async () => {
     vi.resetModules()
     const { previewUsage } = await import('./sidebar-fixture')

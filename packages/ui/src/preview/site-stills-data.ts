@@ -130,6 +130,30 @@ export const siteRun = (kind: 'review' | 'race'): RunTimelineInput => {
   return { execution, cards, evidence, findings }
 }
 
+/** Recorder stages, using the same records and selector as the frozen posters. */
+export const siteClipRun = (kind: 'review' | 'race', stage: number): RunTimelineInput => {
+  const input = siteRun(kind)
+  const count = Math.max(1, Math.min(input.execution.rounds.length, stage + 1))
+  const rounds = input.execution.rounds.slice(0, count).map((round, index) => ({ ...round,
+    state: index === count - 1 ? 'running' as const : 'closed' as const,
+  }))
+  const active = new Set(rounds.at(-1)!.cards)
+  const visible = new Set(rounds.flatMap(round => round.cards))
+  return { ...input, execution: { ...input.execution, rounds,
+    operations: input.execution.operations.filter(operation => operation.card !== null && visible.has(operation.card)).map(operation => ({ ...operation,
+      state: operation.card !== null && active.has(operation.card) ? 'started' as const : 'finished' as const,
+    })),
+  }, cards: input.cards.filter(card => visible.has(card.id)).map(card => active.has(card.id)
+    ? { ...card, state: card.role === 'person' ? 'open' as const : 'claimed' as const, outcome: null, note: null,
+      claim: card.role === 'person' ? null : { runtime: runtimeId('codex'), sessionId: `site-conversation-${card.id}`, at: card.createdAt },
+    } : card),
+  evidence: { ...input.evidence!, cards: kind === 'race' && stage < 2 ? [] : input.evidence!.cards },
+  findings: kind === 'review' && stage >= 2 ? input.findings!.map(finding => ({ ...finding,
+    lifecycle: stage === 2 ? { state: 'open' as const, confirmed: false, repairs: [] }
+      : { ...finding.lifecycle, confirmed: stage >= 4 },
+  })) : [] }
+}
+
 /** The top excerpt keeps every Seat; the frozen Flow owns its roles and ceilings. */
 export const siteStartPreview = (): FlowPreview => {
   const saved = siteRun('review').execution.document
