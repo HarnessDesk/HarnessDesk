@@ -453,6 +453,7 @@ test('strict token cannot downgrade', async () => {
   const startedAt = (index: number) => started[index]!
   const ctx = {
     flowPreviews: previews,
+    workspaces: { admitTeamProject: async () => {} },
     flows: { startGoal: async (request: never) => { started.push(request); return { id: 'run' } } },
   } as never
   const binding = { requireHeld: true as const, target: { context: { kind: 'project' as const, root: '/repo' }, facts: 'facts-1', resolved: null }, goal: { id: 'goal-1', revision: 4 } }

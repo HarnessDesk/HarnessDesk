@@ -7,6 +7,29 @@ the rule is the last line of its section.
 
 ---
 
+## A Team start admits only the project the person selected
+
+Starting a Team is an explicit choice of its project folder, as opening that
+folder is. Older remembered projects and folders known only from conversation
+history have no captured shell identity. The preview checks that the selected
+folder and the first round's checkout can be admitted, including the Git parent
+and writable destination of isolated attempts, without saving authority or
+allocating a lane. After redeeming that exact preview, Start captures the folder
+through the same `captureShellProject` path as workspace open.
+
+The admission belongs to the start request's project, never a folder named by
+the Flow, a card, an agent or a conversation listing. An existing captured
+identity is revalidated rather than silently replaced. Subsequent Seat openings
+still check the stored identity and the checkout's repository relationship.
+Thus a legacy record can start the Team the person chose without letting agent
+output or arbitrary checkout paths grant shell authority.
+
+If Seat opening fails, the host releases the unused lane's ports only when its
+revision is known, clean and unchanged since allocation, and no Seat, turn or
+server remains active. Changed or unreadable work is retained for review.
+
+---
+
 ## Storage cleanup is reviewed on demand and keeps every branch
 
 Settings › Conversations › Storage measures the conversation database and its

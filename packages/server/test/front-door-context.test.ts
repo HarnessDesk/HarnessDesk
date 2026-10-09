@@ -74,6 +74,7 @@ const frontDoor = (gh: Gh = async () => ({ stdout: '', exitCode: 1 }), confine: 
   }
   const started: unknown[] = []
   const ctx = {
+    workspaces: { admitTeamProject: async () => {} },
     flowPreviews: previews,
     flows: { startGoal: async (request: unknown) => { started.push(request); return { id: 'run-1' } } },
   } as unknown as HostContext
