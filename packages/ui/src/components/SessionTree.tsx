@@ -1316,7 +1316,11 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
 export const useProjectGroups = (options: { searching?: boolean } = {}): ProjectGroup[] =>
   useProjectList(options).groups
 
-export const SessionTree = ({ now, searching = false }: { now: number; searching?: boolean }) => {
+export const SessionTree = ({ now, searching = false, searchEmptyState = null }: {
+  now: number
+  searching?: boolean
+  searchEmptyState?: ReactNode
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const treeRef = useRef<HTMLDivElement>(null)
@@ -1575,6 +1579,11 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
     }
   }, [])
   const teamRows = new Map(teamsInput(snapshot).map(input => [input.team.id, teamListRow(input)]))
+  // A fold hides matches without removing them from the search results.
+  const hasSearchRows = pinnedRows.length > 0 || groups.some((group) =>
+    group.sessions.some((summary) => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))))
+    || projectRoots(group).some((root) => (roomsByProject.get(root) ?? []).some((room) => teamRows.get(room.id)?.active)),
+  )
   // A Seat's own checkout can differ from the project that holds its Team.
   const activeTeam = activeKey === null ? null : [...snapshot.teams.values()].find(room =>
     teamRows.get(room.id)?.active && teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
@@ -1759,7 +1768,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
           onNewWorktree={(root) => store.askNewWorktree(root)}
           drag={drag}
         />
-        {open && allRooms.length === 0 && group.sessions.length === 0 && (
+        {open && !searching && allRooms.length === 0 && group.sessions.length === 0 && (
           <Text as="div" role="meta" className={styles.groupBlank}>
             No conversations yet — ⌘N starts one here.
           </Text>
@@ -1809,7 +1818,10 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
     )
   }
 
-  return (
+  const nearContent = near.map(renderGroup)
+  const farContent = othersOpen ? far.map(renderGroup) : null
+
+  const tree = (
     <div ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>('[data-virtual-index]')
       const root = row?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot
@@ -1826,7 +1838,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
           <Separator />
         </SidebarGroup>
       )}
-      {near.map(renderGroup)}
+      {nearContent}
       {far.length > 0 && (
         <div>
           <SidebarMenu><SidebarMenuItem>
@@ -1852,7 +1864,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
             />
             <SidebarMenuBadge aria-label={`${far.length} other projects`}>{far.length}</SidebarMenuBadge>
           </SidebarMenuItem></SidebarMenu>
-          {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}{goneLine}</SidebarGroupContent>}
+          {othersOpen && <SidebarGroupContent>{farContent}{goneLine}</SidebarGroupContent>}
         </div>
       )}
       {far.length === 0 && goneLine}
@@ -1865,4 +1877,5 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
       </div>
     </div>
   )
+  return <>{tree}{searching && !hasSearchRows && searchEmptyState}</>
 }

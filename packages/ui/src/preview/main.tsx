@@ -74,7 +74,11 @@ import {
 import { PublicationCard } from '../components/Publication'
 import { usagePreviewStore } from './usage-fixture'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
-import { sidebarProjectsFixture, sidebarProjectsUnloadedSearchFixture } from './sidebar-projects-fixture'
+import {
+  sidebarOpenSearchFixture,
+  sidebarProjectsFixture,
+  sidebarProjectsUnloadedSearchFixture,
+} from './sidebar-projects-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
@@ -172,6 +176,7 @@ const emptyConversationStore = SHOW_EMPTY ? previewStore({
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
 const sidebarProjectsSearchBeforeStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot(), true))
+const sidebarOpenSearchStore = previewStore(sidebarOpenSearchFixture(store.getSnapshot()))
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -1048,7 +1053,9 @@ const Preview = () => {
             className="h-[720px]"
             style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}
           >
-            <Mount with={SIDEBAR_VARIANT_PARAM === 'projects-search-before'
+            <Mount with={SIDEBAR_VARIANT_PARAM === 'open-search'
+              ? sidebarOpenSearchStore
+              : SIDEBAR_VARIANT_PARAM === 'projects-search-before'
               ? sidebarProjectsSearchBeforeStore
               : SIDEBAR_VARIANT_PARAM === 'projects-search'
                 ? sidebarProjectsSearchStore
