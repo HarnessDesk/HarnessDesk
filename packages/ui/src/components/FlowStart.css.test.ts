@@ -14,6 +14,7 @@ describe('New Team seat controls', () => {
     expect(source).toContain('className={styles.agentSelect}')
     expect(source).toContain('title={selectedRuntime?.presentation.name}')
     expect(body('.agentSelect select')).toMatch(/text-overflow:\s*ellipsis/)
+    expect(body('.roleControls')).toMatch(/grid-template-columns:\s*minmax\(0,\s*3fr\)\s+minmax\(0,\s*2fr\)\s+minmax\(0,\s*2fr\)/)
   })
 
   it('keeps the review chip at the standard gap from its label', () => {

@@ -10,7 +10,7 @@
 
 .roleControls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, 2fr);
   gap: var(--hd-space-2);
   min-width: 0;
   width: 19em;
