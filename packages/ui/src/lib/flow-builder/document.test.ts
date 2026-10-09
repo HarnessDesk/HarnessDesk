@@ -7,6 +7,7 @@ import { writeShape } from '../../../../server/dist/src/authoring/model.js'
 import { flowLayout } from '../flow-layout'
 import { flowModel } from '../flow-model'
 import { emptyShapePolicy } from '../shapes'
+import { withAttemptCheck } from '../team-start'
 import {
   createDocument, documentGraph, graphDocument, sourceRequest, documentPolicy, builderProblems,
   addStep, moveStep, renameStep, deleteStep,
@@ -208,7 +209,8 @@ describe('the builder document', () => {
 
   it('reports an independentOf parent whose predecessor path was removed', () => {
     const source = shipped['../../../../server/flows/comparison.yml'] as string
-    const document = createDocument(policyOf(source))
+    const template = policyOf(source)
+    const document = createDocument(withAttemptCheck(template, template, 'pnpm test'))
     const verify = document.steps.find((step) => step.role === 'verify')!
     const judge = document.steps.find((step) => step.role === 'judge')!
     const deleted = deleteStep(document, verify.id)

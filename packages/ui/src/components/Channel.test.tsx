@@ -668,3 +668,16 @@ it('draws your face at the cost of anyone else’s row — no subscription of it
   }
   expect(await subscriptions('user')).toBe(await subscriptions('agent'))
 })
+
+it('names Flow-created cards and host-run checks, and writes each Seat fact once', async () => {
+  const { store } = rig({ channel: [
+    { id: 'flow-added', at: 7, kind: 'signal', by: { kind: 'flow', name: 'Side by side' }, signal: 'added', intent: 3, title: 'Check the attempt', detail: null },
+    { id: 'flow-done', at: 8, kind: 'signal', by: { kind: 'flow', name: 'Side by side' }, signal: 'completed', intent: 3, title: 'Check the attempt', detail: 'check answered pass' },
+    { id: 'seat-done', at: 9, kind: 'signal', by: { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'Implementer', nickname: 'Implementer · Scripted writer · GPT-5.5 · medium' }, signal: 'completed', intent: 1, title: 'Repair checkout', detail: null },
+  ] } as Partial<TeamState>)
+  await render(store)
+  expect(container.textContent).toContain('The Flow Side by side added #3')
+  expect(container.textContent).toContain('The Flow Side by side completed #3')
+  expect(container.textContent).not.toContain('You added')
+  expect(container.textContent).not.toContain('(Implementer)')
+})

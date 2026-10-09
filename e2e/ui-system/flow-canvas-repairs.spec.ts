@@ -25,6 +25,24 @@ const nodesInCanvas = async (pane: Locator) => {
 
 for (const theme of ['light', 'dark'] as const) {
   test.describe(`canvas repair contracts in ${theme}`, () => {
+    test('keeps the whole working role name clear of its state badge', async ({ page }) => {
+      await page.route('**/lib/flow-model.ts', async route => {
+        const response = await route.fetch()
+        const body = (await response.text()).replace(/const name = stepName\(role.id\);?/, 'const name = role.id === "fix" ? "Competitor" : stepName(role.id);')
+        await route.fulfill({ response, body })
+      })
+      const pane = await run(page, theme)
+      const step = pane.locator('[data-step="fix"]')
+      const name = step.locator('[title="Competitor"]')
+      await expect(name).toHaveText('Competitor')
+      await page.evaluate(async () => { await document.fonts.ready })
+      expect(await name.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false)
+      expect(await step.evaluate(el => {
+        const name = el.querySelector('[title="Competitor"]')!.getBoundingClientRect()
+        const state = el.querySelector('[data-slot="flow-state"]')!.getBoundingClientRect()
+        return name.left < state.right && name.right > state.left && name.top < state.bottom && name.bottom > state.top
+      })).toBe(false)
+    })
     test.beforeEach(async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
     })
@@ -146,6 +164,7 @@ for (const theme of ['light', 'dark'] as const) {
         const canvas = pane.locator('[data-slot="flow-canvas"]')
         await nodesInCanvas(pane)
         await expect.poll(() => zoomOf(canvas)).toBeLessThan(0.6)
+        await expect(canvas.locator('.react-flow__minimap')).toHaveCount(0)
         const folder = process.env.FLOW_REPAIR_FRAMES_DIR
         if (folder && width === 520) {
           await mkdir(folder, { recursive: true })

@@ -535,11 +535,11 @@ export const RoomComposer = ({
     },
     over && {
       tone: 'warn',
-      text: `${draft.length.toLocaleString()} characters — the room's limit is ${limit.toLocaleString()}. Put long material on the board as a context package.`,
+      text: `${draft.length.toLocaleString()} characters — the Team's limit is ${limit.toLocaleString()}. Put long material on the board as a context package.`,
     },
     empty && {
       tone: 'muted',
-      text: 'No agents in this room yet. Add one from the roster.',
+      text: 'No agents in this Team yet. Add one from the members menu.',
     },
     recipients.some((one) => one.unavailable) && {
       tone: 'warn',
@@ -673,7 +673,7 @@ export const RoomComposer = ({
         ref={textarea}
         value={draft}
         disabled={record}
-        placeholder={record ? RECORD_REASON : tilePrompt ?? (defaultAudience ? 'Describe a task — @ to address someone' : "Message the room — @ to address someone")}
+        placeholder={record ? RECORD_REASON : tilePrompt ?? (defaultAudience ? 'Describe a task — @ to address someone' : 'Message the Team — @ to address someone')}
         onChange={(event) => change(event.target.value)}
         onKeyDown={onKeyDown}
       />
@@ -688,7 +688,7 @@ export const RoomComposer = ({
              told what the button is for and not what it currently says. */
           title={
             chosen.length === 0
-              ? defaultAudience ? 'This message reaches everyone on the grid' : 'This message reaches everyone in the room'
+              ? defaultAudience ? 'This message reaches everyone on the grid' : 'This message reaches everyone in the Team'
               : `This message reaches ${audienceLabel(chosen)}`
           }
           label={
@@ -712,7 +712,7 @@ export const RoomComposer = ({
               </> : <>
               <MenuItem
                 icon={<TeamIcon />}
-                label={defaultAudience ? 'Everyone on the grid' : 'Everyone in the room'}
+                label={defaultAudience ? 'Everyone on the grid' : 'Everyone in the Team'}
                 selected={chosen.length === 0}
                 onSelect={() => setTo([])}
               />
@@ -753,7 +753,7 @@ export const RoomComposer = ({
                 /* Not yet answered is not the same fact as nobody here, and
                    only one of the two is a claim this surface may make. */
                 <MenuNote>
-                  {known ? 'No agents in this room yet.' : 'Still asking the host who is in the room.'}
+                  {known ? 'No agents in this Team yet.' : 'Loading the Team’s members…'}
                 </MenuNote>
               )}
               </>}

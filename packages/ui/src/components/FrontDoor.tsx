@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Text, Textarea } from '../design'
-import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary } from '../lib/team-start'
+import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, withAttemptCheck } from '../lib/team-start'
 import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, TeamIcon } from './Icons'
 import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
@@ -170,7 +170,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       setStartProblem(null)
       try {
         const draft = drafts.current.get(`${entry.origin}:${entry.id}`)
-        const text = draft?.source ?? await store.flowSource(root, entry.id, entry.origin)
+        let text = draft?.source ?? await store.flowSource(root, entry.id, entry.origin)
         if (mine !== sequence.current) return
         setSource(text)
         // A first, throwaway dry run with no variables typed — only to learn
@@ -180,6 +180,17 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         if (mine !== sequence.current) return
         const policy = learn.flow.compiled.document.format === 'agents' ? learn.flow.compiled.document.flow : null
         templates.current = draft?.template ?? policy
+        // The suggestion is a first-use default. A saved check or a draft
+        // the person cleared remains theirs, including an empty command.
+        if (!draft && policy && learn.projectCheckCommand && policy.roles.some(role => role.id === 'competitor') && policy.roles.some(role => role.id === 'judge') && !policy.roles.some(role => role.kind === 'check')) {
+          setPolicyPending(true)
+          const rendered = await store.renderShape(withAttemptCheck(policy, policy, learn.projectCheckCommand))
+          if (mine !== sequence.current) return
+          if (rendered.issues.length > 0 || !rendered.source) throw new Error(rendered.issues.map(issue => issue.text).join(' ') || 'That check could not be prepared.')
+          text = rendered.source
+          setSource(text)
+          setPolicyPending(false)
+        }
         const inputs = learn.flow.compiled.document.format === 'agents' ? learn.flow.compiled.document.flow.inputs : []
         const primary = inputs.find(input => input.id !== 'brief' && (!policy || !boundInputValues(policy).has(input.id)))
         const defaults = { ...Object.fromEntries(inputs.map((input) => [input.id, learn.vars[input.id] ?? input.default ?? ''])), ...draft?.vars }
@@ -187,9 +198,10 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         else if (primary) { taskRef.current = defaults[primary.id] ?? ''; setTask(taskRef.current) }
         else if (context.kind === 'project' && !taskRef.current) { taskRef.current = learn.sentence; setTask(learn.sentence) }
         setVars(defaults)
-        if (inputs.length > 0) await runPreview(text, defaults)
+        if (inputs.length > 0 || text !== learn.source) await runPreview(text, defaults)
       } catch (error) {
         if (mine !== sequence.current) return
+        setPolicyPending(false)
         setProblem(error instanceof Error ? error.message : 'That shape could not be read.')
       }
     },
@@ -263,7 +275,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     try {
       const execution = await store.startFlowGoal({
         root,
-        source,
+        source: preview.source,
         token: preview.flow.token,
         sentence: sentence.trim() || task.trim().slice(0, 2000) || preview.sentence,
         vars: preview.vars,

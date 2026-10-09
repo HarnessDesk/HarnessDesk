@@ -1497,6 +1497,8 @@ export class Team {
     context?: string,
     /** Host-owned provenance from the client door; never accepted in wire params. */
     client?: string,
+    /** Automatic work carries the Flow's origin, never a person supplied field. */
+    origin?: Extract<TeamActor, { kind: 'flow' | 'trigger' }>,
   ): Promise<void> {
     /* An answer is first only once it is saved. While one is still being
        saved the board already reads as answered — the next change is built on
@@ -1531,7 +1533,7 @@ export class Team {
     if (client !== undefined && action === 'done' && !person!.outcomes.includes(outcome?.trim() ?? '')) {
       throw Object.assign(new Error('This outcome is not an answer the person role declares.'), { wireCode: 'refused' })
     }
-    const by: TeamActor = { kind: 'user' }
+    const by: TeamActor = origin ?? { kind: 'user' }
     if (action === 'block') {
       /* `blockedBy: 'hand'`, the same as an agent's `release(blocked)`: a
          completed dependency must never silently restart work somebody
@@ -1596,7 +1598,7 @@ export class Team {
            finished card done by hand does not erase the package it left. */
         ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
-      this.#signal(board, by, 'completed', intent, client !== undefined ? `answered from the command line (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
+      this.#signal(board, by, 'completed', intent, origin ? `check answered ${said}` : client !== undefined ? `answered from the command line (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
       undo.mark()
       const saved = this.#commit(board, true, undo)

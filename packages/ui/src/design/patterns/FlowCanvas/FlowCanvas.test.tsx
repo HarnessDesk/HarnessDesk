@@ -404,11 +404,22 @@ it('keeps the minimap off the title when the tools leave no other corner free', 
   vi.restoreAllMocks()
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return isTitle(this) ? 150 : 480 })
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return isTitle(this) ? 20 : 200 })
-  await draw({ nodes: [], edges: [], readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
+  const far: FlowCanvasNode = { id: 'far', position: { x: 0, y: 0 }, size: { width: 232, height: 108 }, data: { name: 'Far step', kind: 'agent' } }
+  await draw({ nodes: [far], edges: [], readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
+  await draw({ nodes: [{ ...far, position: { x: 600, y: 0 } }], edges: [], readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
   await vi.waitFor(() => expect(host.querySelector('.react-flow__minimap')).not.toBeNull())
   const map = host.querySelector<HTMLElement>('.react-flow__minimap')!
   // React Flow's 15px panel margin sits outside the style offsets, and the title sits inside the same margin.
   const left = parseFloat(map.style.left) + 15, top = parseFloat(map.style.top) + 15
   const right = left + parseFloat(map.style.width), bottom = top + parseFloat(map.style.height)
   expect(left < 15 + 150 && right > 15 && top < 15 + 20 && bottom > 15).toBe(false)
+})
+
+it('omits the map while the whole plan fits and brings it back when the viewport loses a step', async () => {
+  const write: FlowCanvasNode = { id: 'write', position: { x: 0, y: 0 }, size: { width: 232, height: 108 }, data: { name: 'Write', kind: 'agent' } }
+  await draw({ nodes: [write], edges: [], readOnly: true })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+  expect(host.querySelector('.react-flow__minimap')).toBeNull()
+  await draw({ nodes: [{ ...write, position: { x: 1500, y: 0 } }], edges: [], readOnly: true })
+  await vi.waitFor(() => expect(host.querySelector('.react-flow__minimap')).not.toBeNull())
 })

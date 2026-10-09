@@ -1285,8 +1285,9 @@ export const TeamRoomPane = ({
             </Menu>}
           </Popover>
         </div>} />
-      {goal ? <GoalHeader view={goal} /> : null}
-      {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
+      {goal ? <GoalHeader view={goal} coveredProblem={flowExecution?.reason ?? timelineRun?.reason} /> : null}
+      {flowExecution?.state === 'stalled' && (open !== 'run' || timelineRun?.id !== flowExecution.id) && <PaneColumn inset="reading"><Button variant="link" size="inline" onClick={() => { setChosenRun(flowExecution.id); show('run') }}>Review stopped Run</Button></PaneColumn>}
+      {flowExecution ? <FlowRunStatus execution={flowExecution} checkRecovery={open !== 'run'} /> : null}
       {runs.map((execution, index) => {
         const failure = snapshot.flowStopProblems.get(execution.id)
         return failure ? <StopRunFailure key={execution.id} number={index + 1} message={failure.message}
@@ -1342,13 +1343,13 @@ export const TeamRoomPane = ({
               runName={flowExecution?.document.flow.name}
               runNeedsYou={needsYou || Boolean(pendingApproval)}
               onFindings={goal ? () => show('findings') : undefined}
-              runReason={flowExecution?.reason}
+              runReason={flowExecution?.state === 'stalled' ? null : flowExecution?.reason}
               runRules={flowExecution?.document.flow.rules}
               faceTints={new Map(seats.map(seat => [seat.record.id, runtimeTint(seat.record.session.runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs)]))}
               runtimeNames={new Map(seats.flatMap(seat => { const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime); return runtime ? [[seat.record.id, runtime.presentation.name]] : [] }))}
               timeline={overviewTimeline}
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
-              statusLine={(now, includeRunReason) => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason={includeRunReason} stoppingSessions={stoppingSessions} />}
+              statusLine={(now, includeRunReason) => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason={includeRunReason && flowExecution?.state !== 'stalled'} stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'run' && triggerKind && chosenRun === null ? null : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -2060,7 +2061,7 @@ const RoomLiveLine = ({
        again is this line's own way on (#998). When that cannot work — the
        Seat is gone, the card finished — the action stays, greyed, and the
        line says why: a control that vanished would say nothing at all. */
-    if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason) {
+    if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason && (includeRunReason || flowExecution.keptAnswer)) {
       reasonOnLiveLine = true
       const kept = flowExecution.keptAnswer
       const trail = kept ? (
@@ -2078,7 +2079,7 @@ const RoomLiveLine = ({
         <TurnWorkLive settled data-slot="room-live-line" data-kind="stall" {...(trail ? { trail } : {})}>
           <Dot state="limit" pulse />
           <span className="whitespace-pre-line">
-            {sentence(runReasonWords(flowExecution.reason, flowExecution.document.flow.rules))}
+            {includeRunReason ? sentence(runReasonWords(flowExecution.reason, flowExecution.document.flow.rules)) : 'Your answer is kept on this Run.'}
             {kept?.refusal ? ` ${sentence(kept.refusal)}` : ''}
           </span>
         </TurnWorkLive>

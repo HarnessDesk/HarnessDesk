@@ -1240,6 +1240,11 @@ returns to the picker and preserves the typed task and each shape's edits.
 Write and review has one fresh independent reviewer and a maximum of one,
 two or three reviews, then either a reviewed merge or a handoff to the person.
 
+Side by side's **Check each attempt with** starts with the project's declared
+test command when one is available. It can be changed before Start; the dry
+run shows the exact command for each attempt. Leaving it empty sends the
+attempts straight to the judge without a check round.
+
 The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
 refusal and fix rather than starting under a weaker policy. Git's branch
@@ -1309,9 +1314,10 @@ Arrow keys move focus through the tabs, including Side by side.
 
 Overview is the Team's first page tab and opens by default when the
 Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
-waits on you, why it stalled or stopped, and any release still pending. It
+waits on you, whether the Run stalled or stopped, and any release still pending. It
 also keeps the Run's reason for waiting on evidence or ending without a rule
-to continue, showing each reason once. The header keeps the revision it
+to continue. A stalled Run keeps its full refusal and recovery on Run;
+Overview, Board and Chat offer **Review stopped Run** to reach it. The header keeps the revision it
 reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**, above the rows.
@@ -1470,7 +1476,8 @@ side. It opens centred at 100% when the drawing fits; a smaller pane shrinks
 it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
 Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
 **The path this Run took** sits at the top left, and the minimap, where a clear
-spot is left, never covers it. Nodes cannot be moved or edited. The accessible
+spot is left, never covers it. The minimap appears only when steps extend beyond
+the viewport after panning or zooming. Nodes cannot be moved or edited. The accessible
 Steps and Rules list retains state and selection. While the Team’s Steps dock
 is open on its Steps tab, the list lives in the dock at every width, so the
 drawing keeps the whole pane. Outside the dock, and while it is put away,

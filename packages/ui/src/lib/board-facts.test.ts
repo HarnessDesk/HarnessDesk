@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { runtimeId, type FlowExecution, type FlowRun, type Intent } from '@harnessdesk/protocol'
 
 import { cardEvidence, checkView, ciView, diffView, prView } from '../preview/evidence-fixture'
-import { flowRoleOf, flowStepOf, placeCard, type PlaceInput } from './board-facts'
+import { flowRoleOf, flowStepOf, evidenceForCard, placeCard, type PlaceInput } from './board-facts'
 
 const intent = (over: Partial<Intent> = {}): Intent => ({
   id: 1,
@@ -34,6 +34,19 @@ const place = (over: Partial<PlaceInput> = {}) =>
   })
 
 const HELD = { runtime: runtimeId('alpha'), sessionId: 'c1', at: 1 }
+
+it('completed Flow obligations stay Ready while an unresolved failed check still needs attention', () => {
+  const card = intent({ role: 'writer' })
+  const execution = { state: 'running', document: { format: 'agents', flow: { roles: [{ id: 'writer', kind: 'agent' }] } }, rounds: [{ role: 'writer', cards: [card.id] }] } as unknown as FlowExecution
+  const flowStep = flowStepOf(card, undefined, [execution])
+  expect(flowStep?.fulfilled).toBe(true)
+  const input = { flowStep }
+  expect(place(input)).toEqual({ column: 'ready', why: null })
+  expect(place({ ...input, evidence: cardEvidence(1, [prView('open')]) })).toEqual({ column: 'ready', why: null })
+  expect(place({ ...input, evidence: cardEvidence(1, [checkView({ exit: 1 })]) })).toEqual({ column: 'needs', why: 'verify failed' })
+  expect(place({ flowStep, evidence: cardEvidence(1, [ciView(['pending'])]) })).toEqual({ column: 'review', why: 'CI running' })
+  expect(flowStepOf(intent({ id: 2, role: 'writer' }), undefined, [execution])).toBeNull()
+})
 
 describe('work that is not finished', () => {
   it('nobody has started is To do; its holder is on it is Working', () => {
@@ -256,4 +269,27 @@ describe('a card a Goal’s run addressed to the person', () => {
       why: 'run stopped',
     })
   })
+})
+
+it('uses each downstream check only for its recorded predecessor revision and checkout', () => {
+  const first = intent({ id: 1, role: 'writer' })
+  const second = intent({ id: 2, role: 'writer' })
+  const checks = [intent({ id: 3, role: 'verify', dependsOn: [1, 2] }), intent({ id: 4, role: 'verify', dependsOn: [1, 2] })]
+  const flow = { id: 'run', document: { format: 'agents', flow: { roles: [{ id: 'writer', kind: 'agent' }, { id: 'verify', kind: 'check' }] } }, rounds: [{ role: 'writer', cards: [1, 2] }, { role: 'verify', cards: [3, 4] }] } as unknown as FlowExecution
+  const diffA = diffView()
+  const diffB = { ...diffA, record: { ...diffA.record, checkout: { cwd: '/repo/other-attempt', branch: 'other' } } }
+  const qualified = (diff: typeof diffA, exit: number) => {
+    const view = checkView({ at: diff.record.fact.kind === 'diff' ? diff.record.fact.to : '', exit })
+    return { ...view, record: { ...view.record, checkout: diff.record.checkout } }
+  }
+  const board = { room: 'board', stamp: 1, checks: [], refused: [], unreadable: null, cards: [cardEvidence(1, [diffA]), cardEvidence(2, [diffB]), cardEvidence(3, [qualified(diffA, 0)]), cardEvidence(4, [qualified(diffB, 1)])] } as import('@harnessdesk/protocol').BoardEvidence
+  const cards = [first, second, ...checks]
+  expect(place({ evidence: evidenceForCard(first, cards, board, undefined, [flow]) })).toEqual({ column: 'ready', why: null })
+  expect(place({ evidence: evidenceForCard(second, cards, board, undefined, [flow]) })).toEqual({ column: 'needs', why: 'verify failed' })
+  const both = { ...board, cards: [...board.cards.slice(0, 3), cardEvidence(4, [qualified(diffB, 0)])] }
+  expect(place({ evidence: evidenceForCard(second, cards, both, undefined, [flow]) })).toEqual({ column: 'ready', why: null })
+  const wrongHead = { ...board, cards: [...board.cards.slice(0, 2), cardEvidence(3, [checkView({ at: 'unrelated' })])] }
+  expect(evidenceForCard(first, cards, wrongHead, undefined, [flow])?.facts).toEqual([diffA])
+  const unrelated = cards.map(card => card.id === 3 ? { ...card, dependsOn: [] } : card)
+  expect(evidenceForCard(first, unrelated, both, undefined, [flow])?.facts).toEqual([diffA])
 })

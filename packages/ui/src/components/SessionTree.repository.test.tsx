@@ -484,6 +484,7 @@ const seatRig = (members: Array<{ id: string; role: string | null; name?: string
     members: members.map((member, index) => ({
       id: `seat-${index}`, session: { runtime: runtime.id, sessionId: member.id }, role: member.role, openedAt: 1,
       closed: null, agent: { name: member.name ?? 'Claude Code' }, seatLabel: 'agent · model',
+      checkout: { project: WIDGETS, cwd: WIDGETS, branch: 'feature/retry', isolated: false },
     })),
   } as unknown as GoalView
   const rig = mount(rows, { teams: new Map([[team.id, team]]), goals: new Map([[team.id, goal]]) })

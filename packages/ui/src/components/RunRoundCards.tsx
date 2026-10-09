@@ -84,7 +84,7 @@ const Card = ({ row, attempts, context }: { row: RunTimelineRow; attempts: reado
   const meta = row.attempt ? sanitizeText(seat?.detail ?? seat?.name ?? '') : seat?.detail ? sanitizeText(seat.detail) : undefined
   const change = row.change
   const facts = [row.keep ? <Chip key="keep" tone={row.keep === 'kept' ? 'success' : 'neutral'}>{row.keep === 'kept' ? 'Picked' : 'Not kept'}</Chip> : null, status, change ? <ChangeStats key="change" added={change.added} removed={change.removed} /> : null, time,
-    change?.branch ? <CodeText key="branch">{sanitizeText(change.branch)}</CodeText> : null, publication].filter(Boolean)
+    change?.branch ? /^harnessdesk\/lane-/.test(change.branch) ? <Text key="branch" role="meta">Isolated attempt</Text> : <CodeText key="branch">{sanitizeText(change.branch)}</CodeText> : null, publication].filter(Boolean)
   const pick = row.pick
   const rows = pick ? <>{pick.attempts.map(one => {
     const owner = context.seatOfCard(one.card)

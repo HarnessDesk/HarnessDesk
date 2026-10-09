@@ -154,6 +154,55 @@ it('Change keeps the task and Done when is the sentence sent to start', async ()
 
 const neverFlow = (): never => { throw new Error('expected current format') }
 
+it('prefills the project check, previews an edited command, and keeps an empty check after Change', async () => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const original: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES.comparison
+  const policy = { ...original, inputs: [{ id: 'task', label: 'Task', default: 'Fix the cart' }], roles: original.roles.filter(role => role.kind !== 'check'), rules: [
+    { id: 'to-judge', on: 'competitor', then: { role: 'judge', title: 'Pick the best attempt' } },
+    ...original.rules.filter(rule => rule.on === 'judge'),
+  ] }
+  const store = new AppStore('ws://localhost:0/')
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [ENTRY('comparison', 'Side by side')], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+    'authoring/shape/render': params => ({ source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }),
+    'authoring/start/preview': params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      const base = emptyFlow('token')
+      return { ...previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: JSON.parse(input.source) } } }, { source: input.source, vars: input.vars }), projectCheckCommand: 'pnpm test' }
+    },
+    'flow/start-goal': () => EXECUTION,
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Side by side').click())
+  await settle()
+  const check = (): HTMLInputElement => {
+    const label = [...document.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))
+    expect(label).toBeDefined()
+    return document.getElementById(label!.htmlFor) as HTMLInputElement
+  }
+  expect(check().value).toBe('pnpm test')
+  const type = async (value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(check(), value)
+      check().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  await type('node check.mjs')
+  const edited = store.getSnapshot().frontDoor!.preview!
+  expect(edited.flow.compiled.document.flow.roles.find(role => role.id === 'verify')).toMatchObject({ check: { run: 'node check.mjs' } })
+  await type('')
+  act(() => button('Change').click())
+  act(() => rowFor('Side by side').click())
+  await settle()
+  expect(check().value).toBe('')
+  act(() => button('Start').click())
+  await settle()
+  const started = spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1] as { source: string }
+  expect(JSON.parse(started.source).roles.some((role: { kind: string }) => role.kind === 'check')).toBe(false)
+  expect(JSON.parse(started.source).rules.find((rule: { id: string }) => rule.id === 'to-judge').on).toBe('competitor')
+})
+
 it.each(['render', 'preview'])('holds Change and Details inputs until a policy %s settles, then keeps the edit', async phase => {
   const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
   const policy = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'task', label: 'Task', default: 'Fix the cart' }, { id: 'ticket', label: 'Ticket', default: '42' }] }
@@ -171,7 +220,7 @@ it.each(['render', 'preview'])('holds Change and Details inputs until a policy %
       const flow = JSON.parse(input.source) as typeof policy
       if (phase === 'preview' && flow.budget?.rounds === 5) await delayed
       const base = emptyFlow('token')
-      return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow } } }, { vars: input.vars })
+      return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow } } }, { source: input.source, vars: input.vars })
     },
     'flow/start-goal': () => EXECUTION,
   })
