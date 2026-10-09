@@ -1,0 +1,46 @@
+{
+  "subject": "An ordinary metadata refresh after a rename",
+  "before": "75ef88ac",
+  "after": "891636ef3ca7e699908065707dcc2711abb09649",
+  "surface": "preview.html sidebar with SessionIndex results; empty live-session map",
+  "identity": "Jane Doe",
+  "audit": "Rendered text and attributes passed the repository frame audit; all four PNGs visually inspected",
+  "frames": [
+    {
+      "file": "rename-before-light.png",
+      "state": "before",
+      "theme": "light",
+      "width": 360,
+      "height": 420,
+      "scale": 1,
+      "sha256": "a1c282407e0d2ea902752dba9364fbd3de0efb6358a6cee1c352af50c496c7c5"
+    },
+    {
+      "file": "rename-before-dark.png",
+      "state": "before",
+      "theme": "dark",
+      "width": 360,
+      "height": 420,
+      "scale": 1,
+      "sha256": "fc0ab9c31ed3c85753e344fe91a1123b0770946ffe6d2e5f8583edd612cc5c58"
+    },
+    {
+      "file": "rename-after-light.png",
+      "state": "after",
+      "theme": "light",
+      "width": 360,
+      "height": 420,
+      "scale": 1,
+      "sha256": "c485e9c26211aefa3820693c8842ebd5a5019a59d26cd8f73d6946ff9f3f1419"
+    },
+    {
+      "file": "rename-after-dark.png",
+      "state": "after",
+      "theme": "dark",
+      "width": 360,
+      "height": 420,
+      "scale": 1,
+      "sha256": "dbe69b31246819f0c48eaa8b11a05b1c3a965b1dbd75a4fa837294f5655242ca"
+    }
+  ]
+}
