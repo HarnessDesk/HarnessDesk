@@ -89,3 +89,16 @@ it('allows a qualified face badge to extend beyond the table lead', () => {
   expect(lead.querySelector('[data-slot="face-badge"]')?.textContent).toBe('AL')
   expect(lead.className).toContain('has-[[data-slot=face-badge]]:overflow-visible')
 })
+
+it('windows a thousand bare rows while spacers retain the full scroll extent', async () => {
+  const { TableBody } = await import('./table')
+  const markup = renderToStaticMarkup(<Table rows="bare"><TableBody window={{ top: 4400, height: 440, pitch: 44, columns: 1 }}>
+    {Array.from({ length: 1000 }, (_, i) => <TableRow key={i}><TableCell>Row {i}</TableCell></TableRow>)}
+  </TableBody></Table>)
+  const body = element(markup, 'table-body')
+  expect(body.querySelectorAll('[data-slot="table-row"]')).toHaveLength(20)
+  expect(body.textContent).toContain('Row 95')
+  expect(body.textContent).not.toContain('Row 94')
+  expect(body.querySelectorAll('[aria-hidden="true"] td')[0]?.getAttribute('style')).toContain('height:4180px')
+  expect(body.querySelectorAll('[aria-hidden="true"] td')[1]?.getAttribute('style')).toContain('height:38940px')
+})

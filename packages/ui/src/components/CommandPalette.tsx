@@ -64,6 +64,7 @@ const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: 
   appearance: { label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
   notifications: { label: 'Notifications', icon: <SlidersIcon size={14} />, keywords: 'notifications banners alerts mute' },
   shortcuts: { label: 'Keyboard shortcuts', icon: <SlidersIcon size={14} />, keywords: 'keyboard shortcuts keys bindings' },
+  history: { label: 'History', icon: <ArchiveIcon size={14} />, keywords: 'history import other agents past conversations' },
   workspaces: { label: 'Workspaces', icon: <SlidersIcon size={14} />, keywords: 'workspaces folders projects worktrees' },
   models: { label: 'Models', icon: <SlidersIcon size={14} />, keywords: 'models endpoints presets routes' },
   skills: { label: 'Skills', icon: <SlidersIcon size={14} />, keywords: 'skills commands hooks' },

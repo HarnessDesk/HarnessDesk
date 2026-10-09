@@ -120,3 +120,10 @@ it('Agents opens the window, never Settings — it is not one of the settings pa
   expect(openAgents).toHaveBeenCalledWith()
   expect(openSettings).not.toHaveBeenCalled()
 })
+
+it('history import keywords reach the History settings section', async () => {
+  const { openSettings } = await mount()
+  type('past conversations')
+  await choose('Settings › History')
+  expect(openSettings).toHaveBeenCalledWith('history')
+})

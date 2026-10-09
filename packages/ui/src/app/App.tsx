@@ -407,7 +407,7 @@ export const App = () => {
           section={settingsOpen}
           focus={settingsFocus}
           libraryImport={libraryImport}
-          onSection={(section) => openSettingsAt(section, null)}
+          onSection={(section, focus) => openSettingsAt(section, focus ?? null)}
           onClose={() => {
             setSettingsOpen(false)
             setSettingsFocus(null)

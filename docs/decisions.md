@@ -57,7 +57,9 @@ a project filter first resolves its candidate folders through the bounded
 repository pass, so a cold mapping cannot silently exclude a matching row.
 Removing an import deletes retained imported rows and their cached bodies,
 keeps desk rows and tombstones, and clears its scan state. Agent files stay untouched.
-These are host contracts; Settings and palette entry points follow in the screen slice.
+Settings and the command palette open History; there is no fixed sidebar entry.
+The runtime's settings page owns import, progress, rescan and removal. A row
+opens as a preview, and only the host's adoption event adds it to the sidebar.
 
 Preview bodies are `cached`, with payload bytes counted on write and recency
 recorded on open. The host's default cap is 500 MiB, configurable through
