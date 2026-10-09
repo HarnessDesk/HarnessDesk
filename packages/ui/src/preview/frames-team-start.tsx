@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { FlowEntry, FlowPolicy, FlowPreview, FrontDoorPreviewInput } from '@harnessdesk/protocol'
+import type { FlowEntry, FlowPolicy, FlowPreview, FrontDoorPreviewInput, ShapeLayout } from '@harnessdesk/protocol'
 import { FrontDoor } from '../components/FrontDoor'
 import { Sidebar } from '../components/Sidebar'
 import { Usage } from '../components/Usage'
@@ -17,10 +17,15 @@ const header = (source: string, key: string): string => {
   const value = source.match(new RegExp(`^${key}: (.+)$`, 'm'))?.[1] ?? ''
   return value.startsWith('"') ? JSON.parse(value) as string : value
 }
-const entries: readonly FlowEntry[] = Object.entries(TEAM_START_SOURCES).map(([id, source]) => ({
-  id, name: header(source, 'name'), summary: header(source, 'summary'), description: header(source, 'description'),
-  origin: 'builtin', path: `${id}.yml`, format: 'agents', problem: null, shadows: [],
-}))
+const entries: readonly FlowEntry[] = Object.entries(TEAM_START_SOURCES).map(([id, source]) => {
+  const policy: FlowPolicy = TEAM_START_POLICIES[id as keyof typeof TEAM_START_POLICIES]
+  const frontDoor = (policy.layout as ShapeLayout | undefined)?.frontDoor
+  return {
+    id, name: header(source, 'name'), summary: header(source, 'summary'), description: header(source, 'description'),
+    origin: 'builtin', path: `${id}.yml`, format: 'agents', problem: null, shadows: [],
+    frontDoor: frontDoor ? { order: frontDoor.order ?? null, contexts: frontDoor.contexts ?? null } : null,
+  }
+})
 
 const teamStartStore = (): AppStore => {
   const base = previewStore({ theme: 'system' })

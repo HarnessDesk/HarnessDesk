@@ -912,7 +912,6 @@ export const TEAM_START_POLICIES = {
       "frontDoor": {
         "order": 1,
         "contexts": [
-          "project",
           "branch",
           "pull-request",
           "diff",

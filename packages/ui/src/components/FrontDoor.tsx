@@ -4,7 +4,6 @@ import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } f
 
 import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Text, Textarea } from '../design'
 import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary } from '../lib/team-start'
-import { useShell } from '../panels/views'
 import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, TeamIcon } from './Icons'
 import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
@@ -67,7 +66,6 @@ const sortShapes = (entries: readonly FlowEntry[]): readonly FlowEntry[] =>
 
 export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontDoorProps) => {
   const store = useStore()
-  const shell = useShell()
   const snapshot = useSnapshot()
   const root = context.root
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
@@ -310,7 +308,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       size={chosen ? 'xl' : 'wide'} onClose={onClose}
       footer={chosen ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></> : undefined}
       footerAside={chosen ? <Text role="meta">{chosen.id === 'comparison' ? 'You decide whether to merge the winner.' : `The Team opens under ${project} in the sidebar.`}</Text> : undefined}
-      footerNavigation={!chosen && <><Button variant="quiet" onClick={() => { onClose(); shell.openAgents() }}>Manage Agents…</Button><span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span></>}
+      footerNavigation={!chosen && <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
     >
       {!chosen && <div onKeyDown={event => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
