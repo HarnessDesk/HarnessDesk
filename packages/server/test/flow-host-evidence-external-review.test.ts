@@ -99,3 +99,48 @@ test('no candidate explains why, and a manually closed review round is visibly r
   assert.match(publications.backfillRefusal ?? '', /review.*(candidate|recorded)/i)
   assert.equal(forge.sends.length, 0)
 })
+
+for (const predecessor of ['person', 'reader'] as const) for (const binding of ['card', 'team'] as const) {
+  test(`a review after a ${predecessor} round seats at the external ${binding} PR and posts its verdict`, E2E, async (t) => {
+    const forge = new FakeFindingForge('a'.repeat(40))
+    const d = await desk(t, undefined, { findingForge: forge })
+    await writeFile(join(d.root, 'attempt.txt'), 'Bound the retries.\n')
+    await git(d.root, 'add', 'attempt.txt')
+    await git(d.root, 'commit', '-q', '-m', 'bounded retry')
+    const head = await git(d.root, 'rev-parse', 'HEAD')
+    forge.head = head
+    d.forge.pullRequests.set(7, { head, state: 'OPEN' })
+    await git(d.root, 'checkout', '-q', 'main')
+    const title = binding === 'card' ? 'Review pull request #7' : 'Review the bound change'
+    const run = await start(d, `version: 2
+name: Decide then review
+roles:
+  precursor: ${predecessor === 'person' ? '{ kind: person, outcomes: [go] }' : '{ kind: agent, uses: researcher, grant: read }'}
+  reviewer: { kind: agent, uses: code-reviewer, grant: read }
+seed: { role: precursor, title: Start the review }
+rules:
+  - { id: review, on: precursor, when: { every: [${predecessor === 'person' ? 'go' : 'gathered'}] }, then: { role: reviewer, title: "${title}" } }
+`, {})
+    if (binding === 'team') await bind(d, run.goal, head)
+    if (predecessor === 'person') {
+      const [person] = await board(d, run.goal)
+      await d.host.call('team/intent', { room: run.goal, id: person!.id, action: 'done', outcome: 'go' })
+    } else {
+      const [reader] = await claimed(d, run.goal, 'precursor', 1)
+      await answer(d, reader!, 'gathered')
+    }
+    const [card] = await claimed(d, run.goal, 'reviewer', 1)
+    assert.equal(await git(cwdOf(d, card!), 'rev-parse', 'HEAD'), head, 'a non-writing dependency must not keep the reviewer on main')
+    const [candidate] = await d.host.teamPlane.reviewCandidates(card!.id, scopeOf(card!))
+    assert.equal(candidate?.at, head)
+    await d.host.teamPlane.recordReview({ intent: card!.id, candidate: candidate!.id, verdict: 'approve' }, scopeOf(card!))
+    await answer(d, card!, 'approve')
+    await settled(d, run.id)
+    const view = await whenChanged(d, async () => {
+      const now = await d.host.call('finding/run', { goal: run.goal, run: run.id })
+      return now.publication === 'posted' ? now : null
+    }, 'the dependent external review to be posted')
+    assert.equal(view.reviewersFinished, 1)
+    assert.equal(forge.sends.length, 1)
+  })
+}

@@ -1668,7 +1668,11 @@ export class FlowExecutions {
     const intent = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
     if (!intent || !this.#port.reviewTarget) return { subjects: [], unsettled: [] }
     const { seat } = this.#seatForCard(run, card)
-    const target = await this.#port.reviewTarget(run.goal, intent, this.#targetPr(run), seat?.checkout)
+    const pinned = run.target?.head ?? null
+    // A frozen branch/diff is its own subject. A frozen PR may be observed
+    // for freshness, but neither card text nor a later binding can replace it.
+    const target = pinned && run.target?.pr === null ? { at: pinned, number: null }
+      : await this.#port.reviewTarget(run.goal, pinned ? { id: intent.id, title: '', detail: null } : intent, this.#targetPr(run), seat?.checkout)
     if ('why' in target) {
       this.#team.reviewAvailability(run.goal, card, target.why)
       await this.#team.flush()
@@ -1676,8 +1680,10 @@ export class FlowExecutions {
     }
     if (!seat) return { subjects: [], unsettled: [], refusal: 'This review’s checkout is not available yet. Ask for candidates after its Seat opens.' }
     const head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
-    const why = head.at !== target.at ? `Pull request #${target.number} moved or its review checkout is not at ${target.at.slice(0, 12)}. Start a new review at its current head.`
-      : head.dirty ? `Pull request #${target.number}'s review checkout has uncommitted changes.` : null
+    const label = target.number === null ? 'This review' : `Pull request #${target.number}`
+    const why = pinned && target.at !== pinned ? `${label} moved from the commit this Run reviews. Start a new review at its current head.`
+      : head.at !== target.at ? `${label} moved or its review checkout is not at ${target.at.slice(0, 12)}. Start a new review at its current head.`
+      : head.dirty ? `${label}'s review checkout has uncommitted changes.` : null
     this.#team.reviewAvailability(run.goal, card, why)
     await this.#team.flush()
     if (why) return { subjects: [], unsettled: [{ card, why }], refusal: why }
@@ -3263,9 +3269,12 @@ export class FlowExecutions {
    * read it through, stops the round.
    */
   async #planSeats(run: StoredFlowExecution, round: FlowRoundState, isolate: boolean, dependsOn: readonly number[]): Promise<SeatPlan | string> {
-    if (dependsOn.length === 0) {
+    const closure = await this.#closure(run, dependsOn)
+    // A person or read-only step can precede the review without supplying a
+    // writer's revision. Resolve the review's PR only after that walk is empty.
+    if (closure.subjects.length === 0 && closure.unsettled.length === 0 && !closure.refusal) {
       const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === round.cards[0])
-      if (card && this.requiresReview(run.goal, card.id) && this.#port.reviewTarget) {
+      if (!run.target?.head && card && this.requiresReview(run.goal, card.id) && this.#port.reviewTarget) {
         const target = await this.#port.reviewTarget(run.goal, { title: card.title, detail: card.detail }, this.#targetPr(run))
         this.#team.reviewAvailability(run.goal, card.id, 'why' in target ? target.why : null)
         await this.#team.flush()
@@ -3273,7 +3282,6 @@ export class FlowExecutions {
       }
       return { base: run.base?.at ?? null, handed: [] }
     }
-    const closure = await this.#closure(run, dependsOn)
     const board = this.#team.stateFor(run.goal)
     const shared = board.cwd ?? board.root
     const apart = (cwd: string): boolean => isolate || !sameCanonicalPath(cwd, shared)
