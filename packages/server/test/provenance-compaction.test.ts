@@ -101,6 +101,31 @@ test('a failure after the compacted file is synced and before rename preserves t
   assert.equal((await journalAt(file).read()).entries.filter((e) => e.kind === 'gap').length, 2)
 })
 
+test('automatic compaction failure leaves validated history and backups readable on the same journal', async (t) => {
+  const file = join(tempDir('compact-open-retry-'), 'provenance.ndjson')
+  const writer = journalAt(file)
+  await writer.append('gap', gap('kept'))
+  await writeCheckpoint(writer, checkpoint())
+  await writer.append('cursor', { id: 'orphan', type: 'part', bytes: '{}' })
+  const original = await fs.readFile(file)
+  const journal = new ProvenanceJournal(file, { compactOnOpen: true })
+  const rename = t.mock.method(fs, 'rename', async () => { throw new Error('injected-open-rename') })
+  await assert.rejects(journal.read(), /injected-open-rename/)
+  rename.mock.restore()
+  assert.deepEqual(await fs.readFile(file), original)
+  const read = await journal.read()
+  assert.equal(read.broken, false)
+  assert.deepEqual(readCheckpoint(read.entries), checkpoint())
+  assert.deepEqual(await exportProvenance({ projects: async () => ['/work/project'], journal: () => journal }),
+    { version: 1, projects: [{ project: '/work/project', entries: [{ kind: 'gap', value: gap('kept') }] }] })
+  await journal.append('gap', gap('later'))
+  await journal.compact(true)
+  const reopened = await journalAt(file).read()
+  assert.equal(reopened.broken, false)
+  assert.equal(reopened.entries.filter((entry) => entry.kind === 'gap').length, 2)
+  assert.deepEqual(readCheckpoint(reopened.entries), checkpoint())
+})
+
 
 test('concurrent checkpoint writes and compaction cannot renumber parts still being written', async () => {
   const journal = journalAt(join(tempDir('compact-concurrent-'), 'provenance.ndjson'))

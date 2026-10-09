@@ -192,7 +192,17 @@ export class ProvenanceJournal {
     if (this.#compactOnOpen) {
       this.#entries = [...this.#entries, ...cursors.values()].sort((a, b) => a.seq - b.seq)
       this.#ids = new Map(this.#entries.map((entry) => [keyOf(entry.kind, entry.value), entry.seq]))
-      if (!this.#broken) await this.#compactLoaded(true, removed > 0)
+      if (!this.#broken) {
+        try {
+          await this.#compactLoaded(true, removed > 0)
+        } catch (error) {
+          // Replay has already validated and retained the original history.
+          // Report this replacement failure once, without poisoning later
+          // reads/appends or replaying into the populated arrays again.
+          this.#load = Promise.resolve()
+          throw error
+        }
+      }
     }
   }
 
