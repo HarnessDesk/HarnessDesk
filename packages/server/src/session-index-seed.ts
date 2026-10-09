@@ -109,6 +109,60 @@ const tailFields = (text: string): Metadata => {
   return fields
 }
 
+/** Fallback for metadata between large root arrays; retain scalars, never bodies. */
+const streamedFields = async (handle: Awaited<ReturnType<typeof open>>): Promise<Metadata> => {
+  const fields: Metadata = {}
+  let depth = 0
+  let quoted = false
+  let escape = false
+  let key = ''
+  let token = ''
+  let state: 'key' | 'colon' | 'value' = 'key'
+  let collecting = false
+  for await (const chunk of handle.createReadStream({ start: 0, encoding: 'utf8', autoClose: false, highWaterMark: WINDOW })) {
+    for (const char of String(chunk)) {
+      if (quoted) {
+        if (collecting) token += char
+        if (escape) escape = false
+        else if (char === '\\') escape = true
+        else if (char === '"') {
+          quoted = false
+          if (depth === 1 && state === 'key') {
+            key = JSON.parse(token) as string
+            token = ''
+            collecting = false
+            state = 'colon'
+          }
+        }
+        continue
+      }
+      if (depth === 1 && (char === ',' || char === '}') && state === 'value') {
+        if (collecting && token.trim()) fields[key] = JSON.parse(token) as unknown
+        token = ''
+        collecting = false
+        state = 'key'
+      }
+      if (char === '"') {
+        quoted = true
+        if (depth === 1 && state === 'key') { collecting = true; token = '"' }
+        else if (collecting) token += char
+      } else if (char === '{' || char === '[') {
+        // Root metadata fields are scalars. A container is an invalid field,
+        // and the same structural scan skips turns and insight wholesale.
+        if (depth === 1) { collecting = false; token = '' }
+        depth++
+      } else if (char === '}' || char === ']') depth--
+      else if (depth === 1 && state === 'colon' && char === ':') {
+        state = 'value'
+        collecting = FIELDS.has(key)
+      } else if (collecting) token += char
+    }
+    await setImmediate()
+  }
+  if (depth !== 0 || quoted) throw new Error('Incomplete transcript metadata')
+  return fields
+}
+
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const readSummary = async (file: string, runtime: string, id: string): Promise<SessionSummary | null> => {
   const handle = await open(file, 'r')
@@ -129,6 +183,9 @@ const readSummary = async (file: string, runtime: string, id: string): Promise<S
       if (stat.size > WINDOW * 2) return null
       fields = JSON.parse(await handle.readFile('utf8')) as Metadata
     }
+    // The header can end in turns and the tail in insight, leaving valid
+    // metadata in neither window. Scan structurally in bounded async chunks.
+    if (!('cwd' in fields) || !('updatedAt' in fields)) fields = await streamedFields(handle)
     if (fields.version !== 1 || fields.runtime !== runtime || fields.id !== id) return null
     const timestamp = finite(fields.updatedAt) ? fields.updatedAt : finite(fields.savedAt) ? fields.savedAt : stat.mtimeMs
     return { runtime: runtime as RuntimeId, id: id as SessionId,

@@ -285,3 +285,31 @@ it('keeps an unseen replacement fetchable when removal precedes the first page r
   expect(store.getSnapshot().history).toHaveLength(49)
   expect(store.getSnapshot().historyCursor).toBe(sessionIndexCursorOf(seeded[49]!))
 })
+
+
+it('reconciles missed index changes on sync while keeping the loaded page capacity', async () => {
+  const first = Array.from({ length: 50 }, (_, i) => row(`first-${i}`, { updatedAt: 200-i }))
+  const second = Array.from({ length: 50 }, (_, i) => row(`second-${i}`, { updatedAt: 100-i }))
+  request.mockResolvedValueOnce({ data: first, nextCursor: 'next' })
+    .mockResolvedValueOnce({ data: second, nextCursor: 'third' })
+  await store.loadHistory({ reset: true })
+  await store.loadHistory()
+  const current = [row('created-offline', { updatedAt: 500 }), ...first.slice(1), ...second]
+  request.mockImplementation((async (method: HostMethodName) => method === 'session/index'
+    ? { data: current, nextCursor: 'current-next' } : []) as never)
+  handlers().onNotification({ method: 'sync', params: { runtimes: [], sessions: [] } } as unknown as WireNotification)
+  await vi.waitFor(() => expect(ids()).toContain('created-offline'))
+  expect(ids()).not.toContain('first-0')
+  expect(ids()).toHaveLength(100)
+  expect(lists().at(-1)).toEqual(['session/index', { pageSize: 100 }])
+  expect(store.getSnapshot().historyCursor).toBe('current-next')
+})
+
+it('keeps removed agents out of later pages and index events', async () => {
+  change([row('gone')])
+  handlers().onNotification({ method: 'runtime/removed', params: { runtime } })
+  request.mockResolvedValueOnce({ data: [row('gone'), row('kept', { runtime: runtimeId('other') })], nextCursor: null })
+  await store.loadHistory()
+  change([row('late-gone')])
+  expect(ids()).toEqual(['kept'])
+})

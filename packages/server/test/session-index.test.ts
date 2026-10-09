@@ -221,3 +221,26 @@ test('title, archive and Team changes before seed reaches a transcript survive t
     assert.equal(index.list({ archived: 'only' }).data.find((item) => item.id === 'live')?.title, 'Latest title')
   } finally { index.close() }
 })
+
+
+test('seed retains metadata between oversized turns and trailing insight', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-session-insight-'))
+  const folder = join(home, 'transcripts', runtime)
+  await mkdir(folder, { recursive: true })
+  const body = JSON.stringify({ version: 1, runtime, id: 'insight', savedAt: 7,
+    turns: [{ items: [{ text: 'x'.repeat(150_000), title: 'Nested title' }] }],
+    title: 'Review \"quoted\" retries', cwd: '/demo/retries', createdAt: 2, updatedAt: 20,
+    insight: [{ text: 'y'.repeat(150_000), cwd: '/wrong' }] })
+  const file = join(folder, 'insight.json')
+  await writeFile(file, body)
+  const index = new SessionIndex(':memory:')
+  try {
+    await index.seed(home)
+    const summary = index.list().data[0]!
+    assert.equal(summary.title, 'Review \"quoted\" retries')
+    assert.equal(summary.cwd, '/demo/retries')
+    assert.equal(summary.createdAt, 2)
+    assert.equal(summary.updatedAt, 20)
+    assert.equal(await readFile(file, 'utf8'), body)
+  } finally { index.close() }
+})
