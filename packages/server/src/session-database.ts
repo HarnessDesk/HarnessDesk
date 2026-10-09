@@ -15,7 +15,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
   try {
     db.exec('PRAGMA journal_mode = WAL')
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
-    if (version > 5) throw new Error('Session index is from a newer schema')
+    if (version > 6) throw new Error('Session index is from a newer schema')
     if (version === 0) transaction(db, () => {
       db.exec(`CREATE TABLE sessions (
         runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
@@ -100,6 +100,15 @@ export function openSessionDatabase(file: string): DatabaseSync {
             UPDATE sessions SET body_bytes=body_bytes-${of('old')}+${of('new')} WHERE runtime=new.runtime AND id=new.id; END;`)
       }
       db.exec('PRAGMA user_version = 5')
+    })
+    if (version < 6) transaction(db, () => {
+      db.exec(`ALTER TABLE sessions ADD COLUMN worktree_path TEXT;
+        ALTER TABLE sessions ADD COLUMN worktree_branch TEXT;
+        ALTER TABLE sessions ADD COLUMN worktree_state TEXT CHECK(worktree_state IN ('present','removed','kept'));
+        CREATE TABLE session_worktrees(runtime TEXT NOT NULL,id TEXT NOT NULL,path TEXT NOT NULL,branch TEXT,
+          root TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(runtime,id));
+        CREATE INDEX session_worktrees_path ON session_worktrees(path);
+        PRAGMA user_version = 6;`)
     })
     return db
   } catch (error) { db.close(); throw error }

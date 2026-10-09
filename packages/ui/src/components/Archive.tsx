@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { RuntimeId, RuntimeInfo, SessionId, SessionSummary } from '@harnessdesk/protocol'
+import type { RuntimeId, RuntimeInfo, SessionId, SessionSummary, WorktreeChanges, HostResult } from '@harnessdesk/protocol'
 
 import { folderName } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
@@ -8,7 +8,8 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead, Chip, ConfirmDialog, Text, MiddleTruncate } from '../design'
+import { IgnoredEntries, UncommittedFiles, describeUncommitted } from './WorktreeAlerts'
 import styles from './Archive.module.css'
 
 /**
@@ -44,36 +45,30 @@ export const ArchiveSection = () => {
   const [unreachable, setUnreachable] = useState<readonly string[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [discarding, setDiscarding] = useState<SessionSummary | null>(null)
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
 
   const runtimes = snapshot.runtimes
 
-  /**
-   * Every agent's archive, asked for in parallel and merged.
-   *
-   * An agent that cannot answer — not started, or down — is named rather than
-   * counted as empty: "no archived conversations" and "one agent did not
-   * answer" look identical otherwise, and only one of them means the archive
-   * is empty.
-   */
+  /** Read every local page; native archive reconciliation runs in the host. */
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const pages = await Promise.all(
-        runtimes.map(async (runtime) => {
-          try {
-            const page = await store.transport.request('session/list', {
-              runtime: runtime.id,
-              archived: 'only',
-            })
-            return { rows: page.data, failed: null as string | null }
-          } catch {
-            return { rows: [] as readonly SessionSummary[], failed: runtime.presentation.name }
-          }
-        }),
-      )
-      setSessions(pages.flatMap((page) => page.rows).sort((a, b) => b.updatedAt - a.updatedAt))
-      setUnreachable(pages.map((page) => page.failed).filter((name): name is string => name !== null))
+      const rows: SessionSummary[] = []
+      let cursor: string | undefined
+      do {
+        const page = await store.transport.request('session/index', {
+          runtimes: runtimes.map(runtime => runtime.id), archived: 'only', pageSize: 500,
+          ...(cursor ? { cursor } : {}),
+        })
+        rows.push(...page.data)
+        cursor = page.nextCursor ?? undefined
+      } while (cursor)
+      setSessions(rows)
+      setUnreachable([])
+    } catch {
+      setUnreachable(['The archive'])
+
     } finally {
       setLoading(false)
     }
@@ -81,7 +76,7 @@ export const ArchiveSection = () => {
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, snapshot.historyIdentity])
 
   const needle = query.trim().toLowerCase()
   const shown = useMemo(() => {
@@ -106,10 +101,8 @@ export const ArchiveSection = () => {
   )
 
   const restore = async (summary: SessionSummary): Promise<void> => {
-    setSessions((current) =>
-      current.filter((row) => row.id !== summary.id || row.runtime !== summary.runtime),
-    )
-    await store.unarchiveSession(summary.id as SessionId, summary.runtime as RuntimeId)
+    if (await store.unarchiveSession(summary.id as SessionId, summary.runtime as RuntimeId) === false) return
+    setSessions(current => current.filter(row => row.id !== summary.id || row.runtime !== summary.runtime))
   }
 
   return (
@@ -121,14 +114,11 @@ export const ArchiveSection = () => {
 
       {unreachable.length > 0 && (
         <PageDescription>
-          {unreachable.length === 1
-            ? unreachable[0]
-            : `${unreachable.slice(0, -1).join(', ')} and ${unreachable[unreachable.length - 1]}`}{' '}
-          could not be asked, so nothing of {unreachable.length === 1 ? 'its' : 'theirs'} is listed here.
+          The archive could not be read. <Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button>
         </PageDescription>
       )}
 
-      {loading && <PageDescription>Reading every agent’s archive…</PageDescription>}
+      {loading && <PageDescription>Reading the archive…</PageDescription>}
 
       {!loading && sessions.length > 0 && (
         <Search
@@ -165,6 +155,7 @@ export const ArchiveSection = () => {
                     kind="record"
                     mark={<FolderIcon size={16} />}
                     title={sessionLabel(summary.title, summary.preview)}
+                    titleChip={summary.worktree?.state === 'kept' ? <KeptChip summary={summary} /> : undefined}
                     desc={`${folderName(summary.cwd)} · last active ${new Date(
                       summary.updatedAt,
                     ).toLocaleDateString(undefined, {
@@ -182,6 +173,7 @@ export const ArchiveSection = () => {
                         <DropdownMenu>
                           <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${sessionLabel(summary.title, summary.preview)} actions`} />} />
                           <DropdownMenuContent align="end">
+                            {summary.worktree?.state === 'kept' && <DropdownMenuItem onClick={() => setDiscarding(summary)}>Discard worktree…</DropdownMenuItem>}
                             <DropdownMenuItem variant="destructive"
                               disabled={!deletable}
                               title={deletable ? undefined : runtime.capabilities.deleteHistory === 'erase' ? `${runtime.presentation.name} erases it for good, so delete it there` : `${runtime.presentation.name} keeps no way to delete one.`}
@@ -198,6 +190,7 @@ export const ArchiveSection = () => {
           </section>
         ))}
 
+      {discarding && <DiscardWorktree summary={discarding} onClose={() => { setDiscarding(null); void load() }} />}
       {deleting && (
         <DeleteSession
           summary={deleting}
@@ -261,3 +254,59 @@ const blurbFor = (runtime: RuntimeInfo): string =>
   runtime.capabilities.archiveHistory
     ? `${runtime.presentation.name} keeps this archive itself, so a conversation archived here is archived in its own window too.`
     : `${runtime.presentation.name} has no archive of its own, so HarnessDesk keeps the mark. The conversation is untouched and still listed in ${runtime.presentation.name}’s own window.`
+
+
+const inventoryTitle = (changes: WorktreeChanges): string =>
+  `${changes.modified} modified, ${changes.untracked} untracked files; ${changes.ignoredCount} ignored entries`
+
+const KeptChip = ({ summary }: { summary: SessionSummary }) => {
+  const store = useStore()
+  const [title, setTitle] = useState('The worktree stayed. Review it before discarding.')
+  useEffect(() => {
+    let cancelled = false
+    void store.transport.request('worktree/changes', { path: summary.worktree!.path })
+      .then(changes => { if (!cancelled) setTitle(inventoryTitle(changes)) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [store, summary.worktree?.path])
+  return <Chip tone="warning" size="sm" title={title}>Worktree kept</Chip>
+}
+
+const DiscardWorktree = ({ summary, onClose }: { summary: SessionSummary; onClose: () => void }) => {
+  const store = useStore()
+  const [preview, setPreview] = useState<HostResult<'session/worktreePreview'> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void store.transport.request('session/worktreePreview', { runtime: summary.runtime, sessionId: summary.id })
+      .then(value => { if (!cancelled) setPreview(value) })
+      .catch(thrown => { if (!cancelled) setError(String(thrown)) })
+    return () => { cancelled = true }
+  }, [store, summary])
+  const discard = async () => {
+    if (!preview) return
+    setBusy(true)
+    try {
+      const result = await store.transport.request('session/discardWorktree', { runtime: summary.runtime, sessionId: summary.id, stamp: preview.stamp })
+      if (result.discarded) onClose()
+      else { setPreview(result.preview ?? null); setError('The worktree changed. Review this list and confirm again.') }
+    } catch (thrown) { setError(thrown instanceof Error ? thrown.message : String(thrown)); setPreview(null) }
+    finally { setBusy(false) }
+  }
+  const changes = preview?.changes
+  return <ConfirmDialog title="Discard worktree?" confirmLabel="Discard worktree" busyLabel="Discarding…"
+    tone="destructive" busy={busy} pending={!preview} onConfirm={() => void discard()} onCancel={onClose}>
+    <p><Text as="span" role="subject"><MiddleTruncate>{summary.worktree?.path ?? ''}</MiddleTruncate></Text><br />
+      The folder and its uncommitted and ignored content go. The branch is kept. There is no undo.</p>
+    {error && <Note tone="bad">{error}</Note>}
+    {error && !preview && <Button variant="outline" size="sm" onClick={() => {
+      setError(null)
+      void store.transport.request('session/worktreePreview', { runtime: summary.runtime, sessionId: summary.id })
+        .then(setPreview).catch(thrown => setError(String(thrown)))
+    }}>Review again</Button>}
+    {!changes && !error && <p>Checking for unsaved work…</p>}
+    {changes && changes.modified + changes.untracked > 0 && <UncommittedFiles className="mb-3" changes={changes}
+      title={`This would discard ${describeUncommitted(changes)}`}>Commit or stash them first to keep them.</UncommittedFiles>}
+    {changes && <IgnoredEntries changes={changes} />}
+  </ConfirmDialog>
+}

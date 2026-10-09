@@ -7,14 +7,43 @@ the rule is the last line of its section.
 
 ---
 
+## Worktrees follow their conversations; wrapping a Team archives its members
+
+A managed worktree is part of the conversation's lifecycle. Archive removes a
+clean checkout at once; Remove waits for the body sweep and its Undo window;
+Delete everywhere cleans up after the agent accepts the deletion. None of
+these deletes a branch. Another active conversation sharing the checkout keeps
+it, as do uncommitted files, ignored content and a refused Git removal. A
+cleanup refusal never undoes the conversation action.
+
+The index records the managed path, branch and whether the worktree is present,
+removed or kept. Its separate inventory survives even a deleted index row.
+Returning to a conversation recreates its checkout from the retained branch
+before resuming the agent. A missing branch opens the main checkout with one
+line explaining why.
+
+Archive reads the local index, including archived Team members. A kept worktree
+wears a chip whose tooltip counts changes and ignored entries. Only **Discard
+worktree…** forces removal: the confirmation lists the inventory, and the host
+rechecks the full inventory before removing it. If it changed, the person must
+review and confirm again. The existing explicit worktree removal verb keeps its
+own policy.
+
+Wrapping a Team archives its idle member conversations through the same archive
+path, including the agent's archive when it has one. Working members and archive
+refusals stay; the saved receipt counts them. A completed native reconciliation
+also reads unresolved ids omitted by the listing, three at a time. A failed
+read or an answer without archive authority leaves the row unresolved for the
+next pass.
+
 ## The sidebar reads the desk's conversation index
 
 The sidebar lists conversations started or continued in HarnessDesk, rather
 than asking every agent for its history at launch. A local SQLite metadata
 index answers the first page without an agent or a Git process; repository
 identities fill in from a persistent cache and background checks. Later
-changes update rows. The palette and archive retain their existing history
-read paths in this slice.
+changes update rows. The palette keeps its existing history read path; Archive
+now pages this index.
 
 An upgrade seeds the list once from the desk's transcript metadata and archive
 marks, in background batches. It migrates no bodies and leaves the old files

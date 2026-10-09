@@ -769,6 +769,7 @@ export class AppStore {
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
         }
+        if (notification.method === 'session/worktreeKept') this.resultNotice('info', notification.params.message)
         if (notification.method === 'person/notice') {
           this.#personNotice(notification.params.notice)
         }
@@ -1403,14 +1404,15 @@ export class AppStore {
    * applying each successful archive to the index rows.
    */
   async archiveSessions(sessions: readonly SessionSummary[]): Promise<void> {
-    let failed = 0
+    let failed = 0, kept = 0
     for (const summary of sessions) {
       try {
-        await this.transport.request('session/archive', {
+        const outcome = await this.transport.request('session/archive', {
           runtime: summary.runtime,
           sessionId: summary.id,
           archived: true,
         })
+        if (outcome?.warning) kept++
         this.#changeHistory([{ ...summary, archived: true }])
         const key = sessionKey(summary.runtime, summary.id)
         const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
@@ -1419,9 +1421,8 @@ export class AppStore {
         failed += 1
       }
     }
-    if (failed > 0) {
-      this.resultNotice('error', `${failed} of ${sessions.length} sessions could not be archived.`)
-    }
+    if (failed > 0) this.resultNotice('error', `${failed} of ${sessions.length} sessions could not be archived.`)
+    if (kept > 0) this.resultNotice('info', `${kept} worktree${kept === 1 ? '' : 's'} stayed. Review them in Archive.`)
   }
 
   /** Drops a folder from the opened list; the folder itself is untouched. */
@@ -2974,12 +2975,12 @@ export class AppStore {
    */
   async archiveSession(id: SessionId, owner: RuntimeId, label?: string): Promise<void> {
     try {
-      await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: true })
+      const result = await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: true })
       this.#archiveHistory(owner, id)
       const key = sessionKey(owner, id)
       const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
       if (pane) this.closePane(pane.id)
-      this.resultNotice('info', label ? `Archived "${label}".` : 'Archived.', {
+      this.resultNotice('info', [label ? `Archived "${label}".` : 'Archived.', result?.warning].filter(Boolean).join(' '), {
         label: 'Undo',
         run: () => void this.unarchiveSession(id, owner),
       })
@@ -2989,11 +2990,14 @@ export class AppStore {
   }
 
   /** Puts one back in the index; the host pushes the restored summary. */
-  async unarchiveSession(id: SessionId, owner: RuntimeId): Promise<void> {
+  async unarchiveSession(id: SessionId, owner: RuntimeId): Promise<boolean> {
     try {
-      await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: false })
+      const result = await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: false })
+      if (result?.warning) this.resultNotice('info', result.warning)
+      return true
     } catch (error) {
       this.resultNotice('error', describe(error))
+      return false
     }
   }
 
@@ -3002,9 +3006,9 @@ export class AppStore {
     const key = sessionKey(owner, id)
     this.#deleting.add(key)
     try {
-      const { undoUntil } = await this.transport.request('session/remove', { runtime: owner, sessionId: id, removed: true })
+      const { undoUntil, warning } = await this.transport.request('session/remove', { runtime: owner, sessionId: id, removed: true })
       this.#dropRemoved(key, false)
-      this.resultNotice('info', 'Removed from HarnessDesk', {
+      this.resultNotice('info', warning ? `Removed from HarnessDesk. ${warning}` : 'Removed from HarnessDesk', {
         label: 'Undo',
         ...(undoUntil === null ? {} : { expiresAt: undoUntil }),
         run: () => void this.undoRemoveSession(id, owner),
@@ -4505,6 +4509,7 @@ export class AppStore {
   async wrapGoal(goal: GoalId, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
     const receipt = await this.transport.request('goal/wrap', { goal, stamp, choices })
     await this.#refreshGoal(goal)
+    if (receipt.conversations?.stayed) this.resultNotice('info', `${receipt.conversations.stayed} member conversation${receipt.conversations.stayed === 1 ? '' : 's'} stayed in the list.`)
     return receipt
   }
 

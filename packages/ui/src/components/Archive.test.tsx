@@ -63,8 +63,8 @@ const mount = async (
   runtimes: readonly RuntimeInfo[],
   rows: Readonly<Record<string, readonly SessionSummary[]>>,
 ): Promise<{ request: ReturnType<typeof vi.fn>; store: AppStore }> => {
-  const request = vi.fn(async (_method: string, params: { runtime: string }) => ({
-    data: rows[params.runtime] ?? [],
+  const request = vi.fn(async (_method: string, params: { runtimes?: string[]; runtime?: string }) => ({
+    data: (params.runtimes ?? [params.runtime!]).flatMap(runtime => rows[runtime] ?? []),
     nextCursor: null,
   }))
   const snapshot: AppSnapshot = {
@@ -102,11 +102,11 @@ const type = (value: string): void => {
   })
 }
 
-it('asks each agent for the archive itself, not for everything', async () => {
+it('reads the local archive index, without asking for native history', async () => {
   const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: 'trash' })
   const { request } = await mount([codex], { codex: [summary('a', 'codex')] })
 
-  expect(request).toHaveBeenCalledWith('session/list', { runtime: 'codex', archived: 'only' })
+  expect(request).toHaveBeenCalledWith('session/index', { runtimes: ['codex'], archived: 'only', pageSize: 500 })
   expect(document.body.textContent).toContain('Conversation a')
 })
 
@@ -218,5 +218,47 @@ it('names an agent that could not be asked instead of counting it as empty', asy
       </StoreProvider>,
     )
   })
-  expect(document.body.textContent).toContain('could not be asked')
+  expect(document.body.textContent).toContain('could not be read')
+})
+
+
+it('names kept worktrees on the label line and confirms the inventory before discard', async () => {
+  const row = { ...summary('kept', 'fake'), worktree: { path: '/synthetic/worktrees/task', branch: 'harnessdesk/task', state: 'kept' as const } }
+  const { request } = await mount([runtime('fake', 'Demo Agent')], { fake: [row] })
+  expect(document.body.textContent).toContain('Worktree kept')
+  expect(request).toHaveBeenCalledWith('worktree/changes', { path: row.worktree.path })
+  expect(request.mock.calls.some(([method]) => method === 'session/worktreePreview')).toBe(false)
+  request.mockImplementation(async (method: string) => method === 'session/worktreePreview'
+    ? { changes: { modified: 1, untracked: 0, unpushedCommits: 0, files: ['tracked.txt'], ignored: ['.env', 'ignored/'], ignoredCount: 2 }, stamp: 'preview-1' }
+    : { discarded: true })
+  await act(async () => (container.querySelector('button[aria-label="Conversation kept actions"]') as HTMLButtonElement).click())
+  const discard = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent === 'Discard worktree…')!
+  expect(discard).toBeDefined()
+  await act(async () => discard.click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('tracked.txt')
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('.env')
+  expect(request.mock.calls.some(([method]) => method === 'session/discardWorktree')).toBe(false)
+  await act(async () => button('Discard worktree')!.click())
+  expect(request).toHaveBeenCalledWith('session/discardWorktree', { runtime: 'fake', sessionId: 'kept', stamp: 'preview-1' })
+})
+
+it('keeps a row visible when Restore is refused', async () => {
+  const { store } = await mount([runtime('fake', 'Demo Agent')], { fake: [summary('a', 'fake')] })
+  vi.mocked(store.unarchiveSession).mockResolvedValue(false)
+  await act(async () => button('Restore')!.click())
+  expect(document.body.textContent).toContain('Conversation a')
+})
+
+it('asks for another confirmation when the discard inventory changed', async () => {
+  const row = { ...summary('kept', 'fake'), worktree: { path: '/synthetic/worktrees/task', branch: 'harnessdesk/task', state: 'kept' as const } }
+  const { request } = await mount([runtime('fake', 'Demo Agent')], { fake: [row] })
+  const changes = { modified: 1, untracked: 0, unpushedCommits: 0, files: ['tracked.txt'], ignored: [], ignoredCount: 0 }
+  request.mockImplementation(async (method: string) => method === 'session/worktreePreview' ? { changes, stamp: 'original' }
+    : { discarded: false, preview: { changes: { ...changes, untracked: 1, files: ['tracked.txt', 'new.txt'] }, stamp: 'changed' } })
+  await act(async () => (container.querySelector('button[aria-label="Conversation kept actions"]') as HTMLButtonElement).click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent === 'Discard worktree…')!.click())
+  await act(async () => button('Discard worktree')!.click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Review this list and confirm again')
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('new.txt')
+  expect(request.mock.calls.filter(([method]) => method === 'session/discardWorktree')).toHaveLength(1)
 })

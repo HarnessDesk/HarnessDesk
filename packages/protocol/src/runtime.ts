@@ -707,6 +707,7 @@ export type ArchiveFilter = 'exclude' | 'only'
  * would be the worst kind of reassuring.
  */
 export interface SessionDeletion {
+  readonly warning?: string
   readonly disposition: 'trash' | 'removed'
   /** How many files or folders moved, when the runtime counted them. */
   readonly removed?: number

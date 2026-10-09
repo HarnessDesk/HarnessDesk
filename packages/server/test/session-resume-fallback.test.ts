@@ -76,6 +76,7 @@ const contextFor = (options: {
 
   return {
     sessionIndex: { reopen: () => {}, record: (session: Session) => indexed.push(session) },
+    sessionWorktrees: { prepare: async () => ({}) },
     runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
     registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
     laneEnvironment: { forSession: async () => undefined },

@@ -1506,3 +1506,18 @@ test('sourceOf names and stats a synthetic rollout without reading its body', as
   assert.equal(await sourceOf(sessionId('source-id')), null)
   assert.equal(await sourceOf(sessionId('../escape')), null)
 })
+
+
+test('per-thread reads report archive authority even when a listing omits the thread', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const { tmpdir } = await import('node:os')
+  const home = await mkdtemp(join(tmpdir(), 'hd-native-archive-read-'))
+  const runtime = makeRuntime({ FAKE_CODEX_ROLLOUT_HOME: home }, { codexHome: home })
+  t.after(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }) })
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/synthetic/project' })
+  assert.equal((await runtime.readSession(live.id)).archived, false)
+  await runtime.archiveSession(live.id, true)
+  assert.equal((await runtime.readSession(live.id)).archived, true)
+})

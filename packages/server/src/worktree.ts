@@ -673,7 +673,7 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
  */
 export const remove = async (
   path: string,
-  options: { readonly force?: boolean; readonly stateDir: string },
+  options: { readonly force?: boolean; readonly keepIgnored?: boolean; readonly expectedInventory?: string; readonly stateDir: string },
 ): Promise<{ readonly branch: string | null }> => {
   const main = await repositoryRoot(path)
   if (!main) throw new Error(`${path} is not a git worktree.`)
@@ -686,7 +686,8 @@ export const remove = async (
   }
 
   const pending = await changes(target)
-  if (!options.force && (pending.modified > 0 || pending.untracked > 0)) {
+  if (options.expectedInventory !== undefined && await worktreeInventoryKey(target) !== options.expectedInventory) throw new Error('The worktree changed. Review it again before discarding.')
+  if (!options.force && (pending.modified > 0 || pending.untracked > 0 || options.keepIgnored && pending.ignoredCount > 0)) {
     throw new WorktreeDirtyError(target, pending)
   }
   await git(main, ['worktree', 'remove', ...(options.force ? ['--force'] : []), target]).catch((error: unknown) => {
@@ -789,6 +790,24 @@ const bringHomeInCheckout = async (
   await rm(target, { recursive: true, force: true })
   return { branch: entry.branch, from, root: main, ...(warning ? { warning } : {}) }
 }
+
+export const branchExists = async (root: string, branch: string): Promise<boolean> =>
+  git(root, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).then(() => true, (error: unknown) => {
+    if ((error as { code?: number }).code === 1) return false
+    throw error
+  })
+
+/** Recreate the same managed path from its retained branch; no new branch. */
+export const restore = async (root: string, path: string, branch: string, stateDir: string): Promise<void> => {
+  const home = await worktreeHomePath(root, stateDir)
+  if (!isManagedWorktree(path, home)) throw new Error('That path is not a managed worktree.')
+  await mkdir(home, { recursive: true })
+  await personGit(root, ['worktree', 'add', path, branch])
+}
+
+/** Full inventory, including entries beyond the display cap. */
+export const worktreeInventoryKey = async (path: string): Promise<string> => createHash('sha256')
+  .update(await git(path, ['status', '--porcelain=v1', '-z', '--ignored=matching'])).digest('hex')
 
 /**
  * Puts a worktree back after the main checkout refused its branch, and throws

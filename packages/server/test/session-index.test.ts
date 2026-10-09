@@ -138,7 +138,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 5)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 6)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })
@@ -341,7 +341,8 @@ test('import consumes pending archive marks without discarding pending names or 
       assert.equal(imported.archived, !archived, 'a later ordinary write must not replay the consumed mark')
       assert.equal(imported.title, 'Person chose this name', 'import must retain pending names')
       index.promote(runtime, summary.id)
-      assert.equal(index.list({ archived: !archived ? 'only' : 'exclude' }).data.length, 0, 'pending Team membership survives import')
+      assert.ok(!index.list().data.some(row => row.id === summary.id), 'pending Team membership stays out of loose sidebar rows')
+      assert.equal(index.teamMembers('synthetic-team').length, 1, 'pending Team membership survives import')
       index.setTeam(runtime, summary.id, null)
       assert.equal(index.list({ archived: !archived ? 'only' : 'exclude' }).data[0]?.id, summary.id)
     }

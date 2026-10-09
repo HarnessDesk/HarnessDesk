@@ -180,7 +180,8 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   listings confirm only indexed ids. Cached folder identities and Git configuration
   fingerprints are revalidated without holding up a listing. Reconnects reconcile
   the window's loaded index pages; agent filters page their accounts. Team members are excluded from loose rows.
-  `session/list` retains the runtime history contract for other callers.
+  `session/list` retains the runtime history contract through
+  `historyClient.nativeList`; Archive pages the local index instead.
   The host keeps its own copy of each session so a reload rebuilds without
   asking the backend to replay. An agent restarting under an open conversation
   — a catalogue refresh when the window regains focus, a stored key changing —

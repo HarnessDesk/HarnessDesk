@@ -832,6 +832,7 @@ export const Conversation = ({
             onClick={onScrollClick}
             data-live-transcript
           >
+            {session.worktreeWarning && <Banner tone="neutral" compact>{session.worktreeWarning}</Banner>}
             {session.deskCopy && <Banner tone="neutral" compact>HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The agent'}’s own record is unavailable.</Banner>}
             {!hasRealTurn && emptyState}
             <div ref={transcriptContent} data-transcript-content>

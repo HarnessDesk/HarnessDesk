@@ -460,6 +460,8 @@ export interface Session {
   readonly usage?: SessionUsage | null
   readonly goal?: SessionGoal | null
   readonly turns: readonly Turn[]
+  /** Explanation when a retained worktree branch no longer exists. */
+  readonly worktreeWarning?: string
   /** Served from the desk because the agent’s own record is unavailable. */
   readonly deskCopy?: boolean
   readonly itemsLoaded: boolean
@@ -475,8 +477,16 @@ export interface Session {
   readonly archived?: boolean
 }
 
+/** A managed checkout retained independently of the conversation's body. */
+export interface SessionWorktree {
+  readonly path: string
+  readonly branch: string | null
+  readonly state: 'present' | 'removed' | 'kept'
+}
+
 /** The lightweight row shown in the sidebar; never carries a transcript. */
 export interface SessionSummary {
+  readonly worktree?: SessionWorktree
   readonly id: SessionId
   readonly runtime: RuntimeId
   readonly title?: string | null
