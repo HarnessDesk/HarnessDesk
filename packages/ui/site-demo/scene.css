@@ -1,0 +1,33 @@
+/* The embed owns only its camera and pointer; the bands keep production styling. */
+.site-scene {
+  position: relative;
+  overflow: hidden;
+  contain: layout paint;
+  background: var(--hd-background);
+  color: var(--hd-foreground);
+}
+.site-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-6);
+  height: 100%;
+  overflow: hidden;
+}
+.site-scene-pointer {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: var(--hd-space-3);
+  height: var(--hd-space-3);
+  margin: calc(var(--hd-space-3) / -2);
+  border: var(--hd-border-width) solid var(--hd-background);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-foreground);
+  box-shadow: 0 0 0 var(--hd-space-1) color-mix(in srgb, var(--hd-foreground) 15%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+.site-dashboard [role="group"][aria-label*="per agent"] { height: 216px; }
+.site-dashboard [role="group"][aria-label$="this year"] { height: 254px; }
+.site-dashboard [role="group"][aria-label^="Tokens or cost per day"] { min-width: 0; }
+.site-dashboard [role="group"][aria-label^="Tokens or cost per day"] :is([data-level], [data-state]) { aspect-ratio: auto; height: 100%; }
+.site-scene[data-scene-motion="reduce"] * { animation: none; transition: none; }

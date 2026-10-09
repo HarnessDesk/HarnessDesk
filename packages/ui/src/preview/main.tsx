@@ -11,6 +11,8 @@ import { NoticesFrame } from './frames-notices'
 import { CatalogueRefusedUndo } from '../design/explorer/boards'
 import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { SiteRunPreview } from '../../site-demo/run-demo'
+import { SiteScene } from '../../site-demo/scene'
+import { isSceneName } from '../../site-demo/scenes'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
@@ -1198,7 +1200,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('tile-browsers')
+        {isSceneName(new URLSearchParams(window.location.search).get('site-scene') ?? '')
+          ? <SiteScene name="dashboard" theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+          : new URLSearchParams(window.location.search).has('tile-browsers')
           ? <TileBrowserFrames />
           : new URLSearchParams(window.location.search).has('shape-graph')
           ? <ShapeGraphFrames />
