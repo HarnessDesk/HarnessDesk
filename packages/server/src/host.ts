@@ -715,6 +715,7 @@ export class Host {
   readonly #sessionIndex: SessionIndex
   readonly #sessionIndexRepos: SessionIndexRepos
   #sessionIndexSeed: Promise<void> = Promise.resolve()
+  readonly #sessionIndexAbort = new AbortController()
   readonly #indexPending = new Map<string, Session>()
   #removalSweep: ReturnType<typeof setTimeout> | undefined
   #removalSweepWork: Promise<void> | null = null
@@ -2560,6 +2561,7 @@ export class Host {
     if (this.#disposed) return
     for (const state of this.#team.states()) this.#indexTeam(state)
     this.#sessionIndexSeed = this.#sessionIndex.seed(this.#state.directory, {
+      signal: this.#sessionIndexAbort.signal,
       teamOf: (runtime, id) => this.#indexTeamOf(runtime, id),
       titleOf: (runtime, id) => this.#names.nameOf(runtime, id),
       archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
@@ -3109,6 +3111,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#sessionIndexAbort.abort()
     clearTimeout(this.#removalSweep)
     this.#historyImport.close()
     clearTimeout(this.#cacheEvictionTimer)
@@ -3187,6 +3190,9 @@ export class Host {
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
     await this.#sessionIndexSeed
+    // No page or readiness retry can start after the disposed flag above.
+    // Drain existing authority reads before closing their index and repo queue.
+    await Promise.all(this.#indexArchiveReads.values())
     await this.#sessionIndexRepos.close()
     await this.#storage.close()
     await this.#sessionWorktrees.settled()
@@ -7141,6 +7147,7 @@ export class Host {
     if (existing) return existing
     const read = Promise.resolve().then(async () => {
       await this.#sessionIndexSeed
+      if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
       if (!runtime.info.capabilities.archiveHistory) {
         await this.#archive.load()
         if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
@@ -7178,6 +7185,7 @@ export class Host {
         do {
           if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
           const page = (await this.#runtimeHistoryReaders.get(runtime)!({ archived, pageSize: 500, ...(cursor ? { cursor } : {}) }))!
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
           confirmed.push(...page.data)
           cursor = page.nextCursor ?? undefined
           if (cursor && seen.has(cursor)) throw new Error('Archive listing repeated its cursor')
@@ -7210,7 +7218,7 @@ export class Host {
           } catch { /* Retry unresolved rows on the next completed pass. */ }
         }
       }))
-      this.#sessionIndex.clearArchiveError(runtime.info.id)
+      if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime) this.#sessionIndex.clearArchiveError(runtime.info.id)
     }).catch((error: unknown) => {
       if (!this.#disposed) this.#sessionIndex.archiveError(runtime.info.id, String(error))
       this.#logger.warn('the sidebar archive authority could not be reconciled', { runtime: runtime.info.id, error: String(error) })

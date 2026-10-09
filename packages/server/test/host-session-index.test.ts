@@ -1,12 +1,140 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { mkdir, open, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { test } from 'node:test'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
+import { SessionIndex } from '../src/session-index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
+
+const deferred = () => {
+  let resolve!: () => void
+  const promise = new Promise<void>(yes => { resolve = yes })
+  return { promise, resolve }
+}
+
+for (const reading of ['folder page', 'archive page', 'omitted read'] as const) test(`shutdown drains a late index ${reading} without applying it`, { timeout: 10_000 }, async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const nativeArchive = reading !== 'folder page'
+  const root = tempDir('hd-index-shutdown-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: nativeArchive } })
+  runtime.setHealth({ state: 'ready' })
+  const row = { runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null,
+    createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' as const } }
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert(row, { archived: nativeArchive ? null : false })
+  index.close()
+  const entered = deferred(), answer = deferred(), stopping = deferred()
+  let settled = false, listings = 0, writes = 0
+  const late = async () => {
+    entered.resolve()
+    await answer.promise
+    settled = true
+    return { ...row, cwd: '/synthetic/recovered', archived: true, turns: [], itemsLoaded: true }
+  }
+  runtime.listSessions = async () => {
+    listings++
+    if (reading === 'omitted read') return { data: [], nextCursor: null }
+    return { data: [await late()], nextCursor: 'next' }
+  }
+  runtime.readSession = late
+  const dispose = runtime.dispose.bind(runtime)
+  runtime.dispose = async () => { stopping.resolve(); await dispose() }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(async () => { answer.resolve(); await host.dispose() })
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await entered.promise
+  // Count even attempted writes: a closed SQLite handle must never be reached.
+  for (const method of ['fillMissingMetadata', 'confirmArchived', 'clearArchiveError', 'archiveError'] as const) {
+    const original = SessionIndex.prototype[method]
+    t.mock.method(SessionIndex.prototype, method, function (this: SessionIndex, ...args: unknown[]) {
+      writes++
+      return Reflect.apply(original, this, args)
+    })
+  }
+  const close = SessionIndex.prototype.close
+  t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) {
+    assert.equal(settled, true, 'index closes only after its in-flight authority read settles')
+    return close.call(this)
+  })
+  let disposed = false
+  runtime.setHealth({ state: 'ready' }) // Queue a readiness retry behind the current read.
+  const shutdown = host.dispose().then(() => { disposed = true })
+  void shutdown.catch(() => {})
+  await stopping.promise
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(disposed, false)
+  answer.resolve()
+  await shutdown
+  assert.equal(settled, true)
+  assert.equal(writes, 0, 'late answers are abandoned once shutdown starts')
+  assert.equal(listings, reading === 'omitted read' ? 2 : 1, 'no next page or readiness retry starts')
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  assert.equal(persisted.get(row.runtime, row.id)?.cwd, '')
+  close.call(persisted)
+  await rm(root, { recursive: true, force: true })
+  runtime.setHealth({ state: 'ready' })
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(readdir(root), { code: 'ENOENT' })
+})
+
+test('shutdown waits for the seed first-prompt stream to finish', { timeout: 10_000 }, async t => {
+  const root = tempDir('hd-seed-shutdown-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const folder = join(root, 'transcripts', runtime.info.id)
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, 'old.json')
+  await writeFile(file, JSON.stringify({ version: 1, runtime: runtime.info.id, id: 'old', cwd: '', updatedAt: 1,
+    turns: [{ items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Synthetic first prompt' }] }] }] }))
+  const handle = await open(file, 'r')
+  const prototype = Object.getPrototypeOf(handle) as typeof handle
+  await handle.close()
+  const stream = prototype.createReadStream
+  const entered = deferred(), answer = deferred(), stopping = deferred()
+  let finished = false
+  t.mock.method(prototype, 'createReadStream', function (this: typeof handle, ...args: Parameters<typeof stream>) {
+    const original = stream.apply(this, args)
+    return Readable.from((async function* () {
+      entered.resolve()
+      await answer.promise
+      try { for await (const chunk of original) yield chunk }
+      finally { finished = true }
+    })())
+  })
+  const dispose = runtime.dispose.bind(runtime)
+  runtime.dispose = async () => { stopping.resolve(); await dispose() }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0, idleStopMs: 0 })
+  t.after(async () => { answer.resolve(); await host.dispose() })
+  host.register(runtime)
+  await host.start()
+  await entered.promise
+  const close = SessionIndex.prototype.close
+  t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) {
+    assert.equal(finished, true, 'the seed stream finishes before the index closes')
+    return close.call(this)
+  })
+  const shutdown = host.dispose()
+  await stopping.promise
+  assert.equal(finished, false)
+  answer.resolve()
+  await shutdown
+  assert.equal(finished, true)
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  assert.equal(persisted.list().data.length, 0, 'a late seed batch is abandoned')
+  await persisted.seed(root)
+  assert.equal(persisted.list().data[0]?.preview, 'Synthetic first prompt', 'the next launch can finish the seed')
+  close.call(persisted)
+  await rm(root, { recursive: true, force: true })
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(readdir(root), { code: 'ENOENT' })
+})
 
 for (const nativeArchive of [false, true]) test(`listing recovers only missing folders and names (native archive: ${nativeArchive})`, async t => {
   const { SessionIndex } = await import('../src/session-index.js')

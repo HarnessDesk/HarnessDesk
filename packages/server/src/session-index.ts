@@ -13,6 +13,7 @@ export interface SessionIndexChange {
 }
 
 export interface SessionIndexSeedOptions {
+  readonly signal?: AbortSignal
   readonly teamOf?: (runtime: RuntimeId, id: SessionId) => string | null
   readonly archiveCapability?: (runtime: RuntimeId) => boolean | undefined
   readonly titleOf?: (runtime: RuntimeId, id: SessionId) => string | null
@@ -498,7 +499,7 @@ export class SessionIndex {
   }
 
   seed(stateDir: string, options: SessionIndexSeedOptions = {}): Promise<void> {
-    if (this.#closed || this.#db.prepare("SELECT 1 FROM meta WHERE key='seed:transcripts:previews:v1'").get()) return Promise.resolve()
+    if (this.#closed || options.signal?.aborted || this.#db.prepare("SELECT 1 FROM meta WHERE key='seed:transcripts:previews:v1'").get()) return Promise.resolve()
     if (this.#seeding) return this.#seeding
     this.#seeding = this.#seed(stateDir, options).finally(() => { this.#seeding = null })
     return this.#seeding
@@ -507,7 +508,7 @@ export class SessionIndex {
   async #seed(stateDir: string, options: SessionIndexSeedOptions): Promise<void> {
     const seeded = !!this.#db.prepare("SELECT 1 FROM meta WHERE key='seed:transcripts:v1'").get()
     for await (const batch of seedSummaries(stateDir)) {
-      if (this.#closed) return
+      if (this.#closed || options.signal?.aborted) return
       const inserted: SessionSummary[] = []
       this.#transaction(() => {
         for (const summary of batch) {
@@ -536,7 +537,7 @@ export class SessionIndex {
       })
       for (const summary of inserted) this.#notify(summary.runtime, summary.id)
     }
-    if (!this.#closed) this.#transaction(() => {
+    if (!this.#closed && !options.signal?.aborted) this.#transaction(() => {
       this.#db.prepare("INSERT INTO meta(key,value) VALUES('seed:transcripts:v1','1') ON CONFLICT DO NOTHING").run()
       this.#db.prepare("INSERT INTO meta(key,value) VALUES('seed:transcripts:previews:v1','1') ON CONFLICT DO NOTHING").run()
     })
