@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { splitSessionKey, type SessionKey, type StorageCandidate, type StorageCleanupPreview, type StorageCleanupResult, type StorageConversation, type StorageKeptWorktree, type StorageUsage } from '@harnessdesk/protocol'
-import { Button, Chip, ConfirmDialog, Dialog, MiddleTruncate, NativeSelect, Note, NoteList, PageHead, Row, Rows, RowValue, SectionHead, Switch } from '../design'
+import { Alert, AlertContent, AlertTitle, Button, Chip, ConfirmDialog, Dialog, MiddleTruncate, NativeSelect, Note, NoteList, PageHead, Row, Rows, RowValue, SectionHead, Switch } from '../design'
 import { useSnapshot, useStore } from '../state/context'
-import { panes, sessionOf } from '../state/layout'
+import { panes } from '../state/layout'
 import { mountedViews } from '../state/workbench'
 import { sessionLabel } from '../lib/sessions'
 import { DiscardWorktree } from './DiscardWorktree'
@@ -49,7 +49,9 @@ export const StorageSection = () => {
   // Re-read the current layout at confirmation, since a conversation can open while reviewing.
   const exclude = (): StorageConversation[] => {
     const current = store.getSnapshot()
-    const keys = new Set([...panes(current.layout.root).map(sessionOf).filter(key => key !== null), ...mountedViews(current.workbench).map(entry => entry.mounted.view.kind === 'conversation' ? entry.mounted.view.session : null).filter(key => key !== null), ...current.listPrefs.pinnedSessions])
+    const views = [...panes(current.layout.root).map(pane => pane.view), ...mountedViews(current.workbench).map(entry => entry.mounted.view)]
+    const keys = new Set([...views.flatMap(view => view.kind === 'conversation' ? view.session ? [view.session] : []
+      : view.kind === 'room' ? [...view.watching ?? [], ...view.sideBySide?.tiles ?? [], ...view.sideBySide?.pinned ?? []] : []), ...current.listPrefs.pinnedSessions])
     return [...keys].map(key => { const { runtime, id } = splitSessionKey(key as SessionKey); return { runtime, sessionId: id } })
   }
   const review = async () => {
@@ -85,13 +87,13 @@ export const StorageSection = () => {
       <RowValue>{snapshot.runtimes.find(info => info.id === row.runtime)?.presentation.name ?? 'Unavailable agent'}</RowValue>
       <RowValue>{bytes(row.bytes)}</RowValue>
     </>} />
-    {inventory && <div className="px-3 py-2"><Note tone="warn">
+    {inventory && <Alert tone="warning"><AlertContent><AlertTitle>
       {row.changes.modified} modified · {row.changes.untracked} untracked · {row.changes.ignoredCount} ignored
-      </Note><NoteList>
+      </AlertTitle><NoteList>
         {row.changes.files.map(file => <li key={file}>{file}</li>)}
         {row.changes.ignored.map(file => <li key={file}><span>{file}</span> <Chip size="sm" tone="warning">Ignored</Chip></li>)}
         {row.changes.ignoredCount > row.changes.ignored.length && <li>and {row.changes.ignoredCount - row.changes.ignored.length} more ignored entries</li>}
-      </NoteList></div>}
+      </NoteList></AlertContent></Alert>}
   </div>
   return <>
     <PageHead title="Storage" />
@@ -119,7 +121,7 @@ export const StorageSection = () => {
     {reviewing && <Dialog title="Clean up inactive conversations" size="lg" onClose={() => { if (!busy) { setReviewing(false); setProblem(null) } }}
       description={includeDirty ? 'Unsaved and ignored content goes with the folders. Conversations and branches stay. There is no undo.' : 'Conversations and branches stay. Reopening a conversation recreates its worktree.'}
       footer={<>
-        {result || !preview ? <Button disabled={busy} onClick={() => void review()}>Review again</Button> : <Button variant={includeDirty ? 'destructive' : 'default'} disabled={busy || !selected.length} onClick={() => void cleanup()}>{busy ? 'Removing…' : `Remove ${countOf(selected.length)}`}</Button>}
+        {result || !preview ? <Button variant="default" disabled={busy} onClick={() => void review()}>Review again</Button> : <Button variant={includeDirty ? 'danger' : 'default'} disabled={busy || !selected.length} onClick={() => void cleanup()}>{busy ? 'Removing…' : `Remove ${countOf(selected.length)}`}</Button>}
         <Button variant="outline" disabled={busy} onClick={() => { setReviewing(false); setProblem(null) }}>Close</Button>
       </>}>
       {problem && <Note tone="bad">{problem}</Note>}

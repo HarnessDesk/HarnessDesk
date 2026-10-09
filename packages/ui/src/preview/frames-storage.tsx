@@ -28,6 +28,7 @@ const StorageFrame = ({ scene }: { scene: string }) => {
       if (method === 'storage/usage') return usage
       if (method === 'storage/kept') return keptWorktrees
       if (method === 'storage/cleanupPreview') return { candidates, cleanBytes: 2.5 * 1024 ** 3, inventoryToken: 'synthetic-confirmation' }
+      if (method === 'storage/cleanup') return { removed: 2, kept: 1, freedBytes: 2.5 * 1024 ** 3, refused: [{ path: '/preview/worktrees/saved-draft', reason: 'changed since you looked' }] }
       if (method === 'session/worktreePreview') return { changes: keptWorktrees.find(row => row.sessionId === (params as { sessionId: string }).sessionId)!.changes, stamp: 'synthetic-discard' }
       return original(method, params as never)
     }) as typeof store.transport.request

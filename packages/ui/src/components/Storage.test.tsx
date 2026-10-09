@@ -6,6 +6,7 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore, type AppSnapshot } from '../state/store'
 import { StorageSection } from './Storage'
 import { resolveSection } from './Settings'
+import type { PaneView } from '../state/layout'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const info: RuntimeInfo = { id: runtimeId('alpha'), name: 'internal-name', presentation: { name: 'Alpha' }, capabilities: NO_CAPABILITIES }
@@ -56,11 +57,14 @@ it('reviews two groups and exposes inventories only after the separate discard c
   expect(button('Remove 1 worktree')).toBeTruthy()
   await act(async () => document.querySelector<HTMLButtonElement>('[role="switch"]')!.click())
   expect(document.body.textContent).toContain('.env')
-  expect(button('Remove 2 worktrees').getAttribute('data-variant')).toBe('destructive')
+  expect(button('Remove 2 worktrees').getAttribute('data-variant')).toBe('danger')
+  expect(button('Remove 2 worktrees').hasAttribute('data-filled')).toBe(true)
   await act(async () => button('Remove 2 worktrees').click())
   expect(request).toHaveBeenCalledWith('storage/cleanup', { olderThanDays: 30, exclude: [], includeDirty: true, inventoryToken: 'confirmed' })
   expect(notice).toHaveBeenCalledWith('info', 'Removed 1 worktree · freed 2 KB · 1 refused')
   expect(document.body.textContent).toContain('changed since you looked')
+  expect(button('Review again').getAttribute('data-variant')).toBe('default')
+  expect(document.querySelectorAll('[data-slot="dialog-footer"] [data-filled]')).toHaveLength(1)
 })
 it('requires confirmation before clearing cached previews', async () => {
   await mount(); await act(async () => button('Clear').click())
@@ -94,6 +98,40 @@ it('retains a completed measurement delivered while the post-cleanup kept list i
   act(() => listener(usage))
   await act(async () => finish([]))
   expect(box.textContent).not.toContain('Measuring…')
+})
+
+it.each(['pane', 'dock'] as const)('excludes settled room tiles, watching and tile pins from the %s at preview and confirmation', async place => {
+  await mount()
+  const shown = sessionKey(info.id, 'shown-seat'), legacy = sessionKey(info.id, 'legacy-seat'), pinned = sessionKey(info.id, 'tile-pin')
+  const room = (tiles: readonly typeof shown[]): PaneView => ({ kind: 'room', room: 'synthetic-team', watching: [legacy, shown], sideBySide: { tiles, pinned: [pinned] } })
+  const setRoom = (view: PaneView) => {
+    snapshot = place === 'pane'
+      ? { ...snapshot, layout: { ...snapshot.layout, root: { kind: 'pane', id: 'room-pane', view } } }
+      : { ...snapshot, workbench: { ...snapshot.workbench, right: { ...snapshot.workbench.right, root: { kind: 'stack', id: 'room-stack', views: [{ id: 'room-dock', view }], active: 'room-dock' } } } }
+  }
+  // A settled transcript stays in the window after its host live handle is released.
+  snapshot = { ...snapshot, sessions: new Map([[shown, { runtime: info.id, id: sessionId('shown-seat'), cwd: '/preview/worktrees/shown-seat', status: { type: 'idle' as const }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }]]) }
+  setRoom(room([shown]))
+  await act(async () => button('Review…').click())
+  const excluded = (method: string) => request.mock.calls.find(([name]) => name === method)![1].exclude.map((row: { sessionId: string }) => row.sessionId).sort()
+  expect(excluded('storage/cleanupPreview')).toEqual(['legacy-seat', 'shown-seat', 'tile-pin'])
+  setRoom(room([shown, sessionKey(info.id, 'new-seat')]))
+  await act(async () => button('Remove 1 worktree').click())
+  expect(excluded('storage/cleanup')).toEqual(['legacy-seat', 'new-seat', 'shown-seat', 'tile-pin'])
+})
+
+it('keeps a filled proceeding action while a preview is loading and after a refusal to read it', async () => {
+  await mount()
+  let refuse!: (error: Error) => void
+  request.mockImplementation((method: string) => method === 'storage/cleanupPreview' ? new Promise((_resolve, reject) => { refuse = reject }) : Promise.resolve(null))
+  await act(async () => button('Review…').click())
+  expect(button('Review again').disabled).toBe(true)
+  expect(button('Review again').getAttribute('data-variant')).toBe('default')
+  expect(document.querySelectorAll('[data-slot="dialog-footer"] [data-filled]')).toHaveLength(1)
+  await act(async () => refuse(new Error('Inventory unavailable')))
+  expect(button('Review again').disabled).toBe(false)
+  expect(button('Review again').getAttribute('data-variant')).toBe('default')
+  expect(document.querySelectorAll('[data-slot="dialog-footer"] [data-filled]')).toHaveLength(1)
 })
 
 it('resolves the Storage route requested by the palette and restored navigation', () => {

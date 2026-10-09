@@ -82,6 +82,21 @@ test('clean cleanup keeps branches and conversations, records removal and recrea
   assert.equal(git(tree.path, 'branch', '--show-current'), tree.branch)
 })
 
+test('a settled room Seat with no live handle stays through renderer exclusions at preview and confirmation', async t => {
+  const { create, preview, cleanup, host } = await fixture(t)
+  const shown = await create('Shown Seat'), other = await create('Inactive task')
+  const record = host.registry.get(shown.pointer.runtime, shown.pointer.sessionId)
+  assert.ok(record, 'the host retains the settled conversation')
+  assert.equal(record.live, null)
+  assert.equal((await preview()).candidates.some(row => row.path === shown.tree.path), true, 'a released handle alone cannot protect a displayed transcript')
+  assert.deepEqual((await preview([shown.pointer])).candidates.map(row => row.path), [other.tree.path])
+  const beforeOpening = await preview()
+  const result = await cleanup(beforeOpening, false, [shown.pointer])
+  assert.equal(result.removed, 1)
+  assert.equal(await exists(shown.tree.path), true, 'a tile opened during review is kept')
+  assert.equal(await exists(other.tree.path), false)
+})
+
 test('ignored content needs confirmation and an unchanged inventory; clean trees becoming dirty stay', async t => {
   const { create, preview, cleanup } = await fixture(t)
   const dirty = await create('Ignored'), clean = await create('Clean')
