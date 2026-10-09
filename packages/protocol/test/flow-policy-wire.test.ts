@@ -200,3 +200,12 @@ test('seat override validation preserves prototype-named roles for semantic refu
   assert.equal(preview.method, 'flow/preview')
   assert.deepEqual(Object.keys((preview.params as HostParams<'flow/preview'>).seats!), ['__proto__'])
 })
+
+test('successful outcome declarations cross the shape wire and malformed lists do not (#1548)', () => {
+  const policy = { ...checkPolicy({}), complete: { verify: ['pass'] } }
+  const accepted = request('authoring/shape/render', { policy })
+  assert.deepEqual((accepted.params as HostParams<'authoring/shape/render'>).policy.complete, policy.complete)
+  for (const complete of [null, [], {verify: 'pass'}, {verify: [3]}, {'bad.role': ['pass']}]) {
+    assert.throws(() => request('authoring/shape/render', { policy: {...policy, complete} }), ValidationError)
+  }
+})

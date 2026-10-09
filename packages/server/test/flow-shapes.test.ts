@@ -55,7 +55,7 @@ test('Write and review previews against shipped Agents, including its reviewed m
   assert.equal(dry.seats.length, 2)
   assert.ok(dry.compiled.document.format === 'agents')
   const flow = dry.compiled.document.flow
-  const automatic = { ...flow, roles: flow.roles.map(role => role.id === 'referee'
+  const automatic = { ...flow, complete: { referee: ['merged'] }, roles: flow.roles.map(role => role.id === 'referee'
     ? { id: 'referee', kind: 'agent' as const, uses: ['merger'], seats: [], isolate: false, grant: 'merge' as const, independentOf: [] } : role),
     rules: flow.rules.map(rule => rule.then.role === 'referee' ? { ...rule, when: { evidence: [{ review: 'approve' as const }, { pr: 'open' as const }] } } : rule),
   }
@@ -127,6 +127,7 @@ test('renaming every role, and reordering equivalent role declarations, changes 
     .replace(new RegExp(`^(\\s*)${from}:`, 'm'), `$1${to}:`)
     .replace(new RegExp(`\\bon: ${from}\\b`, 'g'), `on: ${to}`)
     .replace(new RegExp(`\\brole: ${from}\\b`, 'g'), `role: ${to}`)
+    .replace(`complete: { ${from}:`, `complete: { ${to}:`)
     .replace(new RegExp(`independentOf: \\[${from}\\]`, 'g'), `independentOf: [${to}]`)
   const renamed = ['competitor', 'verify', 'judge', 'referee'].reduce(
     (text, name, index) => renameRole(text, name, ['alpha', 'beta', 'gamma', 'delta'][index]!),
