@@ -10,7 +10,7 @@
 
 .roleControls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr)); /* desk: agent on its own row, model and effort share the second, so none truncates */
   gap: var(--hd-space-2);
   min-width: 0;
   width: 19em;
