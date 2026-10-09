@@ -57,6 +57,7 @@ const SideBySideRoomFrame = ({
   expanded,
   comparison,
   browsers = false,
+  browserCount = count,
 }: {
   readonly id: string
   readonly title: string
@@ -64,6 +65,7 @@ const SideBySideRoomFrame = ({
   readonly expanded?: boolean
   readonly comparison?: ComparisonScene
   readonly browsers?: boolean
+  readonly browserCount?: 2 | 4
 }) => {
   const store = useMemo(() => comparison ? comparisonVerdictStore(comparison) : sideBySideStore({ browsers }), [comparison, browsers])
   const tiles = SIDE_BY_SIDE_KEYS.slice(0, count)
@@ -73,7 +75,7 @@ const SideBySideRoomFrame = ({
     sideBySide: {
       tiles,
       ...(comparison === 'combined' ? { modes: { [tiles[0]!]: 'browser' as const } } : {}),
-      ...(browsers ? { modes: Object.fromEntries(tiles.map(key => [key, 'browser' as const])) } : {}),
+      ...(browsers ? { modes: Object.fromEntries(tiles.slice(0, browserCount).map(key => [key, 'browser' as const])) } : {}),
       focused: expanded ? tiles[1] : tiles[0],
       ...(expanded ? { expanded: tiles[1] } : {}),
     },
@@ -82,7 +84,8 @@ const SideBySideRoomFrame = ({
     <Frame id={id} title={title}>
       <div data-side-by-side-container style={{ width: '100%', height: browsers || comparison === 'combined' ? 700 : 520 }}>
         <StoreProvider store={store}>
-          <MountProvider scope={{ area: 'main', id, view }}>
+          {/* Standalone rooms use the same focus owner as an undocked Team. */}
+          <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
             <FocusedWhileInside>
               <TeamRoomPane room={PREVIEW_ROOM} />
             </FocusedWhileInside>
@@ -100,6 +103,7 @@ export const SideBySideFrames = ({ comparisonOnly = false, scene }: { comparison
       {(scene ? [scene] : ['before', 'picked', 'person', 'no-pass'] as const).map(scene => <SideBySideRoomFrame key={scene} id={`comparison-${scene}`} title={`Comparison · ${scene}`} count={2} comparison={scene} />)}
       {!comparisonOnly && <>
       <SideBySideRoomFrame id="side-by-side-browsers" title="Room — Side by side · two live pages" count={2} browsers />
+      <SideBySideRoomFrame id="side-by-side-four-browsers" title="Room — Side by side · four tiles with live pages" count={4} browsers browserCount={2} />
       <SideBySideRoomFrame id="side-by-side-two" title="Room — Side by side · two members" count={2} />
       <SideBySideRoomFrame id="side-by-side-four" title="Room — Side by side · four members" count={4} />
       <SideBySideRoomFrame id="side-by-side-expanded" title="Room — Side by side · expanded tile" count={4} expanded />
