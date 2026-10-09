@@ -2587,7 +2587,10 @@ rules:
     const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
     const input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
     if (!input) return false
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ${q(value)})
+    const prototype = input instanceof window.HTMLTextAreaElement
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, ${q(value)})
     input.dispatchEvent(new Event('input', { bubbles: true }))
     return true
   })()`)

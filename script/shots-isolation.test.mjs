@@ -169,6 +169,64 @@ test('native Team scenes open the sidebar picker directly, not the retired start
   assert.doesNotMatch(shoot, /openStartingKind\(/)
 })
 
+test('the shot task filler writes to inputs and textareas and dispatches input', async () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const helperStart = shoot.indexOf('  const fill = (label, value) => ')
+  assert.notEqual(helperStart, -1, 'shoot.mjs still has its shared field filler')
+  const helperEnd = shoot.indexOf('\n\n  Object.assign(SCENES', helperStart)
+  assert.notEqual(helperEnd, -1, 'the shared field filler still ends before the scene table')
+  const helperSource = shoot.slice(helperStart, helperEnd)
+
+  const elementType = () => {
+    let ElementType
+    ElementType = class {
+      constructor() { this._value = ''; this.events = [] }
+      get value() { return this._value }
+      set value(value) {
+        if (!(this instanceof ElementType)) throw new TypeError('Illegal invocation')
+        this._value = value
+      }
+      dispatchEvent(event) { this.events.push(event); return true }
+    }
+    return ElementType
+  }
+  const HTMLInputElement = elementType()
+  const HTMLTextAreaElement = elementType()
+
+  for (const [label, ElementType] of [
+    ['Task input', HTMLInputElement],
+    ['What should they do?', HTMLTextAreaElement],
+  ]) {
+    const element = new ElementType()
+    const document = {
+      querySelectorAll: selector => { assert.equal(selector, 'label'); return [] },
+      getElementById: () => null,
+      querySelector: selector => {
+        assert.equal(selector, `[aria-label=${JSON.stringify(label)}]`)
+        return element
+      },
+    }
+    class InputEvent {
+      constructor(type, options) { this.type = type; this.bubbles = options.bubbles }
+    }
+    const cdp = {
+      eval: async expression => new Function('document', 'window', 'Event', `return ${expression}`)(
+        document,
+        { HTMLInputElement, HTMLTextAreaElement },
+        InputEvent,
+      ),
+    }
+    const fill = new Function('cdp', 'q', `${helperSource}; return fill`)(cdp, JSON.stringify)
+    const value = `filled ${label}`
+
+    assert.equal(await fill(label, value), true)
+    assert.equal(element.value, value)
+    assert.equal(element.events.length, 1)
+    assert.equal(element.events[0].type, 'input')
+    assert.equal(element.events[0].bubbles, true)
+  }
+})
+
 test('the room delivers one distinct prompt to each seat without broadcasting a second turn to every seat', () => {
   const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
   const room = shoot.slice(shoot.indexOf('const stageRoom = async () => {'), shoot.indexOf('/**\n   * Leave the Dashboard'))

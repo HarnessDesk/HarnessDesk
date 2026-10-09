@@ -1148,8 +1148,8 @@ Independent review and Investigation. Cards use the file's optional short
 `summary`, falling back to the description's first sentence; the full
 description remains on hover. **Just a Team** opens a shared board with
 no fixed steps; **Build your own** opens the shape editor. **New session**
-and ⌘N still start a solo session directly. Both solo start and Manage
-Agents are also in the picker's footer.
+(⌘N) still starts a solo session directly; the picker footer keeps that path
+for work that needs only one agent.
 
 Choosing a shape opens one form: the task, each role's agent, model and
 effort, the shape's own options, and **Done when · optional**. Leaving Done
