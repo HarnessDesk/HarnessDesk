@@ -187,11 +187,17 @@ export class SessionIndex {
       for (const row of rows) {
         const previous = this.#row(row.runtime, row.id)
         if (previous?.removed_at != null) continue
+        const { archived: pendingArchive, ...pending } = this.#facts(row.runtime, row.id)
         // A null observation is stale. Keep an action on an existing row or
         // the pending mark for a conversation this page has not inserted yet.
-        const observed = archivedOf(row) ?? previous?.archived ?? this.#facts(row.runtime, row.id).archived ?? null
+        const observed = archivedOf(row) ?? previous?.archived ?? pendingArchive ?? null
         const archived = observed === null ? null : Number(observed)
         write.run(row.runtime, row.id, row.title ?? null, row.cwd, row.cwd, row.createdAt, row.updatedAt, archived)
+        // The row now owns archive state; leave other deferred facts for upsert.
+        if (pendingArchive !== undefined) {
+          this.#clearFacts(row.runtime, row.id)
+          if (Object.keys(pending).length) this.#saveFacts(row.runtime, row.id, pending)
+        }
         if (previous?.origin === 'desk' && previous.archived !== archived) changed.push(row)
       }
     })

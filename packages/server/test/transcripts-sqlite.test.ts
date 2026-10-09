@@ -147,6 +147,55 @@ test('backup restore keeps previews imported, cached and evictable without chang
   assert.equal(adopted.evictCached(0, () => false).count, 0)
 })
 
+test('restore fills metadata-only opening times and retains newer local recency for cache eviction', async t => {
+  const { home, store, db } = await fixture(t)
+  const index = new SessionIndex(join(home, 'sessions.sqlite'))
+  t.after(() => index.close())
+  const recent = session([turn('t', [message('m', 'Recent preview')])], 'a-recent')
+  const old = session([turn('t', [message('m', 'Old preview')])], 'z-old')
+  index.importPage([recent, old], () => false)
+  const database = db()
+  t.after(() => database.close())
+  const opening = (id: string) => database.prepare('SELECT last_opened_at FROM sessions WHERE id=?').get(id)?.last_opened_at
+  assert.equal(opening(recent.id), null)
+  assert.equal(await store.importOne(recent.runtime, recent.id, { version: 1, ...recent, savedAt: 10, origin: 'imported', lastOpenedAt: 200 }), 'restored')
+  assert.equal(opening(recent.id), 200, 'NULL metadata must accept the restored opening time')
+  assert.equal(await store.importOne(recent.runtime, recent.id, { version: 1, ...recent, savedAt: 20, origin: 'imported', lastOpenedAt: 100 }), 'restored')
+  assert.equal(opening(recent.id), 200, 'an older restore must retain local recency')
+  assert.equal(await store.importOne(old.runtime, old.id, { version: 1, ...old, savedAt: 10, origin: 'imported', lastOpenedAt: 100 }), 'restored')
+  const oldBytes = Number(database.prepare('SELECT body_bytes FROM sessions WHERE id=?').get(old.id)?.body_bytes)
+  const total = Number(database.prepare("SELECT SUM(body_bytes) AS n FROM sessions WHERE body='cached'").get()?.n)
+  assert.deepEqual(store.evictCached(total - oldBytes, () => false), { count: 1, bytes: oldBytes })
+  assert.equal(await store.recover(old.runtime, old.id), null)
+  assert.equal((await store.recover(recent.runtime, recent.id))?.id, recent.id)
+})
+
+test('restore notifies only after verification, so immediate cache eviction cannot refuse a successful restore', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-restore-notification-'))
+  let writes = 0
+  const store = new TranscriptStore(join(home, 'transcripts'), undefined, () => {
+    writes++
+    store.evictCached(0, () => false)
+  })
+  t.after(async () => { await store.close(); await rm(home, { recursive: true, force: true }) })
+  const preview = session([turn('t', [message('m', 'Synthetic restored preview')])])
+  const incoming = { version: 1, ...preview, savedAt: 10, origin: 'imported' }
+  assert.equal(await store.importOne(preview.runtime, preview.id, incoming), 'restored')
+  assert.equal(writes, 1)
+  assert.equal(await store.recover(preview.runtime, preview.id), null, 'the callback can evict the verified body')
+  const full = { version: 1, ...preview, id: 'full', savedAt: 10 }
+  assert.equal(await store.importOne(preview.runtime, 'full', full), 'restored')
+  assert.equal(writes, 2)
+  assert.equal(await store.importOne(preview.runtime, 'full', full), 'skipped')
+  assert.equal(await store.importOne(preview.runtime, 'invalid', {}), 'refused')
+  const database = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try {
+    database.exec("CREATE TRIGGER lose_restored_body AFTER INSERT ON bodies WHEN new.id='unverified' BEGIN DELETE FROM bodies WHERE runtime=new.runtime AND id=new.id; END")
+    assert.equal(await store.importOne(preview.runtime, 'unverified', { ...incoming, id: 'unverified' }), 'refused')
+    assert.equal(writes, 2, 'skipped, invalid and unverified restores do not notify')
+  } finally { database.close() }
+})
+
 test('a cold database reconstructs every stored turn, item, usage and Insight field', async t => {
   const { home, store, db } = await fixture(t)
   const original = { ...session([{ ...turn('t1', [message('answer', 'kept'), tool('full output')]),

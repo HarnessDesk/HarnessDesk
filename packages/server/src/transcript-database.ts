@@ -108,7 +108,7 @@ export class TranscriptDatabase {
       this.db.prepare(`INSERT INTO sessions(runtime,id,origin,title,cwd,created_at,updated_at,body,saved_at,usage,preview,last_opened_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(runtime,id) DO UPDATE SET body=CASE WHEN sessions.origin='imported' THEN 'cached' ELSE 'full' END,saved_at=excluded.saved_at,
           title=COALESCE(sessions.title,excluded.title),updated_at=MAX(sessions.updated_at,excluded.updated_at),
-          usage=excluded.usage,preview=COALESCE(excluded.preview,sessions.preview),last_opened_at=MAX(sessions.last_opened_at,excluded.last_opened_at)`)
+          usage=excluded.usage,preview=COALESCE(excluded.preview,sessions.preview),last_opened_at=MAX(COALESCE(sessions.last_opened_at,0),excluded.last_opened_at)`)
         .run(runtime, id, options.origin ?? 'desk', stored.title ?? null, stored.cwd ?? '', stored.createdAt ?? stored.updatedAt ?? stored.savedAt, stored.updatedAt ?? stored.savedAt,
           options.origin === 'imported' ? 'cached' : 'full', stored.savedAt, stored.usage ? JSON.stringify(stored.usage) : null, stored.preview ?? null, options.lastOpenedAt ?? 0)
       if (options.source !== undefined) this.db.prepare('UPDATE sessions SET source_path=?,source_mtime=?,source_size=? WHERE runtime=? AND id=?')

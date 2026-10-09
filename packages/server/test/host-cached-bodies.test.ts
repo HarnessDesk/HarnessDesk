@@ -25,6 +25,37 @@ test('launch evicts old cached bodies above the configured cap while retaining f
   assert.equal(db.prepare("SELECT body FROM sessions WHERE id='full'").get()?.body, 'full')
 })
 
+test('verified backup restores schedule debounced cache eviction without another write or restart', async t => {
+  const root = tempDir('hd-cache-restore-')
+  const host = new Host(options(root, 1))
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  host.register(runtime)
+  await host.start()
+  const backup = await host.call('backup/export', {})
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const report = await host.call('backup/import', { backup: { ...backup, transcripts: ['preview-one', 'preview-two', 'full'].map(id => ({
+    runtime: runtime.info.id, id, data: { version: 1, runtime: runtime.info.id, id, savedAt: 10, cwd: root,
+      origin: id === 'full' ? 'desk' : 'imported', lastOpenedAt: 100, turns: [{ id: 'turn', status: 'completed',
+        items: [{ type: 'assistantMessage', id: 'answer', text: 'Synthetic restored cache body' }] }] },
+  })) } })
+  assert.deepEqual(report.transcripts, { restored: 3, skipped: 0 })
+  const db = new DatabaseSync(join(root, 'sessions.sqlite'))
+  t.after(() => db.close())
+  const cached = () => Number(db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE body='cached'").get()?.n)
+  assert.equal(cached(), 2)
+  t.mock.timers.tick(799)
+  assert.equal(cached(), 2, 'restores use the existing debounce')
+  t.mock.timers.tick(1)
+  assert.equal(cached(), 0, 'restored cached bodies obey the cap while the host remains running')
+  assert.equal(db.prepare("SELECT body FROM sessions WHERE id='full'").get()?.body, 'full')
+  for (const table of ['bodies', 'turns', 'items']) {
+    assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE id LIKE 'preview-%'`).get()?.n, 0, table)
+  }
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM items_fts').get()?.n, 1, 'only the full body remains searchable')
+  t.mock.timers.reset()
+})
+
 test('cached writes schedule eviction; opens update recency; clearCached skips a live preview', async t => {
   const root = tempDir('hd-cache-write-')
   const host = new Host(options(root, 1))

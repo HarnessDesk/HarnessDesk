@@ -301,6 +301,29 @@ test('schema v1 upgrade retains row state, tombstones, repo answers and seed com
   } finally { index.close() }
 })
 
+test('import consumes pending archive marks without discarding pending names or Team membership', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    for (const archived of [true, false]) {
+      const summary = row(`pending-${archived}`)
+      index.setTitle(runtime, summary.id, 'Person chose this name')
+      index.setTeam(runtime, summary.id, 'synthetic-team')
+      index.setArchived(runtime, summary.id, archived)
+      index.importPage([summary], () => null)
+      assert.equal(index.history().data.find(row => row.id === summary.id)?.archived, archived)
+      index.setArchived(runtime, summary.id, !archived)
+      index.upsert({ ...summary, updatedAt: 20 })
+      const imported = index.history().data.find(row => row.id === summary.id)!
+      assert.equal(imported.archived, !archived, 'a later ordinary write must not replay the consumed mark')
+      assert.equal(imported.title, 'Person chose this name', 'import must retain pending names')
+      index.promote(runtime, summary.id)
+      assert.equal(index.list({ archived: !archived ? 'only' : 'exclude' }).data.length, 0, 'pending Team membership survives import')
+      index.setTeam(runtime, summary.id, null)
+      assert.equal(index.list({ archived: !archived ? 'only' : 'exclude' }).data[0]?.id, summary.id)
+    }
+  } finally { index.close() }
+})
+
 test('ordinary writes preserve origin; promotion alone adopts an imported conversation', async () => {
   const changes: SessionSummary[][] = []
   const index = new SessionIndex(':memory:', ({ upserted }) => changes.push([...upserted]))

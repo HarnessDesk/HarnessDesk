@@ -607,9 +607,10 @@ export class TranscriptStore {
     }
     catch { return 'refused' }
     const written = await this.#read(runtime as RuntimeId, id as SessionId)
-    return written && written.savedAt === incoming.savedAt && written.turns.length === incoming.turns.length
-      ? 'restored'
-      : 'refused'
+    if (!written || written.savedAt !== incoming.savedAt || written.turns.length !== incoming.turns.length) return 'refused'
+    // Notify after verification: cache eviction may remove this body at once.
+    this.onWrite()
+    return 'restored'
   }
 
   /**
