@@ -111,3 +111,23 @@ test('simultaneously mounted panes announce separate guest identities and partit
     else delete window.harnessdesk
   }
 })
+
+test('a tile has only the slim address bar while a full pane keeps its toolbar', () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const store = new AppStore('ws://localhost:0/')
+  store.openBrowser('https://example.com')
+  const browser = locate(store, null)!
+  try {
+    const render = (embedded: boolean) => act(() => root.render(<StoreProvider store={store}><MountProvider scope={{area:'main', id:browser.id, view:browser.view, embedded}}><BrowserPane /></MountProvider></StoreProvider>))
+    render(true)
+    expect(container.querySelector('[data-slot="tool-pane-header"]')).toBeNull()
+    const bar = container.querySelector('[data-slot="tool-pane-bar"]')!
+    expect(bar.getAttribute('data-variant')).toBe('address-slim')
+    expect([...bar.querySelectorAll('button')].map(one => one.getAttribute('aria-label'))).toEqual(['Back','Forward','Reload'])
+    expect(bar.querySelector('[aria-label="Address"]')).not.toBeNull()
+    render(false)
+    expect(container.querySelector('[data-slot="tool-pane-header"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Annotate the page"]')).not.toBeNull()
+  } finally { act(() => root.unmount()); container.remove() }
+})

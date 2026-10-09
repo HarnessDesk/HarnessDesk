@@ -543,8 +543,40 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
+  "comparison-decision/div/size/default": {
+    "h": 98,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "comparison-decision/div/variant/default": {
+    "h": 98,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "comparison-notice/comparison-notice-slot/variant/default": {
     "h": 84,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "comparison-summary/div/size/default": {
+    "h": 384,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "comparison-summary/div/variant/default": {
+    "h": 384,
     "text": 14,
     "weight": "400",
     "line": 20,

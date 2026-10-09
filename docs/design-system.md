@@ -1146,11 +1146,23 @@ steps — so a screen reader hears them as a sequence, not a set.
 
 Exact command text and its output, drawn as one readable plate.
 
+### `ComparisonDecision`
+
+`packages/ui/src/design/patterns/ComparisonDecision.tsx`
+
+A recorded recommendation and the person's next decision, above the shared composer.
+
 ### `ComparisonNotice`
 
 `packages/ui/src/design/patterns/ComparisonNotice.tsx`
 
 A comparison’s quiet result shelf, composed from Alert. Its fixed grid track keeps the tiles still; long recorded text scrolls whole while actions remain visible.
+
+### `ComparisonSummary`
+
+`packages/ui/src/design/patterns/ComparisonSummary.tsx`
+
+The reading page in the same Side by side body, once the person has merged.
 
 ### `ConfirmDialog`
 

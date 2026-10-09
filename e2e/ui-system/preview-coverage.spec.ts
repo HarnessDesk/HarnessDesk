@@ -328,9 +328,10 @@ test.describe('preview coverage', () => {
     // Comparison frames mount the recorded verdict; its person scene opens
     // the same real attempt dialog as the Board, with synthetic candidates.
     await page.goto('/preview.html?comparison-verdict')
-    await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-notice"]')).toContainText('picked Attempt A')
+    await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-decision"]')).toContainText('The judge picked A')
     const verdictCoverage = await collectCoverage(page)
     expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
+    expect(verdictCoverage.covered).toContain('components/ComparisonActions.tsx#ComparisonActions')
     for (const component of verdictCoverage.covered) covered.add(component)
     await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
     const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })

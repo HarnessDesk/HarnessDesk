@@ -357,22 +357,30 @@ export const MergeDialog = ({
   root,
   refs,
   preselect,
+  fixedRef,
+  beforeMerge,
+  onMerged,
   onDone,
 }: {
   root: string
   refs: GitRefsSummary
   preselect?: string
+  /** A comparison merges its recorded revision; the generic Git dialog keeps its picker. */
+  fixedRef?: string
+  beforeMerge?: () => Promise<void>
+  onMerged?: () => Promise<void>
   onDone: (done: boolean) => void
 }) => {
   const store = useStore()
   const current = refs.branch
   const choices = useMemo(() => {
+    if (fixedRef) return [fixedRef]
     const locals = refs.branches.filter((branch) => !branch.current).map((branch) => branch.name)
     const remotes = refs.remotes.map((remote) => `${remote.remote}/${remote.name}`)
     const tags = refs.tags.map((tag) => tag.name)
     return [...locals, ...remotes, ...tags]
-  }, [refs])
-  const [ref, setRef] = useState(preselect ?? choices[0] ?? '')
+  }, [refs, fixedRef])
+  const [ref, setRef] = useState(fixedRef ?? preselect ?? choices[0] ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -381,8 +389,10 @@ export const MergeDialog = ({
     setBusy(true)
     setError(null)
     try {
+      await beforeMerge?.()
       const outcome = await store.transport.request('git/merge', { root, ref })
       settle(store, outcome)
+      if (outcome.conflicts.length === 0) await onMerged?.()
       onDone(true)
     } catch (raised) {
       setError(reason(raised))
@@ -409,7 +419,7 @@ export const MergeDialog = ({
       <div className={styles.body}>
         <NativeSelect
           variant="filled" controlSize="compact"
-          value={ref}
+          value={ref} disabled={busy || Boolean(fixedRef)}
           aria-label="What to merge"
           onChange={(event) => setRef(event.target.value)}
         >

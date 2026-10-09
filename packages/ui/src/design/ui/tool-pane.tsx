@@ -191,13 +191,15 @@ const ToolPaneBar = ({
   ...props
 }: Omit<React.ComponentProps<'div'>, 'role'> & {
   as?: 'div' | 'form'
-  variant: 'terminal' | 'address' | 'find' | 'annotate' | 'tools'
+  variant: 'terminal' | 'address' | 'address-slim' | 'find' | 'annotate' | 'tools'
   role?: 'toolbar'
 }) => {
   const height =
     variant === 'terminal'
       ? 'h-(--hd-control-h)'
-      : variant === 'address'
+      : variant === 'address-slim'
+        ? 'h-(--hd-control-h)'
+        : variant === 'address'
         ? 'h-10'
         : variant === 'tools'
           ? 'min-h-9 flex-wrap gap-y-1 py-0.5'

@@ -34,22 +34,21 @@
 }
 
 .header {
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* desk: wrap -> nowrap, the approved single-line tile header */
   min-width: 0;
+  overflow: hidden;
 }
 
-/* The member card may wrap the identity, so the header's flex item owns the
-   minimum. Chips and the view switch wrap before squeezing its name. */
-.header > :first-child {
-  min-width: var(--hd-space-18);
+.header > :nth-child(2) {
+  flex: 0 1 auto;
+  min-width: 0; /* desk: 72px -> 0, the identity yields to the state and controls */
 }
 
 .member {
-  display: grid; /* desk: flex -> grid, member names take space before model detail in both interfaces */
-  flex: 1 1 auto;
-  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
+  display: flex; /* desk: grid -> flex, name and model share the one header line */
   align-items: center;
   min-width: 0;
+  gap: var(--hd-space-2);
 }
 
 .mark {
@@ -59,18 +58,26 @@
 }
 
 .nickname {
-  /* The grid gives the name its whole width before assigning the model any
-     space. A name longer than the available column still wraps inside it. */
   min-width: 0;
-  margin-inline-start: var(--hd-space-2);
-  overflow-wrap: anywhere;
+  flex: 0 1 auto;
 }
 
 .model {
   min-width: 0;
-  /* Keep the detail's spacing in its shrinking track: a grid gap would
-     reserve it even when the detail has no room, squeezing the name. */
-  margin-inline-start: var(--hd-space-2);
+  flex: 0 2 auto;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  flex: none;
+  white-space: nowrap;
+}
+
+.view {
+  margin-inline-start: auto; /* desk: the globe belongs at the header's trailing edge */
+  flex: none;
 }
 
 .body {
@@ -110,6 +117,12 @@
 
 .dock > * {
   pointer-events: auto;
+}
+
+/* The reason owns its bounded scroll window. The decision and message box
+   together must fit before the dock itself starts scrolling. */
+.dock[data-decision] {
+  max-height: 100%;
 }
 
 .composer {

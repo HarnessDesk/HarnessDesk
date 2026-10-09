@@ -73,7 +73,6 @@ const expectGridLayout = async (target: ReturnType<typeof grid>) => {
 
 const removeDelta = async (page: Page) => {
   await grid(page, 'side-by-side-four').locator('[data-slot="side-by-side-tile"]')
-    .filter({ has: page.getByText('Delta', { exact: true }) })
     .getByRole('button', { name: 'Delta actions' }).click()
   await expect(page.getByRole('menuitem', { name: 'Take off the grid' })).toBeVisible({ timeout: 10_000 })
   await page.getByRole('menuitem', { name: 'Take off the grid' }).click()
@@ -233,12 +232,16 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   await shortTileMutation.evaluate((style) => style.remove())
 })
 
+const tileAction = async (target: ReturnType<Page['locator']>, label: string) => {
+  await target.getByRole('button', {name:`${label.split(' ').slice(1).join(' ')} actions`, exact:true}).click()
+  await target.page().getByRole('menuitem', {name:label, exact:true}).click()
+}
+
 test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Escape returns', async ({ page }) => {
   await gotoPreview(page)
   await setPreviewDials(page, 'dark', 'desk')
   const target = grid(page, 'side-by-side-four')
-  const alpha = frame(page, 'side-by-side-four').getByRole('button', { name: 'Expand Alpha' })
-  await alpha.click()
+  await tileAction(frame(page, 'side-by-side-four'), 'Expand Alpha')
   await expectExpansion(target, 1)
   const expanded = await expandedGeometry(target)
   expect(expanded).toMatchObject({ all: 4, shown: 1, hidden: 3, fills: true })
@@ -262,7 +265,7 @@ test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Es
 
   await page.keyboard.press('Escape')
   await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
-  await alpha.click()
+  await tileAction(frame(page, 'side-by-side-four'), 'Expand Alpha')
   await expectExpansion(target, 1)
   // Expansion moves the member's hover target under the pointer. A card that
   // opens while the next assertions run consumes Escape before the receipt's
@@ -346,7 +349,7 @@ test('a tile chord immediately after focus survives CPU throttling', async ({ pa
   }
 })
 
-test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord', async ({ page }) => {
+test('a narrow tile fits its identity, and bare ⌘1 is not a grid chord', async ({ page }) => {
   await gotoPreview(page)
   await setPreviewDials(page, 'dark', 'studio')
   await setWidth(page, 'side-by-side-two', 420)
@@ -398,7 +401,7 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(0)
 })
 
-test('a name longer than the bar wraps whole, clear of the state chip and the actions', async ({ page }) => {
+test('a long name truncates in one line, clear of the state and actions', async ({ page }) => {
   await gotoPreview(page)
   await setWidth(page, 'side-by-side-two', 420)
   const header = frame(page, 'side-by-side-two').locator('[data-slot="side-by-side-tile"] header').first()
@@ -415,8 +418,8 @@ test('a name longer than the bar wraps whole, clear of the state chip and the ac
       inside: named.right <= box(bar).right + 0.5 && named.bottom <= box(bar).bottom + 0.5 && named.top >= box(bar).top - 0.5,
     }
   })
-  expect(measured).toEqual({ whole: true, overlaps: 0, inside: true })
-  // A name three times as long still sits inside the bar, which grows for it.
+  expect(measured).toEqual({ whole: false, overlaps: 0, inside: true })
+  // Longer text stays inside the same one-line bar.
   await header.locator('[data-role="row"]').evaluate((node, text) => { node.textContent = text }, `${long} ${long} ${long}`)
   expect(await header.evaluate((bar) => {
     const name = bar.querySelector<HTMLElement>('[data-role="row"]')!.getBoundingClientRect()
@@ -430,7 +433,7 @@ test('a grid of tiles draws no composer in any tile, and an expanded tile draws 
   await setWidth(page, 'side-by-side-two', 1200)
   const target = grid(page, 'side-by-side-two')
   await expect(target.locator('[data-slot="side-by-side-tile"] textarea')).toHaveCount(0, { timeout: 10_000 })
-  await target.locator('button[aria-label^="Expand "]').first().click()
+  await tileAction(target, 'Expand Alpha')
   await expectExpansion(target, 1)
   await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')).toHaveCount(1, { timeout: 10_000 })
 })
@@ -439,16 +442,15 @@ test('a draft typed in an expanded tile is waiting when the tile is expanded aga
   await gotoPreview(page)
   await setWidth(page, 'side-by-side-two', 1200)
   const target = grid(page, 'side-by-side-two')
-  const expand = target.locator('button[aria-label="Expand Alpha"]')
-  await expand.click()
+  await tileAction(target, 'Expand Alpha')
   await expectExpansion(target, 1)
   const box = target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')
   await box.fill('half a thought, kept')
   await expect(box).toHaveValue('half a thought, kept', { timeout: 10_000 })
-  await target.locator('button[aria-label="Collapse Alpha"]').click()
+  await tileAction(target, 'Collapse Alpha')
   await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
   await expect(target.locator('[data-slot="side-by-side-tile"] textarea')).toHaveCount(0, { timeout: 10_000 })
-  await expand.click()
+  await tileAction(target, 'Expand Alpha')
   await expectExpansion(target, 1)
   await expect(box).toHaveValue('half a thought, kept')
 })
@@ -466,19 +468,19 @@ test('two Seat browsers stay live through expansion and narrow member tabs', asy
   await beta.getByRole('button', { name: 'Add a note' }).click()
   await expect(alpha.getByText('1 note saved')).toBeVisible()
   await expect(beta.getByText('2 notes saved')).toBeVisible()
-  await target.getByRole('button', { name: 'Expand Alpha' }).click()
+  await tileAction(target, 'Expand Alpha')
   await expect(tiles.nth(1)).toHaveAttribute('data-hidden', '')
-  await target.getByRole('button', { name: 'Collapse Alpha' }).click()
+  await tileAction(target, 'Collapse Alpha')
   await expect(beta.getByText('2 notes saved')).toBeVisible()
   await setWidth(page, 'side-by-side-browsers', 420)
   const strip = target.getByRole('tablist', { name: 'Side by side tiles' })
   await strip.getByRole('tab', { name: 'Beta' }).click()
   await expect(beta.getByText('2 notes saved')).toBeVisible()
-  await expect(tiles.nth(1).getByRole('radio', { name: 'Browser', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await expect(tiles.nth(1).getByRole('button', { name: 'Back to the conversation', exact: true })).toBeVisible()
   await strip.getByRole('tab', { name: 'Alpha' }).click()
   await expect(alpha.getByText('1 note saved')).toBeVisible()
-  await tiles.nth(0).getByRole('radio', { name: 'Conversation', exact: true }).click()
+  await tiles.nth(0).getByRole('button', { name: 'Back to the conversation', exact: true }).click()
   await expect(tiles.nth(0).locator('iframe')).toHaveCount(0)
   await strip.getByRole('tab', { name: 'Beta' }).click()
-  await expect(tiles.nth(1).getByRole('radio', { name: 'Browser', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await expect(tiles.nth(1).getByRole('button', { name: 'Back to the conversation', exact: true })).toBeVisible()
 })
