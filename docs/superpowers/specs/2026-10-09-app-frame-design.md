@@ -314,7 +314,8 @@ own with the app working:
    margins, type role per slot), read by the components and by the check. The
    `Page` template. The rendered check (below), starting with the menus, the
    bars and the Findings page, the rest joining as each step lands. The audit
-   rules: no page-level width or padding in a screen; one component per role.
+   rules: no page-level width or padding in a screen; one component per role;
+   the ceiling on layout written in screens.
 1. **Tokens.** Bar height 40 and the window-button position; the named widths
    and menu tokens; dead tokens out. Every screen moves with it; re-record
    `metrics.json`.
@@ -334,6 +335,58 @@ own with the app working:
    Teams page, A Team's Overview) and `docs/design.md` (content insets, a page)
    describe the new frame; `docs/decisions.md` records why the full-window
    shell went.
+
+## Blocks, and who owns layout
+
+**Why a token system still produces a patchwork.** The design system is built
+from the bottom: values (tokens), then parts (Button, Row, Chip), then
+patterns. It answers what a button looks like, never where it goes, how wide
+a page is, or where a card's head, rows and footer start. Those are
+relationships, and no component owns them, so every screen decides them. On
+2026-10-09 the 172 screen files in `components/` carried 319 inline class
+lists with layout in them (flex, grid, gap, justify, padding, margin, width)
+and their 62 stylesheets 867 layout declarations. Every piece on the Findings
+page was a token-clean component; the page was wrong because the screen
+assembled them — a column of `flex flex-col` that stretched a button, a
+`Note` used as a settings row, a key/value list with no card and no width.
+
+**Layout belongs to the frame, the templates and the blocks.** A screen
+chooses a destination and a template and passes content into blocks; it does
+not position anything. The audit counts layout in screens (inline layout
+classes and layout declarations in screen stylesheets) under a ceiling that
+only goes down, as the existing burn-down gate does; a screen moved in step 5
+reaches zero, and new layout in a screen is refused at once.
+
+**One edge per surface.** In every surface — page column, card, menu, panel,
+info card — the head, the rows and the footer start their text at one x: the
+surface's content edge (a menu: its 4px padding plus the row's 8px; a card:
+16; an info card: 12). An icon hangs before the edge; it never moves the text.
+
+**Columns line up.** A list whose rows carry the same facts is a table in all
+but name: each fact has its column, and a row missing one says so *in that
+column* ("No usage reported" under the meter, not after the name).
+
+### The blocks
+
+Each kind of content has one block, drawn one way everywhere:
+
+| Content | Block | How it is drawn |
+| --- | --- | --- |
+| Facts about one thing | `SummaryList` | one card; key and value on one baseline at the same size, the key in secondary ink in a fixed column (132 on a page, 96 in an info card), one line; numbers sit beside their key, never at the far edge; a value is a word or a phrase — a sentence becomes a short value plus one earned line; paths, branches and accounts truncate in the middle and never break mid-word |
+| A setting | `Row` | in a card; title, optional earned line, the control at the row's end |
+| An item in a list (finding, Team, Agent, job) | `ListRow` in `Rows` | title 14/500; one meta line 12 in secondary ink (kind, short id in mono); one status chip; a chevron when it opens something |
+| An event (chat, activity, timeline) | `Event` | face 20, who and what in one sentence, the time at the end; a body of at most two lines with Show all; hashes shortened in mono, links by name (`#1559`), never a raw URL; a feed sits on the composer, not at the top of an empty page |
+| State | `Chip` | one shape, 22 tall, a tone per state, three words at most; the longer reason is its title |
+| Facts in a bar | the facts pill | at most four facts, a mark and a short value each, never the same fact twice |
+| A choice of action | menu row | as in Popups |
+| A page's or view's verb | outline button in the bar or view bar | as wide as its words, never a full-width bar |
+| Nothing yet | `EmptyState` | one sentence and at most one action, centred in the column |
+| What sending or a run will do | the composer tail line | one paragraph per line; names and sentence flow as text |
+
+The acceptance examples are the four surfaces the owner pointed at: a Team's
+Findings, a Team's Chat, the conversation status card and the plan usage
+popup. Each is redrawn from these blocks in the catalogue and must pass the
+rendered check before the step that moves it lands.
 
 ## How it stays one app
 
@@ -365,8 +418,10 @@ Four things stop that here.
   destination, bar, rail and popup in `preview.html`, in both themes, at a wide
   window and at 720, and compares computed values with the contract module:
   font family and smoothing, size, weight and line height per slot; bar, row
-  and control heights; padding, gap and radius; content width; and that every
-  block on a page shares the column's left edge.
+  and control heights; padding, gap and radius; content width; that every
+  block on a page shares the column's left edge; that every surface's head,
+  rows and footer start at its one content edge; and that a list's facts sit
+  in their columns.
 - `e2e/ui-system/container-insets.spec.ts` gains the page widths and the
   panel content edge; a new check measures that every top-of-column row in a
   window is 40 and that their bottoms share one y.
