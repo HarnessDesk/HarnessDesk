@@ -33,7 +33,8 @@ beforeAll(() => {
     ...ledger.coverage.hoursKnownFor!,
   ])
   yearRowKeys = new Set(ledger.rows.map(row => row.key))
-})
+  // Building the synthetic year took about 8 s on CI's runner, close to the 10 s hook default.
+}, 30_000)
 
 beforeEach(() => {
   vi.useFakeTimers()
