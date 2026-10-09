@@ -58,12 +58,16 @@ conversation's only copy is kept in both the backup and the daily snapshot.
 Remove from HarnessDesk takes a row out of the sidebar, sets its origin back
 to imported, and leaves the agent's files untouched. It stops an open handle
 through the same path as closing a pane. Undo restores the index facts and
-body during the eight-second toast window. Archive retains its body and search.
+body during the eight-second toast window. Queued messages and held picks stay
+outside active lookups and client sync until Undo restores them, and are
+forgotten when the window ends. Archive retains its body and search.
 
 The body sweep runs on a timer after Remove and at launch. It drops items,
 turns, FTS entries, usage and Insight context in one transaction after the
 Undo window, keeping the removed index row. A launch schedules any remaining
 window too. Pending writes and late events cannot bring that copy back.
+An explicit read or resume that succeeds admits the removed row again before
+new work is accepted; a failed open leaves it removed.
 
 Native deletion declares its destination before a click: `deleteHistory` is
 false, `trash` or `erase`. Both the host and the window admit Delete everywhere

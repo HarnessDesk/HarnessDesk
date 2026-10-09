@@ -120,6 +120,7 @@ export const sessionMethods = {
   'session/read': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
+    ctx.sessionIndex.reopen(session)
     // Cache it so a reconnecting client gets the transcript from sync.
     return ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null).session
   },
@@ -219,6 +220,7 @@ export const sessionMethods = {
     // render.
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
+    ctx.sessionIndex.reopen(session)
     const resumed = ctx.registry.upsert(session, live).session
     ctx.sessionIndex.record(resumed)
     await announceUnavailableTools(ctx, runtime, resumed)
@@ -276,7 +278,6 @@ export const sessionMethods = {
       await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
       await ctx.transcripts.flushSession(runtime.info.id, id)
       const result = ctx.sessionIndex.setRemoved(runtime.info.id, id, true)
-      ctx.registry.delete(runtime.info.id, id)
       ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: false } })
       return result
     }

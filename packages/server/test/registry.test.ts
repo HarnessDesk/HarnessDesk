@@ -46,6 +46,47 @@ const turn = (id: string, status: Turn['status'], items: number): Turn => ({
   })),
 })
 
+test('removed records retain all host state for Undo and leave every active projection', () => {
+  const registry = new SessionRegistry()
+  const record = registry.upsert(session([turn('kept', 'completed', 1)]), null)
+  registry.enqueue(record, 'queued', [{ type: 'text', text: 'Keep this instruction' }])
+  record.restedOptions = { model: 'synthetic-model' }
+  registry.holdRemoved(RUNTIME, ID, Date.now() + 8_000)
+  assert.equal(registry.get(RUNTIME, ID), undefined)
+  assert.deepEqual(registry.all(), [])
+  assert.deepEqual(registry.snapshot(), [])
+  assert.deepEqual(registry.queues(), [])
+  assert.deepEqual(registry.pendingApprovals(), [])
+  assert.deepEqual(registry.tasks(), [])
+  assert.equal(registry.restoreRemoved(RUNTIME, ID), record)
+  assert.equal(registry.get(RUNTIME, ID), record)
+})
+
+test('the deadline sweep forgets held state, including records without a stored body', t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 10 })
+  const registry = new SessionRegistry()
+  registry.upsert(session([]), null)
+  registry.holdRemoved(RUNTIME, ID, 8_010)
+  registry.sweepRemoved(8_009)
+  assert.deepEqual(registry.removalDeadlines(), [8_010])
+  registry.sweepRemoved(8_010)
+  assert.deepEqual(registry.removalDeadlines(), [])
+  assert.equal(registry.restoreRemoved(RUNTIME, ID), undefined)
+})
+
+test('an explicit reopen cannot restore held state after its deadline or deletion', t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 10 })
+  const registry = new SessionRegistry()
+  registry.upsert(session([]), null)
+  registry.holdRemoved(RUNTIME, ID, 8_010)
+  t.mock.timers.tick(8_000)
+  assert.equal(registry.restoreRemoved(RUNTIME, ID), undefined)
+  registry.upsert(session([]), null)
+  registry.holdRemoved(RUNTIME, ID, 16_010)
+  registry.delete(RUNTIME, ID)
+  assert.equal(registry.restoreRemoved(RUNTIME, ID), undefined)
+})
+
 for (const noticeFirst of [true, false]) {
   test(`an empty registry keeps conversation notices with registration ${noticeFirst ? 'last' : 'first'}`, () => {
     const registry = new SessionRegistry()

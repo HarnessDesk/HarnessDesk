@@ -168,6 +168,16 @@ export class SessionIndex {
     return this.#row(runtime, id)?.removed_at != null || !!this.#db.prepare('SELECT 1 FROM meta WHERE key=?').get(`deleted:${JSON.stringify([runtime, id])}`)
   }
 
+  /** A successful explicit open admits a removed row even after Undo expires. */
+  admitReopened(runtime: RuntimeId, id: SessionId): boolean {
+    if (this.#row(runtime, id)?.removed_at == null) return false
+    this.#transaction(() => {
+      this.#db.prepare("UPDATE sessions SET origin='desk',removed_at=NULL WHERE runtime=? AND id=? AND removed_at IS NOT NULL").run(runtime, id)
+      this.#db.prepare('DELETE FROM meta WHERE key=?').run(removalOriginKey(runtime, id))
+    })
+    return true
+  }
+
   remove(runtime: RuntimeId, id: SessionId): number {
     const row = this.#row(runtime, id)
     if (row?.removed_at != null) return row.removed_at + SESSION_REMOVE_UNDO_MS

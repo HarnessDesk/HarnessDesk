@@ -2401,7 +2401,7 @@ it.each(['trash', 'erase', false, 'unavailable'] as const)('offers Archive, Remo
   expect(removeSession).toHaveBeenCalledWith(summary.id, summary.runtime)
 })
 
-it.each([{ readableHistory: false }, { deskCopy: true }])('warns when the desk holds the only readable body: %s', patch => {
+it.each([{ readableHistory: false }, { deskCopy: true }, { listHistory: false, readableHistory: false }, { listHistory: false, deskCopy: true }])('warns when the desk holds the only readable body: %s', patch => {
   const owner = runtimeId('agent')
   const summary: SessionSummary = { runtime: owner, id: sessionId('only-copy'), title: 'Only copy', cwd: '/repo', createdAt: 1, updatedAt: 2, status: { type: 'idle' } }
   const live = { ...summary, ...patch, turns: [], itemsLoaded: true } as Session
@@ -2412,4 +2412,16 @@ it.each([{ readableHistory: false }, { deskCopy: true }])('warns when the desk h
   act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Only copy"]')!.click())
   const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === 'Remove from HarnessDesk')!
   expect(remove.title).toBe("HarnessDesk's copy is the only record")
+})
+
+it('keeps the agent-copy tooltip for an unlisted agent with readable history', () => {
+  const owner = runtimeId('agent')
+  const row = summary({ id: 'unlisted-copy', runtime: owner, title: 'Unlisted copy' })
+  const runtime = { id: owner, presentation: { name: 'Agent' }, capabilities: { listHistory: false, readableHistory: true } } as unknown as RuntimeInfo
+  const snapshot = { ...emptySnapshot(), history: [row], runtimes: [runtime] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Unlisted copy"]')!.click())
+  const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === 'Remove from HarnessDesk')!
+  expect(remove.title).toBe('Agent keeps its own copy')
 })

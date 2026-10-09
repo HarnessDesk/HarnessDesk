@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
-import { sessionId, turnId, itemId, type Session } from '@harnessdesk/protocol'
+import { sessionId, turnId, itemId, approvalId, type Session, type WireNotification } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { TranscriptStore } from '../src/transcripts.js'
@@ -113,6 +113,102 @@ test('Remove closes a running conversation before marking it, and never asks the
   assert.ok(closed)
   assert.equal(r.host.registry.get(r.runtime.info.id, live.id), undefined)
   assert.deepEqual(r.runtime.deleted, [])
+})
+
+test('Undo restores queued input and held picks without exposing or dispatching the removed record', async t => {
+  const r = await rig(t)
+  const session = await r.host.call('session/create', { runtime: r.runtime.info.id, options: { cwd: r.root } })
+  const params = { runtime: r.runtime.info.id, sessionId: session.id }
+  const live = r.runtime.sessions.get(session.id)!
+  await r.host.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+  await r.host.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+  await r.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'First instruction' }] })
+  await r.host.call('turn/queue', { ...params, input: [{ type: 'text', text: 'Keep this queued instruction' }] })
+  const messages = structuredClone(r.host.registry.get(params.runtime, session.id)!.queue.messages)
+  live.close = async () => {
+    await live.interrupt()
+    r.runtime.sessions.delete(session.id)
+    r.runtime.emit({ type: 'session/closed', sessionId: session.id })
+  }
+  await r.host.call('session/remove', { ...params, removed: true })
+  const sync = r.host.syncPayload().params
+  assert.ok(!sync.sessions.some(entry => entry.id === session.id))
+  assert.ok(!sync.queues.some(entry => entry.sessionId === session.id))
+  await assert.rejects(r.host.call('turn/queue/flush', params))
+  await assert.rejects(r.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'Too soon' }] }), /Open this conversation/)
+  await r.host.call('session/remove', { ...params, removed: false })
+  const record = r.host.registry.get(params.runtime, session.id)
+  assert.deepEqual(record?.queue.messages, messages)
+  assert.equal(record?.queue.status, 'paused')
+  assert.deepEqual(record?.restedOptions, { model: 'fake-2', tone: 'cheerful', uppercase: false })
+  const resumed = await r.host.call('session/resume', params)
+  assert.deepEqual(resumed.options?.map(option => [option.id, option.currentValue]), [['model', 'fake-2'], ['tone', 'cheerful'], ['uppercase', false]])
+  assert.deepEqual(r.host.syncPayload().params.queues.find(entry => entry.sessionId === session.id)?.queue.messages, messages)
+})
+
+for (const method of ['session/read', 'session/resume'] as const) for (const elapsed of [0, 8_000]) {
+  test(`${method} explicitly readmits a removed conversation after ${elapsed} ms and records subsequent work`, async t => {
+    t.after(() => t.mock.timers.reset())
+    const r = await rig(t)
+    const session = await r.host.call('session/create', { runtime: r.runtime.info.id, options: { cwd: r.root } })
+    const params = { runtime: r.runtime.info.id, sessionId: session.id }
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() })
+    await r.host.call('session/remove', { ...params, removed: true })
+    t.mock.timers.tick(elapsed)
+    await new Promise(resolve => setImmediate(resolve))
+    const notifications: WireNotification[] = []
+    const off = r.host.addBroadcaster(notification => notifications.push(notification))
+    t.after(off)
+    await r.host.call(method, params)
+    assert.equal(r.db.prepare('SELECT removed_at FROM sessions WHERE id=?').get(session.id)?.removed_at, null)
+    assert.ok((await r.host.call('session/index', {})).data.some(row => row.id === session.id))
+    await r.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'Reopened instruction' }] })
+    r.runtime.sessions.get(session.id)!.finish()
+    assert.ok(notifications.some(notification => notification.method === 'event' && notification.params.event.type === 'turn/started'))
+    assert.ok(notifications.some(notification => notification.method === 'event' && notification.params.event.type === 'turn/completed'))
+    assert.ok(r.host.registry.get(params.runtime, session.id)?.session.turns.some(turn => turn.items.some(item => item.type === 'assistantMessage' && item.text === 'echo: Reopened instruction')))
+    await r.host.call('session/close', params)
+    await r.host.call('session/read', params)
+    assert.equal(r.db.prepare('SELECT count(*) AS n FROM items_fts WHERE items_fts MATCH ?').get('Reopened')?.n, 2)
+  })
+}
+
+test('failed explicit read and resume leave a removed conversation withheld', async t => {
+  const r = await rig(t)
+  await r.remove(true)
+  await r.host.dispose()
+  // The deadline passed while the host was down, so there is no retained body to serve.
+  r.db.prepare('UPDATE sessions SET removed_at=?').run(Date.now() - 60_000)
+  const reopened = new Host({ ...r.options, state: new StateStore(join(r.root, 'state.json')) })
+  const runtime = new FakeRuntime()
+  runtime.readFailure = new Error('Synthetic read refusal')
+  runtime.resumeFailure = new Error('Synthetic resume refusal')
+  reopened.register(runtime)
+  t.after(() => reopened.dispose())
+  await reopened.start()
+  for (const method of ['session/read', 'session/resume'] as const) {
+    await assert.rejects(reopened.call(method, { runtime: runtime.info.id, sessionId: r.id }))
+    assert.ok(r.db.prepare('SELECT removed_at FROM sessions').get()?.removed_at)
+    assert.deepEqual((await reopened.call('session/index', {})).data, [])
+  }
+})
+
+test('nested approvals for a removed conversation never reach clients or the approval registry', async t => {
+  const r = await rig(t)
+  const session = await r.host.call('session/create', { runtime: r.runtime.info.id, options: { cwd: r.root } })
+  await r.host.call('session/remove', { runtime: r.runtime.info.id, sessionId: session.id, removed: true })
+  const notifications: WireNotification[] = []
+  const off = r.host.addBroadcaster(notification => notifications.push(notification))
+  t.after(off)
+  const event = { type: 'approval/requested' as const, approval: { id: approvalId('late-question'), sessionId: session.id,
+    requestedAt: Date.now(), type: 'command' as const, command: 'echo synthetic', cwd: r.root, actions: [],
+    options: [{ id: 'allow', label: 'Allow', intent: 'approve' as const }] } }
+  r.runtime.emit(event)
+  assert.ok(!notifications.some(notification => notification.method === 'event' && notification.params.event.type === 'approval/requested'))
+  assert.deepEqual(r.host.registry.pendingApprovals(), [])
+  await r.host.call('session/remove', { runtime: r.runtime.info.id, sessionId: session.id, removed: false })
+  r.runtime.emit(event)
+  assert.ok(notifications.some(notification => notification.method === 'event' && notification.params.event.type === 'approval/requested'))
 })
 
 test('Delete everywhere refuses an erasing runtime before asking it or changing our records', async t => {

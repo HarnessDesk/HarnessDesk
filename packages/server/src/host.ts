@@ -3541,6 +3541,7 @@ export class Host {
 
   /** Closing membership never turns a wrapped conversation into a loose one. */
   #assertDispatchable(params: { runtime: RuntimeId; sessionId: SessionId }): void {
+    if (this.#sessionIndex.isRemoved(params.runtime, params.sessionId)) throw new Error('Open this conversation again before sending a message.')
     if (this.#keptByWrappedTeam(params)) throw new Error('This Team is wrapped')
   }
 
@@ -4102,6 +4103,14 @@ export class Host {
           return page
         },
         record: (session) => this.#recordSessionIndex(session, true),
+        reopen: (session) => {
+          if (!this.#sessionIndex.admitReopened(session.runtime, session.id)) return
+          const restored = this.registry.restoreRemoved(session.runtime, session.id)
+          this.#recordSessionIndex(session, true)
+          this.#transcripts.record(session, { now: true })
+          this.#scheduleRemovalSweep()
+          if (restored) this.#pushQueue(restored)
+        },
         setTitle: (runtime, id, title) => {
           this.#flushSessionIndex(runtime, id)
           this.#sessionIndex.setTitle(runtime, id, title)
@@ -4114,6 +4123,11 @@ export class Host {
         setRemoved: (runtime, id, removed) => {
           this.#flushSessionIndex(runtime, id)
           const undoUntil = removed ? this.#sessionIndex.remove(runtime, id) : (this.#sessionIndex.undoRemove(runtime, id), null)
+          if (undoUntil !== null) this.registry.holdRemoved(runtime, id, undoUntil)
+          else {
+            const restored = this.registry.restoreRemoved(runtime, id)
+            if (restored) this.#pushQueue(restored)
+          }
           this.#scheduleRemovalSweep()
           return { undoUntil }
         },
@@ -6960,9 +6974,11 @@ export class Host {
   #scheduleRemovalSweep(): void {
     clearTimeout(this.#removalSweep)
     const removals = this.#transcripts.removedBodies()
-    if (removals.length === 0 || this.#disposed) return
-    const due = Math.min(...removals.map(row => row.removed_at + SESSION_REMOVE_UNDO_MS))
+    const deadlines = [...removals.map(row => row.removed_at + SESSION_REMOVE_UNDO_MS), ...this.registry.removalDeadlines()]
+    if (deadlines.length === 0 || this.#disposed) return
+    const due = Math.min(...deadlines)
     this.#removalSweep = setTimeout(() => {
+      this.registry.sweepRemoved(Date.now())
       void this.#transcripts.sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS).then(() => this.#scheduleRemovalSweep())
         .catch(error => this.#logger.warn('removed conversation bodies could not be swept', { error: String(error) }))
     }, Math.max(0, due - Date.now()))
@@ -7075,7 +7091,7 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
-    const id = event.type === 'session/started' ? event.session.id : 'sessionId' in event ? event.sessionId : undefined
+    const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {

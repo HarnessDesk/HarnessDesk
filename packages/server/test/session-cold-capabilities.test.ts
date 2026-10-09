@@ -58,7 +58,7 @@ const laneContext = (supported: boolean) => {
     },
     evidence: { seats: { latestKeptOf: () => null, latestOf: () => seat } },
     registry: { get: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
-    sessionIndex: { record: () => {} },
+    sessionIndex: { reopen: () => {}, record: () => {} },
     sessions: {
       attach: async () => transcript,
       read: async () => transcript,
