@@ -114,6 +114,8 @@ export interface HostContext {
     setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void
     setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void
     remove(runtime: RuntimeId, id: SessionId): void
+    setRemoved(runtime: RuntimeId, id: SessionId, removed: boolean): { undoUntil: number | null }
+    deleted(runtime: RuntimeId, id: SessionId): void
   }
   readonly names: SessionNames
   readonly terminals: Terminals

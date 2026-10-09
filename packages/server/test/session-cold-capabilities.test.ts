@@ -158,7 +158,8 @@ for (const method of ['session/archive', 'session/delete'] as const) {
     assert.equal(runtime.info.capabilities.archiveHistory, false)
     assert.equal(runtime.info.capabilities.deleteHistory, false)
     const target = sessionId('thread-2')
-    await host.call(method, { runtime: runtime.info.id, sessionId: target, archived: true })
+    if (method === 'session/delete') await assert.rejects(host.call(method, { runtime: runtime.info.id, sessionId: target }), /Trash/)
+    else await host.call(method, { runtime: runtime.info.id, sessionId: target, archived: true })
     assert.equal(runtime.health().state, 'ready')
     const nativeArchived = await runtime.listSessions({ archived: 'only' })
     const archived = await host.call('session/list', { runtime: runtime.info.id, archived: 'only' })
@@ -169,8 +170,9 @@ for (const method of ['session/archive', 'session/delete'] as const) {
       await host.call('session/archive', { runtime: runtime.info.id, sessionId: target, archived: false })
       assert.ok((await host.call('session/list', { runtime: runtime.info.id })).data.some(row => row.id === target))
     } else {
-      assert.ok(!(await host.call('session/list', { runtime: runtime.info.id })).data.some(row => row.id === target))
-      assert.ok(!archived.data.some(row => row.id === target))
+      assert.equal(runtime.info.capabilities.deleteHistory, 'erase')
+      assert.ok((await host.call('session/list', { runtime: runtime.info.id })).data.some(row => row.id === target))
+      assert.deepEqual(archived.data.map(row => row.id), nativeArchived.data.map(row => row.id), 'a refused erase leaves the agent archive unchanged')
     }
   })
 }

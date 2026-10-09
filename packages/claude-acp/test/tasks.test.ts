@@ -685,6 +685,8 @@ test('stopping a task ends it, and stopping it twice is not an error', async () 
 test('deleting a session drops its task state and stops output polling', async () => {
   const runtime = make()
   await runtime.start()
+  assert.equal(runtime.info.capabilities.deleteHistory, 'trash')
+  assert.equal(runtime.info.capabilities.readableHistory, true)
   try {
     const tape = record(runtime)
     const session = await runtime.createSession({ cwd: WORKDIR })

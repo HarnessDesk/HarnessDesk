@@ -37,7 +37,7 @@ afterEach(() => {
 const runtime = {
   id: 'agent',
   name: 'Agent',
-  capabilities: { deleteHistory: true },
+  capabilities: { deleteHistory: 'trash' },
   presentation: { name: 'Agent' },
 } as unknown as RuntimeInfo
 

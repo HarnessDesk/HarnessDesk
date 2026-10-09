@@ -12,6 +12,8 @@ import {
   type AgentRuntime,
   type AgentSession,
   type Session,
+  type RuntimeId,
+  type SessionId,
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
@@ -60,6 +62,26 @@ const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRunt
       at: Date.now(),
     } },
   })
+}
+
+const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId }): Promise<null> => {
+  const record = ctx.registry.get(params.runtime, makeSessionId(params.sessionId))
+  // The handle takes the person's picks with it unless they are kept for the
+  // reopen, as the quiet release and archive keep them. A pane closes at
+  // once, whatever is happening in it, so there is no quiet to wait for.
+  ctx.sessions.holdPicks({ runtime: params.runtime, sessionId: makeSessionId(params.sessionId) })
+  await record?.live?.close()
+  if (record) {
+    record.live = null
+    /* Closed on purpose, so the handle was not *lost* — which is all
+       `detached` has ever meant. It no longer decides whether this
+       conversation is in a room: membership does, and a member of a room
+       that is not open is drawn as such and reopened by the next thing
+       addressed to it. Closing a pane is window management; leaving a room
+       is releasing its durable Goal Seat. */
+    record.detached = false
+  }
+  return null
 }
 
 /**
@@ -247,21 +269,36 @@ export const sessionMethods = {
     return null
   },
 
+  'session/remove': async (ctx, params) => {
+    const runtime = ctx.runtimes.resolve(params)
+    const id = makeSessionId(params.sessionId)
+    if (params.removed) {
+      await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
+      await ctx.transcripts.flushSession(runtime.info.id, id)
+      const result = ctx.sessionIndex.setRemoved(runtime.info.id, id, true)
+      ctx.registry.delete(runtime.info.id, id)
+      ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: false } })
+      return result
+    }
+    return ctx.sessionIndex.setRemoved(runtime.info.id, id, false)
+  },
+
   'session/delete': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
     await ctx.runtimes.ensureStarted(runtime)
-    if (!runtime.info.capabilities.deleteHistory) {
-      throw new Error(`${runtime.info.presentation.name} cannot delete a stored conversation.`)
+    if (runtime.info.capabilities.deleteHistory !== 'trash') {
+      throw new Error(`${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
     }
-    // The agent's copy first: if it refuses, nothing here is thrown away,
-    // and the conversation is exactly as it was.
+    await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
+    // The agent's copy first: if it refuses, the stopped conversation's
+    // index and body remain available here.
     const outcome = await runtime.deleteSession(id)
-    ctx.sessionIndex.remove(runtime.info.id, id)
     // Then everything the host was holding about it. A transcript left
     // behind would be re-enriched onto the next session that reused the
     // id, and an archive mark left behind is a row hidden forever.
-    await ctx.transcripts.forget(runtime.info.id, id)
+    await ctx.transcripts.forget(runtime.info.id, id, { deleteIndex: true })
+    ctx.sessionIndex.deleted(runtime.info.id, id)
     await ctx.archive.forget(runtime.info.id, id)
     await ctx.names.forget(runtime.info.id, id)
     const record = ctx.registry.get(runtime.info.id, id)
@@ -275,30 +312,12 @@ export const sessionMethods = {
     // Every window, not only the one that asked: another may be drawing it.
     ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: true } })
     return {
-      disposition: outcome?.disposition ?? 'removed',
+      disposition: outcome?.disposition ?? 'trash',
       ...(outcome?.removed !== undefined ? { removed: outcome.removed } : {}),
     }
   },
 
-  'session/close': async (ctx, params) => {
-    const record = ctx.registry.get(params.runtime, makeSessionId(params.sessionId))
-    // The handle takes the person's picks with it unless they are kept for the
-    // reopen, as the quiet release and archive keep them. A pane closes at
-    // once, whatever is happening in it, so there is no quiet to wait for.
-    ctx.sessions.holdPicks({ runtime: params.runtime, sessionId: makeSessionId(params.sessionId) })
-    await record?.live?.close()
-    if (record) {
-      record.live = null
-      /* Closed on purpose, so the handle was not *lost* — which is all
-         `detached` has ever meant. It no longer decides whether this
-         conversation is in a room: membership does, and a member of a room
-         that is not open is drawn as such and reopened by the next thing
-         addressed to it. Closing a pane is window management; leaving a room
-         is releasing its durable Goal Seat. */
-      record.detached = false
-    }
-    return null
-  },
+  'session/close': closeSession,
 
   'session/setTitle': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)

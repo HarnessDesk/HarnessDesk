@@ -1042,6 +1042,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/fork': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/archive': shape({ runtime: isString, sessionId: isString, archived: isBoolean }),
+  'session/remove': shape({ runtime: isString, sessionId: isString, removed: isBoolean }),
   'session/delete': shape({ runtime: isString, sessionId: isString }),
   'session/close': shape({ runtime: isString, sessionId: isString }),
   'session/setTitle': shape({ runtime: isString, sessionId: isString, title: isString }),

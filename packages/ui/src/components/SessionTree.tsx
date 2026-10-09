@@ -106,6 +106,7 @@ type SessionRowSlice = {
   density: AppSnapshot['listPrefs']['density']
   pinned: boolean
   liveTitle: string | null | undefined
+  deskCopy: boolean
   trace: ReturnType<typeof traceOf> | null
   backgrounded: number
   folderGone: string | null
@@ -118,7 +119,7 @@ type SessionRowSlice = {
 const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boolean =>
   left.openInPane === right.openInPane && left.runtime === right.runtime &&
   left.density === right.density && left.pinned === right.pinned &&
-  left.liveTitle === right.liveTitle && left.trace === right.trace &&
+  left.liveTitle === right.liveTitle && left.deskCopy === right.deskCopy && left.trace === right.trace &&
   left.backgrounded === right.backgrounded && left.folderGone === right.folderGone &&
   left.active === right.active && left.needsYou === right.needsYou &&
   left.seatLabel === right.seatLabel
@@ -145,7 +146,7 @@ const SessionRow = memo(({
   const [draft, setDraft] = useState('')
   const key = sessionKey(summary.runtime, summary.id)
   const {
-    openInPane, runtime, density, pinned, liveTitle, trace, backgrounded,
+    openInPane, runtime, density, pinned, liveTitle, deskCopy, trace, backgrounded,
     folderGone, active, needsYou, seatLabel,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
@@ -158,6 +159,7 @@ const SessionRow = memo(({
       density: snapshot.listPrefs.density,
       pinned: snapshot.listPrefs.pinnedSessions.includes(String(key)),
       liveTitle: live?.title,
+      deskCopy: live?.deskCopy === true,
       trace,
       backgrounded: (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length,
       folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
@@ -375,13 +377,25 @@ const SessionRow = memo(({
         <MenuItem
           icon={<ArchiveIcon size={13} />}
           label="Archive"
+          title="Hide it from the sidebar; find it in Archive"
           onSelect={() => void store.archiveSession(summary.id, summary.runtime, label)}
         />
         <MenuItem
           icon={<TrashIcon size={13} />}
-          label="Delete…"
+          label="Remove from HarnessDesk"
+          title={deskCopy || runtime?.capabilities.readableHistory === false || runtime?.capabilities.listHistory === false
+            ? "HarnessDesk's copy is the only record" : `${agentName} keeps its own copy`}
+          onSelect={() => void store.removeSession(summary.id, summary.runtime)}
+        />
+        <MenuSeparator />
+        <MenuItem
+          icon={<TrashIcon size={13} />}
+          label="Delete everywhere…"
           danger
-          disabled={menu.at && !runtime ? 'This conversation’s agent is unavailable.' : menu.at && !runtime?.capabilities.deleteHistory ? `${agentName} keeps no way to delete one.` : false}
+          disabled={runtime?.capabilities.deleteHistory !== 'trash'}
+          title={!runtime ? 'This conversation’s agent is unavailable.' : runtime.capabilities.deleteHistory === 'erase'
+            ? `${agentName} erases it for good, so delete it there` : runtime.capabilities.deleteHistory !== 'trash'
+              ? `${agentName} keeps no way to delete one.` : undefined}
           onSelect={() => onDelete(summary)}
         />
       </ContextMenu>

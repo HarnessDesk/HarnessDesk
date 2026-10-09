@@ -41,6 +41,8 @@ interface RepoRow { repo_root: string | null; worktree: number; origin_url: stri
 type RepoValue = { repo: RepoInfo | null; exists: boolean; checkedAt: number; identity?: string }
 interface PendingFacts { title?: string | null; archived?: boolean | null; teamId?: string | null }
 const pendingKey = (runtime: RuntimeId, id: SessionId): string => `pending:${JSON.stringify([runtime, id])}`
+const removalOriginKey = (runtime: RuntimeId, id: SessionId): string => `removed-origin:${JSON.stringify([runtime, id])}`
+export const SESSION_REMOVE_UNDO_MS = 8_000
 const SELECT = `SELECT s.*, r.repo_root AS cached_root, r.worktree, r.origin_url, r."exists"
   FROM sessions s LEFT JOIN repos r ON r.cwd = s.cwd`
 const eligible = (row: Row): boolean => row.origin === 'desk' && row.removed_at === null && row.team_id === null
@@ -115,6 +117,7 @@ export class SessionIndex {
   }
 
   upsert(summary: SessionSummary, options: { origin?: 'desk' | 'imported'; archived?: boolean | null; teamId?: string | null } = {}): void {
+    if (this.isRemoved(summary.runtime, summary.id)) return
     this.#transaction(() => {
       const facts = this.#facts(summary.runtime, summary.id)
       const archived = options.archived === undefined ? facts.archived : options.archived
@@ -156,15 +159,45 @@ export class SessionIndex {
       ? sessionIndexCursorOf({ updatedAt: last.updated_at, runtime: last.runtime, id: last.id }, options.archived) : null }
   }
 
-  remove(runtime: RuntimeId, id: SessionId): void {
-    // A tombstone also covers a file the background seed has not reached yet.
+  /** Only an explicit create/fork may admit a newly minted reuse of a deleted id. */
+  admitCreated(runtime: RuntimeId, id: SessionId): void {
+    this.#db.prepare('DELETE FROM meta WHERE key=?').run(`deleted:${JSON.stringify([runtime, id])}`)
+  }
+
+  isRemoved(runtime: RuntimeId, id: SessionId): boolean {
+    return this.#row(runtime, id)?.removed_at != null || !!this.#db.prepare('SELECT 1 FROM meta WHERE key=?').get(`deleted:${JSON.stringify([runtime, id])}`)
+  }
+
+  remove(runtime: RuntimeId, id: SessionId): number {
+    const row = this.#row(runtime, id)
+    if (row?.removed_at != null) return row.removed_at + SESSION_REMOVE_UNDO_MS
+    const at = Date.now()
     this.#transaction(() => {
+      this.#db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT DO NOTHING')
+        .run(removalOriginKey(runtime, id), row?.origin ?? 'desk')
+      // A tombstone also covers a file the background seed has not reached yet.
       this.#db.prepare(`INSERT INTO sessions(runtime,id,origin,cwd,created_at,updated_at,removed_at)
-        VALUES (?,?,'desk','',0,0,?) ON CONFLICT(runtime,id) DO UPDATE SET removed_at=excluded.removed_at`).run(runtime, id, Date.now())
+        VALUES (?,?,'imported','',0,0,?) ON CONFLICT(runtime,id) DO UPDATE SET origin='imported',removed_at=excluded.removed_at`).run(runtime, id, at)
       this.#clearFacts(runtime, id)
     })
     this.#notify(runtime, id)
+    return at + SESSION_REMOVE_UNDO_MS
   }
+
+  undoRemove(runtime: RuntimeId, id: SessionId): void {
+    const row = this.#row(runtime, id)
+    if (!row || row.removed_at === null) return
+    if (Date.now() >= row.removed_at + SESSION_REMOVE_UNDO_MS) throw new Error('The Undo window has ended.')
+    this.#transaction(() => {
+      const origin = this.#db.prepare('SELECT value FROM meta WHERE key=?').get(removalOriginKey(runtime, id))?.value ?? 'desk'
+      this.#db.prepare('UPDATE sessions SET origin=?,removed_at=NULL WHERE runtime=? AND id=?').run(String(origin), runtime, id)
+      this.#db.prepare('DELETE FROM meta WHERE key=?').run(removalOriginKey(runtime, id))
+    })
+    this.#notify(runtime, id)
+  }
+
+  /** The body writer deleted the row and body in one transaction. */
+  deleted(runtime: RuntimeId, id: SessionId): void { this.#notify(runtime, id) }
 
   setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void {
     this.#transaction(() => {
@@ -249,7 +282,7 @@ export class SessionIndex {
       this.#transaction(() => {
         for (const summary of batch) {
           // Live writes, prior batches and deletion tombstones always win.
-          if (this.#row(summary.runtime, summary.id)) continue
+          if (this.#row(summary.runtime, summary.id) || this.isRemoved(summary.runtime, summary.id)) continue
           const facts = this.#facts(summary.runtime, summary.id)
           const title = facts.title === undefined ? options.titleOf?.(summary.runtime, summary.id) ?? summary.title ?? null : facts.title
           const teamId = facts.teamId === undefined ? options.teamOf?.(summary.runtime, summary.id) ?? null : facts.teamId

@@ -199,7 +199,7 @@ import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
-import { SessionIndex } from './session-index.js'
+import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
@@ -705,6 +705,7 @@ export class Host {
   readonly #sessionIndexRepos: SessionIndexRepos
   #sessionIndexSeed: Promise<void> = Promise.resolve()
   readonly #indexPending = new Map<string, Session>()
+  #removalSweep: ReturnType<typeof setTimeout> | undefined
   readonly #indexTimers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #indexTeams = new Map<string, string>()
   /** The transcript as the host watched it, for reads the backend returns thin. */
@@ -2378,6 +2379,8 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    await this.#transcripts.sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
+    this.#scheduleRemovalSweep()
     await this.#runtimeCache.load()
     for (const runtime of this.#runtimes.values()) runtime.restoreObservations?.(this.#runtimeCache.get(String(runtime.info.id)))
     await this.#seatHeldCards.load().catch((error: unknown) => {
@@ -3099,6 +3102,7 @@ export class Host {
     for (const list of this.#runtimeSubscriptions.values()) for (const off of list) off()
     this.#runtimeSubscriptions.clear()
     await this.#terminals.dispose()
+    clearTimeout(this.#removalSweep)
     await this.#transcripts.flush()
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
     await this.#sessionIndexSeed
@@ -4106,6 +4110,16 @@ export class Host {
           this.#flushSessionIndex(runtime, id)
           this.#indexArchiveChanges.set(String(sessionKey(runtime, id)), (this.#indexArchiveChanges.get(String(sessionKey(runtime, id))) ?? 0) + 1)
           this.#sessionIndex.setArchived(runtime, id, archived)
+        },
+        setRemoved: (runtime, id, removed) => {
+          this.#flushSessionIndex(runtime, id)
+          const undoUntil = removed ? this.#sessionIndex.remove(runtime, id) : (this.#sessionIndex.undoRemove(runtime, id), null)
+          this.#scheduleRemovalSweep()
+          return { undoUntil }
+        },
+        deleted: (runtime, id) => {
+          this.#cancelSessionIndex(runtime, id)
+          this.#sessionIndex.deleted(runtime, id)
         },
         remove: (runtime, id) => {
           this.#cancelSessionIndex(runtime, id)
@@ -6687,7 +6701,7 @@ export class Host {
    * What the desk does about one still there is its caller's (`#archiveSeat`).
    */
   async #askToDelete(owner: AgentRuntime, id: SessionId): Promise<'deleted' | 'cannot' | { readonly refused: string }> {
-    if (!owner.info.capabilities.deleteHistory) return 'cannot'
+    if (owner.info.capabilities.deleteHistory !== 'trash') return 'cannot'
     try {
       await owner.deleteSession(id)
       return 'deleted'
@@ -6943,6 +6957,18 @@ export class Host {
     return read
   }
 
+  #scheduleRemovalSweep(): void {
+    clearTimeout(this.#removalSweep)
+    const removals = this.#transcripts.removedBodies()
+    if (removals.length === 0 || this.#disposed) return
+    const due = Math.min(...removals.map(row => row.removed_at + SESSION_REMOVE_UNDO_MS))
+    this.#removalSweep = setTimeout(() => {
+      void this.#transcripts.sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS).then(() => this.#scheduleRemovalSweep())
+        .catch(error => this.#logger.warn('removed conversation bodies could not be swept', { error: String(error) }))
+    }, Math.max(0, due - Date.now()))
+    this.#removalSweep.unref()
+  }
+
   #cancelSessionIndex(runtime: RuntimeId, id: SessionId): void {
     const key = String(sessionKey(runtime, id))
     const timer = this.#indexTimers.get(key)
@@ -6977,6 +7003,7 @@ export class Host {
   }
 
   #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {
+    this.#sessionIndex.admitCreated(runtime.info.id, id)
     const existing = this.registry.get(runtime.info.id, id)
     if (existing) {
       existing.live = live
@@ -7048,6 +7075,8 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    const id = event.type === 'session/started' ? event.session.id : 'sessionId' in event ? event.sessionId : undefined
+    if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {
       const owner = this.#runtimeSources.get(String(runtime))
@@ -8145,7 +8174,7 @@ export class Host {
 
   #push(notification: WireNotification): void {
     if (!this.#disposed && notification.method === 'team/changed') this.#indexTeam(notification.params.state)
-    if (!this.#disposed && notification.method === 'session/removed') {
+    if (!this.#disposed && notification.method === 'session/removed' && !this.#sessionIndex.isRemoved(notification.params.runtime, notification.params.sessionId)) {
       this.#cancelSessionIndex(notification.params.runtime, notification.params.sessionId)
       this.#sessionIndex.remove(notification.params.runtime, notification.params.sessionId)
     }
