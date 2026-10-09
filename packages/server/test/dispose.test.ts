@@ -98,7 +98,7 @@ class RestartingRuntime extends FakeRuntime {
   }
 }
 
-const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]): Promise<Host> => {
+const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-'))
   t.after(() => rm(stateDir, { recursive: true, force: true }))
   const host = new Host({
@@ -110,7 +110,7 @@ const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]):
     catalogRefreshMs: 0,
   })
   for (const runtime of runtimes) host.register(runtime as never)
-  return host
+  return { host, stateDir }
 }
 
 /**
@@ -134,8 +134,12 @@ const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]):
 test('a re-read that wakes inside the quit finds its runtime already disposed', async (t) => {
   const first = new RestartingRuntime({ id: runtimeId('fake'), name: 'Fake' })
   const last = new RestartingRuntime({ id: runtimeId('fake-two'), name: 'Fake Two' })
-  const host = await hostWith(t, [first, last])
+  const { host, stateDir } = await hostWith(t, [first, last])
   await host.start()
+  // Launch starts only the default in the background; these are two live agents.
+  for (const runtime of [first, last]) {
+    await host.call('session/create', { runtime: runtime.info.id, options: { cwd: stateDir } })
+  }
   assert.deepEqual([first.starts, last.starts], [1, 1], 'both up once')
 
   const refresh = host.call('runtime/refreshCatalog', { runtime: last.info.id })
@@ -162,7 +166,7 @@ test('one runtime that will not shut down cleanly does not strand the others', a
   const angry = new RestartingRuntime({ id: runtimeId('angry'), name: 'Angry' })
   angry.disposeThrows = true
   const calm = new RestartingRuntime({ id: runtimeId('calm'), name: 'Calm' })
-  const host = await hostWith(t, [angry, calm])
+  const { host } = await hostWith(t, [angry, calm])
   await host.start()
 
   await host.dispose()

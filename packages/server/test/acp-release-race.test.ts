@@ -20,6 +20,7 @@ test('host calls wait for an adapter-owned last-handle stop before reopening', a
   t.after(async () => { release(); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
   host.register(runtime)
   await host.start()
+  await waitFor(() => runtime.health().state === 'ready')
   const session = await runtime.createSession({ cwd: dir })
   await runtime.listSkills()
   const connection = runtime.connectionFor(session.id)

@@ -49,13 +49,16 @@ test('registration broadcasts early notices to a window that missed their arriva
 test('a runtime starting before any client connects keeps its information in host preferences', async t => {
   const base = tempDir('hd-runtime-notices-')
   const state = new StateStore(join(base, 'state.json'))
+  let emitted!: () => void
+  const noticeEmitted = new Promise<void>(resolve => { emitted = resolve })
   class StartingRuntime extends FakeRuntime {
-    override async start() { await super.start(); this.emit(event()) }
+    override async start() { await super.start(); this.emit(event()); emitted() }
   }
   const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
   t.after(() => host.dispose())
   host.register(new StartingRuntime())
   await host.start()
+  await noticeEmitted
   const preferences = await host.call('app/state/get', {})
   const retained = readRuntimeNotices(preferences['runtimeNotices'])
   assert.equal(retained.length, 1)
