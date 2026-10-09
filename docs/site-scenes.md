@@ -32,8 +32,9 @@ no-ops; no agent or external service runs. The site omits the cost chart's
 scan-accounting footer while the app retains it.
 
 `packages/ui/site-demo/dashboard-data.ts` owns a compact fictional year, shared by daily
-charts, model/project pivots and hourly summaries. Every month has activity;
-covered zero days remain zero. Names and marks come from the demo roster's
+charts, model/project pivots and hourly summaries. Every weekday has activity
+in every month, with lighter ordinary weekends, rotating quiet days and a
+gradual ramp toward recent months. Covered zero days remain zero. Names and marks come from the demo roster's
 `RuntimeInfo.presentation`. Identities are the two public demo accounts or
 placeholders. Keeping this data outside `src/preview/` preserves the persona
 through the shared preview rewrite. The build refuses any address outside

@@ -4,7 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SCENES } from '../../site-demo/scenes'
 import { SiteScene } from '../../site-demo/scene'
 import { dashboardData } from '../../site-demo/dashboard'
-import { buildYearGrid, busiestDay, streaksFor } from '../lib/heat'
+import { buildYearGrid, busiestDay, busiestWeekday, dayLabelLong, leadingAgent, streaksFor, WEEKDAY_NAMES } from '../lib/heat'
+import { formatTokens } from '../lib/context-usage'
 import { planRows } from '../lib/plans-table'
 import { periodTotals, stackDaily } from '../lib/ledger'
 
@@ -183,7 +184,7 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
   const cells = buildYearGrid(year, NOW).weeks.flat().filter(cell => cell !== null)
   expect(cells).toHaveLength(365)
   expect(cells.every(cell => cell.scanned)).toBe(true)
-  expect(cells.filter(cell => cell.tokens > 0)).toHaveLength(234)
+  expect(cells.filter(cell => cell.tokens > 0)).toHaveLength(354)
   expect(streaksFor(cells, 'tokens')).toEqual({ current: 61, best: 61 })
   const busiest = busiestDay(cells, 'tokens')!
   expect(new Date(busiest.day).getMonth()).toBe(8)
@@ -201,4 +202,38 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
   const dailyTuesday = next.daily.filter(row => row.runtime === runtime && new Date(row.day).getDay() === 2).reduce((sum, row) => sum + row.tokens, 0)
   const hourlyTuesday = next.hourly!.filter(row => row.runtime === runtime && row.weekday === 2).reduce((sum, row) => sum + row.tokens, 0)
   expect(hourlyTuesday).toBeCloseTo(dailyTuesday, -1)
+})
+
+it('gives every weekday work in every month, with lighter weekends and a gradual ramp', () => {
+  const cells = buildYearGrid(dashboardData(NOW).ledger(365, 'runtime'), NOW).weeks.flat().filter(cell => cell !== null)
+  const monthOf = (day: number) => `${new Date(day).getFullYear()}-${new Date(day).getMonth() + 1}`
+  for (const month of new Set(cells.map(cell => monthOf(cell.day)))) for (let weekday = 0; weekday < 7; weekday++) {
+    const days = cells.filter(cell => monthOf(cell.day) === month && new Date(cell.day).getDay() === weekday)
+    expect(days.filter(cell => cell.tokens > 0).length, `month ${month}, weekday ${weekday}`).toBeGreaterThanOrEqual(Math.min(2, days.length))
+  }
+  const ordinary = cells.filter(cell => cell.tokens > 0 && cell.tokens < 10_000_000_000)
+  const average = (days: typeof cells) => days.reduce((sum, day) => sum + day.tokens, 0) / days.length
+  expect(average(ordinary.filter(cell => [0, 6].includes(new Date(cell.day).getDay()))))
+    .toBeLessThan(average(ordinary.filter(cell => ![0, 6].includes(new Date(cell.day).getDay()))))
+  const quarters = [0, 1, 2, 3].map(index => average(cells.slice(index * 91, (index + 1) * 91)))
+  expect(quarters[1]).toBeGreaterThan(quarters[0]!)
+  expect(quarters[2]).toBeGreaterThan(quarters[1]!)
+  expect(quarters[3]).toBeGreaterThan(quarters[2]!)
+  expect(cells.filter(cell => cell.tokens === 0).length).toBeGreaterThan(0)
+  expect(cells.filter(cell => cell.tokens > 0).length).toBeGreaterThan(330)
+})
+
+it('renders Activity facts and its busiest weekday from the fictional year', async () => {
+  const cells = buildYearGrid(dashboardData(NOW).ledger(365, 'runtime'), NOW).weeks.flat().filter(cell => cell !== null)
+  await act(async () => root.render(<SiteScene name="dashboard-activity" />))
+  const facts = host.querySelector('[data-slot="chart-card"]')!
+  expect(facts.children[0]?.textContent).toBe(`${formatTokens(cells.reduce((sum, cell) => sum + cell.tokens, 0))}this year`)
+  expect(facts.children[1]?.textContent).toBe(`${cells.filter(cell => cell.tokens > 0).length}active of 365 scanned`)
+  const streak = streaksFor(cells, 'tokens')
+  expect(facts.children[2]?.textContent).toBe(`${streak.current} daysstreak · best ${streak.best}`)
+  expect(host.textContent).toContain(`Busiest on ${WEEKDAY_NAMES[busiestWeekday(cells, 'tokens')!]}s`)
+  const peak = busiestDay(cells, 'tokens')!
+  expect(facts.children[3]?.textContent).toBe(`${formatTokens(peak.tokens)}${dayLabelLong(peak.day)}`)
+  expect(leadingAgent(cells, 'tokens')).toBe('claude')
+  expect(facts.children[4]?.textContent).toBe('Claude Codedid the most')
 })

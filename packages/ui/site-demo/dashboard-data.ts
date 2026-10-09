@@ -79,8 +79,11 @@ const history = (() => {
   const today = localMidnight(SCENE_NOW)
   const entries = Array.from({ length: 365 }, (_, index) => {
     const day = addDays(today, index - 364)
-    const active = index >= 304 || (index < 303 && Math.floor((index + 1) * 173 / 303) > Math.floor(index * 173 / 303))
-    const weight = active ? (0.2 + index / 170) * (0.45 + ((index * 29) % 37) / 23) : 0
+    // A quiet day every 29 days rotates through the weekdays instead of
+    // aliasing with the seven-row calendar. The last 61 days stay active.
+    const active = index >= 304 || index % 29 !== 13
+    const weekend = [0, 6].includes(new Date(day).getDay())
+    const weight = active ? (0.8 + index / 230) * (0.7 + ((index * 29) % 37) / 37) * (weekend ? 0.65 : 1) : 0
     const peak = new Date(day).getMonth() === 8 && new Date(day).getDate() === 20
     const cost = index >= 335 ? currentCosts[index - 335]! : index >= 305 ? previousCosts[index - 305]!
       : active ? weight * (110 + ((index * 31) % 330)) : 0

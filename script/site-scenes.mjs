@@ -34,6 +34,7 @@ const built = httpServer((request, response) => {
 })
 let browser
 const frames = []
+const polishFailures = []
 try {
   await preview.listen()
   await new Promise(done => built.listen(0, '127.0.0.1', done))
@@ -172,8 +173,44 @@ try {
       assert.ok(height.content <= height.panel, `${name} must fit without vertical scrolling: ${height.content} > ${height.panel}`)
       assert.deepEqual(await sceneBox.locator('[role="group"]').evaluateAll(groups => groups.filter(group => group.scrollWidth > group.clientWidth + 1).map(group => group.getAttribute('aria-label'))), [], 'Plots must fit without horizontal scrolling')
     }
+    const focusedPolish = async () => {
+      const failures = await sceneBox.evaluate((box, name) => {
+        const failures = []
+        const head = box.querySelector('[data-section-head]')
+        const background = getComputedStyle(head).backgroundColor
+        if (background !== 'rgba(0, 0, 0, 0)' && background !== getComputedStyle(box).backgroundColor) failures.push('heading surface differs from view')
+        if (name !== 'dashboard-limits') {
+          const cards = box.querySelectorAll('[data-slot="chart-card"]')
+          const top = getComputedStyle(cards[0]), plot = getComputedStyle(cards[1])
+          if ([top.borderBottomLeftRadius, top.borderBottomRightRadius, plot.borderTopLeftRadius, plot.borderTopRightRadius].some(radius => radius !== '0px')) failures.push('rounded panel join makes a notch')
+        }
+        if (name === 'dashboard-activity') {
+          const card = box.querySelector('[data-slot="chart-frame"]').getBoundingClientRect()
+          if (Math.abs(card.bottom - (box.getBoundingClientRect().bottom - 20)) > 1) failures.push(`Activity card bottom ${card.bottom} must keep a 20px inset`)
+          const heat = box.querySelector('[aria-label="Tokens or cost per day, this year"]')
+          const cell = heat.querySelector('[data-level]').getBoundingClientRect()
+          if (cell.width < 10) failures.push(`year cells should grow to at least 10px, got ${cell.width}`)
+          if (getComputedStyle(heat).gridTemplateColumns.split(' ').length !== 54) failures.push('year must keep all 53 weeks')
+        }
+        if (name === 'dashboard-spend') {
+          const hint = box.querySelector('[data-slot="chart-hint"]'), text = hint.firstChild
+          const lines = new Map()
+          for (const match of hint.textContent.matchAll(/\S+/g)) {
+            const range = document.createRange()
+            range.setStart(text, match.index); range.setEnd(text, match.index + match[0].length)
+            const y = range.getBoundingClientRect().top
+            lines.set(y, (lines.get(y) ?? 0) + 1)
+          }
+          if (lines.size > 1 && [...lines.values()].at(-1) <= 2) failures.push('Spend hint leaves orphan words')
+        }
+        return failures
+      }, name)
+      polishFailures.push(...failures.map(failure => `${name}/${theme}: ${failure}`))
+    }
     const heatGeometry = async label => {
       await fit()
+      const frame = await year.locator('[data-slot="chart-frame"]').boundingBox()
+      assert.ok(Math.abs(frame.y + frame.height - (scene.height - 20)) <= 1, 'Every Activity mode must keep the bottom inset')
       const facts = await year.locator('[data-slot="chart-card"]').first().evaluate(card => [...card.children].map(node => node.getBoundingClientRect().top))
       assert.ok(facts.every(top => Math.abs(top - facts[0]) <= 1), 'Activity stats must fit on one row')
       const heat = year.getByRole('group', { name: label, exact: true })
@@ -211,6 +248,7 @@ try {
           await cost.getByRole('radio', { name: `${range}d`, exact: true }).click()
           await expect(cost).toContainText(`Last ${range} days`)
           await fit()
+          await focusedPolish()
         }
         const plot = cost.locator('[role="group"]').first()
         await plot.hover({ position: { x: 160, y: 70 } })
@@ -269,6 +307,7 @@ try {
       await page.goto(capture ? `${origin}preview.html?site-scene=${name}&theme=${theme}` : `${origin}?view=${name}&theme=${theme}`)
       await page.clock.runFor(600)
       await page.evaluate(() => document.fonts.ready)
+      if (name !== 'dashboard') await focusedPolish()
       await (name === 'dashboard' ? exerciseDashboard : exerciseFocused)(capture)
       await page.evaluate(value => postMessage({ type: 'theme', value }, '*'), theme === 'light' ? 'dark' : 'light')
       await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'light' ? 1 : 0)
@@ -297,6 +336,7 @@ try {
     await page.close()
     console.log(`PASS ${name}/${theme}: build and preview controls, theme, reduced motion, geometry, local requests`)
   }
+  assert.deepEqual(polishFailures, [], 'Focused Dashboard polish regressions')
   for (const [name, scene] of Object.entries(SCENES)) {
     const scale = name === 'dashboard' ? .5 : 1
     const width = scene.width * scale, height = scene.height * scale
