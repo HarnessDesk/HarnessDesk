@@ -169,6 +169,7 @@ const rig = (
        and it is read from *here*, live, rather than from the roster's copy,
        which goes stale the moment a turn starts or ends. */
     status: { type: 'active' },
+    itemsLoaded: true,
     // A real session always has turns; the rail reads them to say whether
     // this agent is mid-turn, live, rather than trusting the roster's copy.
     turns: [],
@@ -3165,6 +3166,81 @@ it('does not re-open a member the desk already holds', async () => {
   await act(async () => {})
 
   expect(store.openSession).not.toHaveBeenCalled()
+})
+
+it.each(['column', 'tile'] as const)('hydrates retained metadata in a member %s and reloads it after reconnect', async (surface) => {
+  const { store } = rig([CODEX])
+  const key = sessionKey('codex', 'c1')
+  const full = store.getSnapshot().sessions.get(key)!
+  const metadata = { ...full, itemsLoaded: false, turns: [] }
+  let snapshot: AppSnapshot = { ...store.getSnapshot(), sessions: new Map([[key, metadata]]) }
+  vi.spyOn(store, 'getSnapshot').mockImplementation(() => snapshot)
+  let finish!: () => void
+  const open = store.openSession as ReturnType<typeof vi.fn>
+  open.mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+  await render(store)
+  // A member that is not on screen stays metadata-only.
+  expect(open).not.toHaveBeenCalled()
+  if (surface === 'column') await clickRailOpen(container, 'Codex')
+  else await clickRailWatch(container, 'Codex')
+  expect(open).toHaveBeenCalledExactlyOnceWith('c1', { runtime: 'codex', reveal: false })
+
+  // Unrelated traffic and repeated metadata syncs do not duplicate an in-flight read.
+  snapshot = { ...snapshot, sessions: new Map([[key, { ...metadata }]]) }
+  await render(store)
+  expect(open).toHaveBeenCalledTimes(1)
+  snapshot = { ...snapshot, sessions: new Map([[key, full]]) }
+  await act(async () => { finish() })
+  await render(store)
+  expect(open).toHaveBeenCalledTimes(1)
+
+  // The same mounted column must ask again when a reconnect unloads its body.
+  snapshot = { ...snapshot, sessions: new Map([[key, metadata]]) }
+  await render(store)
+  expect(open).toHaveBeenCalledTimes(2)
+  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(key))
+  await act(async () => { finish() })
+})
+
+it('hydrates retained metadata in restored Side by side tiles', async () => {
+  const { store } = rig([CODEX, CLAUDE])
+  const first = sessionKey('codex', 'c1')
+  const second = sessionKey('claude', 'k1')
+  const full = store.getSnapshot().sessions.get(first)!
+  const snapshot = { ...store.getSnapshot(), sessions: new Map([
+    [first, { ...full, itemsLoaded: false }],
+    [second, { ...full, id: sessionId('k1'), runtime: runtimeId('claude') }],
+  ]) }
+  vi.spyOn(store, 'getSnapshot').mockReturnValue(snapshot)
+  await act(async () => {
+    root.render(<StoreProvider store={store}><MountProvider scope={{ area: 'main', id: 'pane-1',
+      view: { kind: 'room', room: ROOM, watching: [first, second] } }}>
+      <TeamRoomPane room={ROOM} />
+    </MountProvider></StoreProvider>)
+  })
+  expect(store.openSession).toHaveBeenCalledExactlyOnceWith('c1', { runtime: 'codex', reveal: false })
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
+})
+
+it('retries an unread member on reconnect without retrying on unrelated traffic', async () => {
+  const { store } = rig([CODEX])
+  const key = sessionKey('codex', 'c1')
+  const metadata = { ...store.getSnapshot().sessions.get(key)!, itemsLoaded: false }
+  let snapshot: AppSnapshot = { ...store.getSnapshot(), sessions: new Map([[key, metadata]]) }
+  vi.spyOn(store, 'getSnapshot').mockImplementation(() => snapshot)
+  // openSession reports a failed read and resolves without hydrating the body.
+  await render(store)
+  await clickRailOpen(container, 'Codex')
+  expect(store.openSession).toHaveBeenCalledTimes(1)
+  snapshot = { ...snapshot, sessions: new Map([[key, { ...metadata }]]) }
+  await render(store)
+  expect(store.openSession).toHaveBeenCalledTimes(1)
+  snapshot = { ...snapshot, status: 'connecting' }
+  await render(store)
+  expect(store.openSession).toHaveBeenCalledTimes(1)
+  snapshot = { ...snapshot, status: 'open' }
+  await render(store)
+  expect(store.openSession).toHaveBeenCalledTimes(2)
 })
 
 /**

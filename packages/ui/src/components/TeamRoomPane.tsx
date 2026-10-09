@@ -694,24 +694,23 @@ export const TeamRoomPane = ({
    * columns on the next launch, which is exactly when nothing is open.
    *
    * `reveal: false` because the column *is* the pane; revealing would replace
-   * the room around it. Attempts are remembered so a re-render between the
+   * the room around it. Pending attempts are remembered so a re-render between the
    * request and its answer does not ask twice; a failure is `openSession`'s
    * own to report, and it does — a background notice — so nothing is said
    * again here, and the column falls back to the conversation's empty state.
    */
   const asked = useRef(new Set<SessionKey>())
-  /* The session map as it is *now*, for the settle below — which runs long
-     after the render that started the open, and must not decide anything from
-     a closure's photograph of it. It is deliberately not a dependency: the
-     open is triggered by a column appearing, and re-running this whenever any
-     conversation anywhere changes would retry a failing open on somebody
-     else's traffic. */
-  const openNow = useRef(snapshot.sessions)
-  openNow.current = snapshot.sessions
   const upFor = [...grid.tiles, ...(singleMember ? [singleMember] : [])].join(' ')
+  /* Closed Seats remain in the map as metadata. Only a loaded body is ready
+     to draw; reconnect can unload one that this column already read. Depend
+     on those columns' hydration flags, rather than the whole session map, so
+     unrelated traffic does not retry a failed read. */
+  const unloaded = (upFor === '' ? [] : (upFor.split(' ') as SessionKey[]))
+    .filter(key => !snapshot.sessions.get(key)?.itemsLoaded).join(' ')
   useEffect(() => {
-    for (const key of upFor === '' ? [] : (upFor.split(' ') as SessionKey[])) {
-      if (openNow.current.has(key) || asked.current.has(key)) continue
+    if (snapshot.status !== 'open') return
+    for (const key of unloaded === '' ? [] : (unloaded.split(' ') as SessionKey[])) {
+      if (asked.current.has(key)) continue
       asked.current.add(key)
       const { runtime, id } = splitSessionKey(key)
       void store
@@ -720,18 +719,11 @@ export const TeamRoomPane = ({
            this is belt and braces — but it has to be a `catch` and not only a
            `finally`, which passes the rejection straight through to nobody. */
         .catch(() => undefined)
-        /* Remember only what worked. Marking the attempt and never unmarking
-           it made one transient failure permanent for the life of the pane:
-           the agent comes back, the person closes the column and opens it
-           again, and nothing asks a second time — the column stays on the
-           conversation's own empty state with no way back but a remount.
-           Cleared on the *outcome* rather than on the promise, because
-           `openSession` reports its own failures and resolves either way. */
-        .finally(() => {
-          if (!openNow.current.has(key)) asked.current.delete(key)
-        })
+        /* A loaded body guards a successful read. Neither a success nor a
+           failure may prevent a later column open or reconnect from retrying. */
+        .finally(() => { asked.current.delete(key) })
     }
-  }, [store, upFor])
+  }, [store, upFor, unloaded, snapshot.status])
   /* The roster as a list. `here` is already taken, by the count of
      conversations *in the folder* — which is the other half of the zero-state
      below and deliberately a different number. */
