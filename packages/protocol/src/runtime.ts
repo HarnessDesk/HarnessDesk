@@ -197,6 +197,8 @@ export interface RuntimeCapabilities {
   readonly steer: boolean
   readonly interrupt: boolean
   readonly listHistory: boolean
+  /** Can name the file behind a conversation through `sourceOf`. */
+  readonly sourceTranscript?: boolean
   readonly searchHistory: boolean
   readonly imageInput: boolean
   readonly mcp: boolean
@@ -983,6 +985,12 @@ export interface CatalogRefresh {
 /** What telling a runtime its secret changed actually achieved. */
 export type SecretReload = 'restarted' | 'busy' | 'unsupported'
 
+export interface SessionSource {
+  readonly path: string
+  readonly mtimeMs: number
+  readonly size: number
+}
+
 export interface AgentRuntime {
   readonly info: RuntimeInfo
 
@@ -1178,6 +1186,8 @@ export interface AgentRuntime {
   searchSessions(query: string): Promise<Page<SessionSummary>>
   /** Load a transcript without making the session live. */
   readSession(id: SessionId): Promise<Session>
+  /** Metadata only; null when no source can be named. Never reads the body. */
+  sourceOf?(id: SessionId): Promise<SessionSource | null>
   /**
    * Move a conversation into or out of the runtime's own archive.
    *

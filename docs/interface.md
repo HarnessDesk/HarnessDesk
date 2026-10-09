@@ -599,7 +599,10 @@ summary says where it got, for the reader who did not watch.
 record, and backups keep it restorable. Reopening a conversation shows what
 happened even when the backend forgot: Cursor keeps nothing readable, and ACP
 replay is lossy. A prompt with several content blocks replays as one message,
-not one turn per block.
+not one turn per block. When the agent can name its source file, an unchanged
+record opens from the local copy; a changed record is read again and folded
+into it. If that record is gone or cannot be read by the agent, the transcript
+says **HarnessDesk’s copy** in one quiet line at the top.
 
 The search palette searches your messages and the agent's answers. **Include
 tool output** adds output from tools and commands, with those hits marked

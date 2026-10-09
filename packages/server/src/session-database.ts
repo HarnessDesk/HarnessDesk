@@ -15,7 +15,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
   try {
     db.exec('PRAGMA journal_mode = WAL')
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
-    if (version > 3) throw new Error('Session index is from a newer schema')
+    if (version > 4) throw new Error('Session index is from a newer schema')
     if (version === 0) transaction(db, () => {
       db.exec(`CREATE TABLE sessions (
         runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
@@ -71,6 +71,12 @@ export function openSessionDatabase(file: string): DatabaseSync {
           INSERT INTO items_fts(items_fts,rowid,message_text,tool_text) VALUES('delete',old.rowid,old.message_text,old.tool_text);
           INSERT INTO items_fts(rowid,message_text,tool_text) VALUES(new.rowid,new.message_text,new.tool_text); END;
         PRAGMA user_version = 3;`)
+    })
+    if (version < 4) transaction(db, () => {
+      db.exec(`ALTER TABLE sessions ADD COLUMN source_path TEXT;
+        ALTER TABLE sessions ADD COLUMN source_mtime REAL;
+        ALTER TABLE sessions ADD COLUMN source_size INTEGER;
+        PRAGMA user_version = 4;`)
     })
     return db
   } catch (error) { db.close(); throw error }

@@ -799,3 +799,12 @@ it('allocates no empty git slot when a draft has no folder', () => {
   // The extension slot already has an :empty fold; git must not leave another.
   expect(emptySlots.every((node) => node.classList.contains(styles.headerSlot!))).toBe(true)
 })
+
+it('shows one quiet copy notice using the agent presentation name', () => {
+  const one = session({ turns: [{ id: turnId('copy-turn'), status: 'completed', items: [{ id: itemId('copy-answer'), type: 'assistantMessage', text: 'Kept answer' }] }], ...({ deskCopy: true } as Partial<Session>) })
+  const { store } = rig(one, new Map(), { runtimes: [{ id: one.runtime, name: 'Internal registry name', presentation: { name: 'Demo Agent' }, capabilities: {} }] as unknown as AppSnapshot['runtimes'] })
+  render(store)
+  expect(container.textContent).toContain('HarnessDesk’s copy — Demo Agent’s own record is unavailable.')
+  expect(container.textContent?.split('HarnessDesk’s copy').length).toBe(2)
+  expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('Kept answer')
+})
