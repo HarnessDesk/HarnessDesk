@@ -263,11 +263,12 @@ describe('conversation-owned worktrees', { concurrency: 4 }, () => {
     assert.ok(reads > 0)
   })
 
-  test('automatic cleanup never requests force; only the confirmed Discard path does', async () => {
+  test('force is confined to confirmed Discard and dirty Storage cleanup', async () => {
     const { readFile } = await import('node:fs/promises')
     const source = await readFile(new URL('../../src/session-worktrees.ts', import.meta.url), 'utf8')
-    assert.equal((source.match(/force:\s*true/g) ?? []).length, 1)
-    assert.ok(source.indexOf('force: true') > source.indexOf('discard(runtime:'))
+    assert.equal((source.match(/force:\s*true/g) ?? []).length, 2)
+    assert.ok(source.includes('dirty ? { force: true, expectedInventory: approved.key }'))
+    assert.ok(source.lastIndexOf('force: true') > source.indexOf('discard(runtime:'))
     assert.ok(source.includes('keepIgnored: true'))
   })
 })

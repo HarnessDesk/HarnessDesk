@@ -527,6 +527,43 @@ export interface Worktree {
   readonly managed: boolean
 }
 
+/** Storage reads never start an agent. Counts are logical bytes on disk. */
+export interface StorageUsage {
+  readonly database: { readonly bytes: number; readonly computing: boolean; readonly error?: string }
+  readonly snapshots: { readonly count: number; readonly bytes: number; readonly computing: boolean; readonly error?: string }
+  readonly cachedPreviews: { readonly count: number; readonly bytes: number }
+  readonly worktrees: { readonly count: number; readonly bytes: number; readonly kept: number; readonly computing: boolean; readonly error?: string }
+}
+export interface StorageConversation { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+export interface StorageCandidate extends StorageConversation {
+  readonly title: string | null
+  readonly path: string
+  readonly bytes: number
+  readonly changes: WorktreeChanges
+  readonly clean: boolean
+}
+export interface StorageCleanupPreview {
+  readonly candidates: readonly StorageCandidate[]
+  readonly cleanBytes: number
+  readonly inventoryToken: string
+}
+export interface StorageKeptWorktree extends StorageConversation {
+  readonly title: string | null
+  readonly path: string
+  readonly changes?: WorktreeChanges
+  readonly reason?: string
+}
+export interface StorageCleanupResult {
+  readonly removed: number
+  readonly kept: number
+  readonly freedBytes: number
+  readonly refused: readonly { readonly path: string; readonly reason: string }[]
+}
+export interface StorageCleanupParams {
+  readonly olderThanDays: 30 | 60 | 90
+  readonly exclude: readonly StorageConversation[]
+}
+
 /** What removing a worktree would lose. */
 export interface WorktreeChanges {
   readonly modified: number
@@ -1246,6 +1283,10 @@ export interface HostMethods {
   'history/cancel': { params: { readonly runtime: RuntimeId }; result: null }
   'history/status': { params: { readonly runtime: RuntimeId }; result: HistoryImportState | null }
   'history/removeImported': { params: { readonly runtime: RuntimeId }; result: { readonly removed: number } }
+  'storage/usage': { params: Record<string, never>; result: StorageUsage }
+  'storage/kept': { params: Record<string, never>; result: readonly StorageKeptWorktree[] }
+  'storage/cleanupPreview': { params: StorageCleanupParams; result: StorageCleanupPreview }
+  'storage/cleanup': { params: StorageCleanupParams & { readonly includeDirty: boolean; readonly inventoryToken: string }; result: StorageCleanupResult }
   'history/clearCached': { params: Record<string, never>; result: { readonly count: number; readonly bytes: number } }
   'history/list': {
     params: { readonly runtimes?: readonly RuntimeId[]; readonly repoRoot?: string; readonly query?: string;
@@ -2710,6 +2751,7 @@ export interface SeatActivity {
 }
 
 export type WireNotification =
+  | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }
   | { method: 'goal/activity'; params: { goal: GoalId; previous: import('./goal.js').GoalActivity; activity: import('./goal.js').GoalActivity; sentence: string } }

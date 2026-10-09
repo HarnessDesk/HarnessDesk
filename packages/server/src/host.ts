@@ -1,3 +1,4 @@
+import { Storage } from './storage.js'
 import { SessionWorktrees } from './session-worktrees.js'
 import { archiveConversation } from './methods/sessions.js'
 import { readProcessTable, resourcesFromProcessTable } from './runtime-resources.js'
@@ -709,6 +710,7 @@ export class Host {
   /** Sidebar metadata; the transcript store continues to own conversation bodies. */
   readonly #historyImport: HistoryImport
   #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
+  readonly #storage: Storage
   readonly #sessionWorktrees: SessionWorktrees
   readonly #sessionIndex: SessionIndex
   readonly #sessionIndexRepos: SessionIndexRepos
@@ -986,7 +988,12 @@ export class Host {
     })
     this.#sessionWorktrees = new SessionWorktrees(this.#sessionIndex, this.#state.directory, path =>
       this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
-        (isBusy(session) || (this.registry.get(session.runtime, session.id)?.running.size ?? 0) > 0)))
+        (isBusy(session) || (this.registry.get(session.runtime, session.id)?.running.size ?? 0) > 0)),
+      (runtime, id) => { const entry = this.registry.get(runtime, id); return !!entry && (entry.live !== null || entry.running.size > 0 || isBusy(entry.session)) },
+      undefined,
+      path => this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
+        !!this.registry.get(session.runtime, session.id)?.live))
+    this.#storage = new Storage(this.#sessionIndex, this.#state.directory, usage => this.#push({ method: 'storage/usageChanged', params: usage }))
     this.#sessionIndexRepos = new SessionIndexRepos(this.#sessionIndex)
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
     this.#historyImport = new HistoryImport({
@@ -3179,6 +3186,7 @@ export class Host {
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
     await this.#sessionIndexSeed
     await this.#sessionIndexRepos.close()
+    await this.#storage.close()
     await this.#sessionWorktrees.settled()
     this.#sessionIndex.close()
     await this.#gateways.dispose()
@@ -4277,6 +4285,7 @@ export class Host {
       terminals: this.#terminals,
       worktrees: this.#worktrees,
       sessionWorktrees: this.#sessionWorktrees,
+      storage: this.#storage,
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,

@@ -86,6 +86,25 @@ test('writes preserve archive and Team membership and coalesce change events', a
   } finally { index.close() }
 })
 
+test('older metadata observations preserve last activity for sessions and retained worktree owners', () => {
+  const index = new SessionIndex(':memory:')
+  const id = idOf('active-owner'), path = '/demo/worktrees/task'
+  try {
+    index.upsert(row(id, 40, path))
+    index.rememberWorktree({ runtime, id, path, root: '/demo', branch: 'task', state: 'present' })
+    index.upsert({ ...row(id, 0, path), preview: 'Refreshed metadata' })
+    assert.equal(index.get(runtime, id)?.updatedAt, 40)
+    assert.equal(index.get(runtime, id)?.preview, 'Refreshed metadata')
+    assert.equal(index.storageWorktrees()[0]?.updatedAt, 40)
+    assert.equal(index.storageOwners(path)[0]?.updatedAt, 40)
+    index.upsert(row(id, 70, path))
+    assert.equal(index.get(runtime, id)?.updatedAt, 70, 'new activity still advances the age')
+    assert.equal(index.storageWorktrees()[0]?.updatedAt, 70)
+    index.remove(runtime, id)
+    assert.equal(index.storageWorktrees()[0]?.updatedAt, 70, 'removed owners retain their last activity')
+  } finally { index.close() }
+})
+
 test('renames survive imported pages and ordinary metadata refreshes without changing origin', async t => {
   for (const initial of ['unseen', 'imported', 'desk'] as const) await t.test(initial, () => {
     const index = new SessionIndex(':memory:')
@@ -138,7 +157,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 6)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 7)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })

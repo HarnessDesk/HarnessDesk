@@ -127,3 +127,10 @@ it('history import keywords reach the History settings section', async () => {
   await choose('Settings › History')
   expect(openSettings).toHaveBeenCalledWith('history')
 })
+
+it.each(['storage', 'disk', 'space', 'clean up', 'cache'])('finds Storage by %s', async query => {
+  const { openSettings } = await mount()
+  type(query)
+  await choose('Storage')
+  expect(openSettings).toHaveBeenCalledWith('storage')
+})

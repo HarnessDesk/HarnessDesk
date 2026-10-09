@@ -45,6 +45,11 @@ import type { ReviewRequest } from './runtime.js'
  * code, the socket is a loopback port that other local processes can reach.
  */
 
+const storageAge: Validator<30 | 60 | 90> = (value, path = '') => {
+  if (value === 30 || value === 60 || value === 90) return value
+  throw new ValidationError(path, 'expected 30, 60 or 90 days')
+}
+
 const nonNegativeSafeInteger: Validator<number> = (value, path = '') => {
   const number = isNumber(value, path)
   if (!Number.isSafeInteger(number) || number < 0) {
@@ -1020,6 +1025,10 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'history/cancel': shape({ runtime: isString }),
   'history/status': shape({ runtime: isString }),
   'history/removeImported': shape({ runtime: isString }),
+  'storage/usage': shape({}),
+  'storage/kept': shape({}),
+  'storage/cleanupPreview': shape({ olderThanDays: storageAge, exclude: arrayOf(shape({ runtime: isString, sessionId: isString })) }),
+  'storage/cleanup': shape({ olderThanDays: storageAge, exclude: arrayOf(shape({ runtime: isString, sessionId: isString })), includeDirty: isBoolean, inventoryToken: isString }),
   'history/clearCached': shape({}),
   'history/list': shape({
     runtimes: optional(arrayOf(isString)), repoRoot: optional(isString), query: optional(isString),

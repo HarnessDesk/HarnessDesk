@@ -273,7 +273,11 @@ export const sessionMethods = {
 
   'session/archive': archiveConversation,
   'session/worktreePreview': (ctx, params) => ctx.sessionWorktrees.preview(params.runtime, makeSessionId(params.sessionId)),
-  'session/discardWorktree': (ctx, params) => ctx.sessionWorktrees.discard(params.runtime, makeSessionId(params.sessionId), params.stamp),
+  'session/discardWorktree': async (ctx, params) => {
+    const result = await ctx.sessionWorktrees.discard(params.runtime, makeSessionId(params.sessionId), params.stamp)
+    if (result.discarded) await ctx.storage.refresh()
+    return result
+  },
 
   'session/remove': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)

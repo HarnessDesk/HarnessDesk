@@ -742,6 +742,24 @@ level and does not declare this status.
 
 ## Settings
 
+**Conversations › Storage** shows the database, snapshots, cached previews and
+managed worktrees as single-line rows with counts and sizes. Worktree sizes say
+**Measuring…** until the background read finishes. Kept worktrees of removed or
+deleted conversations are listed in path order and stay reachable here through
+**Discard worktree…**, with change counts on hover and the same inventory
+confirmation as Archive.
+
+**Clean up inactive conversations** offers 30, 60 or 90 days and **Review…**.
+The review lists clean checkouts and their space, and lists unsaved or ignored
+checkouts separately, each in path order. They are included only after a separate
+discard choice reveals their inventory. The confirm names how many worktrees go.
+Conversations and branches stay; reopening recreates the checkout. Open, pinned and running
+conversations and their shared worktrees stay. A toast counts removals and space
+freed; refused checkouts and their reasons remain in path order in the review dialog.
+**Clear cached previews** asks first and explains that previews are read again
+from the agent next time. Live and full conversation bodies remain.
+
+
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
 the right of each row. The rail starts with you — your face and name, above

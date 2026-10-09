@@ -553,6 +553,12 @@ export class AppStore {
 
   #snapshot: AppSnapshot = emptySnapshot()
   #listeners = new Set<() => void>()
+  readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
+  subscribeStorageUsage(listener: (usage: import('@harnessdesk/protocol').StorageUsage) => void): () => void {
+    this.#storageListeners.add(listener)
+    return () => { this.#storageListeners.delete(listener) }
+  }
+
   readonly transport: Transport
 
   constructor(url = transportUrl()) {
@@ -702,6 +708,7 @@ export class AppStore {
           // Whatever a plan had it seated on may no longer be offered at all.
           if (this.#agentsRequested) void this.loadAgentPlans()
         }
+        if (notification.method === 'storage/usageChanged') for (const listener of this.#storageListeners) listener(notification.params)
         if (notification.method === 'history/importChanged') {
           const { runtime, ...state } = notification.params
           this.#historyImportReads.set(runtime, (this.#historyImportReads.get(runtime) ?? 0) + 1)

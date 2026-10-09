@@ -83,7 +83,7 @@ export class SessionIndex {
       (runtime,id,origin,title,preview,cwd,repo_root,created_at,updated_at,archived,team_id,status,git)
       VALUES (?,?,?,?,?,?,(SELECT repo_root FROM repos WHERE cwd = ?),?,?,?,?,?,?)
       ON CONFLICT(runtime,id) DO UPDATE SET title=COALESCE(sessions.title,excluded.title),preview=excluded.preview,
-        cwd=excluded.cwd,repo_root=excluded.repo_root,created_at=excluded.created_at,updated_at=excluded.updated_at,
+        cwd=excluded.cwd,repo_root=excluded.repo_root,created_at=excluded.created_at,updated_at=MAX(sessions.updated_at,excluded.updated_at),
         archived=COALESCE(?,sessions.archived),team_id=CASE WHEN ? THEN excluded.team_id ELSE sessions.team_id END,
         status=excluded.status,git=excluded.git`)
   }
@@ -129,6 +129,8 @@ export class SessionIndex {
   upsert(summary: SessionSummary, options: { origin?: 'desk' | 'imported'; archived?: boolean | null; teamId?: string | null } = {}): void {
     if (this.isRemoved(summary.runtime, summary.id)) return
     this.#transaction(() => {
+      // A deferred metadata observation can predate activity already recorded
+      // by another writer. It must not make a conversation older for cleanup.
       const facts = this.#facts(summary.runtime, summary.id)
       const archived = options.archived === undefined ? facts.archived : options.archived
       const teamId = options.teamId === undefined ? facts.teamId : options.teamId
@@ -385,6 +387,23 @@ export class SessionIndex {
     return row ? summaryOf(row) : null
   }
 
+  storageWorktrees(): readonly (SessionWorktreeRecord & { title: string | null; updatedAt: number | null; hidden: boolean })[] {
+    return this.#db.prepare(`SELECT w.runtime,w.id,w.path,w.branch,w.root,w.state,COALESCE(s.title,w.title) AS title,
+      COALESCE(s.updated_at,w.updated_at) AS updatedAt,(s.id IS NULL OR s.removed_at IS NOT NULL) AS hidden
+      FROM session_worktrees w LEFT JOIN sessions s USING(runtime,id)`).all() as unknown as
+      (SessionWorktreeRecord & { title: string | null; updatedAt: number | null; hidden: boolean })[]
+  }
+
+  storageCache(): { count: number; bytes: number } {
+    return { ...this.#db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(body_bytes),0) AS bytes FROM sessions WHERE body='cached'").get() } as unknown as { count: number; bytes: number }
+  }
+
+  /** Include conversations in subfolders even if their managed inventory is still being recorded. */
+  storageOwners(path: string): readonly { runtime: RuntimeId; id: SessionId; updatedAt: number }[] {
+    return this.#db.prepare(`SELECT runtime,id,updated_at AS updatedAt FROM sessions WHERE cwd=? OR substr(cwd,1,length(?)+1)=? || '/'`)
+      .all(path, path, path) as unknown as { runtime: RuntimeId; id: SessionId; updatedAt: number }[]
+  }
+
   worktree(runtime: RuntimeId, id: SessionId): SessionWorktreeRecord | null {
     return this.#db.prepare('SELECT * FROM session_worktrees WHERE runtime=? AND id=?').get(runtime, id) as unknown as SessionWorktreeRecord ?? null
   }
@@ -396,6 +415,9 @@ export class SessionIndex {
       this.#db.prepare(`INSERT INTO session_worktrees(runtime,id,path,branch,root,state) VALUES(?,?,?,?,?,?)
         ON CONFLICT(runtime,id) DO UPDATE SET path=excluded.path,branch=excluded.branch,root=excluded.root,state=excluded.state`)
         .run(record.runtime, record.id, record.path, record.branch, record.root, record.state)
+      this.#db.prepare(`UPDATE session_worktrees SET title=(SELECT title FROM sessions WHERE runtime=? AND id=?),
+        updated_at=(SELECT updated_at FROM sessions WHERE runtime=? AND id=?) WHERE runtime=? AND id=? AND EXISTS(SELECT 1 FROM sessions WHERE runtime=? AND id=?)`)
+        .run(record.runtime,record.id,record.runtime,record.id,record.runtime,record.id,record.runtime,record.id)
       this.#db.prepare('UPDATE sessions SET worktree_path=?,worktree_branch=?,worktree_state=? WHERE runtime=? AND id=?')
         .run(record.path, record.branch, record.state, record.runtime, record.id)
     })
