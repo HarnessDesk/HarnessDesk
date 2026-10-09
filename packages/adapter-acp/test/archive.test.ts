@@ -55,7 +55,7 @@ test('an agent that declares the delete extension is asked, and its store loses 
   })
   await runtime.start()
 
-  assert.equal(runtime.info.capabilities.deleteHistory, true)
+  assert.equal(runtime.info.capabilities.deleteHistory, 'trash')
   // Still no archive: knowing where a store is does not give ACP an archive,
   // and claiming one would put the mark in two places.
   assert.equal(runtime.info.capabilities.archiveHistory, false)
@@ -71,4 +71,11 @@ test('an agent that declares the delete extension is asked, and its store loses 
 
   const after = await runtime.listSessions()
   assert.deepEqual(after.data.map((row) => String(row.id)), ['keep'])
+})
+
+for (const declaration of ['erase', 'legacy']) test(`delete disposition is declared in advance: ${declaration}`, async t => {
+  const runtime = make({ FAKE_ACP_DELETE: '1', FAKE_ACP_DELETE_DISPOSITION: declaration })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.deleteHistory, declaration === 'erase' ? 'erase' : false)
 })

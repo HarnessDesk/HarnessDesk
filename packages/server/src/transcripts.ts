@@ -231,7 +231,7 @@ export class TranscriptStore {
    * settle delay — the end of a turn is worth a write of its own.
    */
   record(session: Session, options: { readonly now?: boolean; readonly insight?: readonly TurnInsightContext[] } = {}): void {
-    if (!session.itemsLoaded) return
+    if (!session.itemsLoaded || this.#database.isRemoved(session.runtime, session.id)) return
     if (!session.turns.some((turn) => turn.items.length > 0) && !(options.insight?.length)) return
     const key = keyOf(session.runtime, session.id)
     if (options.insight?.length) {
@@ -613,15 +613,17 @@ export class TranscriptStore {
     return 'restored'
   }
 
-  /**
-   * Drops the host's copy of one session, and any write still queued for it.
-   *
-   * Called when a conversation is deleted. The pending write is cancelled
-   * first: a settle timer that fired afterwards would write the transcript
-   * back out, and a deleted conversation that returns from the dead a second
-   * later is worse than one that was never deleted.
-   */
-  async forget(runtime: RuntimeId, id: SessionId): Promise<void> {
+  /** Preserve the final write before opening the Remove Undo window. */
+  async flushSession(runtime: RuntimeId, id: SessionId): Promise<void> { await this.#settle(runtime, id) }
+
+  removedBodies(): readonly { runtime: RuntimeId; id: SessionId; removed_at: number }[] { return this.#database.removedBodies() }
+
+  async sweepRemoved(before: number): Promise<void> {
+    for (const row of this.removedBodies()) if (row.removed_at <= before) await this.forget(row.runtime, row.id, { removedBefore: before })
+  }
+
+  /** Cancel queued writes and atomically drop this body, and optionally its index row. */
+  async forget(runtime: RuntimeId, id: SessionId, options: { deleteIndex?: boolean; removedBefore?: number } = {}): Promise<void> {
     const key = keyOf(runtime, id)
     const pending = this.#pending.get(key)
     if (pending) {
@@ -632,7 +634,7 @@ export class TranscriptStore {
     // Wait out a write already in flight, or the deletion races it.
     await this.#writes.get(key)?.catch(() => {})
     this.#writes.delete(key)
-    this.#database.forget(runtime, id)
+    this.#database.forget(runtime, id, options)
   }
 
   /**

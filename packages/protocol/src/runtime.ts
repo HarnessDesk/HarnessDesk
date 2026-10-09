@@ -244,14 +244,10 @@ export interface RuntimeCapabilities {
    * flag exists.
    */
   readonly nameHistory: boolean
-  /**
-   * The runtime can remove a stored conversation for good — `deleteSession`.
-   *
-   * The one capability the interface must not guess at. An agent that cannot
-   * delete gets a disabled row with the reason, never a Delete that throws
-   * after the confirmation has already promised the conversation is gone.
-   */
-  readonly deleteHistory: boolean
+  /** Native deletion's declared destination; Delete everywhere admits only Trash. */
+  readonly deleteHistory: false | 'trash' | 'erase'
+  /** False when the agent's durable history cannot serve a readable body. */
+  readonly readableHistory?: boolean
   /** Surfaces a plugin catalogue — `RuntimeExtensions.catalog`. */
   readonly extensionStore: boolean
   /** Exposes configured hooks — `AgentRuntime.listHooks`. */
@@ -1226,9 +1222,11 @@ export interface AgentRuntime {
    * host clears what *it* holds about the session — its transcript, its
    * archive mark — whether or not the runtime had anything to remove.
    *
-   * What it answers with is what the interface then tells the user, so a
-   * runtime that moved files to the Trash should say so and one that erased
-   * them should not claim otherwise. Answering nothing reads as `removed`.
+   * The declared disposition is known before invoking this method. A
+   * runtime that moved files to the Trash should report `trash`; an erasing
+   * runtime reports `removed`. The host's Delete everywhere verb admits only
+   * a declared Trash operation and falls back to that declaration when this
+   * method returns no receipt.
    */
   deleteSession(id: SessionId): Promise<SessionDeletion | void>
 

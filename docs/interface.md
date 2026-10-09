@@ -328,8 +328,8 @@ Project actions are grouped as starts, folder tools, arrangement and project
 removal. Pin or Unpin sits beside a **Move** flyout for Move up, Move down or
 Back to automatic order. Copy path shows a home-shortened path and copies the
 absolute path. Conversation actions are Rename and Pin, then Open on the right,
-Branch from here and Copy, then Archive and Delete; Delete keeps its refusal
-reason on the disabled row.
+Branch from here and Copy, then Archive and Remove from HarnessDesk. Delete everywhere follows below a
+separator; its disabled reason stays on the tooltip.
 
 **The footer holds the docks, notices and seat: you, and the agent you will pick up next.** The seat row
 is your identity — your profile's face and name, which are the house mark and
@@ -395,15 +395,20 @@ initials from 24px up (two letters when initials collide). Smaller faces keep
 the account tint and a title naming the account. Top-right is reserved for
 attention counts. A face that totals several accounts carries no initial.
 
-### Archive and delete
+### Archive, Remove and Delete everywhere
 
-**Two verbs, and only one of them is expensive.** Archiving takes a
-conversation out of the list; deleting removes it where the agent keeps it.
-They are drawn to match that difference and nothing else. Archive is a plain
-row in the session's ⋯ menu, one click, no confirmation, and a toast with
-**Undo** on it; Delete is a red row that opens a dialog, and the dialog offers
-"Archive instead" because "I wanted it out of my list" is what most people
-reaching it actually wanted.
+Archive keeps a conversation and its search while taking it off the sidebar.
+Remove from HarnessDesk forgets the desk's copy and leaves the agent's files
+alone. Both are one click, followed by a toast with Undo. Remove's toast lasts
+about eight seconds; its body is kept during that window, then dropped. A running
+conversation is stopped before removal. The Remove tooltip says whether the
+agent keeps its own copy or HarnessDesk holds the only readable record.
+
+Delete everywhere is a secondary, separated item. It is enabled only when the
+agent can move its files to the Trash. The confirmation names the conversation,
+says it moves to the Trash and the agent can no longer resume it, and offers
+Move to Trash and Keep. A running conversation's confirmation also says it
+will stop first. The result toast says Moved to the Trash.
 
 **Every agent can archive, whether or not it has an archive.** When an agent
 supports archiving natively (like Codex), HarnessDesk triggers it directly. For
@@ -421,13 +426,10 @@ queued messages and running tasks keep them live, and so does a conversation
 the agent has taken no message in, which it could not reopen: a first message
 it rejected, or only a warning, does not count as one.
 
-**Not every agent can delete, and the interface says which.** Deleting has to
-reach the agent's own store, so it is offered exactly where something can:
-Codex through its app server, and bridges that manage their agent's project
-files (Claude Code and Cursor). Anywhere else the row is greyed with the reason.
-**What the bridges remove goes to the Trash**, and the toast afterwards says
-so — "moved to the Trash" and "deleted" are different promises, and the app
-repeats whichever one is true rather than the reassuring one.
+**The deletion destination is declared before the click.** An agent that erases
+its record for good keeps Delete everywhere greyed, with a tooltip directing
+you to delete it there. An unavailable agent or one with no delete operation
+keeps its reason on the tooltip too. Menu rows have no second line.
 
 **The archive is a page in Settings, not a slot in the sidebar.** Archiving is
 something you do from a conversation; *going to the archive* is a trip somebody
@@ -450,7 +452,10 @@ Settings › Conversations › History lists metadata imported from an agent's
 settings page. The command palette also reaches History by name. Agent and
 project filters, title search and Show hidden narrow a windowed list; an
 Archived chip records the agent's archive state. Opening a row previews it in
-the main pane. Sending a message adds it to the sidebar.
+the main pane. Sending a message adds it to the sidebar. Its row menu offers
+Hide from HarnessDesk with Undo, leaving the agent's files alone, and Delete
+everywhere with the shared Trash confirmation. Unsupported deletion stays
+greyed with its reason on hover; hidden rows omit Hide.
 
 An importable runtime's page has a History section: Import history, a running
 count with Cancel, or the imported count and last scan with Rescan, Browse and

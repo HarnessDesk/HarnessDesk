@@ -1318,6 +1318,11 @@ export interface HostMethods {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly archived: boolean }
     result: null
   }
+  /** Remove the desk's copy, or Undo during the body retention window. */
+  'session/remove': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly removed: boolean }
+    result: { readonly undoUntil: number | null }
+  }
   'session/delete': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
     result: SessionDeletion

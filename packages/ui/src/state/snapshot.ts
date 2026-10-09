@@ -201,6 +201,8 @@ export interface Notice {
 }
 
 export interface NoticeAction {
+  /** A host-owned Undo window; hovering must not extend it. */
+  readonly expiresAt?: number
   readonly label: string
   readonly run: () => void
 }
@@ -354,6 +356,8 @@ export interface AppSnapshot {
   /** Import progress read on demand and kept current by host notifications. */
   readonly historyImports: Readonly<Record<string, HistoryImportState | null>>
   readonly historyRevision: number
+  /** Open imports await an authoritative desk-index row before appearing in the sidebar. */
+  readonly previewSessions: ReadonlySet<SessionKey>
   /** Full, unfiltered conversation history used for stable project identity during search. */
   readonly historyIdentity: readonly SessionSummary[]
   readonly history: readonly SessionSummary[]
@@ -854,6 +858,7 @@ const EMPTY: AppSnapshot = {
   tasks: new Map(),
   historyImports: {},
   historyRevision: 0,
+  previewSessions: new Set(),
   historyIdentity: [],
   history: [],
   historyLoading: false,

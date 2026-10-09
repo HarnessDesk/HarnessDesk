@@ -5,8 +5,8 @@ import { StoreProvider } from '../state/context'
 import { Frame } from './main'
 import { previewStore } from './harness'
 
-const alpha: RuntimeInfo = { id: runtimeId('alpha'), name: 'Alpha', version: '1.0.0', capabilities: { ...NO_CAPABILITIES, listHistory: true }, presentation: { name: 'Alpha' } }
-const beta: RuntimeInfo = { ...alpha, id: runtimeId('beta'), name: 'Beta', presentation: { name: 'Beta' } }
+const alpha: RuntimeInfo = { id: runtimeId('alpha'), name: 'Alpha', version: '1.0.0', capabilities: { ...NO_CAPABILITIES, listHistory: true, deleteHistory: 'trash' }, presentation: { name: 'Alpha' } }
+const beta: RuntimeInfo = { ...alpha, id: runtimeId('beta'), name: 'Beta', capabilities: { ...alpha.capabilities, deleteHistory: 'erase' }, presentation: { name: 'Beta' } }
 const time = new Date('2026-10-08T16:30:00Z').getTime()
 const done: HistoryImportState = { state: 'done', count: 2000, importedAt: time, lastScanAt: time }
 const rows: readonly HistorySummary[] = ['Trace the slow startup', 'Fix the project picker', 'Review the toolbar', 'Plan the next release', 'Check the saved draft', 'Document the import flow'].map((title, i) => ({

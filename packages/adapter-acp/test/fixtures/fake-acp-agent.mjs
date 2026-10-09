@@ -1040,7 +1040,7 @@ const handlers = {
                 ...(TASKS ? { backgroundTasks: true } : {}),
                 // FAKE_ACP_DELETE=1 plays a bridge that knows where its agent
                 // writes. Most ACP agents do not, and declare nothing.
-                ...(DELETES ? { deleteSession: true } : {}),
+                ...(DELETES ? { deleteSession: process.env.FAKE_ACP_DELETE_DISPOSITION === 'legacy' ? true : process.env.FAKE_ACP_DELETE_DISPOSITION ?? 'trash' } : {}),
                 ...(ATTACHMENTS
                   ? {
                       attachments: process.env.FAKE_ACP_ATTACHMENTS_MALFORMED

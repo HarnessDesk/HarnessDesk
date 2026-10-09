@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { NO_CAPABILITIES, runtimeId, sessionId, type HistoryImportState, type HistorySummary, type RuntimeInfo } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot } from '../state/store'
 import { AgentHistory, HistorySection } from './History'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -132,4 +132,109 @@ it('does not draw history on a runtime sharing another account’s store', async
   await mount(null, true)
   await act(async () => root.render(<StoreProvider store={own}><AgentHistory info={{ ...info, capabilities: { ...info.capabilities, listHistory: false } }} onBrowse={onBrowse} /></StoreProvider>))
   expect(box.textContent).toBe('')
+})
+
+
+it.each(['index', 'focus'] as const)('keeps loaded pages and scroll while refreshing after %s', async (trigger) => {
+  const store = new AppStore('ws://localhost:0/')
+  const first = Array.from({ length: 100 }, (_, i) => row(`First ${i}`))
+  const second = Array.from({ length: 100 }, (_, i) => row(`Second ${i}`))
+  const listing = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { cursor?: string; pageSize?: number }) => {
+    if (method !== 'history/list') return null
+    if (params.cursor === 'second') return { data: second, nextCursor: 'third' }
+    return { data: first, nextCursor: 'second' }
+  }) as never)
+  await act(async () => root.render(<StoreProvider store={store}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const scroll = box.querySelector<HTMLDivElement>('[data-history-scroll]')!
+  Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 440 })
+  Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 4400 })
+  scroll.scrollTop = 4000
+  await act(async () => scroll.dispatchEvent(new Event('scroll', { bubbles: true })))
+  expect(box.querySelector('table')?.getAttribute('aria-rowcount')).toBe('201')
+  scroll.scrollTop = 4800
+  // Defer refresh so the previous pages must stay mounted while reading.
+  let resolve!: (page: { data: HistorySummary[]; nextCursor: string | null }) => void
+  listing.mockImplementationOnce(() => new Promise(yes => { resolve = yes }))
+  await act(async () => {
+    if (trigger === 'focus') window.dispatchEvent(new Event('focus'))
+    else (store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [] } })
+  })
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(box.querySelector('[data-history-scroll]')).toBe(scroll)
+  expect(scroll.scrollTop).toBe(4800)
+  expect(box.querySelector('table')?.getAttribute('aria-rowcount')).toBe('201')
+  await act(async () => resolve({ data: first, nextCursor: 'second' }))
+  expect(box.querySelector('table')?.getAttribute('aria-rowcount')).toBe('201')
+  expect(scroll.scrollTop).toBe(4800)
+  listing.mockResolvedValueOnce({ data: [row('Third page')], nextCursor: null })
+  await act(async () => scroll.dispatchEvent(new Event('scroll', { bubbles: true })))
+  expect(listing).toHaveBeenLastCalledWith('history/list', { pageSize: 100, includeHidden: false, cursor: 'third' })
+  input('Search history titles', 'new filter')
+  await act(async () => {})
+  expect(box.querySelector<HTMLDivElement>('[data-history-scroll]')?.scrollTop).toBe(0)
+})
+
+
+it('hides with the landed Remove and Undo path without opening the preview', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let removed = false
+  const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { removed?: boolean; includeHidden?: boolean }) => {
+    if (method === 'history/list') return { data: removed && !params.includeHidden ? [] : [row('Imported', { hidden: removed })], nextCursor: null }
+    if (method === 'session/remove') {
+      removed = params.removed === true
+      ;(store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [{ runtime: info.id, id: sessionId('Imported') }] } })
+      return { undoUntil: Date.now() + 8000 }
+    }
+    return null
+  }) as never)
+  const open = vi.spyOn(store, 'openSession')
+  await act(async () => root.render(<StoreProvider store={store}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const actions = box.querySelector<HTMLButtonElement>('[aria-label="Imported actions"]')
+  expect(actions).not.toBeNull()
+  await act(async () => actions!.click())
+  const hide = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent === 'Hide from HarnessDesk')!
+  await act(async () => hide.click())
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(spy).toHaveBeenCalledWith('session/remove', { runtime: info.id, sessionId: sessionId('Imported'), removed: true })
+  expect(box.textContent).not.toContain('Imported')
+  expect(open).not.toHaveBeenCalled()
+  const notice = store.getSnapshot().notices.at(-1)!
+  expect(notice.action?.label).toBe('Undo')
+  await act(async () => notice.action!.run())
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(spy).toHaveBeenCalledWith('session/remove', { runtime: info.id, sessionId: sessionId('Imported'), removed: false })
+  expect(box.textContent).toContain('Imported')
+})
+
+it.each(['trash', 'erase', false] as const)('uses the declared delete disposition (%s)', async (disposition) => {
+  await mount()
+  const snapshot = own.getSnapshot()
+  const configured = { ...snapshot, runtimes: [{ ...info, capabilities: { ...info.capabilities, deleteHistory: disposition } }] }
+  own.getSnapshot = () => configured
+  own.deleteSession = vi.fn(async () => ({ disposition: 'trash' })) as unknown as AppStore['deleteSession']
+  own.notice = vi.fn()
+  await act(async () => root.render(<StoreProvider store={own}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const actions = box.querySelector<HTMLButtonElement>('[aria-label="Imported actions"]')
+  expect(actions).not.toBeNull()
+  await act(async () => actions!.click())
+  const deletion = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent === 'Delete everywhere…')!
+  expect(deletion.getAttribute('aria-disabled') === 'true').toBe(disposition !== 'trash')
+  if (disposition !== 'trash') {
+    expect(deletion.title).toBe(disposition === 'erase' ? 'Alpha erases it for good, so delete it there' : 'Alpha keeps no way to delete one.')
+  } else {
+    await act(async () => deletion.click())
+    expect(document.body.textContent).toContain('Delete "Imported" everywhere?')
+    expect(own.deleteSession).not.toHaveBeenCalled()
+    await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(el => el.textContent === 'Move to Trash')!.click())
+    expect(own.deleteSession).toHaveBeenCalledWith(sessionId('Imported'), info.id)
+  }
+  expect(own.openSession).not.toHaveBeenCalled()
+})
+
+
+it('omits Hide for a row already hidden', async () => {
+  await mount(done, false, [row('Hidden import', { hidden: true })])
+  await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="Hidden import actions"]')!.click())
+  expect([...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].some(el => el.textContent === 'Hide from HarnessDesk')).toBe(false)
+  expect(document.body.textContent).toContain('Delete everywhere…')
 })

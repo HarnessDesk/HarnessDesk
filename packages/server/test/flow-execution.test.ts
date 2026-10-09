@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
-import { BRIEF_CHANGED, INDEPENDENT, type StoredFlowExecution } from '../src/flow-execution.js'
+import { BRIEF_CHANGED, INDEPENDENT, sourceDigest, type StoredFlowExecution } from '../src/flow-execution.js'
 import { overlaps } from '../src/team.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -1941,3 +1941,84 @@ test('a resumed commit caps its path answer and counts the rest (#1403)', async 
   assert.doesNotMatch(answer, /file-20\.md/)
   assert.match(answer, /… and 5 more/)
 })
+
+for (const kind of ['pull-request', 'branch', 'diff'] as const) {
+  test(`a ${kind} review preserves its frozen target despite a different live PR`, async (t) => {
+    const frozen = 'a'.repeat(40)
+    const live = 'b'.repeat(40)
+    let reads = 0
+    let observed = live
+    const requested: { title: string; number: number | null | undefined }[] = []
+    const rig = await goalRig(t, { reviewTarget: async (_goal, card, number) => {
+      reads += 1
+      requested.push({ title: card.title, number })
+      return { at: observed, number: number ?? 8 }
+    } })
+    const entry = agent('reviewer', ['approve'])
+    const reviewer = { ...entry, definition: { ...entry.definition!, ceiling: 'read' as const, produces: ['review' as const] } }
+    const source = `version: 2
+name: Pinned review
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read }
+seed: { role: reviewer, title: "Review pull request #8" }
+rules: []
+`
+    rig.heads.set('/repo', { at: frozen, dirty: false })
+    rig.heads.set('/repo/.lanes/1', { at: live, dirty: false })
+    const run = await rig.flows.startGoal({
+      root: '/repo', sentence: 'Review the frozen change', source, sourcePath: null, compiled: rig.compile(source, [reviewer]),
+      requireHeld: true,
+      target: { kind, label: 'frozen change', base: null, head: frozen, pr: kind === 'pull-request' ? 7 : null, dirty: false },
+      authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+    })
+    assert.equal(run.state, 'running', run.reason ?? '')
+    assert.equal(rig.executions.stored(run.id)!.seatPlans?.['1']?.base, null, 'the Goal pin supplies the checkout, not a fresh PR head')
+    assert.equal(rig.seats.get('seat-1')!.checkout.cwd, '/repo')
+    assert.equal(reads, 0, 'seating a frozen target never reselects it from a card or Team PR')
+    const scope = rig.sessionOf('seat-1')
+    if (kind === 'pull-request') {
+      await assert.rejects(() => rig.review.candidates(1, scope), /Pull request #7.*moved/)
+      assert.deepEqual(requested, [{ title: '', number: 7 }], 'candidate observation keeps the frozen PR identity')
+      observed = frozen
+    }
+    const [candidate] = await rig.review.candidates(1, scope)
+    assert.equal(candidate?.at, frozen)
+    await rig.review.record({ intent: 1, candidate: candidate!.id, verdict: 'approve' }, scope)
+    if (kind !== 'pull-request') assert.equal(reads, 0, 'a branch or diff review never adopts a PR binding')
+  })
+}
+
+for (const binding of ['card', 'run'] as const) for (const dirty of [true, false]) {
+  test(`a working-diff review keeps its checkout despite a ${binding} PR (dirty=${dirty})`, async (t) => {
+    const head = 'a'.repeat(40)
+    let reads = 0
+    const rig = await goalRig(t, { reviewTarget: async () => {
+      reads += 1
+      return { at: head, number: 7 }
+    } })
+    const entry = agent('reviewer', ['approve'])
+    const reviewer = { ...entry, definition: { ...entry.definition!, ceiling: 'read' as const, produces: ['review' as const] } }
+    const source = `version: 2
+name: Working tree review
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read }
+seed: { role: reviewer, title: "${binding === 'card' ? 'Review pull request #7' : 'Review the working changes'}" }
+rules: []
+`
+    rig.heads.set('/repo', { at: head, dirty })
+    rig.heads.set('/repo/.lanes/1', { at: head, dirty: false })
+    const run = await rig.flows.startGoal({
+      root: '/repo', sentence: 'Review the working changes', source, sourcePath: null, compiled: rig.compile(source, [reviewer]),
+      vars: binding === 'run' ? { pr: '7' } : {}, requireHeld: true,
+      target: { kind: 'working-diff', label: 'Working tree (not committed)', base: head, head: null, pr: null, dirty },
+      authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+    })
+    assert.equal(run.state, 'running', run.reason ?? '')
+    assert.equal(rig.executions.stored(run.id)!.seatPlans?.['1']?.base, null)
+    assert.equal(rig.seats.get('seat-1')!.checkout.cwd, '/repo')
+    assert.equal(reads, 0, 'seating must not observe a PR for a working-tree target')
+    await assert.rejects(() => rig.review.candidates(1, rig.sessionOf('seat-1')), /working tree.*committed/i)
+    assert.equal(reads, 0, 'candidate resolution must not adopt a PR even when the working tree is clean')
+    assert.match(rig.board(run.goal).intents[0]!.detail ?? '', /working tree.*committed/i)
+  })
+}

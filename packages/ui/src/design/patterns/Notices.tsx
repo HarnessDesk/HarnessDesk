@@ -510,19 +510,21 @@ export const InboxPanel = ({
  */
 export const showToast = (
   message: Omit<NoticeMessage, 'id'> & { id?: string },
-  how: { readonly persist?: boolean } = {},
+  how: { readonly persist?: boolean; readonly expiresAt?: number } = {},
 ): void => {
   const options = {
     ...(message.id ? { id: message.id } : {}),
+    ...(how.expiresAt === undefined ? {} : { duration: Math.max(0, how.expiresAt - Date.now()) }),
     // A failure stays until it is closed: a toast that left before it was
     // read is a failure nobody saw.
     ...(how.persist ? { duration: Number.POSITIVE_INFINITY, closeButton: true } : {}),
     ...(message.body ? { description: message.body } : {}),
     ...(message.action ? { action: { label: message.action.label, onClick: message.action.onSelect } } : {}),
   }
-  if (message.tone === 'danger') toast.error(message.title, options)
-  else if (message.tone === 'warning') toast.warning(message.title, options)
-  else toast(message.title, options)
+  const id = message.tone === 'danger' ? toast.error(message.title, options)
+    : message.tone === 'warning' ? toast.warning(message.title, options) : toast(message.title, options)
+  // Absolute Undo deadlines do not pause when the person hovers a toast.
+  if (how.expiresAt !== undefined) setTimeout(() => toast.dismiss(id), Math.max(0, how.expiresAt - Date.now()))
 }
 
 /**

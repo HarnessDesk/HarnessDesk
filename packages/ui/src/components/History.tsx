@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { HistorySummary, HostMethods, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
-import { Button, Chip, ConfirmDialog, EmptyState, NativeSelect, Note, PageHead, Row, Rows, RowValue, Search, SectionHead, Switch, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Button, Chip, ConfirmDialog, EmptyState, NativeSelect, Note, PageHead, Row, Rows, RowValue, Search, SectionHead, Switch, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { folderName } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeFace } from './RuntimeFace'
+import { DeleteSession } from './DeleteSession'
 import styles from './History.module.css'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
@@ -27,11 +28,14 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
   const [loading, setLoading] = useState(true)
   const [problem, setProblem] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
+  const [deleting, setDeleting] = useState<HistorySummary | null>(null)
   const [projects, setProjects] = useState<readonly string[]>([])
-  const [viewport, setViewport] = useState({ top: 0, height: 440, pitch: 44, columns: 3 })
+  const [viewport, setViewport] = useState({ top: 0, height: 440, pitch: 44, columns: 4 })
   const scroll = useRef<HTMLDivElement>(null)
   const epoch = useRef(0)
   const paging = useRef(false)
+  const loaded = useRef(rows)
+  loaded.current = rows
   const importable = useMemo(() => snapshot.runtimes.filter(info => info.capabilities.listHistory), [snapshot.runtimes])
   const params = useMemo<HostMethods['history/list']['params']>(() => ({ pageSize: 100, includeHidden: hidden,
     ...(agent ? { runtimes: [agent as RuntimeId] } : {}), ...(project ? { repoRoot: project } : {}), ...(query.trim() ? { query: query.trim() } : {}) }), [agent, project, query, hidden])
@@ -52,11 +56,18 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     return () => { live = false; window.removeEventListener('focus', focus) }
   }, [store, importable])
 
-  const read = useCallback(async (generation: number, after?: string) => {
+  const read = useCallback(async (generation: number, after?: string, capacity = 100) => {
     setLoading(true)
     setProblem(null)
     try {
-      const page = await store.transport.request('history/list', { ...params, ...(after ? { cursor: after } : {}) })
+      let page = await store.transport.request('history/list', { ...params, ...(after ? { cursor: after } : {}) })
+      // Reconcile every loaded page before swapping the rows. A refresh must
+      // not discard the page being read or detach its scroll viewport.
+      while (!after && page.data.length < capacity && page.nextCursor) {
+        if (epoch.current !== generation) return
+        const next = await store.transport.request('history/list', { ...params, cursor: page.nextCursor })
+        page = { data: [...page.data, ...next.data], nextCursor: next.nextCursor }
+      }
       if (epoch.current !== generation) return
       setRows(previous => after ? [...new Map([...previous, ...page.data].map(row => [`${row.runtime}:${row.id}`, row])).values()] : page.data)
       setCursor(page.nextCursor ?? null)
@@ -64,13 +75,18 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     } catch (error) { if (epoch.current === generation) setProblem(reason(error)) }
     finally { if (epoch.current === generation) { setLoading(false); paging.current = false } }
   }, [store, params])
+  const previousRead = useRef<typeof read | null>(null)
   useEffect(() => {
+    const reset = previousRead.current !== read
+    previousRead.current = read
     const generation = ++epoch.current
     paging.current = false
-    setRows([]); setCursor(null)
-    if (scroll.current) scroll.current.scrollTop = 0
-    setViewport(was => ({ ...was, top: 0 }))
-    void read(generation)
+    if (reset) {
+      setRows([]); setCursor(null)
+      if (scroll.current) scroll.current.scrollTop = 0
+      setViewport(was => ({ ...was, top: 0 }))
+    }
+    void read(generation, undefined, reset ? 100 : Math.max(100, loaded.current.length))
     return () => { epoch.current++ }
   }, [read, snapshot.historyRevision, retry])
   useEffect(() => {
@@ -109,10 +125,13 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
       }
     }}>
       <Table aria-rowcount={rows.length + 1} rows="bare" density="comfortable" inset="row">
-        <TableHeader><TableRow><TableHead>Conversation</TableHead><TableHead>Project</TableHead><TableHead align="end">Last active</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>Conversation</TableHead><TableHead>Project</TableHead><TableHead align="end">Last active</TableHead><TableHead aria-label="Actions" /></TableRow></TableHeader>
         <TableBody window={viewport}>{rows.map((row, index) => {
           const info = snapshot.runtimes.find(info => info.id === row.runtime)
           const title = sessionLabel(row.title, row.preview)
+          const deletable = info?.capabilities.deleteHistory === 'trash'
+          const deleteReason = !info ? 'This conversation’s agent is unavailable.' : info.capabilities.deleteHistory === 'erase'
+            ? `${info.presentation.name} erases it for good, so delete it there` : !deletable ? `${info.presentation.name} keeps no way to delete one.` : undefined
           return <TableRow aria-rowindex={index + 2} key={`${row.runtime}:${row.id}`} interactive onClick={() => open(row)}>
             <TableCell lead={info && <RuntimeFace runtime={info} size="navigation" />}><span className={styles.title}>
               <Button variant="link" size="content" className={styles.name} title={title}>{title}</Button>
@@ -120,11 +139,24 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
             </span></TableCell>
             <TableCell><Text role="meta" className={styles.project} title={row.repo?.root ?? row.cwd}>{folderName(row.repo?.root ?? row.cwd)}</Text></TableCell>
             <TableCell align="end"><Text role="meta" title={scanTime(row.updatedAt)}>{new Date(row.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</Text></TableCell>
+            <TableCell align="end"><span onClick={event => event.stopPropagation()}>
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${title} actions`} />} />
+                <DropdownMenuContent align="end">
+                  {!row.hidden && <DropdownMenuItem title="The agent’s own files stay as they are." onClick={() => {
+                    void store.removeSession(row.id, row.runtime).then(() => setRetry(was => was + 1))
+                  }}>Hide from HarnessDesk</DropdownMenuItem>}
+                  <DropdownMenuItem variant="destructive" disabled={!deletable} title={deleteReason} closeOnClick={deletable}
+                    onClick={() => { if (deletable) setDeleting(row) }}>Delete everywhere…</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span></TableCell>
           </TableRow>
         })}</TableBody>
       </Table>
     </div>}
     {loading && <Note>Reading history…</Note>}
+    {deleting && <DeleteSession summary={deleting} onClose={() => { setDeleting(null); setRetry(was => was + 1) }} />}
   </>
 }
 

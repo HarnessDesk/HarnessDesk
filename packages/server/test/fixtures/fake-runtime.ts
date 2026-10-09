@@ -365,7 +365,7 @@ export class FakeRuntime implements AgentRuntime {
       perToolMcpApproval: false,
       archiveHistory: true,
   nameHistory: true,
-      deleteHistory: true,
+      deleteHistory: 'trash',
     },
     presentation: {
       name: 'Fake Runtime',
@@ -650,7 +650,7 @@ export class FakeRuntime implements AgentRuntime {
     const at = this.history.findIndex((entry) => entry.id === id)
     if (at >= 0) this.history.splice(at, 1)
     this.archived.delete(String(id))
-    return { disposition: 'removed', removed: 1 }
+    return { disposition: this.info.capabilities.deleteHistory === 'trash' ? 'trash' : 'removed', removed: 1 }
   }
 
   /** What the host handed the last createSession, forkSession, or resumeSession, for route-resolution tests. */
