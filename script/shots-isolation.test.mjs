@@ -142,19 +142,95 @@ test('the native editor scene seeds the fake filesystem and requires rendered fi
   assert.match(editor, /JSON\.stringify\(JSON\.parse\(text\)\)/, 'the editor must contain the actual seeded JSON')
 })
 
-test('the flow and new-session-agents scenes find the sidebar\'s own trigger, not a shorter-text button a staged Goal leaves behind (#928 review)', () => {
+test('native Team scenes open the sidebar picker directly, not the retired start chooser', async () => {
   // Reproduced on the real rig: a staged Goal leaves a shorter-text "New
   // job" button in the sidebar. The secondary start trigger and its menu
   // choice must both be scoped so another button cannot win the text match.
   const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
-  const startKind = shoot.slice(shoot.indexOf('const openStartingKind = async (kind) => {'), shoot.indexOf('/** The same room, as a room:'))
+  const startKind = shoot.slice(shoot.indexOf('const openNewTeam = async () => {'), shoot.indexOf('/** The same room, as a room:'))
   assert.match(startKind, /document\.querySelector\('nav\[aria-label="Workspace actions"\] button\[title="More ways to start"\]'\)/, 'the secondary start trigger belongs to the sidebar')
-  assert.match(startKind, /click\(`\$\{kind\}…`, '\[role="menu"\]'\)/, 'the Goal or Team choice belongs to the opened menu')
+  assert.match(startKind, /click\('New Team…', '\[role="menu"\]'\)/, 'New Team belongs to the opened menu')
+  assert.match(startKind, /aria-label="New Team"/, 'the new menu opens the picker')
+  assert.doesNotMatch(startKind, /What are you starting|aria-checked/)
+  // Parse the actual expressions handed to CDP: source matching alone cannot
+  // catch a malformed interpolated selector in a scene CI has to launch.
+  const helper = startKind.slice(0, startKind.indexOf('\n  }') + 4)
+  const createHelper = new Function('cdp', 'q', 'click', 'waitForSnapshot', `${helper}; return openNewTeam`)
+  const expressions = []
+  const cdp = { eval: async expression => { new Function(expression); expressions.push(expression); return true } }
+  const open = createHelper(cdp, JSON.stringify, async (label, scope) => {
+    assert.equal(label, 'New Team…')
+    assert.equal(scope, '[role="menu"]')
+    return true
+  }, async (read, matches) => { assert.equal(matches(await read()), true) })
+  assert.equal(await open(), '[role="dialog"][aria-label="New Team"]')
+  assert.equal(expressions.length, 2)
   const flow = shoot.slice(shoot.indexOf("flow: { expect: 'Checkout hardening'"), shoot.indexOf("'flow-board': {"))
-  assert.match(flow, /openStartingKind\('Goal'\)/)
+  assert.match(flow, /openNewTeam\(\)/)
+  assert.match(flow, /clickScrolled\('Just a Team'/)
   assert.match(flow, /waitForSnapshot\(\(\) => cdp\.eval\(`document\.body\.innerText\.includes\('Checkout hardening'\)`\), Boolean\)/, 'the Goal must be waited for, not merely slept past')
   const newSessionAgents = shoot.slice(shoot.indexOf("'new-session-agents': {"), shoot.indexOf("'palette-agents': {"))
-  assert.match(newSessionAgents, /openStartingKind\('Team'\)/)
+  assert.match(newSessionAgents, /openNewTeam\(\)/)
+  assert.match(newSessionAgents, /clickScrolled\('Just a Team'/)
+  assert.doesNotMatch(shoot, /openStartingKind\(/)
+})
+
+test('the shot task filler writes to inputs and textareas and dispatches input', async () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const helperStart = shoot.indexOf('  const fill = (label, value) => ')
+  assert.notEqual(helperStart, -1, 'shoot.mjs still has its shared field filler')
+  const helperEnd = shoot.indexOf('\n\n  Object.assign(SCENES', helperStart)
+  assert.notEqual(helperEnd, -1, 'the shared field filler still ends before the scene table')
+  const helperSource = shoot.slice(helperStart, helperEnd)
+
+  const elementType = () => {
+    let ElementType
+    ElementType = class {
+      constructor() { this._value = ''; this.events = [] }
+      get value() { return this._value }
+      set value(value) {
+        if (!(this instanceof ElementType)) throw new TypeError('Illegal invocation')
+        this._value = value
+      }
+      dispatchEvent(event) { this.events.push(event); return true }
+    }
+    return ElementType
+  }
+  const HTMLInputElement = elementType()
+  const HTMLTextAreaElement = elementType()
+
+  for (const [label, ElementType] of [
+    ['Task input', HTMLInputElement],
+    ['What should they do?', HTMLTextAreaElement],
+  ]) {
+    const element = new ElementType()
+    const document = {
+      querySelectorAll: selector => { assert.equal(selector, 'label'); return [] },
+      getElementById: () => null,
+      querySelector: selector => {
+        assert.equal(selector, `[aria-label=${JSON.stringify(label)}]`)
+        return element
+      },
+    }
+    class InputEvent {
+      constructor(type, options) { this.type = type; this.bubbles = options.bubbles }
+    }
+    const cdp = {
+      eval: async expression => new Function('document', 'window', 'Event', `return ${expression}`)(
+        document,
+        { HTMLInputElement, HTMLTextAreaElement },
+        InputEvent,
+      ),
+    }
+    const fill = new Function('cdp', 'q', `${helperSource}; return fill`)(cdp, JSON.stringify)
+    const value = `filled ${label}`
+
+    assert.equal(await fill(label, value), true)
+    assert.equal(element.value, value)
+    assert.equal(element.events.length, 1)
+    assert.equal(element.events[0].type, 'input')
+    assert.equal(element.events[0].bubbles, true)
+  }
 })
 
 test('the room delivers one distinct prompt to each seat without broadcasting a second turn to every seat', () => {

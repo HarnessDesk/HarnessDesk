@@ -73,6 +73,8 @@ export interface FlowPolicy {
   readonly version: 2
   readonly name: string
   readonly description?: string
+  /** Short, single-line picker copy; the description remains the full explanation. */
+  readonly summary?: string
   readonly base?: FlowBase
   readonly inputs: readonly FlowInput[]
   readonly roles: readonly FlowPolicyRole[]
@@ -369,6 +371,7 @@ export interface FlowEntry {
   readonly path: string
   readonly name: string
   readonly description: string | null
+  readonly summary?: string | null
   readonly format: 'legacy' | 'agents' | null
   readonly problem: string | null
   readonly shadows: readonly { readonly origin: FlowOrigin; readonly path: string }[]

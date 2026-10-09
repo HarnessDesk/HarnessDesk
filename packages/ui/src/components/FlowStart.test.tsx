@@ -8,6 +8,7 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot } from '../state/snapshot'
 import type { AppStore } from '../state/store'
 import { FlowStart, type FlowChoice } from './FlowStart'
+import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -63,6 +64,44 @@ const store = (options: {
   }) as unknown as AppStore
 
 const ENTRY = (id: string): FlowEntry => ({ id, origin: 'project', path: `.harnessdesk/flows/${id}.yml`, name: id, description: null, format: 'agents', problem: null, shadows: [] })
+
+it('the review options preserve the review cap and require recorded approval before automatic merging', async () => {
+  const flow: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES['fix-and-review']
+  let current = flow
+  const onPolicy = vi.fn((next: import('@harnessdesk/protocol').FlowPolicy) => { current = next; paint() })
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template: flow, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
+  act(paint)
+  const press = (label: string) => act(() => [...container.querySelectorAll('button')].find(one => one.textContent === label)!.click())
+  for (const rounds of [1, 2, 3]) {
+    press(String(rounds))
+    expect(onPolicy.mock.lastCall?.[0].budget?.rounds).toBe(rounds * 2 + 1)
+  }
+  press('Merge it')
+  const automatic = onPolicy.mock.lastCall?.[0] as import('@harnessdesk/protocol').FlowPolicy
+  expect(automatic.roles.find(role => role.id === 'referee')).toMatchObject({ kind: 'agent', uses: ['merger'], grant: 'merge' })
+  expect(automatic.rules.find(rule => rule.then.role === 'referee')?.when).toEqual({ evidence: [{ review: 'approve' }, { pr: 'open' }] })
+  press('Wait for me')
+  expect(onPolicy.mock.lastCall?.[0].roles.find(role => role.id === 'referee')).toMatchObject({ kind: 'person' })
+})
+
+it('keeps a mechanically checked review on its declared path to a person', () => {
+  const flow = TEAM_START_POLICIES['review-pr']
+  const onPolicy = vi.fn()
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>))
+  expect(container.querySelector('[aria-label="When the review approves"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Review rounds, at most"]')).toBeNull()
+  expect(flow.rules.find(rule => rule.then.role === 'referee')?.when).toEqual({ every: ['passed'], evidence: [{ pr: 'open' }] })
+  expect(onPolicy).not.toHaveBeenCalled()
+})
+
+it('holds Details variables while a compact form is disabled', () => {
+  const flow = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'ticket', label: 'Ticket', default: '42' }] }
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: { ticket: '42' }, disabled: true, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {} }} /></StoreProvider>))
+  expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(true)
+})
 
 const render = (theStore: AppStore, onChange: (choice: FlowChoice | null) => void) => {
   act(() => {

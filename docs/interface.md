@@ -213,11 +213,11 @@ docked panels, notices and the seat.
 
 **New session** starts a draft in the current project with the default agent,
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
-start**: New worktree…, any existing worktree, Goal…, Flow… and Team…. A
+start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. Goal, Flow and Team reuse their existing chooser and
-start screens. The plain path stays plain until somebody chooses another way
-to work.
+until its first message. New Team opens a searchable shape picker, then one
+form for the task, roles and optional Done when. Just a Team opens a shared
+board without fixed steps. Change returns to the picker and keeps the draft.
 
 **Agents**, **Dashboard** and **Plugins** each have a full row under New
 session: the same icon, label and trailing badge grammar as the conversation
@@ -1156,17 +1156,32 @@ Agent, seat and evidence actually are.
 
 ### The front door
 
-**Start with a team**, beside **New session**'s solo choice, opens the same
-catalogue Flows lists — the project's own, then yours, then what ships,
-sorted by a shape's own declared `layout.frontDoor.order` when it has one —
-and reads the identical strict dry run before **Start**: every Seat must
+**New Team…** (⌘⇧N) opens a searchable two-column picker. The project's
+own shapes come first, then the four shapes this desk has started most,
+then the rest. A fresh desk starts with Write and review, Side by side,
+Independent review and Investigation. Cards use the file's optional short
+`summary`, falling back to the description's first sentence; the full
+description remains on hover. **Just a Team** opens a shared board with
+no fixed steps; **Build your own** opens the shape editor. **New session**
+(⌘N) still starts a solo session directly; the picker footer keeps that path
+for work that needs only one agent.
+
+Choosing a shape opens one form: the task, each role's agent, model and
+effort, the shape's own options, and **Done when · optional**. Leaving Done
+when empty uses the task as the Team's completion sentence. **Change**
+returns to the picker and preserves the typed task and each shape's edits.
+**Details** holds the remaining inputs, instruction files and dry-run facts.
+Write and review has one fresh independent reviewer and a maximum of one,
+two or three reviews, then either a reviewed merge or a handoff to the person.
+
+The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
 refusal and fix rather than starting under a weaker policy. Git's branch
 menu, a pull request's own row, ⌘K and an empty Goal's board each open it
 the same way, prefilled with what that place already knows — a branch, a
 pull request, the project itself.
 
-**Your own shape…**, the catalogue's last row, opens an ordered editor of
+**Build your own**, the catalogue's last card, opens an ordered editor of
 the chosen shape (or a blank one, a single person step) instead of starting
 it: add a step or a rule, see the exact file update as you go, and the
 identical dry run below it. **Save…** writes it to the project or to you,

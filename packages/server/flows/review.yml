@@ -1,5 +1,6 @@
 version: 2
 name: "Review"
+summary: "Three specialists read a change; none can edit it."
 description: "Three specialists — security, performance and API — read one change at the commit it was when you started, each in a checkout of its own, and none of them can change it."
 inputs:
   head:
@@ -32,6 +33,6 @@ budget: { rounds: 2, without-progress: 1 }
 wait: 240
 # Front-door metadata only: no grant, seat or route lives here. This shape is
 # offered for a change — a branch, a pull request, a range or the working
-# tree — and never for a plain project, where the six starting points are.
+# tree — never for a plain project.
 # Its inputs are filled from what the start resolved, never typed.
 layout: {"frontDoor":{"order":1,"contexts":["branch","pull-request","diff","working-diff"],"bindings":[{"input":"head","value":"head"},{"input":"base","value":"base"},{"input":"pr","value":"pr"}]}}

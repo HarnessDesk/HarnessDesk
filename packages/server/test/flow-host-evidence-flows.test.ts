@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { readdir } from 'node:fs/promises'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { builtinFlowRoot } from '../src/host.js'
-import { answer, claimed, desk, E2E, person, review, settled, shipped, start, TASK, write } from './fixtures/flow-host-evidence.js'
+import { builtinAgentRoot, builtinFlowRoot } from '../src/host.js'
+import { answer, claimed, cwdOf, desk, E2E, git, person, review, settled, shipped, start, TASK, write } from './fixtures/flow-host-evidence.js'
 
 /*
  * The remaining shipped flows — `alignment`, `mechanical-contest` and
@@ -43,7 +44,25 @@ test('the staged relay flow reaches its end', E2E, async (t) => {
   await settled(d, run.id)
 })
 
+test('Write and review reaches its person referee after an independent review', E2E, async (t) => {
+  const d = await desk(t)
+  // This Flow routes on published, so use the shipped writer's own ceiling
+  // and answers, pointing only its runtime preference at this synthetic rig.
+  const implementer = await readFile(join(builtinAgentRoot(), 'implementer', 'AGENT.md'), 'utf8')
+  await writeFile(join(d.stateDir, 'agents', 'implementer', 'AGENT.md'), implementer.replace(/^prefer:.*$/m, 'prefer: [fake]'))
+  const run = await start(d, await shipped(d, 'fix-and-review'), { work: TASK.task })
+  const [fixer] = await claimed(d, run.goal, 'fixer', 1)
+  d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
+  await write(d, fixer!, 'written', 'published')
+  const [reviewer] = await claimed(d, run.goal, 'reviewer', 1)
+  assert.notEqual(reviewer!.claim!.runtime, fixer!.claim!.runtime, 'the reviewer is independent of the writer')
+  await review(d, reviewer!, 'approve')
+  await person(d, run.goal, 'referee', 'merged')
+  const done = await settled(d, run.id)
+  assert.deepEqual(done.rounds.map((one) => one.role), ['fixer', 'reviewer', 'referee'])
+})
+
 test('every flow that ships is one the flow-host-evidence files run to its end', async () => {
   const ids = (await readdir(builtinFlowRoot())).filter((one) => one.endsWith('.yml')).map((one) => one.slice(0, -4)).sort()
-  assert.deepEqual(ids, ['alignment', 'comparison', 'fan-out', 'independent-review', 'investigation', 'mechanical-contest', 'review', 'review-pr', 'staged-relay'])
+  assert.deepEqual(ids, ['alignment', 'comparison', 'fan-out', 'fix-and-review', 'independent-review', 'investigation', 'mechanical-contest', 'review', 'review-pr', 'staged-relay'])
 })

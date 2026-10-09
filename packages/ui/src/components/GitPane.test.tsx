@@ -581,8 +581,12 @@ it('a branch’s Review… opens the front door bound to that branch, without ch
   // No checkout, and no history/provenance fetch — a branch shortcut supplies
   // a context to resolve, never authority to act on the working tree.
   expect(request).not.toHaveBeenCalledWith('git/checkout', expect.anything())
-  // The dry-run dialog itself mounted, reading the (empty) catalogue.
-  expect(document.body.textContent).toContain('No shapes here yet')
+  // The direct picker mounted for that branch, even with an empty catalogue.
+  const picker = document.querySelector('[role="dialog"][aria-label="New Team"]')!
+  expect(picker).not.toBeNull()
+  expect(picker.querySelector('input[aria-label="Search shapes"]')).not.toBeNull()
+  expect(picker.textContent).toContain('Build your own')
+  expect(picker.textContent).not.toContain('Just a Team')
 })
 
 it('the commit menu offers the git verbs, and cherry-pick refuses a merge', async () => {

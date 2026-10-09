@@ -1,5 +1,6 @@
 version: 2
 name: "Review, then a person merges"
+summary: "Two blind reviews and a script check; you merge."
 description: "A fix is read by two independent specialists in one blind round, a script checks it mechanically, and a person merges once the pull request the review judged is still exactly what it was — never an automatic merge."
 inputs:
   task:

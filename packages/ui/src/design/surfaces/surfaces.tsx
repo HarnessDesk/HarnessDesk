@@ -1,3 +1,4 @@
+import { TeamStartCases } from '../../preview/frames-team-start'
 import { GIT_PREVIEW_ROOT } from '../../preview/git-fixture'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 
@@ -1000,3 +1001,5 @@ export const FlowBriefSurface = () => <FlowBriefCases />
 
 /** The same saved-source start dialog in its reading, refusal and ready states. */
 export const RunAgainSurface = () => <RunAgainCases />
+
+export const TeamStartSurface = () => <TeamStartCases />

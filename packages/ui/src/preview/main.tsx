@@ -1,3 +1,4 @@
+import { TeamStartFrames } from './frames-team-start'
 import { AgentPage } from '../components/AgentPage'
 import { ReleaseStills } from './release-stills'
 import { PREVIEW_AGENTS } from './harness'
@@ -1211,6 +1212,8 @@ createRoot(container).render(
       <AppWindowMode.Provider value="embedded">
         {siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+          : new URLSearchParams(window.location.search).has('team-start')
+          ? <TeamStartFrames />
           : new URLSearchParams(window.location.search).has('tile-browsers')
           ? <TileBrowserFrames />
           : new URLSearchParams(window.location.search).has('shape-graph')

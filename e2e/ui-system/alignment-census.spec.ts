@@ -13,6 +13,24 @@ const UPDATE = process.env.UPDATE_ALIGNMENT === '1'
 const CHECKS: Check[] = ['lead-off-line', 'trailing-glyph-off-column', 'header-off-body']
 const staged = new Map<string, string[]>()
 
+for (const theme of ['light', 'dark'] as const) test(`New Team role controls share their labels' line in ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  for (const shape of ['comparison', 'fix-and-review']) {
+    await page.goto(`/design.html?view=team-start`)
+    await page.getByRole('button', { name: shape === 'comparison' ? 'Side by side' : 'Write and review', exact: true }).click()
+    const dialog = page.getByRole('dialog').last()
+    await expect(dialog.getByLabel(shape === 'comparison' ? 'What should both try?' : 'What should they do?')).toBeVisible()
+    const rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
+    await expect(rows).toHaveCount(shape === 'comparison' ? 3 : 2)
+    for (const row of await rows.all()) {
+      const label = (await row.locator('[data-slot="row-title"]').boundingBox())!
+      const control = (await row.locator('[data-slot="row-ctl"]').boundingBox())!
+      expect(Math.abs(label.y + label.height / 2 - control.y - control.height / 2)).toBeLessThan(10)
+    }
+    expect(await dialog.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false)
+  }
+})
+
 if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(wholeTable(staged), null, 2)}\n`))
 
 const wholeTable = (observed: Map<string, string[]>): Census => {

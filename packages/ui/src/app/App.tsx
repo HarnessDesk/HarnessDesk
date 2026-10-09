@@ -156,6 +156,12 @@ export const App = () => {
         return
       }
       switch (name) {
+        case 'new-team': {
+          const root = projectRootOf(snapshot.workspace)
+          if (root) openFrontDoor(root)
+          else store.notice('warning', 'Open a folder to start one.')
+          return
+        }
         case 'new-session':
           store.newDraft()
           return
@@ -193,7 +199,7 @@ export const App = () => {
           return
       }
     },
-    [store, snapshot.layout.focused, openSettingsAt],
+    [store, snapshot.layout.focused, snapshot.workspace, openFrontDoor, openSettingsAt],
   )
 
   useEffect(() => onShortcut(run), [run])
