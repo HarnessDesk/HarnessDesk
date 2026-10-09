@@ -1372,7 +1372,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       .map((key) => byKey.get(String(key)))
       .filter((summary): summary is SessionSummary => summary !== undefined)
   }, [groups, hiddenPinned, snapshot.listPrefs.pinnedSessions, teamKeys])
-  let hasVisibleRows = pinnedRows.length > 0
   const liftedKeys = useMemo(
     () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
     [pinnedRows],
@@ -1580,6 +1579,11 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     }
   }, [])
   const teamRows = new Map(teamsInput(snapshot).map(input => [input.team.id, teamListRow(input)]))
+  // A fold hides matches without removing them from the search results.
+  const hasSearchRows = pinnedRows.length > 0 || groups.some((group) =>
+    group.sessions.some((summary) => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))))
+    || projectRoots(group).some((root) => (roomsByProject.get(root) ?? []).some((room) => teamRows.get(room.id)?.active)),
+  )
   // A Seat's own checkout can differ from the project that holds its Team.
   const activeTeam = activeKey === null ? null : [...snapshot.teams.values()].find(room =>
     teamRows.get(room.id)?.active && teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
@@ -1752,7 +1756,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       (row) => row.kind === 'room' ? row.room.id === activeTeam?.id
         : String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
     )
-    if (open && rows.length > 0) hasVisibleRows = true
     return (
       <div key={group.root} data-project-root={group.root}>
         <GroupHead
@@ -1818,7 +1821,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
   const nearContent = near.map(renderGroup)
   const farContent = othersOpen ? far.map(renderGroup) : null
 
-  return (
+  const tree = (
     <div ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>('[data-virtual-index]')
       const root = row?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot
@@ -1865,7 +1868,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
         </div>
       )}
       {far.length === 0 && goneLine}
-      {searching && !hasVisibleRows && searchEmptyState}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said
           out loud, so the keyboard rows and the drag land in the same place
@@ -1875,4 +1877,5 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       </div>
     </div>
   )
+  return <>{tree}{searching && !hasSearchRows && searchEmptyState}</>
 }

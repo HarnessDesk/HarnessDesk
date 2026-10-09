@@ -221,10 +221,14 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(empty?.textContent).toContain('No conversations match “needle”.')
     expect(container.textContent?.match(/No conversations match “needle”\./g)).toHaveLength(1)
     expect(container.textContent).not.toContain('No conversations yet')
-    expect(empty?.querySelector('button')?.textContent).toBe('Clear search')
+    const clear = empty?.querySelector<HTMLButtonElement>('button')!
+    expect(clear.textContent).toBe('Clear search')
+    expect(clear.tabIndex).toBe(0)
+    const tree = container.querySelector('[data-region="session-tree"]')!
+    expect(tree.contains(clear)).toBe(false)
     expect(container.textContent).not.toContain('Needle in another agent')
 
-    act(() => empty?.querySelector<HTMLButtonElement>('button')?.click())
+    act(() => clear.click())
     expect(filter.value).toBe('')
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 240)))
     expect(searchHistory).toHaveBeenCalledWith('')
