@@ -64,7 +64,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
       read: async (_runtime: unknown, id: string) => ({ ...session, id, cwd: id === 's2' ? join(root, 'resumed') : root }),
     },
     registry: {
-      get: () => null,
+      forReopen: () => null,
       upsert: (opened: unknown) => ({ session: opened }),
     },
     attachments: { carriesFilter: async () => false },

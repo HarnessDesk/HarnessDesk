@@ -115,7 +115,7 @@ test('Remove closes a running conversation before marking it, and never asks the
   assert.deepEqual(r.runtime.deleted, [])
 })
 
-test('Undo restores queued input and held picks without exposing or dispatching the removed record', async t => {
+for (const undoFirst of [true, false]) test(`${undoFirst ? 'Undo then resume' : 'Direct resume'} restores queued input and held picks without exposing or dispatching the removed record`, async t => {
   const r = await rig(t)
   const session = await r.host.call('session/create', { runtime: r.runtime.info.id, options: { cwd: r.root } })
   const params = { runtime: r.runtime.info.id, sessionId: session.id }
@@ -136,14 +136,39 @@ test('Undo restores queued input and held picks without exposing or dispatching 
   assert.ok(!sync.queues.some(entry => entry.sessionId === session.id))
   await assert.rejects(r.host.call('turn/queue/flush', params))
   await assert.rejects(r.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'Too soon' }] }), /Open this conversation/)
-  await r.host.call('session/remove', { ...params, removed: false })
+  if (undoFirst) {
+    await r.host.call('session/remove', { ...params, removed: false })
+    assert.deepEqual(r.host.registry.get(params.runtime, session.id)?.restedOptions, { model: 'fake-2', tone: 'cheerful', uppercase: false })
+  }
+  const resumed = await r.host.call('session/resume', { ...params, options: { model: 'fake-1' } })
+  assert.deepEqual(resumed.options?.map(option => [option.id, option.currentValue]), [['model', 'fake-2'], ['tone', 'cheerful'], ['uppercase', false]])
   const record = r.host.registry.get(params.runtime, session.id)
   assert.deepEqual(record?.queue.messages, messages)
   assert.equal(record?.queue.status, 'paused')
-  assert.deepEqual(record?.restedOptions, { model: 'fake-2', tone: 'cheerful', uppercase: false })
+  assert.equal(record?.restedOptions, undefined)
+  assert.deepEqual(r.host.syncPayload().params.queues.find(entry => entry.sessionId === session.id)?.queue.messages, messages)
+})
+
+test('a failed direct resume during Undo stays withheld and preserves picks for a successful retry', async t => {
+  const r = await rig(t)
+  const session = await r.host.call('session/create', { runtime: r.runtime.info.id, options: { cwd: r.root } })
+  const params = { runtime: r.runtime.info.id, sessionId: session.id }
+  await r.host.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' })
+  await r.host.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+  const live = r.runtime.sessions.get(session.id)!
+  live.close = async () => {
+    r.runtime.sessions.delete(session.id)
+    r.runtime.emit({ type: 'session/closed', sessionId: session.id })
+  }
+  await r.host.call('session/remove', { ...params, removed: true })
+  r.runtime.resumeFailure = new Error('Synthetic resume refusal')
+  await assert.rejects(r.host.call('session/resume', params), /Synthetic resume refusal/)
+  assert.equal(r.host.registry.get(params.runtime, session.id), undefined)
+  assert.ok(!r.host.syncPayload().params.sessions.some(entry => entry.id === session.id))
+  assert.ok(r.db.prepare('SELECT removed_at FROM sessions WHERE id=?').get(session.id)?.removed_at)
+  r.runtime.resumeFailure = null
   const resumed = await r.host.call('session/resume', params)
   assert.deepEqual(resumed.options?.map(option => [option.id, option.currentValue]), [['model', 'fake-2'], ['tone', 'cheerful'], ['uppercase', false]])
-  assert.deepEqual(r.host.syncPayload().params.queues.find(entry => entry.sessionId === session.id)?.queue.messages, messages)
 })
 
 for (const method of ['session/read', 'session/resume'] as const) for (const elapsed of [0, 8_000]) {

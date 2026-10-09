@@ -57,7 +57,7 @@ const laneContext = (supported: boolean) => {
       forSession: async (owner: string, conversation: string) => laneEnvironmentFor(runtime, environmentForSession(owner, conversation, [lane], [seat])),
     },
     evidence: { seats: { latestKeptOf: () => null, latestOf: () => seat } },
-    registry: { get: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
+    registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
     sessionIndex: { reopen: () => {}, record: () => {} },
     sessions: {
       attach: async () => transcript,

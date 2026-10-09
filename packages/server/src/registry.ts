@@ -364,6 +364,14 @@ export class SessionRegistry {
     return this.#records.get(sessionKey(runtime, id))
   }
 
+  /** Reopen may read Undo's held picks without admitting a removed record. */
+  forReopen(runtime: RuntimeId, id: SessionId): SessionRecord | undefined {
+    const active = this.get(runtime, id)
+    if (active) return active
+    const held = this.#removed.get(sessionKey(runtime, id))
+    return held && Date.now() < held.undoUntil ? held.record : undefined
+  }
+
   delete(runtime: RuntimeId, id: SessionId): void {
     this.#pendingNotices.delete(runtime, id)
     this.#records.delete(sessionKey(runtime, id))

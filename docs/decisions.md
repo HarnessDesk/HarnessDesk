@@ -67,7 +67,9 @@ turns, FTS entries, usage and Insight context in one transaction after the
 Undo window, keeping the removed index row. A launch schedules any remaining
 window too. Pending writes and late events cannot bring that copy back.
 An explicit read or resume that succeeds admits the removed row again before
-new work is accepted; a failed open leaves it removed.
+new work is accepted; a failed open leaves it removed. A direct resume during
+Undo reads the held picks without admitting the record, reapplies them through
+the shared reopen, then restores the queue and attaches the handle.
 
 Native deletion declares its destination before a click: `deleteHistory` is
 false, `trash` or `erase`. Both the host and the window admit Delete everywhere

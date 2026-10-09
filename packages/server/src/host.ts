@@ -6043,7 +6043,7 @@ export class Host {
    * every reopen after it.
    */
   async #restoreRestedPicks(runtime: AgentRuntime, live: AgentSession, id: SessionId): Promise<void> {
-    const held = this.registry.get(runtime.info.id, id)
+    const held = this.registry.forReopen(runtime.info.id, id)
     if (!held?.restedOptions) return
     try {
       for (const [optionId, value] of Object.entries(held.restedOptions)) {
@@ -6126,9 +6126,16 @@ export class Host {
     // settings and options from the handle, which is the only place they are.
     const transcript = await this.#read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
+    const removed = this.#sessionIndex.isRemoved(runtime.info.id, id)
+    if (removed) {
+      // Keep the record withheld through every part of the open that can
+      // fail, then restore its queue before attaching the resumed handle.
+      if (reopened) await this.#finishReopen(runtime, live, reopened)
+      this.#context.sessionIndex.reopen(session)
+    }
     const record = this.registry.upsert(session, live)
     this.#recordSessionIndex(record.session, true)
-    if (reopened) await this.#finishReopen(runtime, live, reopened)
+    if (reopened && !removed) await this.#finishReopen(runtime, live, reopened)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
       session: String(id),

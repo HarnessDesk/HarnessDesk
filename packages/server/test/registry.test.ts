@@ -52,6 +52,7 @@ test('removed records retain all host state for Undo and leave every active proj
   registry.enqueue(record, 'queued', [{ type: 'text', text: 'Keep this instruction' }])
   record.restedOptions = { model: 'synthetic-model' }
   registry.holdRemoved(RUNTIME, ID, Date.now() + 8_000)
+  assert.equal(registry.forReopen(RUNTIME, ID), record)
   assert.equal(registry.get(RUNTIME, ID), undefined)
   assert.deepEqual(registry.all(), [])
   assert.deepEqual(registry.snapshot(), [])
@@ -60,6 +61,7 @@ test('removed records retain all host state for Undo and leave every active proj
   assert.deepEqual(registry.tasks(), [])
   assert.equal(registry.restoreRemoved(RUNTIME, ID), record)
   assert.equal(registry.get(RUNTIME, ID), record)
+  assert.equal(registry.forReopen(RUNTIME, ID), record)
 })
 
 test('the deadline sweep forgets held state, including records without a stored body', t => {
@@ -80,10 +82,12 @@ test('an explicit reopen cannot restore held state after its deadline or deletio
   registry.upsert(session([]), null)
   registry.holdRemoved(RUNTIME, ID, 8_010)
   t.mock.timers.tick(8_000)
+  assert.equal(registry.forReopen(RUNTIME, ID), undefined)
   assert.equal(registry.restoreRemoved(RUNTIME, ID), undefined)
   registry.upsert(session([]), null)
   registry.holdRemoved(RUNTIME, ID, 16_010)
   registry.delete(RUNTIME, ID)
+  assert.equal(registry.forReopen(RUNTIME, ID), undefined)
   assert.equal(registry.restoreRemoved(RUNTIME, ID), undefined)
 })
 
