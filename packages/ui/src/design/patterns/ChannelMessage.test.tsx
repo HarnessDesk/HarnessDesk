@@ -169,8 +169,21 @@ it('puts a signal’s time at the end of its sentence, not on a right edge', () 
       at="03:31 PM"
     />,
   )
-  const sentence = container.querySelector('[data-channel="signal"] > [data-slot="text"]')
+  const sentence = container.querySelector('[data-channel="signal"] > div > [data-slot="text"]')
   expect(sentence?.textContent?.endsWith('03:31 PM')).toBe(true)
+})
+
+it('keeps a signal’s report under its sentence, folded when long', () => {
+  // Joined into the sentence, a completion's report made every signal a slab.
+  const report = 'PR #1559 updated; all 12 findings have committed repair claims. '.repeat(4)
+  render(<ChannelSignal by="Implementer" said="completed #3 — Answer review round 1" detail={report} at="03:34 PM" />)
+  const sentence = container.querySelector('[data-channel="signal"] > div > [data-slot="text"]')
+  expect(sentence?.textContent?.endsWith('03:34 PM')).toBe(true)
+  expect(sentence?.textContent).not.toContain('repair claims')
+  const detail = container.querySelector('[data-slot="signal-detail"]')!
+  expect(detail.textContent).toContain('repair claims')
+  expect(detail.querySelector('p')?.className).toContain('line-clamp-2')
+  expect(detail.querySelector('button')?.textContent).toBe('Show all')
 })
 
 it('a notice names the member, the cause in its tone, and the runtime’s own words', () => {

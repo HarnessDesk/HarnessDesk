@@ -35,18 +35,6 @@
 }
 
 .facts {
-  display: grid;
-  gap: var(--hd-space-2);
   margin: var(--hd-space-2) 0 0;
-}
-
-.fact {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: var(--hd-space-2);
-}
-
-.detail {
-  margin: 0;
-  overflow-wrap: anywhere;
+  row-gap: var(--hd-space-1-5);
 }

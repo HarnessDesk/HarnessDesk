@@ -599,7 +599,10 @@ export const RoomComposer = ({
         would do is moot until there is a box to send from. */}
     {notice && !suspended && (
       <TurnWorkLive settled data-slot="room-composer-notice">
-        {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
+        {/* One paragraph either way: names and sentence as one run of text.
+            Loose, the sentence was its own flex item beside the name chips and
+            shrank to one word per line (#1561). */}
+        {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : <span>{notice.text}</span>}
       </TurnWorkLive>
     )}
     </ComposerTail>

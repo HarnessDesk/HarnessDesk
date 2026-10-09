@@ -78,7 +78,9 @@ body {
   line-height: var(--hd-line);
   color: var(--hd-foreground);
   background: var(--hd-background);
-  -webkit-font-smoothing: antialiased;
+  /* No `-webkit-font-smoothing: antialiased`: on macOS it switches off the
+     stroke weight the system gives text by default, and Geist at 13–14px is
+     already a light face. The app is set in the system's own smoothing. */
   text-rendering: optimizeLegibility;
   overflow: hidden;
 }

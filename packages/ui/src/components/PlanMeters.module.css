@@ -64,10 +64,6 @@
   min-width: 0;
 }
 
-.identity {
-  margin: calc(-1 * var(--hd-space-1)) var(--hd-space-1-5) 0; /* desk: -4px 0 0 → -4px 6px 0, the reading keeps the panel's content gutter */
-}
-
 .lanes {
   display: flex;
   flex-direction: column;
@@ -79,33 +75,12 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-1);
-  margin: 0;
 }
 
 .roster {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-0-5);
-}
-
-.rosterRow {
-  display: grid;
-  grid-template-columns: 14px minmax(96px, 1fr) minmax(0, 1fr) 60px 40px;
-  align-items: center;
-  gap: var(--hd-space-2);
-}
-
-.rosterName {
-  display: flex;
-  align-items: baseline;
-  gap: var(--hd-space-1-5);
-  min-width: 0;
-}
-
-.rosterDetail {
-  grid-column: 3 / -1;
-  min-width: 0;
-  overflow: hidden;
 }
 
 .signInChip {

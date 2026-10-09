@@ -477,15 +477,41 @@ ChannelMessage.displayName = 'ChannelMessage'
  * off: one line, quiet, never a slab, because thirty of them is a normal
  * afternoon and they are read as a sequence rather than one at a time. The
  * transcript's light register, like a step inside a turn's work.
+ *
+ * The sentence is who did what to which card; `detail` is what they reported
+ * with it — a verdict, a pull request, a list of checks — and it can run to
+ * a page. Joined into the sentence it made every completion a slab of the same
+ * grey as the line it explained. It sits under the sentence in the secondary
+ * ink, at most two lines until the reader asks for the rest.
  */
+const SIGNAL_DETAIL_FOLD = 160
+
+const SignalDetail = ({ text }: { readonly text: string }) => {
+  const [open, setOpen] = useState(false)
+  const long = text.length > SIGNAL_DETAIL_FOLD
+  return (
+    <div data-slot="signal-detail" className="mt-0.5">
+      <Text as="p" role="meta" ink="secondary" className={long && !open ? 'm-0 line-clamp-2' : 'm-0'}>{text}</Text>
+      {long && (
+        <Button variant="link" size="inline" type="button" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+          {open ? 'Show less' : 'Show all'}
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export const ChannelSignal = ({
   by,
   said,
+  detail,
   at,
 }: {
   readonly by: string
-  /** The whole sentence after the actor — "claimed #1 — verify never builds…". */
+  /** The sentence after the actor — "claimed #1 — verify never builds…". */
   readonly said: string
+  /** What was reported with it, under the sentence and folded when long. */
+  readonly detail?: string | undefined
   readonly at: string
 }) => (
   <TurnItem register="light" data-channel="signal" className="flex items-baseline">
@@ -494,13 +520,16 @@ export const ChannelSignal = ({
         alignment is the spine, and a dash here read as an artifact rather
         than a thread. */}
     <span className={SPINE} aria-hidden />
-    <Text role="meta" className="min-w-0 flex-1">
-      <Text role="meta" ink="secondary">{by}</Text> {said}
-      {/* At the end of the sentence, where the reader finishes reading:
-          these sentences wrap, and a right-hand column put the time beside
-          the *first* line of a three-line signal. */}
-      <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
-    </Text>
+    <div className="min-w-0 flex-1">
+      <Text role="meta">
+        <Text role="meta" ink="secondary">{by}</Text> {said}
+        {/* At the end of the sentence, where the reader finishes reading:
+            these sentences wrap, and a right-hand column put the time beside
+            the *first* line of a three-line signal. */}
+        <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
+      </Text>
+      {detail ? <SignalDetail text={detail} /> : null}
+    </div>
   </TurnItem>
 )
 ChannelSignal.displayName = 'ChannelSignal'

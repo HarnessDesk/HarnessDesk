@@ -352,7 +352,9 @@ it('the chips a narrow header folds still say their words in the shared card', (
   render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
   keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
   const card = document.querySelector('[data-slot="hover-card-content"]')!
-  expect(card.textContent).toContain('Folderrepo — /repo')
+  // A phrase, then its path on the line under it.
+  expect(card.textContent).toContain('Folderrepo')
+  expect(card.querySelector('[data-slot="key-value-note"]')?.textContent).toContain('/repo')
   expect(card.textContent).toContain('Background tasks1 running in the background')
   expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('aria-label')).toBe('1 running in the background')
   expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('title')).toBeNull()

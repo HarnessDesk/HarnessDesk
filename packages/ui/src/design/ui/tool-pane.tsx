@@ -153,12 +153,18 @@ const ToolPaneHeader = ({
 const ToolPaneBody = ({
   className,
   bleed,
+  inset = 'dense',
   ...props
-}: React.ComponentProps<'div'> & { bleed?: boolean }) => (
+}: React.ComponentProps<'div'> & {
+  bleed?: boolean
+  /** `page`: the page gutter on every side, for a body under a `ViewBar` whose blocks start on its edge. */
+  inset?: 'dense' | 'page'
+}) => (
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
-    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : 'p-(--hd-inset-dense)', className)}
+    data-inset={inset}
+    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
     {...props}
   />
 )

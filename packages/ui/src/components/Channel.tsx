@@ -352,7 +352,8 @@ export const ChannelStream = ({
           <ChannelSignal
             key={row.entry.id}
             by={actorName(row.entry.by, snapshot)}
-            said={`${SIGNAL_WORD[row.entry.signal] ?? row.entry.signal} #${row.entry.intent} — ${row.entry.title}${row.entry.detail ? ` · ${row.entry.detail}` : ''}`}
+            said={`${SIGNAL_WORD[row.entry.signal] ?? row.entry.signal} #${row.entry.intent} — ${row.entry.title}`}
+            detail={row.entry.detail || undefined}
             at={timeOf(row.entry.at)}
           />
         ) : (

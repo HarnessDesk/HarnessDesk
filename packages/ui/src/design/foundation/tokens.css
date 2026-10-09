@@ -512,6 +512,11 @@ body {
      the bar shares one x. */
   --hd-bar-ink: calc(var(--hd-bar-pad) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
+  /* A page's two other measures (`Page` in design/patterns). Wide is for
+     tables and card grids that read better than a reading column allows;
+     every page keeps one gutter on both sides of whichever measure it takes. */
+  --hd-page-wide: 1320px;
+  --hd-page-gutter: var(--hd-space-6);
   /* A menu that keeps its own readable width while the control that opens it
      sits in a column the person can drag: the seat menu's account rows and
      usage line each fit on one line at this width. */

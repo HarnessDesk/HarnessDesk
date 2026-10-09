@@ -336,5 +336,8 @@ it('includes a promoted chip countdown in its grouped accessible name', () => {
   const promoted = container.querySelector('[data-promoted]')!
   const name = promoted.closest('button')!.getAttribute('aria-label')!
   expect(name).toContain(`resets in ${promoted.textContent}`)
-  expect(document.querySelector('[data-slot="hover-card-content"]')!.textContent).toContain(name)
+  // The card says the same reading, as a phrase with the agent on the line under it.
+  const card = document.querySelector('[data-slot="hover-card-content"]')!.textContent!
+  expect(card).toContain(name.split(' — ')[1]!)
+  expect(card).toContain('Agent B')
 })

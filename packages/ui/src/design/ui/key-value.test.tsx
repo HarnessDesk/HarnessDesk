@@ -110,7 +110,9 @@ it('keeps the panel variant compact and left-aligned', () => {
     </KeyValue>,
   )
   expect(list.className).toContain('text-sm')
-  expect(list.querySelector('dt')?.className).toContain('text-xs')
+  // A key is the size of its value, on one line (the app-frame design).
+  expect(list.querySelector('dt')?.className).toContain('text-sm')
+  expect(list.querySelector('dt')?.className).toContain('whitespace-nowrap')
   expect(list.querySelector('dt')?.className).not.toContain('min-w-20')
   expect(list.querySelector('dd')?.className).toContain('text-left')
 })

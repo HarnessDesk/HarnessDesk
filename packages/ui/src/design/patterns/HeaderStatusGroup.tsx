@@ -1,9 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card'
+import { KeyValue, KeyValueRow, MiddleTruncate } from '../ui/key-value'
 import { Chip, Text } from './Settings'
 import styles from './HeaderStatusGroup.module.css'
 
-type Reading = { readonly label: string; readonly detail: string }
+/**
+ * One fact the header shows. `detail` is the whole of it, said as a sentence:
+ * the accessible name, and the card's value when nothing shorter is given.
+ * `value` is the fact in a word or a phrase, and `note` the one line under it
+ * that the phrase cannot carry; a `notePath` gives up its middle, never breaks
+ * mid-word.
+ */
+type Reading = {
+  readonly label: string
+  readonly detail: string
+  readonly value?: string | undefined
+  readonly note?: string | undefined
+  readonly notePath?: boolean | undefined
+}
 type RegisteredReading = Reading & { readonly element: HTMLSpanElement }
 type Registry = {
   readonly put: (id: string, reading: RegisteredReading) => void
@@ -77,14 +91,23 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
         </HoverCardTrigger>
         <HoverCardContent side="bottom" align="end">
           <Text as="div" role="subject">{label}</Text>
-          <dl className={styles.facts}>
+          {/* The facts block, as everywhere: each key the size of its value,
+              on one line, in one column; a value a phrase; one line under it
+              when the phrase is not the whole. */}
+          <KeyValue variant="panel" className={styles.facts}>
             {[...readings].map(([id, reading]) => (
-              <div key={id} className={styles.fact}>
-                <dt><Text role="meta">{reading.label}</Text></dt>
-                <dd className={styles.detail}><Text role="prose">{reading.detail}</Text></dd>
-              </div>
+              <KeyValueRow
+                key={id}
+                variant="panel"
+                label={reading.label}
+                {...(reading.note
+                  ? { note: reading.notePath ? <MiddleTruncate>{reading.note}</MiddleTruncate> : reading.note }
+                  : {})}
+              >
+                {reading.value ?? reading.detail}
+              </KeyValueRow>
             ))}
-          </dl>
+          </KeyValue>
         </HoverCardContent>
       </HoverCard>
     </StatusGroupContext.Provider>
@@ -92,11 +115,13 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 }
 
 /** Works outside a group too; only grouped readings contribute to its card. */
-export const HeaderStatusReading = ({ label, detail, children, className }: Reading & { readonly children: ReactNode; readonly className?: string | undefined }) => {
+export const HeaderStatusReading = ({ label, detail, value, note, notePath, children, className }: Reading & { readonly children: ReactNode; readonly className?: string | undefined }) => {
   const registry = useContext(StatusGroupContext)
   const id = useId()
   const element = useRef<HTMLSpanElement>(null)
-  useEffect(() => { if (element.current) registry?.put(id, { label, detail, element: element.current }) }, [registry, id, label, detail])
+  useEffect(() => {
+    if (element.current) registry?.put(id, { label, detail, value, note, notePath, element: element.current })
+  }, [registry, id, label, detail, value, note, notePath])
   useEffect(() => () => registry?.remove(id), [registry, id])
   return <span ref={element} data-slot="header-status-reading" className={[styles.reading, className].filter(Boolean).join(' ')}>{children}</span>
 }

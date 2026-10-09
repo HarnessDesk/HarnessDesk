@@ -262,14 +262,22 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
+  /* A column so a short thread can sit on the composer (below). */
+  display: flex;
+  flex-direction: column;
 }
 
 /* The app's reading column, around rows that would otherwise be as wide as the
    window. The rows keep their own gutter inside it — a chat has faces and a
-   transcript does not — but the column they hang in is the same one. */
+   transcript does not — but the column they hang in is the same one.
+
+   A chat reads upward from where you type: a thread shorter than the pane
+   sits on the composer, not at the top of an empty page with the gap between
+   it and the box you answer in. Longer, it scrolls as before. */
 .streamColumn {
+  width: 100%;
   max-width: var(--hd-column);
-  margin-inline: auto;
+  margin: auto auto 0;
 }
 
 /* How far behind the reader is, and the way back.

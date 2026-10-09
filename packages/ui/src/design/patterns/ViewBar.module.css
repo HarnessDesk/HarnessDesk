@@ -1,0 +1,29 @@
+/* A view's own row: the window bar's height, the page's gutter. */
+
+.bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--hd-bar-gap);
+  height: var(--hd-bar-h);
+  padding-inline: var(--hd-page-gutter);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+}
+
+.summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-secondary-foreground);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+}
