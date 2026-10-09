@@ -44,6 +44,7 @@ test('a cold database reconstructs every stored turn, item, usage and Insight fi
   const expected = await store.exportAll()
   const database = db()
   assert.equal(database.prepare('SELECT count(*) AS n FROM turns').get()?.n, 1)
+  assert.equal(database.prepare('SELECT preview FROM sessions').get()?.preview, original.preview)
   assert.deepEqual(JSON.parse(String(database.prepare('SELECT usage FROM sessions').get()?.usage)), original.usage)
   database.close()
   await store.close()
