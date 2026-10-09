@@ -19,6 +19,7 @@ roles:
   referee:
     kind: person
     outcomes: [merged, dropped]
+complete: { referee: [merged, dropped] }
 seed:
   role: fixer
   title: "{{work}}"

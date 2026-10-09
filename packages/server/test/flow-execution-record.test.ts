@@ -92,6 +92,56 @@ test('a stopped interrupted check can start a fresh Run while keeping its uncert
   await assert.rejects(rig.executions.previewCheck(earlier.id, earlier.rounds[0]!.cards[0]!), /newer Run/)
 })
 
+for (const ended of ['settled', 'stopped'] as const) test(`Stop cleanup on a ${ended} predecessor leaves its successor's check running (#1548)`, async t => {
+  const rig = await goalRig(t)
+  const earlier = await start(rig)
+  let cleanupCalls = 0
+  rig.flows.onRunStopped(async id => {
+    if (id !== earlier.id) return
+    cleanupCalls += 1
+    if (ended === 'stopped' && cleanupCalls === 1) throw new Error('the cancellation could not be written')
+  })
+  if (ended === 'settled') {
+    await rig.team.intentAction(earlier.goal, 1, 'done', undefined, 'done')
+    await rig.flows.flush()
+  } else {
+    await assert.rejects(rig.flows.stopRun(earlier.id), /the cancellation could not be written/)
+  }
+  const recorded = await read(rig, earlier.id)
+  assert.equal(recorded.state, ended)
+  let launched!: () => void
+  const running = new Promise<void>(resolve => { launched = resolve })
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  t.after(() => { release() })
+  rig.waitCheck = () => { launched(); return held }
+  const source = `
+version: 2
+name: Verify
+roles:
+  person: { kind: person, outcomes: [done] }
+  check: { kind: check, run: echo checked, exits: { '0': pass }, otherwise: fail }
+seed: { role: person, title: Start the check }
+rules:
+  - { id: verify, on: person, when: { every: [done] }, then: { role: check, title: Verify } }
+`
+  const next = await start(rig, source, { continues: earlier.id })
+  await rig.team.intentAction(next.goal, next.rounds[0]!.cards[0]!, 'done', undefined, 'done')
+  await running
+  assert.equal(next.goal, earlier.goal)
+  assert.equal((await read(rig, next.id)).state, 'running')
+  assert.deepEqual(await rig.flows.stopRun(earlier.id), recorded, 'Stop preserves the predecessor end')
+  assert.equal(cleanupCalls, ended === 'stopped' ? 2 : 1, 'the predecessor cleanup still runs')
+  release()
+  await rig.flows.flush()
+  const completed = await read(rig, next.id)
+  assert.equal(completed.state, 'settled', 'the successor was allowed to finish its check')
+  assert.deepEqual(completed.end, { kind: 'complete' })
+  assert.equal(completed.operations.find(one => one.key === 'check:2:0')?.state, 'finished')
+  assert.equal(rig.board(next.goal).intents.find(one => one.id === completed.rounds.at(-1)!.cards[0])?.outcome, 'pass')
+  assert.deepEqual(await read(rig, earlier.id), recorded, 'the predecessor history is unchanged')
+})
+
 test('concurrent Run again starts open one seed, and a continued budget stall stays history', async t => {
   const rig = await goalRig(t)
   const source = FINAL.replace('roles:', 'budget: { rounds: 1, without-progress: 2 }\nroles:').replace('rules: []', 'rules:\n  - { id: again, on: person, then: { role: person, title: Again } }')

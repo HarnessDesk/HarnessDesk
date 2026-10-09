@@ -29,6 +29,7 @@ roles:
   referee:
     kind: person
     outcomes: [merged]
+complete: { referee: [merged] }
 seed: { role: competitor, title: "{{task}}" }
 rules:
   - id: to-verify

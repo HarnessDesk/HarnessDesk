@@ -1162,7 +1162,7 @@ A Goal a trigger opened carries its origin honestly: its header names where it
 came from ("from PR #12," "from issue #7," "from a schedule") with a link to
 the forge when there is one, and the sidebar's room row carries the same short
 label. Any wait on it — a held message or action, a question nobody answered,
-a person's own card, or a stopped run — shows as Needs you with who it is
+a person's live card — shows as Needs you with who it is
 waiting on and the existing surface that resolves it; a plain conversation or
 an ordinary Goal shows none of this and asks Intake nothing. A wrapped
 trigger Goal's receipt keeps that same origin and stop reason.

@@ -428,3 +428,10 @@ describe('advisory problems and header facts', () => {
     expect(builderProblems(invalid).some((one) => one.kind === 'no-finish')).toBe(true)
   })
 })
+
+it('successful ends follow step renames and are removed with their step (#1548)',()=>{
+ const document=doc({complete:{build:['done']}})
+ const id=document.steps[0]!.id
+ expect(renameStep(document,id,'write').policy.complete).toEqual({write:['done']})
+ expect(deleteStep(document,id).policy.complete).toEqual({})
+})

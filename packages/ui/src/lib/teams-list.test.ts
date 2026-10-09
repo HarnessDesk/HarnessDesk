@@ -133,3 +133,13 @@ it('does not make a new Run Needs you because an earlier Run left Goal findings 
  expect(one.overview.run?.needsYou).toBe(false)
  expect(teamListRow(one).state).toBe('settled')
 })
+
+it('completed and stopped Runs need no person, and a stopped Run is not Ready to wrap (#1548)',()=>{
+ const complete=input('complete','done');complete.execution={...complete.execution!,end:{kind:'complete'}}
+ const stopped=input('stopped','done');stopped.execution={...stopped.execution!,state:'stopped',end:{kind:'stopped',by:'person'}}
+ stopped.goal={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'stopped'},activity:'ready-to-wrap',waitingOn:[]}
+ const list=teamsList([complete,stopped])
+ expect(list.counts['needs-you']).toBe(0)
+ expect(teamListRow(complete)).toMatchObject({state:'settled',ready:true})
+ expect(teamListRow(stopped)).toMatchObject({state:'stopped',ready:false})
+})

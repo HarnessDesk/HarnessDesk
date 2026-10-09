@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
-import { DEFAULT_FLOW_BUDGET, isPersonReviewStep } from '@harnessdesk/protocol'
+import { DEFAULT_FLOW_BUDGET, completesRound, isPersonReviewStep } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceView,
@@ -698,7 +698,7 @@ export const roleAnswers = (policy: FlowPolicy, role: string, declared: readonly
   const own = policy.rules.filter((rule) => rule.on === role)
   if (own.length === 0) return declared
   if (own.some((rule) => !rule.when || (!rule.when.every?.length && !rule.when.any?.length))) return declared
-  const ownWords = wordsOf(policy, (rule) => rule.on === role)
+  const ownWords = [...wordsOf(policy, (rule) => rule.on === role), ...(Object.hasOwn(policy.complete ?? {}, role) ? policy.complete![role]! : [])]
   const borrowed = wordsOf(policy, (rule) => rule.on !== role)
   return declared.filter((word) => ownWords.includes(word) || !borrowed.includes(word))
 }
@@ -838,7 +838,7 @@ export class FlowExecutions {
   readonly #pendingReleases = new Map<string, PendingRelease>()
   /** Set once, at the top of `dispose()`, before anything below it can yield — every release path checks it, and once set nothing here schedules another timer or writes another document. */
   #disposed = false
-  /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
+  /** The checks running now, by Run: Stop owns one Run; a Goal pause reaches all its Runs. */
   readonly #checks = new Map<string, Set<AbortController>>()
   /** Stop is requested outside the queue; deferred checks must see it before spawning. */
   readonly #stopRequests = new Map<string, number>()
@@ -1992,8 +1992,8 @@ export class FlowExecutions {
     this.#checkAsks.set(ask, { turn, inTurn: inTurn + 1, total: asked.total + 1 })
     this.#checkAsking.add(ask)
     const controller = new AbortController()
-    const running = this.#checks.get(goal) ?? new Set<AbortController>()
-    this.#checks.set(goal, running.add(controller))
+    const running = this.#checks.get(run.id) ?? new Set<AbortController>()
+    this.#checks.set(run.id, running.add(controller))
     const check = chosen.check
     let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
     try {
@@ -2023,7 +2023,7 @@ export class FlowExecutions {
       return `Refused: the desk could not cut a checkout at ${at.slice(0, 12)} to run ${chosen.name} in: ${error instanceof Error ? error.message : String(error)}`
     } finally {
       running.delete(controller)
-      if (running.size === 0) this.#checks.delete(goal)
+      if (running.size === 0) this.#checks.delete(run.id)
       this.#checkAsking.delete(ask)
     }
     const { exit, timedOut, tail } = outcome.result
@@ -2931,7 +2931,13 @@ export class FlowExecutions {
    * left uncertain for a person, never run again on its own (decision 18).
    */
   interruptChecks(goal: string): void {
-    for (const controller of this.#checks.get(goal) ?? []) controller.abort()
+    for (const run of this.#runs.values()) {
+      if (run.goal === goal) this.#interruptRunChecks(run.id)
+    }
+  }
+
+  #interruptRunChecks(id: string): void {
+    for (const controller of this.#checks.get(id) ?? []) controller.abort()
   }
 
   async #mayDispatch(id: string): Promise<boolean> {
@@ -3632,15 +3638,15 @@ export class FlowExecutions {
     // Planning holds the run queue too: register before cutting the tree so
     // Stop, pause and disposal reach this write without waiting for planning.
     const controller = new AbortController()
-    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
-    this.#checks.set(run.goal, running.add(controller))
+    const running = this.#checks.get(run.id) ?? new Set<AbortController>()
+    this.#checks.set(run.id, running.add(controller))
     if (this.#stopRequests.has(run.id)) controller.abort()
     let checkout: Awaited<ReturnType<NonNullable<FlowExecutionPort['checkoutAt']>>>
     try {
       checkout = await this.#port.checkoutAt(root, run.base.at, { retained: true, signal: controller.signal })
     } finally {
       running.delete(controller)
-      if (running.size === 0) this.#checks.delete(run.goal)
+      if (running.size === 0) this.#checks.delete(run.id)
     }
     let cwd = checkout.cwd
     if (relative !== null) {
@@ -3716,8 +3722,8 @@ export class FlowExecutions {
       return false
     }
     const controller = new AbortController()
-    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
-    this.#checks.set(run.goal, running.add(controller))
+    const running = this.#checks.get(run.id) ?? new Set<AbortController>()
+    this.#checks.set(run.id, running.add(controller))
     let launched!: () => void
     const started = new Promise<void>((resolve) => { launched = resolve })
     const execute = async (): Promise<boolean> => {
@@ -3731,7 +3737,7 @@ export class FlowExecutions {
       } finally {
         launched()
         running.delete(controller)
-        if (running.size === 0) this.#checks.delete(run.goal)
+        if (running.size === 0) this.#checks.delete(run.id)
       }
       const complete = async (): Promise<boolean> => {
         if (controller.signal.aborted) {
@@ -3956,8 +3962,11 @@ export class FlowExecutions {
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
       const rules = policyOf(run).rules.filter((rule) => rule.on === last.role)
       const card = cards.find((card) => !rules.some((rule) => guardHolds(rule.when ?? {}, [card.outcome ?? null]))) ?? cards[0]!
-      const complete = rules.length === 0 && cards.every((card) => card.state === 'done' && card.outcome != null)
-      await this.#finish(id, 'settled', `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`,
+      const complete = cards.every((card) => card.state === 'done' && card.outcome != null) &&
+        (Object.hasOwn(policyOf(run).complete ?? {}, last.role)
+          ? completesRound(policyOf(run), last.role, cards.map(card => card.outcome ?? null))
+          : rules.length === 0)
+      await this.#finish(id, 'settled', complete ? `${answered}; this run is complete.` : `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`,
         complete ? { kind: 'complete' } : { kind: 'unrouted', card: card.id, outcome: card.outcome ?? 'nothing' })
       return
     }
@@ -3995,17 +4004,34 @@ export class FlowExecutions {
 
   // ----------------------------------------------------------------- stop
 
+  /** The stopped run and its frozen rounds retain the cleanup owed after a failed board save. */
+  async #abandonStoppedPeople(id: string): Promise<void> {
+    const run = this.#get(id)
+    if (run.state !== 'stopped' || run.goal === '') return
+    const people = new Set(policyOf(run).roles.filter(role => role.kind === 'person').map(role => role.id))
+    const owned = new Set(run.rounds.filter(round => people.has(round.role)).flatMap(round => round.cards))
+    for (const card of this.#team.stateFor(run.goal).intents) {
+      if (!owned.has(card.id) || done(card)) continue
+      await this.#team.intentAction(run.goal, card.id, 'abandon', run.reason ?? undefined)
+      // The window's board action rolls back a failed save without throwing.
+      // Stop must report that failure so its existing Retry stop stays available.
+      const saved = this.#team.stateFor(run.goal).intents.find(one => one.id === card.id)
+      if (saved && !done(saved)) throw new Error(`Person card #${card.id} could not be saved as abandoned. Retry stop to finish this run's cleanup.`)
+    }
+  }
+
   async stop(id: string, why = 'the person stopped this flow', by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
-    const goal = this.#get(id).goal
+    this.#get(id)
     this.#stopRequests.set(id, (this.#stopRequests.get(id) ?? 0) + 1)
     let ended = false
     try {
-      this.interruptChecks(goal)
+      this.#interruptRunChecks(id)
       const tasks = await this.#queue.within(id, async () => {
         // A retry ahead of Stop may only now have created its controller.
-        this.interruptChecks(goal)
+        this.#interruptRunChecks(id)
         const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
         await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
+        await this.#abandonStoppedPeople(id)
         return tasks
       })
       // Completion uses this same queue: drain outside it, before Stop or wrap returns.
@@ -4256,6 +4282,12 @@ export class FlowExecutions {
       if (!run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
       await this.#queue.within(run.id, () => this.#dropBase(run)).catch((error: unknown) => {
         this.#port.log('an aborted Flow base ref could not be removed at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'stopped') continue
+      await this.#queue.within(run.id, () => this.#abandonStoppedPeople(run.id)).catch((error: unknown) => {
+        this.#port.log('a stopped flow run could not abandon its person cards at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })
     }
     for (const run of [...this.#runs.values()]) {

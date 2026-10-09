@@ -2022,3 +2022,114 @@ rules: []
     assert.match(rig.board(run.goal).intents[0]!.detail ?? '', /working tree.*committed/i)
   })
 }
+
+const LAND_END = `
+version: 2
+name: Successful landing
+roles:
+  land: { kind: person, outcomes: [landed, waiting, failed] }
+seed: { role: land, title: Land the change }
+rules:
+  - { on: land, when: { every: [waiting] }, then: { role: land, title: Try again } }
+complete: { land: [landed] }
+`
+
+test('a declared successful outcome completes a ruled role without asking for a person (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END, [])
+  await rig.team.intentAction(run.goal, 1, 'done', undefined, 'landed')
+  await rig.flows.flush()
+  const ended = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(ended.state, 'settled')
+  assert.deepEqual(ended.end, { kind: 'complete' })
+  assert.doesNotMatch(ended.reason ?? '', /waits for you/)
+  assert.deepEqual(await rig.flows.stopRun(run.id), ended, 'a settled end is never rewritten')
+})
+
+test('a successful check completes after its retry rule declines (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END.replace('kind: person, outcomes: [landed, waiting, failed]', 'kind: check, run: "true", timeout: 10, exits: { 0: landed }, otherwise: waiting'), [])
+  await rig.flows.flush()
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.end, { kind: 'complete' })
+})
+
+test('undeclared outcomes still wait and matching retry rules still open a round (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END, [])
+  await rig.team.intentAction(run.goal, 1, 'done', undefined, 'waiting')
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.length, 2)
+  await rig.team.intentAction(run.goal, 2, 'done', undefined, 'failed')
+  await rig.flows.flush()
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.end, { kind: 'unrouted', card: 2, outcome: 'failed' })
+})
+
+test('stopping abandons only this run’s unanswered person cards and survives a retry (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END.replace('complete: { land: [landed] }', ''), [])
+  rig.team.addIntentAsUser(run.goal, {title: 'Unrelated follow-up'})
+  const stopped = await rig.flows.stopRun(run.id)
+  const cards = rig.board(run.goal).intents
+  assert.equal(cards.find(card => card.id === 1)?.state, 'abandoned')
+  assert.equal(cards.find(card => card.id === 2)?.state, 'open')
+  assert.deepEqual(stopped.end, { kind: 'stopped', by: 'person' })
+  assert.deepEqual(await rig.flows.stopRun(run.id), stopped)
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.length, 2, 'cleanup fires no retry rule')
+})
+
+test('failed Stop cleanup reports failure and restart retries only its unanswered person cards (#1548)', async t => {
+  let refuseAbandon = true
+  const rig = await goalRig(t, {
+    mutate: async (snapshot, refused) => {
+      const board = snapshot()
+      if (refuseAbandon && board?.intents.some(card => card.id === 1 && card.state === 'abandoned')) {
+        const error = new Error('the person-card save failed')
+        refused?.(error)
+        throw error
+      }
+    },
+  })
+  const run = await rig.start(LAND_END, [])
+  rig.team.addIntentAsUser(run.goal, { title: 'Unrelated follow-up' })
+  await rig.team.flush()
+  await assert.rejects(rig.flows.stopRun(run.id, 'Stopped for review'), /person card #1.*could not be saved/i)
+  const stopped = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open', 'a failed board save rolled back')
+  await assert.rejects(rig.flows.stopRun(run.id), /person card #1.*could not be saved/i, 'the public Stop retry still attempts cleanup')
+
+  await rig.restart()
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open', 'failed startup cleanup remains pending')
+  assert.ok(rig.logs.some(line => /person.*restart/i.test(line)), 'startup says why cleanup failed')
+  refuseAbandon = false
+  await rig.restart()
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'abandoned')
+  assert.equal(rig.board(run.goal).intents[1]?.state, 'open')
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0], stopped, 'cleanup preserves the recorded end')
+  assert.deepEqual(await rig.flows.stopRun(run.id), stopped, 'Stop remains idempotent')
+  assert.equal(rig.board(run.goal).intents.length, 2, 'cleanup dispatches no retry round')
+})
+
+test('successful ends require all siblings and never count an abandoned card (#1548)', async t => {
+ for(const outcome of ['landed','failed',null]) {
+  const rig=await goalRig(t)
+  const source=`version: 2
+name: Sibling ends
+roles:
+  land: {kind: agent, uses: implementer, count: 2}
+seed: {role: land, title: Finish}
+rules:
+  - {on: land, when: {every: [waiting]}, then: {role: land, title: Retry}}
+complete: {land: [landed]}
+`
+  const run=await rig.start(source,[agent('implementer',['landed','waiting','failed'])])
+  await rig.team.complete(1,{outcome:'landed'},rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state,'running')
+  if(outcome===null) await rig.team.intentAction(run.goal,2,'abandon')
+  else await rig.team.complete(2,{outcome},rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.end?.kind,outcome==='landed'?'complete':'unrouted')
+ }
+})

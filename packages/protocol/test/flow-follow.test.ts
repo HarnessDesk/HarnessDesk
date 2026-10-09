@@ -72,3 +72,12 @@ test('nothing follows a role no rule starts from, and the answer says whether an
 test('a round with no cards matches nothing', () => {
   assert.deepEqual(followOf({ rules: [rule('after-writer', 'writer', 'reviewer')] }, 'writer', []), { kind: 'none', ruled: true })
 })
+
+test('a declared successful end is complete only when every card answers successfully (#1548)', () => {
+ const flow = { rules: [rule('retry', 'land', 'land', { every: ['waiting'] })], complete: { land: ['landed'] } }
+ assert.deepEqual(followOf(flow, 'land', ['landed']), {kind:'none',ruled:false})
+ for (const outcomes of [[], [null], ['failed'], ['landed', null], ['landed', 'failed']]) {
+  assert.deepEqual(followOf(flow, 'land', outcomes), {kind:'none',ruled:true})
+ }
+ assert.equal(followOf(flow, 'land', ['waiting']).kind, 'opens')
+})

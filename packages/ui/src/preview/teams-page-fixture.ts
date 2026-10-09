@@ -10,14 +10,14 @@ export type TeamsScene=typeof TEAMS_PAGE_STATES[number]
 const now=Date.now()
 const sentences=['Review the checkout retry','Choose the deployment target','Retry the checkout call on a 502','Keep the invoice rounding change','Finish the usage cache change']
 const turnTotals=[21,8,137,46,92]
-export const teamsPageStore=(scene:TeamsScene='active')=>{
+export const teamsPageStore=(scene:TeamsScene='active',finished?:'before'|'after')=>{
  const teams=new Map<string,TeamState>()
  const goals=new Map<string,GoalView>();const sessions=new Map<SessionKey,Session>()
  const executions=new Map<string,FlowExecution>()
  const reports=new Map<string,InsightReport>()
  let approvals:AppSnapshot['approvals'][number][]=[]
  for(let n=0;n<5;n++) {
-  const base=overviewTeamStore(n===0?'needs-you':n===1?'stalled':n===2?'running':'done').getSnapshot()
+  const base=overviewTeamStore(finished?'done':n===0?'needs-you':n===1?'stalled':n===2?'running':'done').getSnapshot()
   const id=`team-${n}`;const project=n===3?'/work/billing':'/work/storefront';const at=now-(45-n*8)*60_000
   const old=base.goals.get('overview-team')!
   const members=Array.from({length:n===2?6:old.members.length},(_,index)=>{
@@ -45,6 +45,24 @@ export const teamsPageStore=(scene:TeamsScene='active')=>{
    unattributed:{...group.unattributed,turns:{...group.unattributed.turns,value:0}},
    rows:group.rows.slice(0,2).map((row,index)=>({...row,goal:id,seat:members[index]!.id,session:members[index]!.session,
     amounts:{...row.amounts,turns:{...row.amounts.turns,value:index===0?writerTurns:turns-writerTurns}}}))}))})
+ }
+ if(finished) {
+  for(const id of [...teams.keys()].slice(2)){teams.delete(id);goals.delete(id);executions.delete(`${id}-run`)}
+  approvals=[]
+  for(const n of [0,1]) {
+   const id=`team-${n}`,old=goals.get(id)!,run=executions.get(`${id}-run`)!
+   const before=finished==='before',sentence=n===0?'Land the reviewed change':'Stop the investigation'
+   const board={...old.board,name:sentence,intents:old.board.intents.map((card,index)=>({...card,claim:null,role:index===0?'referee':card.role,
+    state:index===0&&n===1?(before?'open' as const:'abandoned' as const):'done' as const,
+    outcome:index===0&&n===0?'landed':null}))}
+   const reason=n===0?(before?'Land the change answered landed; no rule continues, so this waits for you.':'Land the change answered landed; this run is complete.'):'The person stopped this flow.'
+   teams.set(id,board)
+   goals.set(id,{...old,board,goal:{...old.goal,sentence},activity:before?'needs-you':'ready-to-wrap'})
+   executions.set(run.id,{...run,state:n===0?'settled':'stopped',reason,
+    end:n===0?(before?{kind:'unrouted',card:1,outcome:'landed'}:{kind:'complete'}):{kind:'stopped',by:'person'},
+    rounds:[{n:1,role:'referee',cards:[1],seats:[],state:'closed',cause:'seed',evidence:[]}],
+    document:{format:'agents',flow:{...(run.document.format==='agents'?run.document.flow:{version:2,name:run.document.flow.name,inputs:[],rules:[],seed:run.document.flow.seed,messaging:'board-only',wait:240}),version:2,roles:[{id:'referee',kind:'person',outcomes:['landed']}],complete:{referee:['landed']}}}})
+  }
  }
  const base=previewStore({teams:scene==='empty'?new Map():teams,goals:scene==='empty'?new Map():goals,flowExecutions:executions,sessions,history:[...sessions.values()],approvals,inbox:[],goalProblem:scene==='failed'?'The Team usage record could not be read':null,workspace:{path:'/work/storefront',name:'Storefront',lastOpenedAt:now},workspaces:[{path:'/work/storefront',name:'Storefront',lastOpenedAt:now},{path:'/work/billing',name:'Billing',lastOpenedAt:now}]})
  let state=base.getSnapshot()
