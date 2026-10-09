@@ -174,7 +174,7 @@ test('intent uses persisted total cost, shares starts, and unknown observations 
 
 test('a token handed through sign-in never reaches the display cache', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-cache-signin-'))
-  const token = 'synthetic-login-token-never-cache'
+  const token = 'synthetic-login-token-never-cache' // hd-secrets-ok: deliberate credential lookalike for cache exclusion
   let host: Host
   const runtime = new AcpRuntime({ id: 'account', name: 'Account', command: process.execPath, args: [peer],
     secrets: [{ env: 'SYNTHETIC_KEY', label: 'Synthetic account' }],
