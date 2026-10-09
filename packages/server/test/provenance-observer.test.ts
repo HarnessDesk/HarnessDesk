@@ -678,3 +678,49 @@ test('a crash after an object append requeues its parents before acknowledging t
   assert.ok(await f.has(parent), 'an unacknowledged object must not lose its parent work')
   assert.deepEqual((readCheckpoint((await f.journal.read()).entries) as WorkerCheckpoint).frontier, [])
 })
+
+test('a failed parent read retries the ancestry of an appended tip on the same observer', async (t) => {
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const tip = 'a'.repeat(40)
+  const parent = 'b'.repeat(40)
+  const root = 'c'.repeat(40)
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'provenance.ndjson'))
+  const reads: string[] = []
+  const problems: string[] = []
+  let fail = true
+  const git: GitReader = {
+    snapshot: async () => ({ refs: new Map([['refs/heads/main', tip]]), heads: new Map(), takenAt: 10 }),
+    reflogs: async () => ({ moves: [], cursors: new Map(), gaps: [], more: false }),
+    commit: async (sha) => {
+      reads.push(sha)
+      if (sha === parent && fail) throw new Error('injected-parent-read')
+      return { sha, tree: sha, parents: sha === tip ? [parent] : sha === parent ? [root] : [] }
+    },
+    kinds: async (shas) => new Map(shas.map((sha) => [sha, 'commit'])),
+    patch: async () => ({ stable: '', exact: '', files: [] }), files: async () => [],
+    ancestors: async () => [], batch: (_signal, work) => work(git), close: async () => {},
+  }
+  const noWatch = (() => { const watcher = { on: () => watcher, close: () => {} }; return watcher }) as unknown as typeof watch
+  const observer = new RefObserver({ git, journal, changed: () => {}, problem: (_kind, reason) => problems.push(reason),
+    now: () => 10, pollMs: 0, watch: noWatch })
+  t.after(() => observer.close())
+  await observer.start(handle, null)
+  await observer.idle()
+  assert.deepEqual(problems, ['history-gap'])
+  assert.equal(observer.checkpoint, null, 'the failed scan acknowledged no cursor')
+  assert.deepEqual((await journal.read()).entries.filter((entry) => entry.kind === 'commit')
+    .map((entry) => (entry.value as { sha: string }).sha), [tip], 'the tip was durable before the parent read failed')
+  fail = false
+  observer.wake()
+  await observer.idle()
+  const entries = (await journal.read()).entries
+  assert.deepEqual(entries.filter((entry) => entry.kind === 'commit').map((entry) => (entry.value as { sha: string }).sha),
+    [tip, parent, root], 'retry must rediscover every parent without restarting the observer')
+  assert.deepEqual((readCheckpoint(entries) as WorkerCheckpoint).frontier, [])
+  const count = reads.length
+  observer.request([tip])
+  await observer.idle()
+  assert.equal(reads.length, count, 'only a successful scan can cache completed ancestry')
+})

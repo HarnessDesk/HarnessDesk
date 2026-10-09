@@ -282,25 +282,29 @@ export class RefObserver {
     const checkouts = [...this.#handle.checkouts.keys()]
     let captured = 0
     let visited = 0
+    // Appended observations can survive a failed scan, but its frontier has
+    // not been acknowledged. Keep ancestry visits provisional until it is.
+    const walked = new Set<string>()
+    const hasWalked = (sha: string) => this.#walked.has(sha) || walked.has(sha)
     // One check of the repository's metadata covers everything this batch reads.
     await git.batch(signal, async (reader) => {
       while (frontier.length && visited < 200 && performance.now() - began < 50) {
         signal.throwIfAborted()
         const sha = frontier.shift()!
         visited += 1
-        if (this.#walked.has(sha)) continue
+        if (hasWalked(sha)) continue
         const existing = commits.get(sha)
         const object = await reader.commit(sha, signal)
         // A commit clock only bounds passive discovery. Existing observations
         // remain intact, and admitted diff facts are still read by Reconciler.
         if (object?.committedAt !== undefined && object.committedAt !== null && object.committedAt < historyFloor) {
-          this.#walked.add(sha)
+          walked.add(sha)
           this.#options.outsideWindow?.(sha)
           continue
         }
         if (existing) {
-          for (const parent of existing.parents) if (!this.#walked.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-          this.#walked.add(sha)
+          for (const parent of existing.parents) if (!hasWalked(parent) && !frontier.includes(parent)) frontier.push(parent)
+          walked.add(sha)
           continue
         }
         if (!object) {
@@ -339,8 +343,8 @@ export class RefObserver {
         await journal.append('commit', observation)
         commits.set(sha, observation)
         if (observation.why) this.#options.problem('degraded', observation.why === 'limit-exceeded' ? 'limit-exceeded' : 'history-gap')
-        for (const parent of observation.parents) if (!this.#walked.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-        this.#walked.add(sha)
+        for (const parent of observation.parents) if (!hasWalked(parent) && !frontier.includes(parent)) frontier.push(parent)
+        walked.add(sha)
         captured += 1
       }
     })
@@ -361,6 +365,7 @@ export class RefObserver {
       this.#written = durable
     }
     this.#checkpoint = next
+    for (const sha of walked) this.#walked.add(sha)
     for (const sha of requested) this.#requested.delete(sha)
     await this.#attach()
     this.#options.changed()
