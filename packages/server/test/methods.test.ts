@@ -26,6 +26,13 @@ test('every method the wire validates is answered, and none is answered twice', 
   assert.equal(declaredAcrossDomains, handled.size, 'a method appears in two domain modules')
 })
 
+test('transcript search carries the viewer’s tool-output choice to its store', async () => {
+  const calls: unknown[] = []
+  const ctx = { transcripts: { search: async (...args: unknown[]) => { calls.push(args); return [] } } } as unknown as HostContext
+  await dispatch(ctx, 'transcripts/search', { query: 'words', includeTools: true } as never)
+  assert.deepEqual(calls, [['words', { includeTools: true }]])
+})
+
 test('a name that is not a method is refused, even one the prototype would answer', async () => {
   const ctx = {} as HostContext
   await assert.rejects(dispatch(ctx, 'constructor' as never, {} as never), /Unknown method "constructor"/)

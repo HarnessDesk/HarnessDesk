@@ -595,10 +595,16 @@ answer" when the agent ended on a question. All read off the items by
 `lib/turn-summary.ts`. The transcript says how the agent got there; the
 summary says where it got, for the reader who did not watch.
 
-**The host keeps the transcript.** Reopening a conversation shows what
+**The host keeps the transcript.** Its local database stores the complete
+record, and backups keep it restorable. Reopening a conversation shows what
 happened even when the backend forgot: Cursor keeps nothing readable, and ACP
 replay is lossy. A prompt with several content blocks replays as one message,
 not one turn per block.
+
+The search palette searches your messages and the agent's answers. **Include
+tool output** adds output from tools and commands, with those hits marked
+**Tool output**. Reasoning stays outside search, and the choice is remembered
+on this viewer.
 
 ## The composer
 

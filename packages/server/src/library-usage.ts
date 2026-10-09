@@ -1,10 +1,11 @@
-import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { detectSkillActivations } from '@harnessdesk/agent-inventory'
 import type { LibraryUsage, LibraryUsageEntry } from '@harnessdesk/protocol'
 
-import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
+import { TranscriptDatabase } from './transcript-database.js'
 
 /**
  * How often each skill actually fired, counted from the transcripts the desk
@@ -24,21 +25,20 @@ import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
  *
  * **Incremental by construction.** The store on the machine this was built
  * against is 184MB; walking it on every read would make the page unusable.
- * So each transcript's extraction is cached against its `(mtimeMs, size)`,
- * and a read re-parses only what changed. The cache holds per-file findings,
- * not the aggregate — an aggregate cannot be decremented when one file
+ * So each extraction is cached against its body facts and durable turn
+ * fingerprints, and a read parses only what changed. The cache holds per-conversation findings,
+ * not the aggregate — an aggregate cannot be decremented when one conversation
  * changes under it.
  */
 
 interface FileFinding {
-  readonly mtimeMs: number
-  readonly size: number
+  readonly fingerprint: string
   /** Skill name → activations in this one conversation, with the latest time. */
   readonly skills: Readonly<Record<string, { readonly n: number; readonly lastAt: number }>>
 }
 
 interface Cache {
-  readonly version: 1
+  readonly version: 2
   readonly files: Record<string, FileFinding>
 }
 
@@ -74,7 +74,7 @@ const extract = (raw: string): FileFinding['skills'] => {
 }
 
 export interface LibraryUsageOptions {
-  /** Where a folder the read had to pass over is named. */
+  /** Where an unreadable stored conversation is named. */
   readonly log?: (message: string, details?: Record<string, unknown>) => void
 }
 
@@ -95,63 +95,33 @@ export class LibraryUsageReader {
     const seen = new Set<string>()
     let dirty = false
 
-    let dirs: readonly string[] = []
+    const database = new TranscriptDatabase(join(dirname(this.#transcripts), 'sessions.sqlite'))
     try {
-      dirs = await readdir(this.#transcripts)
-    } catch (error) {
-      // No transcripts yet: a fresh desk. Zero conversations is an answer.
-      // A store that will not open is not, and is raised before the prune
-      // below: read as empty, it answered "no skill has ever fired" and
-      // emptied the cache on the way, so the next read re-parsed everything.
-      if (!NOTHING_YET.has(errnoOf(error))) throw error
-    }
-    for (const dir of dirs) {
-      let names: readonly string[] = []
-      try {
-        names = await readdir(join(this.#transcripts, dir))
-      } catch (error) {
-        if (!NOTHING_HERE.has(errnoOf(error))) {
-          /* Passed over, and not forgotten. What was counted in it is still
-             true of conversations still on disk, so its findings stay — seen,
-             neither pruned nor left out of the answer — and the folder is
-             named. A stray file here (`.DS_Store`) or a folder removed
-             mid-walk is nothing, and its findings go. */
-          for (const key of Object.keys(cache.files)) {
-            if (key.startsWith(`${dir}/`)) seen.add(key)
-          }
-          this.#log('a folder of stored conversations could not be read, so its skills are counted as they were', {
-            folder: join(this.#transcripts, dir),
-            error: error instanceof Error ? error.message : String(error),
+      // Metadata and durable turn fingerprints are small; complete items are
+      // read only for conversations whose extraction actually changed.
+      const rows = database.db.prepare('SELECT runtime,id,payload FROM bodies ORDER BY runtime,id').all()
+      for (const row of rows) {
+        const runtime = String(row.runtime)
+        const id = String(row.id)
+        const key = `${runtime}/${encodeURIComponent(id)}.json`
+        seen.add(key)
+        const turns = database.db.prepare('SELECT fingerprint FROM turns WHERE runtime=? AND id=? ORDER BY seq').all(runtime, id)
+        const fingerprint = createHash('sha256').update(String(row.payload)).update(JSON.stringify(turns)).digest('hex')
+        if (cache.files[key]?.fingerprint === fingerprint) continue
+        try {
+          const stored = database.read(runtime, id)
+          if (!stored) throw new Error('Unsupported stored conversation')
+          cache.files[key] = { fingerprint, skills: extract(JSON.stringify(stored)) }
+          dirty = true
+        } catch (error) {
+          // A failed read keeps this conversation's prior count; absence alone
+          // prunes it. A database that cannot open fails before any pruning.
+          this.#log('a stored conversation could not be read, so its skills are counted as they were', {
+            runtime, session: id, error: error instanceof Error ? error.message : String(error),
           })
         }
-        continue
       }
-      for (const name of names) {
-        if (!name.endsWith('.json')) continue
-        const key = `${dir}/${name}`
-        const path = join(this.#transcripts, dir, name)
-        let mtimeMs: number
-        let size: number
-        try {
-          const info = await stat(path)
-          mtimeMs = info.mtimeMs
-          size = info.size
-        } catch {
-          continue
-        }
-        seen.add(key)
-        const kept = cache.files[key]
-        if (kept && kept.mtimeMs === mtimeMs && kept.size === size) continue
-        let raw: string
-        try {
-          raw = await readFile(path, 'utf8')
-        } catch {
-          continue
-        }
-        cache.files[key] = { mtimeMs, size, skills: extract(raw) }
-        dirty = true
-      }
-    }
+    } finally { database.close() }
     for (const key of Object.keys(cache.files)) {
       if (!seen.has(key)) {
         delete cache.files[key]
@@ -197,15 +167,15 @@ export class LibraryUsageReader {
     if (this.#cache) return this.#cache
     try {
       const parsed = JSON.parse(await readFile(this.#cachePath, 'utf8')) as Cache
-      if (parsed.version === 1 && parsed.files && typeof parsed.files === 'object') {
-        this.#cache = { version: 1, files: parsed.files }
+      if (parsed.version === 2 && parsed.files && typeof parsed.files === 'object') {
+        this.#cache = { version: 2, files: parsed.files }
         return this.#cache
       }
     } catch {
       // Absent or unreadable: rebuilt from the transcripts, which stay the
       // source of truth. The cache is only ever a saved re-reading of them.
     }
-    this.#cache = { version: 1, files: {} }
+    this.#cache = { version: 2, files: {} }
     return this.#cache
   }
 

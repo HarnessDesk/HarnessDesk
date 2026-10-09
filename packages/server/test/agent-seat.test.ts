@@ -1,3 +1,4 @@
+import { readStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -3990,10 +3991,9 @@ test('over Codex: a fuller completion and a cold read cannot turn the recorded b
   }
   assert.equal(record?.session.turns[0]?.status, 'completed', 'the fuller completion reached the host')
 
-  const transcript = join(stateDir, 'transcripts', 'codex', `${encodeURIComponent(session.id)}.json`)
   const transcriptDeadline = Date.now() + 5_000
   while (Date.now() < transcriptDeadline) {
-    if (await readFile(transcript, 'utf8').then(() => true, () => false)) break
+    if (readStored(stateDir, 'codex', String(session.id))) break
     await new Promise((wake) => setTimeout(wake, 10))
   }
   await host.call('session/close', { runtime: session.runtime, sessionId: session.id })

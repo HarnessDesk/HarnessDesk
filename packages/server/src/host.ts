@@ -3013,6 +3013,7 @@ export class Host {
     this.#ledger?.close()
     await runtimesGone
     await Promise.all(this.#runtimeNoticeWrites)
+    await this.#transcripts.close()
     this.#runtimes.clear()
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */

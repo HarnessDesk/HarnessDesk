@@ -159,6 +159,7 @@ export interface TranscriptHit {
   readonly line: string
   readonly start: number
   readonly end: number
+  readonly source?: 'message' | 'tool'
 }
 
 /**
@@ -1247,7 +1248,7 @@ export interface HostMethods {
    * complement, and the palette runs both.
    */
   'transcripts/search': {
-    params: { readonly query: string }
+    params: { readonly query: string; readonly includeTools?: boolean }
     result: readonly TranscriptHit[]
   }
   /** The backup file, assembled host-side. See `BackupFile` for what is in it. */

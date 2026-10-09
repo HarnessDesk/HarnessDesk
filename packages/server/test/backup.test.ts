@@ -18,6 +18,7 @@ import { foldFindings, isResolved } from '../src/findings/model.js'
 import { Host, Logger, StateStore } from '../src/index.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { GoalStore, restoredLane, type GoalDocument } from '../src/goals/store.js'
+import { TranscriptStore } from '../src/transcripts.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { rig as triggerRig } from './fixtures/intake-consent.js'
 import { goal } from './fixtures/goals.js'
@@ -151,11 +152,9 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   t.after(() => a.host.dispose())
   a.store.add({ id: 'my-agent', name: 'My Agent', command: 'my-agent' })
   await a.host.call('app/state/set', { patch: { theme: 'dark', draftValues: { 'my-agent': { model: 'large' } } } })
-  await mkdir(join(dirA, 'transcripts', 'my-agent'), { recursive: true })
-  await writeFile(
-    join(dirA, 'transcripts', 'my-agent', 's1.json'),
-    transcriptFile(1000, 'the sentence worth finding later'),
-  )
+  const transcripts = new TranscriptStore(join(dirA, 'transcripts'))
+  assert.equal(await transcripts.importOne('my-agent', 's1', JSON.parse(transcriptFile(1000, 'the sentence worth finding later'))), 'restored')
+  await transcripts.close()
 
   const backup = await a.host.call('backup/export', {})
   assert.equal(backup.kind, 'harnessdesk-backup')
@@ -1595,8 +1594,9 @@ test('a restore never rolls a local transcript backwards', async (t) => {
   t.after(() => host.dispose())
   t.after(async () => rm(dir, { recursive: true, force: true }))
 
-  await mkdir(join(dir, 'transcripts', 'my-agent'), { recursive: true })
-  await writeFile(join(dir, 'transcripts', 'my-agent', 's1.json'), transcriptFile(2000, 'the newer local copy'))
+  const transcripts = new TranscriptStore(join(dir, 'transcripts'))
+  await transcripts.importOne('my-agent', 's1', JSON.parse(transcriptFile(2000, 'the newer local copy')))
+  await transcripts.close()
 
   const report = await host.call('backup/import', {
     backup: {
