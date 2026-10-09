@@ -2377,3 +2377,14 @@ it('keeps an archived held conversation out of the loose project rows', () => {
   const { container: tree } = treeWith([], [], [archived])
   expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
 })
+
+
+it('keeps a live imported preview out of loose sidebar rows until promotion', () => {
+  const one = summary({ id: 'imported-preview', title: 'Preview conversation' })
+  const key = sessionKey(one.runtime, one.id)
+  const view = treeWith([], [], [one])
+  view.update({ previewSessions: new Set([key]) })
+  expect(view.container.textContent).not.toContain('Preview conversation')
+  view.update({ history: [one], historyIdentity: [one], previewSessions: new Set() })
+  expect(view.container.textContent).toContain('Preview conversation')
+})

@@ -32,6 +32,8 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
   const scroll = useRef<HTMLDivElement>(null)
   const epoch = useRef(0)
   const paging = useRef(false)
+  const loaded = useRef(rows)
+  loaded.current = rows
   const importable = useMemo(() => snapshot.runtimes.filter(info => info.capabilities.listHistory), [snapshot.runtimes])
   const params = useMemo<HostMethods['history/list']['params']>(() => ({ pageSize: 100, includeHidden: hidden,
     ...(agent ? { runtimes: [agent as RuntimeId] } : {}), ...(project ? { repoRoot: project } : {}), ...(query.trim() ? { query: query.trim() } : {}) }), [agent, project, query, hidden])
@@ -52,11 +54,18 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     return () => { live = false; window.removeEventListener('focus', focus) }
   }, [store, importable])
 
-  const read = useCallback(async (generation: number, after?: string) => {
+  const read = useCallback(async (generation: number, after?: string, capacity = 100) => {
     setLoading(true)
     setProblem(null)
     try {
-      const page = await store.transport.request('history/list', { ...params, ...(after ? { cursor: after } : {}) })
+      let page = await store.transport.request('history/list', { ...params, ...(after ? { cursor: after } : {}) })
+      // Reconcile every loaded page before swapping the rows. A refresh must
+      // not discard the page being read or detach its scroll viewport.
+      while (!after && page.data.length < capacity && page.nextCursor) {
+        if (epoch.current !== generation) return
+        const next = await store.transport.request('history/list', { ...params, cursor: page.nextCursor })
+        page = { data: [...page.data, ...next.data], nextCursor: next.nextCursor }
+      }
       if (epoch.current !== generation) return
       setRows(previous => after ? [...new Map([...previous, ...page.data].map(row => [`${row.runtime}:${row.id}`, row])).values()] : page.data)
       setCursor(page.nextCursor ?? null)
@@ -64,13 +73,18 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     } catch (error) { if (epoch.current === generation) setProblem(reason(error)) }
     finally { if (epoch.current === generation) { setLoading(false); paging.current = false } }
   }, [store, params])
+  const previousRead = useRef<typeof read | null>(null)
   useEffect(() => {
+    const reset = previousRead.current !== read
+    previousRead.current = read
     const generation = ++epoch.current
     paging.current = false
-    setRows([]); setCursor(null)
-    if (scroll.current) scroll.current.scrollTop = 0
-    setViewport(was => ({ ...was, top: 0 }))
-    void read(generation)
+    if (reset) {
+      setRows([]); setCursor(null)
+      if (scroll.current) scroll.current.scrollTop = 0
+      setViewport(was => ({ ...was, top: 0 }))
+    }
+    void read(generation, undefined, reset ? 100 : Math.max(100, loaded.current.length))
     return () => { epoch.current++ }
   }, [read, snapshot.historyRevision, retry])
   useEffect(() => {

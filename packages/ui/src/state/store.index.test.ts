@@ -459,3 +459,44 @@ it('keeps import progress newer than an in-flight status read', async () => {
   expect(store.getSnapshot().historyImports[runtime]?.state).toBe('done')
   expect(store.getSnapshot().historyRevision).toBe(revision + 1)
 })
+
+
+it('restores an imported preview without a synthetic sidebar row, until host promotion', async () => {
+  request.mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read' || method === 'session/resume') return session('preview')
+    return null
+  }) as never)
+  // A fresh window has only its saved pane key, not the original preview option.
+  await store.openSession(sessionId('preview'), { runtime, restoring: true })
+  const key = sessionKey(runtime, sessionId('preview'))
+  expect(store.getSnapshot().sessions.has(key)).toBe(true)
+  expect(ids()).toEqual([])
+  expect(store.getSnapshot().previewSessions.has(key)).toBe(true)
+  await store.openSession(sessionId('preview'), { runtime })
+  expect(ids()).toEqual([])
+  change([row('preview')])
+  expect(ids()).toEqual(['preview'])
+  expect(store.getSnapshot().previewSessions.has(key)).toBe(false)
+})
+
+
+it('retains preview status when a saved pane already has a live session at reconnect', async () => {
+  request.mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read' || method === 'session/resume') return session('preview')
+    return null
+  }) as never)
+  await store.openSession(sessionId('preview'), { runtime, preview: true })
+  const saved = store.getSnapshot().workbench
+  store = new AppStore('ws://localhost:0/')
+  request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'app/state/get') return { layouts: { '/repo': saved } }
+    if (method === 'workspace/recent') return [{ path: '/repo', lastOpenedAt: 1 }]
+    return []
+  }) as never)
+  handlers().onEvent(runtime, { type: 'session/started', session: session('preview') })
+  await store.loadPreferences()
+  await store.loadWorkspaces()
+  const key = sessionKey(runtime, sessionId('preview'))
+  expect(store.getSnapshot().previewSessions.has(key)).toBe(true)
+  expect(ids()).toEqual([])
+})

@@ -1161,9 +1161,9 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
   const liveRows = useMemo(() => {
     const listed = new Set(snapshot.history.map((summary) => String(sessionKey(summary.runtime, summary.id))))
     return [...snapshot.sessions.entries()]
-      .filter(([key, session]) => !session.archived && !listed.has(String(key)))
+      .filter(([key, session]) => !snapshot.previewSessions.has(key) && !session.archived && !listed.has(String(key)))
       .map(([, session]) => rowOf(session))
-  }, [snapshot.history, snapshot.sessions])
+  }, [snapshot.history, snapshot.sessions, snapshot.previewSessions])
   /* The facts a live row is drawn from, as one string. The first ask is one
      of them: a conversation opened empty is "Untitled session" until the
      person types, and the row has to learn its name then — a key without

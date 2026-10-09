@@ -2166,6 +2166,7 @@ export class AppStore {
           ? this.#historyPageFirstCursor
           : page.nextCursor ?? null
       this.#patch({
+        previewSessions: new Set([...this.#snapshot.previewSessions].filter(key => !page.data.some(row => sessionKey(row.runtime, row.id) === key))),
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
         historyIdentity: [...identity.values()].filter(row => !this.#historyRemovedRuntimes.has(row.runtime)),
         ...(!this.#historyQuery ? { history, historyCursor: this.#historyCursor } : {}),
@@ -2241,6 +2242,7 @@ export class AppStore {
     }
     const nextFoldersGone = this.#foldersGoneFor(upserted)
     this.#patch({
+      previewSessions: new Set([...this.#snapshot.previewSessions].filter(key => !upserted.some(row => sessionKey(row.runtime, row.id) === key))),
       ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
       historyIdentity: [...identity.values()],
       ...(sessions !== this.#snapshot.sessions ? { sessions } : {}),
@@ -2327,9 +2329,15 @@ export class AppStore {
     return changed ? next : null
   }
 
+  /** A saved pane carries a key, not an origin. The desk index confirms adoption. */
+  #markPreview(key: SessionKey): void {
+    if (this.#snapshot.previewSessions.has(key) || this.#snapshot.historyIdentity.some(row => sessionKey(row.runtime, row.id) === key)) return
+    this.#patch({ previewSessions: new Set([...this.#snapshot.previewSessions, key]) })
+  }
+
   #ensureHistorySummary(session: Session): void {
     const key = sessionKey(session.runtime, session.id)
-    if (session.archived || this.#snapshot.sessions.get(key)?.archived || this.#historyExcluded.has(key)) return
+    if (this.#snapshot.previewSessions.has(key) || session.archived || this.#snapshot.sessions.get(key)?.archived || this.#historyExcluded.has(key)) return
     if ([...this.#snapshot.teams.values()].some(team => team.members.includes(key))) return
     if (this.#snapshot.historyIdentity.some(row => sessionKey(row.runtime, row.id) === key)) return
     this.#changeHistory([summaryOfSession(session)])
@@ -2394,6 +2402,7 @@ export class AppStore {
   ): Promise<void> {
     const { runtime } = options
     const key = sessionKey(runtime, id)
+    if (options.preview || options.restoring) this.#markPreview(key)
     // Reading the conversation a draft is carrying — the chip's own link —
     // is not abandoning the hand-off. It waits for the next empty draft.
     const carried = this.#snapshot.draftHandoff
@@ -2406,7 +2415,7 @@ export class AppStore {
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
       this.#setSession(session)
-      if (!options.preview) this.#ensureHistorySummary(session)
+      if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
       // A conversation that reopened is the only evidence its refusal — gone
@@ -4165,6 +4174,7 @@ export class AppStore {
     for (const { view, docked } of onScreen) {
       const session = view.kind === 'conversation' ? view.session : null
       if (!session) continue
+      this.#markPreview(session)
       const known = this.#snapshot.sessions.get(session)
       if (known?.status.type === 'active' || known?.status.type === 'idle') continue
       const { runtime, id } = splitSessionKey(session)

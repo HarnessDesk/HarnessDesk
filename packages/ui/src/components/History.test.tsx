@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { NO_CAPABILITIES, runtimeId, sessionId, type HistoryImportState, type HistorySummary, type RuntimeInfo } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot } from '../state/store'
 import { AgentHistory, HistorySection } from './History'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -132,4 +132,44 @@ it('does not draw history on a runtime sharing another account’s store', async
   await mount(null, true)
   await act(async () => root.render(<StoreProvider store={own}><AgentHistory info={{ ...info, capabilities: { ...info.capabilities, listHistory: false } }} onBrowse={onBrowse} /></StoreProvider>))
   expect(box.textContent).toBe('')
+})
+
+
+it.each(['index', 'focus'] as const)('keeps loaded pages and scroll while refreshing after %s', async (trigger) => {
+  const store = new AppStore('ws://localhost:0/')
+  const first = Array.from({ length: 100 }, (_, i) => row(`First ${i}`))
+  const second = Array.from({ length: 100 }, (_, i) => row(`Second ${i}`))
+  const listing = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { cursor?: string; pageSize?: number }) => {
+    if (method !== 'history/list') return null
+    if (params.cursor === 'second') return { data: second, nextCursor: 'third' }
+    return { data: first, nextCursor: 'second' }
+  }) as never)
+  await act(async () => root.render(<StoreProvider store={store}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const scroll = box.querySelector<HTMLDivElement>('[data-history-scroll]')!
+  Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 440 })
+  Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 4400 })
+  scroll.scrollTop = 4000
+  await act(async () => scroll.dispatchEvent(new Event('scroll', { bubbles: true })))
+  expect(box.querySelector('table')?.getAttribute('aria-rowcount')).toBe('201')
+  scroll.scrollTop = 4800
+  // Defer refresh so the previous pages must stay mounted while reading.
+  let resolve!: (page: { data: HistorySummary[]; nextCursor: string | null }) => void
+  listing.mockImplementationOnce(() => new Promise(yes => { resolve = yes }))
+  await act(async () => {
+    if (trigger === 'focus') window.dispatchEvent(new Event('focus'))
+    else (store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [] } })
+  })
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(box.querySelector('[data-history-scroll]')).toBe(scroll)
+  expect(scroll.scrollTop).toBe(4800)
+  expect(box.querySelector('table')?.getAttribute('aria-rowcount')).toBe('201')
+  await act(async () => resolve({ data: first, nextCursor: 'second' }))
+  expect(box.querySelector('table')?.getAttribute('aria-rowcount')).toBe('201')
+  expect(scroll.scrollTop).toBe(4800)
+  listing.mockResolvedValueOnce({ data: [row('Third page')], nextCursor: null })
+  await act(async () => scroll.dispatchEvent(new Event('scroll', { bubbles: true })))
+  expect(listing).toHaveBeenLastCalledWith('history/list', { pageSize: 100, includeHidden: false, cursor: 'third' })
+  input('Search history titles', 'new filter')
+  await act(async () => {})
+  expect(box.querySelector<HTMLDivElement>('[data-history-scroll]')?.scrollTop).toBe(0)
 })
