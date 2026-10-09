@@ -321,7 +321,7 @@ it('a conversation with work still running in the background wears a quiet spinn
   const runtime = {
     id: 'agent',
     name: 'Agent',
-    capabilities: { deleteHistory: true },
+    capabilities: { deleteHistory: 'trash' },
     presentation: { name: 'Agent' },
   } as unknown as RuntimeInfo
   const summary = (id: string, title: string): SessionSummary =>
@@ -1501,7 +1501,7 @@ it('a row shows the live session\'s title before the history list has it', () =>
   const runtime = {
     id: 'agent',
     name: 'Agent',
-    capabilities: { deleteHistory: true },
+    capabilities: { deleteHistory: 'trash' },
     presentation: { name: 'Agent' },
   } as unknown as RuntimeInfo
   const id = sessionId('renamed')
@@ -1922,10 +1922,10 @@ it('renames an inactive session without opening it or changing active session (#
   const menu = document.querySelector('[role="menu"]')!
   expect([...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
     .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim()))
-    .toEqual(['Rename', 'Pin', 'Open on the right', 'Branch from here', 'Copy', 'Archive', 'Delete…'])
-  expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(2)
+    .toEqual(['Rename', 'Pin', 'Open on the right', 'Branch from here', 'Copy', 'Archive', 'Remove from HarnessDesk', 'Delete everywhere…'])
+  expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(3)
   const deleteOption = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find((item) => item.textContent?.includes('Delete…'))!
+    .find((item) => item.textContent?.includes('Delete everywhere…'))!
   expect(deleteOption.getAttribute('aria-disabled')).toBe('true')
   expect(deleteOption.getAttribute('title')).toBe('Agent keeps no way to delete one.')
 
@@ -2376,4 +2376,52 @@ it('keeps an archived held conversation out of the loose project rows', () => {
   const archived = summary({ id: 'archived-held', archived: true })
   const { container: tree } = treeWith([], [], [archived])
   expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
+})
+
+it.each(['trash', 'erase', false, 'unavailable'] as const)('offers Archive, Remove and Trash-only Delete everywhere for %s', (disposition) => {
+  const owner = runtimeId('agent')
+  const runtime = { id: owner, presentation: { name: 'Agent' }, capabilities: { deleteHistory: disposition, listHistory: true } } as unknown as RuntimeInfo
+  const summary: SessionSummary = { runtime: owner, id: sessionId('remove-row'), title: 'Synthetic task', cwd: '/repo',
+    createdAt: 1, updatedAt: 2, status: { type: 'notLoaded' } }
+  const snapshot = { ...emptySnapshot(), history: [summary], runtimes: disposition === 'unavailable' ? [] : [runtime] }
+  const removeSession = vi.fn()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, removeSession } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Synthetic task"]')!.click())
+  const menu = document.querySelector('[role="menu"]')!
+  const item = (label: string) => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === label)!
+  expect(item('Archive').title).toBe('Hide it from the sidebar; find it in Archive')
+  expect(item('Remove from HarnessDesk').title).toBe(disposition === 'unavailable' ? 'This conversation’s agent keeps its own copy' : 'Agent keeps its own copy')
+  const deletion = item('Delete everywhere…')
+  expect(deletion).toBeDefined()
+  expect(deletion.getAttribute('aria-disabled') === 'true').toBe(disposition !== 'trash')
+  expect(deletion.title).toBe(disposition === 'erase' ? 'Agent erases it for good, so delete it there'
+    : disposition === false ? 'Agent keeps no way to delete one.' : disposition === 'unavailable' ? 'This conversation’s agent is unavailable.' : '')
+  act(() => item('Remove from HarnessDesk').click())
+  expect(removeSession).toHaveBeenCalledWith(summary.id, summary.runtime)
+})
+
+it.each([{ readableHistory: false }, { deskCopy: true }, { listHistory: false, readableHistory: false }, { listHistory: false, deskCopy: true }])('warns when the desk holds the only readable body: %s', patch => {
+  const owner = runtimeId('agent')
+  const summary: SessionSummary = { runtime: owner, id: sessionId('only-copy'), title: 'Only copy', cwd: '/repo', createdAt: 1, updatedAt: 2, status: { type: 'idle' } }
+  const live = { ...summary, ...patch, turns: [], itemsLoaded: true } as Session
+  const runtime = { id: owner, presentation: { name: 'Agent' }, capabilities: { deleteHistory: 'trash', listHistory: true, ...patch } } as unknown as RuntimeInfo
+  const snapshot = { ...emptySnapshot(), history: [summary], sessions: new Map([[sessionKey(owner, summary.id), live]]), runtimes: [runtime] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Only copy"]')!.click())
+  const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === 'Remove from HarnessDesk')!
+  expect(remove.title).toBe("HarnessDesk's copy is the only record")
+})
+
+it('keeps the agent-copy tooltip for an unlisted agent with readable history', () => {
+  const owner = runtimeId('agent')
+  const row = summary({ id: 'unlisted-copy', runtime: owner, title: 'Unlisted copy' })
+  const runtime = { id: owner, presentation: { name: 'Agent' }, capabilities: { listHistory: false, readableHistory: true } } as unknown as RuntimeInfo
+  const snapshot = { ...emptySnapshot(), history: [row], runtimes: [runtime] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Unlisted copy"]')!.click())
+  const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === 'Remove from HarnessDesk')!
+  expect(remove.title).toBe('Agent keeps its own copy')
 })

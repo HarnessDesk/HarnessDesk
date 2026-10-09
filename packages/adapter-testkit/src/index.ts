@@ -138,7 +138,8 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
         assert.ok(runtime.info.presentation.name.trim().length > 0, 'presentation.name is what the shell calls it')
         assert.equal(typeof runtime.info.capabilities.sessionEnvironment, 'boolean')
         for (const [key, value] of Object.entries(runtime.info.capabilities)) {
-          assert.equal(typeof value, 'boolean', `capability ${key} must be a boolean verb`)
+          if (key === 'deleteHistory') assert.ok(value === false || value === 'trash' || value === 'erase', 'deleteHistory must declare its destination')
+          else assert.equal(typeof value, 'boolean', `capability ${key} must be a boolean verb`)
         }
         assert.deepEqual(runtime.health(), { state: 'ready' })
       })

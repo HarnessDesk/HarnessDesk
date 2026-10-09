@@ -200,6 +200,8 @@ export interface Notice {
 }
 
 export interface NoticeAction {
+  /** A host-owned Undo window; hovering must not extend it. */
+  readonly expiresAt?: number
   readonly label: string
   readonly run: () => void
 }

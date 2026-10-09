@@ -61,7 +61,7 @@ export const Notices = () => {
           title: shortenNoticeText(notice.message, store.getSnapshot().home),
           ...(notice.action ? { action: { label: notice.action.label, onSelect: () => notice.action?.run() } } : {}),
         },
-        notice.level !== 'info' ? { persist: true } : {},
+        notice.level !== 'info' ? { persist: true } : { expiresAt: notice.action?.expiresAt },
       )
       store.dismissNotice(notice.id)
     }

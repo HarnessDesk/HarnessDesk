@@ -1088,6 +1088,7 @@ export class AcpRuntime implements AgentRuntime {
             // A bridge that knows where its agent writes can delete a stored
             // conversation, and says so in the handshake. Nothing else can.
             deleteHistory: this.#canDelete,
+            ...(this.#readableHistory === undefined ? {} : { readableHistory: this.#readableHistory }),
             sourceTranscript: (this.#initialized?._meta?.['harnessdesk'] as Record<string, unknown> | undefined)?.[ACP_SESSION_SOURCE_CAPABILITY] === true,
             // Offered in configuration, and not yet refused by the agent —
             // the refusal is observed on the first real or probe session,
@@ -1203,7 +1204,9 @@ export class AcpRuntime implements AgentRuntime {
         ?.harnessdesk
       this.#readCeiling = declared?.['readCeiling'] === true
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
-      this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
+      this.#readableHistory = typeof declared?.['readableHistory'] === 'boolean' ? declared['readableHistory'] : undefined
+      const deletion = declared?.[ACP_SESSION_DELETE_CAPABILITY]
+      this.#canDelete = deletion === 'trash' || deletion === 'erase' ? deletion : false
       this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
       this.#attachmentCapability = decodeAttachmentCapability(this.#initialized)
       this.#restored = null
@@ -2244,7 +2247,8 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /** Whether the agent declared `ACP_SESSION_DELETE` in the handshake. */
-  #canDelete = false
+  #canDelete: false | 'trash' | 'erase' = false
+  #readableHistory: boolean | undefined
 
   /**
    * What a new session would offer, before one exists — the protocol's

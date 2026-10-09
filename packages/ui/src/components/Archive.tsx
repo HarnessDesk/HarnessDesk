@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId, RuntimeInfo, SessionId, SessionSummary } from '@harnessdesk/protocol'
 
@@ -8,7 +8,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, MenuNote, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead } from '../design'
 import styles from './Archive.module.css'
 
 /**
@@ -38,7 +38,6 @@ import styles from './Archive.module.css'
  * greyed for agents that cannot do it. Same pairing as the session row.
  */
 export const ArchiveSection = () => {
-  const refusalId = useId()
   const store = useStore()
   const snapshot = useSnapshot()
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
@@ -159,7 +158,7 @@ export const ArchiveSection = () => {
             <Note ink="muted" className={styles.note}>{blurbFor(runtime)}</Note>
             <Rows>
               {rows.map((summary) => {
-                const deletable = runtime.capabilities.deleteHistory
+                const deletable = runtime.capabilities.deleteHistory === 'trash'
                 return (
                   <Row
                     key={`${summary.runtime}-${summary.id}`}
@@ -185,11 +184,9 @@ export const ArchiveSection = () => {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem variant="destructive"
                               disabled={!deletable}
-                              aria-describedby={deletable ? undefined : `${refusalId}-${runtime.id}`}
-                              title={deletable ? undefined : `${runtime.presentation.name} keeps no way to delete one.`}
+                              title={deletable ? undefined : runtime.capabilities.deleteHistory === 'erase' ? `${runtime.presentation.name} erases it for good, so delete it there` : `${runtime.presentation.name} keeps no way to delete one.`}
                               closeOnClick={deletable}
-                              onClick={() => { if (deletable) setDeleting(summary) }}>Delete…</DropdownMenuItem>
-                            {!deletable && <MenuNote><span id={`${refusalId}-${runtime.id}`}>{runtime.presentation.name} keeps no way to delete one.</span></MenuNote>}
+                              onClick={() => { if (deletable) setDeleting(summary) }}>Delete everywhere…</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </>

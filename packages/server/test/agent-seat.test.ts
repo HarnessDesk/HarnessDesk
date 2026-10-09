@@ -2395,7 +2395,7 @@ for (const [order, how] of [
       // not "does not offer" (#1023).
       assert.equal(
         error.message,
-        'No seat could be opened for this Agent:\n' + '  codex=gpt-5.5/high — codex runs it at low effort, not high.',
+        'No seat could be opened for this Agent:\n' + "  codex=gpt-5.5/high — codex runs it at low effort, not high. (the conversation it opened may stay in codex's own history, which the desk cannot delete from; it is in codex's own archive)",
       )
       return true
     })
@@ -2416,7 +2416,7 @@ for (const [order, how] of [
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  codex=gpt-5.5/high — codex runs it at low effort, not high.' +
+          "  codex=gpt-5.5/high — codex runs it at low effort, not high. (the conversation it opened may stay in codex's own history, which the desk cannot delete from; it is in codex's own archive)" +
           ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true

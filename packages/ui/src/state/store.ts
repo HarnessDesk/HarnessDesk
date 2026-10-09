@@ -2997,6 +2997,28 @@ export class AppStore {
     }
   }
 
+  /** Remove only the desk's row and copy, with the host's bounded Undo. */
+  async removeSession(id: SessionId, owner: RuntimeId): Promise<void> {
+    const key = sessionKey(owner, id)
+    this.#deleting.add(key)
+    try {
+      const { undoUntil } = await this.transport.request('session/remove', { runtime: owner, sessionId: id, removed: true })
+      this.#dropRemoved(key, false)
+      this.resultNotice('info', 'Removed from HarnessDesk', {
+        label: 'Undo',
+        ...(undoUntil === null ? {} : { expiresAt: undoUntil }),
+        run: () => void this.undoRemoveSession(id, owner),
+      })
+    } catch (error) {
+      this.resultNotice('error', describe(error))
+    } finally { this.#deleting.delete(key) }
+  }
+
+  async undoRemoveSession(id: SessionId, owner: RuntimeId): Promise<void> {
+    try { await this.transport.request('session/remove', { runtime: owner, sessionId: id, removed: false }) }
+    catch (error) { this.resultNotice('error', describe(error)) }
+  }
+
   /**
    * Deletes one conversation where its agent keeps it. Throws on refusal
    * rather than swallowing it: the caller has already shown a confirmation
