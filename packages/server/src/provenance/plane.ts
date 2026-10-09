@@ -16,9 +16,10 @@ import { digest, object, ProvenanceJournal, readCheckpoint, type JournalEntry } 
 import { RefObserver, type WorkerCheckpoint } from './observer.js'
 import { ProvenancePreferences } from './preferences.js'
 import {
-  relatedEvidence, type CommitObservation, type LinkObservation,
+  LIMIT_PREFIX, relatedEvidence, type CommitObservation, type LinkObservation,
 } from './reconcile.js'
 import { Reconciler, type Ranges } from './reconciler.js'
+import { WorkSlices } from './slices.js'
 
 export interface ProvenancePort {
   readonly evidence: EvidencePlane
@@ -28,13 +29,16 @@ export interface ProvenancePort {
   readonly log: (message: string, details?: Readonly<Record<string, unknown>>) => void
   /** How capture reads Git. The host leaves this unset; a test counts processes and checks through it. */
   readonly reader?: ReaderOptions
+  readonly now?: () => number
 }
 interface Project {
   project: string
   handle: RepoHandle | null
   observer: RefObserver | null
   journal: ProvenanceJournal
-  entries: readonly JournalEntry[]
+  entries: JournalEntry[]
+  journalGeneration: number
+  loadTail: Promise<void>
   seats: readonly SeatRecord[]
   facts: readonly EvidenceRecord[]
   health: CaptureHealth
@@ -46,6 +50,7 @@ interface Project {
   links: Map<string, LinkObservation>
   historical: Map<string, LinkObservation>
   observed: Set<string>
+  excluded: Set<string>
 }
 const reasons = new Set<ProvenanceReason>([
   'not-observed', 'capture-off', 'capture-stopped', 'catching-up', 'no-seat-evidence',
@@ -167,7 +172,7 @@ export class ProvenancePlane {
   #journal(project: string): ProvenanceJournal {
     let journal = this.#journals.get(project)
     if (!journal) {
-      journal = new ProvenanceJournal(join(this.#port.evidence.store.folderOf(project), 'provenance.ndjson'))
+      journal = new ProvenanceJournal(join(this.#port.evidence.store.folderOf(project), 'provenance.ndjson'), { compactOnOpen: true })
       this.#journals.set(project, journal)
     }
     return journal
@@ -183,9 +188,9 @@ export class ProvenancePlane {
   #state(project: string, handle: RepoHandle | null): Project {
     const preference = this.#preferences.get(project)
     const state: Project = {
-      project, handle, observer: null, journal: this.#journal(project), entries: [], seats: [], facts: [],
+      project, handle, observer: null, journal: this.#journal(project), entries: [], loadTail: Promise.resolve(), journalGeneration: 0, seats: [], facts: [],
       catchingUp: true, reconciler: new Reconciler((kind, reason) => this.#problem(state, kind, reason)),
-      links: new Map(), historical: new Map(), observed: new Set(),
+      links: new Map(), historical: new Map(), observed: new Set(), excluded: new Set(),
       issues: new Set(preference.problem ? [preference.problem] : []), fatal: !!preference.problem, pending: new Set(),
       health: captureHealth({
         project, enabled: preference.enabled, fatal: !!preference.problem, issues: preference.problem ? [preference.problem] : [],
@@ -195,10 +200,26 @@ export class ProvenancePlane {
     return state
   }
 
-  async #load(state: Project): Promise<void> {
-    const read = await state.journal.read({ copy: 'shallow' })
+  #load(state: Project): Promise<void> {
+    const next = state.loadTail.then(() => this.#loadTail(state))
+    state.loadTail = next.catch(() => {})
+    return next
+  }
+
+  async #loadTail(state: Project): Promise<void> {
+    const read = await state.journal.read({ copy: 'shallow', after: state.entries.length, generation: state.journalGeneration })
     if (read.broken) throw new Error('provenance-journal-damaged')
-    for (const entry of read.entries.slice(state.entries.length)) {
+    if (read.generation !== state.journalGeneration) {
+      state.entries = []
+      state.links.clear()
+      state.historical.clear()
+      state.observed.clear()
+      state.journalGeneration = read.generation
+    }
+    const slices = new WorkSlices()
+    for (const entry of read.entries) {
+      await slices.step()
+      state.entries.push(entry)
       if (entry.kind === 'link' && object(entry.value)) {
         if ('restoredAt' in entry.value) {
           const link = entry.value.data as LinkObservation
@@ -215,7 +236,6 @@ export class ProvenancePlane {
         if (commit.why) state.issues.add(commit.why === 'limit-exceeded' ? 'limit-exceeded' : 'history-gap')
       }
     }
-    state.entries = read.entries
     const seats = await this.#port.evidence.store.read(state.project, 'seats')
     const facts = await this.#port.evidence.store.read(state.project, 'evidence')
     state.issues.delete('evidence-skipped')
@@ -230,7 +250,7 @@ export class ProvenancePlane {
     if (this.#closed || this.#projects.get(state.project) !== state) return
     const preference = this.#preferences.get(state.project)
     const checkpoint = (state.observer?.checkpoint ?? readCheckpoint(state.entries)) as WorkerCheckpoint | null
-    const pending = state.pending.size + (checkpoint?.frontier.length ?? 0) + (checkpoint?.rangePending.length ?? 0)
+    const pending = state.pending.size + (checkpoint?.frontier.length ?? 0) + (checkpoint?.rangePending.filter((key) => !key.startsWith(LIMIT_PREFIX)).length ?? 0)
     state.health = captureHealth({
       project: state.project, enabled: preference.enabled, fatal: state.fatal,
       issues: [...state.issues], checkedAt: checkpoint?.scanStartedAt ?? null,
@@ -269,8 +289,29 @@ export class ProvenancePlane {
       }
       state.catchingUp = true
       const git = gitReader(state.handle, this.#port.reader)
+      const checkpoint = readCheckpoint(state.entries) as WorkerCheckpoint | null
+      const now = this.#port.now ?? Date.now
+      // Legacy desks did not save opening time: the oldest local observation
+      // conservatively recovers it. Restored records cannot widen local capture.
+      let openedAt = checkpoint?.openedAt ?? now()
+      for (const entry of state.entries) {
+        if (entry.kind === 'commit' && object(entry.value) && !('restoredAt' in entry.value)) {
+          openedAt = Math.min(openedAt, (entry.value as unknown as CommitObservation).firstSeenAt)
+        }
+      }
+      let excludedFloor = checkpoint?.historyFloor ?? Infinity
       const observer = new RefObserver({
-        git, journal: state.journal,
+        git, journal: state.journal, now, openedAt,
+        historyFloor: () => {
+          const floor = Math.max(0, state.seats.reduce((earliest, seat) =>
+            seat.restored ? earliest : Math.min(earliest, seat.openedAt), openedAt) - 86400000)
+          // An exclusion proves only that an ID predates this window. Clear
+          // before this scan adds exclusions under an earlier local Seat floor.
+          if (floor < excludedFloor) state.excluded.clear()
+          excludedFloor = Math.min(excludedFloor, floor)
+          return floor
+        },
+        outsideWindow: (sha) => { state.pending.delete(sha); state.excluded.add(sha) },
         changed: () => {
           void this.#load(state).then(() => { state.catchingUp = false; this.#publish(state) })
             .catch(() => this.#problem(state, 'stopped', 'storage-failed'))
@@ -279,7 +320,7 @@ export class ProvenancePlane {
         reconcile: (entries, checkpoint, signal) => this.#reconcile(state, entries, checkpoint, git, signal),
       })
       state.observer = observer
-      await observer.start(state.handle, readCheckpoint(state.entries) as WorkerCheckpoint | null)
+      await observer.start(state.handle, checkpoint)
       if (this.#closed) await this.#stop(state)
     } catch {
       if (!state.observer) {
@@ -316,7 +357,7 @@ export class ProvenancePlane {
     const historical = state.historical
     const requested = [...new Set(shas)]
     const enqueue = requested.filter((sha) => !known.has(sha) && !historical.has(sha) &&
-      !state.pending.has(sha) && !!state.observer && state.health.enabled && !state.fatal)
+      !state.pending.has(sha) && !state.excluded.has(sha) && !!state.observer && state.health.enabled && !state.fatal)
     for (const sha of enqueue) state.pending.add(sha)
     if (enqueue.length) {
       state.observer!.request(enqueue)
@@ -360,6 +401,7 @@ export class ProvenancePlane {
         throw error
       }
       state.pending.clear()
+      state.excluded.clear()
       state.catchingUp = enabled
       await state.journal.append('gap', {
         id: digest(['toggle', enabled, Date.now(), ++this.#revision]), reason: 'capture-toggle',
@@ -392,10 +434,12 @@ export class ProvenancePlane {
       await this.#preferences.load()
       this.#journals.delete(state.project)
       state.journal = this.#journal(state.project)
+      state.journalGeneration = 0
       state.entries = []
       state.links.clear()
       state.historical.clear()
       state.observed.clear()
+      state.excluded.clear()
       state.reconciler.reset()
       state.fatal = false
       state.issues.clear()

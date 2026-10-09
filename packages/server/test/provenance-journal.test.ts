@@ -163,7 +163,7 @@ test('an incomplete checkpoint attempt is inert and later replay deduplicates ob
 test('the latest checkpoint is read without reading the ones it superseded, and is still checked', async () => {
   const entries: JournalEntry[] = []
   const memory = {
-    append: async (kind: JournalEntry['kind'], value: unknown) => { entries.push({ seq: entries.length + 1, kind, value }) },
+    append: async (kind: JournalEntry['kind'], value: unknown) => { entries.push({ seq: entries.length + 1, kind, value }); return entries.length },
     read: async () => ({ entries: [...entries], broken: false }),
   } as unknown as ProvenanceJournal
   for (const generation of [1, 2, 3]) await writeCheckpoint(memory, { ...checkpoint(), generation })

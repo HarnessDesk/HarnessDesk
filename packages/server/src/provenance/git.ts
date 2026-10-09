@@ -24,6 +24,8 @@ export interface RefSnapshot {
 }
 
 export interface CommitObject {
+  /** Commit clock for the passive history horizon; never attribution proof. */
+  readonly committedAt?: number | null
   readonly sha: string
   readonly tree: string
   readonly parents: readonly string[]
@@ -66,6 +68,8 @@ export interface GitReader {
   snapshot(signal: AbortSignal): Promise<RefSnapshot>
   reflogs(cursors: ReadonlyMap<string, LogCursor>, signal: AbortSignal): Promise<ReflogPage>
   commit(sha: string, signal: AbortSignal): Promise<CommitObject | null>
+  /** Bounded clock-only batches; scripted readers may omit this optimization. */
+  commitTimes?(shas: readonly string[], signal: AbortSignal): Promise<ReadonlyMap<string, number | null>>
   kinds(shas: readonly string[], signal: AbortSignal): Promise<ReadonlyMap<string, string | null>>
   patch(from: string | null, to: string, signal: AbortSignal): Promise<Patch>
   files(from: string | null, to: string, signal: AbortSignal): Promise<readonly FilePatch[]>
@@ -557,12 +561,14 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
    */
   const types = new Recent<string>(8192)
   const commits = new Recent<CommitObject>(4096)
+  const clocks = new Recent<number | null>(8192)
   const peeled = new Recent<string>(1024)
   const patches = new Recent<Patch>(4096, 50_000)
   const filePatches = new Recent<{ readonly stable: string; readonly exact: string }>(8192)
   const forget = () => {
     types.clear()
     commits.clear()
+    clocks.clear()
     peeled.clear()
     patches.clear()
     filePatches.clear()
@@ -611,6 +617,36 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
   }
   const kind = async (sha: string, signal: AbortSignal): Promise<string | null> =>
     (await kindsOf([sha], signal)).get(sha) ?? null
+  const commitTimes = async (shas: readonly string[], signal: AbortSignal): Promise<Map<string, number | null>> => {
+    const answer = new Map<string, number | null>()
+    const unknown: string[] = []
+    for (const sha of new Set(shas)) {
+      const id = objectId(sha)
+      const known = clocks.get(id)
+      if (known !== undefined) answer.set(id, known)
+      else { answer.set(id, null); unknown.push(id) }
+    }
+    const types = await kindsOf(unknown, signal)
+    const pending = unknown.filter((sha) => types.get(sha) === 'commit')
+    for (let at = 0; at < pending.length; at += KIND_BATCH) {
+      const chunk = pending.slice(at, at + KIND_BATCH)
+      // --no-walk reads only the supplied objects. --stdin keeps even a large
+      // frontier out of argv; neither messages nor ancestry leave Git.
+      const lines = utf8(await run(['log', '--no-walk=unsorted', '--no-decorate', '--format=%H %ct', '--stdin'], signal,
+        Buffer.from(`${chunk.join('\n')}\n`))).trim().split('\n')
+      const remaining = new Set(chunk)
+      for (const line of lines) {
+        const match = /^([a-f0-9]+) (-?\d+)$/.exec(line)
+        if (!match || !remaining.delete(objectId(match[1]!))) fail('invalid-commit-clock')
+        const milliseconds = Number(match[2]) * 1000
+        const clock = Number.isSafeInteger(milliseconds) ? milliseconds : null
+        answer.set(match[1]!, clock)
+        clocks.set(match[1]!, clock)
+      }
+      if (remaining.size) fail('invalid-commit-clock')
+    }
+    return answer
+  }
   const commit = async (sha: string, signal: AbortSignal): Promise<CommitObject | null> => {
     const known = commits.get(objectId(sha))
     if (known) return known
@@ -621,12 +657,16 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
     const headers = utf8(bytes.subarray(0, end)).split('\n')
     const tree = headers.find((line) => line.startsWith('tree '))?.slice(5)
     if (!tree) fail('invalid-commit')
+    const timestamp = /^committer .* (-?\d+) [+-]\d{4}$/.exec(headers.find((line) => line.startsWith('committer ')) ?? '')?.[1]
+    const milliseconds = timestamp === undefined ? NaN : Number(timestamp) * 1000
     const parsed: CommitObject = Object.freeze({
+      committedAt: Number.isSafeInteger(milliseconds) ? milliseconds : null,
       sha,
       tree: objectId(tree),
       parents: Object.freeze(headers.filter((line) => line.startsWith('parent ')).map((line) => objectId(line.slice(7)))),
     })
     commits.set(sha, parsed)
+    clocks.set(sha, parsed.committedAt ?? null)
     return parsed
   }
   const peel = async (sha: string, signal: AbortSignal): Promise<string | null> => {
@@ -875,6 +915,7 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
         snapshot: async (own) => { await check(); return snapshot(within(own)) },
         reflogs: async (cursors, own) => { await check(); return reflogs(cursors, within(own)) },
         commit: async (sha, own) => { await check(); return commit(sha, within(own)) },
+        commitTimes: async (shas, own) => { await check(); return commitTimes(shas, within(own)) },
         kinds: async (shas, own) => { await check(); return kindsOf(shas, within(own)) },
         patch: async (from, to, own) => { await check(); return fingerprint(from, to, within(own)) },
         files: async (from, to, own) => { await check(); return filesOf(from, to, within(own)) },
@@ -891,6 +932,7 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
     snapshot: (signal) => batch(signal, (inside) => inside.snapshot(signal)),
     reflogs: (cursors, signal) => batch(signal, (inside) => inside.reflogs(cursors, signal)),
     commit: (sha, signal) => batch(signal, (inside) => inside.commit(sha, signal)),
+    commitTimes: (shas, signal) => batch(signal, (inside) => inside.commitTimes!(shas, signal)),
     kinds: (shas, signal) => batch(signal, (inside) => inside.kinds(shas, signal)),
     patch: (from, to, signal) => batch(signal, (inside) => inside.patch(from, to, signal)),
     files: (from, to, signal) => batch(signal, (inside) => inside.files(from, to, signal)),
@@ -905,4 +947,3 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
   }
   return reader
 }
-

@@ -7,6 +7,7 @@ import type { GitReader, LogCursor, RepoHandle, ReflogMove } from './git.js'
 import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, type JournalEntry, writeCheckpoint } from './journal.js'
 import { moves } from './model.js'
 import { backlog, type CommitObservation } from './reconcile.js'
+import { WorkSlices, type SliceOptions } from './slices.js'
 
 export interface ObserverCheckpoint {
   readonly generation: number
@@ -18,6 +19,9 @@ export interface ObserverCheckpoint {
   readonly scanStartedAt: number
 }
 export interface WorkerCheckpoint extends ObserverCheckpoint {
+  /** Absent in checkpoints written before capture had a history horizon. */
+  readonly openedAt?: number
+  readonly historyFloor?: number
   readonly rangeKeys: readonly string[]
   readonly rangePending: readonly string[]
   readonly baseline: readonly string[]
@@ -28,6 +32,9 @@ export interface RefObserverOptions {
   readonly changed: () => void
   readonly problem: (kind: 'degraded' | 'stopped', reason: string) => void
   readonly now?: () => number
+  readonly openedAt?: number
+  readonly historyFloor?: () => number
+  readonly outsideWindow?: (sha: string) => void
   readonly reconcile?: (
     entries: readonly JournalEntry[], checkpoint: WorkerCheckpoint, signal: AbortSignal,
   ) => Promise<Pick<WorkerCheckpoint, 'rangeKeys' | 'rangePending'>>
@@ -35,6 +42,7 @@ export interface RefObserverOptions {
   readonly watch?: typeof watch
   readonly pollMs?: number
   readonly debounceMs?: number
+  readonly slices?: SliceOptions
 }
 
 /** One active scan and one dirty bit, including wakes arriving between awaits. */
@@ -77,6 +85,10 @@ export class Coalesced {
 }
 
 let watchers = 0
+// Git and durable writes are asynchronous. A scan batches up to 200 visits or
+// five seconds of elapsed work; yielding separately bounds synchronous slices.
+const SCAN_ITEMS = 200
+const SCAN_MS = 5000
 /**
  * What a checkpoint durably says. Every scan moves its generation and its time
  * forward; a scan that found nothing else to record says what the last one
@@ -85,6 +97,7 @@ let watchers = 0
 const lasting = (checkpoint: WorkerCheckpoint): string => digest([
   checkpoint.refs, checkpoint.heads, checkpoint.logs, checkpoint.frontier,
   checkpoint.capturedThrough, checkpoint.baseline, checkpoint.rangeKeys, checkpoint.rangePending,
+  checkpoint.openedAt, checkpoint.historyFloor,
 ])
 const empty = (): WorkerCheckpoint => ({
   generation: 0, refs: [], heads: [], logs: [], frontier: [],
@@ -107,6 +120,7 @@ export class RefObserver {
   #poll: ReturnType<typeof setTimeout> | null = null
   #debounce: ReturnType<typeof setTimeout> | null = null
   #requested = new Set<string>()
+  #walked = new Set<string>()
 
   constructor(options: RefObserverOptions) {
     this.#options = options
@@ -233,11 +247,6 @@ export class RefObserver {
     const read = await journal.read({ copy: 'shallow' })
     if (read.broken) throw new Error('provenance-journal-damaged')
     const commits = new Map(values<CommitObservation>(read.entries, 'commit').map((entry) => [entry.sha, entry]))
-    const acknowledged = [...read.entries].reverse().find((entry) => entry.kind === 'cursor' &&
-      object(entry.value) && entry.value.type === 'checkpoint')?.seq ?? 0
-    const unacknowledged = new Set(read.entries.filter((entry) => entry.seq > acknowledged &&
-      entry.kind === 'commit' && object(entry.value) && !('restoredAt' in entry.value))
-      .map((entry) => (entry.value as CommitObservation).sha))
     const { snapshot, logs } = await git.batch(signal, async (reader) => ({
       snapshot: await reader.snapshot(signal),
       logs: await reader.reflogs(new Map(prior.logs), signal),
@@ -266,27 +275,63 @@ export class RefObserver {
       this.#options.problem('degraded', 'history-gap')
     }
     const first = prior.generation === 0
-    const tips = first ? [...snapshot.refs.values(), ...snapshot.heads.values()]
+    const openedAt = prior.openedAt ?? this.#options.openedAt ?? now()
+    const historyFloor = Math.min(prior.historyFloor ?? Infinity,
+      this.#options.historyFloor?.() ?? Math.max(0, openedAt - 86400000))
+    const earlierWindow = prior.historyFloor !== undefined && historyFloor < prior.historyFloor
+    const openingWindow = first || prior.historyFloor === undefined || earlierWindow
+    const tips = openingWindow ? [...snapshot.refs.values(), ...snapshot.heads.values()]
       : [...logs.moves, ...delta].flatMap((move) => [move.before, move.after])
     const requested = [...this.#requested]
     const frontier = [...new Set([...prior.frontier, ...tips, ...requested].filter((sha): sha is string => !!sha))]
     const baseline = first ? [...new Set(tips.filter((sha): sha is string => !!sha))] : [...prior.baseline]
-    const began = performance.now()
     const checkouts = [...this.#handle.checkouts.keys()]
     let captured = 0
+    let visited = 0
+    // Appended observations can survive a failed scan, but its frontier has
+    // not been acknowledged. Keep ancestry visits provisional until it is.
+    const walked = new Set<string>()
+    const hasWalked = (sha: string) => (!earlierWindow && this.#walked.has(sha)) || walked.has(sha)
     // One check of the repository's metadata covers everything this batch reads.
     await git.batch(signal, async (reader) => {
-      while (frontier.length && captured < 200 && performance.now() - began < 50) {
+      const unread = frontier.filter((sha) => !hasWalked(sha))
+      if (unread.length && reader.commitTimes) {
+        const clocks = await reader.commitTimes(unread, signal)
+        const remaining: string[] = []
+        const slices = new WorkSlices()
+        for (const sha of frontier) {
+          signal.throwIfAborted()
+          await slices.step()
+          const clock = clocks.get(sha)
+          if (clock !== undefined && clock !== null && clock < historyFloor) {
+            walked.add(sha)
+            this.#options.outsideWindow?.(sha)
+          } else remaining.push(sha)
+        }
+        frontier.splice(0, frontier.length, ...remaining)
+      }
+      const began = performance.now()
+      const slices = new WorkSlices(this.#options.slices)
+      while (frontier.length && visited < SCAN_ITEMS && performance.now() - began < SCAN_MS) {
         signal.throwIfAborted()
+        await slices.step()
         const sha = frontier.shift()!
+        visited += 1
+        if (hasWalked(sha)) continue
         const existing = commits.get(sha)
-        if (existing) {
-          if (unacknowledged.delete(sha) && !first && !baseline.includes(sha)) {
-            for (const parent of existing.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-          }
+        const object = await reader.commit(sha, signal)
+        // A commit clock only bounds passive discovery. Existing observations
+        // remain intact, and admitted diff facts are still read by Reconciler.
+        if (object?.committedAt !== undefined && object.committedAt !== null && object.committedAt < historyFloor) {
+          walked.add(sha)
+          this.#options.outsideWindow?.(sha)
           continue
         }
-        const object = await reader.commit(sha, signal)
+        if (existing) {
+          for (const parent of existing.parents) if (!hasWalked(parent) && !frontier.includes(parent)) frontier.push(parent)
+          walked.add(sha)
+          continue
+        }
         if (!object) {
           // Refs retain tag object IDs. A bounded rev-list peels a tag without
           // executing project configuration or traversing its whole ancestry.
@@ -296,7 +341,6 @@ export class RefObserver {
           if (target && target !== sha) {
             if (first && !baseline.includes(target)) baseline.push(target)
             if (!commits.has(target) && !frontier.includes(target)) frontier.unshift(target)
-            captured += 1
             continue
           }
         }
@@ -323,9 +367,8 @@ export class RefObserver {
         await journal.append('commit', observation)
         commits.set(sha, observation)
         if (observation.why) this.#options.problem('degraded', observation.why === 'limit-exceeded' ? 'limit-exceeded' : 'history-gap')
-        if (!first && !baseline.includes(sha)) {
-          for (const parent of observation.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-        }
+        for (const parent of observation.parents) if (!hasWalked(parent) && !frontier.includes(parent)) frontier.push(parent)
+        walked.add(sha)
         captured += 1
       }
     })
@@ -333,7 +376,7 @@ export class RefObserver {
     let next: WorkerCheckpoint = {
       generation, refs: [...snapshot.refs], heads: [...snapshot.heads], logs: [...logs.cursors],
       frontier, capturedThrough: captured ? now() : prior.capturedThrough, scanStartedAt: snapshot.takenAt,
-      baseline, rangeKeys: prior.rangeKeys, rangePending: prior.rangePending,
+      baseline, openedAt, historyFloor, rangeKeys: prior.rangeKeys, rangePending: prior.rangePending,
     }
     if (this.#options.reconcile) {
       const ranges = await this.#options.reconcile((await journal.read({ copy: 'shallow' })).entries, next, signal)
@@ -341,11 +384,21 @@ export class RefObserver {
     }
     signal.throwIfAborted()
     const durable = lasting(next)
-    if (durable !== this.#written) {
+    const priorState = lasting(prior)
+    const onlyFrontier = captured === 0 && lasting({ ...next, frontier: prior.frontier }) === priorState
+    // Below-floor IDs and walks through durable observations are disposable
+    // work: the saved cursor and observed parent edges can replay them. Peeling
+    // a tag is not a capture. Frontier-only progress must not rewrite the full
+    // range index or advance capturedThrough while no new observation is made.
+    if (durable !== this.#written && durable !== priorState && !onlyFrontier) {
       await writeCheckpoint(journal, next)
       this.#written = durable
     }
     this.#checkpoint = next
+    // A lower floor makes previously excluded ancestry eligible again. Reset
+    // the successful-scan cache only after this wider window is acknowledged.
+    if (earlierWindow) this.#walked.clear()
+    for (const sha of walked) this.#walked.add(sha)
     for (const sha of requested) this.#requested.delete(sha)
     await this.#attach()
     this.#options.changed()
