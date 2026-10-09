@@ -73,6 +73,36 @@ beforeEach(() => {
 
 const panesOf = () => panes(store.getSnapshot().layout.root)
 
+it('a metadata-only reconnect keeps an already displayed transcript after the host unloads it', async () => {
+  const full = session({ turns: [{ id: turnId('finished'), status: 'completed',
+    items: [{ id: itemId('output'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false, status: { type: 'notLoaded' } })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+  expect(store.getSnapshot().sessions.get(KEY)?.itemsLoaded).toBe(true)
+})
+
+it('reconnect reloads a visible turn that finished while this window was away', async () => {
+  answers['session/read'] = working
+  answers['session/resume'] = working
+  await store.openSession(ID, { runtime: RUNTIME })
+  const completed = session({ turns: working.turns.map(turn => ({ ...turn, status: 'completed' })) })
+  answers['session/read'] = completed
+  answers['session/resume'] = completed
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns[0]?.status).toBe('completed'))
+})
+
 describe('opening a conversation', () => {
   it('adds a searched session to history once it is opened', async () => {
     const searched = session({

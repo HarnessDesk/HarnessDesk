@@ -212,6 +212,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   agent interactions, such as command executions"; Cursor keeps nothing
   readable; ACP replay is lossy. The host's copy is what a reopened
   conversation shows, enriched with tokens remembered across restarts.
+  Closed, quiet conversations retain only metadata and reopen state in the
+  registry. Their bodies, watched-turn ids, write queues, fingerprints and
+  insight contexts leave memory after a successful SQLite save. A failed save
+  keeps the body; a read or reopen overtaking the save keeps its newer state.
+  Reading a closed conversation returns its full durable transcript without
+  retaining the body in the next sync. Working conversations keep their live
+  bodies, approvals and queued input. Removed workspace folders are excluded
+  from capture and roster watches when the project set next reconciles.
 - **Approvals and the permission engine** — one policy, applied before any
   backend's own question reaches the user, and one append-only audit log
   (`audit.ndjson`).

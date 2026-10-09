@@ -48,6 +48,10 @@ export class TranscriptDatabase {
   constructor(readonly file: string) {}
   get db(): DatabaseSync { return this.#db ??= openSessionDatabase(this.file) }
 
+  releaseMemory(runtime: RuntimeId, id: SessionId): void {
+    this.#fingerprints.delete(JSON.stringify([runtime, id]))
+  }
+
   read(runtime: string, id: string, messagesOnly = false): Stored | null {
     const row = this.db.prepare('SELECT payload FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
     if (!row) return null

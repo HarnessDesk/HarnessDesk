@@ -575,7 +575,17 @@ export class AppStore {
             : []
           for (const session of rawSessions) {
             if (session && typeof session === 'object' && session.runtime && session.id) {
-              sessions.set(sessionKey(session.runtime, session.id), this.#pendingConversationNotices.apply(session))
+              const key = sessionKey(session.runtime, session.id)
+              const held = this.#snapshot.sessions.get(key)
+              // A closed body's metadata is silent about the transcript this
+              // window already shows. A full sync still replaces it outright.
+              let synced = !session.itemsLoaded && held ? mergeRead(held, session) : session
+              if (!session.itemsLoaded && session.status.type !== 'active' && held?.turns.some(turn => turn.status === 'inProgress')) {
+                // Completion may have arrived while disconnected. Keep the
+                // displayed text until the visible pane reads the final body.
+                synced = { ...synced, itemsLoaded: false }
+              }
+              sessions.set(key, this.#pendingConversationNotices.apply(synced))
             }
           }
           // Replaced, not merged: the host sends every queue that has anything
@@ -614,6 +624,7 @@ export class AppStore {
           for (const runtime of runtimes) this.#historyRemovedRuntimes.delete(runtime.id)
           if (this.#historyLoaded || this.#historyPageChanges) void this.loadHistory({ reset: true, reconcile: true })
           void this.refreshRuntime()
+          void this.#resumeVisible()
         }
         if (notification.method === 'extension') {
           this.#onExtensionEvent(notification.params.event)
@@ -4202,7 +4213,7 @@ export class AppStore {
       if (!session) continue
       this.#markPreview(session)
       const known = this.#snapshot.sessions.get(session)
-      if (known?.status.type === 'active' || known?.status.type === 'idle') continue
+      if (known?.itemsLoaded && (known.status.type === 'active' || known.status.type === 'idle')) continue
       const { runtime, id } = splitSessionKey(session)
       await this.openSession(id, { runtime, restoring: true, ...(docked ? { reveal: false } : {}) })
     }

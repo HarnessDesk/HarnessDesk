@@ -12,6 +12,7 @@ import {
 import { panes, sessionOf } from './layout'
 import { mountedViews } from './workbench'
 import { AppStore } from './store'
+import type { TransportEvents } from '../lib/transport'
 
 /**
  * Where a draft starts, and the way back from a worktree.
@@ -366,6 +367,16 @@ describe('restoring a layout with a conversation docked', () => {
 
     expect(panes(store.getSnapshot().layout.root).map(sessionOf)).toEqual([inFront])
     expect(store.getSnapshot().activeSessionKey).toBe(inFront)
+  })
+
+  it('loads a visible idle transcript that sync supplied as unloaded metadata', async () => {
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    transport.handlers.onEvent(AGENT, { type: 'session/started', session: {
+      ...conversation('s-1', REPO.path), itemsLoaded: false,
+    } })
+    await restore()
+    expect(calls('session/read')).toContainEqual({ runtime: AGENT, sessionId: sessionId('s-1') })
+    expect(store.getSnapshot().sessions.get(inFront)?.itemsLoaded).toBe(true)
   })
 
   it('resumes the docked one where it is, rather than not at all', async () => {

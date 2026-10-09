@@ -80,6 +80,7 @@ const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sess
        addressed to it. Closing a pane is window management; leaving a room
        is releasing its durable Goal Seat. */
     record.detached = false
+    await ctx.sessions.releaseBody(params)
   }
   return null
 }
@@ -136,8 +137,10 @@ export const sessionMethods = {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
     ctx.sessionIndex.reopen(session)
-    // Cache it so a reconnecting client gets the transcript from sync.
-    return ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null).session
+    const record = ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
+    const read = record.session
+    if (!record.live) await ctx.sessions.releaseBody({ runtime: read.runtime, sessionId: read.id })
+    return read
   },
 
   'session/create': async (ctx, params) => {

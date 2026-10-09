@@ -193,7 +193,7 @@ const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
 
 export class TranscriptStore {
   readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session; insight: readonly TurnInsightContext[] }>()
-  readonly #writes = new Map<string, Promise<void>>()
+  readonly #writes = new Map<string, Promise<boolean>>()
   readonly #insight = new Map<string, readonly TurnInsightContext[]>()
   readonly #database: TranscriptDatabase
   readonly #snapshots: DailySessionSnapshots
@@ -249,7 +249,7 @@ export class TranscriptStore {
     this.#pending.set(key, { timer, session, insight: this.#insight.get(key) ?? [] })
   }
 
-  async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source: SessionSource | null }): Promise<void> {
+  async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source: SessionSource | null }): Promise<boolean> {
     const key = keyOf(session.runtime, session.id)
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
@@ -292,13 +292,30 @@ export class TranscriptStore {
         this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source })
         this.#snapshots.schedule()
         this.onWrite()
+        return true
       } catch (error) {
         this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',
           { session: session.id, error: String(error) })
+        return false
       }
     })
     this.#writes.set(key, next)
-    await next
+    try { return await next }
+    finally { if (this.#writes.get(key) === next) this.#writes.delete(key) }
+  }
+
+  /** Persist before a closed handle lets go of its body; a failed save keeps it in memory. */
+  async release(session: Session): Promise<boolean> {
+    const key = keyOf(session.runtime, session.id)
+    const pending = this.#pending.get(key)
+    if (pending) clearTimeout(pending.timer)
+    this.#pending.delete(key)
+    const saved = await this.#write(session, this.#insight.get(key) ?? [])
+    if (saved && !this.#pending.has(key) && !this.#writes.has(key)) {
+      this.#insight.delete(key)
+      this.#database.releaseMemory(session.runtime, session.id)
+    }
+    return saved
   }
 
   /** Flush a pending settle before reading, or await this conversation's in-flight write.
