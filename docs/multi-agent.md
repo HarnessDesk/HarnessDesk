@@ -465,6 +465,21 @@ Run and round stay **Waiting to post**, with that reason visible, while held. A
 readiness check that cannot finish leaves a stated reason and waits for a
 person to post again.
 
+A review-first card can judge an open pull request the Team did not open:
+the host observes the Team's bound PR, or the PR number or GitHub pull-request
+URL named on the card, and seats the review at that head, including after
+a person or read-only step that supplied no writer revision. A Run started
+at a resolved branch, diff or PR keeps its frozen target; observing a moved
+PR refuses candidates instead of moving the review's checkout. `review_candidates`
+never substitutes a PR for a working-tree review: its reviewers keep the
+selected checkout, and the card explains that its snapshot has no committed
+candidate, even if the checkout later becomes clean. For a committed review it
+offers that observed revision for `raise_finding` and `record_review`; a moved
+head invalidates an earlier candidate. When no candidate is available, the
+card and the candidate call say why. Closing a review round without a recorded
+review refuses publication with a visible reason; a handoff verdict alone
+cannot count as a posted review.
+
 If an agent must abandon a task, it calls `release_claim(intent, reason?,
 blocked?)`:
 - Passing `blocked: false` returns the intent to Ready and frees its files.
