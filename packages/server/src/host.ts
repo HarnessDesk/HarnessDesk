@@ -4878,7 +4878,10 @@ export class Host {
         if (restored) {
           await this.#archive.load()
           const native = this.#runtimes.get(restored.runtime)?.info.capabilities.archiveHistory
-          this.#sessionIndex.upsert({ ...restored, title: this.#names.nameOf(restored.runtime, restored.id) ?? restored.title }, {
+          const title = this.#names.nameOf(restored.runtime, restored.id) ?? restored.title ?? null
+          // A verified restore is an explicit metadata replacement, not a listing.
+          this.#sessionIndex.setTitle(restored.runtime, restored.id, title)
+          this.#sessionIndex.upsert({ ...restored, title }, {
             teamId: this.#indexTeamOf(restored.runtime, restored.id),
             ...(native !== false ? { archived: null } : { archived: this.#archive.has(restored.runtime, restored.id) }),
           })

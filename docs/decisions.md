@@ -43,7 +43,11 @@ pages its own history in transactions and records progress, failure or
 cancellation in the same database. Native archive state comes from both archive
 listings, while newer archive actions here win over an in-flight scan; other
 agents use the host's archive marks. Desk rows keep their origin
-and body, and removal tombstones are never revived. Completed rescans are
+and body, and removal tombstones are never revived. Imports and ordinary
+metadata observations fill a missing title without replacing one already kept;
+an explicit rename wins even before its metadata row arrives. Renaming a
+preview retains its imported origin. A verified backup restore can replace
+metadata with the restored version. Completed rescans are
 throttled to once a minute; failures and cancellation can be retried immediately.
 Import does no Git work. The History query matches titles literally and pages
 by update time, runtime and id. Unfiltered pages check only displayed folders;

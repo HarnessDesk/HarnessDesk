@@ -86,6 +86,30 @@ test('writes preserve archive and Team membership and coalesce change events', a
   } finally { index.close() }
 })
 
+test('renames survive imported pages and ordinary metadata refreshes without changing origin', async t => {
+  for (const initial of ['unseen', 'imported', 'desk'] as const) await t.test(initial, () => {
+    const index = new SessionIndex(':memory:')
+    const id = idOf('renamed')
+    const title = 'Review the startup policy'
+    try {
+      if (initial !== 'unseen') index.upsert(row(id), { origin: initial })
+      index.setTitle(runtime, id, title)
+      index.importPage([row(id, 20)], () => false)
+      const list = () => initial === 'desk' ? index.list() : index.history()
+      assert.equal(list().data[0]?.title, title, 'the imported title cannot replace the rename')
+      index.importPage([{ ...row(id, 30), title: null }], () => false)
+      assert.equal(list().data[0]?.title, title, 'a listing without a title keeps the rename')
+      index.upsert(row(id, 40), { origin: 'imported' })
+      assert.equal(list().data[0]?.title, title, 'an ordinary write cannot replace the rename')
+      index.setTitle(runtime, id, 'A later choice')
+      index.upsert(row(id, 50), { origin: 'imported' })
+      assert.equal(list().data[0]?.title, 'A later choice', 'an explicit later rename still wins')
+      assert.equal(list().data[0]?.updatedAt, 50, 'other metadata still refreshes')
+      assert.equal(index.isImported(runtime, id), initial !== 'desk')
+    } finally { index.close() }
+  })
+})
+
 test('repository answers persist, enrich rows and notify only eligible rows', async () => {
   const home = await mkdtemp(join(tmpdir(), 'hd-session-index-'))
   const file = join(home, 'sessions.sqlite')

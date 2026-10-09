@@ -71,7 +71,7 @@ export class SessionIndex {
     this.#write = this.#db.prepare(`INSERT INTO sessions
       (runtime,id,origin,title,preview,cwd,repo_root,created_at,updated_at,archived,team_id,status,git)
       VALUES (?,?,?,?,?,?,(SELECT repo_root FROM repos WHERE cwd = ?),?,?,?,?,?,?)
-      ON CONFLICT(runtime,id) DO UPDATE SET title=excluded.title,preview=excluded.preview,
+      ON CONFLICT(runtime,id) DO UPDATE SET title=COALESCE(sessions.title,excluded.title),preview=excluded.preview,
         cwd=excluded.cwd,repo_root=excluded.repo_root,created_at=excluded.created_at,updated_at=excluded.updated_at,
         archived=COALESCE(?,sessions.archived),team_id=CASE WHEN ? THEN excluded.team_id ELSE sessions.team_id END,
         status=excluded.status,git=excluded.git`)
@@ -120,6 +120,8 @@ export class SessionIndex {
       const facts = this.#facts(summary.runtime, summary.id)
       const archived = options.archived === undefined ? facts.archived : options.archived
       const teamId = options.teamId === undefined ? facts.teamId : options.teamId
+      if (facts.title !== undefined) this.#db.prepare('UPDATE sessions SET title=? WHERE runtime=? AND id=? AND removed_at IS NULL')
+        .run(facts.title, summary.runtime, summary.id)
       this.#write.run(summary.runtime, summary.id, options.origin ?? 'desk', facts.title === undefined ? summary.title ?? null : facts.title,
         summary.preview ?? null, summary.cwd, summary.cwd, summary.createdAt, summary.updatedAt,
         archived === null ? null : Number(archived ?? summary.archived ?? false), teamId ?? null, JSON.stringify(summary.status),
@@ -178,7 +180,7 @@ export class SessionIndex {
       const write = this.#db.prepare(`INSERT INTO sessions(runtime,id,origin,title,cwd,repo_root,created_at,updated_at,archived)
         VALUES(?,?,'imported',?,?,(SELECT repo_root FROM repos WHERE cwd=?),?,?,?)
         ON CONFLICT(runtime,id) DO UPDATE SET
-          title=CASE WHEN sessions.origin='imported' THEN excluded.title ELSE sessions.title END,
+          title=COALESCE(sessions.title,excluded.title),
           cwd=CASE WHEN sessions.origin='imported' THEN excluded.cwd ELSE sessions.cwd END,
           repo_root=CASE WHEN sessions.origin='imported' THEN excluded.repo_root ELSE sessions.repo_root END,
           created_at=CASE WHEN sessions.origin='imported' THEN excluded.created_at ELSE sessions.created_at END,
@@ -187,14 +189,17 @@ export class SessionIndex {
       for (const row of rows) {
         const previous = this.#row(row.runtime, row.id)
         if (previous?.removed_at != null) continue
-        const { archived: pendingArchive, ...pending } = this.#facts(row.runtime, row.id)
+        const { archived: pendingArchive, title: pendingTitle, ...pending } = this.#facts(row.runtime, row.id)
         // A null observation is stale. Keep an action on an existing row or
         // the pending mark for a conversation this page has not inserted yet.
         const observed = archivedOf(row) ?? previous?.archived ?? pendingArchive ?? null
         const archived = observed === null ? null : Number(observed)
-        write.run(row.runtime, row.id, row.title ?? null, row.cwd, row.cwd, row.createdAt, row.updatedAt, archived)
-        // The row now owns archive state; leave other deferred facts for upsert.
-        if (pendingArchive !== undefined) {
+        write.run(row.runtime, row.id, pendingTitle === undefined ? row.title ?? null : pendingTitle,
+          row.cwd, row.cwd, row.createdAt, row.updatedAt, archived)
+        if (pendingTitle !== undefined) this.#db.prepare('UPDATE sessions SET title=? WHERE runtime=? AND id=?')
+          .run(pendingTitle, row.runtime, row.id)
+        // The row now owns the name and archive state; leave Team facts for upsert.
+        if (pendingArchive !== undefined || pendingTitle !== undefined) {
           this.#clearFacts(row.runtime, row.id)
           if (Object.keys(pending).length) this.#saveFacts(row.runtime, row.id, pending)
         }

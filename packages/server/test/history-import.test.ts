@@ -119,6 +119,31 @@ test('native import pages cannot overwrite newer archive or unarchive actions', 
   })
 })
 
+test('a host-only rename survives import and later transcript reads, including before metadata exists', async t => {
+  for (const indexed of [false, true]) await t.test(indexed ? 'indexed preview' : 'unseen history', async t => {
+    const { host, runtime, root } = fixture(t)
+    const target = sessionId('renamed')
+    Object.assign(runtime.info, { capabilities: { ...runtime.info.capabilities, nameHistory: false } })
+    const title = 'Review the startup policy'
+    const listed = row(target)
+    runtime.history.push(listed)
+    if (indexed) {
+      const index = new SessionIndex(join(root, 'sessions.sqlite'))
+      index.upsert(listed, { origin: 'imported' })
+      index.close()
+    }
+    host.register(runtime)
+    await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: target, title })
+    await host.call('history/import', { runtime: runtime.info.id })
+    assert.equal((await finished(host)).state, 'done')
+    const history = () => host.call('history/list', { runtimes: [runtime.info.id], query: title })
+    assert.equal((await history()).data[0]?.title, title, 'import cannot replace the chosen name')
+    await host.call('session/read', { runtime: runtime.info.id, sessionId: target })
+    assert.equal((await history()).data[0]?.title, title, 'a later transcript refresh keeps the name')
+    assert.equal((await host.call('session/index', { runtimes: [runtime.info.id] })).data.length, 0, 'rename and read do not adopt a preview')
+  })
+})
+
 test('the first project-filtered History page resolves cold folders beyond the unfiltered first page', async t => {
   const { host, runtime, root } = fixture(t)
   const canonicalRoot = await realpath(root)
