@@ -33,3 +33,17 @@ test('index runtime filters carry account identities and validate their shape', 
   assert.throws(() => request({ runtimes: 'agent' }), ValidationError)
   assert.throws(() => request({ runtimes: [3] }), ValidationError)
 })
+
+test('history jobs require runtime identities and History paging validates every filter', () => {
+  const history = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
+  for (const method of ['history/import', 'history/cancel', 'history/status', 'history/removeImported']) {
+    assert.deepEqual(history(method, { runtime: 'synthetic' }).params, { runtime: 'synthetic' })
+    assert.throws(() => history(method, {}), ValidationError)
+  }
+  assert.equal(history('history/clearCached', {}).method, 'history/clearCached')
+  assert.deepEqual(history('history/list', { runtimes: ['synthetic'], repoRoot: '/synthetic', query: '%_', includeHidden: true, pageSize: 500, cursor: undefined }).params,
+    { runtimes: ['synthetic'], repoRoot: '/synthetic', query: '%_', includeHidden: true, pageSize: 500, cursor: undefined })
+  for (const params of [{ pageSize: 501 }, { pageSize: 1.5 }, { pageSize: 0 }, { includeHidden: 1 }, { query: 2 }, { runtimes: [2] }, { repoRoot: false }]) {
+    assert.throws(() => history('history/list', params), ValidationError)
+  }
+})
