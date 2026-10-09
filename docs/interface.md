@@ -452,7 +452,10 @@ Settings › Conversations › History lists metadata imported from an agent's
 settings page. The command palette also reaches History by name. Agent and
 project filters, title search and Show hidden narrow a windowed list; an
 Archived chip records the agent's archive state. Opening a row previews it in
-the main pane. Sending a message adds it to the sidebar.
+the main pane. Sending a message adds it to the sidebar. Its row menu offers
+Hide from HarnessDesk with Undo, leaving the agent's files alone, and Delete
+everywhere with the shared Trash confirmation. Unsupported deletion stays
+greyed with its reason on hover; hidden rows omit Hide.
 
 An importable runtime's page has a History section: Import history, a running
 count with Cancel, or the imported count and last scan with Rescan, Browse and

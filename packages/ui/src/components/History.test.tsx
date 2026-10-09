@@ -173,3 +173,68 @@ it.each(['index', 'focus'] as const)('keeps loaded pages and scroll while refres
   await act(async () => {})
   expect(box.querySelector<HTMLDivElement>('[data-history-scroll]')?.scrollTop).toBe(0)
 })
+
+
+it('hides with the landed Remove and Undo path without opening the preview', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let removed = false
+  const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { removed?: boolean; includeHidden?: boolean }) => {
+    if (method === 'history/list') return { data: removed && !params.includeHidden ? [] : [row('Imported', { hidden: removed })], nextCursor: null }
+    if (method === 'session/remove') {
+      removed = params.removed === true
+      ;(store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [{ runtime: info.id, id: sessionId('Imported') }] } })
+      return { undoUntil: Date.now() + 8000 }
+    }
+    return null
+  }) as never)
+  const open = vi.spyOn(store, 'openSession')
+  await act(async () => root.render(<StoreProvider store={store}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const actions = box.querySelector<HTMLButtonElement>('[aria-label="Imported actions"]')
+  expect(actions).not.toBeNull()
+  await act(async () => actions!.click())
+  const hide = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent === 'Hide from HarnessDesk')!
+  await act(async () => hide.click())
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(spy).toHaveBeenCalledWith('session/remove', { runtime: info.id, sessionId: sessionId('Imported'), removed: true })
+  expect(box.textContent).not.toContain('Imported')
+  expect(open).not.toHaveBeenCalled()
+  const notice = store.getSnapshot().notices.at(-1)!
+  expect(notice.action?.label).toBe('Undo')
+  await act(async () => notice.action!.run())
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(spy).toHaveBeenCalledWith('session/remove', { runtime: info.id, sessionId: sessionId('Imported'), removed: false })
+  expect(box.textContent).toContain('Imported')
+})
+
+it.each(['trash', 'erase', false] as const)('uses the declared delete disposition (%s)', async (disposition) => {
+  await mount()
+  const snapshot = own.getSnapshot()
+  const configured = { ...snapshot, runtimes: [{ ...info, capabilities: { ...info.capabilities, deleteHistory: disposition } }] }
+  own.getSnapshot = () => configured
+  own.deleteSession = vi.fn(async () => ({ disposition: 'trash' })) as unknown as AppStore['deleteSession']
+  own.notice = vi.fn()
+  await act(async () => root.render(<StoreProvider store={own}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const actions = box.querySelector<HTMLButtonElement>('[aria-label="Imported actions"]')
+  expect(actions).not.toBeNull()
+  await act(async () => actions!.click())
+  const deletion = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent === 'Delete everywhere…')!
+  expect(deletion.getAttribute('aria-disabled') === 'true').toBe(disposition !== 'trash')
+  if (disposition !== 'trash') {
+    expect(deletion.title).toBe(disposition === 'erase' ? 'Alpha erases it for good, so delete it there' : 'Alpha keeps no way to delete one.')
+  } else {
+    await act(async () => deletion.click())
+    expect(document.body.textContent).toContain('Delete "Imported" everywhere?')
+    expect(own.deleteSession).not.toHaveBeenCalled()
+    await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(el => el.textContent === 'Move to Trash')!.click())
+    expect(own.deleteSession).toHaveBeenCalledWith(sessionId('Imported'), info.id)
+  }
+  expect(own.openSession).not.toHaveBeenCalled()
+})
+
+
+it('omits Hide for a row already hidden', async () => {
+  await mount(done, false, [row('Hidden import', { hidden: true })])
+  await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="Hidden import actions"]')!.click())
+  expect([...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].some(el => el.textContent === 'Hide from HarnessDesk')).toBe(false)
+  expect(document.body.textContent).toContain('Delete everywhere…')
+})
