@@ -148,7 +148,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(empty?.textContent).toContain('No sessions yet.')
   })
 
-  it('shows one query-specific empty state and clears back to the conversation list', async () => {
+  it.each(['no matches', 'Agent-filtered matches'])('shows one clearable empty state with %s', async (scenario) => {
     const conversation: SessionSummary = {
       id: sessionId('retry'),
       runtime: CLAUDE,
@@ -169,10 +169,14 @@ describe('Sidebar readiness with active runtime (#382)', () => {
       workspace: { path: '/workspace/repo', git: { branch: 'main' } } as AppSnapshot['workspace'],
       history: [conversation],
       historyIdentity: [conversation],
+      listPrefs: { ...emptySnapshot().listPrefs, agent: CLAUDE },
     }
     const listeners = new Set<() => void>()
     const searchHistory = vi.fn(async (query: string) => {
-      snapshot = { ...snapshot, history: query.trim() ? [] : [conversation], historyLoading: false }
+      const matches: SessionSummary[] = scenario === 'no matches'
+        ? []
+        : [{ ...conversation, id: sessionId('excluded-match'), runtime: CODEX, title: 'Needle in another agent' }]
+      snapshot = { ...snapshot, history: query.trim() ? matches : [conversation], historyLoading: false }
       for (const listener of listeners) listener()
     })
     const store = {
@@ -218,6 +222,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(container.textContent?.match(/No conversations match “needle”\./g)).toHaveLength(1)
     expect(container.textContent).not.toContain('No conversations yet')
     expect(empty?.querySelector('button')?.textContent).toBe('Clear search')
+    expect(container.textContent).not.toContain('Needle in another agent')
 
     act(() => empty?.querySelector<HTMLButtonElement>('button')?.click())
     expect(filter.value).toBe('')

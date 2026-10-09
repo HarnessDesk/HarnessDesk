@@ -257,7 +257,7 @@ export const Sidebar = ({
           <SessionTree
             now={now}
             searching={searchQuery.length > 0}
-            searchEmptyState={searchQuery && snapshot.history.length === 0 && !snapshot.historyLoading ? (
+            searchEmptyState={searchQuery && !snapshot.historyLoading ? (
               <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
                 {' '}
                 <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
