@@ -582,7 +582,7 @@ export class AppStore {
               const synced = !session.itemsLoaded && held
                 // Entire turns may have arrived while disconnected. Keep the
                 // displayed text until the visible pane reads the latest body.
-                ? { ...mergeRead(held, session), itemsLoaded: false }
+                ? { ...mergeRead(held, session), turns: held.turns, itemsLoaded: false }
                 : session
               sessions.set(key, this.#pendingConversationNotices.apply(synced))
             }
@@ -2423,9 +2423,11 @@ export class AppStore {
     // already on screen included, which moves nothing the rule in `#patch` sees.
     if (options.reveal !== false && !options.restoring) this.closeFloatingSidebar()
     this.#setLoading(key, true)
+    let readSucceeded = false
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
       this.#setSession(session)
+      readSucceeded = true
       if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
@@ -2465,7 +2467,7 @@ export class AppStore {
       if (goneFolder !== null) {
         this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
       }
-      if (!painted || (options.restoring && !isHeldElsewhere(error) && !isFolderGone(error))) {
+      if (!painted || (options.restoring && !readSucceeded && !isHeldElsewhere(error) && !isFolderGone(error))) {
         // The composer stays editable while reading. Save its live draft
         // before clearing the key, where the fresh composer can restore it.
         // A repeated refusal must not save the same draft a second time.
@@ -2481,8 +2483,8 @@ export class AppStore {
         }
         // Without a transcript this is a draft, so its next message must
         // create a conversation rather than address the failed one. On a
-        // restore, keep the existing cleanup for other reopening failures;
-        // held or folder-gone transcripts remain readable. Match the key,
+        // restore, keep the existing cleanup when the read itself failed;
+        // a refused resume cannot erase readable history. Match the key,
         // because a delayed refusal may arrive after the person moved on.
         const pane = panes(this.#snapshot.layout.root).find(
           (candidate) => sessionOf(candidate) === key,

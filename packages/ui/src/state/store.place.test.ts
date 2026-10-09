@@ -395,6 +395,21 @@ describe('restoring a layout with a conversation docked', () => {
     expect(JSON.stringify(calls('session/resume'))).toContain('s-2')
   })
 
+  it('keeps a restored docked transcript when its read succeeds but resume is refused', async () => {
+    await restore()
+    const mounted = mountedViews(store.getSnapshot().workbench)
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName, params: never) => {
+      if (method === 'session/resume') throw Object.assign(new Error('The agent is unavailable.'), { code: 'runtimeUnavailable' })
+      return method === 'session/read' ? conversation(idOf(params), REPO.path) : null
+    }) as never)
+
+    await store.openSession(sessionId('s-2'), { runtime: AGENT, restoring: true, reveal: false })
+
+    expect(mountedViews(store.getSnapshot().workbench)).toEqual(mounted)
+    expect(store.getSnapshot().activeSessionKey).toBe(inFront)
+    expect(store.getSnapshot().sessions.get(docked)?.itemsLoaded).toBe(true)
+  })
+
   it('takes the panel down when the host removes the docked one, and leaves the one in front', async () => {
     await restore()
     const transport = store.transport as unknown as {
