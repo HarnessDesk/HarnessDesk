@@ -43,6 +43,7 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: readonly Shortcut[] = [
+  { action: 'new-team', label: 'New Team…', key: 'n', shift: true, group: 'Sessions' },
   { action: 'new-session', label: 'New session', key: 'n', group: 'Sessions' },
   { action: 'open-folder', label: 'Open folder…', key: 'o', group: 'Sessions' },
   { action: 'close-pane', label: 'Close the focused pane', key: 'w', group: 'Sessions' },

@@ -6,7 +6,7 @@ import { BandHead } from './shared'
 import styles from './usage.module.css'
 
 const INSIGHT_OPTIONS = [
-  { value: 'goal', label: 'By Goal' },
+  { value: 'goal', label: 'By Team' },
   { value: 'agent', label: 'By Agent' },
 ] as const
 

@@ -1,5 +1,6 @@
 version: 2
 name: "Investigation"
+summary: "One agent answers a question; you read the evidence."
 description: "A researcher answers a question and commits its answer where the diff itself is the evidence a person reads before closing it out."
 inputs:
   question:

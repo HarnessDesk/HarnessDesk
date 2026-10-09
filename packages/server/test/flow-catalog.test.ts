@@ -102,6 +102,16 @@ const agents = (name: string, layout?: unknown) => [
   '',
 ].join('\n')
 
+test('catalogue carries the short summary separately from the full description', async () => {
+  const project = tempDir('hd-flow-summary-')
+  const flows = join(project, '.harnessdesk', 'flows')
+  await mkdir(flows, { recursive: true })
+  await writeFile(join(flows, 'review.yml'), `${agents('Review')}\nsummary: A fresh pair of eyes.\ndescription: All the details. Another sentence.\n`)
+  const [entry] = await new FlowCatalog({ confine: async () => {} }).list(project)
+  assert.equal(entry?.summary, 'A fresh pair of eyes.')
+  assert.equal(entry?.description, 'All the details. Another sentence.')
+})
+
 test('the catalogue carries a v2 flow’s own front-door order and contexts, read once with its name', async () => {
   const scratch = tempDir('hd-flow-catalog-')
   const project = join(scratch, 'project')

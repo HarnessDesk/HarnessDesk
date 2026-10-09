@@ -19,6 +19,20 @@ const checkPolicy = (check: Record<string, unknown>) => ({
   seed: { role: 'verify', title: 'Verify' },
 })
 
+test('shape summaries are optional short single lines, with refusals at their field', () => {
+  const policy = checkPolicy({})
+  assert.doesNotThrow(() => request('authoring/shape/render', { policy }))
+  const accepted = request('authoring/shape/render', { policy: { ...policy, summary: 'A short overview.' } })
+  assert.equal((accepted.params as HostParams<'authoring/shape/render'>).policy.summary, 'A short overview.')
+  for (const summary of ['', ' ', 'x'.repeat(241), 'Two\nlines', 1, [], null]) {
+    assert.throws(() => request('authoring/shape/render', { policy: { ...policy, summary } }), (error: unknown) => {
+      assert.ok(error instanceof ValidationError)
+      assert.equal(error.path, 'message.params.policy.summary')
+      return true
+    })
+  }
+})
+
 for (const onRequest of [undefined, true, false]) test(`authoring/shape/render preserves check onRequest ${String(onRequest)}`, () => {
   const policy = checkPolicy(onRequest === undefined ? {} : { onRequest })
   const message = request('authoring/shape/render', { policy })

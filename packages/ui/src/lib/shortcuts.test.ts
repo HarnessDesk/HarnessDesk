@@ -34,6 +34,11 @@ const row = (action: string) => {
 }
 
 describe('the shortcut table', () => {
+  it('opens New Team with Shift while the plain chord still starts a session', () => {
+    expect(shortcutFor({ ...chord('N'), shiftKey: true })?.action).toBe('new-team')
+    expect(shortcutFor(chord('n'))?.action).toBe('new-session')
+    expect(appSource).toMatch(/case 'new-team':[\s\S]*?projectRootOf\(snapshot.workspace\)/)
+  })
   it('carries Back and Forward on ⌘[ and ⌘]', () => {
     expect(row('nav-back').key).toBe('[')
     expect(row('nav-forward').key).toBe(']')

@@ -1,10 +1,10 @@
 version: 2
-name: Fix and review
-description: One fixer, three reviewers, and the merge stays yours.
+name: Write and review
+summary: One writes, a fresh reviewer reads, up to three rounds.
+description: One writer and a fresh independent reviewer, with at most three reviews before a person takes over.
 inputs:
   work:
-    label: What to fix
-    default: The issue or the change to make
+    label: Task
 roles:
   fixer:
     kind: agent
@@ -14,9 +14,8 @@ roles:
   reviewer:
     kind: agent
     uses: [code-reviewer]
-    count: 3
     grant: read
-    independentOf: []
+    independentOf: [fixer]
   referee:
     kind: person
     outcomes: [merged, dropped]
@@ -42,14 +41,17 @@ rules:
       detail: Answer every finding, push to the same branch, and publish again.
   - id: hand-to-the-person
     on: reviewer
-    when: { every: [approve] }
+    when: { every: [approve], evidence: [{ review: approve }] }
     then:
       role: referee
       title: Merge it — every reviewer approved
       detail: Merging is yours; no agent in this flow may do it.
 messaging: board-only
+# Three writes and three reviews, with one final repair or handoff.
+budget: { rounds: 7, without-progress: 2 }
 wait: 240
 layout:
+  frontDoor: { order: 0, contexts: [project] }
   positions:
     fixer: { x: 40, y: 40 }
     reviewer: { x: 300, y: 40 }

@@ -701,6 +701,12 @@ const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
   }) as Validator<2>,
   name: atMost(200, isFilled),
   description: optional(atMost(4000)),
+  summary: (value, path = '') => {
+    if (value === undefined) return undefined
+    const text = atMost(240, isFilled)(value, path)
+    if (/[\r\n]/.test(text)) throw new ValidationError(path, 'expected a single-line summary')
+    return text
+  },
   inputs: flowWordList(64, flowInputValidator) as unknown as Validator<FlowPolicy['inputs']>,
   roles: flowWordList(64, flowPolicyRoleValidator) as unknown as Validator<FlowPolicy['roles']>,
   rules: flowWordList(256, flowPolicyRuleValidator) as unknown as Validator<FlowPolicy['rules']>,

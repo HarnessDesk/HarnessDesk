@@ -623,6 +623,7 @@ export const CANONICAL_PATTERN_MODULES = [
  * it, and it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
+  ['surface.team-start', 'team-start', 'New Team picker, roles and shape options', 'packages/ui/src/components/FrontDoor.tsx', false, 'packages/ui/src/app/App.tsx', 'TeamStartSurface'],
   ['surface.run-again', 'run-again', 'Fresh Run preview from recorded inputs and editable seating', 'packages/ui/src/components/RunAgain.tsx', false, 'packages/ui/src/components/TeamRoomPane.tsx', 'RunAgainSurface'],
   ['surface.flow-brief', 'flow-brief', 'Flow Brief paragraphs and capped text-file import', 'packages/ui/src/components/FlowStart.tsx', false, 'packages/ui/src/components/NewSessionChoice.tsx', 'FlowBriefSurface'],
   ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx', 'DashboardSurface'],

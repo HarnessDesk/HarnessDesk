@@ -29,6 +29,7 @@ const SHIPPED: Readonly<Record<string, Shipped>> = {
   'code-reviewer': { ceiling: 'read', answers: ['approve', 'request-changes'] },
   implementer: { ceiling: 'publish', answers: ['published', 'committed', 'disagree', 'agreed'] },
   judge: { ceiling: 'read', answers: ['picked', 'neither'] },
+  merger: { ceiling: 'merge', answers: ['merged', 'refused'] },
   'performance-reviewer': { ceiling: 'edit', answers: ['approve', 'request-changes'] },
   'requirements-analyst': { ceiling: 'edit', answers: ['agreed', 'disagree', 'met', 'not-met'] },
   researcher: { ceiling: 'edit', answers: ['gathered'] },
@@ -39,7 +40,7 @@ const SHIPPED: Readonly<Record<string, Shipped>> = {
 /** No shipped Agent's description or brief may name a vendor, a product or a model — only `prefer` names runtimes. */
 const NAMES_A_VENDOR = /\b(claude|codex|cursor|gemini|gpt|opus|sonnet)\b/i
 
-test('the nine ship, and nothing else does', async () => {
+test('the ten ship, and nothing else does', async () => {
   const folders = (await readdir(builtinAgentRoot(), { withFileTypes: true }))
     .filter((one) => one.isDirectory())
     .map((one) => one.name)
@@ -156,11 +157,11 @@ const desk = async (t: TestContext, ids: readonly string[] = ['claude-code', 'co
 test('each would sit on the first runtime it names, and seats there, holding read', async (t) => {
   const { fakes, client, work } = await desk(t)
   const plans = (await client.call('agent/seat/dry', { ids: Object.keys(SHIPPED) })) as SeatPlan[]
-  // By id, not by count: a verb that drops one plan and repeats another still returns nine.
+  // By id, not by count: a verb that drops one plan and repeats another still returns ten.
   assert.deepEqual(
     plans.map((plan) => plan.id).sort(),
     Object.keys(SHIPPED).sort(),
-    'a plan for every one of the nine shipped Agents, none dropped and none duplicated',
+    'a plan for every one of the ten shipped Agents, none dropped and none duplicated',
   )
   for (const plan of plans) {
     assert.equal(plan.blocked, null, `${plan.id} can be weighed`)
@@ -176,7 +177,7 @@ test('each would sit on the first runtime it names, and seats there, holding rea
   assert.equal(fakes[0]?.sessions.size, Object.keys(SHIPPED).length)
 })
 
-test('with the first runtime not on this desk, each of the nine moves down its own list and says why', async (t) => {
+test('with the first runtime not on this desk, each of the ten moves down its own list and says why', async (t) => {
   const { client, work } = await desk(t, ['codex', 'cursor'])
   for (const id of Object.keys(SHIPPED)) {
     const session = (await client.call('agent/seat', { id, cwd: work })) as Session

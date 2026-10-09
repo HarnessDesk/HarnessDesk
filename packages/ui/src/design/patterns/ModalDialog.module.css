@@ -148,3 +148,7 @@
   font-size: var(--hd-text-sm);
   color: var(--hd-muted-foreground);
 }
+
+.navigationFooter {
+  justify-content: space-between;
+}

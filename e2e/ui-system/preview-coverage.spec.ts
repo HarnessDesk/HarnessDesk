@@ -301,6 +301,13 @@ test.describe('preview coverage', () => {
     const covered = new Set<string>()
     let allComponents: readonly string[] = []
 
+    await page.goto('/design.html?view=team-start')
+    await page.getByRole('button', { name: 'Picker', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
+    const teamStartCoverage = await collectCoverage(page)
+    expect(teamStartCoverage.covered).toContain('components/FrontDoor.tsx#FrontDoor')
+    for (const component of teamStartCoverage.covered) covered.add(component)
+
     // -- preview.html: the page's own frames, then every dial's every option.
     // `?composer`, `?empty`, `?board-tool-approvals` and `?notice-placement` gate
     // frames the plain page never draws — a composer with a picture, a queue,

@@ -41,7 +41,7 @@ const mount = (seatGoal: AppStore['seatGoal']) => {
 }
 
 const typeSentence = (value: string): void => {
-  const input = document.querySelector<HTMLInputElement>('input[aria-label="What finishes this?"]')!
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="What should they do?"]')!
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -65,7 +65,7 @@ it('creates once and retries only unfinished staffing', async () => {
   // Seating is several members at once, so each row is a checkbox rather than
   // a switch, which acts the moment it flips.
   for (const control of document.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')) act(() => control.click())
-  press('Create Goal')
+  press('Start')
   await act(async () => {})
   expect(store.createGoal).toHaveBeenCalledTimes(1)
   expect(seatGoal).toHaveBeenCalledTimes(2)
@@ -82,9 +82,9 @@ it('creates once and retries only unfinished staffing', async () => {
 
 it('validates the one required sentence and creates an unstaffed Goal', async () => {
   const { store } = mount(vi.fn() as unknown as AppStore['seatGoal'])
-  expect([...document.querySelectorAll('button')].find(one => one.textContent?.includes('Create Goal'))?.hasAttribute('disabled')).toBe(true)
+  expect([...document.querySelectorAll('button')].find(one => one.textContent?.includes('Start'))?.hasAttribute('disabled')).toBe(true)
   typeSentence('  A small goal  ')
-  press('Create Goal')
+  press('Start')
   await act(async () => {})
   expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'A small goal', checkout: 'shared' })
   expect(store.seatGoal).not.toHaveBeenCalled()

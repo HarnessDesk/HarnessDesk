@@ -4,9 +4,9 @@ import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FlowIcon, GoalIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
-import { NewSessionChoice, type NewSessionKind } from './NewSessionChoice'
+import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 // Imported for its side effect: the Tasks panel registers itself into the
 // `sidebar.panel` slot rendered below.
@@ -102,7 +102,7 @@ export const Sidebar = ({
   // the word or for a field you can read what you typed in, not both.
   const [filterFocused, setFilterFocused] = useState(false)
   /** The non-default start flow selected from the adjacent menu. */
-  const [starting, setStarting] = useState<NewSessionKind | undefined>()
+  const [starting, setStarting] = useState<boolean>(false)
   const filtering = filterFocused || query.length > 0
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
@@ -158,7 +158,7 @@ export const Sidebar = ({
             ><SearchIcon size={13} /></Button>
           </div>
         </Bar>
-        {starting && <NewSessionChoice initialKind={starting} onClose={() => setStarting(undefined)} />}
+        {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
         <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
           <div className={styles.navRow}>
             <Button
@@ -169,7 +169,7 @@ export const Sidebar = ({
               <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
               New session
             </Button>
-            <WorktreeMenu onChoose={(kind) => setStarting(kind)} />
+            <WorktreeMenu onChoose={() => setStarting(true)} />
           </div>
           <SidebarMenu role="group" aria-label="Main sections">
             <SidebarMenuItem>
@@ -292,7 +292,7 @@ export const Sidebar = ({
  * It stays visible in a folder that is not a repository, disabled and saying
  * why. A control that vanishes teaches nobody what it was.
  */
-const WorktreeMenu = ({ onChoose }: { readonly onChoose: (kind: 'goal' | 'flow' | 'team') => void }) => {
+const WorktreeMenu = ({ onChoose }: { readonly onChoose: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const health = useRuntimeHealth()
@@ -313,7 +313,8 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: (kind: 'goal' | 'flow' 
     >
       {(close) => (
         <Menu close={close}>
-          <MenuLabel>{folderName(snapshot.workspace?.path ?? '')}</MenuLabel>
+          <MenuItem icon={<PlusIcon size={14} />} label="New session" shortcut="⌘N" onSelect={() => { close(); store.newDraft() }} />
+          <MenuItem icon={<TeamIcon size={14} />} label="New Team…" shortcut="⌘⇧N" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose() }} />
           <MenuItem
             icon={<PlusIcon size={14} />}
             label="New worktree…"
@@ -341,10 +342,6 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: (kind: 'goal' | 'flow' 
               ))}
             </>
           )}
-          <MenuSeparator />
-          <MenuItem icon={<GoalIcon size={14} />} label="Goal…" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose('goal') }} />
-          <MenuItem icon={<FlowIcon size={14} />} label="Flow…" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose('flow') }} />
-          <MenuItem icon={<TeamIcon size={14} />} label="Team…" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose('team') }} />
         </Menu>
       )}
     </Popover>

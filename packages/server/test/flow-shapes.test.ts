@@ -7,7 +7,8 @@ import type { AgentEntry } from '@harnessdesk/protocol'
 
 import { Agents } from '../src/agents.js'
 import { builtinAgentRoot, builtinFlowRoot } from '../src/host.js'
-import { compileFlowPolicy, parseFlowPolicy } from '../src/flow-policy.js'
+import { compileFlowPolicy, parseFlowPolicy, serializeFlowPolicy } from '../src/flow-policy.js'
+import { FlowPreviews } from '../src/flow-preview.js'
 import { tempDir } from './scratch.js'
 
 /**
@@ -25,7 +26,43 @@ import { tempDir } from './scratch.js'
  * the shape itself is ordinary data today.
  */
 
-const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr', 'review']
+const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr', 'review', 'fix-and-review']
+
+test('Write and review has one independent reviewer and enough rounds for three reviews', async () => {
+  const compiled = compileShape(await readFile(join(builtinFlowRoot(), 'fix-and-review.yml'), 'utf8'), await agentsOf())
+  assert.ok(compiled.document.format === 'agents')
+  const flow = compiled.document.flow
+  assert.equal(flow.name, 'Write and review')
+  assert.equal(compiled.bindings.filter(one => one.role === 'reviewer').length, 1)
+  assert.deepEqual(flow.roles.find(one => one.id === 'reviewer' && one.kind === 'agent')?.kind === 'agent'
+    ? (flow.roles.find(one => one.id === 'reviewer') as import('@harnessdesk/protocol').FlowAgentRole).independentOf : [], ['fixer'])
+  assert.equal(flow.budget?.rounds, 7)
+})
+
+test('Write and review previews against shipped Agents, including its reviewed merge option', async () => {
+  const agents = await agentsOf()
+  const source = await readFile(join(builtinFlowRoot(), 'fix-and-review.yml'), 'utf8')
+  const previews = new FlowPreviews({
+    confine: async () => {}, agents: async () => agents, now: () => 1,
+    providerOf: async runtime => runtime,
+    previewAgent: async (_root, id, seats, grant) => {
+      const seat = seats[0] ?? { runtime: id === 'code-reviewer' ? 'beta' : 'alpha' }
+      return { id, from: 'prefer', winner: 0, blocked: null, ceiling: { level: grant, hold: 'held' }, candidates: [{ seat, label: seat.runtime, runtimeName: seat.runtime, state: 'taken', reason: null, fix: null }] }
+    },
+  })
+  const dry = await previews.preview('/work/project', source, { work: 'Fix the cart' }, undefined, { requireHeld: true, target: { context: { kind: 'project', root: '/work/project' }, facts: 'project', resolved: null }, goal: null })
+  assert.ok(dry.token, JSON.stringify(dry.problems))
+  assert.equal(dry.seats.length, 2)
+  assert.ok(dry.compiled.document.format === 'agents')
+  const flow = dry.compiled.document.flow
+  const automatic = { ...flow, roles: flow.roles.map(role => role.id === 'referee'
+    ? { id: 'referee', kind: 'agent' as const, uses: ['merger'], seats: [], isolate: false, grant: 'merge' as const, independentOf: [] } : role),
+    rules: flow.rules.map(rule => rule.then.role === 'referee' ? { ...rule, when: { evidence: [{ review: 'approve' as const }, { pr: 'open' as const }] } } : rule),
+  }
+  const merge = await previews.preview('/work/project', serializeFlowPolicy(automatic), { work: 'Fix the cart' }, undefined, { requireHeld: true, target: { context: { kind: 'project', root: '/work/project' }, facts: 'project', resolved: null }, goal: null })
+  assert.ok(merge.token, JSON.stringify(merge.problems))
+  assert.equal(merge.seats.find(seat => seat.role === 'referee')?.plan.ceiling?.level, 'merge')
+})
 
 /** What a later phase would need to actually start this shape unattended — recorded, not implemented. */
 const FUTURE_TRIGGER_REQUIREMENTS: Readonly<Record<string, string>> = {
@@ -53,10 +90,10 @@ const compileShape = (source: string, agents: readonly AgentEntry[]) => {
   return compiled
 }
 
-test('the nine shipped flows parse, and name only Agents that actually ship', async () => {
+test('the ten shipped flows parse, and name only Agents that actually ship', async () => {
   const agents = await agentsOf()
   const files = (await readdir(builtinFlowRoot())).filter((name) => /\.ya?ml$/i.test(name)).map((name) => name.replace(/\.ya?ml$/i, ''))
-  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the nine named shapes ship, nothing else')
+  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the ten named shapes ship, nothing else')
   for (const id of SHIPPED) {
     const source = await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8')
     const compiled = compileShape(source, agents)

@@ -3073,8 +3073,9 @@ seed: { role: worker, title: "Do it" }
     assert.deepEqual(await list(opened), {
       listed: [
         ['alignment.yml', 'Alignment'],
-        ['comparison.yml', 'Comparison'],
+        ['comparison.yml', 'Side by side'],
         ['fan-out.yml', 'Fan-out review'],
+        ['fix-and-review.yml', 'Write and review'],
         ['.harnessdesk/flows/here.yml', 'Here'],
         ['independent-review.yml', 'Independent review'],
         ['investigation.yml', 'Investigation'],
@@ -3100,8 +3101,9 @@ seed: { role: worker, title: "Do it" }
     assert.deepEqual(await list(main), {
       listed: [
         ['alignment.yml', 'Alignment'],
-        ['comparison.yml', 'Comparison'],
+        ['comparison.yml', 'Side by side'],
         ['fan-out.yml', 'Fan-out review'],
+        ['fix-and-review.yml', 'Write and review'],
         ['independent-review.yml', 'Independent review'],
         ['investigation.yml', 'Investigation'],
         ['.harnessdesk/flows/main.yml', 'In the main checkout'],

@@ -188,12 +188,12 @@ it('the primary label follows the chosen kind, and Goal opens Goal creation unde
   expect(button('Continue')).toBeTruthy()
   act(() => button('Continue').click())
 
-  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
+  const field = document.querySelector<HTMLInputElement>('[aria-label="What should they do?"]')!
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the release')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  act(() => button('Create Goal').click())
+  act(() => button('Start').click())
   await act(async () => {})
 
   expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'Ship the release', checkout: 'shared' })
@@ -208,7 +208,7 @@ it('a double click on a kind row answers and proceeds in one gesture', () => {
 
   act(() => kindRow('Goal').click())
   act(() => kindRow('Goal').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })))
-  expect(document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')).not.toBeNull()
+  expect(document.querySelector<HTMLInputElement>('[aria-label="What should they do?"]')).not.toBeNull()
 })
 
 it('Goal, Flow and Team stay listed but disabled without an open folder, and say why', () => {
@@ -499,7 +499,7 @@ it('an old-format flow greys Start and says to update it, rather than a Start th
 
   const start = button('Start')
   expect(start.disabled).toBe(true)
-  expect(document.body.textContent).toContain('Update it from the project’s Flows list before it can start a Goal here')
+  expect(document.body.textContent).toContain('Update it from the project’s Flows list before it can start a Team here')
   act(() => start.click())
   await act(async () => {})
   expect(store.startFlowGoal).not.toHaveBeenCalled()
