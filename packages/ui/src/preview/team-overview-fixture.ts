@@ -31,7 +31,7 @@ export const overviewInput = (scene:OverviewScene):TeamOverviewInput => {
 export const overviewModel = (scene:OverviewScene) => teamOverview(overviewInput(scene))
 
 /** Membership shape measured on the host rig, with the older list emptied to cover #1278. */
-export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
+export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' | 'no-run' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
  const evidenceWait=scene==='waiting-evidence'||scene==='findings-and-posting'||scene==='unreadable-ledger'
  const input=overviewInput(evidenceWait?'idle':scene==='stopped-unknown'?'running':scene==='unrouted'?'done':scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
@@ -45,6 +45,6 @@ export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'sta
  const sessions=new Map(input.seats.slice(0,2).map(one=>[sessionKey(one.record.session.runtime,one.record.session.sessionId),one.session!]))
  const approvals=scene==='needs-you'?input.seats.flatMap(one=>one.approvals.map(approval=>({key:sessionKey(one.record.session.runtime,one.record.session.sessionId),approval}))):[]
  const findingRun:import('@harnessdesk/protocol').FindingRunView={run:run.id,goal:board.id,round:2,finished:1,total:1,embargoed:false,open:3,blocking:3,reason:'This review is waiting to be posted.',ceilingStop:false,stamp:'preview-posting',publication:'local',rounds:[{round:2,state:'local',reason:'This review is waiting to be posted.',pr:7,cards:[2]}],reviewersFinished:1,reviewersTotal:1,pendingExceptions:[],repair:null,boundPr:{repo:'acme/storefront',pr:7},unbound:null,undecidable:null}
- const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),findingRuns:scene==='findings-and-posting'?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
+ const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'?new Map():new Map([[run.id,run]]),findingRuns:scene==='findings-and-posting'?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
  return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();return Reflect.get(target,key)}})
 }

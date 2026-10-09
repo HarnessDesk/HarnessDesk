@@ -33,6 +33,28 @@
   overflow: hidden;
 }
 
+.barLead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.barStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  flex: none;
+  white-space: nowrap;
+}
+
+.titleFloor {
+  position: absolute;
+  visibility: hidden;
+  width: 12ch;
+}
+
 .members {
   display: flex;
   flex-direction: column;
@@ -43,25 +65,16 @@
 }
 
 .tabs {
-  flex: none;
+  flex: 0 1 auto; /* desk: none → 0 1 auto, tabs fit beside the title on one bar. */
   min-width: 0;
   overflow-x: auto;
 }
 
 .barName {
-  /* Shrinkable, with a floor. `flex: none` here meant the row could never be
-     narrower than the room's own name: measured at a 380px room called "Final
-     round — nine pull requests", the messaging switch and the expand button
-     were pushed 9px past the bar's right edge and off the screen, with no
-     scroll and no wrap to reach them. The name gives way *second* — the facts
-     beside it carry a much larger shrink factor — and ellipsises rather than
-     taking the verbs with it. */
-  flex: 0 1 auto;
-  /* Three characters and an ellipsis. Measured: at 4rem the row still spilled
-     its verbs at a 280px room carrying the 78px the macOS buttons take —
-     narrower than anything this layout can currently produce, but a floor that
-     can still overflow is not a floor. The name is the last thing to give way
-     and the verbs are never it. */
+  /* Labels fold to icons while about twelve title characters still fit.
+     Further narrowing spends the title before the icon tabs or actions. */
+  flex: 0 100 auto; /* desk: 0 1 auto → 0 100 auto, the title yields after labels fold. */
+  /* Keep a readable start and an ellipsis even below the measured reserve. */
   min-width: 2rem;
   max-width: 22rem;
   overflow: hidden;
@@ -96,7 +109,7 @@
   margin-left: auto;
 }
 
-.barFacts [data-team-trigger-label='short'] {
+.barStatus [data-team-trigger-label='short'] {
   display: none;
 }
 
@@ -296,7 +309,7 @@
 }
 
 @container hd-header (max-width: 56rem) {
-  .barFacts [data-team-trigger-source],
+  .barStatus [data-team-trigger-source],
   .barFacts [data-team-pinned-at] {
     display: none;
   }
@@ -304,11 +317,11 @@
 
 @container hd-header (max-width: 38rem) {
   /* Consent and Run state stay whole; the source uses its short label. */
-  .barFacts [data-team-trigger-label='full'] {
+  .barStatus [data-team-trigger-label='full'] {
     display: none;
   }
 
-  .barFacts [data-team-trigger-label='short'] {
+  .barStatus [data-team-trigger-label='short'] {
     display: inline;
   }
 

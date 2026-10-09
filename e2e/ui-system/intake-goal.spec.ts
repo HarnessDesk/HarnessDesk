@@ -44,27 +44,28 @@ test('a front-door start pins its revision in the header, names a diff or workin
   await page.goto('/preview.html')
   const frame = flowFrame(page)
   await showChat(frame)
+  const revision = frame.locator('header [data-team-pinned-at]')
 
   await flowScene(page, 'pinned')
   await expect(stateChip(frame)).toHaveText('Running')
-  await expect(frame.locator('header')).toContainText('at a1b2c3d on branch feature')
+  await expect(revision).toHaveText('at a1b2c3d on branch feature')
 
   await flowScene(page, 'diff')
   // A diff's own label already carries both ends of the range, so no head is
   // repeated beside it.
-  await expect(frame.locator('header')).toContainText('changes from abc123 to def456')
-  await expect(frame.locator('header')).not.toContainText('at ')
+  // Exact revision text also refuses a repeated head. A whole-header
+  // substring check for "at " normalizes to "at" and now matches Chat.
+  await expect(revision).toHaveText('changes from abc123 to def456')
 
   await flowScene(page, 'working-diff')
   // A working tree has no committed head to pin — its label stands alone too.
-  await expect(frame.locator('header')).toContainText('the working tree')
-  await expect(frame.locator('header')).not.toContainText('at ')
+  await expect(revision).toHaveText('the working tree')
 
   await flowScene(page, 'stopped')
   await expect(stateChip(frame)).toHaveText('Stopped')
   await expect(liveLine(frame)).toContainText('The person stopped this flow')
   // The pinned revision from the same target still names what was reviewed.
-  await expect(frame.locator('header')).toContainText('at a1b2c3d on branch feature')
+  await expect(revision).toHaveText('at a1b2c3d on branch feature')
 })
 
 test('pausing every trigger is read back before it shows paused, and the daily cap is a labelled currency field', async ({ page }) => {
