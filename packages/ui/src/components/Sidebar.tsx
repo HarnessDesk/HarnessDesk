@@ -97,6 +97,7 @@ export const Sidebar = ({
   const snapshot = useSnapshot()
   const inbox = useInboxMessages()
   const [query, setQuery] = useState('')
+  const searchQuery = query.trim()
   // The filter takes the Projects row while it is in use and gives the
   // label back when it is empty and unfocused: a 200px sidebar has room for
   // the word or for a field you can read what you typed in, not both.
@@ -238,7 +239,7 @@ export const Sidebar = ({
               }}
             />
           </div>
-          <SessionListControls searching={query.length > 0} />
+          <SessionListControls searching={searchQuery.length > 0} />
           <Button
             variant="muted" size="icon-xs" edge="end" edgeGlyph={12} className={styles.listAddButton}
             onClick={onBrowseFolders} title="Open a project folder" aria-label="Open a project folder"
@@ -246,14 +247,19 @@ export const Sidebar = ({
         </NavigationGroupHeader>
         <RailSection stretch="list">
           {snapshot.history.length === 0 && !snapshot.historyLoading && (
-            <EmptyState
-              variant="inline"
-              title={ready
-                ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
-                : 'Connect a runtime to see your sessions.'}
-            />
+            searchQuery
+              ? <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
+                  {' '}
+                  <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
+                </EmptyState>
+              : <EmptyState
+                  variant="inline"
+                  title={ready
+                    ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
+                    : 'Connect a runtime to see your sessions.'}
+                />
           )}
-          <SessionTree now={now} searching={query.length > 0} />
+          <SessionTree now={now} searching={searchQuery.length > 0} />
           {snapshot.historyCursor && query.length === 0 && (
             <Button variant="muted" size="sm" disabled={snapshot.historyLoading} onClick={() => void store.loadHistory()}>
               Load more conversations

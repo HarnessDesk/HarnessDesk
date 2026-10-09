@@ -1759,7 +1759,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
           onNewWorktree={(root) => store.askNewWorktree(root)}
           drag={drag}
         />
-        {open && allRooms.length === 0 && group.sessions.length === 0 && (
+        {open && !searching && allRooms.length === 0 && group.sessions.length === 0 && (
           <Text as="div" role="meta" className={styles.groupBlank}>
             No conversations yet — ⌘N starts one here.
           </Text>
