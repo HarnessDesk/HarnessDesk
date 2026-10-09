@@ -367,6 +367,88 @@ test('a conflicted pull stays in the tree with its files named', async () => {
 
 // --------------------------------------------------------- merge and rebase
 
+test('merge binds the expected destination in the host before changing Git', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'checkout', '-qb', 'release')
+  await assert.rejects(merge(dir, 'main', 'main'), /destination branch changed/)
+})
+
+test('merge returns the destination commit even when another checkout changes HEAD', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'branch', 'release')
+  await git(dir, 'checkout', '-qb', 'side')
+  await writeFile(join(dir, 'side.txt'), 'side\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'side work')
+  const commit = await sha(dir, 'HEAD')
+  await git(dir, 'checkout', '-q', 'main')
+  setGitRunnerForTest(async (root, args) => {
+    const output = await git(root, ...args)
+    if (args[0] === 'merge') await git(root, 'checkout', '-q', 'release')
+    return output
+  })
+  try {
+    const result = await merge(dir, 'side')
+    assert.deepEqual(result.merged, {branch:'main', commit})
+    assert.notEqual(await sha(dir, 'HEAD'), commit)
+  } finally { setGitRunnerForTest(null) }
+})
+
+for (const move of ['checkout before merge', 'reset after merge'] as const) {
+  test(`merge captures its receipt before a competing ${move}`, async () => {
+    const dir = await seedRepo()
+    const initial = 'a'.repeat(40)
+    const merged = 'b'.repeat(40)
+    const other = 'c'.repeat(40)
+    let branch: string | null = 'main'
+    let current = initial
+    const refs = new Map([['main', initial]])
+    const commands: string[] = []
+    let competing: Promise<void> | undefined
+    // Control the interleaving at the two gaps in the real host operation;
+    // no clock, process load or live agent is involved.
+    setGitRunnerForTest(async (root, args) => {
+      commands.push(args.join(' '))
+      if (args[0] === 'symbolic-ref') {
+        const observed = branch
+        if (move === 'checkout before merge') competing = checkoutCommit(root, other)
+        return `${observed ?? ''}\n`
+      }
+      if (args[0] === 'rev-parse') {
+        if (args[1] === 'HEAD') return `${current}\n`
+        const ref = args.at(-1)!.replace(/\^\{commit\}$/, '')
+        return `${ref === 'side' ? merged : ref === other ? other : refs.get(ref.replace('refs/heads/', ''))}\n`
+      }
+      if (args[0] === 'checkout') { branch = null; current = other; return '' }
+      if (args[0] === 'reset') {
+        current = other
+        if (branch) refs.set(branch, current)
+        return ''
+      }
+      if (args[0] === 'merge') {
+        current = merged
+        if (branch) refs.set(branch, current)
+        if (move === 'reset after merge') {
+          competing = reset(root, other, 'hard')
+          // Let the reset's revision read settle before merge returns; a
+          // serialized mutation must still wait for receipt capture.
+          await Promise.resolve()
+          await Promise.resolve()
+        }
+        return ''
+      }
+      throw new Error(`Unexpected Git command: ${args.join(' ')}`)
+    })
+    try {
+      const result = await merge(dir, 'side', 'main')
+      await competing
+      assert.deepEqual(result.merged, { branch: 'main', commit: merged })
+      assert.equal(current, other, 'the competing mutation still completes')
+      assert.ok(commands.findIndex(command => command.startsWith('merge ')) < commands.findIndex(command => /^(checkout|reset) /.test(command)))
+    } finally { setGitRunnerForTest(null) }
+  })
+}
+
 test('merge concludes cleanly or stays with named conflicts', async () => {
   const dir = await seedRepo()
   await git(dir, 'checkout', '-qb', 'side')

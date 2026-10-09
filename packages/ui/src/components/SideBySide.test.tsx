@@ -141,21 +141,26 @@ it('renders one tile per member in order and marks focus and hidden state', () =
   expect(tiles[1]?.hasAttribute('data-hidden')).toBe(false)
 })
 
-it('renders the member header, full nickname, state, expand control and grid menu', () => {
+it('renders one line with a tile badge, identity, state dot, globe and more menu', () => {
   const { opened } = mount()
   const first = document.querySelector<HTMLElement>('[data-slot="side-by-side-tile"]')!
   const header = first.querySelector('header')!
   expect(header.querySelector('[data-slot="icon-tile"] svg')).not.toBeNull()
-  const name = text(header, 'Alpha')
+  const name = text(header, 'Agent 1')
   expect(name.dataset.role).toBe('row')
-  expect(name.className).not.toMatch(/truncate|text-ellipsis/)
-  expect(text(header, 'Agent 1 · Model 1').dataset.role).toBe('meta')
+  expect(name.className).toMatch(/truncate/)
+  expect(text(header, 'Model 1').dataset.role).toBe('meta')
   expect(text(header, 'Working')).toBeTruthy()
   // The label carries the state (Expand / Collapse), so the button is not also a toggle.
-  expect(header.querySelector('button[aria-label="Expand Alpha"]')?.hasAttribute('aria-pressed')).toBe(false)
+  expect(text(header, 'A')).toBeTruthy()
+  expect(header.querySelector('[data-slot="dot"]')).not.toBeNull()
+  expect(header.querySelector('button[aria-label="Show the browser"]')?.getAttribute('title')).toBe('Browser')
+  expect(header.querySelector('[role="radiogroup"]')).toBeNull()
+  expect(header.className).not.toContain('h-auto')
   click(header.querySelector('button[aria-label="Alpha actions"]')!)
   const menu = document.body.querySelector('[role="menu"]')!
   expect(text(menu, 'Open conversation')).toBeTruthy()
+  expect(menu.querySelector('[aria-label="Expand Alpha"]')).not.toBeNull()
   expect(text(menu, 'Pin to the grid')).toBeTruthy()
   expect(text(menu, 'Take off the grid')).toBeTruthy()
   click(text(menu, 'Open conversation'))
@@ -169,7 +174,7 @@ it('renders the member header, full nickname, state, expand control and grid men
   click(header.querySelector('button[aria-label="Alpha actions"]')!)
   click(text(document.body.querySelector('[role="menu"]')!, 'Take off the grid'))
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
-  expect(text(container, 'Waiting for you')).toBeTruthy()
+  expect(text(container, 'Waiting')).toBeTruthy()
 })
 
 it('mounts the existing conversation and approvals in each tile scope', () => {
@@ -195,7 +200,7 @@ it('clicking a tile focuses it without taking focus from an input inside it', ()
 
 it('expands a tile, keeps the others mounted, and Escape returns to the grid', () => {
   mount()
-  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+  tileAction('Expand Alpha')
   const tiles = [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
   expect(tiles).toHaveLength(2)
   expect(tiles[0]?.hasAttribute('data-focused')).toBe(true)
@@ -293,7 +298,7 @@ it('moves the keyboard with a tile chord, and a tile entered by keyboard takes t
 
 it('leaves Esc to an approval waiting in the expanded tile', () => {
   mount()
-  click(container.querySelector('button[aria-label="Expand Beta"]')!)
+  tileAction('Expand Beta')
   const beta = document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')[1]!
   const press = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
   act(() => { beta.dispatchEvent(press) })
@@ -343,7 +348,7 @@ it('says Waiting for you, not Working, when a member’s running turn is held on
   try {
     mount()
     const header = document.querySelector('[data-slot="side-by-side-tile"] header')!
-    expect(header.textContent).toContain('Waiting for you')
+    expect(header.textContent).toContain('Waiting')
     expect(header.textContent).not.toContain('Working')
   } finally {
     entries.set(keys[0]!, was)
@@ -354,7 +359,7 @@ it('draws no composer in a tile on a grid of two or more, and one in a tile alon
   mount()
   const composers = () => [...document.querySelectorAll<HTMLElement>('[data-testid="conversation-body"]')].map((body) => body.dataset.composer)
   expect(composers()).toEqual(['false', 'false'])
-  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+  tileAction('Expand Alpha')
   expect(composers()[0]).toBe('true')
 })
 
@@ -376,7 +381,7 @@ it('adds a success Picked or quiet Not kept chip only for a recorded comparison 
     expect(text(headers[0]!, 'Picked').closest('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('success')
     expect(text(headers[1]!, 'Not kept').closest('[data-slot="chip"]')?.getAttribute('data-tone')).toBe('neutral')
     // Outcomes do not hide an approval that still needs an answer.
-    expect(headers[1]?.textContent).toContain('Waiting for you')
+    expect(headers[1]?.textContent).toContain('Waiting')
   } finally {
     keys.slice(0, 2).forEach((key, i) => entries.set(key, prior[i]!))
   }
@@ -427,12 +432,12 @@ it('switches between the shared dock and individual composers across expansion a
   const dock = container.querySelector<HTMLElement>('[data-shared-composer]')!
   expect(dock).not.toBeNull()
   expect(dock.hidden).toBe(false)
-  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+  tileAction('Expand Alpha')
   expect(container.querySelector('[data-shared-composer]')).toBe(dock)
   expect(dock.hidden).toBe(true)
   expect(dock.querySelector('textarea')).toBeNull()
   expect(container.querySelector<HTMLElement>('[data-testid="conversation-body"]')?.dataset.composer).toBe('true')
-  click(container.querySelector('button[aria-label="Collapse Alpha"]')!)
+  tileAction('Collapse Alpha')
   expect(dock.hidden).toBe(false)
   expect(composer).toHaveBeenLastCalledWith(keys)
   expect([...container.querySelectorAll<HTMLElement>('[data-testid="conversation-body"]')].map((body) => body.dataset.composer)).toEqual(['false', 'false', 'false'])
@@ -473,11 +478,11 @@ it.each([2, 3, 4])('clears the measured dock and notices only beneath the bottom
     height = 260
     act(() => observer.resize())
     expect(grid.style.getPropertyValue('--composer-h')).toBe('260px')
-    click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+    tileAction('Expand Alpha')
     act(() => observer.resize())
     expect(grid.style.getPropertyValue('--composer-h')).toBe('0px')
     expect(grid.querySelector('[data-clear-composer]')).toBeNull()
-    click(container.querySelector('button[aria-label="Collapse Alpha"]')!)
+    tileAction('Collapse Alpha')
     act(() => observer.resize())
     expect(grid.style.getPropertyValue('--composer-h')).toBe('260px')
     act(() => root!.unmount())
@@ -498,14 +503,19 @@ it('keeps full-height panels and reserves content clearance under the ordinary-w
   expect(sheet).toMatch(/\.dock\s*\{[^}]*position:\s*absolute/)
 })
 
-const mode = (tile: Element, name: string) => tile.querySelector(`[role="radio"][aria-label="${name}"]`) ?? [...tile.querySelectorAll('[role="radio"]')].find(one => one.textContent === name)!
+const tileAction = (label: string) => {
+  const nickname = label.split(' ').slice(1).join(' ')
+  click(container.querySelector(`button[aria-label="${nickname} actions"]`)!)
+  click(document.body.querySelector(`[role="menu"] [aria-label="${label}"]`)!)
+}
+const mode = (tile: Element, name: string) => tile.querySelector(`button[aria-label="${name === 'Browser' ? 'Show the browser' : 'Back to the conversation'}"]`)!
 
 it('switches one tile to Browser, keeps its sibling in Conversation, and invents no page', () => {
   mount()
   const tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
-  expect(mode(tiles[0]!, 'Conversation')?.getAttribute('aria-checked')).toBe('true')
+  expect(mode(tiles[0]!, 'Browser')).not.toBeNull()
   click(mode(tiles[0]!, 'Browser'))
-  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  expect(mode(tiles[0]!, 'Conversation')?.getAttribute('title')).toBe('Conversation')
   expect(tiles[0]!.textContent).toContain('Pages the agent opens appear here.')
   expect(tiles[0]!.querySelector('iframe, webview')).toBeNull()
   expect(tiles[1]!.querySelector('[data-testid="conversation-body"]')).not.toBeNull()
@@ -523,7 +533,7 @@ it('keeps recorded verdict chips beside the view switch when a tile shows Browse
     const tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
     click(mode(tiles[0]!, 'Browser'))
     expect(tiles[0]!.querySelector('header')?.textContent).toContain('Picked')
-    expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+    expect(mode(tiles[0]!, 'Conversation')?.getAttribute('title')).toBe('Conversation')
     expect(tiles[1]!.querySelector('header')?.textContent).toContain('Not kept')
     expect(container.querySelectorAll('[aria-label="Shared message"]')).toHaveLength(1)
   } finally {
@@ -535,18 +545,28 @@ it('keeps per-tile modes through expand, collapse, narrow tabs and a stored rest
   mount(baseState(), { width: 400 })
   let tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
   click(mode(tiles[0]!, 'Browser'))
-  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
-  click(container.querySelector('button[aria-label="Collapse Alpha"]')!)
+  tileAction('Expand Alpha')
+  tileAction('Collapse Alpha')
   const strip = container.querySelector('[role="tablist"][aria-label="Members"]') ?? container.querySelector('[role="tablist"]')!
   click(text(strip, 'Beta'))
-  expect(mode(tiles[1]!, 'Conversation').getAttribute('aria-checked')).toBe('true')
+  expect(mode(tiles[1]!, 'Browser')?.getAttribute('title')).toBe('Browser')
   click(text(strip, 'Alpha'))
-  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
+  expect(mode(tiles[0]!, 'Conversation')?.getAttribute('title')).toBe('Conversation')
   const restored = fromStored(JSON.parse(JSON.stringify(toStored(saved))))
   act(() => root!.unmount())
   container.remove()
   mount(restored, { width: 400 })
   tiles = [...container.querySelectorAll('[data-slot="side-by-side-tile"]')]
-  expect(mode(tiles[0]!, 'Browser').getAttribute('aria-checked')).toBe('true')
-  expect(mode(tiles[1]!, 'Conversation').getAttribute('aria-checked')).toBe('true')
+  expect(mode(tiles[0]!, 'Conversation')?.getAttribute('title')).toBe('Conversation')
+  expect(mode(tiles[1]!, 'Browser')?.getAttribute('title')).toBe('Browser')
+})
+
+it('keeps an attempt letter attached to its Seat when the grid order changes', () => {
+  const previous = entries.get(keys[0]!)!
+  entries.set(keys[0]!, {...previous as Record<string, unknown>, label:'A'} as never)
+  try {
+    mount(baseState([keys[1]!, keys[0]!]))
+    const header = container.querySelectorAll('[data-slot="side-by-side-tile"] header')[1]!
+    expect(header.querySelector('[title="Attempt A"]')?.textContent).toBe('A')
+  } finally { entries.set(keys[0]!, previous) }
 })

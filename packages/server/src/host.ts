@@ -623,7 +623,7 @@ const REOPEN_REFUSALS_TO_LET_GO = 2
 const IDLE_STOP_MS = 10 * 60_000
 const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
-  'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
+  'createSession', 'resumeSession', 'forkSession', 'readSession', 'sourceOf', 'searchSessions', 'archiveSession',
   'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
   'logout', 'refreshCatalog', 'checkInstallation', 'listHooks',
 ])
@@ -2182,7 +2182,7 @@ export class Host {
             if (key !== 'listHooks' && typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
             return Reflect.apply(member, target, args)
-          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
+          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'sourceOf' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
         }
         return member.bind(target)
       },
@@ -5422,9 +5422,17 @@ export class Host {
     if (!seat) return null
     if (!(await this.#carriesFilter(seat, 'read'))) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
-    if (kept) return kept
-    const live = await this.#liveFor(runtime.info.id, id)
-    return this.#transcripts.enrich(await runtime.readSession(live.id))
+    const source = await this.#sourceState(runtime, id)
+    if (kept && (!source || source.kind !== 'changed')) return { ...kept, ...(source ? { deskCopy: source.kind === 'gone' } : {}) }
+    try {
+      const live = await this.#liveFor(runtime.info.id, id)
+      const session = await this.#transcripts.enrich(await runtime.readSession(live.id))
+      if (source) await this.#transcripts.refresh(session, source.source)
+      return session
+    } catch (error) {
+      if (kept && source) return { ...kept, deskCopy: true }
+      throw error
+    }
   }
 
   /**
@@ -6117,6 +6125,30 @@ export class Host {
     return record.live ?? live
   }
 
+  /** A cheap stat of the previously named source needs no agent process or body read. */
+  async #sourceState(runtime: AgentRuntime, id: SessionId) {
+    if (!runtime.info.capabilities.sourceTranscript || !runtime.sourceOf) return null
+    const saved = await this.#transcripts.source(runtime.info.id, id)
+    if (saved) {
+      try {
+        const current = await stat(saved.path)
+        const source = { path: saved.path, mtimeMs: current.mtimeMs, size: current.size }
+        return { kind: source.mtimeMs === saved.mtimeMs && source.size === saved.size ? 'unchanged' as const : 'changed' as const, source }
+      } catch (error) {
+        if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+          // Archive or a project move may relocate the same agent-owned record.
+          try {
+            const source = await runtime.sourceOf(id)
+            return source ? { kind: 'changed' as const, source } : { kind: 'gone' as const, source: null }
+          } catch { return { kind: 'changed' as const, source: null } }
+        }
+        // Permission and I/O errors are not evidence that a record is gone.
+      }
+    }
+    try { return { kind: 'changed' as const, source: await runtime.sourceOf(id) } }
+    catch { return { kind: 'changed' as const, source: null } }
+  }
+
   /**
    * A session's transcript, for a client that is about to show it.
    *
@@ -6133,8 +6165,23 @@ export class Host {
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
     const scoped = await this.#scopedRead(runtime, id)
     if (scoped) return scoped
+    const source = await this.#sourceState(runtime, id)
+    if (source && source.kind !== 'changed') {
+      const cached = await this.#transcripts.recover(runtime.info.id, id)
+      if (cached) return { ...held?.session, ...cached, deskCopy: source.kind === 'gone' }
+    }
     try {
-      return await this.#transcripts.enrich(await runtime.readSession(id))
+      const session = { ...await this.#transcripts.enrich(await runtime.readSession(id)),
+        ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
+      // Read the fingerprint before replay, so a concurrent append always forces another refresh.
+      if (source) await this.#transcripts.refresh(session, source.source)
+      else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
+        // Startup can negotiate this capability inside readSession. A stat
+        // taken now could include an append the replay missed, so leave it
+        // unstamped until a subsequent read captures metadata before replay.
+        await this.#transcripts.refresh(session, null)
+      }
+      return session
     } catch (error) {
       // A conversation this host started and is still holding open was
       // watched item by item; what the registry has *is* the transcript.
@@ -6151,7 +6198,7 @@ export class Host {
         // freshly mapped session, and returning the registry's own object
         // here would let a caller that edits what it was given edit the
         // record the host is holding.
-        return { ...held.session }
+        return { ...held.session, ...(source ? { deskCopy: true } : {}) }
       }
       // The backend cannot serve it — but the host may have watched it
       // happen. A read-only copy beats an unopenable conversation.
@@ -6161,7 +6208,7 @@ export class Host {
         runtime: runtime.info.id,
         error: error instanceof Error ? error.message : String(error),
       })
-      return recovered
+      return { ...recovered, deskCopy: true }
     }
   }
 

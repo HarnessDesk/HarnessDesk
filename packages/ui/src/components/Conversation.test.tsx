@@ -143,6 +143,8 @@ const expectNoticeBelowEmptyState = () => {
   const notice = transcript?.querySelector('[data-turn^="notice:"]')
   expect(empty).not.toBeNull()
   expect(empty?.getAttribute('data-height')).toBe('content')
+  // Empty-state height belongs to the reading pane, not the measured turn body.
+  expect(empty?.parentElement === transcript).toBe(true)
   expect(notice).not.toBeNull()
   expect(empty!.compareDocumentPosition(notice!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 }
@@ -561,6 +563,35 @@ const transcriptSession = (): Session =>
     ],
   })
 
+it('follows transcript and dock geometry changes until the reader scrolls up', () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => {if (this.active) callback([], this as unknown as ResizeObserver)}) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(transcriptSession()).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let height = 800
+    Object.defineProperties(scroll, {scrollHeight:{get:() => height}, clientHeight:{get:() => 400}})
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(800)
+    height = 1000
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1000)
+    // A real reader scroll, rather than the delayed event from our own write.
+    delete scroll.dataset.autoscrolling
+    act(() => {scroll.scrollTop = 100; scroll.dispatchEvent(new Event('scroll', {bubbles:true}))})
+    expect(jumpToLatest()).toBeDefined()
+    height = 1200
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(100)
+  } finally { vi.unstubAllGlobals() }
+})
+
 it('a click on a link inside the transcript releases the pin', () => {
   render(rig(transcriptSession()).store)
   expect(jumpToLatest()).toBeUndefined()
@@ -767,4 +798,13 @@ it('allocates no empty git slot when a draft has no folder', () => {
   const emptySlots = [...container.querySelectorAll('header [data-slot="chip-words"] > div:empty')]
   // The extension slot already has an :empty fold; git must not leave another.
   expect(emptySlots.every((node) => node.classList.contains(styles.headerSlot!))).toBe(true)
+})
+
+it('shows one quiet copy notice using the agent presentation name', () => {
+  const one = session({ turns: [{ id: turnId('copy-turn'), status: 'completed', items: [{ id: itemId('copy-answer'), type: 'assistantMessage', text: 'Kept answer' }] }], ...({ deskCopy: true } as Partial<Session>) })
+  const { store } = rig(one, new Map(), { runtimes: [{ id: one.runtime, name: 'Internal registry name', presentation: { name: 'Demo Agent' }, capabilities: {} }] as unknown as AppSnapshot['runtimes'] })
+  render(store)
+  expect(container.textContent).toContain('HarnessDesk’s copy — Demo Agent’s own record is unavailable.')
+  expect(container.textContent?.split('HarnessDesk’s copy').length).toBe(2)
+  expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('Kept answer')
 })

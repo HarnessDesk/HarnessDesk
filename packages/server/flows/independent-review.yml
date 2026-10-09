@@ -1,5 +1,6 @@
 version: 2
 name: "Independent review"
+summary: "Security, speed and API specialists read one change."
 description: "A change is built, then read by several different specialists at once — security, performance and API, never the same eyes twice."
 inputs:
   task:

@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
-import type { AgentEntry, FlowEntry, FlowExecution, StartContext } from '@harnessdesk/protocol'
+import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Dialog, Field, FormStack, Input, Note, Row, RowButton, Rows } from '../design'
+import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Text, Textarea } from '../design'
+import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary } from '../lib/team-start'
+import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, TeamIcon } from './Icons'
+import { GoalCreate } from './GoalCreate'
+import styles from './FrontDoor.module.css'
 import { shortSha } from '../lib/evidence'
 import { boundInputValues } from '../lib/shapes'
 import { useSnapshot, useStore } from '../state/context'
-import { FlowPreviewReport } from './FlowStart'
+import { FlowStart } from './FlowStart'
 import { ShapeEditor } from './ShapeEditor'
 import { TriggerCreate } from './TriggerCreate'
 
@@ -67,6 +71,19 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
   const [unlisted, setUnlisted] = useState<string | null>(null)
   const [roster, setRoster] = useState<ReadonlyMap<string, AgentEntry>>(new Map())
+  const [query, setQuery] = useState('')
+  const [activeCard, setActiveCard] = useState(0)
+  const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const [starts] = useState(readShapeStarts)
+  const [task, setTask] = useState('')
+  const taskRef = useRef('')
+  const [plainTeam, setPlainTeam] = useState(false)
+  const [briefReading, setBriefReading] = useState(false)
+  const [policyPending, setPolicyPending] = useState(false)
+  const policySequence = useRef(0)
+  const [displayPreview, setDisplayPreview] = useState<import('@harnessdesk/protocol').FrontDoorPreview | null>(null)
+  const templates = useRef<FlowPolicy | null>(null)
+  const drafts = useRef(new Map<string, { source: string; vars: Readonly<Record<string, string>>; template: FlowPolicy | null }>())
   const [chosen, setChosen] = useState<Chosen | null>(null)
   const [ownShape, setOwnShape] = useState(false)
   const [everyTime, setEveryTime] = useState(false)
@@ -77,7 +94,6 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const [starting, setStarting] = useState(false)
   const [startProblem, setStartProblem] = useState<string | null>(null)
   const sequence = useRef(0)
-  const sentenceTouched = useRef(false)
   const initialTried = useRef(false)
 
   // The one open request this dialog is for. Closing — an unmount, same as
@@ -118,10 +134,12 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const runPreview = useCallback(
     async (text: string, nextVars: Readonly<Record<string, string>>): Promise<void> => {
       const mine = ++sequence.current
+      setProblem(null)
       try {
         const dry = await store.previewFrontDoor({ context, source: text, vars: nextVars, ...(goal ? { goal } : {}) })
         if (mine !== sequence.current) return
-        if (!sentenceTouched.current) setSentence(dry.sentence)
+        setDisplayPreview(dry)
+        // Done when is optional; the host's suggestion remains the fallback, never text the person typed.
       } catch (error) {
         if (mine !== sequence.current) return
         setProblem(error instanceof Error ? error.message : 'That shape could not be checked.')
@@ -145,12 +163,14 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       setChosen({ id: entry.id, origin: entry.origin, name: entry.name })
       setSource('')
       setVars({})
-      setSentence('')
-      sentenceTouched.current = false
+      templates.current = null
+      setDisplayPreview(null)
+      setPolicyPending(false)
       setProblem(null)
       setStartProblem(null)
       try {
-        const text = await store.flowSource(root, entry.id, entry.origin)
+        const draft = drafts.current.get(`${entry.origin}:${entry.id}`)
+        const text = draft?.source ?? await store.flowSource(root, entry.id, entry.origin)
         if (mine !== sequence.current) return
         setSource(text)
         // A first, throwaway dry run with no variables typed — only to learn
@@ -158,9 +178,14 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         // already answers, so its real defaults can be previewed for real.
         const learn = await store.previewFrontDoor({ context, source: text, vars: {}, ...(goal ? { goal } : {}) })
         if (mine !== sequence.current) return
-        setSentence(learn.sentence)
+        const policy = learn.flow.compiled.document.format === 'agents' ? learn.flow.compiled.document.flow : null
+        templates.current = draft?.template ?? policy
         const inputs = learn.flow.compiled.document.format === 'agents' ? learn.flow.compiled.document.flow.inputs : []
-        const defaults = Object.fromEntries(inputs.map((input) => [input.id, learn.vars[input.id] ?? input.default ?? '']))
+        const primary = inputs.find(input => input.id !== 'brief' && (!policy || !boundInputValues(policy).has(input.id)))
+        const defaults = { ...Object.fromEntries(inputs.map((input) => [input.id, learn.vars[input.id] ?? input.default ?? ''])), ...draft?.vars }
+        if (primary && taskRef.current) defaults[primary.id] = taskRef.current
+        else if (primary) { taskRef.current = defaults[primary.id] ?? ''; setTask(taskRef.current) }
+        else if (context.kind === 'project' && !taskRef.current) { taskRef.current = learn.sentence; setTask(learn.sentence) }
         setVars(defaults)
         if (inputs.length > 0) await runPreview(text, defaults)
       } catch (error) {
@@ -189,20 +214,50 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   )
 
   const eligible = entries === null ? [] : sortShapes(entries.filter((entry) => acceptsContext(entry, context.kind)))
+  const sections = pickerSections(eligible, starts, query)
+  const cards = [...sections.project, ...sections.most, ...sections.more]
+  const showPlain = context.kind === 'project' && (!query.trim() || 'Just a Team A shared board for several agents; no fixed steps.'.toLowerCase().includes(query.toLowerCase()))
+  const cardCount = cards.length + (showPlain ? 1 : 0) + 1
 
   const preview = snapshot.frontDoor?.preview ?? null
-  const flow = preview?.flow ?? null
+  const flow = (preview ?? displayPreview)?.flow ?? null
   const compiled = flow?.compiled.document ?? null
   const inputs = compiled?.format === 'agents' ? compiled.flow.inputs : []
   /** Which of `inputs` the shape's own layout fills from the resolved target — head, base, a pull request — rather than from a person typing. */
   const bound = compiled?.format === 'agents' ? boundInputValues(compiled.flow) : new Map<string, never>()
   const errors = (flow?.problems ?? []).filter((one) => one.level === 'error')
-  const warnings = (flow?.problems ?? []).filter((one) => one.level === 'warning')
-  const startable = flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
-  const sentenceValid = sentence.trim().length > 0 && sentence.trim().length <= 2000
+  const startable = preview !== null && !problem && flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
+  const primary = inputs.find(input => !bound.has(input.id) && input.id !== 'brief')
+  const sentenceValid = sentence.trim().length <= 2000 && (primary ? task.trim().length > 0 : true)
+  const changeShape = (): void => {
+    if (chosen && source) drafts.current.set(`${chosen.origin}:${chosen.id}`, { source, vars, template: templates.current })
+    sequence.current += 1
+    store.openFrontDoor(context, goal)
+    policySequence.current += 1
+    setPolicyPending(false)
+    setChosen(null)
+    setProblem(null)
+  }
+  const editPolicy = async (policy: FlowPolicy): Promise<void> => {
+    const mine = ++sequence.current
+    const renderMine = ++policySequence.current
+    store.openFrontDoor(context, goal)
+    setPolicyPending(true)
+    setProblem(null)
+    if (flow) setDisplayPreview({ ...(preview ?? displayPreview)!, flow: { ...flow, compiled: { ...flow.compiled, document: { format: 'agents', flow: policy } } } })
+    try {
+      const rendered = await store.renderShape(policy)
+      if (mine !== sequence.current) return
+      if (!rendered.source || rendered.issues.length > 0) throw new Error(rendered.issues.map(issue => issue.text).join(' ') || 'That change could not be checked.')
+      setSource(rendered.source)
+      await runPreview(rendered.source, vars)
+    } catch (error) {
+      if (mine === sequence.current) setProblem(error instanceof Error ? error.message : 'That change could not be checked.')
+    } finally { if (renderMine === policySequence.current) setPolicyPending(false) }
+  }
 
   const start = async (): Promise<void> => {
-    if (!preview?.flow.token || !startable || !sentenceValid || starting) return
+    if (!preview?.flow.token || !startable || !sentenceValid || briefReading || policyPending || starting) return
     setStarting(true)
     setStartProblem(null)
     try {
@@ -210,10 +265,11 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         root,
         source,
         token: preview.flow.token,
-        sentence: sentence.trim(),
+        sentence: sentence.trim() || task.trim().slice(0, 2000) || preview.sentence,
         vars: preview.vars,
         ...(preview.goal ? { goal: preview.goal } : {}),
       })
+      if (chosen) recordShapeStart(chosen.id)
       onStarted(execution)
     } catch (error) {
       setStarting(false)
@@ -225,164 +281,80 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     return <ShapeEditor root={root} context={context} goal={goal} onClose={() => setOwnShape(false)} onStarted={onStarted} />
   }
 
+  if (plainTeam) return <GoalCreate root={root} task={task} onTaskChange={value => { taskRef.current = value; setTask(value) }} done={sentence} onDoneChange={setSentence} onChangeShape={() => setPlainTeam(false)} onClose={onClose} />
+
+  const icon = (id: string) => id === 'comparison' ? <SideBySideIcon /> : id === 'fix-and-review' ? <PencilIcon /> : id.includes('review') ? <ReviewIcon /> : id === 'investigation' ? <SearchIcon /> : <FlowIcon />
+  const project = root.split('/').filter(Boolean).at(-1) ?? root
+  let cardIndex = 0
+  const group = (name: string, list: readonly FlowEntry[], extra?: ReactNode) => (list.length > 0 || extra) && <section className={styles.section} aria-label={name}>
+    <SectionHead name={name} />
+    <div className={styles.cards}>{list.map(entry => {
+      const index = cardIndex++
+      return <Button key={`${entry.origin}-${entry.id}`} variant="choice" size="panel" className={styles.card} data-stretched
+        ref={element => { cardRefs.current[index] = element }} aria-label={entry.name}
+        title={entry.description ?? undefined} data-selected={activeCard === index ? '' : undefined}
+        onFocus={() => setActiveCard(index)} onClick={() => void choose(entry)}>
+        <IconTile tint="blue" size="lg">{icon(entry.id)}</IconTile>
+        <span className={styles.cardCopy}><Text as="span" role="subject">{entry.name}</Text><Text as="span" role="muted">{entry.problem ?? shapeSummary(entry)}</Text></span>
+        <ChevronIcon size={14} />
+      </Button>
+    })}{extra}</div>
+  </section>
+
   return (
-    <Dialog
-      title={chosen ? `Start ${chosen.name}` : 'Start a team'}
-      size="lg"
-      onClose={onClose}
-      footer={
-        chosen ? (
-          <>
-            <Button variant="default" disabled={!startable || !sentenceValid || starting} onClick={() => void start()}>
-              {starting ? 'Starting…' : 'Start'}
-            </Button>
-            <Button variant="secondary" disabled={starting} onClick={() => setChosen(null)}>
-              Choose a different shape
-            </Button>
-            <Button variant="secondary" disabled={starting} onClick={() => setEveryTime(true)}>
-              Every time…
-            </Button>
-          </>
-        ) : (
-          // A dialog footer's lone button is its act, filled — never a bare
-          // `secondary`, which is a frame the same grey as the footer under it.
-          <Button variant="default" onClick={onClose}>Cancel</Button>
-        )
-      }
+    <Dialog title={chosen ? chosen.name : 'New Team'} icon={chosen ? <IconTile tint="blue">{icon(chosen.id)}</IconTile> : undefined}
+      titleAside={<><Chip tone="neutral">{project}</Chip>{chosen && <Button variant="quiet" disabled={starting || policyPending} onClick={changeShape}>Change</Button>}</>}
+      description={!chosen ? <Text role="muted">Pick how the agents work together. You fill in the task next.</Text> : undefined}
+      size={chosen ? 'xl' : 'wide'} onClose={onClose}
+      footer={chosen ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></> : undefined}
+      footerAside={chosen ? <Text role="meta">{chosen.id === 'comparison' ? 'You decide whether to merge the winner.' : `The Team opens under ${project} in the sidebar.`}</Text> : undefined}
+      footerNavigation={!chosen && <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
     >
-      {unlisted !== null && (
-        <Banner tone="danger" title="These shapes could not be read">{unlisted}</Banner>
-      )}
-      {entries !== null && entries.length === 0 && (
-        <Note>
-          No shapes here yet. A shape is a flow file{' '}
-          <span title=".harnessdesk/flows">kept with the project</span>, versioned with the code it governs.
-        </Note>
-      )}
-      {entries !== null && entries.length > 0 && eligible.length === 0 && (
-        <Note>
-          None of this project’s shapes start from {context.kind === 'project' ? 'a plain project' : 'this'}. Choose
-          a start one of them names, or edit a shape’s{' '}
-          <span title="layout.frontDoor.contexts">own list of starts it accepts</span>.
-        </Note>
-      )}
-
-      {!chosen && eligible.length > 0 && (
-        <Rows>
-          {eligible.map((entry) => (
-            <RowButton
-              key={`${entry.origin}-${entry.id}`}
-              title={entry.problem ? `${entry.name} — will not run` : entry.name}
-              desc={entry.problem ?? entry.description ?? undefined}
-              onClick={() => void choose(entry)}
-            />
-          ))}
-        </Rows>
-      )}
-
-      {!chosen && (
-        <Rows>
-          <RowButton
-            title="Your own shape…"
-            desc="Build steps and rules in an ordered editor, see the exact file, then start or save it."
-            onClick={() => setOwnShape(true)}
-          />
-        </Rows>
-      )}
-
-      {chosen && (
-        <>
-          <FormStack>
-            <Field label="What finishes this?" error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
-              {(control) => (
-                <Input
-                  {...control}
-                  aria-label="What finishes this?"
-                  value={sentence}
-                  onChange={(event) => {
-                    sentenceTouched.current = true
-                    setSentence(event.target.value)
-                  }}
-                />
-              )}
-            </Field>
-
-            {problem && <ActionError>That shape could not be checked. {problem}</ActionError>}
-
-            {inputs.filter((input) => !bound.has(input.id)).map((input) => (
-              <Field key={input.id} label={input.label}>
-                {(control) => (
-                  <Input {...control} value={vars[input.id] ?? ''} onChange={(event) => setVar(input.id, event.target.value)} />
-                )}
-              </Field>
-            ))}
-          </FormStack>
-
-          {inputs.filter((input) => bound.has(input.id)).length > 0 && (
-            <Rows>
-              {inputs.filter((input) => bound.has(input.id)).map((input) => {
-                const value = vars[input.id] ?? ''
-                const kind = bound.get(input.id)
-                // `head`/`base` are commits — shown short, the full sha still
-                // reachable on hover; a branch, a pull request or a diff's own
-                // label is not a sha and is never shortened.
-                const isSha = (kind === 'head' || kind === 'base') && value !== ''
-                return (
-                  <Row
-                    key={input.id}
-                    title={input.label}
-                    // A fact the chosen start already filled in — never a
-                    // field that looks editable only to refuse the edit
-                    // typing into it would send.
-                    desc={isSha ? <span title={value}>{shortSha(value)}</span> : (value || '—')}
-                  />
-                )
-              })}
-            </Rows>
-          )}
-
-          {preview && (
-            <Row
-              title={
-                preview.target.head ? (
-                  <span title={preview.target.head}>{`${preview.target.label} at ${shortSha(preview.target.head)}`}</span>
-                ) : (
-                  preview.target.label
-                )
-              }
-              desc={[
-                preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null,
-                preview.target.independence === 'unknown' ? 'Independence from the author is unknown.' : null,
-              ].filter(Boolean).join(' ') || undefined}
-            />
-          )}
-
-          {errors.length > 0 && (
-            <Banner tone="danger" title="This will not run yet">
-              <ul>
-                {errors.map((one) => (
-                  <li key={`${one.at}-${one.text}`}><code>{one.at}</code> — {one.text}</li>
-                ))}
-              </ul>
-            </Banner>
-          )}
-
-          {flow && compiled?.format === 'agents' && (
-            <FlowPreviewReport preview={flow} flow={compiled.flow} warnings={warnings} roster={roster} vars={vars} />
-          )}
-
-          {startProblem && <ActionError>{startProblem}</ActionError>}
-        </>
-      )}
-
-      {everyTime && chosen && (
-        <TriggerCreate
-          root={root}
-          opens={{ flow: chosen.id }}
-          onClose={() => setEveryTime(false)}
-          onSaved={() => setEveryTime(false)}
-        />
-      )}
+      {!chosen && <div onKeyDown={event => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+          event.preventDefault()
+          const delta = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+          const next = event.target instanceof HTMLInputElement ? 0 : (activeCard + delta + cardCount) % cardCount
+          setActiveCard(next); cardRefs.current[next]?.focus()
+        } else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) {
+          event.preventDefault(); cardRefs.current[Math.min(activeCard, cardCount - 1)]?.click()
+        }
+      }} className={styles.picker}>
+        <Input autoFocus aria-label="Search shapes" placeholder="Search: review, compare, plan…" value={query} onChange={event => { setQuery(event.target.value); setActiveCard(0) }} />
+        {unlisted !== null && <Banner tone="danger" title="These shapes could not be read">{unlisted}</Banner>}
+        {group('This project', sections.project)}
+        {group('Most used', sections.most)}
+        {group('More shapes', sections.more, showPlain && <Button variant="choice" size="panel" className={styles.card} data-stretched ref={element => { cardRefs.current[cards.length] = element }} onFocus={() => setActiveCard(cards.length)} onClick={() => setPlainTeam(true)}>
+          <IconTile tone="neutral" size="lg"><TeamIcon /></IconTile><span className={styles.cardCopy}><Text as="span" role="subject">Just a Team</Text><Text as="span" role="muted">A shared board for several agents; no fixed steps.</Text></span><ChevronIcon size={14} />
+        </Button>)}
+        {query && cards.length === 0 && !showPlain && <Note>No matching shapes.</Note>}
+        <Button variant="choice" size="panel" className={styles.card} data-stretched ref={element => { cardRefs.current[cardCount - 1] = element }} onFocus={() => setActiveCard(cardCount - 1)} onClick={() => setOwnShape(true)}>
+          <IconTile tone="neutral" size="lg"><PlusIcon /></IconTile><span className={styles.cardCopy}><Text as="span" role="subject">Build your own</Text><Text as="span" role="muted">Steps and rules in an editor; see the file, then start or save it.</Text></span><ChevronIcon size={14} />
+        </Button>
+      </div>}
+      {chosen && <>
+        {(primary || context.kind === 'project') && <Field label={chosen.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>
+          {control => <Textarea {...control} aria-label={chosen.id === 'comparison' ? 'What should both try?' : 'What should they do?'} value={task} disabled={starting || policyPending} onChange={event => {
+            taskRef.current = event.target.value; setTask(event.target.value)
+            if (primary) setVar(primary.id, event.target.value)
+            else if (compiled?.format === 'agents') void editPolicy({ ...compiled.flow, seed: { ...compiled.flow.seed, title: event.target.value } })
+          }} />}
+        </Field>}
+        {problem && <ActionError>{problem}</ActionError>}
+        {compiled?.format === 'agents' && flow && <FlowStart root={root} onChange={() => {}} team={{ flow: compiled.flow, template: templates.current ?? compiled.flow, preview: flow, roster, vars, primary: primary?.id, disabled: starting || policyPending, editingDisabled: starting, onVar: setVar, onReadingChange: setBriefReading, onPolicy: policy => void editPolicy(policy),
+          done: <Field label="Done when · optional" error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
+            {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={starting} onChange={event => setSentence(event.target.value)} />}
+          </Field>,
+          details: <>
+            {preview && context.kind !== 'project' && <Row title={preview.target.head ? <span title={preview.target.head}>{`${preview.target.label} at ${shortSha(preview.target.head)}`}</span> : preview.target.label} desc={[preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null, preview.target.independence === 'unknown' ? 'Independence from the author is unknown.' : null].filter(Boolean).join(' ') || undefined} />}
+            {inputs.filter(input => bound.has(input.id)).map(input => { const value = vars[input.id] ?? ''; const kind = bound.get(input.id); return <Row key={input.id} title={input.label} desc={(kind === 'head' || kind === 'base') && value ? <span title={value}>{shortSha(value)}</span> : value || '—'} /> })}
+            <Button variant="quiet" disabled={starting} onClick={() => setEveryTime(true)}>Every time…</Button>
+          </>,
+        }} />}
+        {errors.length > 0 && <Banner tone="danger" title="This will not run yet"><ul>{errors.map(one => <li key={`${one.at}-${one.text}`}>{one.text}</li>)}</ul></Banner>}
+        {startProblem && <ActionError>{startProblem}</ActionError>}
+      </>}
+      {everyTime && chosen && <TriggerCreate root={root} opens={{ flow: chosen.id }} onClose={() => setEveryTime(false)} onSaved={() => setEveryTime(false)} />}
     </Dialog>
   )
 }

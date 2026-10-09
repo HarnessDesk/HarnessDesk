@@ -13,6 +13,7 @@ import { assertAbsolute } from './workspace.js'
 import { parsePorcelain } from './porcelain.js'
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 import { commonDir } from './git-ops.js'
+import { withGitMutation } from './git-mutation.js'
 
 /**
  * Git worktrees, one per conversation that asks for one.
@@ -731,6 +732,14 @@ export const bringHome = async (
 ): Promise<{ readonly branch: string; readonly from: string | null; readonly root: string; readonly warning?: string }> => {
   const main = await repositoryRoot(path)
   if (!main) throw new Error(`${path} is not a git worktree.`)
+  return withGitMutation(main, () => bringHomeInCheckout(path, main, options))
+}
+
+const bringHomeInCheckout = async (
+  path: string,
+  main: string,
+  options: { readonly stateDir: string },
+): Promise<{ readonly branch: string; readonly from: string | null; readonly root: string; readonly warning?: string }> => {
   const target = await canonical(path)
   const entry = (await list(main, options.stateDir)).find((candidate) => samePath(candidate.path, target))
   if (!entry) throw new Error(`${path} is not a worktree of ${main}.`)

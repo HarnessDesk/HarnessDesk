@@ -60,6 +60,10 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     </>
   }
   const click = (node: Element) => act(() => node.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  const tileAction = (nickname: string, action: 'Expand' | 'Collapse') => {
+    click(container.querySelector(`button[aria-label="${nickname} actions"]`)!)
+    click(document.body.querySelector(`[role="menuitem"][aria-label="${action} ${nickname}"]`)!)
+  }
   try {
     await act(async () => root.render(<StoreProvider store={store}><Harness /></StoreProvider>))
     const guests = [...container.querySelectorAll<HTMLElement>('webview')]
@@ -72,17 +76,16 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
       guest.dispatchEvent(new Event('dom-ready'))
     }))
     expect(ready.mock.calls.map(([request]) => request)).toEqual([{ profile: 'lane-alpha', webContentsId: 1 }, { profile: 'lane-beta', webContentsId: 2 }])
-    click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+    tileAction('Alpha', 'Expand')
     expect([...container.querySelectorAll('webview')]).toEqual(guests)
     act(() => store.focusDrivenBrowserTab('lane-beta'))
     expect(state.expanded).toBe(keys[1])
-    expect(container.querySelector('button[aria-label="Collapse Beta"]')).not.toBeNull()
     act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', metaKey: true, bubbles: true, cancelable: true })))
     const betaTile = container.querySelectorAll('[data-slot="side-by-side-tile"]')[1]!
     expect(betaTile.contains(document.activeElement)).toBe(true)
-    click(container.querySelector('button[aria-label="Collapse Beta"]')!)
+    tileAction('Beta', 'Collapse')
     expect([...container.querySelectorAll('webview')]).toEqual(guests)
-    act(() => store.openBrowser('https://example.com/beta-updated', { profile: 'lane-beta' }))
+    await act(async () => store.openBrowser('https://example.com/beta-updated', { profile: 'lane-beta' }))
     expect((guests[1] as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL).toHaveBeenCalledWith('https://example.com/beta-updated')
     expect(store.getSnapshot().layout.focused).toBe(paneId)
     // The selected tile stays selected while a different mount has the keys.
@@ -122,6 +125,12 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     expect(after[0]).toEqual(before[0])
     expect(after[1]!.tabs.slice(0, before[1]!.tabs.length)).toEqual(before[1]!.tabs)
     expect(after[1]!.tabs).toHaveLength(before[1]!.tabs.length + 1)
+    click(betaTile.querySelector('button[aria-label="Back to the conversation"]')!)
+    expect(betaTile.querySelector('[data-mode="conversation"]')).not.toBeNull()
+    expect(betaTile.querySelector('textarea[aria-label="Message"]')).not.toBeNull()
+    click(betaTile.querySelector('button[aria-label="Show the browser"]')!)
+    expect(state.modes[keys[1]!]).toBe('browser')
+    expect(betaTile.querySelector('webview')?.getAttribute('partition')).toBe('persist:hd-lane-beta')
   } finally {
     act(() => root.unmount())
     container.remove()

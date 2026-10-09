@@ -36,7 +36,7 @@ const DEFAULT_TIMEOUT = 900
 const DEFAULT_REARM = 3
 const REARM_LIMIT = 120
 
-const ROOT_FIELDS = new Set(['version', 'name', 'description', 'base', 'inputs', 'roles', 'rules', 'seed', 'messaging', 'wait', 'rearm', 'budget', 'layout'])
+const ROOT_FIELDS = new Set(['version', 'name', 'description', 'summary', 'base', 'inputs', 'roles', 'rules', 'seed', 'messaging', 'wait', 'rearm', 'budget', 'layout'])
 const BASE_FIELDS = new Set(['remote', 'branch'])
 const BUDGET_FIELDS = new Set(['rounds', 'without-progress'])
 /** The most rounds a budget may name, either key. */
@@ -262,6 +262,10 @@ const readInputs = (value: unknown, problems: FlowProblem[]): FlowInput[] => {
 const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): FlowPolicy | null => {
   unknownKeys(root, ROOT_FIELDS, 'file', problems)
   if (root['version'] !== undefined && root['version'] !== 2) problems.push(problem('error', 'version', 'this Agent flow needs version: 2'))
+  const summary = root['summary']
+  if (summary !== undefined && (typeof summary !== 'string' || !summary.trim() || summary.length > 240 || /[\r\n]/.test(summary))) {
+    problems.push(problem('error', 'summary', 'summary is one non-empty line, at most 240 characters'))
+  }
   const rolesRecord = asRecord(root['roles'])
   if (!rolesRecord) problems.push(problem('error', 'roles', 'a flow needs roles'))
   if (rolesRecord && Object.keys(rolesRecord).length > ROLE_LIMIT) problems.push(problem('error', 'roles', 'a flow may name at most 64 roles'))
@@ -349,7 +353,7 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
   if (messaging !== 'board-only' && messaging !== 'members') problems.push(problem('error', 'messaging', 'messaging is board-only or members'))
   const inputs = readInputs(root['inputs'], problems)
   if (!seed || problems.some((one) => one.level === 'error')) return null
-  const policy: FlowPolicy = { version: 2, name: asText(root['name'])?.trim() || 'Flow', ...(asText(root['description'])?.trim() ? { description: asText(root['description'])!.trim() } : {}), ...(base === undefined ? {} : { base }), inputs, roles, rules, seed, messaging: messaging === 'members' ? 'members' : 'board-only', wait, ...(rearm === undefined ? {} : { rearm }), ...(budget === undefined ? {} : { budget }), ...(root['layout'] === undefined ? {} : { layout: root['layout'] }) }
+  const policy: FlowPolicy = { version: 2, name: asText(root['name'])?.trim() || 'Flow', ...(asText(root['description'])?.trim() ? { description: asText(root['description'])!.trim() } : {}), ...(typeof summary === 'string' ? { summary: summary.trim() } : {}), ...(base === undefined ? {} : { base }), inputs, roles, rules, seed, messaging: messaging === 'members' ? 'members' : 'board-only', wait, ...(rearm === undefined ? {} : { rearm }), ...(budget === undefined ? {} : { budget }), ...(root['layout'] === undefined ? {} : { layout: root['layout'] }) }
   validatePolicy(policy, problems)
   return problems.some((one) => one.level === 'error') ? null : policy
 }
@@ -646,6 +650,7 @@ const thenValue = (then: FlowThen): string => `{ role: ${scalar(then.role)}, tit
 export const serializeFlowPolicy = (policy: FlowPolicy): string => {
   const lines = ['version: 2', `name: ${scalar(policy.name)}`]
   if (policy.description) lines.push(`description: ${scalar(policy.description)}`)
+  if (policy.summary) lines.push(`summary: ${scalar(policy.summary)}`)
   if (policy.base) lines.push(`base: { remote: ${scalar(policy.base.remote)}${policy.base.branch === undefined ? '' : `, branch: ${scalar(policy.base.branch)}`} }`)
   if (policy.inputs.length) {
     lines.push('inputs:')

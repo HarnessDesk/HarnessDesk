@@ -90,6 +90,24 @@ rules:
 
 const errors = (text: string): readonly string[] => parseFlowPolicy(text).problems.map((one) => `${one.at}: ${one.text}`)
 
+test('a short summary is optional, validated and survives rendering', () => {
+  const plain = source('    kind: agent\n    uses: writer')
+  const parsed = parseFlowPolicy(`${plain}\nsummary: One writes, another reads.\n`)
+  assert.ok(parsed.document?.format === 'agents', JSON.stringify(parsed.problems))
+  assert.equal(parsed.document.flow.summary, 'One writes, another reads.')
+  const again = parseFlowPolicy(serializeFlowPolicy(parsed.document.flow))
+  assert.ok(again.document?.format === 'agents')
+  assert.equal(again.document.flow.summary, parsed.document.flow.summary)
+  const absent = parseFlowPolicy(plain)
+  assert.ok(absent.document?.format === 'agents')
+  assert.equal(absent.document.flow.summary, undefined)
+  for (const value of ['42', '[]', 'null', '""', JSON.stringify('x'.repeat(241)), JSON.stringify('Two\nlines')]) {
+    const bad = parseFlowPolicy(`${plain}\nsummary: ${value}\n`)
+    assert.equal(bad.document, null, value)
+    assert.ok(bad.problems.some(one => one.at === 'summary'), value)
+  }
+})
+
 test('check onRequest is an explicit boolean preserved in flat and nested declarations and on save', () => {
   for (const field of ['', ', onRequest: true', ', onRequest: false']) {
     for (const nested of [false, true]) {

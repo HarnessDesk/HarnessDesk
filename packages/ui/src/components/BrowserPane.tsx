@@ -1382,7 +1382,7 @@ const BrowserPaneContent = () => {
 
   return (
     <ToolPane variant="integrated" className="@container/browser">
-      <ToolPaneHeader
+      {!mount.embedded && <ToolPaneHeader
         title="Browser"
         lead={
           <div className={styles.tabStrip}>
@@ -1580,8 +1580,8 @@ const BrowserPaneContent = () => {
             </Menu>
           )}
         </Popover>
-      </ToolPaneHeader>
-      <ToolPaneBar as="form" variant="address" onSubmit={go}>
+      </ToolPaneHeader>}
+      <ToolPaneBar as="form" variant={mount.embedded ? "address-slim" : "address"} onSubmit={go}>
         <Button variant="ghost"
           type="button"
           onClick={() => act((element) => element.goBack())}
@@ -1627,6 +1627,7 @@ const BrowserPaneContent = () => {
           onBlur={() => setTyping(false)}
           aria-label="Address"
         />
+        {!mount.embedded && <>
         {busy && <Spinner size="sm" tone="brand" aria-label="Loading" />}
         {/* Chrome shows the level in the omnibox while a page is not at
             100%, and offers the way back in one click. So does this. */}
@@ -1682,6 +1683,7 @@ const BrowserPaneContent = () => {
         >
           <AnnotateIcon size={14} />
         </Button>
+        </>}
       </ToolPaneBar>
       {/*
         The annotating bar, under the address row for the same reason the

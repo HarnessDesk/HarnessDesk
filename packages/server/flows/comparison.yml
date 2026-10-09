@@ -1,5 +1,6 @@
 version: 2
-name: "Comparison"
+name: "Side by side"
+summary: "Two agents, one task; a judge picks, you merge."
 description: "One task, two isolated agents; a check on each, then a judge picks, then a person merges."
 inputs:
   task:

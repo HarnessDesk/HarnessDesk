@@ -301,6 +301,13 @@ test.describe('preview coverage', () => {
     const covered = new Set<string>()
     let allComponents: readonly string[] = []
 
+    await page.goto('/design.html?view=team-start')
+    await page.getByRole('button', { name: 'Picker', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
+    const teamStartCoverage = await collectCoverage(page)
+    expect(teamStartCoverage.covered).toContain('components/FrontDoor.tsx#FrontDoor')
+    for (const component of teamStartCoverage.covered) covered.add(component)
+
     // -- preview.html: the page's own frames, then every dial's every option.
     // `?composer`, `?empty`, `?board-tool-approvals` and `?notice-placement` gate
     // frames the plain page never draws — a composer with a picture, a queue,
@@ -328,9 +335,10 @@ test.describe('preview coverage', () => {
     // Comparison frames mount the recorded verdict; its person scene opens
     // the same real attempt dialog as the Board, with synthetic candidates.
     await page.goto('/preview.html?comparison-verdict')
-    await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-notice"]')).toContainText('picked Attempt A')
+    await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-decision"]')).toContainText('The judge picked A')
     const verdictCoverage = await collectCoverage(page)
     expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
+    expect(verdictCoverage.covered).toContain('components/ComparisonActions.tsx#ComparisonActions')
     for (const component of verdictCoverage.covered) covered.add(component)
     await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
     const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })

@@ -405,6 +405,8 @@ export interface GitStashRef {
 export interface GitMergeOutcome {
   readonly summary: string
   readonly conflicts: readonly string[]
+  /** The destination and commit observed by the completed merge itself. */
+  readonly merged?: { readonly branch: string; readonly commit: string }
 }
 
 /** How far `git/reset` unwinds: keep the work staged, keep it, or erase it. */
@@ -2380,7 +2382,7 @@ export interface HostMethods {
   'git/fetch': { params: { readonly root: string }; result: { readonly summary: string } }
   /** Merges a revision into the current branch; conflicts stay, named. */
   'git/merge': {
-    params: { readonly root: string; readonly ref: string }
+    params: { readonly root: string; readonly ref: string; readonly expectedBranch?: string }
     result: GitMergeOutcome
   }
   /** Rebases the current branch onto a revision; a conflict aborts it whole. */

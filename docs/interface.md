@@ -213,11 +213,11 @@ docked panels, notices and the seat.
 
 **New session** starts a draft in the current project with the default agent,
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
-start**: New worktree…, any existing worktree, Goal…, Flow… and Team…. A
+start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. Goal, Flow and Team reuse their existing chooser and
-start screens. The plain path stays plain until somebody chooses another way
-to work.
+until its first message. New Team opens a searchable shape picker, then one
+form for the task, roles and optional Done when. Just a Team opens a shared
+board without fixed steps. Change returns to the picker and keeps the draft.
 
 **Agents**, **Dashboard** and **Plugins** each have a full row under New
 session: the same icon, label and trailing badge grammar as the conversation
@@ -599,7 +599,10 @@ summary says where it got, for the reader who did not watch.
 record, and backups keep it restorable. Reopening a conversation shows what
 happened even when the backend forgot: Cursor keeps nothing readable, and ACP
 replay is lossy. A prompt with several content blocks replays as one message,
-not one turn per block.
+not one turn per block. When the agent can name its source file, an unchanged
+record opens from the local copy; a changed record is read again and folded
+into it. If that record is gone or cannot be read by the agent, the transcript
+says **HarnessDesk’s copy** in one quiet line at the top.
 
 The search palette searches your messages and the agent's answers. **Include
 tool output** adds output from tools and commands, with those hits marked
@@ -1036,40 +1039,49 @@ beside that amount. Older cards show their number and **Card title not recorded*
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A Team has one content column under its 48px bar. The title, state, segmented page tabs, member faces and tools share that row. Overview, Run, Board, Chat and Findings keep their counts; Side by side is another tab and returns to the selected page when switched off. When measured space is short, the tabs become icons with count badges, full names and counts in tooltips and accessible names. A Team with no Run keeps its Run tab disabled and explains why on hover. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
-In a comparison, Side by side reserves a quiet shelf above the tiles. Before a
-pick it draws nothing there. The Run's recorded selection adds **Picked** in
-success ink to the chosen attempt's tile bar and quiet **Not kept** to the
-other; working state and approvals remain visible. The shelf names the judge
-and chosen attempt, with the recorded reason only when it is already one
-sentence. Longer recorded text scrolls within the shelf without moving the tiles.
-**Merge the picked change** opens that Run's next person step while it still
-needs an answer; it disappears after the step finishes or the Run stops and
-never merges. A person judging a waiting pick sees **Pick an attempt…**, which
-opens the Board's same attempt dialog. Dismissal survives leaving and returning
-to Side by side and ends only when the verdict changes. No passing or recorded
-selected attempt means no winner. The shelf keeps its own space at the top,
-clear of transcript tails, approvals and the shared composer dock.
+In a comparison, the recorded pick adds **Picked** and **Not kept** to the
+competitor headers. The decision card above the shared composer quotes the
+judge's reason when it is one sentence. **Merge A into main** opens the existing
+merge question for that exact recorded revision and the actual destination
+branch. **Compare changes** opens the existing diff between the two revisions.
+**Keep B instead** changes the person's pending merge choice, preserving the
+judge's recorded recommendation. A stopped Run or one without a pending person
+merge step cannot merge or change its pick. A waiting person judge sees
+**Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
+selected attempt means no decision card.
+
+A conflict-free merge records its revision, resulting commit, destination and
+time in the person step's handoff. Side by side then shows that receipt in the
+same tab body, with elapsed time, agents, recorded cost when known, each attempt,
+checks and judge. **Show the attempts** restores the tiles; **Race again** opens
+the existing Run-again form. A merge with conflicts leaves the person step
+unanswered. The receipt makes no branch retention promise and offers no Undo
+merge action.
 
 With two or more Seats visible, Side by side has one ordinary composer centred
-over the bottom of the grid. **Everyone** reaches the visible Seats; `@` picks
-one or several instead. Chat keeps the message once, and the room's words and
-audience wait across Chat, the grid and expanding a tile. A lone, expanded or
-narrow single tile uses its own composer. Panels extend to the bottom behind the floating box; their
-transcript padding, approval viewports and Browser surfaces clear the dock's measured height.
-Settings keep the ordinary four slots; differing choices read **Mixed** and
-their menus name each recipient. Unavailable recipients show their reason,
-delivery outcomes name each copy, queued copies mark their recipient tile, and
-**Stop** stops the addressed working Seats.
+over the bottom of the grid. **To: Both** reaches the visible Seats; **A** or **B**
+chooses one. `@A` and `@B`, or member names, update that same audience. The quiet
+**Waits for their turns** hint appears while either Seat is working. Chat keeps
+the message once, and the room's words and audience wait across Chat and the
+grid. A lone, expanded or narrow single tile uses its own composer. Panels
+extend to the bottom behind the floating box; transcript padding, approval
+viewports and Browser surfaces clear the dock's measured height. Settings keep
+the ordinary four slots; differing choices read **Mixed** and their menus name
+each recipient. Unavailable recipients show their reason, delivery outcomes
+name each copy, queued copies mark their recipient tile, and **Stop** stops the
+addressed working Seats.
 
-Each Side by side tile has a **Conversation | Browser** switch in its bar.
-The choice belongs to that tile and survives Expand, collapse, the narrow
-member tab strip and a restart. Browser shows the Seat's own lane profile in
-the same browser surface as the Browser pane, with its tabs and address bar;
-several isolated Seats can show live pages at once. The tile takes the
-Browser pane's place while it shows that profile, so the tabs have one live
-surface. A Seat with no page shows **Nothing open yet** and **Pages the agent
-opens appear here.** Seats that share the ordinary browser profile share one
-surface; another tile says where that browser is already shown.
+Each tile has one header line: its letter, agent mark, name and model, a state
+dot and word, any recorded pick, and its view and more buttons. Names truncate
+with their full text on hover. The **globe** opens the Seat's own browser; the
+**chat bubble** returns to its conversation. The choice survives expansion,
+collapse, narrow member tabs and a restart. Expansion is in the tile's more
+menu. A tile's browser has only back, forward, reload and an address field; the
+ordinary Browser pane retains its full toolbar. Several isolated Seats can
+show live pages at once. A Seat with no page shows **Nothing open yet** and
+**Pages the agent opens appear here.** Seats that share the ordinary browser
+profile share one surface; another tile says where that browser is already
+shown.
 
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and
@@ -1149,17 +1161,32 @@ Agent, seat and evidence actually are.
 
 ### The front door
 
-**Start with a team**, beside **New session**'s solo choice, opens the same
-catalogue Flows lists — the project's own, then yours, then what ships,
-sorted by a shape's own declared `layout.frontDoor.order` when it has one —
-and reads the identical strict dry run before **Start**: every Seat must
+**New Team…** (⌘⇧N) opens a searchable two-column picker. The project's
+own shapes come first, then the four shapes this desk has started most,
+then the rest. A fresh desk starts with Write and review, Side by side,
+Independent review and Investigation. Cards use the file's optional short
+`summary`, falling back to the description's first sentence; the full
+description remains on hover. **Just a Team** opens a shared board with
+no fixed steps; **Build your own** opens the shape editor. **New session**
+(⌘N) still starts a solo session directly; the picker footer keeps that path
+for work that needs only one agent.
+
+Choosing a shape opens one form: the task, each role's agent, model and
+effort, the shape's own options, and **Done when · optional**. Leaving Done
+when empty uses the task as the Team's completion sentence. **Change**
+returns to the picker and preserves the typed task and each shape's edits.
+**Details** holds the remaining inputs, instruction files and dry-run facts.
+Write and review has one fresh independent reviewer and a maximum of one,
+two or three reviews, then either a reviewed merge or a handoff to the person.
+
+The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
 refusal and fix rather than starting under a weaker policy. Git's branch
 menu, a pull request's own row, ⌘K and an empty Goal's board each open it
 the same way, prefilled with what that place already knows — a branch, a
 pull request, the project itself.
 
-**Your own shape…**, the catalogue's last row, opens an ordered editor of
+**Build your own**, the catalogue's last card, opens an ordered editor of
 the chosen shape (or a blank one, a single person step) instead of starting
 it: add a step or a rule, see the exact file update as you go, and the
 identical dry run below it. **Save…** writes it to the project or to you,

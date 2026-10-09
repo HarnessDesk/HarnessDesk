@@ -1,5 +1,6 @@
 version: 2
 name: "Mechanical contest"
+summary: "Two attempts; a script's exit status decides."
 description: "Two attempts, and a script decides between them by its exit status alone — never an agent's own prose."
 inputs:
   task:

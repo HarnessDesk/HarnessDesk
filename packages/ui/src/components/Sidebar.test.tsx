@@ -88,6 +88,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
     newDraft,
     loadWorktrees: vi.fn(async () => {}),
     loadAgents: vi.fn(async () => {}),
+    flowCatalog: vi.fn(async () => []), agentsIn: vi.fn(async () => []), openFrontDoor: vi.fn(), closeFrontDoor: vi.fn(),
   } as unknown as AppStore
 
   act(() => {
@@ -126,18 +127,17 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(document.querySelector('[data-slot="dialog"]')).toBeNull()
   })
 
-  it('the more-ways menu keeps worktree choices first and opens Goal preselected', () => {
+  it('the menu opens New Team directly and retains worktree choices', () => {
     mount()
     const trigger = container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!
     act(() => trigger.click())
     const menu = document.querySelector('[role="menu"]')!
     const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((one) => one.textContent?.trim())
-    expect(items).toEqual(['New worktree…', 'topic', 'Goal…', 'Flow…', 'Team…'])
-    expect(menu.querySelector('[role="separator"]')).not.toBeNull()
-    const goal = [...menu.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.trim() === 'Goal…')!
-    act(() => goal.click())
-    const goalChoice = [...document.querySelectorAll<HTMLElement>('[role="radio"]')].find((one) => one.textContent?.startsWith('Goal'))
-    expect(goalChoice?.getAttribute('aria-checked')).toBe('true')
+    expect(items).toEqual(['New session⌘N', 'New Team…⌘⇧N', 'New worktree…', 'topic'])
+    expect(menu.lastElementChild?.getAttribute('role')).not.toBe('separator')
+    const team = [...menu.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('New Team…'))!
+    act(() => team.click())
+    expect(document.querySelector('[aria-label="Search shapes"]')).not.toBeNull()
   })
 
   it('shows no sessions empty state rather than connect runtime when active runtime is ready', () => {
@@ -377,11 +377,11 @@ describe('sidebar destinations', () => {
     expect(brand.dataset.role).toBe('wordmark')
   })
 
-  it('keeps Goal, Flow and Team unavailable without a project folder', () => {
+  it('keeps New Team unavailable without a project folder', () => {
     mount({ workspace: null, workspaces: [] })
     act(() => container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!.click())
     const menu = document.querySelector('[role="menu"]')!
-    for (const kind of ['Goal…', 'Flow…', 'Team…']) {
+    for (const kind of ['New Team…']) {
       const row = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((one) => one.textContent?.trim().startsWith(kind))!
       expect(row.getAttribute('aria-disabled')).toBe('true')
       expect(row.getAttribute('title')).toBe('Open a folder to start one.')

@@ -17,6 +17,7 @@ const WIDTH = {
   md: 'w-[min(520px,100%)] max-w-none sm:max-w-none',
   lg: 'w-[min(560px,100%)] max-w-none sm:max-w-none',
   xl: 'w-[min(620px,100%)] max-w-none sm:max-w-none',
+  wide: 'w-[min(860px,100%)] max-w-none sm:max-w-none',
 } as const
 
 /**
@@ -142,6 +143,8 @@ export const DialogBody = ({
 export const Dialog = ({
   title,
   icon,
+  titleAside,
+  description,
   tone = 'default',
   size = 'sm',
   tall = false,
@@ -151,9 +154,12 @@ export const Dialog = ({
   children,
   footer,
   footerAside,
+  footerNavigation,
 }: {
   title: string
   icon?: ReactNode
+  titleAside?: ReactNode
+  description?: ReactNode
   tone?: 'default' | 'destructive'
   size?: keyof typeof WIDTH
   tall?: boolean
@@ -164,6 +170,8 @@ export const Dialog = ({
   /** Write the proceeding action first; the footer paints it rightmost. */
   footer?: ReactNode
   footerAside?: ReactNode
+  /** Navigation alternatives have no proceeding action; action footers retain their filled act. */
+  footerNavigation?: ReactNode
 }) => {
   const surface = useRef<HTMLDivElement>(null)
 
@@ -190,9 +198,10 @@ export const Dialog = ({
           tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
         )}
       >
-        <DialogHead icon={icon} title={title} tone={tone} />
+        <DialogHead icon={icon} title={title} aside={titleAside} tone={tone}>{description}</DialogHead>
         {subhead && <DialogSubhead>{subhead}</DialogSubhead>}
         {children && <DialogBody layout={flush ? 'flush' : 'form'}>{children}</DialogBody>}
+        {footerNavigation && <nav className={`${styles.footer} ${styles.navigationFooter}`} data-slot="dialog-navigation-footer" aria-label="Start alternatives">{footerNavigation}</nav>}
         {(footer || footerAside) && (
           /* `dialog-footer` is what the button reads to draw an ordinary
              action quiet here, so the confirm is the one filled button. */

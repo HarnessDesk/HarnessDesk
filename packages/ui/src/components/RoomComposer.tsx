@@ -195,6 +195,7 @@ export const RoomComposer = ({
   onPosted,
   defaultAudience,
   draftState,
+  tileLabels,
 }: {
   /** See `RoomComposerHandle`. React 19 passes this as an ordinary prop. */
   readonly ref?: Ref<RoomComposerHandle>
@@ -225,6 +226,8 @@ export const RoomComposer = ({
   readonly onPosted: () => void
   /** Omitted in Chat; a grid supplies the visible tiles instead of broadcasting. */
   readonly defaultAudience?: readonly SessionKey[]
+  /** Grid letters are aliases for the same addressed audience, never separate routing. */
+  readonly tileLabels?: ReadonlyMap<SessionKey, string>
   /** The room owns this when the box can move between Chat and the grid. */
   readonly draftState?: RoomComposerDraftState
 }) => {
@@ -301,6 +304,9 @@ export const RoomComposer = ({
     return member ? [member] : []
   })
   const recipients = chosen.length > 0 ? chosen : defaults
+  const allTiles = defaults.length === 2 && recipients.length === 2 && defaults.every(one => recipients.some(recipient => recipient.key === one.key))
+  const tileAudience = chosen.length === 0 || allTiles ? defaults.length === 2 ? 'Both' : 'All' : chosen.map(one => tileLabels?.get(one.key) ?? one.peer.nickname).join(', ')
+  const tilePrompt = tileLabels && defaults.length === 2 ? `Message both, or ${defaults.map(one => `@${tileLabels.get(one.key) ?? one.peer.nickname}`).join(' / ')}` : null
   const queued = recipients.filter((one) => one.busy)
   /* Members that cannot reach the plugin tools. They still *receive* this —
      the user's post is an ordinary turn, and `Team.post` consults no
@@ -342,8 +348,11 @@ export const RoomComposer = ({
     if (!mention) return []
     const needle = mention.query.toLowerCase()
     return roster
+      .filter(one => !tileLabels || tileLabels.has(one.key))
       .filter((one) =>
-        [one.peer.nickname, one.peer.agent, one.peer.model, one.title]
+        tileLabels && [...tileLabels.values()].some(label => label.toLowerCase() === needle)
+          ? tileLabels.get(one.key)?.toLowerCase() === needle
+          : [tileLabels?.get(one.key), one.peer.nickname, one.peer.agent, one.peer.model, one.title]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
@@ -364,7 +373,7 @@ export const RoomComposer = ({
               : { badge: 'not open', badgeTone: 'muted' as const }),
         ...(to.includes(one.key) ? { selected: true } : {}),
       }))
-  }, [mention, roster, to])
+  }, [mention, roster, to, tileLabels])
 
   useEffect(() => {
     setActive(0)
@@ -554,7 +563,7 @@ export const RoomComposer = ({
        to five where one is mid-turn goes to four of them now, and "this
        waits for the turn to end" over that is a sentence the channel
        contradicts a second later. */
-    queued.length > 0 && {
+    !tileLabels && queued.length > 0 && {
       tone: 'muted',
       text:
         queued.length === recipients.length
@@ -572,6 +581,7 @@ export const RoomComposer = ({
     <>
     <ComposerTail>
     {statusLine}
+    {tileLabels && defaults.some(one => one.busy) && !suspended && <Text role="meta">Waits for their turns</Text>}
     {outcomes.length > 0 && <TurnWorkLive settled data-slot="room-composer-outcomes" role="status">
       {outcomes.map((one, index) => {
         const member = one.to ? roster.find((member) => member.key === sessionKey(one.to!.runtime, one.to!.sessionId as SessionId)) : null
@@ -660,7 +670,7 @@ export const RoomComposer = ({
         ref={textarea}
         value={draft}
         disabled={record}
-        placeholder={record ? RECORD_REASON : defaultAudience ? 'Describe a task — @ to address someone' : "Message the room — @ to address someone"}
+        placeholder={record ? RECORD_REASON : tilePrompt ?? (defaultAudience ? 'Describe a task — @ to address someone' : "Message the room — @ to address someone")}
         onChange={(event) => change(event.target.value)}
         onKeyDown={onKeyDown}
       />
@@ -685,12 +695,18 @@ export const RoomComposer = ({
               ) : (
                 <TeamIcon size={13} />
               )}
-              <span>{audienceLabel(chosen)}</span>
+              <span>{tileLabels ? `To: ${tileAudience}` : audienceLabel(chosen)}</span>
             </>
           }
         >
           {(close) => (
             <Menu close={close}>
+              {tileLabels ? <>
+                <MenuItem label={defaults.length === 2 ? 'Both' : 'All'} selected={chosen.length === 0 || allTiles} onSelect={() => setTo([])} />
+                {defaults.map(one => <MenuItem key={one.key} label={tileLabels.get(one.key) ?? one.peer.nickname}
+                  title={one.peer.nickname} disabled={one.unavailable} selected={chosen.length === 1 && chosen[0]?.key === one.key}
+                  onSelect={() => { setTo([one.key]); setMention(null) }} />)}
+              </> : <>
               <MenuItem
                 icon={<TeamIcon />}
                 label={defaultAudience ? 'Everyone on the grid' : 'Everyone in the room'}
@@ -737,6 +753,7 @@ export const RoomComposer = ({
                   {known ? 'No agents in this room yet.' : 'Still asking the host who is in the room.'}
                 </MenuNote>
               )}
+              </>}
             </Menu>
           )}
         </Popover>

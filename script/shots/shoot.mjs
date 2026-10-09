@@ -659,8 +659,8 @@ try {
     return click(text, within)
   }
 
-  /** Opens the non-default start kind from the sidebar's secondary start menu. */
-  const openStartingKind = async (kind) => {
+  /** Opens the Team picker directly from the sidebar's secondary start menu. */
+  const openNewTeam = async () => {
     const opened = await cdp.eval(`(() => {
       const trigger = document.querySelector('nav[aria-label="Workspace actions"] button[title="More ways to start"]')
       if (!trigger) return false
@@ -668,16 +668,10 @@ try {
       return true
     })()`)
     if (!opened) throw new Error('no More ways to start control in the sidebar')
-    if (!(await click(`${kind}…`, '[role="menu"]'))) throw new Error(`no ${kind}… choice in More ways to start`)
-    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
-    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
-    const selected = await cdp.eval(`(() => {
-      const root = document.querySelector(${q(chooser)})
-      return [...(root?.querySelectorAll('[role="radio"]') ?? [])]
-        .some((one) => one.getAttribute('aria-checked') === 'true' && (one.textContent ?? '').trim().startsWith(${q(kind)}))
-    })()`)
-    if (!selected) throw new Error(`${kind} was not selected in the New session dialog`)
-    return chooser
+    if (!(await click('New Team…', '[role="menu"]'))) throw new Error('no New Team… choice in More ways to start')
+    const picker = '[role="dialog"][aria-label="New Team"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(`${picker} input[aria-label="Search shapes"]`)}) !== null`), Boolean)
+    return picker
   }
 
   /**
@@ -1546,13 +1540,11 @@ rules:
     flow: { expect: 'Checkout hardening', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      // New session now opens a draft directly. The Goal… menu item enters
-      // the same chooser with Goal selected, then Continue opens GoalCreate.
-      const chooser = await openStartingKind('Goal')
-      if (!(await clickScrolled('Continue', chooser))) throw new Error('no Continue button in the Goal chooser')
-      await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
-      if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
-      if (!(await click('Create Goal'))) throw new Error('no Create Goal button')
+      const picker = await openNewTeam()
+      if (!(await clickScrolled('Just a Team', picker))) throw new Error('no Just a Team choice')
+      await waitForSnapshot(() => cdp.eval(`document.querySelector('textarea[aria-label="What should they do?"]') !== null`), Boolean)
+      if (!(await fill('What should they do?', 'Checkout hardening'))) throw new Error('no Team task field')
+      if (!(await click('Start', '[role="dialog"][aria-label="Just a Team"]'))) throw new Error('no Team Start button')
       // A fixed sleep here is a bet on how long creating and loading the Goal
       // takes, and a bet that lost silently left the frame short of what its
       // own filename claims — `shoot()`'s own text check would then be the
@@ -1565,9 +1557,8 @@ rules:
     } },
 
     /**
-     * Starting a shipped shape through the front door itself — "Start with a
-     * team" in the New session chooser, a shape from the catalogue this
-     * project ships (never a project's own file or a person's), its own
+     * Starting a shipped shape through New Team's picker, from the catalogue
+     * this project ships (never a project's own file or a person's), its own
      * input filled in, and Start — reaching the Goal page the held start
      * actually opens (#927).
      *
@@ -1583,32 +1574,25 @@ rules:
     'front-door': { expect: 'Ship it once every specialist approves', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      // Team starts live behind More ways to start; that menu opens this same
-      // chooser with Team selected, and Continue opens the front door.
-      const chooser = await openStartingKind('Team')
-      if (!(await clickScrolled('Continue', chooser))) throw new Error('no Continue button in the Team chooser')
-      await waitForSnapshot(
-        () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
-        Boolean,
-      )
+      const picker = await openNewTeam()
       // "Independent review" is a plain-project shape this repository ships
       // (`packages/server/flows/independent-review.yml`) whose seed role,
       // `implementer`, is the exact Agent the native-Codex seating in #927's
       // own regression proves holds. Any other project-context shipped shape
       // would seat the same way; this one is first in the catalogue's own
       // order.
-      if (!(await clickScrolled('Independent review', '[role="dialog"][aria-label="Start a team"]'))) {
+      if (!(await clickScrolled('Independent review', picker))) {
         throw new Error('no "Independent review" shape in the front door catalogue')
       }
       // The chosen shape's own dry run reads its file and previews it before
-      // "Task" (its one input) exists to fill — waited for by name rather than
+      // its task field exists to fill — waited for by name rather than
       // by a fixed pause, the same reason `click` itself waits.
       await waitForSnapshot(
-        () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'Task')`),
+        () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'What should they do?')`),
         Boolean,
       )
-      if (!(await fill('Task', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
-      if (!(await fill('What finishes this?', 'Ship it once every specialist approves'))) {
+      if (!(await fill('What should they do?', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
+      if (!(await fill('Done when · optional', 'Ship it once every specialist approves'))) {
         throw new Error('no sentence field in the front door')
       }
       // Start is refused until the dry run this fill just changed comes back
@@ -1620,7 +1604,7 @@ rules:
         })()`),
         Boolean,
       )
-      if (!(await click('Start', '[role="dialog"][aria-label="Start Independent review"]'))) {
+      if (!(await click('Start', '[role="dialog"][aria-label="Independent review"]'))) {
         throw new Error('no enabled Start button in the front door')
       }
       await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Ship it once every specialist approves')`), Boolean)
@@ -2603,7 +2587,10 @@ rules:
     const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
     const input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
     if (!input) return false
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ${q(value)})
+    const prototype = input instanceof window.HTMLTextAreaElement
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, ${q(value)})
     input.dispatchEvent(new Event('input', { bubbles: true }))
     return true
   })()`)
@@ -2641,15 +2628,13 @@ rules:
       await sleep(1400)
     } },
 
-    /** The new-session dialog's Session option and its "Run as" choices. */
-    'new-session-agents': { leaveOverlay: true, expect: 'Run as', run: async () => {
+    /** A plain Team's Agent choices, reached through the sidebar picker. */
+    'new-session-agents': { leaveOverlay: true, expect: 'Who does what', run: async () => {
       await openStorefront()
-      // Reach the chooser from the supported secondary start route, then
-      // select Session to photograph its Run as control without starting it.
-      const chooser = await openStartingKind('Team')
-      if (!(await clickScrolled('Session', chooser))) throw new Error('no Session choice in the New session dialog')
-      await waitForSnapshot(() => cdp.eval(`document.querySelector('${chooser} select') !== null`), Boolean)
-      if (!(await cdp.eval(`Boolean(document.querySelector('${chooser} select option[value="plain"]')?.textContent === 'Default agent')`))) throw new Error('the dialog offers no Default agent choice under Run as')
+      const picker = await openNewTeam()
+      if (!(await clickScrolled('Just a Team', picker))) throw new Error('no Just a Team choice')
+      const team = '[role="dialog"][aria-label="Just a Team"]'
+      await waitForSnapshot(() => cdp.eval(`document.querySelector('${team} [role="checkbox"][aria-label^="Seat "]') !== null`), Boolean)
     } },
 
     /** Command palette, through the sidebar's magnifier: an Agent to start as. */

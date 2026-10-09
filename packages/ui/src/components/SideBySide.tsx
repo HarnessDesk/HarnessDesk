@@ -21,9 +21,9 @@ import { Conversation } from './Conversation'
 import { SeatBrowser } from './SeatBrowser'
 import {
   AgentIcon,
-  CollapseIcon,
-  ExpandIcon,
   MoreIcon,
+  GlobeIcon,
+  CommentIcon,
 } from './Icons'
 import {
   Bar,
@@ -36,19 +36,19 @@ import {
   DropdownMenuTrigger,
   IconTile,
   Separator,
-  ToggleGroup,
-  ToggleGroupItem,
   Tabs,
   TabsList,
   TabsTrigger,
   Text,
   Dot,
   useComposerHeightVar,
+  PaneColumn,
 } from '../design'
 import styles from './SideBySide.module.css'
 
 /** What a tile's header reads about its member. The room supplies it. */
 export type TileEntry = {
+  readonly label?: string
   readonly tint?: ComponentProps<typeof IconTile>['tint']
   readonly brand?: ComponentProps<typeof BrandMark>['brand'] | null
   readonly busy?: boolean
@@ -65,10 +65,11 @@ export type TileEntry = {
 
 /** Resolve the room facts into the entry the shipped tile draws. */
 export const sideBySideTileEntry = (
-  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'queued' | 'ceiling' | 'keep'> & {
+  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'queued' | 'ceiling' | 'keep' | 'label'> & {
     readonly lastTurnStatus?: Turn['status']
   },
 ): TileEntry => ({
+  label: entry.label,
   tint: entry.tint,
   brand: entry.brand,
   busy: entry.busy,
@@ -94,6 +95,7 @@ export const SideBySide = ({
   conversationProps,
   notice,
   composer,
+  decision,
   card = (_key, who) => who,
 }: {
   state: SideBySideState
@@ -105,6 +107,8 @@ export const SideBySide = ({
   onOpenMember: (key: SessionKey) => void
   conversationProps: ConversationProps
   notice?: React.ReactNode
+  /** The comparison decision clears tile content together with the shared dock. */
+  decision?: ReactNode
   /** The room's shared composer addresses exactly the members displayed by the grid. */
   composer?: (shown: readonly SessionKey[]) => ReactNode
   /**
@@ -240,6 +244,7 @@ export const SideBySide = ({
   return (
     <div className={styles.root} onKeyDown={onKeyDown}>
       {notice}
+      {!sharedComposer && decision && <PaneColumn inset="bars">{decision}</PaneColumn>}
       {/* One tile at a time when the room is too narrow for two: the system's
           tabs pick which, with their arrow keys and roving focus. */}
       {narrow && (
@@ -262,12 +267,13 @@ export const SideBySide = ({
         {state.tiles.map((key) => {
           const member = memberOf(key)
           const entry = entryOf(key)
+          const letter = entry?.label ?? String.fromCharCode(65 + state.tiles.indexOf(key))
           const nickname = member?.nickname ?? 'Member'
           const isFocused = state.focused === key
           const isExpanded = state.expanded === key
           const isHidden = !shown.shown.includes(key)
           const clearsComposer = sharedComposer && !isHidden && Math.floor(shown.shown.indexOf(key) / columns) === rows - 1
-          const model = [member?.agent === nickname ? null : member?.agent, member?.model].filter(Boolean).join(' · ')
+          const model = member?.model
           return (
             <section
               key={key}
@@ -288,64 +294,42 @@ export const SideBySide = ({
                  click: Tab into its composer and the keys are its keys. */
               onFocusCapture={() => { setComposing(false); focus(key) }}
             >
-              <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1}
-                /* Agent and model detail give way before the name; a name
-                   longer than its column wraps and the bar grows to hold it. */
-                grow
-                className={styles.header}>
+              <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1} className={styles.header}>
+                <Chip tone={(letter.charCodeAt(0) - 65) % 2 ? 'info' : 'brand'} size="sm" title={`Attempt ${letter}`}>{letter}</Chip>
                 {card(key, (
                   <span className={styles.member}>
                     <span className={styles.mark}>
                       <IconTile size="sm" shape="face" tint={entry?.tint ?? 'blue'}>
                         {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                       </IconTile>
-                      {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
                     </span>
-                    <Text role="row" className={styles.nickname}>{nickname}</Text>
+                    <Text role="row" className={styles.nickname} truncate title={member?.agent ?? nickname}>{member?.agent ?? nickname}</Text>
                     {model && <Text role="meta" className={styles.model} truncate>{model}</Text>}
                   </span>
                 ))}
+                {(entry?.waitingForYou || entry?.busy || entry?.ended) && <span className={styles.state}>
+                  <Dot tone={entry.waitingForYou ? 'warning' : entry.busy ? 'success' : 'neutral'} pulse={entry.busy && !entry.waitingForYou} aria-hidden />
+                  <Text role="meta">{entry.waitingForYou ? 'Waiting' : entry.busy ? 'Working' : entry.ended === 'done' ? 'Done' : 'Stopped'}</Text>
+                </span>}
                 {entry?.keep && <Chip tone={entry.keep === 'kept' ? 'success' : 'neutral'} size="sm">{entry.keep === 'kept' ? 'Picked' : 'Not kept'}</Chip>}
                 {entry?.ceiling && <CeilingChip ceiling={entry.ceiling.ceiling} note={entry.ceiling.note} />}
-                {/* Waiting outranks working, as it does everywhere a pane's
-                    state is told (`paneStatus`): a turn held on an approval
-                    is still in progress, and the question is what needs the
-                    person. */}
-                {entry?.waitingForYou ? (
-                  <Chip tone="warning" size="sm">Waiting for you</Chip>
-                ) : entry?.busy ? (
-                  <Chip state="ready" size="sm">Working</Chip>
-                ) : entry?.ended === 'done' ? (
-                  <Chip tone="neutral" size="sm">Done</Chip>
-                ) : entry?.ended === 'stopped' ? (
-                  <Chip tone="neutral" size="sm">Stopped</Chip>
-                ) : null}
                 {entry?.queued && <Chip tone="neutral" size="sm" title="Queued — next after this turn">Queued</Chip>}
-                <ToggleGroup type="single" size="sm" aria-label={`${nickname} view`}
-                  value={state.modes[key] ?? 'conversation'}
-                  className="shrink-0"
-                  onValueChange={(mode) => {
-                    if (mode === 'conversation' || mode === 'browser') onChange(was => setTileMode(focusTile(was, key), key, mode))
-                  }}>
-                  <ToggleGroupItem value="conversation">Conversation</ToggleGroupItem>
-                  <ToggleGroupItem value="browser">Browser</ToggleGroupItem>
-                </ToggleGroup>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${nickname}`}
-                  title={isExpanded ? 'Return to the grid' : 'Expand tile'}
-                  onClick={(event) => {
+                <span className={styles.view}><Button type="button" variant="ghost" size="icon-sm"
+                  aria-label={state.modes[key] === 'browser' ? 'Back to the conversation' : 'Show the browser'}
+                  title={state.modes[key] === 'browser' ? 'Conversation' : 'Browser'}
+                  onClick={event => {
                     event.stopPropagation()
-                    onChange((was) => expandTile(was, isExpanded ? null : key))
-                  }}
-                >
-                  {isExpanded ? <CollapseIcon size={14} /> : <ExpandIcon size={14} />}
-                </Button>
+                    onChange(was => setTileMode(focusTile(was, key), key, was.modes[key] === 'browser' ? 'conversation' : 'browser'))
+                  }}>
+                  {state.modes[key] === 'browser' ? <CommentIcon size={14} /> : <GlobeIcon size={14} />}
+                </Button></span>
                 <DropdownMenu>
                   <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`${nickname} actions`} title="Tile actions"><MoreIcon size={14} /></Button>} />
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${nickname}`} onClick={event => {
+                      event.stopPropagation()
+                      onChange(was => expandTile(was, isExpanded ? null : key))
+                    }}>{isExpanded ? 'Return to the grid' : 'Expand tile'}</DropdownMenuItem>
                     <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }}>Open conversation</DropdownMenuItem>
                     <DropdownMenuItem onClick={(event) => {
                       event.stopPropagation()
@@ -384,10 +368,10 @@ export const SideBySide = ({
         {seams.map((seam) => (
           <Separator key={seam.key} orientation={seam.orientation} style={seam.style} />
         ))}
-        <ComposerDock floating ref={composerRef} data-shared-composer="" hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
+        <ComposerDock floating ref={composerRef} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
           {sharedComposer && composer && (
             <ComposerDock>
-              <div className={styles.composer}>{composer(shown.shown)}</div>
+              <div className={styles.composer}>{decision}{composer(shown.shown)}</div>
             </ComposerDock>
           )}
         </ComposerDock>

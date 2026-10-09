@@ -1,16 +1,23 @@
 import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { narrower } from '@harnessdesk/protocol'
 
 import { Agents } from '../src/agents.js'
-import { builtinAgentRoot } from '../src/host.js'
+import { builtinAgentRoot, builtinFlowRoot } from '../src/host.js'
 import { FlowPreviews } from '../src/flow-preview.js'
 import { parseFlowPolicy } from '../src/flow-policy.js'
 import { tempDir } from './scratch.js'
 
-const directory = new URL('../../../../.harnessdesk/flows/', import.meta.url)
+const directory = builtinFlowRoot()
+
+test('the repository no longer shadows the shipped writing and comparison shapes', async () => {
+  for (const file of ['fix-and-review.yml', 'race.yml']) {
+    await assert.rejects(readFile(new URL(`../../../../.harnessdesk/flows/${file}`, import.meta.url), 'utf8'), { code: 'ENOENT' })
+  }
+})
 
 const projectPreviews = async (): Promise<FlowPreviews> => {
   const catalogue = new Agents({ user: tempDir('hd-project-flows-'), builtin: builtinAgentRoot() })
@@ -28,38 +35,38 @@ const projectPreviews = async (): Promise<FlowPreviews> => {
   })
 }
 
-test('every project Flow parses as current and previews with the shipped Agents without problems', async () => {
+test('every shipped Flow parses as current and previews with the shipped Agents without problems', async () => {
   const previews = await projectPreviews()
   const files = (await readdir(directory, { recursive: true })).filter(name => /\.ya?ml$/i.test(name))
   assert.ok(files.length > 0)
   for (const file of files) {
-    const source = await readFile(new URL(file, directory), 'utf8')
+    const source = await readFile(join(directory, file), 'utf8')
     const parsed = parseFlowPolicy(source)
     assert.equal(parsed.document?.format, 'agents', file)
     const preview = await previews.preview('/repo', source, { work: 'Build the requested change' })
     assert.deepEqual(preview.problems, [], file)
     assert.ok(preview.token, file)
-    if (file === 'race.yml') {
+    if (file === 'comparison.yml') {
       assert.equal(preview.seats.filter(seat => seat.role === 'competitor' && seat.isolate).length, 2)
       assert.equal(preview.commands.length, 1)
       assert.ok(preview.seats.some(seat => seat.role === 'judge' && seat.reviews))
       assert.ok(parsed.document?.flow.roles.some(role => role.kind === 'person'))
     }
     if (file === 'fix-and-review.yml') {
-      assert.equal(preview.seats.filter(seat => seat.role === 'reviewer').length, 3)
+      assert.equal(preview.seats.filter(seat => seat.role === 'reviewer').length, 1)
       assert.ok(parsed.document?.flow.rules.some(rule => rule.on === 'reviewer' && rule.then.role === 'fixer'))
       assert.ok(parsed.document?.flow.roles.some(role => role.kind === 'person'))
     }
   }
 })
 
-test('Fix and review keeps the fixer as its only publisher', async () => {
-  const source = await readFile(new URL('fix-and-review.yml', directory), 'utf8')
+test('Write and review keeps the fixer as its only publisher', async () => {
+  const source = await readFile(join(directory, 'fix-and-review.yml'), 'utf8')
   const parsed = parseFlowPolicy(source)
   assert.deepEqual(parsed.problems, [])
   assert.ok(parsed.document?.format === 'agents')
   const flow = parsed.document.flow
-  assert.equal(flow.name, 'Fix and review')
+  assert.equal(flow.name, 'Write and review')
   assert.deepEqual(flow.roles.map(role => [role.id, role.kind]), [
     ['fixer', 'agent'], ['reviewer', 'agent'], ['referee', 'person'],
   ])
@@ -70,13 +77,11 @@ test('Fix and review keeps the fixer as its only publisher', async () => {
   assert.deepEqual(preview.seats.map(seat => [seat.role, seat.index, seat.agent, seat.plan.ceiling?.level]), [
     ['fixer', 0, 'implementer', 'publish'],
     ['reviewer', 0, 'code-reviewer', 'read'],
-    ['reviewer', 1, 'code-reviewer', 'read'],
-    ['reviewer', 2, 'code-reviewer', 'read'],
   ])
 })
 
-test('the race Flow gives each card of one round its own isolated implementer seat', async () => {
-  const source = await readFile(new URL('race.yml', directory), 'utf8')
+test('Side by side gives each card of one round its own isolated implementer seat', async () => {
+  const source = await readFile(join(directory, 'comparison.yml'), 'utf8')
   const parsed = parseFlowPolicy(source)
   assert.deepEqual(parsed.problems, [])
   assert.ok(parsed.document?.format === 'agents')
@@ -97,7 +102,7 @@ test('the race Flow gives each card of one round its own isolated implementer se
 })
 
 test('version-2 layout positions are carried without changing the execution preview', async () => {
-  const source = await readFile(new URL('fix-and-review.yml', directory), 'utf8')
+  const source = await readFile(join(directory, 'fix-and-review.yml'), 'utf8')
   const moved = source.replace('x: 40, y: 40', 'x: 900, y: 900')
   const previews = await projectPreviews()
   const plans = []
@@ -105,7 +110,7 @@ test('version-2 layout positions are carried without changing the execution prev
     const parsed = parseFlowPolicy(text)
     assert.deepEqual(parsed.problems, [])
     assert.ok(parsed.document?.format === 'agents')
-    assert.deepEqual(parsed.document.flow.layout, { positions: {
+    assert.deepEqual(parsed.document.flow.layout, { frontDoor: { order: 0, contexts: ['project'] }, positions: {
       fixer: { x: position, y: position }, reviewer: { x: 300, y: 40 }, referee: { x: 560, y: 40 },
     } })
     const preview = await previews.preview('/repo', text, { work: 'Fix the retry budget' })

@@ -1246,3 +1246,7 @@ export class AcpConnection {
     this.#pending.clear()
   }
 }
+
+/** Source-file metadata extension; copied in the bridge's session-source-wire.ts. */
+export const ACP_SESSION_SOURCE = '_harnessdesk/session/source'
+export const ACP_SESSION_SOURCE_CAPABILITY = 'sourceTranscript'

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { Flow, FlowRole } from '@harnessdesk/protocol'
+import { builtinFlowRoot } from '../src/host.js'
+import { parseFlowPolicy } from '../src/flow-policy.js'
 
 import {
   dryRun,
@@ -33,20 +34,9 @@ import {
  * will happen rather than a second implementation that agrees for now.
  */
 
-/** This file runs from `dist/test`, so find the checkout rather than count `..`. */
-const checkout = (): string => {
-  let root = dirname(fileURLToPath(import.meta.url))
-  while (!existsSync(join(root, 'pnpm-workspace.yaml'))) {
-    const up = dirname(root)
-    assert.notEqual(up, root, 'ran outside the checkout')
-    root = up
-  }
-  return root
-}
-
 /** The flows this repository ships, read from where a person would find them. */
 const shipped = (name: string): string =>
-  readFileSync(join(checkout(), '.harnessdesk', 'flows', name), 'utf8')
+  readFileSync(join(builtinFlowRoot(), name), 'utf8')
 
 const REVIEW = `
 name: Fix and review
@@ -534,26 +524,22 @@ seed:
   assert.match(customOrder, /You are grasshopper in run flow-5678\./)
 })
 
-test("every shipped flow's role order renders with no unresolved slots", () => {
-  for (const name of ['fix-and-review.yml', 'race.yml']) {
-    const flow = read(shipped(name))
-    for (const role of flow.roles) {
-      if (role.kind !== 'agent') continue
-      const order = renderOrder(
-        orderVars(role, flow, {
-          name: 'Agent',
-          member: 'Agent',
-          room: 'Room',
-          repo: '/repo',
-          runtime: 'cursor',
-          run: 'flow-test',
-        }),
-      )
-      const remainingSlots = slotsIn(order)
+test("the writing and comparison shapes' card instructions render with no unresolved slots", () => {
+  for (const name of ['fix-and-review.yml', 'comparison.yml']) {
+    const parsed = parseFlowPolicy(shipped(name))
+    assert.deepEqual(parsed.problems, [])
+    assert.ok(parsed.document?.format === 'agents')
+    const flow = parsed.document.flow
+    const vars = {
+      ...Object.fromEntries([...BUILT_IN_SLOTS, ...flow.inputs.map(input => input.id)].map(key => [key, 'Test value'])),
+      'evidence.review.at': 'a'.repeat(40),
+    }
+    for (const step of [flow.seed, ...flow.rules.map(rule => rule.then)]) {
+      const remainingSlots = slotsIn(renderFlowTemplate(`${step.title}\n${step.detail ?? ''}`, vars))
       assert.deepEqual(
         remainingSlots,
         [],
-        `flow ${name} role ${role.id} order has unresolved slots: ${remainingSlots.join(', ')}`,
+        `flow ${name} role ${step.role} has unresolved slots: ${remainingSlots.join(', ')}`,
       )
     }
   }

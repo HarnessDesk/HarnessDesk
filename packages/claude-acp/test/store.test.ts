@@ -60,3 +60,20 @@ test('what is removed goes to the Trash, and never over something already there'
   assert.deepEqual(trash([join(home, 'gone.jsonl')], home), [])
   assert.deepEqual(trash([], home), [])
 })
+
+test('the source metadata names only the project transcript, never its sidecar', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'claude-source-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const project = join(home, 'projects', '-work-project')
+  mkdirSync(join(project, 'abc'), { recursive: true })
+  const path = join(project, 'abc.jsonl')
+  writeFileSync(path, 'synthetic bytes, not JSON')
+  const module = await import('../src/store.js') as unknown as { sourceOf?: (id: string, home: string) => unknown }
+  assert.ok(module.sourceOf, 'the bridge can name its transcript source')
+  const { statSync } = await import('node:fs')
+  const facts = statSync(path)
+  assert.deepEqual(module.sourceOf('abc', home), { path, mtimeMs: facts.mtimeMs, size: facts.size })
+  assert.equal(module.sourceOf('../../../escape', home), null)
+  rmSync(path)
+  assert.equal(module.sourceOf('abc', home), null)
+})

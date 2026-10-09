@@ -1,5 +1,6 @@
 version: 2
 name: "Alignment"
+summary: "An agent proposes a plan; nothing more until you look."
 description: "An agent proposes a plan; nothing beyond that proposal is admitted until a person has looked at it."
 inputs:
   task:

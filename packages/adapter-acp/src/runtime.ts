@@ -96,6 +96,8 @@ import {
   ACP_TASKS_CAPABILITY,
   ACP_TASKS_NOTIFICATION,
   type AcpTasksChanged,
+  ACP_SESSION_SOURCE,
+  ACP_SESSION_SOURCE_CAPABILITY,
   ACP_SESSION_DELETE,
   ACP_SESSION_DELETE_CAPABILITY,
   ACP_INSTRUCTIONS_CAPABILITY,
@@ -1086,6 +1088,7 @@ export class AcpRuntime implements AgentRuntime {
             // A bridge that knows where its agent writes can delete a stored
             // conversation, and says so in the handshake. Nothing else can.
             deleteHistory: this.#canDelete,
+            sourceTranscript: (this.#initialized?._meta?.['harnessdesk'] as Record<string, unknown> | undefined)?.[ACP_SESSION_SOURCE_CAPABILITY] === true,
             // Offered in configuration, and not yet refused by the agent —
             // the refusal is observed on the first real or probe session,
             // which `start` opens eagerly for exactly this reason.
@@ -2107,6 +2110,18 @@ export class AcpRuntime implements AgentRuntime {
       data: [...matches.values()].sort((a, b) => b.updatedAt - a.updatedAt),
       nextCursor: null,
     }
+  }
+
+  async sourceOf(id: SessionId) {
+    if (!this.info.capabilities.sourceTranscript) return null
+    const response = await this.#connection.request<{ source?: { path?: unknown; mtimeMs?: unknown; size?: unknown } | null }>(ACP_SESSION_SOURCE, { sessionId: String(id) })
+    const source = response.source
+    if (source == null) return null
+    if (typeof source.path !== 'string' || !isAbsolute(source.path) || typeof source.mtimeMs !== 'number' ||
+        !Number.isFinite(source.mtimeMs) || typeof source.size !== 'number' || !Number.isSafeInteger(source.size) || source.size < 0) {
+      throw new Error('The agent returned invalid conversation source metadata.')
+    }
+    return { path: source.path, mtimeMs: source.mtimeMs, size: source.size }
   }
 
   async readSession(id: SessionId): Promise<Session> {

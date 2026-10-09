@@ -13,8 +13,9 @@ vi.mock('./Approvals', () => ({ Approvals: () => <div data-approval /> }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let box: HTMLDivElement
 let root: Root
-const mount = async (scene: ComparisonScene) => {
+const mount = async (scene: ComparisonScene, setup?: (store: ReturnType<typeof comparisonVerdictStore>) => void) => {
   const store = comparisonVerdictStore(scene)
+  setup?.(store)
   const read = vi.spyOn(store, 'loadBoardEvidence')
   const candidates = vi.spyOn(store, 'flowReviewCandidates')
   const decide = vi.spyOn(store, 'decideFlowReview')
@@ -35,20 +36,10 @@ it('reads comparison evidence on Side by side and maps the Run’s outcomes to c
   const bars = [...box.querySelectorAll('[data-slot="side-by-side-tile"] header')]
   expect(bars[0]?.textContent).toContain('Picked')
   expect(bars[1]?.textContent).toContain('Not kept')
-  expect(box.querySelector('[data-slot="comparison-notice"]')?.textContent).toContain('Gamma picked Attempt A')
-  await click('Merge the picked change')
-  expect(box.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
-  expect(box.textContent).toContain('Merge the picked change')
-})
-it('keeps a dismissed verdict dismissed when returning to Side by side', async () => {
-  await mount('picked')
-  await click('Dismiss verdict')
-  await click('Board')
-  const toggle = box.querySelector<HTMLButtonElement>('button[aria-label="Side by side"]')!
-  expect(toggle).not.toBeNull()
-  await act(async () => toggle.click())
+  expect(box.querySelector('[data-slot="comparison-decision"]')?.textContent).toContain('The judge picked A')
+  await click('Merge A into main')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Merge into main')
   expect(box.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
-  expect(box.querySelector('[data-slot="comparison-notice"]')).toBeNull()
 })
 it('opens the Board’s same attempt dialog from a waiting person judge', async () => {
   const { candidates, decide } = await mount('person')
@@ -86,4 +77,165 @@ it('does not carry an open picker into a later person verdict', async () => {
   }))
   expect(box.textContent).toContain('Your pick is next')
   expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('compares recorded attempt revisions through the existing diff dialog', async () => {
+  const {store} = await mount('picked')
+  const request = vi.spyOn(store.transport, 'request')
+  await click('Compare changes')
+  expect(request).toHaveBeenCalledWith('git/diffRange', expect.objectContaining({from:'a'.repeat(40), to:'b'.repeat(40)}))
+})
+it('lets the person keep B for the pending merge without rewriting the judge', async () => {
+  const {decide} = await mount('picked')
+  await click('Keep B instead')
+  const headers = [...box.querySelectorAll('[data-slot="side-by-side-tile"] header')]
+  expect(headers[0]?.textContent).toContain('Not kept')
+  expect(headers[1]?.textContent).toContain('Picked')
+  expect(box.textContent).toContain('You picked B')
+  expect(box.textContent).toContain('Judge picked A:')
+  expect(decide).not.toHaveBeenCalled()
+  await click('Merge B into main')
+  expect(document.querySelector('[role="dialog"]')?.querySelector<HTMLSelectElement>('select')?.value).toBe('b'.repeat(40))
+})
+it('shows the merged summary from the saved person receipt and restores the attempts', async () => {
+  await mount('merged')
+  expect(box.textContent).toContain('A is in main')
+  expect(box.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
+  expect(box.textContent).toContain('The attempt stays in this Run')
+  expect(box.textContent).not.toContain('7 days')
+  await click('Show the attempts')
+  expect(box.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+  expect(box.querySelector('[data-slot="comparison-decision"]')).toBeNull()
+})
+it('records completion only after a conflict-free merge and retains the merge receipt', async () => {
+  const {store} = await mount('picked')
+  const intent = vi.spyOn(store, 'teamIntent')
+  const request = vi.spyOn(store.transport, 'request')
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(request).toHaveBeenCalledWith('git/merge', {root:'/workspace/demo-client', ref:'a'.repeat(40), expectedBranch:'main'})
+  expect(intent).toHaveBeenCalledWith(PREVIEW_ROOM, 6, 'done', undefined, 'merged', expect.stringContaining('"card":1'))
+  expect(box.textContent).toContain('A is in main')
+})
+
+const confirmMerge = async () => {
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  return dialog
+}
+
+it('records the host merge result even if HEAD moves before the person answer', async () => {
+  const {store} = await mount('picked')
+  const original = store.transport.request.bind(store.transport)
+  let finished = false
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: never) => {
+    if (method === 'git/merge') {
+      finished = true
+      return {summary:'Merged A.', conflicts:[], merged:{branch:'main', commit:'c'.repeat(40)}}
+    }
+    const result = await original(method as never, params)
+    return method === 'git/refs' && finished ? {...result as object, branch:'release', headSha:'d'.repeat(40)} : result
+  }) as typeof store.transport.request)
+  const answer = vi.spyOn(store, 'teamIntent')
+  await click('Merge A into main')
+  await confirmMerge()
+  const receipt = JSON.parse(answer.mock.lastCall![5]!).comparisonMerge
+  expect(receipt).toMatchObject({branch:'main', commit:'c'.repeat(40)})
+  expect(box.textContent).toContain('A is in main')
+})
+
+it('does not show completion when a resolved person answer was rolled back', async () => {
+  const {store} = await mount('picked')
+  vi.spyOn(store, 'teamIntent').mockResolvedValue()
+  await click('Merge A into main')
+  const dialog = await confirmMerge()
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
+  expect(dialog.textContent).toContain('The merge finished, but its answer was not saved')
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+})
+
+it('does not accept a different saved handoff as this merge receipt', async () => {
+  const {store} = await mount('picked')
+  const original = store.transport.request.bind(store.transport)
+  vi.spyOn(store, 'teamIntent').mockResolvedValue()
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: never) => {
+    if (method === 'team/state') {
+      const team = comparisonVerdictStore('merged').getSnapshot().teams.get(PREVIEW_ROOM)!
+      return {...team, intents:team.intents.map(card => ({...card, handoff:card.handoff?.replace('c'.repeat(40), 'd'.repeat(40)) ?? null}))}
+    }
+    return original(method as never, params)
+  }) as typeof store.transport.request)
+  await click('Merge A into main')
+  const dialog = await confirmMerge()
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
+  expect(dialog.textContent).toContain('The merge finished, but its answer was not saved')
+})
+
+for (const initial of ['detached', 'failed'] as const) it(`refreshes a ${initial} destination after Changes fixes it`, async () => {
+  let fixed = false
+  await mount('picked', store => {
+    const original = store.transport.request.bind(store.transport)
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: never) => {
+      if (method === 'git/refs' && !fixed && initial === 'failed') throw new Error('Read failed')
+      const result = await original(method as never, params)
+      return method === 'git/refs' && !fixed ? {...result as object, branch:null} : result
+    }) as typeof store.transport.request)
+  })
+  expect(box.querySelector<HTMLButtonElement>('[data-slot="comparison-decision"] button:last-child')?.disabled).toBe(true)
+  fixed = true
+  await click('Refresh merge destination')
+  await click('Merge A into main')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Merge into main')
+})
+
+it('refreshes the branch when a stale merge question closes', async () => {
+  const {store} = await mount('picked')
+  const original = store.transport.request.bind(store.transport)
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: never) => {
+    const result = await original(method as never, params)
+    return method === 'git/refs' ? {...result as object, branch:'release'} : result
+  }) as typeof store.transport.request)
+  await click('Merge A into main')
+  await confirmMerge()
+  const cancel = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(one => one.textContent === 'Cancel')!
+  await act(async () => cancel.click())
+  await click('Merge A into release')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Merge into release')
+})
+it('leaves a conflicted merge awaiting the person without recording completion', async () => {
+  const {store} = await mount('picked')
+  const intent = vi.spyOn(store, 'teamIntent').mockResolvedValue()
+  const original = store.transport.request.bind(store.transport)
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string, params: never) => method === 'git/merge' ? Promise.resolve({summary:'Resolve the conflict', conflicts:['src/client.ts']}) : original(method as never, params)) as typeof store.transport.request)
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(intent).not.toHaveBeenCalled()
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
+})
+
+it('refuses a merge if the destination changed after the decision appeared', async () => {
+  const {store} = await mount('picked')
+  const original = store.transport.request.bind(store.transport)
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: never) => {
+    const result = await original(method as never, params)
+    return method === 'git/refs' ? {...result as object, branch:'release'} : result
+  }) as typeof store.transport.request)
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(dialog.textContent).toContain('The destination branch changed')
+  expect(request.mock.calls.some(([method]) => method === 'git/merge')).toBe(false)
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
+})
+
+it('keeps the question open when recording a completed merge fails', async () => {
+  const {store} = await mount('picked')
+  vi.spyOn(store, 'teamIntent').mockRejectedValue(new Error('The answer could not be saved'))
+  await click('Merge A into main')
+  const dialog = document.querySelector('[role="dialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Merge')!.click())
+  expect(dialog.textContent).toContain('The answer could not be saved')
+  expect(box.querySelector('[data-slot="comparison-summary"]')).toBeNull()
 })

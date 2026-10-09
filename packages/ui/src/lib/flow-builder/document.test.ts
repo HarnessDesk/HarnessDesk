@@ -13,7 +13,7 @@ import {
 } from './index'
 
 const shipped = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
-const SHIPPED = ['alignment', 'comparison', 'fan-out', 'independent-review', 'investigation', 'mechanical-contest', 'review', 'review-pr', 'staged-relay']
+const SHIPPED = ['alignment', 'comparison', 'fan-out', 'fix-and-review', 'independent-review', 'investigation', 'mechanical-contest', 'review', 'review-pr', 'staged-relay']
 const policyOf = (source: string): FlowPolicy => {
   const parsed = parseFlowPolicy(source)
   expect(parsed.problems.filter((one) => one.level === 'error')).toEqual([])

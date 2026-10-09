@@ -19,7 +19,7 @@ for (const theme of ['light', 'dark'] as const) {
     })
     await expect.poll(async () => (await grid.boundingBox())?.width).toBe(1200)
     const tiles = grid.locator('[data-slot="side-by-side-tile"]')
-    await tiles.nth(1).getByRole('radio', { name: 'Conversation', exact: true }).click()
+    await tiles.nth(1).getByRole('button', { name: 'Back to the conversation', exact: true }).click()
     await expect(tiles.nth(0).locator('iframe')).toBeVisible()
     await expect(tiles.nth(1).locator('[data-live-transcript]')).toBeVisible()
     const dock = grid.locator('[data-shared-composer]')
@@ -45,13 +45,15 @@ for (const theme of ['light', 'dark'] as const) {
         await grid.screenshot({ path: join(process.env.HD_MERGED_FRAMES, `merged-main-${theme}.png`), animations: 'disabled' })
       }
     }
-    await tiles.nth(0).getByRole('button', { name: 'Expand Alpha', exact: true }).click()
+    await tiles.nth(0).getByRole('button', { name: 'Alpha actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Expand Alpha', exact: true }).click()
     await expect(dock).toBeHidden()
     await expect.poll(() => tiles.nth(0).evaluate(tile => {
       const browser = tile.querySelector('iframe')!.closest('[data-slot="tool-pane"]')!
       return Math.abs(browser.getBoundingClientRect().bottom - tile.getBoundingClientRect().bottom)
     })).toBeLessThanOrEqual(1)
-    await tiles.nth(0).getByRole('button', { name: 'Collapse Alpha', exact: true }).click()
+    await tiles.nth(0).getByRole('button', { name: 'Alpha actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Collapse Alpha', exact: true }).click()
     await expect(dock).toBeVisible()
     await expect(box).toHaveValue('Compare the retry budget.\n'.repeat(24))
   })
