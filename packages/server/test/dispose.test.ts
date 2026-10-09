@@ -16,11 +16,15 @@ import {
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
+import { RefObserver } from '../src/provenance/observer.js'
+import { EvidenceStore } from '../src/evidence/store.js'
+import type { EvidencePlane } from '../src/evidence/plane.js'
 import { Team } from '../src/team.js'
 import { SessionIndex } from '../src/session-index.js'
 import { TranscriptStore } from '../src/transcripts.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 import { shippedAgentsCopy } from './fixtures/harness.js'
+import { makeRepo } from './fixtures/provenance-repo.js'
 
 /**
  * The quit reaches every runtime before a catalogue re-read can resume.
@@ -43,6 +47,45 @@ import { shippedAgentsCopy } from './fixtures/harness.js'
  */
 
 const silent = new Logger('test', { level: 'error', console: false })
+
+test('a failed main-checkout admission does not orphan an already admitted worktree observer', async t => {
+  const repo = await makeRepo()
+  const base = await repo.commitTree(null, { one: 'synthetic base\n' }, 'Synthetic initial commit')
+  await repo.git('update-ref', 'refs/heads/main', base)
+  const checkout = join(repo.dir, '..', 'a-checkout')
+  await repo.git('worktree', 'add', '--detach', checkout, base)
+  const store = new EvidenceStore(join(repo.stateDir, 'evidence'))
+  const plane = new ProvenancePlane({
+    evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
+    stateDir: repo.stateDir, projects: () => [checkout, repo.dir], push: () => {}, log: () => {},
+  })
+  const opened = new Set<RefObserver>()
+  const closed = new Set<RefObserver>()
+  const start = RefObserver.prototype.start
+  const close = RefObserver.prototype.close
+  t.mock.method(RefObserver.prototype, 'start', async function (this: RefObserver, ...args: Parameters<RefObserver['start']>) {
+    opened.add(this)
+    await start.apply(this, args)
+    // The linked checkout is admitted first. Make the main checkout's next
+    // admission fail after the observer exists, without racing filesystem timing.
+    await fs.rename(repo.dir, `${repo.dir}-moved`)
+  })
+  t.mock.method(RefObserver.prototype, 'close', async function (this: RefObserver) {
+    closed.add(this)
+    await close.call(this)
+  })
+  try {
+    await plane.start()
+    await plane.backup() // Joins the queued registration of both roots.
+    assert.equal(opened.size, 1)
+    await plane.close()
+    assert.deepEqual(closed, opened, 'every admitted observer belongs to the quit, even after another root fails')
+  } finally {
+    await plane.close()
+    // A failing regression must still close the orphan it exposed.
+    for (const observer of opened) await close.call(observer)
+  }
+})
 
 /**
  * An agent whose catalogue re-read parks, and which keeps the two adapters'
