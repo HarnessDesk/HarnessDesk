@@ -1066,9 +1066,9 @@ export const TeamRoomPane = ({
             {goal && !record ? <Button
               type="button"
               variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={styles.railAdd}
-              aria-label="Seat an Agent in this Goal"
+              aria-label="Seat an Agent in this Team"
               disabled={record}
-              title={record ? RECORD_REASON : "Seat an Agent in this Goal"}
+              title={record ? RECORD_REASON : "Seat an Agent in this Team"}
               onClick={() => { setAdding(true); close() }}
             >
               <PlusIcon size={13} />
