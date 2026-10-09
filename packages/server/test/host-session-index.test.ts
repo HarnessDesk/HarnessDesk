@@ -194,6 +194,12 @@ test('native archive seed waits for authority, retries a failure and never adopt
   runtime.history.push(...['archived', 'unarchived', 'not-a-desk-row'].map(id => ({ runtime: runtime.info.id, id: sessionId(id),
     title: id, cwd: root, createdAt: 1, updatedAt: 10, status: { type: 'notLoaded' as const } })))
   runtime.archived.add('archived')
+  // A held/closed record is useful to session/list, but cannot answer whether
+  // the native store archived it (or whether that store still lists it at all).
+  for (const id of ['archived', 'absent']) host.registry.upsert({
+    runtime: runtime.info.id, id: sessionId(id), title: `Held ${id}`, cwd: root,
+    createdAt: 1, updatedAt: 10, status: { type: 'idle' }, turns: [], itemsLoaded: true,
+  }, null)
   const original = runtime.listSessions.bind(runtime)
   let release!: () => void
   const delay = new Promise<void>(resolve => { release = resolve })
@@ -211,6 +217,8 @@ test('native archive seed waits for authority, retries a failure and never adopt
   for (let i = 0; i < 30 && !(await host.call('session/index', {})).data.length; i++) await new Promise(resolve => setTimeout(resolve, 10))
   assert.deepEqual((await host.call('session/index', {})).data.map(row => row.id), ['unarchived'])
   assert.deepEqual((await host.call('session/index', { archived: 'only' })).data.map(row => row.id), ['archived'])
+  const managed = await host.call('session/list', { runtime: runtime.info.id })
+  assert.ok(managed.data.some(row => row.id === 'absent'), 'ordinary history still includes held records')
   assert.equal(runtime.history.length, 3)
 })
 

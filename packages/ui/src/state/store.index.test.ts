@@ -306,6 +306,41 @@ it('reconciles missed index changes on sync while keeping the loaded page capaci
   expect(store.getSnapshot().historyCursor).toBe('current-next')
 })
 
+it.each(['success', 'failure'] as const)('keeps a settled search settled during index reconciliation (%s)', async (outcome) => {
+  handlers().onNotification({ method: 'runtime/added', params: { info: {
+    id: runtime, capabilities: { searchHistory: true }, presentation: { name: 'Demo agent' },
+  } } } as unknown as WireNotification)
+  await store.selectRuntime(runtime)
+  request.mockResolvedValueOnce({ data: [row('match')], nextCursor: null })
+  await store.searchHistory('needle')
+  expect(store.getSnapshot().historyLoading).toBe(false)
+  const page = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+  request.mockImplementation((() => outcome === 'success' ? page.promise : page.promise.then(() => { throw new Error('Synthetic listing failed') })) as never)
+  const loading = store.loadHistory({ reset: true, reconcile: true })
+  expect(store.getSnapshot().historyLoading).toBe(false)
+  page.resolve({ data: [row('indexed')], nextCursor: null })
+  await loading
+  expect(store.getSnapshot().historyLoading).toBe(false)
+  expect(ids()).toEqual(['match'])
+})
+
+it('keeps a pending search loading when index reconciliation completes', async () => {
+  handlers().onNotification({ method: 'runtime/added', params: { info: {
+    id: runtime, capabilities: { searchHistory: true }, presentation: { name: 'Demo agent' },
+  } } } as unknown as WireNotification)
+  await store.selectRuntime(runtime)
+  const search = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+  request.mockImplementation(((method: HostMethodName) => method === 'session/search'
+    ? search.promise : Promise.resolve({ data: [row('indexed')], nextCursor: null })) as never)
+  const searching = store.searchHistory('needle')
+  await store.loadHistory({ reset: true, reconcile: true })
+  expect(store.getSnapshot().historyLoading).toBe(true)
+  search.resolve({ data: [row('match')], nextCursor: null })
+  await searching
+  expect(store.getSnapshot().historyLoading).toBe(false)
+  expect(ids()).toEqual(['match'])
+})
+
 it('keeps removed agents out of later pages and index events', async () => {
   change([row('gone')])
   handlers().onNotification({ method: 'runtime/removed', params: { runtime } })

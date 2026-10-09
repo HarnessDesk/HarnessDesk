@@ -658,6 +658,8 @@ export class Host {
     send: (activity) => this.#push({ method: 'seat/activity', params: activity }),
   })
   readonly #runtimes = new Map<string, AgentRuntime>()
+  /** Native metadata before registry rows are added, with the same lifecycle guard. */
+  readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, AgentRuntime['listSessions']>()
   readonly #accountReads = new Map<string, AccountReads>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
@@ -2109,6 +2111,15 @@ export class Host {
     const surfaces = new WeakMap<object, object>()
     const accountReads = new AccountReads(id, this.#logger)
     this.#accountReads.set(id, accountReads)
+    const listHistory = (query?: ListSessionsQuery) => this.#withRuntimeRead(runtime, async () => {
+      await this.#waitForRuntimeStop(runtime)
+      const starting = this.#startingRuntimes.get(String(id))
+      if (starting) await starting
+      if (runtime.health().state === 'idle' && runtime.canReadWhileIdle?.({
+        method: 'listSessions', query,
+      }) === false) await this.#ensureStarted(runtime)
+      return runtime.listSessions(query)
+    })
     const managed = new Proxy(runtime, {
       get: (target, key) => {
         const member = Reflect.get(target, key, target) as unknown
@@ -2131,16 +2142,7 @@ export class Host {
         }
         if (typeof member !== 'function') return member
         if (key === 'listSessions') {
-          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
-            await this.#waitForRuntimeStop(target)
-            const starting = this.#startingRuntimes.get(String(target.info.id))
-            if (starting) await starting
-            if (target.health().state === 'idle' && target.canReadWhileIdle?.({
-              method: 'listSessions', query: args[0] as ListSessionsQuery | undefined,
-            }) === false) await this.#ensureStarted(target)
-            const page = await Reflect.apply(member, target, args) as Page<SessionSummary>
-            return this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined)
-          })
+          return async (query?: ListSessionsQuery) => this.#withHostHistory(id, await listHistory(query), query)
         }
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
           const read = (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
@@ -2168,6 +2170,7 @@ export class Host {
         return member.bind(target)
       },
     })
+    this.#runtimeHistoryReaders.set(managed, listHistory)
     this.#runtimes.set(id, managed)
     this.#catalogs.watch(managed)
     this.#runtimeSubscriptions.set(id, [
@@ -6761,7 +6764,7 @@ export class Host {
         const confirmed: SessionSummary[] = []
         do {
           if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
-          const page = await runtime.listSessions({ archived, pageSize: 500, ...(cursor ? { cursor } : {}) })
+          const page = await this.#runtimeHistoryReaders.get(runtime)!({ archived, pageSize: 500, ...(cursor ? { cursor } : {}) })
           confirmed.push(...page.data)
           cursor = page.nextCursor ?? undefined
           if (cursor && seen.has(cursor)) throw new Error('Archive listing repeated its cursor')

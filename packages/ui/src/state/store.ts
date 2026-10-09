@@ -2090,7 +2090,8 @@ export class AppStore {
     this.#historyPageFirstCursor = undefined
     const removedRuntimes = new Set<RuntimeId>()
     this.#historyPageRemovedRuntimes = removedRuntimes
-    this.#patch({ historyLoading: true })
+    // A background reconciliation must not take ownership of search loading.
+    if (!this.#historyQuery) this.#patch({ historyLoading: true })
     try {
       const runtimes = this.#snapshot.listPrefs.agent === null ? undefined : this.#snapshot.runtimes
         .filter(info => agentKeyOf(info.id, this.#snapshot.runtimes) === this.#snapshot.listPrefs.agent).map(info => info.id)
