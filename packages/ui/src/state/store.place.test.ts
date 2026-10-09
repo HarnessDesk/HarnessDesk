@@ -12,6 +12,7 @@ import {
 import { panes, sessionOf } from './layout'
 import { mountedViews } from './workbench'
 import { AppStore } from './store'
+import type { TransportEvents } from '../lib/transport'
 
 /**
  * Where a draft starts, and the way back from a worktree.
@@ -368,6 +369,16 @@ describe('restoring a layout with a conversation docked', () => {
     expect(store.getSnapshot().activeSessionKey).toBe(inFront)
   })
 
+  it('loads a visible idle transcript that sync supplied as unloaded metadata', async () => {
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    transport.handlers.onEvent(AGENT, { type: 'session/started', session: {
+      ...conversation('s-1', REPO.path), itemsLoaded: false,
+    } })
+    await restore()
+    expect(calls('session/read')).toContainEqual({ runtime: AGENT, sessionId: sessionId('s-1') })
+    expect(store.getSnapshot().sessions.get(inFront)?.itemsLoaded).toBe(true)
+  })
+
   it('resumes the docked one where it is, rather than not at all', async () => {
     // The other half of the same fix: a restore that simply skipped docked
     // conversations would leave the one in front alone and bring back a panel
@@ -382,6 +393,21 @@ describe('restoring a layout with a conversation docked', () => {
     ).toBe(true)
     expect(store.getSnapshot().sessions.get(docked)).toBeDefined()
     expect(JSON.stringify(calls('session/resume'))).toContain('s-2')
+  })
+
+  it('keeps a restored docked transcript when its read succeeds but resume is refused', async () => {
+    await restore()
+    const mounted = mountedViews(store.getSnapshot().workbench)
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName, params: never) => {
+      if (method === 'session/resume') throw Object.assign(new Error('The agent is unavailable.'), { code: 'runtimeUnavailable' })
+      return method === 'session/read' ? conversation(idOf(params), REPO.path) : null
+    }) as never)
+
+    await store.openSession(sessionId('s-2'), { runtime: AGENT, restoring: true, reveal: false })
+
+    expect(mountedViews(store.getSnapshot().workbench)).toEqual(mounted)
+    expect(store.getSnapshot().activeSessionKey).toBe(inFront)
+    expect(store.getSnapshot().sessions.get(docked)?.itemsLoaded).toBe(true)
   })
 
   it('takes the panel down when the host removes the docked one, and leaves the one in front', async () => {

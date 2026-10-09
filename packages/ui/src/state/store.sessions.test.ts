@@ -73,6 +73,116 @@ beforeEach(() => {
 
 const panesOf = () => panes(store.getSnapshot().layout.root)
 
+it('a metadata-only reconnect keeps an already displayed transcript after the host unloads it', async () => {
+  const full = session({ turns: [{ id: turnId('finished'), status: 'completed',
+    items: [{ id: itemId('output'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false, status: { type: 'notLoaded' } })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.itemsLoaded).toBe(true))
+})
+
+it('reconnect reloads a visible turn that finished while this window was away', async () => {
+  answers['session/read'] = working
+  answers['session/resume'] = working
+  await store.openSession(ID, { runtime: RUNTIME })
+  const completed = session({ turns: working.turns.map(turn => ({ ...turn, status: 'completed' })) })
+  answers['session/read'] = completed
+  answers['session/resume'] = completed
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns[0]?.status).toBe('completed'))
+})
+
+it('reconnect reads a completed turn that started and finished while this window was away', async () => {
+  const full = session({ turns: [{ id: turnId('old'), status: 'completed',
+    items: [{ id: itemId('old-output'), type: 'assistantMessage', text: 'Synthetic earlier answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  const updated = session({ turns: [...full.turns, { id: turnId('new'), status: 'completed',
+    items: [{ id: itemId('new-output'), type: 'assistantMessage', text: 'Synthetic latest answer' }] }] })
+  answers['session/read'] = updated
+  answers['session/resume'] = updated
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(updated.turns))
+})
+
+it.each([undefined, 'runtimeUnavailable', 'sessionGone'])(
+  'reconnect keeps readable history when resume is refused (%s)',
+  async (code) => {
+    const full = session({ turns: [{ id: turnId('saved'), status: 'completed',
+      items: [{ id: itemId('saved-output'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] })
+    answers['session/read'] = full
+    answers['session/resume'] = full
+    await store.openSession(ID, { runtime: RUNTIME })
+    const updated = session({ turns: [...full.turns, { id: turnId('latest'), status: 'completed',
+      items: [{ id: itemId('latest-output'), type: 'assistantMessage', text: 'Synthetic latest answer' }] }] })
+    answers['session/read'] = updated
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method === 'session/resume') throw Object.assign(new Error('The agent is unavailable.'), { code })
+      return answers[method] ?? null
+    }) as never)
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    transport.handlers.onNotification({ method: 'sync', params: {
+      sessions: [session({ turns: [], itemsLoaded: false, status: { type: 'notLoaded' } })],
+      runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+    } })
+
+    await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.size).toBe(0))
+    expect(panesOf().map(sessionOf)).toEqual([KEY])
+    expect(store.getSnapshot().activeSessionKey).toBe(KEY)
+    expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(updated.turns)
+    expect(store.getSnapshot().notices).toEqual([])
+  },
+)
+
+it('repeated metadata reconnects keep displayed turns while the latest read is pending', async () => {
+  const full = session({ turns: [{ id: turnId('saved'), status: 'completed',
+    items: [{ id: itemId('saved-output'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  let finish!: (session: Session) => void
+  const read = new Promise<Session>(resolve => { finish = resolve })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) =>
+    method === 'session/read' ? read : answers[method] ?? null) as never)
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  const sync = (updatedAt: number) => transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false, updatedAt, title: 'Updated title' })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  const updated = session({ turns: [...full.turns, { id: turnId('latest'), status: 'completed',
+    items: [{ id: itemId('latest-output'), type: 'assistantMessage', text: 'Synthetic latest answer' }] }] })
+  answers['session/resume'] = session({ itemsLoaded: false })
+  try {
+    sync(1)
+    expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+    expect(store.getSnapshot().sessions.get(KEY)?.itemsLoaded).toBe(false)
+    sync(2)
+    expect(store.getSnapshot().sessions.get(KEY)).toMatchObject({ turns: full.turns, title: 'Updated title', updatedAt: 2 })
+    expect(store.getSnapshot().loadingSessions.has(KEY)).toBe(true)
+  } finally {
+    finish(updated)
+  }
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(updated.turns))
+  await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.size).toBe(0))
+})
+
 describe('opening a conversation', () => {
   it('adds a searched session to history once it is opened', async () => {
     const searched = session({
@@ -239,6 +349,18 @@ describe('a conversation that could not be read (#800)', () => {
     await store.openSession(ID, { runtime: RUNTIME, restoring: true })
 
     expect(panesOf().map((pane) => pane.view)).toEqual([{ kind: 'conversation', session: null }])
+    expect(store.getSnapshot().notices).toEqual([])
+  })
+
+  it('still clears a restored pane when the read fails despite a cached transcript', async () => {
+    answers['session/read'] = working
+    answers['session/resume'] = working
+    await store.openSession(ID, { runtime: RUNTIME })
+    vi.mocked(store.transport.request).mockRejectedValue(new Error(SAID))
+
+    await store.openSession(ID, { runtime: RUNTIME, restoring: true })
+
+    expect(panesOf().map(sessionOf)).toEqual([null])
     expect(store.getSnapshot().notices).toEqual([])
   })
 

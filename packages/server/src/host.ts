@@ -2918,6 +2918,7 @@ export class Host {
         if (record.live === live) {
           record.live = null
           record.detached = false
+          await this.#releaseSessionBody(record)
         }
       })
       this.#restingSessions.set(key, resting)
@@ -3028,7 +3029,11 @@ export class Host {
       try {
         await live.close()
       } finally {
-        if (record.live === live) { record.live = null; record.detached = false }
+        if (record.live === live) {
+          record.live = null
+          record.detached = false
+          await this.#releaseSessionBody(record)
+        }
       }
     })
     this.#restingSessions.set(key, resting)
@@ -4419,6 +4424,10 @@ export class Host {
         live: (params) => this.#live(params),
         record: (params) => this.#record(params),
         read: (runtime, id) => this.#read(runtime, id),
+        releaseBody: async (params) => {
+          const record = this.registry.get(params.runtime, makeSessionId(params.sessionId))
+          if (record) await this.#releaseSessionBody(record)
+        },
         attach: (runtime, id, live) => this.#attach(runtime, id, live),
         withRepos: (page) => this.#withRepos(page),
         routeToHolders: (runtime, page) => this.#routeToHolders(runtime, page),
@@ -6338,7 +6347,12 @@ export class Host {
     const session = restored.cwd ? { ...read, cwd: restored.cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) } : read
     this.#recordSessionIndex(session, true)
     this.#sessionIndex.opened(runtime.info.id, id)
-    if (!runtime.info.capabilities.sourceTranscript && this.#sessionIndex.isImported(runtime.info.id, id)) await this.#transcripts.refresh(session, null)
+    // A closed source-less replay may contain new work without desk events.
+    // Save its new version before release reuses the persisted timestamp.
+    if (!runtime.info.capabilities.sourceTranscript &&
+      (this.#sessionIndex.isImported(runtime.info.id, id) || !this.registry.get(runtime.info.id, id)?.live)) {
+      await this.#transcripts.refresh(session, null)
+    }
     return session
   }
 
@@ -6970,7 +6984,25 @@ export class Host {
     if (live && record.live === live) {
       record.live = null
       record.detached = false
+      await this.#releaseSessionBody(record)
     }
+  }
+
+  /** Closed bodies live in SQLite; sync needs only their identity and reopen state. */
+  async #releaseSessionBody(record: SessionRecord): Promise<void> {
+    const quiet = () => !record.live && !record.detached && record.running.size === 0 &&
+      record.approvals.size === 0 && record.queue.messages.length === 0 &&
+      !record.tasks.some(task => task.state === 'running') && !this.#queueBusy(record) &&
+      !this.#reattaching.has(recordKey(record)) && !this.#draining.has(recordKey(record))
+    if (!quiet() || !record.session.itemsLoaded) return
+    const session = record.session
+    if (!await this.#transcripts.release(session)) return
+    // A read, late event or reopen that overtook the save owns the newer body.
+    if (record.session !== session || !quiet()) return
+    this.#flushSessionIndex(record.runtime, session.id)
+    record.session = { ...session, turns: [], itemsLoaded: false }
+    record.watched.clear()
+    this.#turnInsight.forget(record.runtime, session.id)
   }
 
   /**
@@ -8108,6 +8140,9 @@ export class Host {
     const generation = ++this.#provenanceGeneration
     const roots = this.#openRoots()
     void Promise.all(roots.map(async (root) => {
+      // A removed workspace is history, not a repository to keep polling.
+      const exists = await stat(root).then(info => info.isDirectory(), () => false)
+      if (!exists) return []
       const [checkout, repository] = await Promise.all([this.#topLevelOf(root), this.#repoOf(root)])
       return [checkout ?? root, ...(repository === null ? [] : [repository.root])]
     }))

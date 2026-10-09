@@ -326,6 +326,8 @@ export interface HostContext {
     releaseQuiet(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<void>
     /** Keeps the picks made in a conversation's live handle for the reopen, before a closed pane lets it go. */
     holdPicks(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): void
+    /** Persist and unload a closed conversation's body, keeping its metadata and reopen state. */
+    releaseBody(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<void>
   }
 
   /**

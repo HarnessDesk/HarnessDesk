@@ -26,4 +26,8 @@ export class InsightContexts {
   forSession(runtime: string, session: string): readonly TurnInsightContext[] {
     return [...(this.#contexts.get(keyOf(runtime, session))?.values() ?? [])]
   }
+
+  forget(runtime: string, session: string): void {
+    this.#contexts.delete(keyOf(runtime, session))
+  }
 }
