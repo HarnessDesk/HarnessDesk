@@ -159,20 +159,21 @@ const WEEKS_IN_YEAR_GRID = 53
 /**
  * The year view's grid: 53 weeks by 7 days, Monday first, ending on the
  * Sunday of the week that holds `now`. Days after `now` in that last week are
- * real slots — the grid stays a rectangle — but come back `null`, the one
- * state the primitive draws as nothing at all.
+ * padding slots — the grid stays a rectangle — but come back `null`, as do
+ * leading slots outside the 365-day query. The primitive draws neither.
  */
 export const buildYearGrid = (ledger: LedgerReport | null, now: number): YearGrid => {
   const today = localMidnight(now)
   const endMonday = mondayOnOrBefore(today)
   const endSunday = addDays(endMonday, 6)
   const startMonday = addDays(endMonday, -(7 * (WEEKS_IN_YEAR_GRID - 1)))
+  const firstDay = addDays(today, -364)
   const cells = buildDayRange(ledger, startMonday, endSunday, now)
 
   const weeks: (HeatCell | null)[][] = []
   for (let week = 0; week < WEEKS_IN_YEAR_GRID; week += 1) {
     const slice = cells.slice(week * 7, week * 7 + 7)
-    weeks.push(slice.map((cell) => (cell.future ? null : cell)))
+    weeks.push(slice.map((cell) => (cell.future || cell.day < firstDay ? null : cell)))
   }
 
   const monthLabels: { week: number; label: string }[] = []

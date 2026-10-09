@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { assertSiteIdentities } from '../../script/site-scenes-identities.mjs'
 
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -15,13 +16,22 @@ export default defineConfig({
     {
       name: 'site-demo-placeholder-identities',
       // Shared preview data also carries the project's public demo persona.
-      // The site's bundle uses placeholders, including unused fixture data.
+      // The site's scene data lives under site-demo/ so its approved persona
+      // survives. Other shared previews become placeholders, even when unused.
       transform(code, id) {
         if (!id.includes('/src/preview/')) return
         return code
           .replace(/\b[\w.+-]+@harnessdesk\.app\b/g, 'dev@example.com')
           .replace(/\/Users\/[^/\\'"\s]+/g, '/Users/dev') // hd-secrets-ok: home-matching pattern, not an account path.
           .replace(/\b\w+-Cursor\b/g, 'Jane Doe')
+      },
+    },
+    {
+      name: 'site-demo-allowed-identities',
+      generateBundle(_options, bundle) {
+        for (const output of Object.values(bundle)) {
+          if (output.type === 'chunk') assertSiteIdentities(output.code)
+        }
       },
     },
     react(), tailwindcss(),

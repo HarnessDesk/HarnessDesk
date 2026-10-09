@@ -27,10 +27,13 @@ import '../src/styles/app.css'
 
 import { FakeHostSocket, NOT_WIRED, RECORDED_PROMPT, ROOM_ID } from './fake-host'
 import { guide } from './guide'
+import { isSceneName } from './scenes'
 
 const KNOBS = new URL(window.location.href).searchParams
 const VIEW = KNOBS.get('view') ?? 'hero'
 const staged = VIEW === 'flow' || VIEW === 'poster'
+const scene = isSceneName(VIEW) ? VIEW : null
+const SiteScene = lazy(() => import('./scene').then(module => ({ default: module.SiteScene })))
 const SiteRunDemo = lazy(() => import('./run-demo').then(module => ({ default: module.SiteRunDemo })))
 
 // This frame lives inside a page: the app's own focus moves (a new draft
@@ -132,7 +135,7 @@ const afterRecordedTurn = (then: () => void) => {
   }, 250)
 }
 
-if (!staged) void store
+if (!staged && !scene) void store
   .connect()
   .then(() => {
     if (VIEW === 'hero') return
@@ -283,7 +286,8 @@ if (!container) throw new Error('#root is missing from index.html')
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
-      {staged ? <Suspense fallback={null}><SiteRunDemo /></Suspense> : <App />}
+      {scene ? <Suspense fallback={null}><SiteScene name={scene} theme={KNOBS.get('theme') === 'dark' ? 'dark' : 'light'} motion={KNOBS.get('motion') === 'reduce' ? 'reduce' : undefined} /></Suspense>
+        : staged ? <Suspense fallback={null}><SiteRunDemo /></Suspense> : <App />}
     </StoreProvider>
   </StrictMode>,
 )
