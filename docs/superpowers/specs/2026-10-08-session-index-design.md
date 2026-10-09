@@ -28,10 +28,13 @@ What the launch does today:
    `child_process.spawn`, 4.1 s of it on this path. Spawning blocks the host's
    event loop, so every runtime's listing returns at the same moment, about
    6.2 s in.
-3. **The renderer draws every row.** Nothing in `packages/ui` is virtualised,
-   and eight call sites run `loadHistory({ reset: true })`, each of which
-   fetches and redraws the whole list again. A warm reset still costs 1.9 s on
-   the host.
+3. **The renderer repeatedly replaces the history list.** `SessionTree` already
+   uses `WindowedProjectRows` for project lists above 50 rows, including at the
+   measured revision. Eight call sites run `loadHistory({ reset: true })`,
+   fetching the list again and repeating grouping and row derivation. A warm
+   reset still costs 1.9 s on the host. The profile does not isolate renderer
+   time or establish that mounted rows are the remaining bottleneck; measure
+   that work separately before changing the existing windowing.
 
 | step | time |
 |---|---|
@@ -88,7 +91,8 @@ an agent.** Three claims anyone can check:
    Remove drops them.
 10. **Archive, Remove and Delete everywhere also remove the worktree
     HarnessDesk made for the conversation, unless it holds uncommitted
-    changes.** A worktree with changes is kept and can be discarded later.
+    changes or ignored content.** Either kind of content keeps the worktree
+    until an explicit discard confirmation names what will be lost.
     Branches are never deleted. A Storage page cleans up inactive
     conversations' worktrees on demand.
 11. **The History view opens from the command palette and from Settings**, not
@@ -109,31 +113,56 @@ can be rebuilt by deleting it.
 | `origin` | `desk` or `imported`; an imported row becomes `desk` when a message is sent in it |
 | `title`, `cwd`, `repo_root`, `created_at`, `updated_at` | what a list row shows |
 | `body` | `none`, `cached` (filled by a preview) or `full` (a desk conversation) |
-| `archived` | 0 or 1; for a runtime that declares `archiveHistory`, the runtime's own archive stays the authority and this mirrors it |
+| `archived` | 0 or 1, or NULL while the archive authority is unresolved; for a runtime that declares `archiveHistory`, the runtime's own archive stays the authority and this mirrors its last confirmed answer |
 | `removed_at` | set by Remove from HarnessDesk; a removed row is never listed and is skipped by a rescan |
 | `last_opened_at` | orders the eviction of cached bodies |
 | `source_path`, `source_mtime`, `source_size` | the agent's own file, when the adapter can name it; says whether our copy is behind |
+| `saved_at`, `preview`, `usage` | the stored snapshot time, opening text and full `SessionUsage` JSON, preserving the current transcript's recovery and search metadata |
 
-Indexes: `(origin, removed_at, updated_at DESC)` for the sidebar and
+Indexes: `(origin, removed_at, archived, updated_at DESC, runtime, id)` for the sidebar and
 `(repo_root, updated_at DESC)` for grouping and project filters.
+
+### `turns`: durable turn metadata
+
+One row per `(runtime, id, turn_id)`, with a conversation-local `seq` and a
+versioned JSON payload for the complete `Turn` except `items`: status, error,
+start and completion times, `durationMs`, diff, plan and every other turn field.
+Items join through `turn_id`. Turn order and item order are stored separately.
+The row also keeps the existing `TurnInsightContext` for that turn as JSON;
+session usage stays on `sessions`. A cold recovery reconstructs the current
+stored transcript without asking an agent, including failed-turn explanations,
+original timings, usage and Insight context. This is the SQLite replacement
+for the `Stored` contract in `packages/server/src/transcripts.ts`, not a thinner
+message log.
 
 ### `items`: the body, one row per message or tool call
 
 | column | meaning |
 |---|---|
-| `runtime`, `id`, `seq` | primary key; `seq` orders items within a conversation |
+| `runtime`, `id`, `seq` | primary key; `seq` is assigned on first insertion and retained on updates |
+| `item_id` | the `AgentItem.id`, used with the turn to identify an event's existing item occurrence; never assumed globally unique across replay |
 | `turn_id`, `kind`, `role` | the turn it belongs to, what it is, who said it |
 | `text` | the plain text, for search |
 | `payload` | the full item as JSON, for rendering |
 
-Writes append; nothing rewrites a whole conversation. Reads page backwards
-from the newest item, 200 at a time.
+New items append. Deltas and completion events update the stored occurrence
+identified by the reducer's `(turn_id, item_id)` match, upserting at its existing
+`seq` without allocating another sequence number; the reducer already replaces
+an item in place on `item/completed`. Index `(runtime, id, turn_id, item_id, seq)`
+for that lookup. Replayed occurrences that reuse an id retain distinct rows;
+refresh uses the reconciliation contract below rather than merging them by id.
+Turn metadata
+and session usage are upserted in the same transaction. Normal event writes
+do not rewrite a whole conversation. Reads page backwards from the newest
+item, 200 at a time, with the metadata of the turns they belong to.
 
 ### `items_fts`: full-text search
 
 An FTS5 table over `items.text`. Desk conversations are always indexed. Tool
 output is cut to about 3,000 characters for the index; `payload` keeps all of
-it. `transcripts/search` becomes a query against this table.
+it. Insert, update and deletion maintain the corresponding FTS row in the same
+transaction, so a tool's final output replaces its running text in search.
+`transcripts/search` becomes a query against this table.
 
 ### `repos`: which repository a folder belongs to
 
@@ -142,10 +171,20 @@ it. `transcripts/search` becomes a query against this table.
 | `cwd` | primary key |
 | `repo_root`, `origin_url` | the answer |
 | `exists`, `checked_at` | whether the folder was there when last asked |
+| `identity` | canonical folder and resolved Git-directory identities plus the filesystem fingerprints used to detect a changed mapping |
 
-Each folder is asked once. The answer is one `git` process with the three
+Repository resolution uses one `git` process with the three
 `rev-parse` flags together, not three; a path containing a newline falls back
-to the three separate calls.
+to the three separate calls. The first frame uses the cached answer. After
+launch, and on a later list refresh, a bounded background pass checks every
+listed folder's existence and canonical identity, including cached entries.
+It also checks the recorded Git directories and configuration for changes.
+A missing folder is marked gone and its repository mapping invalidated; a
+recreated folder or changed identity is resolved again. If cheap filesystem
+checks cannot establish that a mapping is still valid, resolve it again in
+the background, at most once per folder per pass. Read errors retain the last
+answer as stale and schedule a retry; they do not prove the folder is gone.
+Each result updates affected session rows and is pushed to the renderer.
 
 ### `imports`: per-agent import state
 
@@ -155,8 +194,9 @@ page's count and status read from here.
 ### Cached bodies and backups
 
 - **Cached bodies are evictable.** Above a cap (500 MB by default) the oldest
-  `body = cached` rows by `last_opened_at` lose their items. `full` bodies are
-  never evicted.
+  `body = cached` rows by `last_opened_at` lose their items, turns, FTS rows,
+  usage and Insight context together, returning to `body = none`. `full`
+  bodies are never evicted.
 - **A desk conversation's body may be the only copy**, for an agent that keeps
   nothing readable (Cursor) or whose file is gone. So `backup/export` includes
   the database, and the host takes a daily `VACUUM INTO` snapshot beside it,
@@ -168,18 +208,26 @@ page's count and status read from here.
 
 1. Open `sessions.sqlite`. On the first launch of this version, seed it (see
    "The upgrade").
-2. The sidebar's first page is `origin = desk AND removed_at IS NULL ORDER BY
-   updated_at DESC LIMIT 50`. It renders before any agent is running.
-3. Rows whose folder has no `repos` entry are resolved in the background, four
-   at a time, and each answer is pushed to the renderer as it lands.
+2. The sidebar's first page uses `origin = 'desk' AND removed_at IS NULL AND
+   archived = 0 ORDER BY updated_at DESC, runtime, id LIMIT 50`. Every subsequent
+   page uses the same predicate with a cursor over that ordering. It renders
+   before any agent is running. Unresolved archive rows are withheld without
+   delaying rows whose state is known.
+3. Resolve missing repository entries and revalidate cached ones in the
+   background, four folders at a time, pushing each answer as it lands.
 4. Agents start according to "Starting agents".
+5. When a native archive authority becomes ready, reconcile its metadata as
+   described under "The upgrade"; this never holds the first frame.
 
 ### A new conversation, and every turn after
 
 The host already observes every turn. In one transaction it upserts the
-`sessions` row and appends the new `items`, after the same settle delay the
-transcript writer uses today. The renderer receives a one-row change. The
-eight `loadHistory({ reset: true })` call sites become incremental updates.
+`sessions` and `turns` rows and upserts changed `items` and their FTS rows, after
+the same 800 ms settle delay the transcript writer uses today; turn completion
+flushes at once. A long-running tool may be written while running and must be
+updated when it completes with the same id. The renderer receives a one-row
+change. The eight `loadHistory({ reset: true })` call sites become incremental
+updates.
 
 ### Importing an agent's history
 
@@ -187,8 +235,9 @@ eight `loadHistory({ reset: true })` call sites become incremental updates.
    an import job on the host and returns at once.
 2. The job pages through the runtime's own `session/list` until it ends. Here
    the ACP agents' habit of returning everything is what we want.
-3. Each row is written as `imported`. A row already `desk` is left alone, and
-   a row with `removed_at` set is skipped.
+3. Each new row is written as `imported`. A row already `desk` keeps its origin
+   and body; authoritative native archive metadata is still reconciled for it.
+   A row with `removed_at` set is skipped.
 4. Progress and the final count are written to `imports` and pushed to the
    settings page. A failure records its reason there; the rows already written
    stay.
@@ -210,8 +259,17 @@ and compares by `updated_at`.
 - **The agent's file is unchanged** (same mtime and size): read from the
   database.
 - **The agent's file changed** (the person continued it in the agent's own
-  CLI): read it from the agent again and replace our items. A later version
-  may append only the difference.
+  CLI): read it from the agent again and reconcile it with our stored copy
+  using the current `TranscriptStore.enrich` contract before persisting the
+  result. Retain commands and reasoning missing from lossy replay, host notices
+  and publications, and recorded context authorship. Preserve turn pairing,
+  replay segmentation, original stored timings and the existing usage-restoration
+  rule; do not copy an item into another turn or duplicate it. An empty or
+  partial replay retains the history it did not answer for. A rollback still
+  removes omitted work turns: apply the current `dropTurns` contract to items,
+  turns, FTS and Insight context atomically, so later reads cannot resurrect
+  them. Refresh may rewrite the reconciled body, never replace it with bare
+  agent replay.
 - **The agent's file is gone**, or the agent keeps none: show our copy, with a
   line at the top of the conversation saying it is HarnessDesk's copy.
 
@@ -266,11 +324,14 @@ is per machine rather than a list written into the code.
 | **deleted everywhere** | gone | dropped | moved to the Trash | the Trash |
 
 - **Archive.** A runtime with its own archive keeps using it; others are
-  marked in `sessions.archived`.
+  marked in `sessions.archived`. A native archive/unarchive updates the mirror
+  only after the runtime accepts it; subsequent metadata reconciliation also
+  reflects changes made in the agent's own application.
 - **Remove from HarnessDesk.** The row goes back to `imported` with
   `removed_at` set. A toast says *Removed from HarnessDesk* with **Undo** for
-  about eight seconds. The items are dropped only when the toast ends, so Undo
-  restores everything. The History view hides removed rows behind a switch.
+  about eight seconds. The body (items, turns, FTS rows, usage and Insight
+  context) is dropped atomically only when the toast ends, so Undo restores
+  everything. The History view hides removed rows behind a switch.
 - **Delete everywhere.** Uses the existing delete extension: Claude Code and
   Cursor move the files to the Trash. An agent that cannot move to the Trash
   (Codex erases the rollout) shows the item greyed, with the reason in its
@@ -280,12 +341,18 @@ is per machine rather than a list written into the code.
 ### Worktrees
 
 Archive, Remove and Delete everywhere each remove the worktree HarnessDesk made
-for the conversation when it holds no uncommitted changes. A worktree with
-changes is kept: the Archive view marks the row with a *Worktree kept* chip,
-its tooltip counts the changes, and its menu offers **Discard worktree…**,
-which names what will be lost before it does anything. The branch is never
-deleted, and resuming the conversation checks it out again. Worktrees
-HarnessDesk did not make are never touched.
+for the conversation only when it holds neither uncommitted changes nor
+ignored content. Read the existing `WorktreeChanges` inventory, including
+`ignored` and `ignoredCount`: a Git-clean checkout can still hold an ignored
+`.env`, and `git worktree remove` deletes it without force. Either kind of
+content keeps the worktree. The Archive view marks its row with a *Worktree
+kept* chip, and its tooltip counts changes and ignored entries. Removed and
+deleted conversations retain the worktree inventory on the Storage page even
+when their body is dropped. **Discard worktree…** lists the files and ignored
+directories and their counts in an explicit confirmation before removing
+anything; recheck the inventory before removal and ask again if it changed.
+The branch is never deleted, and resuming the conversation checks it out again.
+Worktrees HarnessDesk did not make are never touched.
 
 ### Words
 
@@ -307,7 +374,8 @@ All strings name the agent through `RuntimeInfo.presentation`.
 1. **Sidebar.** Desk conversations only, 50 at a time, more on reaching the
    end. Each project shows its first ten with a **Show more** below; which
    projects are folded is remembered locally. With these limits the sidebar
-   needs no virtualisation in this version.
+   retains its existing keyboard-aware windowing; measure mounted rows and
+   grouping cost after pagination before considering its removal.
 2. **An agent's settings page gains a History section.** Before import: one
    line and **Import history**. During: the running count, and **Cancel**.
    After: the count, the last scan, **Rescan**, and **Remove imported** (the
@@ -324,8 +392,9 @@ All strings name the agent through `RuntimeInfo.presentation`.
    - **Clean up inactive conversations:** 30, 60 or 90 days. It lists the
      worktrees it would remove and the space freed, and removes nothing until
      confirmed. Running and open conversations are never included. Worktrees
-     with uncommitted changes are skipped unless a separate box is ticked and
-     confirmed. Conversations and branches stay.
+     with uncommitted changes or ignored content are skipped unless a separate
+     discard choice is confirmed with the same inventory and recheck as above.
+     Conversations and branches stay.
    - **Clear cached previews.**
 
 Every surface is built from the design system (`Row`, `Rows`, `Button`,
@@ -335,8 +404,28 @@ Every surface is built from the design system (`Row`, `Rows`, `Button`,
 
 On the first launch of this version, the host reads `transcripts/` once for
 each conversation's runtime, id, title, folder and times, writes those rows as
-`desk` with `body = none`, and carries the archive marks over from
-`archive.json`. Opening one of them reads the body from the agent as usual.
+`desk` with `body = none`. For runtimes without native archive support, carry
+the archive marks over from `archive.json`, setting unmarked rows to 0. That
+file deliberately contains no marks for native-archive runtimes, and the
+transcript files carry no archive field. Seed their rows with `archived = NULL`,
+also using NULL while the runtime's archive capability cannot be determined.
+Never infer "unarchived" from an absent local mark.
+
+Once a native-archive runtime is ready, a background metadata job pages both
+its archived and unarchived listings to completion, matching only indexed ids;
+this is archive reconciliation, not adoption of the rest of its history. An
+observed row receives its authoritative 0 or 1 and a one-row update. A failed
+or incomplete listing leaves unobserved seeded rows unresolved and existing
+mirrors at their last confirmed state, records the error and permits retry;
+absence from a listing never means unarchived. Persist
+confirmed states for later first frames. Run reconciliation again when that
+runtime becomes ready on later launches and when its Archive view is refreshed,
+so changes outside the desk reach already-`desk` rows too. Import follows the
+same rule and never skips their archive metadata. Unrelated rows remain usable
+throughout; unresolved rows are withheld from normal and archived lists until
+the authority answers.
+
+Opening a seeded conversation reads the body from the agent as usual.
 The old files are not read again and are not deleted.
 
 What an upgrading person loses: the bodies of old Cursor conversations, which
@@ -359,8 +448,37 @@ is designed when phase one has shipped.
   `transcripts/` and `archive.json`, the sidebar query, Remove and Undo, the
   rescan skipping removed rows, eviction, and the reopen rule for an unchanged,
   changed and missing source file.
-- The `repos` cache: one `git` process per folder, and none on the second
-  launch.
+- Sidebar pagination: an archived desk row and an unresolved native archive row
+  appear on neither the first nor later pages; a confirmed unarchived desk row
+  does. Reconciliation reveals only the row the authority confirms.
+- Native archive upgrade: seed transcripts for archived and unarchived rows
+  with an empty local archive file. Delay or fail the native listing and check
+  that unrelated rows render immediately, unresolved rows stay withheld and
+  retry resolves them correctly. A later native archive change reaches an
+  existing desk row, including during import.
+- Item updates: write a running tool after the settle delay, then complete the
+  same item id with output. Cold recovery has one completed item at the original
+  sequence; FTS finds the final output and no stale running text. Reused ids in
+  replay do not collapse distinct items or update another turn's item.
+- Cold recovery: persist a failed turn with error, original timestamps,
+  duration, diff and plan, session usage and Insight context. Close and reopen
+  the database with the agent unavailable and compare the reconstructed stored
+  transcript field for field.
+- Changed-source reconciliation: a thinner agent replay keeps stored command
+  and reasoning items, host notices/publications and context authorship without
+  duplication. Also cover replay resegmentation, empty/partial history and
+  usage restoration. A deliberate rollback removes its work turns and Insight
+  context permanently while preserving unrelated host notices.
+- Worktree cleanup: a desk-created Git-clean worktree holding an ignored `.env`
+  survives Archive, Remove, Delete and Storage cleanup; dirty and non-desk
+  worktrees survive too. Only explicit discard after naming ignored content
+  removes it. A changed inventory refuses removal until confirmed again.
+- The `repos` cache: no agent or `git` on the first frame; unchanged folders
+  use cheap background checks where those suffice. Delete, recreate or retarget
+  a cached folder between launches and check updated existence and grouping;
+  changed Git metadata triggers resolution, while read errors do not mark it
+  gone. Ordinary resolution uses one `git` process per folder, with the
+  documented newline-path fallback.
 - The upgrade is also run once against a copy of a real desk home on the
   maintainer's machine. Nothing from that copy is committed. It checks that
   the seeded count matches the transcripts present, that archive marks
@@ -372,10 +490,12 @@ is designed when phase one has shipped.
 ## Slices
 
 1. `sessions.sqlite` with `sessions` and `repos`; the upgrade seed; the
-   sidebar reads the database; the eight resets become incremental. This alone
-   removes the empty sidebar and the stutter.
-2. `items` and `items_fts`; desk conversations write their bodies there;
-   `transcripts/search` moves over; the reopen rule.
+   native archive reconciliation; the sidebar reads the database; the eight
+   resets become incremental. This removes the measured history-listing delay;
+   measure renderer work separately rather than promising every stutter is gone.
+2. `turns`, `items` and `items_fts`, with stored usage and Insight context;
+   desk conversations upsert their bodies there; `transcripts/search` moves
+   over; cold recovery and the reconciliation/rollback rule.
 3. Remove from HarnessDesk, Undo, and the worktree rule for Archive, Remove and
    Delete everywhere.
 4. Import on the settings page; the History view; preview and adoption.
