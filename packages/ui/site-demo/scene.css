@@ -1,33 +1,59 @@
-/* The embed owns only its camera and pointer; the bands keep production styling. */
+/* A small app window: the production bands keep their intrinsic geometry. */
 .site-scene {
-  position: relative;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   contain: layout paint;
   background: var(--hd-background);
   color: var(--hd-foreground);
 }
-.site-dashboard {
+.site-dashboard,
+.site-dashboard-breakdown,
+.site-dashboard-accounts {
   display: flex;
   flex-direction: column;
+  gap: var(--hd-space-3);
+}
+.site-dashboard { gap: var(--hd-space-8); }
+.site-dashboard-spend {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: var(--hd-space-6);
-  height: 100%;
-  overflow: hidden;
 }
-.site-scene-pointer {
-  position: absolute;
-  inset: 0 auto auto 0;
-  width: var(--hd-space-3);
-  height: var(--hd-space-3);
-  margin: calc(var(--hd-space-3) / -2);
-  border: var(--hd-border-width) solid var(--hd-background);
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-foreground);
-  box-shadow: 0 0 0 var(--hd-space-1) color-mix(in srgb, var(--hd-foreground) 15%, transparent);
-  pointer-events: none;
-  z-index: 1;
+.site-dashboard-breakdown { min-width: 0; }
+/* A third-width spending column gives the pivot its own line. */
+.site-dashboard-breakdown [data-section-head] > div { flex-wrap: wrap; }
+.site-dashboard-breakdown [data-section-head] > div > div:has(> [data-slot="section-name"]) { flex-basis: 100%; }
+/* Focused panels keep the shipping controls and type at 1:1. Only their
+   placement changes; the full Dashboard keeps its window layout above. */
+.site-dashboard-focus { gap: var(--hd-space-3); }
+.site-dashboard-focus [data-section-head] { position: static; margin-bottom: 0; }
+.site-scene[data-site-scene="dashboard-limits"] [data-slot="plans-table"] { padding-block: 0; }
+.site-scene[data-site-scene="dashboard-limits"] [data-slot="table-cell"][data-variant="default"] {
+  height: var(--hd-table-row-min-bare);
 }
-.site-dashboard [role="group"][aria-label*="per agent"] { height: 216px; }
-.site-dashboard [role="group"][aria-label$="this year"] { height: 254px; }
-.site-dashboard [role="group"][aria-label^="Tokens or cost per day"] { min-width: 0; }
-.site-dashboard [role="group"][aria-label^="Tokens or cost per day"] :is([data-level], [data-state]) { aspect-ratio: auto; height: 100%; }
-.site-scene[data-scene-motion="reduce"] * { animation: none; transition: none; }
+/* Put the comparison alongside the spend figure, then let its qualification
+   use the whole line. This saves a row without hiding the accounting. */
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--hd-space-1) var(--hd-space-3);
+}
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] > div { display: contents; }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-frame"] > [data-slot="chart-card"]:first-child { gap: var(--hd-space-2); }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] [data-slot="chart-title"] { grid-column: 1; grid-row: 1; }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] [data-slot="delta-line"] { grid-column: 2; grid-row: 1; }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] [data-slot="chart-hint"] { grid-column: 1 / -1; grid-row: 2; }
+/* The site panels have a fixed width. Override the grid's inline minimum
+   tracks here so every day fits, retaining each cell's square aspect ratio. */
+.site-scene[data-site-scene="dashboard-activity"] [data-slot="chart-frame"] > [data-slot="chart-card"]:first-child { gap: var(--hd-space-3); }
+.site-scene[data-site-scene="dashboard-activity"] [aria-label="Tokens or cost per day, this year"] {
+  grid-template-columns: auto repeat(53, minmax(0, 1fr)) !important;
+}
+.site-scene[data-site-scene="dashboard-activity"] [aria-label="Tokens or cost per day, per agent, last 13 weeks"] {
+  grid-template-columns: auto repeat(91, minmax(0, 1fr)) !important;
+}
+.site-scene[data-site-scene="dashboard-activity"] [role="group"] [data-level] { min-height: 0; }
+.site-scene[data-scene-motion="reduce"] *,
+.site-scene[data-scene-motion="reduce"] *::before,
+.site-scene[data-scene-motion="reduce"] *::after { animation: none !important; transition: none !important; }

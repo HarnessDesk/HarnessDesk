@@ -4,27 +4,26 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SCENES } from '../../site-demo/scenes'
 import { SiteScene } from '../../site-demo/scene'
 import { dashboardData } from '../../site-demo/dashboard'
+import { buildYearGrid, busiestDay, streaksFor } from '../lib/heat'
+import { planRows } from '../lib/plans-table'
+import { periodTotals, stackDaily } from '../lib/ledger'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-
+const NOW = new Date('2026-10-08T13:30:00').getTime()
 let root: Root
 let host: HTMLDivElement
-let frames: Map<number, FrameRequestCallback>
-let frameId: number
 const message = (data: unknown) => window.dispatchEvent(new MessageEvent('message', { data }))
-const step = async (ms: number) => act(async () => {
-  vi.advanceTimersByTime(ms)
-  const pending = [...frames.values()]
-  frames.clear()
-  pending.forEach(frame => frame(performance.now()))
-})
+const press = async (name: string, scope: ParentNode = host) => {
+  const control = [...scope.querySelectorAll<HTMLElement>('[role="radio"], button')]
+    .find(node => (node.textContent ?? '').trim() === name || node.getAttribute('aria-label') === name)
+  expect(control, name).toBeDefined()
+  await act(async () => control!.click())
+  return control!
+}
 
 beforeEach(() => {
   vi.useFakeTimers()
-  frames = new Map()
-  frameId = 0
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId })
-  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+  vi.setSystemTime(NOW)
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -37,81 +36,169 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
 })
 
-it('registers only the approved dashboard with its fixed logical size', () => {
-  expect(Object.keys(SCENES)).toEqual(['dashboard'])
-  expect(SCENES.dashboard).toMatchObject({ width: 960, height: 600, duration: 16_000 })
+it('registers the full Dashboard and three focused 672 × 432 views', () => {
+  expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity'])
+  expect(SCENES.dashboard).toMatchObject({ width: 960, height: 600 })
+  for (const name of ['dashboard-spend', 'dashboard-limits', 'dashboard-activity'] as const) {
+    expect(SCENES[name]).toEqual({ width: 672, height: 432 })
+  }
 })
 
-it.each(['light', 'dark'] as const)('boots the shipping dashboard in %s, paused, and follows live theme messages', async theme => {
+it.each(['light', 'dark'] as const)('boots focused Spend in %s and changes the chart with Line', async theme => {
+  await act(async () => root.render(<SiteScene name="dashboard-spend" theme={theme} />))
+  expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label'))).toEqual(['What it cost'])
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
+  const scene = host.querySelector<HTMLElement>('[data-site-scene]')!
+  expect([scene.style.width, scene.style.height]).toEqual(['672px', '432px'])
+  expect(host.textContent).not.toContain('Rescan')
+  const before = host.innerHTML
+  await press('Line')
+  expect(host.innerHTML).not.toBe(before)
+  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Line')
+  await press('7d')
+  expect(host.textContent).toContain('Last 7 days')
+  await act(async () => message({ type: 'theme', value: theme === 'light' ? 'dark' : 'light' }))
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'light')
+})
+
+it.each(['light', 'dark'] as const)('boots focused Limits in %s and opens and closes the first account', async theme => {
+  await act(async () => root.render(<SiteScene name="dashboard-limits" theme={theme} />))
+  expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label'))).toEqual(['What is left'])
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
+  expect(host.textContent).toContain('Windows')
+  expect(host.textContent).toContain('Allowances')
+  expect(host.textContent).toContain('Balances')
+  expect(host.querySelectorAll('tbody > tr')).toHaveLength(6)
+  const account = host.querySelector<HTMLElement>('button[aria-expanded]')!
+  const before = host.innerHTML
+  await act(async () => account.click())
+  expect(account.getAttribute('aria-expanded')).toBe('true')
+  expect(host.innerHTML).not.toBe(before)
+  expect(host.textContent).toContain('Value')
+  await act(async () => account.click())
+  expect(account.getAttribute('aria-expanded')).toBe('false')
+})
+
+it.each(['light', 'dark'] as const)('boots focused Activity in %s and changes to By agent with reduced motion', async theme => {
+  await act(async () => root.render(<SiteScene name="dashboard-activity" theme={theme} motion="reduce" />))
+  expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label'))).toEqual(['When it ran'])
+  expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
+  expect(host.textContent).toContain('141.6B')
+  const before = host.innerHTML
+  await press('By agent')
+  expect(host.innerHTML).not.toBe(before)
+  expect(host.querySelector('[aria-label="Tokens or cost per day, per agent, last 13 weeks"]')).not.toBeNull()
+  await act(async () => { message({ type: 'visible', value: false }); vi.advanceTimersByTime(60_000) })
+  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('By agent')
+  await press('Cost')
+  expect(host.textContent).not.toContain('141.6B')
+})
+
+it.each(['light', 'dark'] as const)('boots the entire shipping Dashboard in %s at cost, and follows live theme messages', async theme => {
   await act(async () => root.render(<StrictMode><SiteScene name="dashboard" theme={theme} /></StrictMode>))
-  expect(host.textContent).toContain('What is left')
-  expect(host.querySelector('table')).not.toBeNull()
+  expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label')))
+    .toEqual(['What it cost', 'Where it went', 'What is left', 'When it ran'])
   expect(host.querySelector('[aria-label="Window navigation"]')).toBeNull()
-  await step(5000)
-  expect(host.querySelector('[data-scene-stage]')?.getAttribute('data-scene-stage')).toBe('limits')
+  expect(host.querySelector('[data-scene-pointer]')).toBeNull()
   expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
   await act(async () => message({ type: 'theme', value: theme === 'light' ? 'dark' : 'light' }))
   expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'light')
 })
 
-it('plays real controls, pauses without losing its position and loops back to Limits', async () => {
-  await act(async () => root.render(<SiteScene name="dashboard" theme="light" />))
-  await act(async () => message({ type: 'visible', value: 'true' }))
-  await step(4500)
-  expect(host.textContent).toContain('What is left')
-  await act(async () => message({ type: 'visible', value: true }))
-  await step(4500)
-  expect(host.querySelector('[data-scene-stage]')?.getAttribute('data-scene-stage')).toBe('spend')
-  await act(async () => message({ type: 'visible', value: false }))
-  await step(20_000)
-  expect(host.querySelector('[data-scene-stage]')?.getAttribute('data-scene-stage')).toBe('spend')
-  await act(async () => message({ type: 'visible', value: true }))
-  await step(4500)
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain('By agent')
-  await step(4000)
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain('Year')
-  await step(4000)
-  expect(host.querySelector('[data-scene-stage]')?.getAttribute('data-scene-stage')).toBe('limits')
-})
-
-it('holds a representative year still when motion is reduced', async () => {
-  await act(async () => root.render(<SiteScene name="dashboard" theme="dark" motion="reduce" />))
-  expect(host.textContent).toContain('When it ran')
-  const before = host.innerHTML
-  await act(async () => message({ type: 'visible', value: true }))
-  await step(60_000)
-  expect(host.innerHTML).toBe(before)
-  expect(host.querySelector('[data-scene-pointer]')).toBeNull()
-})
-
-it('recalibrates the synthetic year and quota reset times together', () => {
-  const now = Date.parse('2026-10-08T17:00:00Z')
-  const data = dashboardData(now)
-  const year = data.ledger(365, 'runtime')
-  const today = new Date(now)
-  today.setHours(0, 0, 0, 0)
-  expect(Math.max(...year.daily.map(day => day.day))).toBe(today.getTime())
-  expect(new Set(year.daily.map(day => day.day)).size).toBe(365)
-  expect(data.store.getSnapshot().usage.every(report => report.fetchedAt === now - 60_000)).toBe(true)
-  expect(data.store.getSnapshot().usage[0]!.lanes[0]!.resetsAt).toBe(now + 70 * 60_000)
-  expect(data.ledger(365, 'runtime')).toBe(year)
-})
-
-it('switches to the Year still when the system reduces motion during By agent', async () => {
-  let matches = false
-  const listeners = new Set<() => void>()
-  vi.stubGlobal('matchMedia', (media: string) => ({ media, get matches() { return media.includes('reduced-motion') && matches },
-    addEventListener: (_type: string, fn: () => void) => { if (media.includes('reduced-motion')) listeners.add(fn) },
-    removeEventListener: (_type: string, fn: () => void) => listeners.delete(fn),
-  }))
+it('changes the chart, breakdown, range, account detail and activity through real controls', async () => {
   await act(async () => root.render(<SiteScene name="dashboard" />))
-  await act(async () => message({ type: 'visible', value: true }))
-  await step(9000)
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain('By agent')
-  await act(async () => { matches = true; listeners.forEach(listener => listener()) })
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain('Year')
-  expect(host.querySelector('[data-scene-pointer]')).toBeNull()
   const before = host.innerHTML
-  await step(60_000)
-  expect(host.innerHTML).toBe(before)
+  await press('Line')
+  expect(host.innerHTML).not.toBe(before)
+  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Line')
+  await press('by model')
+  expect(host.textContent).toContain('claude-opus-5-5')
+  const breakdown = host.querySelector('section[aria-label="Where it went"]')!
+  expect([...breakdown.querySelectorAll('th')].map(node => node.textContent)).toEqual(['Name', 'Share'])
+  expect(breakdown.textContent).toContain('Other · 34')
+  await press('by project')
+  expect(breakdown.textContent).toContain('storefront')
+  expect(breakdown.textContent).not.toContain('claude-opus-5-5')
+  await press('7d')
+  expect(host.textContent).toContain('Last 7 days')
+  const account = host.querySelector('section[aria-label="What is left"] button[aria-expanded]') as HTMLElement
+  await act(async () => account.click())
+  expect(account.getAttribute('aria-expanded')).toBe('true')
+  expect(host.textContent).toMatch(/22%\s*left/)
+  expect(host.textContent).toContain('Pro')
+  expect(host.textContent).toContain('Value')
+  expect(host.textContent).toContain('runs out')
+  await press('By hour')
+  expect(host.querySelector('[aria-label="Tokens or calls by local weekday and hour, this year"]')).not.toBeNull()
+  await press('Calls')
+  expect(host.textContent).toContain('calls this year')
+  await press('By agent')
+  expect(host.querySelector('[aria-label="Tokens or cost per day, per agent, last 13 weeks"]')).not.toBeNull()
+})
+
+it('omits the cost footer and every unscanned year hatch', async () => {
+  await act(async () => root.render(<SiteScene name="dashboard" />))
+  const cost = host.querySelector('section[aria-label="What it cost"]')!
+  expect(cost.textContent).not.toContain('days scanned')
+  expect(cost.textContent).not.toContain('Rescan')
+  const year = host.querySelector('section[aria-label="When it ran"]')!
+  expect(year.querySelector('[data-state="not-scanned"]')).toBeNull()
+  expect(year.textContent).not.toContain('No record yet')
+})
+
+it.each([undefined, 'reduce'] as const)('stays interactive without auto-cycling, including motion=%s and hidden messages', async motion => {
+  await act(async () => root.render(<SiteScene name="dashboard" motion={motion} />))
+  await press('Line')
+  await act(async () => { message({ type: 'visible', value: true }); vi.advanceTimersByTime(20_000) })
+  await act(async () => { message({ type: 'visible', value: false }); vi.advanceTimersByTime(60_000) })
+  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Line')
+  await press('Bars')
+  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Bars')
+  expect(host.querySelector('[data-scene-pointer]')).toBeNull()
+})
+
+it('supplies a busy, consistent year and six correctly classified demo accounts', () => {
+  const data = dashboardData(NOW)
+  const snapshot = data.store.getSnapshot()
+  expect(snapshot.runtimes.map(info => info.presentation.name)).toEqual([
+    'Claude Code', 'Cursor', 'Codex', 'Gemini CLI', 'Cline', 'OpenCode', 'Antigravity CLI', 'DeepSeek',
+  ])
+  expect(snapshot.usage.map(report => report.account)).toEqual([
+    'shane@harnessdesk.app', 'olivia@harnessdesk.app', 'review@example.com', 'studio@example.com', null, 'api@example.com',
+  ])
+  const rows = planRows(snapshot.usage, NOW)
+  expect(rows.map(row => row.status)).toEqual(['low', 'ready', 'ready', 'ready', 'ready', 'ready'])
+  expect(Object.fromEntries(rows.map(row => [row.report.account ?? 'signed-in', row.view.hero?.remainingPercent ?? null]))).toEqual({
+    'shane@harnessdesk.app': 22, 'olivia@harnessdesk.app': 64, 'review@example.com': 93,
+    'studio@example.com': 88, 'signed-in': 100, 'api@example.com': null,
+  })
+  const ledger = data.ledger(30, 'runtime')
+  expect(ledger.totalCost).toBeCloseTo(27_418, 0)
+  const week = periodTotals(stackDaily(ledger, NOW), [7])[0]!
+  expect(week.cost).toBeCloseTo(6_925.4, 1)
+  expect(week.change).toBeCloseTo(13.4, 1)
+  expect(ledger.daily.filter(row => row.day === Math.max(...ledger.daily.map(day => day.day))).reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(138.4, 1)
+  const year = data.ledger(365, 'runtime')
+  expect(year.totalTokens).toBeCloseTo(141_600_000_000, -1)
+  const cells = buildYearGrid(year, NOW).weeks.flat().filter(cell => cell !== null)
+  expect(cells).toHaveLength(365)
+  expect(cells.every(cell => cell.scanned)).toBe(true)
+  expect(cells.filter(cell => cell.tokens > 0)).toHaveLength(234)
+  expect(streaksFor(cells, 'tokens')).toEqual({ current: 61, best: 61 })
+  const busiest = busiestDay(cells, 'tokens')!
+  expect(new Date(busiest.day).getMonth()).toBe(8)
+  expect(new Date(busiest.day).getDay()).toBe(0)
+  expect(busiest.tokens).toBeCloseTo(10_300_000_000, -1)
+  expect(new Set(cells.filter(cell => cell.tokens > 0).map(cell => new Date(cell.day).getMonth())).size).toBe(12)
+  const roster = new Set(snapshot.runtimes.map(info => info.id))
+  expect(year.daily.every(row => roster.has(row.runtime))).toBe(true)
+  expect(year.hourly!.every(row => roster.has(row.runtime))).toBe(true)
+  expect(year.hourly!.reduce((sum, row) => sum + row.tokens, 0)).toBeCloseTo(year.totalTokens!, -1)
+  const next = dashboardData(NOW + 86_400_000).ledger(365, 'runtime')
+  expect(Math.max(...next.daily.map(day => day.day))).toBe(Math.max(...year.daily.map(day => day.day)) + 86_400_000)
+  expect(data.ledger(365, 'runtime')).toBe(year)
+  const runtime = next.daily[0]!.runtime
+  const dailyTuesday = next.daily.filter(row => row.runtime === runtime && new Date(row.day).getDay() === 2).reduce((sum, row) => sum + row.tokens, 0)
+  const hourlyTuesday = next.hourly!.filter(row => row.runtime === runtime && row.weekday === 2).reduce((sum, row) => sum + row.tokens, 0)
+  expect(hourlyTuesday).toBeCloseTo(dailyTuesday, -1)
 })

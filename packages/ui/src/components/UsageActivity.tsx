@@ -346,7 +346,7 @@ export const UsageActivity = ({
         <ChartFoot>
           <HeatLegend
             levelTitle={(level) => levelTitle(level, view === 'hour' ? hourMetric : dayMetric)}
-            showNotScanned={view !== 'hour'}
+            showNotScanned={view !== 'hour' && inView.some(cell => !cell.scanned)}
           />
           {view === 'hour' && hoursCoverage.partial && hoursCoverage.known > 0 && (
             <Text role="meta" className="basis-full">known for {hoursCoverage.known} of {hoursCoverage.total} agents</Text>

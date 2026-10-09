@@ -1,6 +1,9 @@
-/** The views approved for live embedding. Later scenes join this one registry. */
+/** The views approved for live embedding. Later scenes join this registry. */
 export const SCENES = {
-  dashboard: { width: 960, height: 600, duration: 16_000, still: 12_000 },
+  dashboard: { width: 960, height: 600 },
+  'dashboard-spend': { width: 672, height: 432 },
+  'dashboard-limits': { width: 672, height: 432 },
+  'dashboard-activity': { width: 672, height: 432 },
 } as const
 
 export type SceneName = keyof typeof SCENES
