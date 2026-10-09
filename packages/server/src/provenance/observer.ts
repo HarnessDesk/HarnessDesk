@@ -269,10 +269,11 @@ export class RefObserver {
       this.#options.problem('degraded', 'history-gap')
     }
     const first = prior.generation === 0
-    const openingWindow = first || prior.historyFloor === undefined
     const openedAt = prior.openedAt ?? this.#options.openedAt ?? now()
     const historyFloor = Math.min(prior.historyFloor ?? Infinity,
       this.#options.historyFloor?.() ?? Math.max(0, openedAt - 86400000))
+    const earlierWindow = prior.historyFloor !== undefined && historyFloor < prior.historyFloor
+    const openingWindow = first || prior.historyFloor === undefined || earlierWindow
     const tips = openingWindow ? [...snapshot.refs.values(), ...snapshot.heads.values()]
       : [...logs.moves, ...delta].flatMap((move) => [move.before, move.after])
     const requested = [...this.#requested]
@@ -285,7 +286,7 @@ export class RefObserver {
     // Appended observations can survive a failed scan, but its frontier has
     // not been acknowledged. Keep ancestry visits provisional until it is.
     const walked = new Set<string>()
-    const hasWalked = (sha: string) => this.#walked.has(sha) || walked.has(sha)
+    const hasWalked = (sha: string) => (!earlierWindow && this.#walked.has(sha)) || walked.has(sha)
     // One check of the repository's metadata covers everything this batch reads.
     await git.batch(signal, async (reader) => {
       while (frontier.length && visited < 200 && performance.now() - began < 50) {
@@ -365,6 +366,9 @@ export class RefObserver {
       this.#written = durable
     }
     this.#checkpoint = next
+    // A lower floor makes previously excluded ancestry eligible again. Reset
+    // the successful-scan cache only after this wider window is acknowledged.
+    if (earlierWindow) this.#walked.clear()
     for (const sha of walked) this.#walked.add(sha)
     for (const sha of requested) this.#requested.delete(sha)
     await this.#attach()

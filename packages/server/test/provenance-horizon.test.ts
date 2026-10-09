@@ -90,6 +90,40 @@ test('an earlier Seat extends the floor and a saved opening time survives restar
   assert.equal(f.fingerprinted.length, 72)
 })
 
+for (const restart of [false, true]) test(`lowering the floor reseeds unchanged refs ${restart ? 'after restart' : 'on the same observer'}`, async (t) => {
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const f = history()
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'provenance.ndjson'))
+  let floor = 449 * DAY
+  const options = { git: f.git, journal, changed: () => {}, problem: () => {}, pollMs: 0, watch: noWatch,
+    now: () => firstOpened, openedAt: firstOpened, historyFloor: () => floor }
+  let observer = new RefObserver(options)
+  t.after(() => observer.close())
+  await observer.start(handle, null)
+  await observer.idle()
+  assert.equal(f.fingerprinted.length, 52)
+  const saved = readCheckpoint((await journal.read()).entries) as WorkerCheckpoint
+  assert.deepEqual(saved.frontier, [])
+  floor = 429 * DAY
+  if (restart) {
+    await observer.close()
+    observer = new RefObserver({ ...options, openedAt: firstOpened + 100 * DAY })
+    await observer.start(handle, saved)
+  } else observer.wake()
+  await observer.idle()
+  assert.equal(f.fingerprinted.length, 72, 'the newly eligible ancestry is captured without any ref move or History request')
+  assert.ok(f.fingerprinted.includes(sha(429)))
+  const checkpoint = readCheckpoint((await journal.read()).entries) as WorkerCheckpoint
+  assert.equal(checkpoint.historyFloor, floor)
+  assert.equal(checkpoint.openedAt, firstOpened)
+  assert.deepEqual(checkpoint.frontier, [])
+  observer.wake()
+  await observer.idle()
+  assert.equal(f.fingerprinted.length, 72, 'unchanged floor does not repeat discovery')
+})
+
 test('the Git reader extracts only the commit time needed for the horizon', async (t) => {
   const repo = await makeRepo()
   const tree = await repo.git('mktree')
