@@ -684,6 +684,8 @@ recorded ends. Stopping a Run sets aside only its unanswered person cards,
 without answering them or firing a rule; follow-up cards remain open.
 If a card cannot be saved, the Run stays stopped and **Retry stop…** finishes
 its cleanup. Restart also retries those cards, keeping the recorded end intact.
+Stop and its cleanup retries interrupt only that Run's checks; a later Run on
+the same Team keeps working.
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
 those come from the resolved Agent named in `uses:`, the same one Settings ›

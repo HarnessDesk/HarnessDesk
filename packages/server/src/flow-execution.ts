@@ -838,7 +838,7 @@ export class FlowExecutions {
   readonly #pendingReleases = new Map<string, PendingRelease>()
   /** Set once, at the top of `dispose()`, before anything below it can yield — every release path checks it, and once set nothing here schedules another timer or writes another document. */
   #disposed = false
-  /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
+  /** The checks running now, by Run: Stop owns one Run; a Goal pause reaches all its Runs. */
   readonly #checks = new Map<string, Set<AbortController>>()
   /** Stop is requested outside the queue; deferred checks must see it before spawning. */
   readonly #stopRequests = new Map<string, number>()
@@ -1992,8 +1992,8 @@ export class FlowExecutions {
     this.#checkAsks.set(ask, { turn, inTurn: inTurn + 1, total: asked.total + 1 })
     this.#checkAsking.add(ask)
     const controller = new AbortController()
-    const running = this.#checks.get(goal) ?? new Set<AbortController>()
-    this.#checks.set(goal, running.add(controller))
+    const running = this.#checks.get(run.id) ?? new Set<AbortController>()
+    this.#checks.set(run.id, running.add(controller))
     const check = chosen.check
     let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
     try {
@@ -2023,7 +2023,7 @@ export class FlowExecutions {
       return `Refused: the desk could not cut a checkout at ${at.slice(0, 12)} to run ${chosen.name} in: ${error instanceof Error ? error.message : String(error)}`
     } finally {
       running.delete(controller)
-      if (running.size === 0) this.#checks.delete(goal)
+      if (running.size === 0) this.#checks.delete(run.id)
       this.#checkAsking.delete(ask)
     }
     const { exit, timedOut, tail } = outcome.result
@@ -2931,7 +2931,13 @@ export class FlowExecutions {
    * left uncertain for a person, never run again on its own (decision 18).
    */
   interruptChecks(goal: string): void {
-    for (const controller of this.#checks.get(goal) ?? []) controller.abort()
+    for (const run of this.#runs.values()) {
+      if (run.goal === goal) this.#interruptRunChecks(run.id)
+    }
+  }
+
+  #interruptRunChecks(id: string): void {
+    for (const controller of this.#checks.get(id) ?? []) controller.abort()
   }
 
   async #mayDispatch(id: string): Promise<boolean> {
@@ -3632,15 +3638,15 @@ export class FlowExecutions {
     // Planning holds the run queue too: register before cutting the tree so
     // Stop, pause and disposal reach this write without waiting for planning.
     const controller = new AbortController()
-    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
-    this.#checks.set(run.goal, running.add(controller))
+    const running = this.#checks.get(run.id) ?? new Set<AbortController>()
+    this.#checks.set(run.id, running.add(controller))
     if (this.#stopRequests.has(run.id)) controller.abort()
     let checkout: Awaited<ReturnType<NonNullable<FlowExecutionPort['checkoutAt']>>>
     try {
       checkout = await this.#port.checkoutAt(root, run.base.at, { retained: true, signal: controller.signal })
     } finally {
       running.delete(controller)
-      if (running.size === 0) this.#checks.delete(run.goal)
+      if (running.size === 0) this.#checks.delete(run.id)
     }
     let cwd = checkout.cwd
     if (relative !== null) {
@@ -3716,8 +3722,8 @@ export class FlowExecutions {
       return false
     }
     const controller = new AbortController()
-    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
-    this.#checks.set(run.goal, running.add(controller))
+    const running = this.#checks.get(run.id) ?? new Set<AbortController>()
+    this.#checks.set(run.id, running.add(controller))
     let launched!: () => void
     const started = new Promise<void>((resolve) => { launched = resolve })
     const execute = async (): Promise<boolean> => {
@@ -3731,7 +3737,7 @@ export class FlowExecutions {
       } finally {
         launched()
         running.delete(controller)
-        if (running.size === 0) this.#checks.delete(run.goal)
+        if (running.size === 0) this.#checks.delete(run.id)
       }
       const complete = async (): Promise<boolean> => {
         if (controller.signal.aborted) {
@@ -4015,14 +4021,14 @@ export class FlowExecutions {
   }
 
   async stop(id: string, why = 'the person stopped this flow', by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
-    const goal = this.#get(id).goal
+    this.#get(id)
     this.#stopRequests.set(id, (this.#stopRequests.get(id) ?? 0) + 1)
     let ended = false
     try {
-      this.interruptChecks(goal)
+      this.#interruptRunChecks(id)
       const tasks = await this.#queue.within(id, async () => {
         // A retry ahead of Stop may only now have created its controller.
-        this.interruptChecks(goal)
+        this.#interruptRunChecks(id)
         const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
         await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
         await this.#abandonStoppedPeople(id)
