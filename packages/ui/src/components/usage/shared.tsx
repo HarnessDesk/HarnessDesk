@@ -798,6 +798,7 @@ export const Spend = ({
   onScan,
   rangeControl,
   metric = 'cost',
+  showFooter = true,
 }: {
   ledger: LedgerReport | null
   /** Twice `range`'s worth of the same window, for the previous period and its ghost line. */
@@ -823,6 +824,8 @@ export const Spend = ({
    * band's own words and number formatting change here.
    */
   metric?: ChartMetric
+  /** The interactive website omits scan accounting; the app keeps it. */
+  showFooter?: boolean
 }) => {
   const series = useMemo(() => stackDailyMetric(ledger, now, metric), [ledger, now, metric])
   const wideSeries = useMemo(() => stackDailyMetric(wideLedger, now, metric), [wideLedger, now, metric])
@@ -998,13 +1001,13 @@ export const Spend = ({
           )}
         </ChartCard>
 
-        <ChartFoot>
+        {showFooter && <ChartFoot>
           <Text role="meta" className={styles.costWord}>{coverageSentence(ledger, metric)}</Text>
           <ToolbarGap />
           <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
           </Button>
-        </ChartFoot>
+        </ChartFoot>}
       </ChartFrame>
     </section>
   )
