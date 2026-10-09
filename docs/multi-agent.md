@@ -120,11 +120,15 @@ reason.
 
 The comparison flow the dialog previews and starts is an ordinary policy:
 one implementer role on the two chosen seats, an isolated checkout each,
-`pnpm verify` (or whatever the project names) run against both branches, an
+the chosen project check run against both branches, an
 independent judge that reviews what it actually observed and records a
 structured verdict — never prose read as a winner — and a person who does
 the actual merge. `docs/flows.md`'s "Agents and Seats (v2)" section
 describes the shape in full; racing is that shape, not a shape of its own.
+
+New Team suggests the project's declared test script and package manager for
+**Check each attempt with**. The person can replace it or leave it empty to
+skip the check round; the preview freezes the resulting steps and command.
 
 ---
 

@@ -320,16 +320,22 @@ export const settled = async (d: Desk, run: string): Promise<FlowExecution> =>
 export const TASK = { task: 'Make the attempt file say something useful' }
 
 /**
- * The shipped comparison, its check command pointed at this scratch
- * repository's own test: a person's `pnpm verify` is theirs. The file itself
+ * The shipped comparison, with an explicit scripted project check for this
+ * scratch repository. The file itself
  * now seeds two competitors (issue #1032), so this always overrides that
  * line to the count a test actually wants — including back down to one —
  * rather than only ever adding one.
  */
-export const comparison = async (d: Desk, count: number): Promise<string> => {
+export const comparison = async (d: Desk, count: number, checked = true): Promise<string> => {
   const text = await shipped(d, 'comparison')
-  assert.match(text, /run: "pnpm verify"/)
-  const pointed = text.replace('run: "pnpm verify"', 'run: "test -s attempt.txt"')
+  assert.doesNotMatch(text, /pnpm verify/)
+  const pointed = checked ? text.replace('  judge:\n', [
+    '  verify:', '    kind: check', '    onRequest: true', '    run: "test -s attempt.txt"',
+    '    exits: { "0": pass }', '    otherwise: fail', '    timeout: 900', '  judge:', '',
+  ].join('\n')).replace('  - id: to-judge\n    on: competitor\n', [
+    '  - id: to-verify', '    on: competitor', '    then: { role: verify, title: "Check the attempt" }',
+    '  - id: to-judge', '    on: verify', '    when: { any: [pass] }', '',
+  ].join('\n')) : text
   const withoutCount = pointed.replace(/^ {4}count: \d+\n/m, '')
   return withoutCount.replace('    isolate: true\n', `    count: ${count}\n    isolate: true\n`)
 }

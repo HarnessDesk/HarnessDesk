@@ -30,6 +30,21 @@ server remains active. Changed or unreadable work is retained for review.
 
 ---
 
+## Side by side freezes the project's chosen check as ordinary Flow source
+
+The comparison template has no mandatory application-wide check. New Team
+suggests the project's declared test script, using its declared package manager
+or an unambiguous lockfile. Missing or ambiguous declarations leave the field
+empty. The person can edit the command, and the form serializes its check role
+and routes into the concrete source the existing preview token freezes.
+
+Clearing the command removes the check round and routes the judge directly
+from the attempts, preserving both predecessor revisions. This uses the same
+policy editing and token contract as the other Team options; the engine needs
+neither a new conditional nor a guessed command for an unrelated project.
+
+---
+
 ## Storage cleanup is reviewed on demand and keeps every branch
 
 Settings › Conversations › Storage measures the conversation database and its

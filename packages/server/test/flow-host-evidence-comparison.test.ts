@@ -41,6 +41,21 @@ for (const count of [1, 2]) {
   })
 }
 
+test('an empty project check skips the check round and hands both attempts directly to the judge', E2E, async (t) => {
+  const d = await desk(t)
+  const run = await start(d, await comparison(d, 2, false), TASK)
+  const competitors = await claimed(d, run.goal, 'competitor', 2)
+  const heads: string[] = []
+  for (const [index, card] of competitors.entries()) heads.push(await write(d, card, `attempt ${index + 1}`))
+  const [judge] = await claimed(d, run.goal, 'judge', 1)
+  assert.equal((await board(d, run.goal)).some(card => card.role === 'verify'), false)
+  assert.deepEqual(judge!.dependsOn, competitors.map(card => card.id), 'the judge reads the attempts themselves')
+  await review(d, judge!, 'picked', heads[1]!)
+  const referee = await person(d, run.goal, 'referee', 'merged')
+  assert.match(referee.detail ?? '', new RegExp(heads[1]!))
+  assert.equal((await settled(d, run.id)).state, 'settled')
+})
+
 /*
  * A judge that may change files is still a judge: the revision it is judged
  * on is the one it picked among its predecessors, never its own checkout's

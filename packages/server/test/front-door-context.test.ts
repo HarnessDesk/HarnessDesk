@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
@@ -13,6 +13,7 @@ import { REVIEW_OWN_GOAL } from '../src/flow-execution.js'
 import { parseFlowPolicy } from '../src/flow-policy.js'
 import { CHANGED_PREVIEW, FlowPreviews } from '../src/flow-preview.js'
 import { builtinFlowRoot } from '../src/host.js'
+import { projectCheckCommand } from '../src/authoring/project-check.js'
 import { flowMethods } from '../src/methods/flows.js'
 import type { HostContext } from '../src/methods/context.js'
 import { tempDir } from './scratch.js'
@@ -79,6 +80,45 @@ const frontDoor = (gh: Gh = async () => ({ stdout: '', exitCode: 1 }), confine: 
     flows: { startGoal: async (request: unknown) => { started.push(request); return { id: 'run-1' } } },
   } as unknown as HostContext
   return { port, ctx, started }
+}
+
+test('project check suggestions follow an unambiguous lockfile and preserve Bun script semantics', async () => {
+  for (const [file, command] of [['pnpm-lock.yaml', 'pnpm test'], ['yarn.lock', 'yarn test'], ['bun.lock', 'bun run test'], ['bun.lockb', 'bun run test'], ['package-lock.json', 'npm test'], ['npm-shrinkwrap.json', 'npm test']] as const) {
+    const root = tempDir('hd-project-check-lock-')
+    await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node check.mjs' } }))
+    await writeFile(join(root, file), '')
+    assert.equal(await projectCheckCommand(root), command)
+  }
+})
+
+test('missing, unreadable, undeclared and ambiguous project tests earn no suggestion', async () => {
+  const root = tempDir('hd-project-check-unreadable-')
+  assert.equal(await projectCheckCommand(root), null)
+  for (const content of ['{', 'null', JSON.stringify({ scripts: { lint: 'true' } }), JSON.stringify({ scripts: { test: '   ' } }), JSON.stringify({ packageManager: 'other@1', scripts: { test: 'true' } })]) {
+    await writeFile(join(root, 'package.json'), content)
+    assert.equal(await projectCheckCommand(root), null)
+  }
+  await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'true' } }))
+  assert.equal(await projectCheckCommand(root), 'npm test', 'a package with no manager declaration uses the package script runner')
+  await writeFile(join(root, 'pnpm-lock.yaml'), '')
+  await writeFile(join(root, 'yarn.lock'), '')
+  assert.equal(await projectCheckCommand(root), null, 'conflicting managers need a person to choose')
+  await writeFile(join(root, 'package.json'), JSON.stringify({ packageManager: 'pnpm@10.0.0', scripts: { test: 'true' } }))
+  assert.equal(await projectCheckCommand(root), 'pnpm test', 'an explicit manager takes precedence over leftover lockfiles')
+  const other = tempDir('hd-project-check-symlink-')
+  await symlink(join(root, 'package.json'), join(other, 'package.json'))
+  assert.equal(await projectCheckCommand(other), null, 'a suggestion reads the selected project’s own manifest')
+})
+
+for (const manager of ['npm', 'pnpm', 'yarn', 'bun']) {
+  test(`the project preview suggests the declared test through ${manager}, without running it`, async () => {
+    const root = tempDir('hd-front-door-project-check-')
+    await writeFile(join(root, 'package.json'), JSON.stringify({ packageManager: `${manager}@1.0.0`, scripts: { test: 'exit 99' } }))
+    const { port } = frontDoor()
+    const preview = await previewStart(port, { context: { kind: 'project', root }, source: 'version: 2\nname: Read\nroles:\n  reviewer: { kind: agent, uses: [reviewer], grant: read }\nseed: { role: reviewer, title: Read }\n', vars: {} })
+    assert.equal(preview.projectCheckCommand, manager === 'bun' ? 'bun run test' : `${manager} test`)
+    assert.deepEqual(preview.flow.commands, [], 'reading the suggestion does not add or run a check')
+  })
 }
 
 test('moved branch invalidates preview', async () => {

@@ -48,7 +48,7 @@ test('every shipped Flow parses as current and previews with the shipped Agents 
     assert.ok(preview.token, file)
     if (file === 'comparison.yml') {
       assert.equal(preview.seats.filter(seat => seat.role === 'competitor' && seat.isolate).length, 2)
-      assert.equal(preview.commands.length, 1)
+      assert.equal(preview.commands.length, 0, 'the built-in has no assumed project command')
       assert.ok(preview.seats.some(seat => seat.role === 'judge' && seat.reviews))
       assert.ok(parsed.document?.flow.roles.some(role => role.kind === 'person'))
     }
@@ -86,7 +86,7 @@ test('Side by side gives each card of one round its own isolated implementer sea
   assert.deepEqual(parsed.problems, [])
   assert.ok(parsed.document?.format === 'agents')
   assert.deepEqual(parsed.document.flow.roles.map(role => [role.id, role.kind]), [
-    ['competitor', 'agent'], ['verify', 'check'], ['judge', 'agent'], ['referee', 'person'],
+    ['competitor', 'agent'], ['judge', 'agent'], ['referee', 'person'],
   ])
   const preview = await (await projectPreviews()).preview('/repo', source, { work: 'Build the retry budget' })
   assert.deepEqual(preview.problems, [])
@@ -96,7 +96,8 @@ test('Side by side gives each card of one round its own isolated implementer sea
     [0, 'implementer', true, 'edit'],
     [1, 'implementer', true, 'edit'],
   ])
-  assert.deepEqual(preview.commands.map(command => [command.role, command.run]), [['verify', 'pnpm verify']])
+  assert.deepEqual(preview.commands, [])
+  assert.deepEqual(parsed.document.flow.rules.find(rule => rule.then.role === 'judge'), { id: 'to-judge', on: 'competitor', then: { role: 'judge', title: 'Pick the best attempt' } })
   assert.deepEqual(preview.seats.filter(seat => seat.role === 'judge')
     .map(seat => [seat.index, seat.agent, seat.reviews, seat.plan.ceiling?.level]), [[0, 'judge', true, 'read']])
 })

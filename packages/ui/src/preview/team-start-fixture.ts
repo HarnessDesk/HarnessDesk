@@ -107,7 +107,7 @@ export const TEAM_START_POLICIES = {
   "comparison": {
     "version": 2,
     "name": "Side by side",
-    "description": "One task, two isolated agents; a check on each, then a judge picks, then a person merges.",
+    "description": "One task, two isolated agents; optional checks, then a judge picks, then a person merges.",
     "summary": "Two agents, one task; a judge picks, you merge.",
     "inputs": [
       {
@@ -127,19 +127,6 @@ export const TEAM_START_POLICIES = {
         "isolate": true,
         "grant": "edit",
         "independentOf": []
-      },
-      {
-        "id": "verify",
-        "kind": "check",
-        "check": {
-          "run": "pnpm verify",
-          "onRequest": true,
-          "timeout": 900,
-          "exits": {
-            "0": "pass"
-          },
-          "otherwise": "fail"
-        }
       },
       {
         "id": "judge",
@@ -164,21 +151,8 @@ export const TEAM_START_POLICIES = {
     ],
     "rules": [
       {
-        "id": "to-verify",
-        "on": "competitor",
-        "then": {
-          "role": "verify",
-          "title": "Check the attempt"
-        }
-      },
-      {
         "id": "to-judge",
-        "on": "verify",
-        "when": {
-          "any": [
-            "pass"
-          ]
-        },
+        "on": "competitor",
         "then": {
           "role": "judge",
           "title": "Pick the best attempt"
@@ -204,6 +178,11 @@ export const TEAM_START_POLICIES = {
         }
       }
     ],
+    "complete": {
+      "referee": [
+        "merged"
+      ]
+    },
     "seed": {
       "role": "competitor",
       "title": "{{task}}"
