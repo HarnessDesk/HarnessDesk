@@ -1,5 +1,59 @@
 import { expect, test, type Page } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`tile transcripts open at latest and follow dock resizing in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({width:1440, height:900})
+    await page.goto('/preview.html?side-by-side')
+    await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
+    const frame = page.locator('[data-frame-id="comparison-picked"]')
+    const scrollers = frame.locator('[data-live-transcript]')
+    const atLatest = () => scrollers.evaluateAll(nodes => nodes.length === 2 && nodes.every(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1))
+    await expect.poll(atLatest).toBe(true)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(0)
+    // The measured dock covers the decision, delivery row and wait hint alike.
+    const dock = frame.locator('[data-shared-composer]')
+    await dock.evaluate(node => {node.style.paddingTop = '100px'})
+    await expect.poll(atLatest).toBe(true)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(0)
+    await dock.evaluate(node => {node.style.paddingTop = ''})
+    await expect.poll(atLatest).toBe(true)
+  })
+
+  test(`text scrolls under the floating composer while the other tile stays at latest in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({width:1440, height:900})
+    await page.goto('/preview.html?comparison-verdict')
+    await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
+    const frame = page.locator('[data-frame-id="comparison-picked"]')
+    const scrollers = frame.locator('[data-live-transcript]')
+    await expect(scrollers.nth(0).locator('[data-part="answer"]')).toHaveCount(5)
+    await expect.poll(() => scrollers.evaluateAll(nodes => nodes.every(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1))).toBe(true)
+    await frame.locator('[data-side-by-side-container]').scrollIntoViewIfNeeded()
+    const dock = frame.locator('[data-shared-composer]')
+    const top = (await dock.boundingBox())!.y
+    const left = scrollers.nth(0)
+    const line = left.locator('[data-part="answer"] p').nth(2)
+    await left.evaluate((node, dockTop) => {
+      const line = node.querySelectorAll('[data-part="answer"] p')[2]!
+      node.scrollTop += line.getBoundingClientRect().top - dockTop - 70
+    }, top)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(1)
+    const lineBox = (await line.boundingBox())!
+    const dockBox = (await dock.boundingBox())!
+    expect(lineBox.y).toBeLessThan(dockBox.y + dockBox.height)
+    expect(lineBox.y + lineBox.height).toBeGreaterThan(dockBox.y)
+    expect(await page.evaluate(({x,y}) => Boolean(document.elementFromPoint(x,y)?.closest('[data-shared-composer]')), {
+      x:Math.max(lineBox.x,dockBox.x)+20, y:lineBox.y+lineBox.height/2,
+    })).toBe(true)
+    const last = (await scrollers.nth(1).locator('[data-part="answer"]').last().boundingBox())!
+    expect(last.y + last.height).toBeLessThan(dockBox.y)
+    const position = await left.evaluate(node => node.scrollTop)
+    await dock.evaluate(node => {node.style.paddingTop = '100px'})
+    await expect.poll(() => scrollers.nth(1).evaluate(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(1)
+    expect(await left.evaluate(node => node.scrollTop)).toBe(position)
+    await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(1)
+  })
+}
+
 const dial = (page: Page, label: string) =>
   page.locator('label').filter({ hasText: new RegExp(`^${label}`) }).locator('select').first()
 

@@ -2,16 +2,17 @@ import type { ReactNode } from 'react'
 import { Card, CardViewport } from '../ui/card'
 import { Button } from '../ui/button'
 import { Text } from './Settings'
-import { CheckIcon } from '../../components/Icons'
+import { CheckIcon, RefreshIcon } from '../../components/Icons'
 import { IconTile } from '../ui/icon-tile'
 
 /** A recorded recommendation and the person's next decision, above the shared composer. */
-export const ComparisonDecision = ({ title, reason, mergeLabel, mergeRefusal, onMerge, onCompare, compareRefusal, keepLabel, onKeep }: {
+export const ComparisonDecision = ({ title, reason, mergeLabel, mergeRefusal, onMerge, onRefresh, onCompare, compareRefusal, keepLabel, onKeep }: {
   title: string
   reason?: ReactNode
   mergeLabel: string
   mergeRefusal?: string
   onMerge: () => void
+  onRefresh?: () => void
   onCompare: () => void
   compareRefusal?: string
   keepLabel?: string
@@ -25,6 +26,7 @@ export const ComparisonDecision = ({ title, reason, mergeLabel, mergeRefusal, on
     </div>
   </div>
   <div className="flex flex-wrap items-center justify-end gap-2">
+    {onRefresh && <Button variant="ghost" size="icon-sm" aria-label="Refresh merge destination" title="Refresh destination" onClick={onRefresh}><RefreshIcon size={14} /></Button>}
     {onKeep && keepLabel && <Button variant="ghost" size="sm" onClick={onKeep}>{keepLabel}</Button>}
     <Button variant="outline" size="sm" disabled={Boolean(compareRefusal)} title={compareRefusal} onClick={onCompare}>Compare changes</Button>
     <Button size="sm" disabled={Boolean(mergeRefusal)} title={mergeRefusal} onClick={onMerge}>{mergeLabel}</Button>

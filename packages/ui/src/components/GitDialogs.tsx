@@ -358,6 +358,7 @@ export const MergeDialog = ({
   refs,
   preselect,
   fixedRef,
+  expectedBranch,
   beforeMerge,
   onMerged,
   onDone,
@@ -367,8 +368,9 @@ export const MergeDialog = ({
   preselect?: string
   /** A comparison merges its recorded revision; the generic Git dialog keeps its picker. */
   fixedRef?: string
+  expectedBranch?: string
   beforeMerge?: () => Promise<void>
-  onMerged?: () => Promise<void>
+  onMerged?: (outcome: GitMergeOutcome) => Promise<void>
   onDone: (done: boolean) => void
 }) => {
   const store = useStore()
@@ -390,9 +392,9 @@ export const MergeDialog = ({
     setError(null)
     try {
       await beforeMerge?.()
-      const outcome = await store.transport.request('git/merge', { root, ref })
+      const outcome = await store.transport.request('git/merge', { root, ref, ...(expectedBranch ? {expectedBranch} : {}) })
       settle(store, outcome)
-      if (outcome.conflicts.length === 0) await onMerged?.()
+      if (outcome.conflicts.length === 0) await onMerged?.(outcome)
       onDone(true)
     } catch (raised) {
       setError(reason(raised))

@@ -561,6 +561,35 @@ const transcriptSession = (): Session =>
     ],
   })
 
+it('follows transcript and dock geometry changes until the reader scrolls up', () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => {if (this.active) callback([], this as unknown as ResizeObserver)}) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(transcriptSession()).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let height = 800
+    Object.defineProperties(scroll, {scrollHeight:{get:() => height}, clientHeight:{get:() => 400}})
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(800)
+    height = 1000
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1000)
+    // A real reader scroll, rather than the delayed event from our own write.
+    delete scroll.dataset.autoscrolling
+    act(() => {scroll.scrollTop = 100; scroll.dispatchEvent(new Event('scroll', {bubbles:true}))})
+    expect(jumpToLatest()).toBeDefined()
+    height = 1200
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(100)
+  } finally { vi.unstubAllGlobals() }
+})
+
 it('a click on a link inside the transcript releases the pin', () => {
   render(rig(transcriptSession()).store)
   expect(jumpToLatest()).toBeUndefined()

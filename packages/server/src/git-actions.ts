@@ -152,6 +152,7 @@ export interface MergeOutcome {
   readonly summary: string
   /** Paths left conflicted in the working tree; empty when the verb concluded. */
   readonly conflicts: readonly string[]
+  readonly merged?: { readonly branch: string; readonly commit: string }
 }
 
 // ------------------------------------------------------------------- commit
@@ -333,11 +334,15 @@ export const fetch = async (root: string): Promise<{ summary: string }> => {
 // --------------------------------------------------------- merge and rebase
 
 /** Merges a revision into the current branch, leaving conflicts in place. */
-export const merge = async (root: string, ref: string): Promise<MergeOutcome> => {
+export const merge = async (root: string, ref: string, expectedBranch?: string): Promise<MergeOutcome> => {
   const before = await head(root)
-  await resolveCommitish(root, ref)
+  const revision = await resolveCommitish(root, ref)
+  const branch = await currentBranch(root)
+  if (expectedBranch !== undefined && branch !== expectedBranch) {
+    throw new Error('The destination branch changed. Close this question and check Changes before merging.')
+  }
   try {
-    await git(root, ['merge', '--no-edit', ref])
+    await git(root, ['merge', '--no-edit', revision])
   } catch (error) {
     const conflicts = await conflictedFiles(root).catch(() => [])
     if (conflicts.length > 0) {
@@ -348,10 +353,13 @@ export const merge = async (root: string, ref: string): Promise<MergeOutcome> =>
     }
     fail(`Could not merge ${ref}`, error)
   }
-  const after = await head(root)
+  // HEAD may already belong to another checkout action. Read the branch this
+  // merge targeted, and return that observation with the merge response.
+  const after = branch ? await resolveCommitish(root, `refs/heads/${branch}`) : await head(root)
   return {
     summary: before === after ? `Already up to date with ${ref}.` : `Merged ${ref}.`,
     conflicts: [],
+    ...(branch && after ? {merged:{branch, commit:after}} : {}),
   }
 }
 

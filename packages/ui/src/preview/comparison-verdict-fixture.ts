@@ -3,7 +3,7 @@ import { PREVIEW_GOAL } from './goal-fixture'
 import { PREVIEW_ROOM, previewStore } from './harness'
 import { shapeFixture } from './run-shapes-fixture'
 import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from './side-by-side-fixture'
-import type { AppStore } from '../state/store'
+import type { AppSnapshot, AppStore } from '../state/store'
 import { encodeComparisonMerge } from '../lib/comparison-merge'
 import { gitRefs } from './git-fixture'
 
@@ -46,7 +46,16 @@ export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppSt
   const own = previewStore({ ...snapshot, sessions, teams: new Map([[PREVIEW_ROOM, team]]), goals: new Map([[PREVIEW_ROOM, goal]]),
     flowExecutions: new Map([[run.id, run]]), flowRuns: new Map(), boardEvidence: new Map([[PREVIEW_ROOM, evidence]]),
   })
+  const originalTeamIntent = own.teamIntent.bind(own)
   return Object.assign(own, {
+    teamIntent: async (room: string, id: number, action: Parameters<AppStore['teamIntent']>[2], reason?: string, outcome?: string, handoff?: string) => {
+      if (action !== 'done') return originalTeamIntent(room, id, action, reason, outcome, handoff)
+      const snapshot = own.getSnapshot()
+      const team = snapshot.teams.get(room)!
+      const next = {...team, intents:team.intents.map(card => card.id === id ? {...card, state:'done' as const, outcome:outcome ?? null, handoff:handoff ?? null} : card)}
+      const patch = own as unknown as {patch: (snapshot: Partial<AppSnapshot>) => void}
+      patch.patch({teams:new Map(snapshot.teams).set(room, next), goals:new Map(snapshot.goals).set(room, {...snapshot.goals.get(room)!, board:next})})
+    },
     teamPeers: async () => (await base.teamPeers(PREVIEW_ROOM)).slice(0, person ? 2 : 3),
     flowReviewCandidates: async () => input.evidence!.cards.filter(card => card.card <= 2).map(card => {
       const diff = card.facts.find(view => view.record.fact.kind === 'diff')!.record
@@ -55,7 +64,8 @@ export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppSt
     decideFlowReview: async () => {},
     transport: { ...own.transport, request: async (method: string, params?: unknown) => {
       if (method === 'git/refs') return {...gitRefs(), headSha:'c'.repeat(40), branch:'main'}
-      if (method === 'git/merge') return {summary:'The recorded attempt is merged.', conflicts:[]}
+      if (method === 'git/merge') return {summary:'The recorded attempt is merged.', conflicts:[], merged:{branch:'main', commit:'c'.repeat(40)}}
+      if (method === 'team/state') return own.getSnapshot().teams.get(PREVIEW_ROOM)
       if (method === 'git/diffRange') return {diff:'diff --git a/src/client.ts b/src/client.ts\n--- a/src/client.ts\n+++ b/src/client.ts\n@@ -1 +1 @@\n-retry(1)\n+retry(2)\n'}
       return own.transport.request(method as never, params as never)
     } } as AppStore['transport'],

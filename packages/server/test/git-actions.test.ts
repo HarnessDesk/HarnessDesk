@@ -367,6 +367,33 @@ test('a conflicted pull stays in the tree with its files named', async () => {
 
 // --------------------------------------------------------- merge and rebase
 
+test('merge binds the expected destination in the host before changing Git', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'checkout', '-qb', 'release')
+  await assert.rejects(merge(dir, 'main', 'main'), /destination branch changed/)
+})
+
+test('merge returns the destination commit even when another checkout changes HEAD', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'branch', 'release')
+  await git(dir, 'checkout', '-qb', 'side')
+  await writeFile(join(dir, 'side.txt'), 'side\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'side work')
+  const commit = await sha(dir, 'HEAD')
+  await git(dir, 'checkout', '-q', 'main')
+  setGitRunnerForTest(async (root, args) => {
+    const output = await git(root, ...args)
+    if (args[0] === 'merge') await git(root, 'checkout', '-q', 'release')
+    return output
+  })
+  try {
+    const result = await merge(dir, 'side')
+    assert.deepEqual(result.merged, {branch:'main', commit})
+    assert.notEqual(await sha(dir, 'HEAD'), commit)
+  } finally { setGitRunnerForTest(null) }
+})
+
 test('merge concludes cleanly or stays with named conflicts', async () => {
   const dir = await seedRepo()
   await git(dir, 'checkout', '-qb', 'side')

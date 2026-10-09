@@ -74,7 +74,7 @@ export const gitMethods = {
 
   'git/fetch': async (ctx, params) => gitActions.fetch(await ctx.workspaces.confineGitRoot(params.root)),
 
-  'git/merge': async (ctx, params) => gitActions.merge(await ctx.workspaces.confineGitRoot(params.root), params.ref),
+  'git/merge': async (ctx, params) => gitActions.merge(await ctx.workspaces.confineGitRoot(params.root), params.ref, params.expectedBranch),
 
   'git/rebase': async (ctx, params) => gitActions.rebase(await ctx.workspaces.confineGitRoot(params.root), params.onto),
 
