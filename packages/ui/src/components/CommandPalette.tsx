@@ -5,8 +5,10 @@ import {
   Keycap,
   NavigationList,
   PopoverGroupLabel,
+  Row,
   Search,
   Separator,
+  Switch,
   Text,
 } from '../design'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -159,6 +161,9 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   // Transcript-content matches keyed by `${runtime}-${id}`: the backend's own
   // matching line, which beats re-deriving one from title and preview.
   const [contentHits, setContentHits] = useState<ReadonlyMap<string, TranscriptHit>>(new Map())
+  const [includeTools, setIncludeTools] = useState(() => {
+    try { return localStorage.getItem('hd-palette-tools-v1') === 'true' } catch { return false }
+  })
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
 
@@ -195,7 +200,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         }
       })
       void store.transport
-        .request('transcripts/search', { query: needle })
+        .request('transcripts/search', { query: needle, ...(includeTools ? { includeTools: true } : {}) })
         .then((hits) => {
           if (cancelled) return
           setContentHits(new Map(hits.map((hit) => [`${hit.summary.runtime}-${hit.summary.id}`, hit])))
@@ -208,7 +213,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [query, snapshot.runtimes, store])
+  }, [query, includeTools, snapshot.runtimes, store])
 
   // Files only when there is something to look for; the runtime's search
   // is a round trip and an empty query would list the world.
@@ -479,7 +484,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         id: `session-${summary.runtime}-${summary.id}`,
         group: 'Sessions',
         label: sessionLabel(summary.title, summary.preview),
-        hint: `${brandOf(agent)} · ${folder}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}`,
+        hint: `${brandOf(agent)} · ${folder}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${content?.source === 'tool' ? ' · Tool output' : ''}`,
         icon: <SessionIcon size={14} />,
         keywords: `${folder} ${agent} ${summary.preview ?? ''}`,
         ...(content
@@ -644,6 +649,14 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           />
           <Keycap>esc</Keycap>
         </div>
+        <Row
+          title="Include tool output"
+          control={<Switch size="sm" aria-label="Include tool output" checked={includeTools} onCheckedChange={(checked) => {
+              setIncludeTools(checked)
+              setContentHits(new Map())
+              try { localStorage.setItem('hd-palette-tools-v1', String(checked)) } catch { /* Viewer storage can be unavailable. */ }
+            }} />}
+        />
         <Separator />
         <NavigationList className={styles.list} ref={list} role="listbox">
           {shown.length === 0 && <div className="hd-empty-line">Nothing matches “{query}”.</div>}

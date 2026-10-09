@@ -403,7 +403,10 @@ flow across several domains through the context the host really builds.
 State lives in `~/.harnessdesk/` (overridable by `HARNESSDESK_HOME`):
 `state.json` (workspaces and UI preferences), `agents.json` (the ACP registry
 and fallback commands), `credentials.json`, `usage.sqlite` (the spend ledger),
-`transcripts/`, `plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
+`sessions.sqlite` (the conversation index, turn metadata, items and search),
+`sessions-YYYY-MM-DD.sqlite` (the newest three daily snapshots),
+`transcripts/` (legacy files retained after the list-only seed),
+`plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
 `audit.ndjson`, `run/` (`tools.sock`), `accounts.json`, `archive.json`,
 `names.json`, `team/`, `acp-registry.json`, `downloads/`,
 `attachment-trust.json` and `attachments/seats/` (a person's local approvals

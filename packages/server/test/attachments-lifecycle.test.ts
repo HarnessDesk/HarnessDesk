@@ -1,3 +1,4 @@
+import { forgetStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
@@ -462,7 +463,7 @@ test('a conversation seated as an Agent whose file is gone, with no record of it
   await desk.halt()
   await rm(agentDir, { recursive: true, force: true })
   // And no transcript kept here either: a read has to go to the agent.
-  await rm(join(desk.harness.stateDir, 'transcripts'), { recursive: true, force: true })
+  await forgetStored(desk.harness.stateDir, String(session.runtime), String(session.id))
 
   const runtime = capableRuntime()
   const again = await start({ libraryHome: tempDir('hd-attach-life-gone-home-') }, desk.harness.stateDir, runtime)
