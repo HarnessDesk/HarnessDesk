@@ -188,6 +188,49 @@ holds several views, the view's title when it holds one, and the panel verbs
 one size. The dock's pill tabs stay a different shape on purpose: they switch
 between different tools, not views of one thing.
 
+### Where things go
+
+Today each destination decided for itself what sits in main and what in a
+panel, and what its bar's right side holds — a worded button here, an icon
+there, a menu elsewhere, controls that come and go. One rule each:
+
+**Main or a panel.**
+- **Main** holds the subject you are working on: one conversation, one Team
+  view, one page. Exactly one.
+- **The right panel** holds what you consult *about* the subject in main —
+  Changes, Activity, Agents, Background tasks, Trajectory, Run details,
+  Steps, the browser, a file, the repository's history. It follows main's
+  subject.
+- **The bottom panel** holds what runs beside it — the terminal.
+- A page never opens in a panel and an inspector never becomes a page. The
+  one recorded pair is Changes (the panel: what just happened) and Changes
+  review (the page: reading a day's work).
+
+**The bar's right side.** Left to right, decided by what a control *does*:
+- **Facts** say what is true and do not act. A fact may open its own detail
+  — the branch its git menu, the meter its plan usage, a scope its choices —
+  but never runs a verb.
+- **Tools** open or toggle something beside main (the browser, the terminal,
+  a split) or leave the app (the pull request on its forge). Always icons
+  with a tooltip, pressed while on. The right-panel toggle is the last tool
+  on every destination, with its count badge.
+- **The creation verb**, on a list page only, is the one worded button.
+- **⋯** holds every other verb on the subject, grouped, the View group last.
+
+| Destination | Facts | Tools | Verb |
+| --- | --- | --- | --- |
+| Conversation | state, branch, context, plan | browser, terminal, panel | — |
+| Team | faces, plan | hold messages, pull request, panel | — |
+| Teams · Agents · Library · Plugins | — | panel | New Team · New agent · Add · Install |
+| An Agent | ceiling | panel | Start a conversation |
+| Dashboard | scope | refresh, panel | — |
+| Settings › a section | — | — | — |
+
+**Controls do not come and go.** A destination's tools are fixed by its kind.
+One that does not apply now is shown disabled with its reason as its title,
+never removed. A fact with nothing to say is left out of the pill. The only
+time a tool moves is the narrow-bar fold into ⋯ › View.
+
 ### Pages
 
 A page picks one of three widths by what it holds:
@@ -356,6 +399,21 @@ not position anything. The audit counts layout in screens (inline layout
 classes and layout declarations in screen stylesheets) under a ceiling that
 only goes down, as the existing burn-down gate does; a screen moved in step 5
 reaches zero, and new layout in a screen is refused at once.
+
+**Blocks take data, not style.** The reason sessions built at different
+times each produced their own style is that a block accepted markup and a
+`className`: a screen that needed a table, a label or a menu could drop in
+its own, styled on the spot. A block now takes content as data — a menu
+takes `items` (label, icon, earned line, shortcut, tone), a `SummaryList`
+takes `rows`, a `Chip` takes a `tone` — and renders it one way. Screens may
+not pass `className` or layout to a block; the audit refuses it. A screen
+that cannot say what it needs in the block's data has found a missing case,
+and the case is added to the block for every screen.
+
+**A menu decides once.** Every row in a menu has an icon or none does; the
+check refuses a mix. Its width is its content between 200 and 340, never
+wider — long names truncate or wrap. Its padding is the menu's, never the
+caller's. A second line is an earned line or nothing.
 
 **One edge per surface.** In every surface — page column, card, menu, panel,
 info card — the head, the rows and the footer start their text at one x: the
