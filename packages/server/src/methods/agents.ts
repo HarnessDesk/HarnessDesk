@@ -105,11 +105,9 @@ export const agentMethods = {
    * ten Agents asks each runtime once, not ten times.
    *
    * "Opens nothing" means no conversation, for any Agent named here, and
-   * names none either. It does not mean nothing runs: an ACP agent that has
-   * never declared its models yet, in this process, has that answered by
-   * `catalogueOf` → `knownModels`, which starts the agent's own hidden probe
-   * once to learn it (`adapter-acp/src/runtime.ts`) — the same probe a real
-   * seating or the model picker would have started to ask the same question.
+   * names none either. It does not mean nothing runs: first startup is
+   * joined within its deadline before preflight, just as in Flow preview.
+   * Later idle observations stay passive.
    */
   'agent/seat/dry': async (ctx, params) => {
     const roster = await ctx.agents.list(await projectOf(ctx, params.project))
@@ -129,10 +127,12 @@ export const agentMethods = {
       }
     })
     // Every runtime either list names, read once: the Agent's own list is only weighed beside this Mac's.
-    const desk = await readDesk(
-      ctx,
-      weighed.flatMap((one) => ('list' in one ? [...('seats' in one.list ? one.list.seats : []), ...one.prefer] : [])),
-    )
+    const candidates = weighed.flatMap((one) => ('list' in one ? [...('seats' in one.list ? one.list.seats : []), ...one.prefer] : []))
+    await Promise.all([...new Set(candidates.map(candidate => candidate.runtime))].map(async id => {
+      const runtime = ctx.runtimes.get(id)
+      if (runtime) await ctx.runtimes.prepareIntent?.(runtime).catch(() => {})
+    }))
+    const desk = await readDesk(ctx, candidates)
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
     return weighed.map((one): SeatPlan => {
       if ('plan' in one) return one.plan
@@ -553,6 +553,16 @@ export async function seatAgent(
   const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
+  await Promise.all([...new Set(candidates.map(candidate => candidate.runtime))].map(async id => {
+    const runtime = ctx.runtimes.get(id)
+    if (runtime && (runtime.health().state === 'idle' || runtime.health().state === 'starting')) {
+      await ctx.runtimes.start?.(runtime).catch(() => {})
+    } else if (runtime) {
+      // A first launch can report unavailable before it has a process. The
+      // host knows whether it is cold; an observed failure stays a refusal.
+      await ctx.runtimes.prepareIntent?.(runtime).catch(() => {})
+    }
+  }))
   const desk = await readDesk(ctx, candidates)
   const offers = nativeServerOffers(ctx, definition, desk.offers)
   const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
@@ -1386,6 +1396,12 @@ export const previewAgent = async (
   const list = candidatesFor(entry.definition, machine, seats.length ? seats : undefined)
   const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld, ...(options.requireHeld ? { required: true as const } : {}) }
   if ('refused' in list) return blockedPlan(agent, list.refused, 'machine')
+  // Preview is deliberate intent. Join a runtime's first launch before its
+  // capability preflight; later idle observations stay passive.
+  await Promise.all([...new Set([...list.seats, ...entry.definition.prefer].map(seat => seat.runtime))].map(async id => {
+    const runtime = ctx.runtimes.get(id)
+    if (runtime) await ctx.runtimes.prepareIntent?.(runtime).catch(() => {})
+  }))
   const desk = await readDesk(ctx, [...list.seats, ...entry.definition.prefer])
   const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
   // A role's own explicit `seats:` reads like `prefer` here: `SeatPlan.from` tells

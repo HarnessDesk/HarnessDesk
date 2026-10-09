@@ -382,13 +382,20 @@ test('a failing run_check says its checkout is clean, without ignored files, so 
 test('a run_check checkout a crash left behind is removed when the desk starts again, and nothing else in that folder is', async (t) => {
   const repo = await makeRepo('hd-flow-run-check-left-')
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-flow-run-check-left-state-'))
-  t.after(() => rm(stateDir, { recursive: true, force: true }))
+  let disposeHost: (() => Promise<void>) | undefined
+  t.after(async () => {
+    try {
+      await disposeHost?.()
+    } finally {
+      await rm(stateDir, { recursive: true, force: true })
+    }
+  })
   const head = await repo.git('rev-parse', 'HEAD')
   const left = await createDetached(repo.dir, { name: `check-${head.slice(0, 12)}`, at: head, stateDir })
   const other = await createDetached(repo.dir, { name: 'kept', at: head, stateDir })
   assert.ok(existsSync(left) && existsSync(other))
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-flow-run-check-left-builtins-'), catalogRefreshMs: 0 })
-  t.after(() => host.dispose())
+  disposeHost = () => host.dispose()
   await host.start()
   assert.equal(existsSync(left), false, 'the check checkout is gone')
   const listed = await repo.git('worktree', 'list', '--porcelain')

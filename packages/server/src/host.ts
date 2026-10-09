@@ -54,6 +54,7 @@ import {
   type AgentSession,
   type SessionSource,
   type ConfigOption,
+  type OptionValue,
   type FlowSeat,
   type TurnId,
   type CapabilityRegistry,
@@ -68,6 +69,7 @@ import {
   type HostResult,
   type RuntimeHealth,
   type RuntimeInfo,
+  type RuntimeObservations,
   type RuntimeUpdate,
   type PluginSource,
   type RuntimeFiles,
@@ -128,6 +130,7 @@ import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
+import { RuntimeCache, type CachedRuntime } from './runtime-cache.js'
 import {
   Ledger,
   defaultCorpora,
@@ -662,10 +665,16 @@ export class Host {
     send: (activity) => this.#push({ method: 'seat/activity', params: activity }),
   })
   readonly #runtimes = new Map<string, AgentRuntime>()
+  readonly #coldRuntimes = new Set<string>()
+  readonly #runtimeSources = new Map<string, AgentRuntime>()
+  readonly #runtimeCache: RuntimeCache
+  readonly #observingRuntimes = new Map<string, Promise<void>>()
+  readonly #modelsReadyAt = new Map<string, number>()
   /** Native metadata before registry rows are added, with the same lifecycle guard. */
   readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, AgentRuntime['listSessions']>()
   readonly #accountReads = new Map<string, AccountReads>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
+  readonly #directRuntimeStarts = new Map<string, { startedAt: number; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
   readonly #runtimeReads = new Map<string, number>()
@@ -908,6 +917,9 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#runtimeCache = new RuntimeCache(join(this.#state.directory, 'runtime-cache.json'), error => {
+      this.#logger.warn('runtime observations could not be saved or read', { error: String(error) })
+    })
     this.#goalStore = new GoalStore(this.#state.directory)
     this.#worktrees = new Worktrees(this.#state.directory)
     this.#laneStore = new LaneStore(this.#state.directory)
@@ -1647,6 +1659,7 @@ export class Host {
         if (!seat.effort && seat.thinking === undefined) return null
         const runtime = this.#runtimes.get(runtimeId(seat.runtime))
         if (!runtime) return { text: `${seat.runtime} is not available, so this Seat's options cannot be checked.`, availability: true }
+        await this.#context.runtimes.prepareIntent(runtime)
         return seatOptionsProblem(runtime, seat, cwd, this.options.seatReadDeadlineMs)
       },
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
@@ -2124,6 +2137,8 @@ export class Host {
         runtime: id,
       })
       this.#invalidateDelegations(id)
+      this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
+      this.#directRuntimeStarts.delete(String(id))
       this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
@@ -2137,7 +2152,7 @@ export class Host {
     this.#accountReads.set(id, accountReads)
     const listHistory = (query?: ListSessionsQuery) => this.#withRuntimeRead(runtime, async () => {
       await this.#waitForRuntimeStop(runtime)
-      const starting = this.#startingRuntimes.get(String(id))
+      const starting = this.#startingRuntimes.get(String(id)) ?? this.#directRuntimeStarts.get(String(id))?.promise
       if (starting) await starting
       if (runtime.health().state === 'idle' && runtime.canReadWhileIdle?.({
         method: 'listSessions', query,
@@ -2171,14 +2186,16 @@ export class Host {
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
           const read = (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
-            const starting = this.#startingRuntimes.get(String(target.info.id))
-            if (starting) await starting
+            const starting = this.#startingRuntimes.get(String(target.info.id)) ?? this.#directRuntimeStarts.get(String(target.info.id))?.promise
+            if (starting && !(this.#coldRuntimes.has(String(id)) && this.#hasObservation(id, key, args))) await starting
             if (target.health().state === 'idle' &&
                 (key === 'defaultSessionOptions' || key === 'listSkills' || key === 'listSkillProblems') &&
-                target.canReadWhileIdle?.({ method: key, cwd: args[0] as string | undefined }) === false) {
+                target.canReadWhileIdle?.({ method: key, cwd: args[0] as string | undefined, ...(key === 'defaultSessionOptions' ? { values: args[1] as Readonly<Record<string, OptionValue>> | undefined } : {}) }) === false) {
               await this.#ensureStarted(target)
             }
-            return Reflect.apply(member, target, args)
+            const answer: unknown = await Reflect.apply(member, target, args)
+            if (target.health().state === 'ready') this.#rememberObservation(target, key, answer, args)
+            return answer
           })
           return key === 'getAccount'
             ? () => accountReads.read(() => read() as ReturnType<AgentRuntime['getAccount']>)
@@ -2188,11 +2205,18 @@ export class Host {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
             if (key !== 'listHooks' && typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
+            // A runtime can answer create/fork with an id the desk already holds.
+            // Snapshot before its registration event, which also seeds genuinely new ids.
+            const held = key === 'createSession' || key === 'forkSession'
+              ? new Set(this.registry.all().filter(record => record.runtime === id).map(record => record.session.id))
+              : null
             const result = await Reflect.apply(member, target, args)
-            if (key === 'createSession' || key === 'forkSession') {
+            if (held) {
               const live = result as AgentSession
-              this.#attach(managed, live.id, live)
-              this.#sessionIndex.promote(id, live.id)
+              if (!held.has(live.id)) {
+                this.#attach(managed, live.id, live)
+                this.#sessionIndex.promote(id, live.id)
+              }
             }
             return result
           }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'sourceOf' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
@@ -2200,6 +2224,9 @@ export class Host {
         return member.bind(target)
       },
     })
+    this.#coldRuntimes.add(String(id))
+    this.#runtimeSources.set(String(id), runtime)
+    runtime.restoreObservations?.(this.#runtimeCache.get(String(id)))
     this.#runtimeHistoryReaders.set(managed, listHistory)
     this.#runtimes.set(id, managed)
     this.#catalogs.watch(managed)
@@ -2239,6 +2266,11 @@ export class Host {
     this.#runtimeSubscriptions.delete(id)
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
+    this.#runtimeSources.delete(String(id))
+    this.#coldRuntimes.delete(String(id))
+    this.#modelsReadyAt.delete(String(id))
+    this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was removed.'))
+    this.#directRuntimeStarts.delete(String(id))
     this.#accountReads.get(id)?.dispose()
     this.#accountReads.delete(id)
     this.#idleSince.delete(String(id))
@@ -2384,6 +2416,8 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    await this.#runtimeCache.load()
+    for (const runtime of this.#runtimes.values()) runtime.restoreObservations?.(this.#runtimeCache.get(String(runtime.info.id)))
     await this.#seatHeldCards.load().catch((error: unknown) => {
       this.#logger.warn('the Seat held-card history could not be read; unknown work will not rest', {
         error: error instanceof Error ? error.message : String(error),
@@ -2526,11 +2560,10 @@ export class Host {
       })
     }
     this.#scheduleRetries()
-    await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
-    /* And only now wake what stopped while the desk was down. Reconciling a
-       run's rounds is board work and belongs above; *sending* to a seat needs
-       the agent that holds it to be running, and asking a moment too early
-       answers "Cursor is not running" for every seat of every flow. */
+    const preferred = this.#state.state.preferences['activeRuntime']
+    const defaultRuntime = (typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value
+    if (defaultRuntime) void this.#startOne(defaultRuntime)
+    /* Recovery sends enter the same live-operation start barrier as new work. */
     /* Held firings are released through their gates, and only then is any
        source read: a trigger's run never dispatches before its runtime is up. */
     /* In the documented order: held firings released through their gates
@@ -2627,7 +2660,10 @@ export class Host {
    */
   async #startOne(runtime: AgentRuntime, prepared = false): Promise<void> {
     const limit = this.options.startTimeoutMs ?? START_TIMEOUT_MS
-    const attempt = this.#beginRuntimeStart(runtime, prepared).then(() => true, () => false)
+    const attempt = this.#waitForRuntimeStop(runtime).then(() => {
+      if (runtime.health().state === 'ready') return
+      return this.#beginRuntimeStart(runtime, prepared)
+    }).then(() => true, () => false)
     let timer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<'timeout'>((resolve) => {
       // Not unref'd: a runtime that never settles is the case this deadline is
@@ -2649,22 +2685,87 @@ export class Host {
 
   #beginRuntimeStart(runtime: AgentRuntime, prepared: boolean): Promise<void> {
     const id = String(runtime.info.id)
-    const existing = this.#startingRuntimes.get(id)
+    const existing = this.#startingRuntimes.get(id) ?? this.#directRuntimeStarts.get(id)?.promise
     if (existing) return existing
-    // Registration stays eager for now. True lazy start can omit the #startOne
-    // loop in Host.start(); every later live operation already enters here.
     const attempt = Promise.resolve().then(async () => {
+      if (this.#disposed) throw new Error('The desk is closing.')
       if (!prepared) await this.#prepareGateway(runtime)
+      const startedAt = performance.now()
       await runtime.start()
+      if (this.#disposed) return
+      const readyAt = performance.now()
+      this.#runtimeCache.update(id, { start: { readyMs: readyAt - startedAt, modelsMs: null } })
       this.#announceReady(runtime)
+      void this.#observeRuntime(runtime, readyAt)
     }).catch((error: unknown) => {
       this.#logger.warn('runtime failed to start', { runtime: runtime.info.id, error: String(error) })
       throw error
     }).finally(() => {
+      this.#coldRuntimes.delete(id)
       if (this.#startingRuntimes.get(id) === attempt) this.#startingRuntimes.delete(id)
     })
     this.#startingRuntimes.set(id, attempt)
     return attempt
+  }
+
+  #warmRuntime(runtime: AgentRuntime): void {
+    if (this.#disposed || runtime.health().state === 'ready' || runtime.health().state === 'starting' || this.#startingRuntimes.has(String(runtime.info.id))) return
+    const cost = this.#runtimeCache.get(String(runtime.info.id)).start
+    if (cost && cost.modelsMs !== null && cost.readyMs + cost.modelsMs < 500) return
+    void this.#ensureStarted(runtime).catch(() => {})
+  }
+
+  #hasObservation(id: string, method: PropertyKey, args: readonly unknown[]): boolean {
+    const cache = this.#runtimeCache.get(id)
+    if (method === 'listModels' || method === 'knownModels') return cache.models !== undefined
+    if (method === 'getAccount') return cache.account !== undefined
+    if (method === 'listOptions') return cache.options !== undefined
+    if (method === 'defaultSessionOptions') return !args[0] && !args[1] && !(args[2] as { fresh?: boolean } | undefined)?.fresh && cache.sessionOptions !== undefined
+    if (method === 'listSkills') return !args[0] && cache.commands !== undefined
+    return false
+  }
+
+  #rememberObservation(runtime: AgentRuntime, method: PropertyKey, answer: unknown, args: readonly unknown[]): void {
+    if (this.#disposed || this.#runtimeSources.get(String(runtime.info.id)) !== runtime) return
+    const field = method === 'listModels' || method === 'knownModels' ? 'models'
+      : method === 'getAccount' ? 'account' : method === 'listOptions' ? 'options'
+      : method === 'defaultSessionOptions' && !args[0] && !args[1] ? 'sessionOptions'
+      : method === 'listSkills' && !args[0] ? 'commands' : null
+    if (field && answer !== null) this.#recordObservations(runtime, { [field]: answer } as RuntimeObservations)
+  }
+
+  #recordObservations(runtime: AgentRuntime, observations: RuntimeObservations): void {
+    const id = String(runtime.info.id)
+    if (this.#disposed || this.#runtimeSources.get(id) !== runtime) return
+    const readyAt = this.#modelsReadyAt.get(id)
+    const cost = this.#runtimeCache.get(id).start
+    const measured = observations.models !== undefined && readyAt !== undefined && cost
+    const patch: CachedRuntime = measured ? { ...observations, start: { ...cost, modelsMs: performance.now() - readyAt } } : observations
+    if (measured) this.#modelsReadyAt.delete(id)
+    this.#runtimeCache.update(id, patch)
+  }
+
+  #observeRuntime(runtime: AgentRuntime, readyAt?: number): Promise<void> {
+    const id = String(runtime.info.id)
+    if (readyAt !== undefined) this.#modelsReadyAt.set(id, readyAt)
+    if (!runtime.observations) return Promise.resolve()
+    runtime = this.#runtimeSources.get(id) ?? runtime
+    const existing = this.#observingRuntimes.get(id)
+    if (existing) return existing
+    const observation = this.#withRuntimeRead(runtime, async () => {
+      const models = await (runtime.knownModels ? runtime.knownModels() : runtime.listModels()).catch(() => null)
+      if (this.#disposed || this.#runtimeSources.get(id) !== runtime || runtime.health().state !== 'ready') return
+      if (models !== null) this.#recordObservations(runtime, { models })
+      this.#recordObservations(runtime, runtime.observations!())
+      this.#push({ method: 'event', params: { runtime: runtime.info.id, event: { type: 'catalog/changed', runtime: runtime.info.id } } })
+      this.#push({ method: 'event', params: { runtime: runtime.info.id, event: { type: 'account/changed', runtime: runtime.info.id } } })
+    }).catch(error => {
+      this.#logger.debug('runtime observations did not answer', { runtime: id, error: String(error) })
+    }).finally(() => {
+      if (this.#observingRuntimes.get(id) === observation) this.#observingRuntimes.delete(id)
+    })
+    this.#observingRuntimes.set(id, observation)
+    return observation
   }
 
   async #ensureStarted(runtime: AgentRuntime): Promise<void> {
@@ -2968,6 +3069,8 @@ export class Host {
     this.#disposed = true
     this.#historyImport.close()
     clearTimeout(this.#cacheEvictionTimer)
+    for (const start of this.#directRuntimeStarts.values()) start.reject(new Error('The desk is closing.'))
+    this.#directRuntimeStarts.clear()
     for (const reads of this.#accountReads.values()) reads.dispose()
     this.#accountReads.clear()
     this.#seatActivities.dispose()
@@ -3045,6 +3148,7 @@ export class Host {
     this.#usage?.dispose()
     this.#ledger?.close()
     await runtimesGone
+    await this.#runtimeCache.flush()
     await Promise.all(this.#runtimeNoticeWrites)
     await this.#transcripts.close()
     this.#runtimes.clear()
@@ -4213,7 +4317,17 @@ export class Host {
               canRecycle, reason: canRecycle ? null : !runtime.stopForIdle ? 'This runtime cannot recycle while idle.' : runtime.health().state !== 'ready' ? 'This runtime is not running.' : 'Close its conversations and let its work finish before recycling.' }
           })
         },
-        recycle: (runtime) => this.#recycleRuntime(runtime),
+        recycle: async runtime => {
+          // A click during the default's background launch stops that launch's
+          // process once it is up; it never starts an idle runtime to stop it.
+          await this.#startingRuntimes.get(String(runtime.info.id))?.catch(() => {})
+          return this.#recycleRuntime(runtime)
+        },
+        warm: (runtime) => this.#warmRuntime(runtime),
+        ensureStarted: (runtime) => this.#ensureStarted(runtime),
+        prepareIntent: async runtime => {
+          if (this.#coldRuntimes.has(String(runtime.info.id)) || this.#startingRuntimes.has(String(runtime.info.id)) || this.#directRuntimeStarts.has(String(runtime.info.id))) await this.#startOne(runtime)
+        },
         start: (runtime) => this.#startOne(runtime),
         bindUsage: (runtime, binding) => this.bindUsage(runtime, binding),
       },
@@ -5997,6 +6111,7 @@ export class Host {
   }
 
   async #reattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
+    if (this.#coldRuntimes.has(String(runtime.info.id)) || this.#startingRuntimes.has(String(runtime.info.id))) await this.#ensureStarted(runtime)
     const name = runtime.info.presentation.name
     const health = runtime.health()
     if (health.state !== 'ready' && health.state !== 'idle') {
@@ -6412,6 +6527,7 @@ export class Host {
       throw new Error('The Seat checkout is not admitted for this project. Open that checkout first.')
     }
     const runtime = this.#runtime({ runtime: seat.runtime })
+    await this.#ensureStarted(runtime)
     // The lane is found by its checkout, from the desk's own lane record; the
     // cwd is the confinement and every runtime takes it. The six values go to
     // a runtime that can take them per session, and are said in the standing
@@ -7037,6 +7153,10 @@ export class Host {
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
+    if (event.type === 'catalog/changed' || event.type === 'runtime/options') {
+      const owner = this.#runtimeSources.get(String(runtime))
+      if (owner?.observations && owner.health().state === 'ready') this.#recordObservations(owner, owner.observations())
+    }
     withCanonicalPaths(() => this.#foldEvent(runtime, event))
   }
 
@@ -7161,7 +7281,8 @@ export class Host {
       if (seated?.board) this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
     }
     if (event.type === 'turn/started' && record) {
-      this.#recordSessionIndex(record.session, true)
+      // The opened row already owns its Team facts. Promotion publishes it immediately;
+      // ordinary metadata follows the settle window without another dispatch lookup.
       this.#sessionIndex.promote(runtime, record.session.id)
       this.#sendingNow.delete(recordKey(record))
       const seat = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime && candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
@@ -8087,6 +8208,36 @@ export class Host {
   }
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
+    const id = String(runtime)
+    // Background startup returns before readiness. Count its quiet time from
+    // readiness too, rather than adding a whole interval after a delayed poll.
+    if (health.state === 'ready' && this.#runtimeIsIdle(runtime, false)) {
+      if (!this.#idleSince.has(id)) this.#idleSince.set(id, Date.now())
+    } else this.#idleSince.delete(id)
+    // Installation checks and explicit catalogue refresh can restart inside the
+    // adapter. They pay the same measured cost as a host-owned start.
+    if (health.state === 'starting' && !this.#startingRuntimes.has(id)) {
+      if (!this.#directRuntimeStarts.has(id)) {
+        let resolve!: () => void
+        let reject!: (error: Error) => void
+        const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no })
+        // No caller need be waiting yet; a failed adapter start is still handled.
+        void promise.catch(() => {})
+        this.#directRuntimeStarts.set(id, { startedAt: performance.now(), promise, resolve, reject })
+      }
+    } else if (health.state !== 'starting') {
+      const direct = this.#directRuntimeStarts.get(id)
+      this.#directRuntimeStarts.delete(id)
+      if (direct) this.#coldRuntimes.delete(id)
+      if (health.state === 'ready') direct?.resolve()
+      else direct?.reject(new Error(health.state === 'unavailable' ? health.message ?? 'The agent did not start.' : 'The agent stopped while starting.'))
+      const owner = this.#runtimeSources.get(id)
+      if (health.state === 'ready' && direct && owner) {
+        const readyAt = performance.now()
+        this.#runtimeCache.update(id, { start: { readyMs: readyAt - direct.startedAt, modelsMs: null } })
+        void this.#observeRuntime(owner, readyAt)
+      }
+    }
     if (health.state !== 'ready' && health.state !== 'idle') {
       this.#invalidateDelegations(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)

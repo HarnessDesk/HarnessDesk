@@ -903,6 +903,8 @@ export interface HostMethods {
       readonly log: readonly string[]
     }
   }
+  /** Begin a costly or unmeasured start on intent, without waiting. */
+  'runtime/warm': { params: { readonly runtime: RuntimeId }; result: null }
   'runtime/models': { params: { readonly runtime: RuntimeId }; result: readonly ModelInfo[] }
   'runtime/account': { params: { readonly runtime: RuntimeId }; result: AccountStatus }
   'runtime/limits': { params: { readonly runtime: RuntimeId }; result: RateLimits | null }

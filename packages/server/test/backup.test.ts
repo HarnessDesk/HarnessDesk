@@ -51,6 +51,17 @@ const hostAt = async (stateDir: string, options: { logger?: Logger } = {}) => {
   return { host, store }
 }
 
+const disposeHostsThenRemove = (t: TestContext, dirs: readonly string[]) => {
+  const disposers: Array<() => Promise<void>> = []
+  t.after(async () => {
+    const results = await Promise.allSettled(disposers.map((dispose) => dispose()))
+    await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
+    const failure = results.find((result) => result.status === 'rejected')
+    if (failure?.status === 'rejected') throw failure.reason
+  })
+  return (host: Pick<Host, 'dispose'>) => disposers.push(() => host.dispose())
+}
+
 /** A logger that keeps warnings across child scopes and can synchronously release a test fault. */
 class Heard extends Logger {
   constructor(
@@ -130,9 +141,9 @@ const backupWith = (agentFolders: unknown[], seating?: Readonly<Record<string, u
 
 const restorePathCase = async (t: TestContext, path: string) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-path-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const disposeHostThenRemove = disposeHostsThenRemove(t, [dir])
   const { host } = await hostAt(dir)
-  t.after(() => host.dispose())
+  disposeHostThenRemove(host)
   const report = await host.call('backup/import', {
     backup: backupWith([{ id: 'scout', files: [{ path: 'AGENT.md', text: 'brief' }, { path, text: 'untrusted' }] }]),
   })
@@ -143,16 +154,10 @@ const restorePathCase = async (t: TestContext, path: string) => {
 test('what one host exports, a fresh host restores — and can prove it has', async (t) => {
   const dirA = await mkdtemp(join(tmpdir(), 'hd-backup-a-'))
   const dirB = await mkdtemp(join(tmpdir(), 'hd-backup-b-'))
-  const hosts: Host[] = []
-  t.after(async () => {
-    // Drain daily snapshots before removing the directories they write to.
-    for (const host of hosts) await host.dispose()
-    await rm(dirA, { recursive: true, force: true })
-    await rm(dirB, { recursive: true, force: true })
-  })
+  const disposeHostsThenRemoveDirs = disposeHostsThenRemove(t, [dirA, dirB])
 
   const a = await hostAt(dirA)
-  hosts.push(a.host)
+  disposeHostsThenRemoveDirs(a.host)
   a.store.add({ id: 'my-agent', name: 'My Agent', command: 'my-agent' })
   await a.host.call('app/state/set', { patch: { theme: 'dark', draftValues: { 'my-agent': { model: 'large' } } } })
   const transcripts = new TranscriptStore(join(dirA, 'transcripts'))
@@ -175,7 +180,7 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   assert.equal(backup.seating, null)
 
   const b = await hostAt(dirB)
-  hosts.push(b.host)
+  disposeHostsThenRemoveDirs(b.host)
   const report = await b.host.call('backup/import', { backup })
   assert.deepEqual(report.agents, { restored: 1, skipped: 0 })
   assert.equal(report.preferences, 2)
@@ -202,9 +207,9 @@ test('what one host exports, a fresh host restores — and can prove it has', as
 
 test('the memory sidecar is optional and never carries trust, even under a hostile key', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-memory-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const disposeHostsThenRemoveDir = disposeHostsThenRemove(t, [dir])
   const { host } = await hostAt(dir)
-  t.after(() => host.dispose())
+  disposeHostsThenRemoveDir(host)
 
   // A legacy backup, from before this sidecar existed, restores exactly as it always did.
   const legacyReport = await host.call('backup/import', { backup: backupWith([]) })
@@ -304,13 +309,10 @@ test('a real backup restores wrapped Goals as readable history without replaying
 test("a backup carries this machine's Agents and seats, and restore only adds what is missing", async (t) => {
   const dirA = await mkdtemp(join(tmpdir(), 'hd-backup-agents-a-'))
   const dirB = await mkdtemp(join(tmpdir(), 'hd-backup-agents-b-'))
-  t.after(async () => {
-    await rm(dirA, { recursive: true, force: true })
-    await rm(dirB, { recursive: true, force: true })
-  })
+  const disposeHostsThenRemoveDirs = disposeHostsThenRemove(t, [dirA, dirB])
 
   const a = await hostAt(dirA)
-  t.after(() => a.host.dispose())
+  disposeHostsThenRemoveDirs(a.host)
   const source = '---\nname: Scout\n---\nLook around — carefully.\n'
   await mkdir(join(dirA, 'agents', 'scout', 'skills'), { recursive: true })
   await writeFile(join(dirA, 'agents', 'scout', 'AGENT.md'), source)
@@ -333,7 +335,7 @@ test("a backup carries this machine's Agents and seats, and restore only adds wh
   await writeFile(join(dirB, 'agents', 'keeper', 'AGENT.md'), 'local copy')
   await writeFile(join(dirB, 'seating.json'), JSON.stringify({ judge: ['cursor'] }))
   const b = await hostAt(dirB)
-  t.after(() => b.host.dispose())
+  disposeHostsThenRemoveDirs(b.host)
   const notices: unknown[] = []
   b.host.addBroadcaster((notice) => {
     if (notice.method === 'agent/changed') notices.push(notice)
@@ -869,14 +871,14 @@ test('export leaves an unreadable subfolder out with a warning and carries both 
   await writeFile(join(locked, 'secret.md'), 'not carried')
   await writeFile(join(dir, 'agents', 'good', 'AGENT.md'), 'good brief')
   await chmod(locked, 0o000)
-  // One hook, in this order: `t.after` hooks run in the order they were
-  // added, so a separate restore-then-remove pair of hooks would remove
-  // first and restore second — `rm`'s own `force` forgives a path that is
-  // already gone, not one it cannot list, so it would fail on the very
-  // folder this test is proving is isolated, not the code under test.
+  let disposeHost: (() => Promise<void>) | undefined
   t.after(async () => {
-    await chmod(locked, 0o700).catch(() => {})
-    await rm(dir, { recursive: true, force: true })
+    try {
+      await disposeHost?.()
+    } finally {
+      await chmod(locked, 0o700).catch(() => {})
+      await rm(dir, { recursive: true, force: true })
+    }
   })
   const readable = await readdir(locked).then(
     () => true,
@@ -885,7 +887,7 @@ test('export leaves an unreadable subfolder out with a warning and carries both 
   if (readable) return t.skip('this user can read a folder with mode 000')
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
-  t.after(() => host.dispose())
+  disposeHost = () => host.dispose()
 
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good', 'scout'])
@@ -996,10 +998,7 @@ test('export stops opening files once an Agent folder’s byte budget is already
 test('.git is left out at every depth on export and restore', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-git-metadata-'))
   const restored = await mkdtemp(join(tmpdir(), 'hd-backup-git-restored-'))
-  t.after(async () => {
-    await rm(dir, { recursive: true, force: true })
-    await rm(restored, { recursive: true, force: true })
-  })
+  const disposeHostsThenRemoveDirs = disposeHostsThenRemove(t, [dir, restored])
   const agent = join(dir, 'agents', 'scout')
   await mkdir(join(agent, '.git'), { recursive: true })
   await mkdir(join(agent, 'skills', '.git'), { recursive: true })
@@ -1008,13 +1007,13 @@ test('.git is left out at every depth on export and restore', async (t) => {
   await writeFile(join(agent, 'skills', '.git', 'config'), 'nested token')
   await writeFile(join(agent, 'skills', 'safe.md'), 'safe')
   const source = await hostAt(dir)
-  t.after(() => source.host.dispose())
+  disposeHostsThenRemoveDirs(source.host)
 
   const backup = await source.host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.[0]?.files.map((one) => one.path), ['AGENT.md', 'skills/safe.md'])
 
   const target = await hostAt(restored)
-  t.after(() => target.host.dispose())
+  disposeHostsThenRemoveDirs(target.host)
   const report = await target.host.call('backup/import', {
     backup: backupWith([
       {
@@ -1036,10 +1035,7 @@ test('.git is left out at every depth on export and restore', async (t) => {
 test('.git is left out at every depth however its case is spelled — a case-insensitive volume reads .GIT as .git', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-git-case-'))
   const restored = await mkdtemp(join(tmpdir(), 'hd-backup-git-case-restored-'))
-  t.after(async () => {
-    await rm(dir, { recursive: true, force: true })
-    await rm(restored, { recursive: true, force: true })
-  })
+  const disposeHostsThenRemoveDirs = disposeHostsThenRemove(t, [dir, restored])
   const agent = join(dir, 'agents', 'scout')
   await mkdir(join(agent, '.GIT'), { recursive: true })
   await mkdir(join(agent, 'skills', '.GiT'), { recursive: true })
@@ -1048,13 +1044,13 @@ test('.git is left out at every depth however its case is spelled — a case-ins
   await writeFile(join(agent, 'skills', '.GiT', 'config'), 'nested token')
   await writeFile(join(agent, 'skills', 'safe.md'), 'safe')
   const source = await hostAt(dir)
-  t.after(() => source.host.dispose())
+  disposeHostsThenRemoveDirs(source.host)
 
   const backup = await source.host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.[0]?.files.map((one) => one.path), ['AGENT.md', 'skills/safe.md'])
 
   const target = await hostAt(restored)
-  t.after(() => target.host.dispose())
+  disposeHostsThenRemoveDirs(target.host)
   const report = await target.host.call('backup/import', {
     backup: backupWith([
       {
@@ -1076,17 +1072,14 @@ test('.git is left out at every depth however its case is spelled — a case-ins
 test('export and restore preserve a UTF-8 byte-order mark byte for byte', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-bom-'))
   const restored = await mkdtemp(join(tmpdir(), 'hd-backup-bom-restored-'))
-  t.after(async () => {
-    await rm(dir, { recursive: true, force: true })
-    await rm(restored, { recursive: true, force: true })
-  })
+  const disposeHostsThenRemoveDirs = disposeHostsThenRemove(t, [dir, restored])
   await mkdir(join(dir, 'agents', 'scout'), { recursive: true })
   const source = Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from('brief')])
   await writeFile(join(dir, 'agents', 'scout', 'AGENT.md'), source)
   const a = await hostAt(dir)
   const b = await hostAt(restored)
-  t.after(() => a.host.dispose())
-  t.after(() => b.host.dispose())
+  disposeHostsThenRemoveDirs(a.host)
+  disposeHostsThenRemoveDirs(b.host)
 
   const backup = await a.host.call('backup/export', {})
   await b.host.call('backup/import', { backup })
@@ -1212,23 +1205,19 @@ test('export and restore cap an Agent folder at 200 files even when the extras a
   const source = await mkdtemp(join(tmpdir(), 'hd-backup-file-cap-source-'))
   const target = await mkdtemp(join(tmpdir(), 'hd-backup-file-cap-target-'))
   const imported = await mkdtemp(join(tmpdir(), 'hd-backup-file-cap-import-'))
-  t.after(async () => {
-    await rm(source, { recursive: true, force: true })
-    await rm(target, { recursive: true, force: true })
-    await rm(imported, { recursive: true, force: true })
-  })
+  const disposeHostsThenRemoveDirs = disposeHostsThenRemove(t, [source, target, imported])
   await mkdir(join(source, 'agents', 'scout'), { recursive: true })
   await writeFile(join(source, 'agents', 'scout', 'AGENT.md'), 'brief')
   for (let index = 0; index < 205; index += 1) {
     await writeFile(join(source, 'agents', 'scout', `file-${String(index).padStart(3, '0')}.md`), '')
   }
   const a = await hostAt(source)
-  t.after(() => a.host.dispose())
+  disposeHostsThenRemoveDirs(a.host)
   const exported = await a.host.call('backup/export', {})
   assert.equal(exported.agentFolders?.[0]?.files.length, 200)
 
   const b = await hostAt(target)
-  t.after(() => b.host.dispose())
+  disposeHostsThenRemoveDirs(b.host)
   const files = [
     { path: 'AGENT.md', text: 'brief' },
     ...Array.from({ length: 205 }, (_, index) => ({ path: `file-${String(index).padStart(3, '0')}.md`, text: '' })),
@@ -1238,7 +1227,7 @@ test('export and restore cap an Agent folder at 200 files even when the extras a
   assert.equal((await readdir(join(target, 'agents', 'scout'))).length, 200)
 
   const c = await hostAt(imported)
-  t.after(() => c.host.dispose())
+  disposeHostsThenRemoveDirs(c.host)
   const missingBrief = await c.host.call('backup/import', {
     backup: backupWith([{ id: 'scout', files: [...files.slice(1), { path: 'AGENT.md', text: 'too late' }] }]),
   })
@@ -1726,12 +1715,9 @@ test('restored findings retain details without live operations', async () => {
 test('restore never arms a trigger', async (t) => {
   const dirA = await mkdtemp(join(tmpdir(), 'hd-backup-trigger-a-'))
   const dirB = await mkdtemp(join(tmpdir(), 'hd-backup-trigger-b-'))
-  t.after(async () => {
-    await rm(dirA, { recursive: true, force: true })
-    await rm(dirB, { recursive: true, force: true })
-  })
+  const disposeHostsThenRemoveDirs = disposeHostsThenRemove(t, [dirA, dirB])
   const a = await hostAt(dirA)
-  t.after(() => a.host.dispose())
+  disposeHostsThenRemoveDirs(a.host)
   const armedHere = triggerRig({ home: dirA })
   const preview = await armedHere.consent.preview(armedHere.world.project, 'review')
   await armedHere.consent.arm(armedHere.world.project, 'review', preview.token!)
@@ -1752,7 +1738,7 @@ test('restore never arms a trigger', async (t) => {
     triggers: JSON.parse(machineFile),
   }
   const b = await hostAt(dirB)
-  t.after(() => b.host.dispose())
+  disposeHostsThenRemoveDirs(b.host)
   await b.host.call('backup/import', { backup: crafted })
   // Nothing on the restored desk arms, polls or opens anything for it.
   await assert.rejects(readFile(join(dirB, 'triggers-machine.json'), 'utf8'), /ENOENT/)

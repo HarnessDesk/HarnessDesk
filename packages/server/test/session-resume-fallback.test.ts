@@ -76,7 +76,7 @@ const contextFor = (options: {
 
   return {
     sessionIndex: { record: (session: Session) => indexed.push(session) },
-    runtimes: { resolve: () => runtime },
+    runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
     registry: { get: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
     laneEnvironment: { forSession: async () => undefined },
     evidence: {

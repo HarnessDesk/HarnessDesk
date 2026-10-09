@@ -122,7 +122,7 @@ export interface AuthMethod {
 /** Reads whose observed answers can be retained across an idle stop. */
 export type IdleRuntimeRead =
   | { readonly method: 'listSessions'; readonly query?: ListSessionsQuery }
-  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string }
+  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string; readonly values?: Readonly<Record<string, OptionValue>> }
 
 export interface AccountStatus {
   readonly accounts: readonly Account[]
@@ -985,6 +985,19 @@ export interface CatalogRefresh {
 /** What telling a runtime its secret changed actually achieved. */
 export type SecretReload = 'restarted' | 'busy' | 'unsupported'
 
+/** Host-owned display observations; absent fields mean not known yet. No credentials. */
+export interface RuntimeObservations {
+  readonly models?: readonly ModelInfo[]
+  readonly options?: readonly ConfigOption[]
+  readonly sessionOptions?: readonly ConfigOption[]
+  readonly commands?: readonly SkillInfo[]
+  readonly account?: AccountStatus & {
+    /** Observed permitted flow kinds, without descriptors or login payloads. Absent means unknown. */
+    readonly signInFlows?: readonly AuthMethod['flow'][]
+  }
+  readonly info?: Pick<RuntimeInfo, 'version' | 'capabilities'>
+}
+
 export interface SessionSource {
   readonly path: string
   readonly mtimeMs: number
@@ -992,7 +1005,17 @@ export interface SessionSource {
 }
 
 export interface AgentRuntime {
+  /** Restore last live observations before starting a process. */
+  restoreObservations?(observations: RuntimeObservations): void
+  /** Answers already learned; taking this snapshot never opens a probe. */
+  observations?(): RuntimeObservations
   readonly info: RuntimeInfo
+  /**
+   * Whether archiveHistory and nameHistory already identify their authority.
+   * False means an unstarted adapter has not learned them yet; start it before
+   * choosing local storage. Absent means those declarations are settled.
+   */
+  historyAuthorityKnown?(): boolean
 
   /**
    * Where this runtime's conversations are stored, when the store is one it

@@ -73,6 +73,7 @@ const mount = async (report: UsageReport, readPlan: () => Promise<PlanRead>): Pr
     usage: [report],
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),
@@ -215,7 +216,8 @@ describe('two accounts on one runtime', () => {
       usage: [reportA, reportB],
     } as unknown as AppSnapshot
     const store = {
-      subscribe: () => () => {},
+      transport: { request: vi.fn(async () => null) },
+    subscribe: () => () => {},
       getSnapshot: () => snapshot,
       loadAccounts: vi.fn(async () => {}),
       limitsFor: vi.fn(async () => null),

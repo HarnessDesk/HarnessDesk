@@ -946,6 +946,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/recycle': shape({ runtime: isString }),
   'runtime/health': shape({ runtime: isString }),
   'diagnostics/bundle': isObject,
+  'runtime/warm': shape({ runtime: isString }),
   'runtime/models': shape({ runtime: isString }),
   'runtime/account': shape({ runtime: isString }),
   'runtime/limits': shape({ runtime: isString }),

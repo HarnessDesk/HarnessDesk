@@ -127,6 +127,7 @@ export const sessionMethods = {
     }
     // A lane's checkout is its cwd, which every runtime takes; its variables
     // go only to a runtime that can take them per session (`laneEnvironmentFor`).
+    await ctx.runtimes.ensureStarted(runtime)
     const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
     const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
     const session = await ctx.sessions.attach(runtime, live.id, live)
@@ -165,6 +166,7 @@ export const sessionMethods = {
       // left win over any the caller names. A route is not a pick: it is where
       // the conversation runs, so the reopen runs on the one the caller asked for.
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId, ...(options.route ? { route: options.route } : {}) })
+      await ctx.runtimes.ensureStarted(runtime)
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
       return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
         ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)
@@ -216,6 +218,7 @@ export const sessionMethods = {
     if (ctx.evidence.seats.latestKeptOf(runtime.info.id, params.sessionId)?.runtimeServers !== undefined) throw new Error('This Seat has a frozen native server selection; start a new Seat to choose its servers.')
     const refusal = await ctx.attachments?.forkRefusal(runtime.info.id, makeSessionId(params.sessionId))
     if (refusal) throw new Error(refusal)
+    await ctx.runtimes.ensureStarted(runtime)
     const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
     const live = await runtime.forkSession(makeSessionId(params.sessionId), {
       ...options,
@@ -227,6 +230,7 @@ export const sessionMethods = {
   'session/archive': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
+    if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
     // The runtime's own archive when it has one, the host's when it does
     // not. Never both: see `SessionArchive`.
     if (runtime.info.capabilities.archiveHistory) {
@@ -246,6 +250,7 @@ export const sessionMethods = {
   'session/delete': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
+    await ctx.runtimes.ensureStarted(runtime)
     if (!runtime.info.capabilities.deleteHistory) {
       throw new Error(`${runtime.info.presentation.name} cannot delete a stored conversation.`)
     }
@@ -297,6 +302,7 @@ export const sessionMethods = {
 
   'session/setTitle': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
+    if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
     // The runtime's own name when it keeps one, the host's when it does
     // not. Never both: see `SessionNames`. ACP has no way to name a
     // session at all, so this used to reach the adapter and throw — the

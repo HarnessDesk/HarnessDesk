@@ -133,10 +133,10 @@ test('a comparison seats both competitors in their own lanes — the runtime tha
   const claude = claudeBridge(home, envLog)
   const plain = plainPeer()
   const d = await deskWith(t, claude, plain)
+  const started = await startComparison(d)
   assert.equal(claude.info.capabilities.sessionEnvironment, true, 'the shipped bridge claims lanes in its handshake')
   assert.equal(plain.info.capabilities.sessionEnvironment, false, 'the plain peer claims nothing')
 
-  const started = await startComparison(d)
   const run = await settledFirstRound(d, started.id)
   assert.equal(run.state, 'running', run.reason ?? '')
 

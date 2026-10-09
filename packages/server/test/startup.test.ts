@@ -26,18 +26,24 @@ const silent = new Logger('test', { level: 'error', console: false })
 /** A runtime whose `start()` never settles, the way a wrong binary behaves. */
 class MuteRuntime extends FakeRuntime {
   startCalled = false
+  #entered!: () => void
+  readonly entered = new Promise<void>(resolve => { this.#entered = resolve })
   override async start(): Promise<void> {
     this.startCalled = true
+    this.#entered()
     return new Promise<void>(() => {})
   }
 }
 
-/** A runtime that comes up, but only after the deadline has passed. */
+/** A runtime that comes up only after the window can open. */
 class LateRuntime extends FakeRuntime {
   #resolve: (() => void) | null = null
+  #entered!: () => void
+  readonly entered = new Promise<void>(resolve => { this.#entered = resolve })
   override async start(): Promise<void> {
     await new Promise<void>((resolve) => {
       this.#resolve = resolve
+      this.#entered()
     })
     // Only now does it do what starting normally does, which is the point:
     // health goes ready after the host has already stopped waiting.
@@ -63,7 +69,7 @@ const hostWith = async (
   return { host, stateDir }
 }
 
-test('one runtime that never starts does not hold the app shut', async (t) => {
+test('one runtime that never starts does not hold the app shut', { timeout: 5_000 }, async (t) => {
   const mute = new MuteRuntime({ id: 'mute' as RuntimeId, name: 'Mute' })
   const good = new FakeRuntime({ id: 'good' as RuntimeId, name: 'Good' })
   const { host, stateDir } = await hostWith([mute, good], 40)
@@ -76,12 +82,15 @@ test('one runtime that never starts does not hold the app shut', async (t) => {
   await host.start()
   const took = Date.now() - startedAt
 
+  await mute.entered
   assert.ok(mute.startCalled, 'the silent runtime was still asked to start')
   assert.ok(took < 2_000, `start() returned in ${took}ms rather than hanging`)
-  assert.equal(good.health().state, 'ready', 'the agent that could start, did')
+  assert.notEqual(good.health().state, 'ready', 'launch leaves the other agent alone')
+  await host.call('session/create', { runtime: good.info.id, options: { cwd: stateDir } })
+  assert.equal(good.health().state, 'ready', 'a live request starts the other agent without waiting for the silent default')
 })
 
-test('a runtime that arrives late is still announced', async (t) => {
+test('a runtime that arrives late is still announced', { timeout: 5_000 }, async (t) => {
   const late = new LateRuntime({ id: 'late' as RuntimeId, name: 'Late' })
   const { host, stateDir } = await hostWith([late], 30)
   t.after(async () => {
@@ -90,14 +99,21 @@ test('a runtime that arrives late is still announced', async (t) => {
   })
 
   await host.start()
+  await late.entered
 
   // Giving up waiting is not giving up: the attempt is still running, so an
   // agent that comes up afterwards reports its health to a window that is by
   // then open to hear it.
   const seen: RuntimeHealth[] = []
   const off: Unsubscribe = late.onHealthChange((health) => seen.push(health))
+  const announced = new Promise<void>(resolve => {
+    host.addBroadcaster(notification => {
+      if (notification.method === 'runtime/healthChanged' && notification.params.runtime === late.info.id &&
+          notification.params.health.state === 'ready') resolve()
+    })
+  })
   late.arrive()
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await announced
   off()
   assert.equal(late.health().state, 'ready', 'the late runtime came up after start() returned')
   assert.deepEqual(

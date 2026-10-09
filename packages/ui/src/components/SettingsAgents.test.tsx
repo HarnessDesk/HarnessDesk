@@ -82,6 +82,7 @@ const mount = async (
   const acpRegistry = vi.fn(async () => ({ agents: registryAgents, fetchedAt: 1 }))
   const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open' } as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     agentCatalog,
@@ -405,6 +406,7 @@ const mountList = async (
     store: undefined,
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: async () => {},
@@ -1092,6 +1094,7 @@ it('a key-only agent hands its Sign in to the page that has a field, and a pendi
     logins: { gamma: { method: 'm0', start: { type: 'browser', loginId: 'l1' }, outcome: { type: 'pending' } } },
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: async () => {},
@@ -1140,6 +1143,7 @@ it('opened on a second account\u2019s runtime, the page answers for the agent', 
     ...ROSTER,
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: async () => {},
