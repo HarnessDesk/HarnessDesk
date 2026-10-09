@@ -7203,6 +7203,7 @@ export class Host {
     ) {
       return
     }
+    if (event.type === 'session/title') this.#sessionIndex.setTitle(runtime, event.sessionId, event.title)
     this.#noteDelegation(runtime, event)
     if (event.type === 'turn/started') {
       const key = String(sessionKey(runtime, event.sessionId))

@@ -108,6 +108,64 @@ test('desk lifecycle and title/archive changes update the index across a restart
   assert.equal((await reopened.call('session/index', {})).data[0]?.title, 'Review the cache')
 })
 
+test('accepted agent titles replace an already-titled desk row', async (t) => {
+  for (const nameHistory of [false, true]) await t.test(nameHistory ? 'native naming' : 'host naming', async (t) => {
+    const root = tempDir('hd-index-title-')
+    const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+      builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+    t.after(() => host.dispose())
+    const runtime = new FakeRuntime({ capabilities: { nameHistory } })
+    host.register(runtime)
+    await host.start()
+    const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+    const live = runtime.sessions.get(String(session.id))!
+    await live.setTitle('Earlier task')
+    assert.equal((await host.call('session/index', {})).data[0]?.title, 'Earlier task')
+    await live.setTitle('Review the cache')
+    assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, 'Review the cache')
+    assert.equal((await host.call('session/index', {})).data[0]?.title, 'Review the cache')
+  })
+})
+
+test('an accepted native title clear removes the indexed title', async (t) => {
+  const root = tempDir('hd-index-title-clear-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { nameHistory: true } })
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const live = runtime.sessions.get(String(session.id))!
+  await live.setTitle('Earlier task')
+  assert.equal((await host.call('session/index', {})).data[0]?.title, 'Earlier task')
+  live.title = null
+  runtime.emit({ type: 'session/title', sessionId: session.id, title: null })
+  assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, null)
+  assert.equal((await host.call('session/index', {})).data[0]?.title, null)
+})
+
+test('a host rename rejects later agent titles and clears, including after a refresh', async (t) => {
+  const root = tempDir('hd-index-title-guard-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { nameHistory: false } })
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const title = 'Person chose this name'
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: session.id, title })
+  const agentTitleBefore = host.registry.get(runtime.info.id, session.id)?.session.title
+  for (const agentTitle of ['Agent chose this name', null]) {
+    runtime.emit({ type: 'session/title', sessionId: session.id, title: agentTitle })
+    assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, agentTitleBefore)
+    assert.equal((await host.call('session/index', {})).data[0]?.title, title)
+  }
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: session.id })
+  assert.equal((await host.call('session/index', {})).data[0]?.title, title)
+})
+
 test('removed runtimes stay absent from later pages and a fresh host', async (t) => {
   const root = tempDir('hd-index-removed-')
   const options = { logger: silent, state: new StateStore(join(root, 'state.json')),
