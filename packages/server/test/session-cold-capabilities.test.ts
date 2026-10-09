@@ -57,8 +57,8 @@ const laneContext = (supported: boolean) => {
       forSession: async (owner: string, conversation: string) => laneEnvironmentFor(runtime, environmentForSession(owner, conversation, [lane], [seat])),
     },
     evidence: { seats: { latestKeptOf: () => null, latestOf: () => seat } },
-    registry: { get: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
-    sessionIndex: { record: () => {} },
+    registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
+    sessionIndex: { reopen: () => {}, record: () => {} },
     sessions: {
       attach: async () => transcript,
       read: async () => transcript,
@@ -111,26 +111,46 @@ test('a known host-only archive works offline without starting its agent', async
 })
 
 test('a cold native rename reaches the agent and survives later history reads', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-cold-name-'))
-  const runtime = new CodexRuntime({ id: runtimeId('native'), binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir, FAKE_CODEX_MUTABLE_HISTORY: '1' } })
-  const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
-  host.register(new FakeRuntime())
-  host.register(runtime)
-  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
-  await host.start()
-  assert.equal(runtime.health().state, 'idle')
-  assert.equal(runtime.info.capabilities.nameHistory, false)
-  const target = sessionId('thread-2')
-  const title = 'Review the startup policy'
-  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: target, title })
-  const listed = await host.call('session/list', { runtime: runtime.info.id })
-  const native = await runtime.listSessions()
-  assert.equal(native.data.find(row => row.id === target)?.title, title, 'the agent keeps the name')
-  assert.equal(runtime.health().state, 'ready')
-  await assert.rejects(readFile(join(dir, 'names.json'), 'utf8'), { code: 'ENOENT' })
-  assert.equal(listed.data.find(row => row.id === target)?.title, title, 'learning native naming cannot discard the name')
-  const indexed = await host.call('session/index', { runtimes: [runtime.info.id] })
-  assert.equal(indexed.data.find(row => row.id === target)?.title, title)
+  for (const desk of [false, true]) await t.test(desk ? 'retained desk conversation' : 'history preview', async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-cold-name-'))
+    const runtime = new CodexRuntime({ id: runtimeId('native'), binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir, FAKE_CODEX_MUTABLE_HISTORY: '1' } })
+    const target = sessionId('thread-2')
+    if (desk) {
+      const index = new SessionIndex(join(dir, 'sessions.sqlite'))
+      index.upsert({ id: target, runtime: runtime.info.id, cwd: dir, title: null,
+        status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 1 })
+      index.close()
+    }
+    const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
+    host.register(new FakeRuntime())
+    host.register(runtime)
+    t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await host.start()
+    assert.equal(runtime.health().state, 'idle')
+    assert.equal(runtime.info.capabilities.nameHistory, false)
+    const title = 'Review the startup policy'
+    await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: target, title })
+    const listed = await host.call('session/list', { runtime: runtime.info.id })
+    const native = await runtime.listSessions()
+    assert.equal(native.data.find(row => row.id === target)?.title, title, 'the agent keeps the name')
+    assert.equal(runtime.health().state, 'ready')
+    await assert.rejects(readFile(join(dir, 'names.json'), 'utf8'), { code: 'ENOENT' })
+    assert.equal(listed.data.find(row => row.id === target)?.title, title, 'learning native naming cannot discard the name')
+    const indexed = await host.call('session/index', { runtimes: [runtime.info.id] })
+    if (desk) assert.equal(indexed.data.find(row => row.id === target)?.title, title)
+    else assert.ok(!indexed.data.some(row => row.id === target), 'renaming a preview does not adopt it')
+    await host.call('history/import', { runtime: runtime.info.id })
+    for (let i = 0; i < 100; i++) {
+      const status = await host.call('history/status', { runtime: runtime.info.id })
+      if (status?.state !== 'running') break
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal((await host.call('history/status', { runtime: runtime.info.id }))?.state, 'done')
+    assert.equal((await host.call('session/read', { runtime: runtime.info.id, sessionId: target })).title, title)
+    const page = desk ? await host.call('session/index', { runtimes: [runtime.info.id] })
+      : await host.call('history/list', { runtimes: [runtime.info.id], query: title })
+    assert.equal(page.data.find(row => row.id === target)?.title, title, 'import and a later read keep the chosen title')
+  })
 })
 
 test('a known host-only name works offline without starting its agent', async t => {

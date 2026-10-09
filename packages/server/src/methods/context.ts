@@ -111,11 +111,20 @@ export interface HostContext {
   readonly sessionIndex: {
     list(params: HostParams<'session/index'>): Page<SessionSummary>
     record(session: Session): void
+    reopen(session: Session): void
     setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void
     setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void
     remove(runtime: RuntimeId, id: SessionId): void
     setRemoved(runtime: RuntimeId, id: SessionId, removed: boolean): { undoUntil: number | null }
     deleted(runtime: RuntimeId, id: SessionId): void
+  }
+  readonly history: {
+    import(runtime: RuntimeId): void
+    cancel(runtime: RuntimeId): void
+    status(runtime: RuntimeId): HostResult<'history/status'>
+    list(params: HostParams<'history/list'>): Promise<HostResult<'history/list'>>
+    removeImported(runtime: RuntimeId): Promise<HostResult<'history/removeImported'>>
+    clearCached(): Promise<HostResult<'history/clearCached'>>
   }
   readonly names: SessionNames
   readonly terminals: Terminals

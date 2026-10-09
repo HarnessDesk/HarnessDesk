@@ -201,12 +201,29 @@ export class TranscriptStore {
   constructor(
     directory: string,
     private readonly log: (message: string, details?: Record<string, unknown>) => void = () => {},
+    private readonly onWrite: () => void = () => {},
   ) {
     this.#database = new TranscriptDatabase(join(dirname(directory), 'sessions.sqlite'))
     this.#snapshots = new DailySessionSnapshots(this.#database.file, {
       onError: error => this.log('conversation snapshot not saved', { error: String(error) }),
     })
     this.#snapshots.schedule()
+  }
+
+  forgetMemory(rows: readonly { runtime: RuntimeId; id: SessionId }[]): void {
+    for (const row of rows) {
+      const key = keyOf(row.runtime, row.id)
+      const pending = this.#pending.get(key)
+      if (pending) clearTimeout(pending.timer)
+      this.#pending.delete(key)
+      this.#insight.delete(key)
+    }
+  }
+
+  evictCached(cap: number, live: (runtime: RuntimeId, id: SessionId) => boolean): { count: number; bytes: number } {
+    const result = this.#database.evictCached(cap, live)
+    this.forgetMemory(result.removed)
+    return { count: result.count, bytes: result.bytes }
   }
 
   /**
@@ -274,6 +291,7 @@ export class TranscriptStore {
         const source = refresh?.source ?? null
         this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source })
         this.#snapshots.schedule()
+        this.onWrite()
       } catch (error) {
         this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',
           { session: session.id, error: String(error) })
@@ -495,7 +513,7 @@ export class TranscriptStore {
       JOIN bodies b ON b.runtime=i.runtime AND b.id=i.id
       JOIN sessions s ON s.runtime=i.runtime AND s.id=i.id
       JOIN turns t ON t.runtime=i.runtime AND t.id=i.id AND t.turn_id=i.turn_id
-      WHERE ${match}(instr(items_fts.message_text,?)>0${options.includeTools ? ' OR instr(items_fts.tool_text,?)>0' : ''})
+      WHERE s.origin='desk' AND s.removed_at IS NULL AND ${match}(instr(items_fts.message_text,?)>0${options.includeTools ? ' OR instr(items_fts.tool_text,?)>0' : ''})
       ORDER BY s.saved_at DESC,i.runtime,i.id,t.seq,i.position`).iterate(...params)
     const hits: TranscriptHit[] = []
     const seen = new Set<string>()
@@ -535,12 +553,14 @@ export class TranscriptStore {
   }
 
   #export(runtime?: string): { runtime: string; id: string; data: unknown }[] {
-    const rows = this.#database.db.prepare(`SELECT runtime,id FROM bodies${runtime === undefined ? '' : ' WHERE runtime=?'} ORDER BY runtime,id`)
+    const rows = this.#database.db.prepare(`SELECT b.runtime,b.id,s.origin,s.last_opened_at FROM bodies b
+      JOIN sessions s ON s.runtime=b.runtime AND s.id=b.id${runtime === undefined ? '' : ' WHERE b.runtime=?'} ORDER BY b.runtime,b.id`)
       .all(...(runtime === undefined ? [] : [runtime]))
     return rows.map(row => {
       const data = this.#database.read(String(row.runtime), String(row.id))
       if (!data) throw new Error('A stored transcript is invalid; its runtime export cannot replace the ledger window')
-      return { runtime: String(row.runtime), id: String(row.id), data }
+      return { runtime: String(row.runtime), id: String(row.id), data: row.origin === 'imported'
+        ? { ...data, origin: 'imported', lastOpenedAt: Number(row.last_opened_at) } : data }
     })
   }
 
@@ -565,28 +585,32 @@ export class TranscriptStore {
     id: string,
     data: unknown,
   ): Promise<'restored' | 'skipped' | 'refused'> {
-    const incoming = data as Partial<Stored>
+    const incoming = data as Partial<Stored> & { origin?: 'desk' | 'imported'; lastOpenedAt?: number }
     if (
       typeof incoming !== 'object' ||
       incoming === null ||
       incoming.version !== FORMAT ||
       !Array.isArray(incoming.turns) ||
       incoming.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items)) ||
-      typeof incoming.savedAt !== 'number'
+      typeof incoming.savedAt !== 'number' ||
+      (incoming.origin !== undefined && incoming.origin !== 'desk' && incoming.origin !== 'imported') ||
+      (incoming.lastOpenedAt !== undefined && (!Number.isFinite(incoming.lastOpenedAt) || incoming.lastOpenedAt < 0))
     ) {
       return 'refused'
     }
     const existing = await this.#read(runtime as RuntimeId, id as SessionId)
     if (existing && existing.savedAt >= incoming.savedAt) return 'skipped'
     try {
-      this.#database.write(incoming as Stored, runtime as RuntimeId, id as SessionId, { source: null })
+      const { origin, lastOpenedAt, ...stored } = incoming
+      this.#database.write(stored as Stored, runtime as RuntimeId, id as SessionId, { source: null, origin, lastOpenedAt })
       this.#snapshots.schedule()
     }
     catch { return 'refused' }
     const written = await this.#read(runtime as RuntimeId, id as SessionId)
-    return written && written.savedAt === incoming.savedAt && written.turns.length === incoming.turns.length
-      ? 'restored'
-      : 'refused'
+    if (!written || written.savedAt !== incoming.savedAt || written.turns.length !== incoming.turns.length) return 'refused'
+    // Notify after verification: cache eviction may remove this body at once.
+    this.onWrite()
+    return 'restored'
   }
 
   /** Preserve the final write before opening the Remove Undo window. */

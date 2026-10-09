@@ -120,6 +120,7 @@ export const sessionMethods = {
   'session/read': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
+    ctx.sessionIndex.reopen(session)
     // Cache it so a reconnecting client gets the transcript from sync.
     return ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null).session
   },
@@ -181,7 +182,7 @@ export const sessionMethods = {
     const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
     if (frozenSeat?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozenSeat.runtimeServers }
     if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
-    const record = ctx.registry.get(runtime.info.id, sessionId)
+    const record = ctx.registry.forReopen(runtime.info.id, sessionId)
     const scoped = !record?.live && (record?.restedOptions !== undefined || ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false))
     const resolve = async (): Promise<AgentSession> => {
       // The host's reopen puts the held picks back, and the picks the person
@@ -219,6 +220,7 @@ export const sessionMethods = {
     // render.
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
+    ctx.sessionIndex.reopen(session)
     const resumed = ctx.registry.upsert(session, live).session
     ctx.sessionIndex.record(resumed)
     await announceUnavailableTools(ctx, runtime, resumed)
@@ -276,7 +278,6 @@ export const sessionMethods = {
       await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
       await ctx.transcripts.flushSession(runtime.info.id, id)
       const result = ctx.sessionIndex.setRemoved(runtime.info.id, id, true)
-      ctx.registry.delete(runtime.info.id, id)
       ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: false } })
       return result
     }

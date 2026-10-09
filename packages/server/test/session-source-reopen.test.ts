@@ -147,7 +147,10 @@ test('cold reopen preserves every stored field and source stamp with the agent u
   assert.equal(recovered.deskCopy, false)
   const reopened = new TranscriptStore(join(r.dir, 'transcripts'))
   try {
-    assert.deepEqual(await reopened.exportAll(), expected)
+    const actual = await reopened.exportAll()
+    const opened = actual[0]!.data as { lastOpenedAt: number }
+    assert.ok(opened.lastOpenedAt >= (expected[0]!.data as { lastOpenedAt: number }).lastOpenedAt, 'a cold open advances preview recency')
+    assert.deepEqual(actual, expected.map(row => ({ ...row, data: { ...row.data as object, lastOpenedAt: opened.lastOpenedAt } })))
     assert.deepEqual(await reopened.readInsight(full.runtime, full.id), insight)
     assert.deepEqual(await reopened.source(full.runtime, full.id), stamp)
   } finally { await reopened.close() }

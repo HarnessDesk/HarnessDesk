@@ -383,7 +383,7 @@ const SessionRow = memo(({
         <MenuItem
           icon={<TrashIcon size={13} />}
           label="Remove from HarnessDesk"
-          title={deskCopy || runtime?.capabilities.readableHistory === false || runtime?.capabilities.listHistory === false
+          title={deskCopy || runtime?.capabilities.readableHistory === false
             ? "HarnessDesk's copy is the only record" : `${agentName} keeps its own copy`}
           onSelect={() => void store.removeSession(summary.id, summary.runtime)}
         />

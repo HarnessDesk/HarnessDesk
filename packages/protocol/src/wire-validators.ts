@@ -1016,6 +1016,20 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'runtime/account/remove': shape({ runtime: isString }),
 
+  'history/import': shape({ runtime: isString }),
+  'history/cancel': shape({ runtime: isString }),
+  'history/status': shape({ runtime: isString }),
+  'history/removeImported': shape({ runtime: isString }),
+  'history/clearCached': shape({}),
+  'history/list': shape({
+    runtimes: optional(arrayOf(isString)), repoRoot: optional(isString), query: optional(isString),
+    includeHidden: optional(isBoolean), cursor: optional(isString),
+    pageSize: optional((value, path) => {
+      const size = goalInteger(1)(value, path)
+      if (size > 500) throw new ValidationError(path ?? 'params.pageSize', 'pageSize must be at most 500')
+      return size
+    }),
+  }),
   'session/index': shape({
     runtimes: optional(arrayOf(isString)),
     cursor: optional(isString),

@@ -86,6 +86,30 @@ test('writes preserve archive and Team membership and coalesce change events', a
   } finally { index.close() }
 })
 
+test('renames survive imported pages and ordinary metadata refreshes without changing origin', async t => {
+  for (const initial of ['unseen', 'imported', 'desk'] as const) await t.test(initial, () => {
+    const index = new SessionIndex(':memory:')
+    const id = idOf('renamed')
+    const title = 'Review the startup policy'
+    try {
+      if (initial !== 'unseen') index.upsert(row(id), { origin: initial })
+      index.setTitle(runtime, id, title)
+      index.importPage([row(id, 20)], () => false)
+      const list = () => initial === 'desk' ? index.list() : index.history()
+      assert.equal(list().data[0]?.title, title, 'the imported title cannot replace the rename')
+      index.importPage([{ ...row(id, 30), title: null }], () => false)
+      assert.equal(list().data[0]?.title, title, 'a listing without a title keeps the rename')
+      index.upsert(row(id, 40), { origin: 'imported' })
+      assert.equal(list().data[0]?.title, title, 'an ordinary write cannot replace the rename')
+      index.setTitle(runtime, id, 'A later choice')
+      index.upsert(row(id, 50), { origin: 'imported' })
+      assert.equal(list().data[0]?.title, 'A later choice', 'an explicit later rename still wins')
+      assert.equal(list().data[0]?.updatedAt, 50, 'other metadata still refreshes')
+      assert.equal(index.isImported(runtime, id), initial !== 'desk')
+    } finally { index.close() }
+  })
+})
+
 test('repository answers persist, enrich rows and notify only eligible rows', async () => {
   const home = await mkdtemp(join(tmpdir(), 'hd-session-index-'))
   const file = join(home, 'sessions.sqlite')
@@ -114,7 +138,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 4)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 5)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })
@@ -298,5 +322,41 @@ test('schema v1 upgrade retains row state, tombstones, repo answers and seed com
     assert.deepEqual(index.repo('/demo'), { repo: { root: '/demo', worktree: false }, exists: true, checkedAt: 4 })
     index.confirmArchived(runtime, idOf('removed'), false)
     assert.deepEqual(index.list().data, [])
+  } finally { index.close() }
+})
+
+test('import consumes pending archive marks without discarding pending names or Team membership', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    for (const archived of [true, false]) {
+      const summary = row(`pending-${archived}`)
+      index.setTitle(runtime, summary.id, 'Person chose this name')
+      index.setTeam(runtime, summary.id, 'synthetic-team')
+      index.setArchived(runtime, summary.id, archived)
+      index.importPage([summary], () => null)
+      assert.equal(index.history().data.find(row => row.id === summary.id)?.archived, archived)
+      index.setArchived(runtime, summary.id, !archived)
+      index.upsert({ ...summary, updatedAt: 20 })
+      const imported = index.history().data.find(row => row.id === summary.id)!
+      assert.equal(imported.archived, !archived, 'a later ordinary write must not replay the consumed mark')
+      assert.equal(imported.title, 'Person chose this name', 'import must retain pending names')
+      index.promote(runtime, summary.id)
+      assert.equal(index.list({ archived: !archived ? 'only' : 'exclude' }).data.length, 0, 'pending Team membership survives import')
+      index.setTeam(runtime, summary.id, null)
+      assert.equal(index.list({ archived: !archived ? 'only' : 'exclude' }).data[0]?.id, summary.id)
+    }
+  } finally { index.close() }
+})
+
+test('ordinary writes preserve origin; promotion alone adopts an imported conversation', async () => {
+  const changes: SessionSummary[][] = []
+  const index = new SessionIndex(':memory:', ({ upserted }) => changes.push([...upserted]))
+  try {
+    index.upsert(row('preview'), { origin: 'imported' })
+    index.upsert(row('preview', 20))
+    assert.deepEqual(index.list().data, [], 'a read or event must not adopt a preview')
+    index.upsert(row('desk'))
+    index.upsert(row('desk', 20), { origin: 'imported' })
+    assert.deepEqual(index.list().data.map(row => row.id), ['desk'], 'an existing desk row keeps its origin')
   } finally { index.close() }
 })
