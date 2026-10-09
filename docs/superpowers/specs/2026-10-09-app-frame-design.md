@@ -121,6 +121,30 @@ docked inspector drew its own titled cards under the panel's strip. So:
   footer line are the shell's; a view supplies a body of sections — a label
   over rows or a facts card — never a titled card or a header of its own.
 
+### The frame's fixed rules
+
+Approved by the owner: the frame is fixed rather than freely arranged.
+
+| Region | Size | Limits | Holds |
+| --- | --- | --- | --- |
+| Left column | 240 | drag 200–360 | the session tree and its pages, or Settings' nav |
+| Top bar | 40 | — | one row across main and the right panel |
+| Main | the rest | keeps at least 480 beside a standing panel | one destination |
+| Right panel | 400 | drag 320–640 | one tool at a time, chosen by its icon in the top bar row |
+| Bottom panel | 240 | drag 120 to half the window | the terminal only |
+| Status bar | 28 | — | app-wide facts and the terminal's toggle |
+
+- **The right panel's tools are a fixed set of icons** at the end of the top
+  bar, standing over the panel's column while it is open. Pressing one opens
+  the panel on that tool; pressing the lit one closes it; the panel toggle is
+  always last. No tool opens anywhere else, and the panel does not split.
+- **Only seams drag.** A view is never dragged between regions, and nothing
+  docks in the left column. Double-clicking a seam restores its default.
+- **The frame folds on its own:** at 1280 and wider every region stands;
+  from 1000 to 1279 an opened right panel floats over the right of main
+  instead of narrowing it; below 1000 the left column also floats, opened from
+  the top bar's lead slot.
+
 ### The shell and its destinations
 
 The window is the left column, main, the right panel and the bottom panel, as
