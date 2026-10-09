@@ -5,11 +5,13 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { CodexRuntime } from '@harnessdesk/adapter-codex'
+import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { runtimeId, sessionId, type AgentRuntime, type AgentSession, type Lane, type Session } from '@harnessdesk/protocol'
 import { Host, Logger, StateStore } from '../src/index.js'
 import { environmentForCheckout, environmentForSession, laneEnvironmentFor } from '../src/goals/lane-environment.js'
 import type { HostContext } from '../src/methods/context.js'
 import { sessionMethods } from '../src/methods/sessions.js'
+import { SessionIndex } from '../src/session-index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 const lane: Lane = {
@@ -81,6 +83,32 @@ for (const method of ['session/create', 'session/resume', 'session/fork'] as con
 
 const silent = new Logger('test', { console: false, level: 'error' })
 const codex = fileURLToPath(new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url))
+
+test('a known host-only archive works offline without starting its agent', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-offline-archive-'))
+  const runtime = new AcpRuntime({ id: 'offline', name: 'Offline agent', command: join(dir, 'missing-agent') })
+  let starts = 0
+  const start = runtime.start.bind(runtime)
+  runtime.start = async () => { starts++; await start() }
+  const target = sessionId('offline-conversation')
+  const index = new SessionIndex(join(dir, 'sessions.sqlite'))
+  index.upsert({ id: target, runtime: runtime.info.id, cwd: dir, title: 'Offline conversation', preview: null, status: { type: 'idle' }, createdAt: 1, updatedAt: 1 })
+  index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [] })
+  host.register(new FakeRuntime())
+  host.register(runtime)
+  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await host.start()
+  assert.equal(runtime.info.capabilities.archiveHistory, false)
+  for (const archived of [true, false]) {
+    await host.call('session/archive', { runtime: runtime.info.id, sessionId: target, archived })
+    const marks = JSON.parse(await readFile(join(dir, 'archive.json'), 'utf8')) as { entries: { sessionId: string }[] }
+    assert.equal(marks.entries.some(row => row.sessionId === target), archived)
+    const page = await host.call('session/index', { runtimes: [runtime.info.id], archived: archived ? 'only' : 'exclude' })
+    assert.ok(page.data.some(row => row.id === target), 'the local index follows the mark')
+  }
+  assert.equal(starts, 0)
+})
 
 for (const method of ['session/archive', 'session/delete'] as const) {
   test(`${method} learns native history support on first use without a cache`, async t => {

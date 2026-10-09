@@ -2445,6 +2445,9 @@ export class AcpRuntime implements AgentRuntime {
   #restored: RuntimeObservations | null = null
   #lastAccount: AccountStatus | null = null
 
+  // ACP has neither an archive nor a naming verb, even before negotiation.
+  historyAuthorityKnown(): boolean { return true }
+
   observations(): RuntimeObservations {
     const options = this.#probe?.options() ?? this.#probeOptions
     return {

@@ -230,7 +230,7 @@ export const sessionMethods = {
   'session/archive': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
-    await ctx.runtimes.ensureStarted(runtime)
+    if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
     // The runtime's own archive when it has one, the host's when it does
     // not. Never both: see `SessionArchive`.
     if (runtime.info.capabilities.archiveHistory) {

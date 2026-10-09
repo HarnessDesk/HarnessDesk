@@ -1002,6 +1002,12 @@ export interface AgentRuntime {
   /** Answers already learned; taking this snapshot never opens a probe. */
   observations?(): RuntimeObservations
   readonly info: RuntimeInfo
+  /**
+   * Whether archiveHistory and nameHistory already identify their authority.
+   * False means an unstarted adapter has not learned them yet; start it before
+   * choosing local storage. Absent means those declarations are settled.
+   */
+  historyAuthorityKnown?(): boolean
 
   /**
    * Where this runtime's conversations are stored, when the store is one it

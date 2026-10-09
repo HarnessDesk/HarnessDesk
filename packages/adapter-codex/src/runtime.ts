@@ -503,6 +503,10 @@ export class CodexRuntime implements AgentRuntime {
   #restored: RuntimeObservations | null = null
   #idleInfo: RuntimeInfo | null = null
 
+  historyAuthorityKnown(): boolean {
+    return this.#everStarted || this.#restored?.info !== undefined
+  }
+
   observations(): RuntimeObservations {
     const commands = this.#lastSkills.get('')
     return {
