@@ -257,6 +257,10 @@ test('Delete everywhere drops index, body and FTS together only after the agent 
   assert.equal(r.db.prepare('SELECT count(*) AS n FROM sessions').get()?.n, 0)
   assert.deepEqual(r.body(), [0, 0, 0])
   assert.equal(r.db.prepare('SELECT count(*) AS n FROM items_fts WHERE items_fts MATCH ?').get('synthetic')?.n, 0)
+  const index = new SessionIndex(join(r.root, 'sessions.sqlite'))
+  t.after(() => index.close())
+  index.importPage([r.session], () => false)
+  assert.equal(r.db.prepare('SELECT count(*) AS n FROM sessions').get()?.n, 0)
 })
 
 

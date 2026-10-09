@@ -139,6 +139,16 @@ export const PROTOCOL_VERSION = 1
 
 // ------------------------------------------------------------------- requests
 
+/** Persisted progress of one runtime's metadata-only history import. */
+export interface HistoryImportState {
+  readonly state: 'running' | 'done' | 'failed' | 'cancelled'
+  readonly count: number
+  readonly importedAt: number | null
+  readonly lastScanAt: number
+  readonly error?: string
+}
+export type HistorySummary = SessionSummary & { readonly hidden: boolean }
+
 export interface FileMatch {
   readonly path: string
   readonly relativePath: string
@@ -1231,6 +1241,17 @@ export interface HostMethods {
   /** Signs the account out, stops it, and forgets its credential home. */
   'runtime/account/remove': { params: { readonly runtime: RuntimeId }; result: null }
 
+  /** On-request metadata imports and retained preview bodies. */
+  'history/import': { params: { readonly runtime: RuntimeId }; result: null }
+  'history/cancel': { params: { readonly runtime: RuntimeId }; result: null }
+  'history/status': { params: { readonly runtime: RuntimeId }; result: HistoryImportState | null }
+  'history/removeImported': { params: { readonly runtime: RuntimeId }; result: { readonly removed: number } }
+  'history/clearCached': { params: Record<string, never>; result: { readonly count: number; readonly bytes: number } }
+  'history/list': {
+    params: { readonly runtimes?: readonly RuntimeId[]; readonly repoRoot?: string; readonly query?: string;
+      readonly includeHidden?: boolean; readonly cursor?: string; readonly pageSize?: number }
+    result: Page<HistorySummary>
+  }
   /** The desk's sidebar metadata, without starting or consulting an agent. */
   'session/index': {
     params: { readonly cursor?: string; readonly pageSize?: number; readonly archived?: 'exclude' | 'only'; readonly runtimes?: readonly RuntimeId[] }
@@ -2791,6 +2812,10 @@ export type WireNotification =
        */
       readonly method: 'session/removed'
       readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly deleted: boolean }
+    }
+  | {
+      readonly method: 'history/importChanged'
+      readonly params: { readonly runtime: RuntimeId } & HistoryImportState
     }
   | {
       /** Metadata changes for the sidebar, including background upgrade/cache work. */
