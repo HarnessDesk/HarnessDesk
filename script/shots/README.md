@@ -120,3 +120,79 @@ ceilings, clean commits and the revisions named by checks and reviews:
 ```sh
 node --test script/shots-flow.test.mjs
 ```
+
+## Shipped Team template journeys
+
+`templates.mjs` opens the shipped New Team template picker in the real renderer and
+starts the built-in **Side by side** and **Write and review** templates against
+an in-process Host. The current project is restored from a legacy recent-project
+record and shown in the sidebar's project list. New Team currently has no
+separate project picker; this journey uses the restored project, with only the
+older record's `path`, `name`, `lastOpenedAt` and `id`. The rig never calls
+`workspace/open` before starting a Team, which would mask the admission
+regression.
+
+Side by side edits the project-prefilled check through **Check each attempt
+with**, opens Details to inspect the preview, then starts both writers. They
+commit different contents at distinct declared paths in separate lanes, honoring
+the board's file ownership gate. The host runs the scripted check
+on both revisions; the independent scripted judge records an offered candidate;
+the person merges its exact revision through the comparison's Merge dialog,
+which answers the referee card. Write and review starts on a preselected feature
+branch, visible in the first screen, and keeps the branch its Seat opened on.
+It publishes to a disposable local bare remote and a deterministic forge double,
+gets a fresh scripted review at that published revision,
+merges the published branch into main through the Repository UI, then answers
+the person handoff. The Host posts the manual run's closed-round review comment to
+the local forge and confirms its returned location through the real publication
+adapter. Both Runs settle; final Overview shows Done and the explicit completion
+message with no remaining attention or unconfirmed publication.
+
+The pre-existing frozen-branch evidence limitation remains Backlog: switching a
+writer's branch after its Seat opens can leave the review bound to the original
+branch and stale against the PR. The rig prepares its feature branch before the
+Host starts; it does not mutate a running Team or bypass this guard.
+
+Two native adapters use only `fake-codex.mjs`. Their distinct provider metadata
+represents two scripted services so the host's independence gate is exercised;
+the journey explicitly chooses **Scripted reviewer** through the preview's Agent
+control. The scripted writer also advertises its own held publish control: the
+Host applies and reads back workspace/user sandbox settings, while the fake
+executes only its declared local branch push and `pr_create` through the gated
+tool registry. The production adapter advertises held read/edit only; this is
+not proof of real provider independence or native publish support. `template-forge.mjs`
+answers only its declared local operations, including the one PR's review
+comment and its readback, with placeholder identities, and
+refuses every other operation. No agent CLI, model endpoint or forge endpoint
+is contacted. Camera gates hold the fake writes/reviews and scripted checks at
+deterministic milestones; they do not advance the Host's run directly.
+
+The runner asserts visible task, preview, writing, checking, judging/reviewing,
+person handoff and final states, and reads the Host's actual lane/check facts.
+It photographs the picker, task, preview and each journey phase in both themes,
+plus Overview, Timeline, Flow, Board and Chat. Each photograph passes the privacy
+audit; `sequence.json` inventories the frames and host-derived round/check facts.
+The camera abbreviates synthetic paths and labels of Git revisions read from the
+Host's evidence. Merge inputs keep their exact revisions, and the runner verifies
+the merged head.
+Browser, Host and scratch desk close on failure too. Diagnostic frames are local
+only and do not belong in public evidence.
+
+Build the Node packages and renderer through the machine-wide gate first, then
+run the browser journey through that gate once:
+
+```sh
+node script/shots/templates.mjs --out /tmp/hd-template-frames
+```
+
+Focused rig and scripted-agent regressions:
+
+```sh
+node --test script/shots-flow.test.mjs script/shots-templates.test.mjs
+```
+
+CI runs the same journey as `e2e/ui-system/template-journeys.spec.ts`, building
+one renderer in its output folder first, and retains the manifest and both-theme
+frames as Playwright attachments. The runner accepts `--ui <renderer>` because
+the ordinary preview server does not serve the token-gated host connection used
+by these journeys.

@@ -13,7 +13,7 @@ import { appendFileSync, existsSync, readFileSync, mkdirSync, readdirSync, write
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { scriptedFlow } from './scripted-flow.mjs'
+import { scriptedFlow, scriptedFlowPrompt } from './scripted-flow.mjs'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
 // mocked. Codex resolves an installed package's icon to an absolute path.
@@ -2500,7 +2500,7 @@ rl.on('line', (line) => {
         send({ id, result: { turn: { id: turnId, items: [], status: 'inProgress', error: null } } })
         const cwd = cwdByThread.get(threadId)
         const tools = flowTools.get(threadId) ?? []
-        setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: said }))
+        setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: scriptedFlowPrompt(params.input) }))
         return
       }
       // A child can keep working after its parent finishes.
