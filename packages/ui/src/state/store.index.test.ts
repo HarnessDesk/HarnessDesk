@@ -363,6 +363,46 @@ it('settles a pending search when its runtime is removed during index reconcilia
   expect(ids()).toEqual([])
 })
 
+it('retries a pending multi-runtime search against the runtimes that remain', async () => {
+  const survivor = runtimeId('survivor')
+  handlers().onNotification({ method: 'runtime/added', params: { info: {
+    id: runtime, capabilities: { searchHistory: true }, presentation: { name: 'Demo agent' },
+  } } } as unknown as WireNotification)
+  handlers().onNotification({ method: 'runtime/added', params: { info: {
+    id: survivor, capabilities: { searchHistory: true }, presentation: { name: 'Demo agent' },
+  } } } as unknown as WireNotification)
+  await store.selectRuntime(runtime)
+
+  const removedSearch = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+  const firstSurvivorSearch = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+  const retriedSurvivorSearch = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+  let survivorSearches = 0
+  request.mockImplementation(((method: HostMethodName, params: { runtime?: string }) => {
+    if (method !== 'session/search') return Promise.resolve(null)
+    if (params.runtime === runtime) return removedSearch.promise
+    survivorSearches += 1
+    return (survivorSearches === 1 ? firstSurvivorSearch : retriedSurvivorSearch).promise
+  }) as never)
+
+  const searching = store.searchHistory('needle')
+  expect(survivorSearches).toBe(1)
+  handlers().onNotification({ method: 'runtime/removed', params: { runtime } })
+  expect(survivorSearches).toBe(2)
+  expect(store.getSnapshot().historyLoading).toBe(true)
+
+  removedSearch.resolve({ data: [row('removed-match')], nextCursor: null })
+  firstSurvivorSearch.resolve({ data: [row('stale-survivor-match', { runtime: survivor })], nextCursor: null })
+  await searching
+  expect(store.getSnapshot().historyLoading).toBe(true)
+  expect(ids()).toEqual([])
+
+  retriedSurvivorSearch.resolve({ data: [row('surviving-match', { runtime: survivor })], nextCursor: null })
+  await vi.waitFor(() => {
+    expect(store.getSnapshot().historyLoading).toBe(false)
+    expect(ids()).toEqual(['surviving-match'])
+  })
+})
+
 it('keeps removed agents out of later pages and index events', async () => {
   change([row('gone')])
   handlers().onNotification({ method: 'runtime/removed', params: { runtime } })

@@ -662,29 +662,33 @@ export class AppStore {
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
           // In-flight searches include this runtime's response. Invalidate
-          // the request before filtering the visible history so a late page
-          // cannot put its rows back.
+          // the request before filtering visible history so a late response
+          // cannot put this runtime's rows back. A combined search is then
+          // started again against the runtimes still present.
           this.#historyRequestId += 1
           this.#historyPageRemovedRuntimes?.add(runtime)
           this.#historyRemovedRuntimes.add(runtime)
           this.#historyRows = this.#historyRows.filter(row => row.runtime !== runtime)
           const runtimes = this.#snapshot.runtimes.filter((entry) => entry.id !== runtime)
+          const activeRuntime = this.#snapshot.activeRuntime === runtime
+            ? (runtimes[0]?.id ?? null)
+            : this.#snapshot.activeRuntime
+          const searchQuery = this.#historyQuery
+          const restartSearch = Boolean(searchQuery && activeRuntime && runtimes.some((entry) => entry.capabilities.searchHistory))
           const accountsByRuntime = { ...this.#snapshot.accountsByRuntime }
           delete accountsByRuntime[runtime]
           const healthByRuntime = { ...this.#snapshot.healthByRuntime }
           delete healthByRuntime[runtime]
           this.#patch({
             runtimes,
-            historyLoading: this.#historyQuery ? false : this.#historyPageChanges !== null,
+            historyLoading: searchQuery ? restartSearch : this.#historyPageChanges !== null,
             accountsByRuntime,
             healthByRuntime,
-            activeRuntime:
-              this.#snapshot.activeRuntime === runtime
-                ? (runtimes[0]?.id ?? null)
-                : this.#snapshot.activeRuntime,
+            activeRuntime,
             historyIdentity: this.#snapshot.historyIdentity.filter((entry) => entry.runtime !== runtime),
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
           })
+          if (restartSearch) void this.searchHistory(searchQuery)
           // Whatever a plan had it seated on may no longer be offered at all.
           if (this.#agentsRequested) void this.loadAgentPlans()
         }
