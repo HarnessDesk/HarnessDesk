@@ -150,19 +150,48 @@ test('storage usage returns computing immediately then emits measured database, 
 
 test('age choices use 30, 60 and 90 days, candidates are ordered by path and a shared checkout is counted once', async t => {
   const { create, preview, host, runtime, db } = await fixture(t)
-  const a = await create('Forty', 40), b = await create('Seventy', 70), c = await create('Hundred', 100)
-  const read = SessionIndex.prototype.storageWorktrees
-  t.mock.method(SessionIndex.prototype, 'storageWorktrees', function (this: SessionIndex) {
-    return [...read.call(this)].sort((a, b) => a.path < b.path ? 1 : a.path > b.path ? -1 : 0)
-  })
-  assert.deepEqual((await preview([], 30)).candidates.map(row => row.path), [a.tree.path, c.tree.path, b.tree.path])
-  assert.deepEqual((await preview([], 60)).candidates.map(row => row.path), [c.tree.path, b.tree.path])
-  assert.deepEqual((await preview([], 90)).candidates.map(row => row.path), [c.tree.path])
-  const shared = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: a.tree.path } })
-  await host.call('session/close', { runtime: runtime.info.id, sessionId: shared.id })
-  await call(host, 'storage/kept')
-  db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(Date.now() - 100 * days, shared.id)
-  assert.deepEqual((await preview()).candidates.map(row => row.path), [a.tree.path, c.tree.path, b.tree.path])
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const a = await create('Forty', 40), b = await create('Seventy', 70), c = await create('Hundred', 100)
+    const read = SessionIndex.prototype.storageWorktrees
+    let inventory: ReturnType<typeof read> | undefined
+    t.mock.method(SessionIndex.prototype, 'storageWorktrees', function (this: SessionIndex) {
+      inventory ??= [...read.call(this)].sort((a, b) => a.path < b.path ? 1 : a.path > b.path ? -1 : 0)
+      return inventory
+    })
+    const expected = { 30: [a.tree.path, c.tree.path, b.tree.path], 60: [c.tree.path, b.tree.path], 90: [c.tree.path] }
+    const activity = () => db.prepare('SELECT runtime,id,updated_at FROM sessions ORDER BY runtime,id').all()
+    const before = activity()
+    for (const order of [[30, 60, 90], [30, 90, 60], [60, 30, 90], [60, 90, 30], [90, 30, 60], [90, 60, 30]] as const) {
+      for (const age of order) {
+        assert.deepEqual((await preview([], age)).candidates.map(row => row.path), expected[age], `age ${age}, order ${order}`)
+        assert.deepEqual(activity(), before, 'a preview does not change conversation activity')
+      }
+    }
+    const shared = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: a.tree.path } })
+    await host.call('session/close', { runtime: runtime.info.id, sessionId: shared.id })
+    await call(host, 'storage/kept')
+    db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(Date.now() - 100 * days, shared.id)
+    inventory = undefined
+    assert.deepEqual((await preview()).candidates.map(row => row.path), [a.tree.path, c.tree.path, b.tree.path])
+  } finally { t.mock.timers.reset() }
+})
+
+test('deferred close observations cannot make a 40-day-old conversation eligible at 90 days', async t => {
+  const { create, preview, db } = await fixture(t)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const forty = await create('Forty', 40), hundred = await create('Hundred', 100)
+    const activity = () => db.prepare('SELECT runtime,id,updated_at FROM sessions ORDER BY runtime,id').all()
+    const before = activity()
+    assert.deepEqual((await preview([], 30)).candidates.map(row => row.path), [forty.tree.path, hundred.tree.path])
+    assert.deepEqual((await preview([], 60)).candidates.map(row => row.path), [hundred.tree.path])
+    // Closing emits a metadata observation with updatedAt=0; force its settle
+    // window between previews instead of relying on the machine's Git speed.
+    t.mock.timers.tick(800)
+    assert.deepEqual((await preview([], 90)).candidates.map(row => row.path), [hundred.tree.path])
+    assert.deepEqual(activity(), before, 'a settled older observation cannot erase last activity')
+  } finally { t.mock.timers.reset() }
 })
 
 test('kept worktrees are ordered by path after shared-owner deduplication, including unreadable inventories', async t => {

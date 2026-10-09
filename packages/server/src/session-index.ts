@@ -83,7 +83,7 @@ export class SessionIndex {
       (runtime,id,origin,title,preview,cwd,repo_root,created_at,updated_at,archived,team_id,status,git)
       VALUES (?,?,?,?,?,?,(SELECT repo_root FROM repos WHERE cwd = ?),?,?,?,?,?,?)
       ON CONFLICT(runtime,id) DO UPDATE SET title=COALESCE(sessions.title,excluded.title),preview=excluded.preview,
-        cwd=excluded.cwd,repo_root=excluded.repo_root,created_at=excluded.created_at,updated_at=excluded.updated_at,
+        cwd=excluded.cwd,repo_root=excluded.repo_root,created_at=excluded.created_at,updated_at=MAX(sessions.updated_at,excluded.updated_at),
         archived=COALESCE(?,sessions.archived),team_id=CASE WHEN ? THEN excluded.team_id ELSE sessions.team_id END,
         status=excluded.status,git=excluded.git`)
   }
@@ -129,6 +129,8 @@ export class SessionIndex {
   upsert(summary: SessionSummary, options: { origin?: 'desk' | 'imported'; archived?: boolean | null; teamId?: string | null } = {}): void {
     if (this.isRemoved(summary.runtime, summary.id)) return
     this.#transaction(() => {
+      // A deferred metadata observation can predate activity already recorded
+      // by another writer. It must not make a conversation older for cleanup.
       const facts = this.#facts(summary.runtime, summary.id)
       const archived = options.archived === undefined ? facts.archived : options.archived
       const teamId = options.teamId === undefined ? facts.teamId : options.teamId

@@ -22,6 +22,8 @@ worktree when any owner is ineligible. Deleted conversations retain their title
 and last-active time with their checkout inventory; an older inventory whose
 activity is unknown is kept. Only present checkouts are bulk candidates; kept
 checkouts of removed or deleted conversations have their own Discard action.
+Age follows the latest observed conversation activity. Deferred metadata writes
+cannot move that time backwards, and reviewing cleanup does not change it.
 
 Clean worktrees are selected by default. A separate choice reveals the modified,
 untracked and ignored inventory before including those checkouts. Confirmation
