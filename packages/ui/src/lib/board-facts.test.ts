@@ -82,7 +82,7 @@ describe('a check card while its check runs', () => {
     const flowStep = flowStepOf(card, undefined, [execution([card.id])])
 
     expect(flowStep?.kind).toBe('check')
-    expect(place({ intent: card, flowStep, evidence: cardEvidence(card.id) }))
+    expect(place({ intent: card, flowStep, evidence: cardEvidence(card.id, []) }))
       .toEqual({ column: 'todo', why: null })
     expect(place({ intent: card, flowStep, evidence: cardEvidence(card.id, [], [{ name: 'verify', since: 1 }]) }))
       .toEqual({ column: 'working', why: null })
