@@ -1,7 +1,8 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { PaneProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { previewStore } from '../preview/harness'
 import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { runFixture } from '../preview/run-view-fixture'
 import { triggerPreferences } from '../preview/intake-fixture'
@@ -11,7 +12,9 @@ import { TeamRuns, type useTeamTrigger } from './TeamRuns'
 
 let container: HTMLDivElement
 let root: Root
+let store: ReturnType<typeof previewStore>
 beforeEach(() => {
+  store = previewStore()
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -29,13 +32,13 @@ const trigger = (over: Partial<ReturnType<typeof useTeamTrigger>> = {}): ReturnT
 })
 const visibility = vi.fn()
 const edit = vi.fn()
-const render = (active = true, source = trigger()): void => act(() => root.render(<TopBarProvider>
+const render = (active = true, source = trigger()): void => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
   <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: execution.goal }, sessionKey: null }}>
     <TopBarOutlet owner="main" fallback={{ place: 'Review work', more: () => null }} />
     <TeamRuns runs={runs} findings={new Map()} ledger={undefined} origin={null} trigger={source} problem={null}
       onOpen={() => {}} onEdit={edit} onRunVisibility={visibility} active={active} />
   </PaneProvider>
-</TopBarProvider>))
+</TopBarProvider></StoreProvider>))
 const open = async (slot: 'view' | 'more'): Promise<void> => {
   await act(async () => container.querySelector<HTMLButtonElement>(`[data-topbar="${slot}"] button`)!.click())
 }
@@ -112,6 +115,8 @@ it('releases visible reads when hidden and never registers hidden Runs actions',
   expect(observers).toHaveLength(0)
   await open('more')
   expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(0)
+  expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(1)
+  expect(document.querySelector('[role="menuitemradio"]')?.textContent).toContain('Terminal')
   await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
   render(true, source)
   const observer = observers[0]!

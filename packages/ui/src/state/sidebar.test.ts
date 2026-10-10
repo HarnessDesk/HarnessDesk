@@ -180,7 +180,7 @@ describe('the store', () => {
       desk.zoomPanel('sidebar', 'content')
       expect(desk.getSnapshot().workbench.zoom).toBeNull()
       expect(desk.getSnapshot().workbench.sidebar.root).toMatchObject({ kind: 'stack', views: [] })
-      expect(desk.getSnapshot().workbench.frameTools[desk.workSubject()!]).toEqual({ tool: 'activity', mode: 'tasks', open: true })
+      expect(desk.getSnapshot().workbench.frameTools[desk.workSubject()!]).toEqual({ tool: 'activity', mode: 'activity', open: true })
       expect(areaVisible(desk.getSnapshot().workbench, 'main')).toBe(true)
 
       // The dim in a narrow window, ⌘B on the column in a wide one.
