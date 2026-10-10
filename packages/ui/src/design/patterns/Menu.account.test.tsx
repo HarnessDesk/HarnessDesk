@@ -38,7 +38,8 @@ it('offers the compact account-menu roles without changing ordinary rows', () =>
   expect(document.querySelector<HTMLElement>('[data-size="compact"]')?.textContent).toBe('Run new sessions as')
   expect(css).toMatch(/\[data-menu-row\]\[data-layout='profile'\]\s*\{[^}]*padding:\s*0 var\(--hd-space-2\)/s)
   expect(css).toMatch(/\[data-menu-row\]\[data-layout='account'\]\s*\{[^}]*padding:\s*var\(--hd-space-1-5\) var\(--hd-space-2\)/s)
-  expect(popupCss).toMatch(/\[data-menu-group\]\[data-size='compact'\]\s*\{[^}]*font-weight:\s*var\(--hd-weight-normal\)/s)
+  expect(popupCss).toMatch(/\[data-menu-group\]\s*\{[^}]*font-weight:\s*var\(--hd-weight-medium\)/s)
+  expect(popupCss).not.toMatch(/\[data-menu-group\]\[data-size='compact'\]\s*\{[^}]*font-weight:/s)
 })
 
 it('groups account rows under a heading that names them and is not a choice', () => {

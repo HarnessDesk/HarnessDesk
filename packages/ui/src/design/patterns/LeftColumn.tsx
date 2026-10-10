@@ -143,7 +143,7 @@ export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange
   readonly onFocusChange: (focused: boolean) => void; readonly options: ReactNode; readonly onBrowseFolders: () => void
 }) => {
   const filtering = focused || value.length > 0
-  return <NavigationGroupHeader data-left-head data-left-projects-head filtering={filtering}
+  return <NavigationGroupHeader data-left-head data-left-projects-head inset="row" filtering={filtering}
     data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead} ${styles.inset}`}
     label={<span className={styles.projectsLabel} data-left-group-text>Projects</span>}>
     {value && <span className={styles.filtered}><Chip tone="neutral" label="Filtered" />
