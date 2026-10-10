@@ -87,7 +87,6 @@ export interface LeftColumnTopProps {
   readonly toggle: () => void
   readonly goBack: () => void
   readonly goForward: () => void
-  readonly notifications: ReactNode
   readonly search: ReactNode
 }
 export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
@@ -96,6 +95,7 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
       <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`}
         aria-label={props.shown ? 'Hide sidebar' : 'Show sidebar'} title={props.shown ? 'Hide the sidebar' : 'Show the sidebar'}
         onClick={props.toggle}><SidebarIcon size={16} /></Button>
+      <div className={`${styles.topActions} hd-no-drag`}>{props.search}</div>
       <span data-left-history className={styles.history}>
         <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`} disabled={!props.back}
           aria-label="Back" title="Back" onClick={props.goBack}><ArrowLeftIcon size={16} /></Button>
@@ -103,13 +103,13 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
           aria-label="Forward" title="Forward" onClick={props.goForward}><ArrowRightIcon size={16} /></Button>
       </span>
     </div>
-    <div className={`${styles.topActions} hd-no-drag`}>{props.notifications}{props.search}</div>
   </Bar>
 </div>
-export const LeftColumnSeat = ({ menu, settingsOpen, onSettings }: {
-  menu: ReactNode; settingsOpen: boolean; onSettings: () => void
+export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }: {
+  menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
 }) => <Bar rule="top"><div data-left-seat className={styles.seat}>
   <div className={styles.seatMenu}>{menu}</div>
+  <div className={`${styles.topActions} hd-no-drag`}>{notifications}</div>
   <Button variant="ghost" size="pattern" className={styles.topButton} aria-label="Settings" title="Settings"
     aria-pressed={settingsOpen} onClick={onSettings}><SettingsIcon size={16} /></Button>
 </div></Bar>

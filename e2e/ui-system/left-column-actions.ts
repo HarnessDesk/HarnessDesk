@@ -10,7 +10,7 @@ export const applyLeftColumnActions = async (page: Page, actions: {
   if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(column).toHaveCount(1)
   if (actions.leftPopup === 'inbox') await column.locator('[data-slot="inbox-button"]').locator('..').click()
-  if (actions.leftPopup === 'account') await column.locator('[data-left-seat] [data-slot="popover-trigger"]').click()
+  if (actions.leftPopup === 'account') await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
   if (actions.leftPopup === 'start') await column.getByRole('button', { name: 'More ways to start', exact: true }).click()
   if (actions.leftPopup === 'project') {
     await column.locator('[data-project-root] button[data-draggable]').first().focus()

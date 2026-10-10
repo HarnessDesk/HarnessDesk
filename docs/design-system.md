@@ -413,7 +413,7 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
-| `--hd-sidebar-width` | `240px` |
+| `--hd-sidebar-width` | `256px` |
 | `--hd-sidebar-width-icon` | `48px` |
 
 ### The nav row

@@ -2,7 +2,7 @@ import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHea
 import { LibraryIcon } from './Icons'
 import { Slot } from '../slots/registry'
 import { sidebarPlacement } from '../state/workbench'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
@@ -133,9 +133,6 @@ export const Sidebar = ({
     back={snapshot.navCanBack} forward={snapshot.navCanForward}
     toggle={() => store.toggleSidebar()} goBack={() => { void store.navigateBack() }}
     goForward={() => { void store.navigateForward() }}
-    notifications={<InboxPanel side="bottom" size="icon-sm" messages={inbox}
-      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
-      onClear={() => store.clearInbox()} />}
     search={<Button variant="ghost" size="icon-sm" onClick={onSearch}
       title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"><SearchIcon size={16} /></Button>} />
   const pageDoors = [
@@ -190,7 +187,10 @@ export const Sidebar = ({
     </LeftColumnBody>
   )
   return <LeftColumn top={top} head={sessionsHead} body={sessionsBody}
-    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><AccountFooter onOpenSettings={onOpenSettings}
+    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
+      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
+      onClear={() => store.clearInbox()} />}
+      onOpenSettings={onOpenSettings}
       onOpenUsage={onOpenUsage} onSignIn={onSignIn} /></>} />
 }
 
@@ -331,12 +331,14 @@ const readinessTone = (state: Readiness): Tone | undefined => ({
 } as const)[state]
 
 export const AccountFooter = ({
+  notifications,
   onOpenSettings,
   onOpenUsage,
   onSignIn,
   settingsOpen = false,
 }: {
   onOpenSettings: (section?: Section) => void
+  notifications?: ReactNode
   settingsOpen?: boolean
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
@@ -552,7 +554,7 @@ export const AccountFooter = ({
   )
 
   return (
-    <LeftColumnSeat settingsOpen={settingsOpen} onSettings={() => onOpenSettings('general')} menu={<div ref={accountRef}>
+    <LeftColumnSeat notifications={notifications} settingsOpen={settingsOpen} onSettings={() => onOpenSettings('general')} menu={<div ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
         /* Opens upward from the footer. Its width belongs to the menu so a

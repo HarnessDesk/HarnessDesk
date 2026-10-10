@@ -3417,7 +3417,6 @@ export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'lo
 
 export function LeftColumnBoard() { return <LeftColumn
   top={<LeftColumnTop shown back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
-    notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>}
     search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>} />}
   head={null} body={<LeftColumnBody>
   <LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
@@ -3430,7 +3429,7 @@ export function LeftColumnBoard() { return <LeftColumn
     <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
   </LeftColumnGroup>
 </LeftColumnBody>}
-  footer={<LeftColumnSeat settingsOpen={false} onSettings={() => {}}
+  footer={<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
     menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} />} />
 }
 

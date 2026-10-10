@@ -689,7 +689,7 @@ test('540px window floats the real sidebar with aligned headers and a Needs you 
   await expect(floating).toBeVisible()
   expect((await box(canvas)).width).toBe(540)
   const sidebar = floating.locator('[data-region="sidebar-header"]').locator('xpath=ancestor::div[@data-left-column][1]')
-  expect((await box(sidebar)).width).toBe(240)
+  expect((await box(sidebar)).width).toBe(FRAME.sidebar.width)
   await expect(sidebar.locator('[data-tone="working"], [data-tone="waiting"]')).toHaveCount(0)
   const headerX = await sidebar.getByText('Projects', { exact: true }).evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
   const projectX = await sidebar.locator('[data-draggable] [data-slot="sidebar-menu-label-content"]').first().evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })

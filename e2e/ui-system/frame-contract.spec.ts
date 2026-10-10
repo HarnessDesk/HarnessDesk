@@ -913,7 +913,7 @@ for (const theme of WALL_THEMES) {
     const controls = await page.locator('[data-left-top] button').evaluateAll(nodes => nodes.map(el => ({
       width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height,
     })))
-    expect(controls).toHaveLength(5)
+    expect(controls).toHaveLength(4)
     for (const control of controls) {
       expect(control.width).toBe(FRAME.bar.iconButton)
       expect(control.height).toBe(FRAME.bar.iconButton)
@@ -1289,5 +1289,27 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     await expect(surface.getByRole('menuitem', { name: 'Add a file @', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('button', { name: 'Add', exact: true }).first()).toBeFocused()
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`D6a owner top order and seat bell in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const column = page.locator('[data-left-column]:visible')
+    expect((await column.boundingBox())!.width).toBe(FRAME.sidebar.width)
+    const top = column.locator('[data-left-top]')
+    expect(await top.locator('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
+      .toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward'])
+    await expect(top.locator('[data-slot="inbox-button"]')).toHaveCount(0)
+    const seat = column.locator('[data-left-seat]')
+    const bell = seat.locator('[data-slot="inbox-button"]').locator('..')
+    await expect(bell).toBeVisible()
+    expect((await bell.boundingBox())!.width).toBe(FRAME.bar.iconButton)
+    expect((await bell.boundingBox())!.height).toBe(FRAME.bar.iconButton)
+    const gear = seat.getByRole('button', { name: 'Settings', exact: true })
+    expect((await gear.boundingBox())!.x).toBeGreaterThan((await bell.boundingBox())!.x)
+    await bell.click()
+    await expect(page.getByRole('dialog', { name: 'Inbox', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
   })
 }

@@ -16,7 +16,7 @@ left column and which gutter. Each screen chose, and a read of the source on
   different leading edges (8, 12, 14, 16, 17, 24, 34, 36, 37); four title
   sizes in bars (13, 14, 16, 20); four switchers on one Team page (a 26px
   filled tab track, a 30px `Segmented`, the dock's 26px pills, `PanelPill`).
-- **Left columns:** the sidebar is 240 wide, the full-window rail 244 (a
+- **Left columns:** the sidebar is 256 wide (owner, 2026-10-10), the full-window rail 244 (a
   literal), the token 275 (used by nothing in the app). The rail pads 8 or 12,
   and a grouped row starts 8px further in than an ungrouped one, so Teams,
   Agents, Dashboard and Settings each start their text at a different x.
@@ -68,8 +68,10 @@ screen. Five causes, each checked in the source:
 2. **One bar height, 40px**: the top bar (one row across main and the right
    panel), the left column's top row and its seat row. A panel has no bar of
    its own.
-3. **One top row for the left column**: window buttons, sidebar toggle and
-   back/forward, then notifications and search. The wordmark row is dropped.
+3. **One top row for the left column**: window buttons, sidebar toggle,
+   search, back, forward, then empty space reserved for a later switch. The
+   notifications bell sits in the seat row beside the gear; the gear stays
+   last (owner, 2026-10-10). The wordmark row is dropped.
 4. **Flat panels.** Columns meet at hairlines and every bar sits on one
    continuous 40px line across the window.
 5. **Three content widths** — reading, wide, canvas — and **a page's title
@@ -137,7 +139,7 @@ Approved by the owner: the frame is fixed rather than freely arranged.
 
 | Region | Size | Limits | Holds |
 | --- | --- | --- | --- |
-| Left column | 240 | drag 200–360 | the session tree and its pages, or Settings' nav |
+| Left column | 256 (owner, 2026-10-10) | drag 200–360 | the session tree and its pages, or Settings' nav |
 | Top bar | 40 | — | one row across main and the right panel |
 | Main | the rest | keeps at least 480 beside a standing panel | one destination |
 | Right panel | 400 | drag 320–640 | one tool at a time, chosen by its icon in the top bar row |
@@ -201,11 +203,11 @@ Sign in keeps its own surface: it is a first-run gate, not a page.
 
 One container, whatever main shows.
 
-- **Width:** `--hd-sidebar-width` 240, draggable 200–360. The 244 literal and
+- **Width:** `--hd-sidebar-width` 256 (owner, 2026-10-10), draggable 200–360. The 244 literal and
   the unused 275 go.
-- **Top row (40):** window buttons, sidebar toggle, back and forward … then
-  notifications and search. Back and forward fold away below 240 (⌘[ and ⌘]
-  remain).
+- **Top row (40):** window buttons, sidebar toggle, search, back, forward,
+  then empty space reserved for a later switch (owner, 2026-10-10). Back and
+  forward fold away below 240 (⌘[ and ⌘] remain).
 - **Rows:** one anatomy for every row in the column — 30 tall, 8px inset, a
   16px icon, 8px gap, 13px label, one trailing slot for a count or a dot,
   a grey selected fill. A row inside a group starts at the same x as one
@@ -216,7 +218,8 @@ One container, whatever main shows.
   bar, and its seats are in its Overview and the Details tool, not rows under
   it. Opening the Team returns to the view it was last on.
 - **Group label:** 13px/500, secondary ink, in both modes; it starts at the icons' x, not the text's, with 16px above a group that follows another (the owner's choice, 2026-10-10).
-- **Seat row (40):** you, at the bottom, with the gear that opens Settings.
+- **Seat row (40):** you, at the bottom, then the notifications bell beside the
+  gear that opens Settings; the gear stays last (owner, 2026-10-10).
   The gear reads as pressed while Settings is open.
 - **Sessions mode:** New session ⌄, then one row each for Teams, Agents,
   Library, Plugins and Dashboard, then Projects and the session tree. Nothing
@@ -435,7 +438,7 @@ room. The left column's Settings mode floats the same way.
 | Token | Today | After |
 | --- | --- | --- |
 | `--hd-bar-h` (and `--hd-titlebar-height`, which follows it) | 46 | 40 |
-| `--hd-sidebar-width` | 275, unused | 240, used by the column and the explorer |
+| `--hd-sidebar-width` | 275, unused | 256, used by the column and the explorer (owner, 2026-10-10) |
 | `--hd-page-wide` | — (1320 literal in AppWindow) | 1320 |
 | `--hd-page-gutter` | — (`PaneColumn inset="reading"`) | 24, named |
 | `--hd-popover-width-wide` | 320 | 340 |

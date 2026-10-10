@@ -1,3 +1,4 @@
+import { FRAME } from '../design'
 import { NativeServersPreview } from './native-servers'
 import { TeamViewFrame } from './TeamViewFrame'
 import { ConversationFrame } from './ConversationFrame'
@@ -1069,10 +1070,10 @@ const Preview = () => {
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The sidebar at its real width, on the plate it really sits on:
             the right edge only reads true against the column's own ground. */}
-        <Frame id="sidebar-column" title="Sidebar — 240px column">
+        <Frame id="sidebar-column" title={`Sidebar — ${FRAME.sidebar.width}px column`}>
           <div
             className="h-[720px]"
-            style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}
+            style={{ width: FRAME.sidebar.width, background: 'var(--hd-sidebar-plate, transparent)' }}
           >
             <Mount with={SIDEBAR_VARIANT_PARAM === 'open-search'
               ? sidebarOpenSearchStore
@@ -1108,7 +1109,7 @@ const Preview = () => {
           </div>
         </Frame>}
         {SIDEBAR_VARIANT_PARAM === 'no-folder' && <Frame id="sidebar-no-folder" title="Sidebar — no project folder">
-          <div className="h-[540px]" style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}>
+          <div className="h-[540px]" style={{ width: FRAME.sidebar.width, background: 'var(--hd-sidebar-plate, transparent)' }}>
             <Mount with={sidebarNoFolderStore}>
               <Sidebar
                 onOpenSettings={() => {}}
