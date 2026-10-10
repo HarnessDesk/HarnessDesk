@@ -247,7 +247,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
-| `--hd-bar-h` | `46px` |
+| `--hd-bar-h` | `40px` |
 | `--hd-bar-gap` | `6px` |
 | `--hd-bar-pad` | `8px` |
 | `--hd-rail-inset` | `8px` |
@@ -255,7 +255,10 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
 | `--hd-page-gutter` | `24px` |
-| `--hd-popover-width-wide` | `320px` |
+| `--hd-menu-min` | `200px` |
+| `--hd-popover-width-wide` | `340px` |
+| `--hd-menu-row-radius` | `calc(10px - 4px)` |
+| `--hd-info-card-width` | `288px` |
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
 | `--hd-composer-min` | `44px` |
@@ -406,7 +409,7 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
-| `--sidebar-width` | `` |
+| `--hd-sidebar-width` | `240px` |
 | `--hd-sidebar-width-icon` | `48px` |
 
 ### The nav row
@@ -493,8 +496,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-card-radius` | `` |
 | `--hd-composer-ring` | `` |
 | `--hd-control-h-lg` | `<cycle>` |
-| `--hd-page-row-h` | `` |
-| `--hd-page-row-padding` | `` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-page-group-gap` | `` |
 | `--hd-btn-shadow` | `none` |

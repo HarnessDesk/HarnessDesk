@@ -149,7 +149,7 @@ const createWindow = async (url) => {
     title: 'HarnessDesk',
     // The renderer reserves space for the traffic lights in its own chrome.
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 15 },
+    trafficLightPosition: { x: 14, y: 12 },
     // The click that brings the window forward is also a click on whatever it
     // landed on. Without this, the first click on an inactive window only
     // focuses it and the button, row or composer under the pointer does

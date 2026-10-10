@@ -575,11 +575,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       <ViewBar
         aria-label="Board"
         summary={
-          intents.length === 0
-            ? undefined
-            : `${byColumn.get('todo')?.length ?? 0} to do · ${
-                byColumn.get('working')?.length ?? 0
-              } working · ${byColumn.get('needs')?.length ?? 0} need you`
+          `${byColumn.get('todo')?.length ?? 0} to do · ${
+            byColumn.get('working')?.length ?? 0
+          } working · ${byColumn.get('needs')?.length ?? 0} need you`
         }
         actions={
           /* Top-bar actions stay outlined: a filled button belongs with the

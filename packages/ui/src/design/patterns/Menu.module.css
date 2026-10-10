@@ -22,7 +22,7 @@
 
   /* Narrow enough that a short menu — density, agent, sort — sizes to its
      own words the way Codex's does, instead of holding a fixed slab open. */
-  min-width: 200px;
+  min-width: var(--hd-menu-min);
   max-width: 380px;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
@@ -39,7 +39,7 @@
 }
 
 .flyout {
-  min-width: 200px;
+  min-width: var(--hd-menu-min);
 }
 
 .submenu {
@@ -57,7 +57,7 @@
   min-height: var(--hd-row-h);
   padding: var(--hd-space-1) var(--hd-nav-inset); /* every part of a menu starts its words on one edge: a row button's */
   border: none;
-  border-radius: var(--hd-nav-radius); /* desk: var(--hd-radius-sm) → var(--hd-nav-radius), menus and rails use one row shape */
+  border-radius: var(--hd-menu-row-radius); /* parallel to the menu's corner: its radius less its padding */
   background: none;
   color: var(--hd-foreground);
   cursor: pointer;

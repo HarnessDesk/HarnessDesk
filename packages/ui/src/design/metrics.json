@@ -216,7 +216,7 @@
     "radius": 0
   },
   "badge/tabs-list/variant/section": {
-    "h": 46,
+    "h": 40,
     "text": 14,
     "weight": "400",
     "line": 20,

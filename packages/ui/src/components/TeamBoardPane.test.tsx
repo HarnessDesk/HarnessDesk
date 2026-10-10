@@ -1628,6 +1628,7 @@ it('keeps an empty Board quiet with one add-work control in its toolbar',async()
  expect(empty?.querySelector('h3,svg,button')).toBeNull()
  expect(container.textContent?.split('Nothing on the board yet')).toHaveLength(2)
  expect(container.querySelectorAll('button[aria-label^="New job"]')).toHaveLength(1)
+ expect(container.querySelector('[data-slot="view-bar"]')?.textContent).toContain('0 to do · 0 working · 0 need you')
 })
 
 it('lists every job, including completed work awaiting evidence, with Needs you first', async () => {

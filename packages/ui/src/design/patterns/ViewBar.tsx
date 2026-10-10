@@ -21,7 +21,7 @@ export const ViewBar = ({ summary, actions, ...props }: Omit<HTMLAttributes<HTML
   /** The view's verbs, then its switch. */
   readonly actions?: ReactNode
 }) => (
-  <header data-slot="view-bar" className={styles.bar} {...props}>
+  <header data-slot="view-bar" data-content-inset="page" className={styles.bar} {...props}>
     <div className={styles.summary}>{summary}</div>
     {actions != null && <div className={styles.actions}>{actions}</div>}
   </header>
