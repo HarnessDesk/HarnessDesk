@@ -83,3 +83,9 @@
 [data-info-facts] dt { color: var(--hd-secondary-foreground); }
 [data-info-facts] dd { min-width: 0; margin: 0; }
 [data-info-note] { margin-top: var(--hd-space-2); color: var(--hd-secondary-foreground); font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); white-space: normal; }
+
+/* A refused control greys its complete row, including its earned reason. */
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) :is([data-menu-icon], [data-menu-label], [data-menu-hint]) {
+  color: inherit; /* desk: secondary → muted, refused icon and reason share the row's ink */
+}
+[data-menu-group][data-inset='false'] { padding: 0; }

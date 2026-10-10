@@ -158,7 +158,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
   const runtime=marks.get(seat.seat)
   return {id:seat.seat,name:say(row).seats[index] ?? plain(seat.name),tint:runtime?runtimeTint(runtime.id,snapshot.accountsByRuntime,snapshot.accountPrefs):'blue',mark:runtime?<RuntimeMark runtime={runtime}/>:<AgentIcon/>}
  })}/>:undefined
- const menu=(row:TeamListRow)=>row.ready && <Popover label={<MoreIcon />} title="More" align="right">{close=><Menu close={close}><MenuItem label={snapshot.teamsPrefs.hidden[row.id]===row.change?'Show in Active':'Hide'} onSelect={()=>{store.setTeamHidden(row.id,snapshot.teamsPrefs.hidden[row.id]!==row.change);close()}}/></Menu>}</Popover>
+ const menu=(row:TeamListRow)=>row.ready && <Popover label={<MoreIcon />} title="More" align="right" icons="none">{close=><Menu close={close}><MenuItem label={snapshot.teamsPrefs.hidden[row.id]===row.change?'Show in Active':'Hide'} onSelect={()=>{store.setTeamHidden(row.id,snapshot.teamsPrefs.hidden[row.id]!==row.change);close()}}/></Menu>}</Popover>
  const cost=(row:TeamListRow)=>row.total.money===null?'—':`$${row.total.money.toFixed(2)}`
  const groups=(groups:readonly TeamListGroup[])=>{
  const showCost=groups.some(group=>group.rows.some(row=>row.total.money!==null))

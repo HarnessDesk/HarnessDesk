@@ -359,13 +359,11 @@ describe('Submenu', () => {
   })
 
   it('→ lands past a first row that cannot take the focus', async () => {
-    const sheet = document.head.appendChild(document.createElement('style'))
-    sheet.textContent = '.gone { display: none }'
     act(() => {
       root.render(
         <Menu close={() => {}}>
           <Submenu label="Effort">
-            <MenuItem label="Gone" className="gone" selected={false} onSelect={() => {}} />
+            <div hidden><MenuItem label="Gone" selected={false} onSelect={() => {}} /></div>
             <MenuItem label="Low" selected={false} onSelect={() => {}} />
           </Submenu>
         </Menu>,
@@ -377,7 +375,6 @@ describe('Submenu', () => {
     await frame()
     expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
     expect(document.activeElement).toBe(row('Low'))
-    sheet.remove()
   })
 
   it('→ waits a few frames for a first row the flyout draws late', async () => {

@@ -750,13 +750,10 @@ const MachineSeats = ({
                   <DropdownMenu
                     open={menuFor === id && !busy}
                     onOpenChange={(open) => setMenuFor(open && !busy ? id : null)}
-                  >
+                   icons="none">
                     <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} {...(busy ? { 'aria-disabled': true } : {})} />} />
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
-                        <TrashIcon size={14} />
-                        Remove seat
-                      </DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={() => remove(index)} label={"Remove seat"} icon={<TrashIcon size={14} />} />
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </>

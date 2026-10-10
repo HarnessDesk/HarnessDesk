@@ -1,4 +1,4 @@
-import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref, type RefObject } from 'react'
+import { forwardRef, isValidElement, useEffect, useId, useRef, useState, type HTMLAttributes, type ReactNode, type Ref, type RefObject } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -302,9 +302,8 @@ export const PopoverGroupLabel = ({
   inset?: boolean
 }) => (
   <div
-    data-slot="group-label"
+    data-menu-group=""
     data-inset={String(inset)}
-    className={styles.groupLabel}
   >
     {children}
   </div>
@@ -354,46 +353,3 @@ export const PopoverSurface = forwardRef<
   )
 })
 PopoverSurface.displayName = 'PopoverSurface'
-
-export const PopoverOption = ({
-  as = 'button',
-  className,
-  children,
-  ...props
-}: {
-  as?: 'button' | 'div'
-  className?: string
-  children: ReactNode
-} & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLDivElement>) => createElement(
-  as,
-  {
-    ...props,
-    ...(as === 'button' ? { type: props.type ?? 'button' } : {}),
-    className: `${styles.option}${className ? ` ${className}` : ''}`,
-  },
-  children,
-)
-
-export const PopoverOptionMark = ({
-  checked = false,
-  children,
-}: {
-  checked?: boolean
-  children?: ReactNode
-}) => <span className={checked ? styles.optionCheck : styles.optionIcon}>{children}</span>
-
-export const PopoverOptionBody = ({ children }: { children: ReactNode }) => (
-  <span className={styles.optionBody}>{children}</span>
-)
-
-export const PopoverOptionLabel = ({ children }: { children: ReactNode }) => (
-  <span className={styles.optionLabel}>{children}</span>
-)
-
-export const PopoverOptionHint = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={`${styles.optionHint}${className ? ` ${className}` : ''}`}>{children}</span>
-)
-
-export const PopoverOptionLive = ({ label = 'Live' }: { label?: string }) => (
-  <span className={styles.optionLive} aria-label={label} />
-)

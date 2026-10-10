@@ -100,13 +100,11 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
                 <SectionHead
                   name="Seat override"
                   action={
-                    <DropdownMenu>
+                    <DropdownMenu wide icons="none">
                       <DropdownMenuTrigger render={<Button size="sm" variant="outline" aria-label="Add a seat"><PlusIcon size={14} />Add a seat</Button>} />
                       <DropdownMenuContent align="end">
                         {runtimes.map((one) => (
-                          <DropdownMenuItem key={one.id} onClick={() => onChange({ ...role, seats: [...role.seats, { runtime: one.id }] })}>
-                            {one.presentation.name}
-                          </DropdownMenuItem>
+                          <DropdownMenuItem key={one.id} onClick={() => onChange({ ...role, seats: [...role.seats, { runtime: one.id }] })} label={one.presentation.name} />
                         ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -121,39 +119,21 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
                       title={seatRuntimeName(seat, runtimes)}
                       desc={[seat.model, seat.effort, seat.thinking ? 'thinking' : null].filter(Boolean).join(' · ') || undefined}
                       control={(
-                        <DropdownMenu>
+                        <DropdownMenu wide icons="none">
                           <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${seatRuntimeName(seat, runtimes)} seat actions`} />} />
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              disabled={index === 0}
-                              onClick={() => {
+                            <DropdownMenuItem disabled={index === 0} onClick={() => {
                                 const next = [...role.seats]
                                 ;[next[index - 1], next[index]] = [next[index]!, next[index - 1]!]
                                 onChange({ ...role, seats: next })
-                              }}
-                            >
-                              <MoveUpIcon size={14} />
-                              Move up
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              disabled={index === role.seats.length - 1}
-                              onClick={() => {
+                              }} label={"Move up"} icon={<MoveUpIcon size={14} />} />
+                            <DropdownMenuItem disabled={index === role.seats.length - 1} onClick={() => {
                                 const next = [...role.seats]
                                 ;[next[index], next[index + 1]] = [next[index + 1]!, next[index]!]
                                 onChange({ ...role, seats: next })
-                              }}
-                            >
-                              <MoveDownIcon size={14} />
-                              Move down
-                            </DropdownMenuItem>
+                              }} label={"Move down"} icon={<MoveDownIcon size={14} />} />
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() => onChange({ ...role, seats: role.seats.filter((_, one) => one !== index) })}
-                            >
-                              <TrashIcon size={14} />
-                              Remove seat
-                            </DropdownMenuItem>
+                            <DropdownMenuItem variant="destructive" onClick={() => onChange({ ...role, seats: role.seats.filter((_, one) => one !== index) })} label={"Remove seat"} icon={<TrashIcon size={14} />} />
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}

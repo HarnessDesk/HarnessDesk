@@ -151,7 +151,7 @@ const Dismiss = ({ onDismiss, onMute }: { onDismiss: () => void; onMute?: (() =>
         <CrossIcon size={12} />
       </Button>
       {onMute ? (
-        <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)}>
+        <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)} icons="none">
           <MenuItem icon={<CrossIcon size={14} />} label="Dismiss" onSelect={onDismiss} />
           <MenuItem icon={<BellOffIcon size={14} />} label="Stop showing this" hint="Turn it back on in Settings › Notifications" onSelect={onMute} />
         </ContextMenu>
@@ -498,7 +498,7 @@ export const InboxPanel = ({
           {unread > 0 ? <span className={styles.bellCount} data-slot="inbox-dot" aria-hidden /> : null}
         </span>
       }
-    >
+     icons="none">
       {() => <InboxList {...list} />}
     </Popover>
   )

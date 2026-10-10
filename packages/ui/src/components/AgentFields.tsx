@@ -459,29 +459,20 @@ export const PreferFieldDialog = ({
             title={seatRuntimeName(seat, snapshot.runtimes)}
             desc={[seat.model, seat.effort, seat.thinking ? 'thinking' : null].filter(Boolean).join(' · ') || undefined}
             control={(
-              <DropdownMenu>
+              <DropdownMenu wide icons="none">
                 <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`${seatRuntimeName(seat, snapshot.runtimes)} seat actions`} disabled={busy} />} />
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled={index === 0} onClick={() => move(index, -1)}>
-                    <MoveUpIcon size={14} />
-                    Move up
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={index === seats.length - 1} onClick={() => move(index, 1)}>
-                    <MoveDownIcon size={14} />
-                    Move down
-                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={index === 0} onClick={() => move(index, -1)} label={"Move up"} icon={<MoveUpIcon size={14} />} />
+                  <DropdownMenuItem disabled={index === seats.length - 1} onClick={() => move(index, 1)} label={"Move down"} icon={<MoveDownIcon size={14} />} />
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={() => removeAt(index)}>
-                    <TrashIcon size={14} />
-                    Remove seat
-                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onClick={() => removeAt(index)} label={"Remove seat"} icon={<TrashIcon size={14} />} />
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
           />
         ))}
       </Rows>
-      <DropdownMenu>
+      <DropdownMenu wide icons="none">
         <DropdownMenuTrigger
           disabled={busy || seats.length >= SEAT_PREFERENCE_LIMIT}
           render={(
@@ -493,9 +484,7 @@ export const PreferFieldDialog = ({
         />
         <DropdownMenuContent align="start">
           {snapshot.runtimes.map((one) => (
-            <DropdownMenuItem key={one.id} onClick={() => addSeat(one.id)}>
-              {one.presentation.name}
-            </DropdownMenuItem>
+            <DropdownMenuItem key={one.id} onClick={() => addSeat(one.id)} label={one.presentation.name} />
           ))}
         </DropdownMenuContent>
       </DropdownMenu>

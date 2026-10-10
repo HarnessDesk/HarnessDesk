@@ -759,7 +759,7 @@ export const GitControl = ({
                     hangs its list off the branch rather than repeating it as a
                     heading over a second list of the same names. */}
                 {branch ? (
-                  <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
+                  <Submenu icon={<BranchIcon size={16} />} label={branch}  wide icons="none">
                     <BranchSwitcher root={cwd} onDone={close} />
                   </Submenu>
                 ) : (
@@ -810,8 +810,8 @@ export const GitControl = ({
               />
             )}
           </>
-  return menu ? <Submenu label="Folder actions" icon={<FolderIcon />}>{menuBody(menuClose!)}</Submenu>
-    : <Popover title="Folder actions" align="right" label={<MoreIcon />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+  return menu ? <Submenu label="Folder actions" icon={<FolderIcon />} wide icons="none">{menuBody(menuClose!)}</Submenu>
+    : <Popover title="Folder actions" align="right" label={<MoreIcon />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} icons="none">
       {close => <Menu close={close}>{menuBody(close)}</Menu>}
     </Popover>
 }

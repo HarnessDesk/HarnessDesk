@@ -1,3 +1,4 @@
+import { Button, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../index'
 import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover } from '../index'
 import { CopyIcon, FolderOpenIcon, UndoIcon } from '../../components/Icons'
 export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <Popover title="Frame menu" label="Frame menu" icons={icons}>
@@ -11,3 +12,11 @@ export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <P
     <MenuNote>Workspace actions</MenuNote>
   </Menu>}
 </Popover>
+
+export const DropdownExample = ({ icons = 'none' }: { icons?: 'all' | 'none' }) => <DropdownMenu icons={icons}>
+  <DropdownMenuTrigger render={<Button variant="outline">Frame dropdown</Button>} />
+  <DropdownMenuContent>
+    <DropdownMenuItem label="Copy branch name" icon={<CopyIcon size={16} />} onClick={() => {}} />
+    <DropdownMenuItem label="Delete branch…" icon={<CopyIcon size={16} />} hint="The branch is checked out in another worktree." disabled onClick={() => {}} />
+  </DropdownMenuContent>
+</DropdownMenu>

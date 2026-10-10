@@ -237,7 +237,7 @@ const SessionRow = memo(({
     ]}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
       trailing={trailing} action={{ label: `Actions for ${label}`, expanded: menu.at !== null,
         onClick: event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) } }} />}
-      <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close}>
+      <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close} icons="none">
         <MenuItem
           icon={<PencilIcon size={13} />}
           label="Rename"
@@ -330,7 +330,7 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
         align="left"
         triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs' })}
         label={<SlidersIcon size={13} />}
-      >
+       icons="none">
         {(close) => (
           <Menu close={close}>
             {/* Folding is first because it is the one row here that answers
@@ -338,7 +338,7 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
                 below is a refinement of. ⌥-click on any project's chevron
                 does the same thing without opening this. */}
             <MenuLabel>Projects</MenuLabel>
-            <Submenu label="Sort projects" value={prefs.sort === 'recency' ? 'Recency' : 'Name'}>
+            <Submenu label="Sort projects" value={prefs.sort === 'recency' ? 'Recency' : 'Name'} wide icons="none">
               <MenuItem
                 icon={<ClockIcon size={14} />}
                 selected={prefs.sort === 'recency'}
@@ -352,7 +352,7 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
                 onSelect={() => store.setListPrefs({ sort: 'name' })}
               />
             </Submenu>
-            <Submenu label="Show agents" value={prefs.agent === null ? 'All agents' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All agents'}>
+            <Submenu label="Show agents" value={prefs.agent === null ? 'All agents' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All agents'} wide icons="none">
               <MenuItem
                 icon={<EveryoneIcon size={14} />}
                 selected={prefs.agent === null}
@@ -579,7 +579,7 @@ const GoneFolders = ({ folders }: { folders: readonly string[] }) => {
       <LeftColumnRow label={folders.length === 1 ? '1 folder is gone' : `${folders.length} folders are gone`}
         icon={<FolderGoneIcon size={16} />} title="Conversations in a folder that no longer exists are not listed here. They are kept, and search and the archive still find them."
         onClick={menu.open} action={{ label: 'Actions for gone folders', expanded: menu.at !== null, onClick: menu.open }} />
-      <ContextMenu at={menu.at} label="Actions for gone folders" onClose={menu.close}>
+      <ContextMenu at={menu.at} label="Actions for gone folders" onClose={menu.close} icons="none">
         <MenuItem
           icon={<FolderGoneIcon size={13} />}
           label={`Forget ${count}`}

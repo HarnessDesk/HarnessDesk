@@ -111,7 +111,7 @@ export const TopBar = (props: TopBarProps) => {
         <TabsList aria-label="Destination views" variant="line" className={styles.tabs}>
           {props.tabs.map(one => <DestinationTab key={one.value} tab={one} />)}
         </TabsList>
-      </Tabs> : <Popover title="Destination views" triggerRef={foldedTab} label={<>{current?.label ?? 'Views'}{current?.count !== undefined && <Text role="meta" numeric>{current.count}</Text>}<CaretIcon /></>}>
+      </Tabs> : <Popover title="Destination views" triggerRef={foldedTab} label={<>{current?.label ?? 'Views'}{current?.count !== undefined && <Text role="meta" numeric>{current.count}</Text>}<CaretIcon /></>} icons="none">
         {close => <Menu close={close}>{props.tabs?.map(one => <MenuItem key={one.value} label={one.label}
           value={one.count} teamPage={one.value} selected={one.value === props.tab} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
       </Popover>)}</div>}
@@ -121,13 +121,13 @@ export const TopBar = (props: TopBarProps) => {
         {props.verb.icon}{(fold === 0 || !props.verb.icon) && props.verb.label}
       </Button>}</div>
       <div data-topbar="view" className={styles.fixed}>{props.view && <Popover title="View" narrowed={props.view.narrowed} reason={props.view.disabled || undefined} disabled={Boolean(props.view.disabled)}
-        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} label={<FilterIcon />}>
+        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} label={<FilterIcon />} icons="none">
         {close => props.view?.content(close)}
       </Popover>}</div>
       <div ref={tools} data-topbar="tools" className={styles.fixed} data-standing={props.rightColumnWidth ? '' : undefined}
         style={props.rightColumnWidth ? { '--topbar-right-column': typeof props.rightColumnWidth === 'number' ? `${props.rightColumnWidth}px` : props.rightColumnWidth } as CSSProperties : undefined}>{props.tools && <><Separator decorative orientation="vertical" length="bar" data-slot="bar-divider" />{props.tools}</>}</div>
       <div data-topbar="more" className={styles.fixed}><Popover title="More" label={<MoreIcon />}
-        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} icons="none">
         {close => <Menu close={close}>{props.more(close)}{props.extraMore?.map(one => <MenuItem
           key={one.label} label={one.label} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
       </Popover></div>

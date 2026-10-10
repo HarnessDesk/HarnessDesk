@@ -511,7 +511,7 @@ export const PermissionControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {presets.length > 0 && (
@@ -661,7 +661,7 @@ export const ModelControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {statuses.length > 0 && <MenuLabel>{name} {statuses.map((status) =>
@@ -691,8 +691,8 @@ export const ModelControl = () => {
                   label={option.label}
                   value={currentLabel(option)}
                   disabled={option.disabled}
-                  width={280}
-                >
+
+                 wide icons="none">
                   {option.description && <MenuNote>{option.description}</MenuNote>}
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
@@ -740,7 +740,7 @@ export const ModelControl = () => {
                 />
               )}
               {rest.length > 0 && model.type === 'select' && (
-                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`} width={300}>
+                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`}  wide icons="none">
                   <FilterableChoices option={{ ...model, choices: rest }} close={close} />
                 </Submenu>
               )}
@@ -750,8 +750,8 @@ export const ModelControl = () => {
                   icon={<RouteIcon size={14} />}
                   label="Model route"
                   value={activeRoute ? activeRoute.name : 'Direct'}
-                  width={300}
-                >
+
+                 wide icons="none">
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
@@ -868,7 +868,7 @@ export const ModeControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {modes.map((option) => (
@@ -904,7 +904,7 @@ export const MoreControl = () => {
                 {!tight && <Chevron />}
               </>
             }
-          >
+           panelWidth="wide" icons="none">
             {(close) => (
               <Menu close={close}>
                 {others.map((option) => (
@@ -1022,7 +1022,7 @@ export const AgentControl = () => {
             {!tight && <Chevron />}
           </>
         }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {session ? (
@@ -1326,7 +1326,7 @@ export const PlaceControl = () => {
             {!tight && <Chevron />}
           </>
         }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuLabel>Work in</MenuLabel>

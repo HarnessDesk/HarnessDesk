@@ -1,3 +1,4 @@
+import type { MenuIcons } from '../ui/menu-row'
 import { Popover } from './Popover'
 import { CaretIcon } from '../../components/Icons'
 import { forwardRef, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
@@ -19,6 +20,7 @@ export interface LeftColumnAction {
   readonly kind?: 'more' | 'new'
 }
 export interface LeftColumnMenu {
+  readonly icons?: MenuIcons
   readonly label: string
   readonly content: (close: () => void) => ReactNode
   readonly onOpenChange?: (open: boolean) => void
@@ -53,7 +55,7 @@ export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((
       {props.trailing && <span data-left-mark className={styles.mark} role="img" aria-label={props.trailing.label} title={props.trailing.label}>
         {props.trailing.kind === 'count' ? <Text role="meta" numeric>{props.trailing.value}</Text> : props.trailing.icon}
       </span>}
-      {props.menu ? <Popover title={props.menu.label} label={<CaretIcon size={16} />} panelWidth="wide" drop="down" align="right"
+      {props.menu ? <Popover icons={props.menu.icons} title={props.menu.label} label={<CaretIcon size={16} />} panelWidth="wide" drop="down" align="right"
   triggerClassName={styles.menuAction} onOpenChange={props.menu.onOpenChange}>
   {props.menu.content}
 </Popover> : props.action && <Button variant="ghost" size="pattern" className={styles.action}

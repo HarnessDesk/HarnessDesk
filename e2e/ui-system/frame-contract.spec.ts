@@ -1,3 +1,4 @@
+import { applyLeftColumnActions } from './left-column-actions'
 import { openWallDestination } from './frame-wall-actions'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { selectRunView } from './run-frame-actions'
@@ -1246,6 +1247,17 @@ const expectMenuGeometry = async (surface: Locator) => {
     }
   })
   for (const group of anatomy.groups) expect(group).toEqual({ size: `${FRAME_MENU.groupSize}px`, weight: String(FRAME_MENU.groupWeight), color: anatomy.secondaryColor })
+  const hintInk = await surface.evaluate(el => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--hd-muted-foreground)'; el.append(probe)
+    const muted = getComputedStyle(probe).color; probe.remove()
+    const enabled: string[] = []; const refused: string[] = []
+    for (const hint of el.querySelectorAll('[data-menu-hint]')) {
+      (hint.closest('[data-menu-row]:is([data-disabled],[aria-disabled="true"],:disabled)') ? refused : enabled).push(getComputedStyle(hint).color)
+    }
+    return { muted, enabled, refused }
+  })
+  for (const color of hintInk.refused) expect(color).toBe(hintInk.muted)
+  anatomy.hints = hintInk.enabled
   for (const color of anatomy.hints) expect(color).toBe(anatomy.secondaryColor)
   for (const separator of anatomy.separators) expect(separator).toEqual({ height: FRAME_MENU.separator, margins: Array(4).fill(`${FRAME_MENU.padding}px`) })
   const edge = await surface.evaluate(el => {
@@ -1301,5 +1313,56 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     await expect(page.locator('[data-popup-kind="menu"]:visible')).toHaveCount(0)
     await page.getByRole('button', { name: 'Keep', exact: true }).click()
     await expect(page.getByRole('alertdialog')).toBeHidden()
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
+  test(`C3 refused rows retain icons and mute every text track at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'start' })
+    const worktree = page.getByRole('menuitem', { name: /^New worktree/ })
+    await expect(worktree).toHaveAttribute('aria-disabled', 'true')
+    await expectRefusedMenuRow(worktree)
+    await page.keyboard.press('Escape')
+    if (width === 720) await page.getByRole('dialog', { name: 'Sidebar', exact: true }).getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+    await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+    const images = page.getByRole('menuitem', { name: /^Attach images/ })
+    await expect(images).toHaveAttribute('aria-disabled', 'true')
+    await expectRefusedMenuRow(images)
+  })
+}
+const expectRefusedMenuRow = async (row: Locator) => {
+  const colors = await row.evaluate(el => {
+    const resolve = document.createElement('span'); resolve.style.color = 'var(--hd-muted-foreground)'; el.append(resolve)
+    const muted = getComputedStyle(resolve).color; resolve.remove()
+    return { muted, tracks: [el, ...el.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-hint]')].map(node => getComputedStyle(node).color) }
+  })
+  expect(colors.tracks.length).toBe(4)
+  for (const color of colors.tracks) expect(color).toBe(colors.muted)
+  const icon = row.locator('[data-menu-icon] svg')
+  await expect(icon).toHaveCount(1)
+  const box = (await icon.boundingBox())!
+  expect([box.width, box.height]).toEqual([16, 16])
+  const hint = row.locator('[data-menu-hint]')
+  expect(await hint.evaluate(el => [getComputedStyle(el).fontSize, getComputedStyle(el).lineHeight])).toEqual(['12px', '16px'])
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const mode of ['none', 'icons']) {
+  test(`C3 dropdown ${mode} at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, `frame-wall=conversation&popup=dropdown-${mode}`, theme, width)
+    await page.getByRole('button', { name: 'Frame dropdown', exact: true }).click()
+    await expectMenuGeometry(page.locator('[data-popup-kind="menu"]:visible').last())
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: 'Frame dropdown', exact: true })).toBeFocused()
+  })
+}
+for (const theme of WALL_THEMES) {
+  test(`C3 actual dynamic model level never mixes icons in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const trigger = page.getByTitle(/Model and reasoning/).first()
+    await trigger.click()
+    const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+    await expectMenuGeometry(surface)
+    expect(await surface.locator('[data-menu-icon]').count()).toBe(0)
   })
 }

@@ -238,6 +238,8 @@ it('reads the project’s own capture, wherever it is homed, and not a clone’s
 it('distinguishes resetting order from moving a project down', async () => {
   mount(['/a', '/b', '/c'], group('/b', 'billing'))
   const back = await moveRow('Back to automatic order')
-  expect(back.querySelector('svg')?.classList.contains('lucide-rotate-ccw')).toBe(true)
-  expect(row('Move down').querySelector('svg')?.classList.contains('lucide-move-down')).toBe(true)
+  expect(back.querySelector('[data-menu-label]')?.textContent).toBe('Back to automatic order')
+  expect(row('Move down').querySelector('[data-menu-label]')?.textContent).toBe('Move down')
+  expect(back.querySelector('[data-menu-icon]')).toBeNull()
+  expect(row('Move down').querySelector('[data-menu-icon]')).toBeNull()
 })

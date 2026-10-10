@@ -988,7 +988,7 @@ const IntentCard = ({
   const menuVerbs = verbs.filter(one => !listColumns || record || one !== primary)
   const actions = (
         menuVerbs.length > 0 || checkItems.length > 0 || onAssign ? (
-          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right" icons="none">
             {(close) => (
               <Menu close={close}>
                 {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}

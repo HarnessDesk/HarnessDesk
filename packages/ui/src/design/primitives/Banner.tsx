@@ -154,7 +154,7 @@ export const Banner = ({
         </Button>
       )}
       {onDismiss && onMute && (
-        <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)}>
+        <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)} icons="none">
           <MenuItem icon={<CrossIcon size={14} />} label="Dismiss" onSelect={onDismiss} />
           <MenuItem
             icon={<BellOffIcon size={14} />}

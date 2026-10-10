@@ -9,10 +9,10 @@ export const SettingsRowMenu = ({ name, location, label = 'Remove…', onRemove 
   readonly label?: 'Remove' | 'Remove…'
   readonly onRemove: () => void
 }) => (
-  <DropdownMenu>
+  <DropdownMenu icons="none">
     <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${name} actions${location ? ` · ${location}` : ''}`} />} />
     <DropdownMenuContent align="end">
-      <DropdownMenuItem variant="destructive" onClick={onRemove}><TrashIcon size={14} />{label}</DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onClick={onRemove} label={label} icon={<TrashIcon size={14} />} />
     </DropdownMenuContent>
   </DropdownMenu>
 )

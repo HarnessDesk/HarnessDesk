@@ -28,7 +28,7 @@ export const SeatList = ({ rows }: { rows: readonly SeatListRow[] }) => <ListRow
   key={one.id} selected={one.selected} interactive={!one.refusal} onClick={event => {
     if (!one.refusal && !(event.target as Element).closest('button')) one.open()
   }} title={<span title={one.refusal}>{one.name}</span>} wrapSubtitle subtitle={<Text role="meta">{one.detail}{one.refusal ? ` · ${one.refusal}` : ''}</Text>} lead={one.mark}
-  trail={<><Chip tone="neutral">{one.state}</Chip><Popover title={`Actions for ${one.name}`} label={<MoreIcon />}>
+  trail={<><Chip tone="neutral">{one.state}</Chip><Popover title={`Actions for ${one.name}`} label={<MoreIcon />} icons="none">
     {close => <Menu close={close}>
       <MenuItem label="Open conversation" disabled={one.refusal} onSelect={() => { one.open(); close() }} />
       <MenuItem label="Watch beside" disabled={one.refusal ?? one.watchRefusal} onSelect={() => { one.watch(); close() }} />

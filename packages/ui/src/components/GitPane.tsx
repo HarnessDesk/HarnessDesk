@@ -1065,7 +1065,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </div>
       </div>
 
-      <ContextMenu at={menuSha ? menu.at : null} label="Commit actions" onClose={menu.close}>
+      <ContextMenu at={menuSha ? menu.at : null} label="Commit actions" onClose={menu.close} icons="none">
         {menuCommit && (
           <>
             <MenuLabel>{shortSha(menuCommit.sha)}</MenuLabel>
@@ -1181,7 +1181,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         )}
       </ContextMenu>
 
-      <ContextMenu at={railTarget ? railMenu.at : null} label="Ref actions" onClose={railMenu.close}>
+      <ContextMenu at={railTarget ? railMenu.at : null} label="Ref actions" onClose={railMenu.close} icons="none">
         {railTarget?.kind === 'branch' && (
           <BranchMenu
             branch={railTarget.branch}

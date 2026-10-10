@@ -103,7 +103,7 @@ export const WorkspaceMenu = ({
   })
   return (
     <>
-      <ContextMenu icons="all" at={at} label={`Actions for ${group.name}`} onClose={onClose}>
+      <ContextMenu icons="none" at={at} label={`Actions for ${group.name}`} onClose={onClose}>
         <WorkspaceRows
           group={group}
           current={current}
@@ -313,7 +313,7 @@ const WorkspaceRows = ({
           } else store.togglePinned(group.root)
         }}
       />
-      <Submenu icons="all" icon={<ChevronIcon size={14} />} label="Move">
+      <Submenu icons="none" icon={<ChevronIcon size={14} />} label="Move" wide>
         <MenuItem
           icon={<MoveUpIcon size={14} />}
           label="Move up"

@@ -10,6 +10,11 @@ import type { WallActions } from './frame-wall-actions'
 export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'popup-composer-model', query: 'frame-wall=conversation', composerModel: true },
+  { id: 'popup-topbar-view', query: 'frame-wall=team', tab: 'findings', topbarPopup: 'view' },
+  { id: 'popup-folded-tabs', query: 'frame-wall=team', tab: 'findings', topbarPopup: 'tabs' },
+  { id: 'popup-dropdown-none', query: 'frame-wall=conversation&popup=dropdown-none', popup: 'Frame dropdown' },
+  { id: 'popup-dropdown-icons', query: 'frame-wall=conversation&popup=dropdown-icons', popup: 'Frame dropdown' },
   { id: 'topbar-probe', surface: 'pattern', query: 'frame-wall=topbar' },
   { id: 'conversation', query: 'frame-wall=conversation' },
   { id: 'conversation-status-tasks', query: 'frame-wall=conversation&frame-status=tasks' },

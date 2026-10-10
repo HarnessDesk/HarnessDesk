@@ -63,6 +63,7 @@ const LEVEL_ROW = '[role^="menuitem"],[role="switch"]'
  * or not drawn.
  */
 const passedOver = (element: HTMLElement): boolean => {
+  if (element.closest('[hidden]')) return true
   if (element.matches(':disabled') || !element.isConnected) return true
   const style = getComputedStyle(element)
   if (style.visibility === 'hidden' || style.visibility === 'collapse') return true
@@ -473,6 +474,7 @@ export const Submenu = ({
   disabled,
   width: _width,
   icons: childIcons = 'none',
+  wide = true,
   children,
 }: {
   icon?: ReactNode
@@ -623,6 +625,7 @@ export const Submenu = ({
       <DropdownMenuSubContent
         ref={placeFlyout}
         icons={childIcons}
+        wide={wide}
         collisionAvoidance={{ fallbackAxisSide: 'none' }}
         sticky
       >
