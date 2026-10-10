@@ -17,6 +17,14 @@ import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
+import { Page, ViewBar } from '..'
+
+const PAGE_CATALOG_VARIANTS = ['light', 'dark'] as const
+const PAGE_CATALOG_SIZES = ['default'] as const
+const PAGE_CATALOG_STATES = ['default'] as const
+const VIEWBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
+const VIEWBAR_CATALOG_SIZES = ['default'] as const
+const VIEWBAR_CATALOG_STATES = ['default'] as const
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
 import {
@@ -3249,6 +3257,15 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'The Team overview',
     about: 'Every Seat, its state and recorded cost, with finished Seats folded.',
     render: TeamOverviewBoard,
+  },
+  {
+    id: 'app-frame',
+    title: 'The page and its view bar',
+    about: 'Reading, wide and canvas pages share one gutter and keep long content inside their measure.',
+    render: () => <>{(['reading', 'wide', 'canvas'] as const).map((width) => <div key={width}>
+      <ViewBar summary="12 open · 8 blocking" actions={<Button variant="outline">Decide this run</Button>} />
+      <Page width={width}><Text role="prose">Checkout review · a long project name · チェックアウトのレビュー</Text></Page>
+    </div>)}</>,
   },
   {
     id: 'team-bar',
