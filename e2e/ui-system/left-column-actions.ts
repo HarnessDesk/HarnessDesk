@@ -28,3 +28,13 @@ export const applyLeftColumnActions = async (page: Page, actions: {
   }
   if (actions.leftPopup && ['inbox', 'account', 'start'].includes(actions.leftPopup)) await expect(page.locator('[data-slot="popover-popup"]:visible')).toBeVisible()
 }
+
+/** Exercise the actual controlled Settings search in its visual wall. */
+export const applySettingsNavigationActions = async (page: Page, actions: {
+  readonly settingsQuery?: string
+  readonly query?: string
+}) => {
+  if (actions.settingsQuery !== undefined) {
+    await page.locator('[data-left-settings]').getByRole('searchbox', { name: 'Search settings' }).fill(actions.settingsQuery)
+  }
+}

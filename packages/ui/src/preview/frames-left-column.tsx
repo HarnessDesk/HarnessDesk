@@ -14,3 +14,10 @@ export const LeftColumnWorkProbe = () => {
   return <div data-frame-id="frame-wall" data-destination="left-work-pattern"
     style={{ width: FRAME.sidebar.width, height: '100vh' }}><LeftColumnWorkBoard /></div>
 }
+
+import { SettingsNavigationBoard } from '../design/explorer/boards-compositions'
+export const SettingsNavigationProbe = () => {
+  useTheme()
+  return <div data-frame-id="frame-wall" data-destination="settings-middle"
+    style={{ width: FRAME.sidebar.width, height: '100vh' }}><SettingsNavigationBoard /></div>
+}

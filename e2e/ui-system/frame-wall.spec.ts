@@ -1,4 +1,5 @@
 import { applyLeftColumnActions } from './left-column-actions'
+import { applySettingsNavigationActions } from './left-column-actions'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -31,6 +32,7 @@ for (const destination of WALL_DESTINATIONS) {
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         if ('tab' in destination) await page.locator(`[data-team-page="${destination.tab}"]`).first().click()
         await applyLeftColumnActions(page, destination)
+        await applySettingsNavigationActions(page, destination)
         await page.evaluate(async () => { await document.fonts.ready })
         const name = `${destination.id}-${width}-${theme}.png`
         if (DIRECTORY) {

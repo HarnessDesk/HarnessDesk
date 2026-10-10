@@ -3370,3 +3370,14 @@ export function LeftColumnWorkBoard() {
 COMPOSITION_BOARDS.push({ id: 'left-column-work', title: 'Left column work rows', about: 'Fixed rows, rename, virtual spacers and the existing project controls.', render: LeftColumnWorkBoard })
 
 import { MoreIcon } from '../../components/Icons'
+
+import { SettingsNavigation } from '../../components/SettingsNavigation'
+import type { Section as SettingsSection } from '../../components/Settings'
+export const SettingsNavigationBoard = () => {
+  const store = useMemo(() => previewStore(), [])
+  const [section, setSection] = useState<SettingsSection>('general')
+  return <StoreProvider store={store}><LeftColumnBody>
+    <SettingsNavigation section={section} onSection={setSection} onBack={() => setSection('general')} />
+  </LeftColumnBody></StoreProvider>
+}
+COMPOSITION_BOARDS.push({ id: 'settings-navigation', title: 'Settings navigation', about: 'Controlled preferences with Back and search.', render: SettingsNavigationBoard })

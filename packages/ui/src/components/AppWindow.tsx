@@ -41,7 +41,7 @@ import styles from './AppWindow.module.css'
 /** Embedded catalogs show several windows together without taking the desk. */
 export const AppWindowMode = createContext<'modal' | 'embedded'>('modal')
 
-const moveWindowRailFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
+export const moveWindowRailFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
   const target = event.target
   if (!(target instanceof HTMLButtonElement) || target.dataset.sidebar !== 'menu-button') return
   if (event.key === 'Enter' || event.key === ' ') {

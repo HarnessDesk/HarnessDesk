@@ -1,3 +1,4 @@
+import { SettingsNavigationProbe } from './frames-left-column'
 import { LeftColumnWorkProbe } from './frames-left-column'
 import { LeftColumnProbe } from './frames-left-column'
 import { TeamStartFrames } from './frames-team-start'
@@ -1240,6 +1241,8 @@ createRoot(container).render(
           ? <LeftColumnWorkProbe />
           : new URLSearchParams(window.location.search).get('frame-wall') === 'left-column'
           ? <LeftColumnProbe />
+          : new URLSearchParams(window.location.search).get('frame-wall') === 'settings-middle'
+          ? <SettingsNavigationProbe />
           : new URLSearchParams(window.location.search).has('frame-wall')
           ? <FrameWall />
           : new URLSearchParams(window.location.search).has('team-frame')

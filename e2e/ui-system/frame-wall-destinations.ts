@@ -25,6 +25,9 @@ export const WALL_DESTINATIONS = [
   { id: 'left-session-menu', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'session' },
   { id: 'left-session-card', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'card' },
   { id: 'left-work-pattern', query: 'frame-wall=left-work-pattern' },
+  { id: 'settings-middle', query: 'frame-wall=settings-middle' },
+  { id: 'settings-middle-filtered', query: 'frame-wall=settings-middle', settingsQuery: 'mute' },
+  { id: 'settings-middle-empty', query: 'frame-wall=settings-middle', settingsQuery: 'no matching preference with a deliberately long search phrase' },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

@@ -67,9 +67,14 @@ export const LeftColumnGroup = ({ label, children, heading = true }: { label: st
   <section data-left-group className={styles.group} aria-label={label} role="group">
     {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}{children}
   </section>
-export const LeftColumnHead = ({ label, controls }: { label: string; controls: ReactNode }) =>
-  <div data-left-head className={styles.head}><GroupLabel className={`${styles.headLabel} ${styles.inkAfterIcon}`}><span data-left-group-text>{label}</span></GroupLabel>
-    <div className={styles.headControls}>{controls}</div></div>
+export const LeftColumnHead = ({ label, controls, search }: {
+  label?: string; controls?: ReactNode; search?: ReactNode
+}) => <div data-left-head className={search ? styles.head : `${styles.head} ${styles.inset}`}>
+  {search ? <div className={styles.headSearch}>{search}</div> : <>
+    <GroupLabel className={`${styles.headLabel} ${styles.inkAfterIcon}`}><span data-left-group-text>{label}</span></GroupLabel>
+    <div className={styles.headControls}>{controls}</div>
+  </>}
+</div>
 export const LeftColumnBody = forwardRef<HTMLDivElement, {
   children: ReactNode; onScroll?: ComponentProps<'div'>['onScroll']; hidden?: boolean
 }>(({ children, onScroll, hidden }, ref) => <div ref={ref} hidden={hidden} inert={hidden}

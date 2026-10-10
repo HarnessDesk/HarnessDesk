@@ -350,3 +350,62 @@ for (const theme of WALL_THEMES) {
     await expect(column).toContainText('No conversations yet')
   })
 }
+
+for (const theme of WALL_THEMES) {
+  test(`D5 preference groups and search in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings-middle', theme)
+    const nav = page.locator('[data-left-settings]')
+    const labels = await nav.locator('[data-left-group-text]').allTextContents()
+    expect(labels).toEqual(['General', 'Conversations', 'Agents', 'Access'])
+    for (const row of await nav.locator('[data-left-row]').all()) {
+      expect((await row.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
+    }
+    await expect(nav.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Library', exact: true })).toHaveCount(0)
+    await expect(nav.getByRole('button', { name: 'Plugins', exact: true })).toHaveCount(0)
+    await nav.getByRole('searchbox', { name: 'Search settings' }).fill('mute')
+    await expect(nav.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'General', exact: true })).toHaveCount(0)
+    await nav.getByRole('searchbox', { name: 'Search settings' }).fill('zzzz')
+    await expect(nav).toContainText('Nothing in settings matches')
+  })
+}
+
+
+for (const theme of WALL_THEMES) {
+  test(`D5 controlled keyboard, Back and full search field in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings-middle', theme)
+    const nav = page.locator('[data-left-settings]')
+    const back = nav.getByRole('button', { name: 'Back', exact: true })
+    const general = nav.getByRole('button', { name: 'General', exact: true })
+    const appearance = nav.getByRole('button', { name: 'Appearance', exact: true })
+    await expect(general).toHaveAttribute('aria-current', 'page')
+    await back.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(general).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(appearance).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(appearance).toHaveAttribute('aria-current', 'page')
+    await back.focus()
+    await page.keyboard.press('Enter')
+    await expect(general).toHaveAttribute('aria-current', 'page')
+    const search = nav.getByRole('searchbox', { name: 'Search settings' })
+    await search.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(search).toBeFocused()
+    const field = (await nav.locator('[data-slot="search"]').boundingBox())!
+    const middle = (await nav.boundingBox())!
+    expect(field.x).toBe(middle.x)
+    expect(field.width).toBe(middle.width)
+    await search.fill('no matching preference with a deliberately long search phrase')
+    const empty = await nav.locator('p').evaluate(node => ({
+      height: node.getBoundingClientRect().height,
+      line: parseFloat(getComputedStyle(node).lineHeight),
+      width: node.clientWidth,
+      scroll: node.scrollWidth,
+    }))
+    expect(empty.height).toBeGreaterThan(empty.line)
+    expect(empty.scroll).toBeLessThanOrEqual(empty.width)
+  })
+}
