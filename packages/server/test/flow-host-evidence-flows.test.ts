@@ -27,11 +27,14 @@ test('the alignment flow reaches its end', E2E, async (t) => {
 
 test('the mechanical contest flow reaches its end', E2E, async (t) => {
   const d = await desk(t)
+  await assert.rejects(readFile(join(d.root, 'script', 'flow-contest.sh')), { code: 'ENOENT' })
   const run = await start(d, await shipped(d, 'mechanical-contest'), TASK)
   const competitors = await claimed(d, run.goal, 'competitor', 2)
   for (const [index, card] of competitors.entries()) await write(d, card, `attempt ${index + 1}`)
   await person(d, run.goal, 'referee', 'merged')
-  await settled(d, run.id)
+  const done = await settled(d, run.id)
+  assert.deepEqual(done.rounds.map(one => one.role), ['competitor', 'referee'])
+  assert.equal(done.operations.some(one => one.kind === 'check'), false)
 })
 
 test('the staged relay flow reaches its end', E2E, async (t) => {

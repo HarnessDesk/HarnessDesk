@@ -10,6 +10,7 @@ import type { AppStore } from '../state/store'
 import { FlowStart, type FlowChoice } from './FlowStart'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 import { withAttemptCheck } from '../lib/team-start'
+import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -137,6 +138,15 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   act(() => judge().click())
   expect(current.rules.filter(rule => rule.on === 'competitor').map(rule => rule.then.role)).toEqual(['verify'])
   expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+})
+
+it('offers the same optional attempt check for a contest without a judge', async () => {
+  const template = CONTEST_START_POLICY
+  await renderTeam(template, [])
+  expect(container.querySelector('[aria-label="A judge picks the better one"]')).toBeNull()
+  const label = [...container.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))
+  expect(label).toBeDefined()
+  expect(container.textContent).toContain('Leave empty to choose from the attempts directly.')
 })
 
 it('keeps a saved custom check’s success and incoming guards through clearing, restoring and judge toggles', () => {

@@ -21,8 +21,11 @@ let browser
 const frames = [], evidence = []
 try {
   browser = await chromium.launch({ headless: true })
-  for (const template of ['comparison', 'fix-and-review']) {
-    const directory = join(scratch, template)
+  const journeys = process.argv.includes('--contest') ? [['mechanical-contest', 'skipped'], ['mechanical-contest', 'declared']] : [['comparison', 'edited'], ['fix-and-review', 'none']]
+  for (const [template, checkMode] of journeys) {
+    const contest = template === 'mechanical-contest'
+    const scene = contest ? `${template}-${checkMode}` : template
+    const directory = join(scratch, scene)
     const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'person', 'work'), template })
     let server, page
     try {
@@ -55,7 +58,7 @@ try {
           }, [...photographedRevisions])
           assert.doesNotMatch(await page.locator('body').innerText(), /(?:harnessdesk\/)?lane-[0-9a-f-]{20,}/, 'managed lane identifiers stay out of visible text')
           assert.deepEqual(textReasons(await page.evaluate(COLLECT), { user: USER }), [], `privacy audit: ${name}`)
-          const filename = `${template}-${name}-${theme}.png`
+          const filename = `${scene}-${name}-${theme}.png`
           await page.screenshot({ path: join(out, filename), animations: 'disabled' })
           frames.push(filename)
           process.stdout.write(`Captured ${filename}\n`)
@@ -71,28 +74,36 @@ try {
       await page.getByRole('menuitem', { name: /^New Team/ }).click()
       await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
       await photograph('01-new-team')
-      const name = template === 'comparison' ? 'Side by side' : 'Write and review'
+      const name = contest ? 'Mechanical contest' : template === 'comparison' ? 'Side by side' : 'Write and review'
       await page.getByRole('dialog').getByRole('button', { name: new RegExp(`^${name}`) }).click()
       // The first dry run can still be installing the project's suggested
       // check when the task field appears. Wait for its editable Seat controls.
       await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Agent for / }).first()).toBeEnabled({ timeout: 30000 })
-      const task = template === 'comparison' ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
+      const task = template === 'comparison' || contest ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
-      if (template === 'comparison') {
+      if (template === 'comparison' || contest) {
         const command = page.getByRole('textbox', { name: 'Check each attempt with', exact: true })
         await expect(command).toHaveValue('pnpm test')
-        await command.fill(TEMPLATE_CHECK)
-        await expect(command).toHaveValue(TEMPLATE_CHECK)
+        const chosenCheck = contest ? (checkMode === 'skipped' ? '' : 'pnpm test') : TEMPLATE_CHECK
+        await command.fill(chosenCheck)
+        await expect(command).toHaveValue(chosenCheck)
       }
       await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
       await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
       await page.getByText('Details', { exact: true }).click()
-      const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Agent for Judge' : 'Agent for Reviews', exact: true })
-      await reviewer.selectOption('codex-review')
-      await expect(reviewer).toHaveValue('codex-review')
+      if (!contest) {
+        const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Agent for Judge' : 'Agent for Reviews', exact: true })
+        await reviewer.selectOption('codex-review')
+        await expect(reviewer).toHaveValue('codex-review')
+      }
       if (template === 'comparison') await expect(page.getByRole('region', { name: 'Commands it runs' }).getByText(new RegExp(TEMPLATE_CHECK.replaceAll('.', '\\.')))).toBeVisible()
+      if (contest) {
+        const commands = page.getByRole('region', { name: 'Commands it runs' })
+        if (checkMode === 'declared') await expect(commands.getByText(/pnpm test/)).toBeVisible()
+        else await expect(commands).toHaveCount(0)
+      }
       await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
       await page.getByRole('region', { name: 'Seats this would open' }).scrollIntoViewIfNeeded()
       await photograph('03-preview')
@@ -124,6 +135,62 @@ try {
       const tab = async name => { await page.getByRole('tablist', { name: 'Team pages', exact: true }).getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click() }
       const boardTitle = title => page.getByRole('heading', { level: 4, name: new RegExp(`^#\\d+ ${title}$`) })
       const boardColumn = name => page.locator('[data-slot="board-column"]').filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) })
+      const repository = async () => {
+        await page.getByRole('button', { name: 'Search everything', exact: true }).click()
+        await page.getByPlaceholder('Search sessions, files, agents, commands, actions…').fill('Show repository')
+        await page.getByRole('option', { name: /^Show repository/ }).click()
+      }
+      const mergeFromRepository = async revision => {
+        await repository()
+        await page.getByRole('button', { name: 'Give this panel the whole area', exact: true }).last().click()
+        const main = page.getByTitle('main — click to find it, double-click to check it out', { exact: true })
+        await main.dblclick()
+        await expect(main).toHaveAttribute('data-current', '')
+        if (!contest) await photograph('10-person-repository')
+        await page.getByTitle('Merge into the current branch…', { exact: true }).click()
+        const merge = page.getByRole('dialog', { name: 'Merge into main', exact: true })
+        await merge.getByRole('combobox', { name: 'What to merge', exact: true }).selectOption(revision)
+        if (!contest) await photograph('11-person-merge')
+        await merge.getByRole('button', { name: 'Merge', exact: true }).click()
+        await expect(merge).toHaveCount(0)
+      }
+      const returnToBoard = async () => {
+        await page.getByRole('button', { name: 'Back to the layout', exact: true }).click()
+        await repository()
+        await tab('Board')
+      }
+      if (contest) {
+        await observe(cards => cards.filter(one => one.role === 'competitor' && one.state === 'claimed').length === 2, 'contest attempts seated')
+        rig.release('attempts')
+        if (checkMode === 'declared') {
+          await observe((cards, execution) => cards.filter(one => one.role === 'verify' && one.state === 'open').length === 2 && execution.operations.some(one => one.kind === 'check' && one.state === 'started'), 'declared contest checks started')
+          rig.release('checks')
+        }
+        const handoff = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'contest person choice')
+        const facts = await rig.host.call('evidence/board', { room: run.goal })
+        const records = facts.cards.flatMap(one => one.facts.map(fact => fact.record))
+        const checks = records.filter(one => one.fact.kind === 'check')
+        const diffs = handoff.view.board.intents.filter(one => one.role === 'competitor').map(card => facts.cards.find(one => one.card === card.id).facts.find(one => one.record.fact.kind === 'diff').record)
+        assert.equal(checks.length, checkMode === 'skipped' ? 0 : 2)
+        assert.ok(checks.every(one => one.fact.run === 'pnpm test' && one.fact.exit === 0))
+        if (checks.length) assert.deepEqual(checks.map(one => one.fact.at).sort(), diffs.map(one => one.fact.to).sort(), 'declared checks ran on the committed attempts')
+        assert.deepEqual(handoff.execution.rounds.map(one => one.role), checkMode === 'skipped' ? ['competitor', 'referee'] : ['competitor', 'verify', 'referee'])
+        const branch = execFileSync('git', ['branch', '--show-current'], { cwd: diffs[0].checkout.cwd, encoding: 'utf8' }).trim()
+        await mergeFromRepository(branch)
+        await returnToBoard()
+        rig.git('merge-base', '--is-ancestor', diffs[0].fact.to, 'main')
+        const referee = handoff.view.board.intents.find(one => one.role === 'referee')
+        await page.getByRole('button', { name: `What to do with #${referee.id}`, exact: true }).click()
+        await page.getByRole('menuitem', { name: 'Answer merged', exact: true }).click()
+        await observe((cards, execution) => execution.state === 'settled' && cards.every(one => one.state === 'done'), 'contest completed')
+        await tab('Overview')
+        await expect(page.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
+        await page.waitForFunction(goal => window.__hdStore.getSnapshot().goals.get(goal)?.activity !== 'working', run.goal)
+        await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+        evidence.push({ template, checkMode, checks: checks.map(one => ({ command: one.fact.run, exitCode: one.fact.exit, at: one.fact.at })), rounds: handoff.execution.rounds.map(one => one.role), settledSidebar: true })
+        assert.deepEqual(rendererErrors, [], 'the contest renderer had no uncaught errors')
+        continue
+      }
       await observe(cards => cards.filter(one => one.role === (template === 'comparison' ? 'competitor' : 'fixer') && one.state === 'claimed').length === (template === 'comparison' ? 2 : 1), 'writers seated')
       await tab('Overview')
       await expect(page.getByText('Working', { exact: true }).first()).toBeVisible()
@@ -208,29 +275,11 @@ try {
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge it — every reviewer approved$/ })).toBeVisible()
         await photograph('09-referee-board')
         const referee = reviewed.view.board.intents.find(one => one.role === 'referee')
-        const repository = async () => {
-          await page.getByRole('button', { name: 'Search everything', exact: true }).click()
-          await page.getByPlaceholder('Search sessions, files, agents, commands, actions…').fill('Show repository')
-          await page.getByRole('option', { name: /^Show repository/ }).click()
-        }
-        await repository()
-        await page.getByRole('button', { name: 'Give this panel the whole area', exact: true }).last().click()
-        const main = page.getByTitle('main — click to find it, double-click to check it out', { exact: true })
-        await main.dblclick()
-        await expect(main).toHaveAttribute('data-current', '')
-        await photograph('10-person-repository')
-        await page.getByTitle('Merge into the current branch…', { exact: true }).click()
-        const merge = page.getByRole('dialog', { name: 'Merge into main', exact: true })
-        await merge.getByRole('combobox', { name: 'What to merge', exact: true }).selectOption('rig-write-review-1')
-        await photograph('11-person-merge')
-        await merge.getByRole('button', { name: 'Merge', exact: true }).click()
-        await expect(merge).toHaveCount(0)
+        await mergeFromRepository(TEMPLATE_PUBLISH_BRANCH)
         const published = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).pr
         rig.git('merge-base', '--is-ancestor', published.headRefOid, 'main')
         await photograph('12-person-merged')
-        await page.getByRole('button', { name: 'Back to the layout', exact: true }).click()
-        await repository()
-        await tab('Board')
+        await returnToBoard()
         await page.getByRole('button', { name: `What to do with #${referee.id}`, exact: true }).click()
         await page.getByRole('menuitem', { name: 'Answer merged', exact: true }).click()
         const records = (await rig.host.call('evidence/board', { room: run.goal })).cards.flatMap(one => one.facts.map(fact => fact.record))
