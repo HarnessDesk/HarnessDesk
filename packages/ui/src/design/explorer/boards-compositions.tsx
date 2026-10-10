@@ -1,4 +1,4 @@
-import { ToolBody, ToolSection, ToolProse, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
+import { SeatList, ToolBody, ToolSection, ToolProse, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
@@ -3058,7 +3058,21 @@ export const ToolBodyBoard = () => <div data-catalog-variants={TOOLBODY_CATALOG_
   <ToolBody><ToolSection label="Plan"><ToolProse>No plan recorded.</ToolProse></ToolSection></ToolBody>
 </div>
 
+const SEATLIST_CATALOG_VARIANTS = ['light', 'dark'] as const
+const SEATLIST_CATALOG_SIZES = ['default'] as const
+const SEATLIST_CATALOG_STATES = ['default', 'populated', 'disabled', 'long-title'] as const
+export const SeatListBoard = () => {
+  const [inbound, setInbound] = useState<'accept' | 'hold' | 'refuse'>('accept')
+  const base = { detail: 'Agent · Review model · Read only', state: 'Idle', inbound, setInbound,
+    open: () => {}, watch: () => {}, message: () => {}, remove: () => {} }
+  return <div data-catalog-variants={SEATLIST_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SEATLIST_CATALOG_SIZES.join(' ')} data-catalog-states={SEATLIST_CATALOG_STATES.join(' ')}>
+    <SeatList rows={[{ ...base, id: 'review', name: 'Checkout review · 長い席の名前' },
+      { ...base, id: 'recorded', name: 'Recorded review Seat', refusal: 'The conversation was not kept in this record.' }]} />
+  </div>
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
   { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
   { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },

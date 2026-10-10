@@ -1,3 +1,4 @@
+import { ToolSection } from '../design'
 import { AgentIcon, PullRequestIcon } from './Icons'
 import { openExternal } from '../lib/desktop'
 import type { FindingRoundPublication, FlowCheckAttempt, GoalState } from '@harnessdesk/protocol'
@@ -12,6 +13,7 @@ export interface InspectorSeat {
   onOpen?: () => void
 }
 export interface RunInspectorProps {
+  readonly inspectionOnly?: boolean
   home?: string | null
   teamState?: GoalState | undefined
   input: RunTimelineInput
@@ -94,7 +96,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ home, teamState, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
+export const RunInspector = ({ inspectionOnly = false, home, teamState, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -176,8 +178,10 @@ export const RunInspector = ({ home, teamState, input, selectedRow, seats, onAba
       {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
     </>
   } else {
+    if (inspectionOnly) return null
     return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} faceTints={faceTints} pullRequest={pullRequest} flowFile={flowFile} />
   }
+  if (inspectionOnly) return <div data-slot="run-inspector"><ToolSection label={sanitizeText(title)}>{body}</ToolSection></div>
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <PanelFrame inset="reading"><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
       {card && selected?.status && <Text role="meta">{sanitizeText(selected.status)}</Text>}

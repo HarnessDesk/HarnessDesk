@@ -52,7 +52,7 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
 }) => {
   const { home } = useSnapshot()
   // The Team's Steps dock lists the Steps beside the pane at every width, but only while it is drawing them for this Run.
-  // Put away, showing something else, off the screen or following another pane, a Run lists them itself once narrow, as one outside the dock does.
+  // Put away, showing something else, off the screen or following another pane, a Run lists them itself at every width.
   const dock = useRunDock()
   const owner = usePane()?.paneId ?? ''
   const stepsDocked = useSnapshotSelector(snapshot => dock !== null && (!owner || snapshot.workbench.main.focused === owner) && drawnInDock(snapshot, 'run-steps'))
@@ -81,7 +81,7 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
         </span>
       </div>
       {problem && <ActionError>{problem}</ActionError>}
-      <FlowGraph title="The path this Run took" listPlacement={stepsDocked ? 'dock' : 'responsive'} actions={<RunFlowFile root={root} name={flow.name} icon onProblem={setProblem} />} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+      <FlowGraph title="The path this Run took" listPlacement={stepsDocked ? 'dock' : 'below'} actions={<RunFlowFile root={root} name={flow.name} icon onProblem={setProblem} />} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
     </div>
   )
 }

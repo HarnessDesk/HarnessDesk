@@ -16,6 +16,7 @@ import type { AppSnapshot, AppStore } from '../state/store'
 import { useTheme } from '../state/theme'
 import { emptyWorkbench } from '../state/workbench'
 import { PREVIEW_SESSION_KEY, previewStore } from './harness'
+import { teamRecordStore } from './frames-team-record'
 import { overviewTeamStore } from './team-overview-fixture'
 import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
@@ -27,7 +28,7 @@ import { usagePreviewStore } from './usage-fixture'
  * drawn here the same way, so the wall shows the app as it is.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'teams', 'agents', 'dashboard', 'settings'] as const
+export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'teams', 'agents', 'dashboard', 'settings'] as const
 type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
 
 const mainShowing = (view: PaneView) =>
@@ -46,11 +47,21 @@ const showing = (store: AppStore, view: PaneView, session: AppSnapshot['activeSe
   return store
 }
 
+export const triggerTeamStore = (): AppStore => {
+  const source = overviewTeamStore('running').getSnapshot()
+  const goal = source.goals.get('overview-team')!
+  return previewStore({ ...source, goals: new Map(source.goals).set('overview-team', {
+    ...goal, goal: { ...goal.goal, origin: { kind: 'trigger', trigger: 'fixture-trigger', event: 'fixture-event' } },
+  }) })
+}
+
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
     case 'team': return showing(overviewTeamStore('running'), { kind: 'room', room: 'overview-team' }, null)
+    case 'team-trigger': return showing(triggerTeamStore(), { kind: 'room', room: 'overview-team' }, null)
+    case 'team-receipt': return showing(teamRecordStore('wrapped'), { kind: 'room', room: 'overview-team' }, null)
     case 'teams': return teamsPageStore('active')
     case 'dashboard': return usagePreviewStore()
     case 'agents':

@@ -5,7 +5,7 @@ import { StagedRun } from '../../site-demo/fake-run'
 import { AppWindowMode } from '../components/AppWindow'
 import { FlowStart, type FlowChoice } from '../components/FlowStart'
 import { Sidebar } from '../components/Sidebar'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { TeamRunView } from '../components/TeamRunView'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { Usage } from '../components/Usage'
@@ -13,7 +13,6 @@ import { LibrarySection } from '../components/Library'
 import { PluginsSection } from '../components/PluginsSection'
 import { Bar, Button, FormStack, PageHead, PaneColumn } from '../design'
 import { runTimeline } from '../lib/run-timeline'
-import { MountProvider } from '../panels/mount'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import type { AppStore } from '../state/store'
@@ -144,15 +143,13 @@ const Body = ({ scene }: { scene: string }) => {
   if (scene === 'project-sidebar') return <div className="flex h-full">
     <div className="w-80 shrink-0"><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
       onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /></div>
-    <div className="min-w-0 flex-1"><TeamRoomPane room="team-checkout" /></div>
+    <div className="min-w-0 flex-1"><TeamFramePreview room="team-checkout" /></div>
   </div>
   if (scene === 'run-timeline' || scene === 'run-flow') return <RunStill flow={scene === 'run-flow'} />
   if (scene === 'flow-start-preview') return <StartPreview />
   if (scene === 'run-picked') return <PickedRun />
-  if (scene === 'race-tiles') return <MountProvider scope={{ area: 'main', id: 'release-race', view: { kind: 'room', room: PREVIEW_ROOM,
-    sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } } }}>
-    <TeamRoomPane room={PREVIEW_ROOM} />
-  </MountProvider>
+  if (scene === 'race-tiles') return <TeamFramePreview room={PREVIEW_ROOM} view={{ kind: 'room', framePage: 'room', room: PREVIEW_ROOM,
+    sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } }} />
   return <Usage view={scene === 'dashboard-plans' ? 'plans' : 'activity'} onClose={() => {}} />
 }
 

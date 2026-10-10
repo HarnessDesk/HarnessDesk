@@ -120,6 +120,9 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
   const kindOfRule = new Map(layout.edges.flatMap((edge) => edge.rules.map((id) => [id, edge.kind] as const)))
   const xScale = (FLOW_CANVAS_CARD_WIDTH + FLOW_GAP) / (FLOW_CARD_W + FLOW_GAP)
   const yScale = (FLOW_CANVAS_RUN_CARD_HEIGHT + FLOW_ROW_GAP) / (FLOW_CARD_H + FLOW_ROW_GAP)
+  const extent = Math.ceil(layout.height * yScale + FLOW_MARGIN)
+  const controlsSpace = showControls !== false && !inert ? ' + var(--hd-space-16)' : ''
+  const readingHeight = controlsSpace ? `calc(${extent}px${controlsSpace})` : extent
   const nodes = layout.nodes.map(node => {
     const step = stepsById.get(node.id)!
     return {
@@ -142,8 +145,9 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
   return (
     <div ref={ref} data-slot="flow-graph" style={{ containerType: 'inline-size' }} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
       <div data-slot="flow-drawing" className="min-h-0 flex-1" style={listDocked ? undefined : narrow ? {
-        height: `calc(100cqw * ${(layout.height * yScale + FLOW_MARGIN) / (layout.width * xScale + FLOW_MARGIN)}${showControls !== false && !inert ? ' + var(--hd-space-16)' : ''})`, flex: 'none',
-      } : { height: Math.ceil(layout.height * yScale + FLOW_MARGIN), flex: 'none' }}>
+        minHeight: readingHeight,
+        height: `calc(100cqw * ${(layout.height * yScale + FLOW_MARGIN) / (layout.width * xScale + FLOW_MARGIN)}${controlsSpace})`, flex: 'none',
+      } : { height: readingHeight, flex: 'none' }}>
         <FlowCanvas nodes={nodes} edges={edges} readOnly title={title} actions={actions} showControls={showControls} inert={inert} NodeComponent={RunStep}
           onNodesChange={changes => { const selection = changes.find(change => change.type === 'select' && change.selected); if (selection && selection.id !== selectedStep) onSelectStep?.(selection.id) }} />
       </div>

@@ -1,3 +1,6 @@
+import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
+import { replaceTeamPayload } from '../state/workbench'
+import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { fixedToolRefusal, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from '../state/frame-tools'
 import { fixedSubject, dockViews } from '../state/workbench'
 import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneView } from '../state/layout'
@@ -1268,6 +1271,24 @@ class PreviewStore {
   }
 
   #workbench(next: AppSnapshot['workbench']): void { this.patch({ workbench: next, layout: next.main }) }
+  setTeamFramePage(room: string, framePage: TeamFramePage, chatLayout?: TeamChatLayout): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room' || pane.view.framePage === framePage && (chatLayout === undefined || pane.view.chatLayout === chatLayout)) return
+    this.#workbench(replaceTeamPayload(this.#snapshot.workbench, pane.id, { ...pane.view, framePage, ...(chatLayout ? { chatLayout } : {}) }))
+  }
+  setRoomWatching(id: string, watching: readonly import('@harnessdesk/protocol').SessionKey[]): void {
+    const current = viewAt(this.#snapshot.workbench, id)
+    if (current?.kind !== 'room' || JSON.stringify(current.watching ?? []) === JSON.stringify(watching)) return
+    this.#workbench(replaceTeamPayload(this.#snapshot.workbench, id, { ...current, watching: [...watching] }))
+  }
+  setRoomSideBySide(id: string, state: SideBySideState): void {
+    const current = viewAt(this.#snapshot.workbench, id)
+    if (current?.kind !== 'room') return
+    const next = toStored(state)
+    if (JSON.stringify(current.sideBySide ?? null) === JSON.stringify(next ?? null)) return
+    const { sideBySide: _old, ...rest } = current
+    this.#workbench(replaceTeamPayload(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
+  }
   workSubject(): string | null { return fixedSubject(this.#snapshot.workbench.main) }
   chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
     const subject = this.workSubject()
@@ -2185,7 +2206,7 @@ class PreviewStore {
  * empty — takes one of these instead, so its state cannot leak into a screen
  * or a spec that did not ask for it.
  */
-export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore => new Proxy(new PreviewStore(seed), {
+export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore & Pick<PreviewStore, 'patch'> => new Proxy(new PreviewStore(seed), {
   get(target, property, receiver) {
     if (Reflect.has(target, property)) {
       const value = Reflect.get(target, property, target)
@@ -2210,7 +2231,7 @@ export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore => new P
       console.warn(`[preview] store.${String(property)} is not implemented here`, ...args)
     }
   },
-}) as unknown as AppStore
+}) as unknown as AppStore & Pick<PreviewStore, 'patch'>
 
 export const store = previewStore()
 

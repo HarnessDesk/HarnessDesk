@@ -246,9 +246,9 @@ it('shortens the check in both drawing and Steps, retaining its raw hover title'
 
 // The graph's own container decides, not the window: 500px is a narrow pane.
 // A Run is left to the Team dock only while the dock is drawing its Steps, so each case says what the window shows.
-const listInNarrowPane = async (docked: boolean, workbench?: Workbench, pane?: string) => {
+const listInNarrowPane = async (docked: boolean, workbench?: Workbench, pane?: string, graphWidth = 500) => {
   vi.restoreAllMocks(); vi.unstubAllGlobals()
-  canvasDOM({ graphWidth: 500 })
+  canvasDOM({ graphWidth })
   const flow = <RunFlow execution={run()} root="/repo" seats={[]} />
   const view = <StoreProvider store={fakeStore([], undefined, workbench)}>
     {pane ? <PaneProvider scope={{ paneId: pane, view: { kind: 'room', room: 'flow-team' }, sessionKey: null }}>{flow}</PaneProvider> : flow}
@@ -265,8 +265,10 @@ const stepsDocked: Workbench = { ...stepsRaw,
   frameTools: { [stepsSubject]: { tool: 'details', mode: 'run-details', open: true } },
   toolOwners: Object.fromEntries(dockViews(stepsRaw.right).map(one => [one.id, stepsSubject])) }
 
-it('leaves the Steps to the Team dock in a narrow pane while the dock is drawing them', async () => {
-  expect((await listInNarrowPane(true, stepsDocked)).dataset.placement).toBe('dock')
+it('keeps Steps below a narrow Team Flow when canonical Details hides the retained legacy cache', async () => {
+  expect((await listInNarrowPane(true, stepsDocked)).dataset.placement).toBe('below')
+  expect(container.querySelectorAll('[data-step-row]')).toHaveLength(6)
+  expect(container.querySelector('section[aria-label="Rules"]')?.textContent).toContain('Review → Fix')
 })
 
 it('lists Steps and Rules below the drawing when intent hides a retained raw-open right dock', async () => {
@@ -302,5 +304,13 @@ it('lists the Steps itself while a zoom has taken the Team dock off the screen',
 it('lists the Steps itself when the dock is following another pane’s Run', async () => {
   const focused = (id: string): Workbench => ({ ...stepsDocked, main: { ...stepsMain, root: { ...stepsMain.root, id }, focused: id } })
   expect((await listInNarrowPane(true, focused('other'), 'this')).dataset.placement).toBe('below')
-  expect((await listInNarrowPane(true, focused('this'), 'this')).dataset.placement).toBe('dock')
+  expect((await listInNarrowPane(true, focused('this'), 'this')).dataset.placement).toBe('below')
+  expect(container.querySelectorAll('[data-step-row]')).toHaveLength(6)
+})
+
+it('keeps the main Steps readable above the responsive breakpoint when canonical Team facts hide the cache', async () => {
+  expect((await listInNarrowPane(true, stepsDocked, 'flow-team', 800)).dataset.placement).toBe('below')
+  expect(container.querySelector('[data-slot="flow-list"]')?.classList.contains('sr-only')).toBe(false)
+  expect(container.querySelectorAll('[data-step-row]')).toHaveLength(6)
+  expect(container.querySelector('section[aria-label="Rules"]')?.textContent).toContain('Review → Fix')
 })

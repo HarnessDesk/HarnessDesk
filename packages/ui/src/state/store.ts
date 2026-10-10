@@ -1,3 +1,5 @@
+import { type TeamChatLayout, type TeamFramePage } from './layout'
+import { replaceTeamPayload } from './workbench'
 import { fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
 import { fixedSubject, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
@@ -3501,13 +3503,19 @@ export class AppStore {
    * since the slot is exactly what Back exists to compensate for. On the view
    * it rides in the workbench, which is persisted per workspace.
    */
+  setTeamFramePage(room: string, framePage: TeamFramePage, chatLayout?: TeamChatLayout): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room' || pane.view.framePage === framePage && (chatLayout === undefined || pane.view.chatLayout === chatLayout)) return
+    this.#setWorkbench(replaceTeamPayload(this.#snapshot.workbench, pane.id, { ...pane.view, framePage, ...(chatLayout ? { chatLayout } : {}) }))
+  }
+
   setRoomWatching(id: string, watching: readonly SessionKey[]): void {
     const current = viewAt(this.#snapshot.workbench, id)
     if (current?.kind !== 'room') return
     const before = current.watching ?? []
     if (before.length === watching.length && before.every((key, at) => key === watching[at])) return
     this.#setWorkbench(
-      replaceViewIn(this.#snapshot.workbench, id, { ...current, watching: [...watching] }),
+      replaceTeamPayload(this.#snapshot.workbench, id, { ...current, watching: [...watching] }),
     )
   }
 
@@ -3518,7 +3526,7 @@ export class AppStore {
     const next = toStored(state)
     if (JSON.stringify(current.sideBySide ?? null) === JSON.stringify(next ?? null)) return
     const { sideBySide: _old, ...rest } = current
-    this.#setWorkbench(replaceViewIn(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
+    this.#setWorkbench(replaceTeamPayload(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
   }
 
   /**

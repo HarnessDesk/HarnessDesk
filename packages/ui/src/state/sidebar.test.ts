@@ -267,3 +267,19 @@ describe('the width, from the first frame', () => {
     expect(store.getSnapshot().narrowWindow).toBe(false)
   })
 })
+
+
+it('floats the sidebar at the frame boundary so a supported Team row retains its title floor', () => {
+  const desk = new AppStore('ws://localhost:0/')
+  vi.spyOn(desk.transport, 'request').mockImplementation((async () => null) as never)
+  desk.setWindowWidth(1000)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('column')
+  desk.setWindowWidth(999)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('away')
+  desk.toggleSidebar()
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('floating')
+  desk.setWindowWidth(720)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('floating')
+  desk.setWindowWidth(1000)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('column')
+})

@@ -386,7 +386,7 @@ const RightPanel = () => {
   const pane = findPane(snapshot.layout, snapshot.layout.focused)
   const registered = useRegisteredOwner(pane?.id ?? '')
   const subject = fixedSubject(workbench.main)
-  const details = registered && subject !== null && workbench.frameTools[subject]?.tool === 'details' && workbench.frameTools[subject]?.mode === 'details'
+  const details = registered && subject !== null && workbench.frameTools[subject]?.tool === 'details' && (workbench.frameTools[subject]?.mode === 'details' || pane?.view.kind === 'room' && workbench.frameTools[subject]?.mode === 'run-details')
   // ToolIntent draws this column, including facts with no legacy dock payload.
   // Collapsed means gone, for this one area. The bottom panel and the sidebar
   // stack collapse to their tab strips because a horizontal strip is a

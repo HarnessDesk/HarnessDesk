@@ -147,3 +147,22 @@ test('a standing tools column remeasures during a seam drag at the same outer wi
   expectFloor(1)
   expect(container.querySelector('[data-slot="top-bar"]')!.getBoundingClientRect().width).toBe(720)
 })
+
+
+test('a refused destination stays reachable with its reason and refuses click and keyboard activation', () => {
+  const run = vi.fn()
+  render({ tabs: [{ value: 'overview', label: 'Overview', run: noop }, { value: 'run', label: 'Run', disabled: 'This Team has no Run yet', run }] })
+  const tab = container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+  expect(tab.disabled).toBe(false)
+  expect(tab.getAttribute('aria-disabled')).toBe('true')
+  expect(document.getElementById(tab.getAttribute('aria-describedby')!)?.textContent).toBe('This Team has no Run yet')
+  expect(tab.className).not.toContain('aria-disabled:pointer-events-none')
+  act(() => tab.focus())
+  expect(document.activeElement).toBe(tab)
+  act(() => {
+    tab.click()
+    for (const key of ['Enter', ' ']) tab.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+  })
+  expect(run).not.toHaveBeenCalled()
+  expect(tab.hasAttribute('data-active')).toBe(false)
+})

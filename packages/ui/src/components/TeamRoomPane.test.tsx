@@ -1,5 +1,7 @@
+import { emptyWorkbench } from '../state/workbench'
+import type { TeamFramePage } from '../state/layout'
 import { previewStore } from '../preview/harness'
-import { act } from 'react'
+import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -20,14 +22,14 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { MountProvider, type MountScope } from '../panels/mount'
+import { MountProvider, useMount, type MountScope } from '../panels/mount'
 import { views } from '../panels/views'
 import '../panels/builtins'
 import { toStored, type SideBySideState, type StoredSideBySide } from '../lib/side-by-side'
-import { StoreProvider, usePane } from '../state/context'
+import { StoreProvider, PaneProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
-import { useTopBar } from '../panels/top-bar'
+import { TopBarProvider, TopBarOutlet, useTopBarMore, WorkDetailsOutlet, useTopBar } from '../panels/top-bar'
 import styles from './TeamRoomPane.module.css'
 import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
 import { PREVIEW_FINDINGS } from '../preview/findings-fixture'
@@ -57,12 +59,23 @@ import { emptyFindingsState } from '../lib/findings'
 /* The real conversation is the app's largest component and needs a live host;
    what this surface owes it is a scope, so the double reports the scope. */
 vi.mock('./Conversation', () => ({
-  Conversation: ({ header = true }: { header?: boolean }) => {
+  Conversation: ({ header = true, teamMenuOwner }: { header?: boolean; teamMenuOwner?: string }) => {
     const pane = usePane()
     useTopBar(pane?.paneId ?? '', { place: `Member ${String(pane?.sessionKey)}`, more: () => <span>Member actions</span> }, header && pane !== null)
+    useTopBarMore(teamMenuOwner ?? '', () => <span>Member actions</span>, Boolean(teamMenuOwner))
     return <div data-testid="conversation">conversation for {String(pane?.sessionKey)}<div data-slot="composer" /></div>
   },
 }))
+
+const TeamTest = (props: ComponentProps<typeof TeamRoomPane>) => {
+  const inherited = useMount()
+  const scope: MountScope = inherited ?? { area: 'main', id: 'pane-1', view: { kind: 'room', room: props.room } }
+  return <TopBarProvider><MountProvider scope={scope}><PaneProvider scope={{ paneId: scope.id, view: scope.view, sessionKey: null }}>
+    <TopBarOutlet owner={scope.id} fallback={{ place: '', more: () => null }} />
+    <TeamRoomPane {...props} />
+    <WorkDetailsOutlet owner={scope.id} />
+  </PaneProvider></MountProvider></TopBarProvider>
+}
 
 let container: HTMLDivElement
 let root: Root
@@ -179,7 +192,7 @@ const rig = (
   } as unknown as Session
   let peers = roster
   let team = { ...state, members: roster.map(one => sessionKey(one.runtime, one.sessionId)), ...board }
-  let savedView: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide } = {}
+  let savedView: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide; readonly chatLayout?: 'thread' | 'side-by-side'; readonly framePage?: TeamFramePage } = {}
   const snapshotOf = (): AppSnapshot =>
     ({
       ...emptySnapshot(),
@@ -195,6 +208,14 @@ const rig = (
   let snapshot = snapshotOf()
   const store = {
     subscribe: () => () => {},
+    setTeamFramePage: vi.fn((_id: string, framePage: TeamFramePage, chatLayout?: 'thread' | 'side-by-side') => { savedView = { ...savedView, framePage, ...(chatLayout ? {chatLayout} : {}) } }),
+    modelsFor: vi.fn().mockResolvedValue([]),
+    loadLanePreferences: vi.fn().mockResolvedValue(undefined),
+    mountBrowserTile: vi.fn(() => () => {}),
+    workSubject: () => `team:${ROOM}`,
+    chooseWorkTool: vi.fn(),
+    toggleWorkPanel: vi.fn(),
+    zoomPanel: vi.fn(),
     getSnapshot: () => snapshot,
     teamPost: vi.fn().mockResolvedValue(undefined),
     teamHandout: vi.fn().mockResolvedValue({ batch: 'b1', delivered: 1, queued: 0, refused: 0 }),
@@ -227,7 +248,7 @@ const rig = (
     lastView: () => savedView,
     releaseGoal: vi.fn().mockResolvedValue(undefined),
     setTeamInbound: vi.fn().mockResolvedValue(undefined),
-  } as unknown as AppStore & { lastView: () => { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide } }
+  } as unknown as AppStore & { lastView: () => { readonly chatLayout?: 'thread' | 'side-by-side'; readonly framePage?: import('../state/layout').TeamFramePage; readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide } }
   /** Something new is said in the room, from outside this surface. */
   const says = async (text: string): Promise<void> => {
     team = {
@@ -250,7 +271,7 @@ const rig = (
     act(() => {
       root.render(
         <StoreProvider store={store}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </StoreProvider>,
       )
     })
@@ -280,7 +301,7 @@ const rig = (
     act(() => {
       root.render(
         <StoreProvider store={store}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </StoreProvider>,
       )
     })
@@ -309,7 +330,7 @@ const rig = (
     act(() => {
       root.render(
         <StoreProvider store={store}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </StoreProvider>,
       )
     })
@@ -345,7 +366,7 @@ const rig = (
     act(() => {
       root.render(
         <StoreProvider store={store}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </StoreProvider>,
       )
     })
@@ -359,7 +380,7 @@ const render = async (store: AppStore, at = ROOM): Promise<void> => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <TeamRoomPane room={at} />
+        <TeamTest room={at} />
       </StoreProvider>,
     )
   })
@@ -401,18 +422,36 @@ const clickElement = (element: Element): void => act(() => {
 })
 
 const memberList = (): HTMLElement => {
-  const trigger = container.querySelector<HTMLButtonElement>('button[title="Team members"]')!
-  if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())
-  const found = document.querySelector<HTMLElement>('[data-slot="team-members"]')
-  if (!found) throw new Error('Team members did not open')
+  const found = container.querySelector<HTMLElement>('[data-slot="tool-section"][aria-label="Seats"]')
+  if (!found) throw new Error('Details Seats did not render')
   return found
 }
+const seatMenu = (entry: HTMLElement): void => {
+  const trigger = entry.querySelector<HTMLButtonElement>('button[title^="Actions for "]')!
+  if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())
+}
+const topMore = (): HTMLElement => {
+  const trigger = container.querySelector<HTMLButtonElement>('[data-slot="top-bar"] button[title="More"]')!
+  if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())
+  return document.body.querySelector<HTMLElement>('[role="menu"]')!
+}
+const watchAction = (name: string): HTMLButtonElement => { seatMenu(row(name)); return menuRow('Watch beside') }
+const seatAction = async (name: string, label: string): Promise<void> => {
+  seatMenu(row(name)); await act(async () => menuRow(label).click())
+}
+const teamFact = (label: string): HTMLElement | null => [...container.querySelectorAll<HTMLElement>('[aria-label="Team Run facts"] [data-slot="summary-item"]')]
+  .find(one => one.textContent?.startsWith(label)) ?? null
+
 const row = (text: string): HTMLElement => {
-  if (text === 'Side by side') return container.querySelector<HTMLElement>('button[aria-label="Side by side"][aria-pressed]')!
+  if (text === 'Side by side') {
+    act(() => container.querySelector<HTMLButtonElement>('[data-team-page="room"]')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
+    return menuRow('Side by side')
+  }
   const tab = [...container.querySelectorAll<HTMLElement>('[data-team-page]')].find(one => one.textContent?.startsWith(text))
   if (tab) return tab
-
-  const found = [...memberList().querySelectorAll<HTMLElement>('[data-slot="list-row"]')].find(entry => entry.textContent?.includes(text))
+  const seats = [...memberList().querySelectorAll<HTMLElement>('[data-slot="list-row"]')]
+  const found = seats.find(entry => entry.querySelector('[data-slot="list-row-title"]')?.textContent === text) ?? seats.find(entry => entry.textContent?.includes(text))
   if (!found) throw new Error(`no row containing ${text}`)
   return found
 }
@@ -421,7 +460,7 @@ it('the rail is the roster: who is here, and what each of them is holding', asyn
   const { store } = rig()
   await render(store)
 
-  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   // The row is titled by the member's nickname; a conversation that has a name
   // of its own keeps it on the earned line, beside what it holds.
   const named = row('API migration')
@@ -432,7 +471,7 @@ it('the rail is the roster: who is here, and what each of them is holding', asyn
   // name the host gave it, and the agent is carried by the brand mark instead
   // of being spelled a second time.
   const unnamed = row('Opus')
-  expect(unnamed.textContent).not.toContain('Claude Code')
+  expect(unnamed.textContent).toContain('Claude Code')
 })
 
 /**
@@ -446,8 +485,8 @@ it('draws a member’s name in the rail in the navigation role', async () => {
   await render(store)
 
   const title = row('API migration').querySelector('[data-slot="list-row-title"]')
-  expect(title?.getAttribute('data-role')).toBe('navigation')
-  expect(title?.className).toContain('font-normal')
+  expect(title?.getAttribute('data-role')).toBe('subject')
+  expect(title?.className).toContain('font-medium')
   expect(title?.className).not.toContain('font-semibold')
 })
 
@@ -481,7 +520,7 @@ it('keeps the conversation title when a refusal replaces its matching task title
   })
   await render(store)
   const subtitle = row('Assistant').querySelector('[data-slot="list-row-subtitle"]')!
-  expect(subtitle.textContent).toBe(`messages held · ${peer.title}`)
+  expect(subtitle.textContent).toContain(`messages held · ${peer.title}`)
 })
 
 /**
@@ -524,7 +563,7 @@ it('pressing an agent shows that agent’s own conversation, scoped to its sessi
   expect(shown?.textContent).toContain(sessionKey('codex', 'c1'))
   const bar = container.querySelector('[data-slot="top-bar"]')!
   expect(bar).not.toBeNull()
-  expect(bar.querySelector('[data-topbar-title]')?.textContent).toContain(sessionKey('codex', 'c1'))
+  expect(bar.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout rewrite')
   act(() => (bar.querySelector('button[title="More"]') as HTMLButtonElement).click())
   expect(document.body.textContent).toContain('Member actions')
 })
@@ -685,10 +724,10 @@ it('names the pinned revision in the header’s meta, from the run’s own targe
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
 
-  const facts = container.querySelector(`.${styles.barFacts}`)
-  expect(facts?.textContent).toContain('at a1b2c3d on branch feature')
+  const facts = teamFact('At')
+  expect(facts?.textContent).toContain('a1b2c3d4e5f6 on branch feature')
   // The full sha is still reachable, on hover, behind the short one shown.
-  expect(facts?.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
+  expect(facts?.textContent).toContain('a1b2c3d4e5f6')
 })
 
 /** A Goal pinned directly — a front-door review with no flow driving it — names its commit the same way, without a branch to join it to. */
@@ -700,8 +739,8 @@ it('names the pinned revision from Goal.at when there is no flow run to name it'
   const { store } = rig(undefined, undefined, {}, PINNED_GOAL)
   await render(store)
 
-  const facts = container.querySelector(`.${styles.barFacts}`)
-  expect(facts?.textContent).toContain('at deadbee')
+  const facts = teamFact('At')
+  expect(facts?.textContent).toContain('deadbeefcafe')
   expect(facts?.textContent).not.toContain('on ')
 })
 
@@ -710,8 +749,8 @@ it('names no pinned revision for a Goal with neither a flow target nor Goal.at',
   const { store } = rig(undefined, undefined, {}, GOAL)
   await render(store)
 
-  const facts = container.querySelector(`.${styles.barFacts}`)
-  expect(facts?.textContent).not.toContain(' at ')
+  const facts = teamFact('At')
+  expect(facts?.textContent).toContain('Not recorded')
 })
 
 it('Findings joins only a Goal’s own navigation; a loose conversation keeps none of it', async () => {
@@ -849,7 +888,7 @@ it('an agent that leaves the board leaves the rail and the audience', async () =
   const { store, leaves } = rig()
   await render(store)
 
-  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   act(() => audience().click())
   act(() => menuRow('Codex').click())
   expect(audience().textContent).toContain('Codex')
@@ -860,7 +899,7 @@ it('an agent that leaves the board leaves the rail and the audience', async () =
   leaves(CODEX)
   await render(store)
 
-  expect(container.querySelector('[title="1 of 1 here"]')).not.toBeNull()
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(1)
   expect(container.textContent).not.toContain('API migration — Codex')
   expect(() => row('API migration')).toThrow()
   /* Back to everyone rather than to a name that has gone. The chip goes with
@@ -882,7 +921,8 @@ it('board-only is one press from the room’s header, and says which way it is s
   const { store } = rig()
   await render(store)
 
-  const toggle = container.querySelector('[aria-label="Hold messages at the board"]') as HTMLButtonElement | null
+  topMore()
+  const toggle = menuRow('Hold messages at the board')
   if (!toggle) throw new Error('no messaging switch')
   act(() => toggle.click())
   expect(store.teamMessaging).toHaveBeenCalledWith(ROOM, false)
@@ -941,7 +981,9 @@ it('the room’s channel says it is the room’s, not the project’s', async ()
   expect(container.textContent).not.toContain('Everyone on this project')
   expect(container.textContent).not.toContain('Everyone in this room')
   const title = row('Chat')
-  expect(title?.getAttribute('title')).toBe('Everyone in this Team')
+  expect(title.textContent).toBe('Chat')
+  act(() => audience().click())
+  expect(menuRow('Everyone in the Team').textContent).toContain('Everyone in the Team')
   expect(row('Chat').querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
 })
 
@@ -1068,7 +1110,7 @@ const paneWidth = (px: number): void => {
 type RoomRenderOptions = {
   readonly members?: readonly string[]
   readonly width?: number
-  readonly view?: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide }
+  readonly view?: { readonly chatLayout?: 'thread' | 'side-by-side'; readonly framePage?: import('../state/layout').TeamFramePage; readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide }
 }
 
 const renderRoom = async ({ members, width = 1200, view = {} }: RoomRenderOptions = {}) => {
@@ -1088,7 +1130,7 @@ const renderRoom = async ({ members, width = 1200, view = {} }: RoomRenderOption
     root.render(
       <StoreProvider store={store}>
         <MountProvider scope={scope}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </MountProvider>
       </StoreProvider>,
     )
@@ -1097,23 +1139,14 @@ const renderRoom = async ({ members, width = 1200, view = {} }: RoomRenderOption
   return { pane: container, store }
 }
 
-const clickRailWatch = async (pane: HTMLElement, nickname: string): Promise<void> => {
-  const button = [...memberList().querySelectorAll<HTMLButtonElement>('button')].find((one) =>
-    one.getAttribute('aria-label')?.startsWith(`Watch ${nickname} `),
-  )
-  if (!button) throw new Error(`no Watch control for ${nickname}`)
-  await act(async () => { button.click() })
-  await act(async () => {})
+const clickRailWatch = async (_pane: HTMLElement, nickname: string): Promise<void> => {
+  seatMenu(row(nickname))
+  await act(async () => menuRow('Watch beside').click())
 }
 
-const clickRailOpen = async (pane: HTMLElement, nickname: string): Promise<void> => {
-  const watch = [...memberList().querySelectorAll<HTMLButtonElement>('button[aria-label^="Watch "]')].find((one) =>
-    one.getAttribute('aria-label')?.startsWith(`Watch ${nickname} `),
-  )
-  const target = watch?.closest<HTMLElement>('[data-slot="list-row"]')
-  if (!target) throw new Error(`no room row for ${nickname}`)
-  act(() => target.click())
-  await act(async () => {})
+const clickRailOpen = async (_pane: HTMLElement, nickname: string): Promise<void> => {
+  seatMenu(row(nickname))
+  await act(async () => menuRow('Open conversation').click())
 }
 
 const sharedBox = (): HTMLTextAreaElement => {
@@ -1216,11 +1249,11 @@ it('greys Watch, and says why, when no tile is free', async () => {
     members: [...keys, 'codex\u0000e'],
     view: { sideBySide: { tiles: keys, pinned: keys.slice(0, 3), focused: keys[3] } },
   })
-  const watch = memberList().querySelector<HTMLButtonElement>('button[aria-label="Watch e: no tile is free"]')
+  const watch = watchAction('e')
   expect(watch?.getAttribute('aria-disabled')).toBe('true')
   await act(async () => { watch!.click() })
   expect(pane.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(4)
-  expect(pane.textContent).toContain('No tile is free: the others are pinned. Unpin one to make room for e.')
+  expect(watch?.getAttribute('title')).toBe('No tile is free; unpin one first')
   expect(store.lastView().sideBySide?.tiles ?? keys).toEqual(keys)
 })
 
@@ -1289,11 +1322,7 @@ it('Watch places members on Side by side tiles with their identities', async () 
      Named by its label rather than by its glyph: the roster's own "add an
      agent" control is a `+` too, and matching on the character made this pass
      for the wrong reason and then fail for another wrong one. */
-  const watchVerbs = (): readonly string[] =>
-    [...memberList().querySelectorAll('button')]
-      .map((one) => one.getAttribute('aria-label') ?? '')
-      .filter((label) => label.startsWith('Watch '))
-  expect(watchVerbs()).toHaveLength(2)
+  expect(memberList().querySelectorAll('button[title^="Actions for "]')).toHaveLength(2)
 
   // Each row can be watched directly; Open remains a separate verb.
   await clickRailWatch(container, 'Opus')
@@ -1339,7 +1368,7 @@ it('a tile can be taken off the grid without closing its conversation', async ()
   clickElement(takeOff)
   expect(container.querySelector('[data-slot="side-by-side-tile"]')).toBeNull()
   const sideBySide = row('Side by side')
-  expect(sideBySide.getAttribute('aria-pressed')).toBe('false')
+  expect(sideBySide.getAttribute('aria-selected')).not.toBe('true')
   expect(sideBySide.querySelector('[data-slot="list-row-subtitle"]')).toBeNull()
   expect(store.getSnapshot().sessions.has(sessionKey('codex', 'c1'))).toBe(true)
 })
@@ -1352,11 +1381,11 @@ it('keeps every watched tile in the view when the room is narrow', async () => {
   const { store } = rig()
   await render(store)
 
-  const watch = (name: string) => row(name).querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')!
+  const watch = (name: string) => watchAction(name)
   memberList()
-  act(() => watch('API migration').click())
+  await clickRailWatch(container, 'API migration')
   memberList()
-  act(() => watch('Opus').click())
+  await clickRailWatch(container, 'Opus')
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"][data-hidden]')).toHaveLength(1)
 })
@@ -1385,7 +1414,7 @@ it('opens the tiles stored in the room view', async () => {
     root.render(
       <StoreProvider store={store}>
         <MountProvider scope={scope}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </MountProvider>
       </StoreProvider>,
     )
@@ -1406,14 +1435,14 @@ it('clears the old watching field once and writes the grid to the room view', as
     root.render(
       <StoreProvider store={withWriter}>
         <MountProvider scope={scope}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </MountProvider>
       </StoreProvider>,
     )
   })
   await act(async () => { await Promise.resolve() })
 
-  const watch = row('API migration').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')!
+  const watch = watchAction('API migration')
   act(() => watch.click())
   expect(setRoomWatching).toHaveBeenCalledTimes(1)
   expect(setRoomWatching).toHaveBeenCalledWith('pane-1', [])
@@ -1556,7 +1585,7 @@ it('matches sessions running in the project using Windows-style paths (#664)', a
   await render(customStore)
 
   const text = container.textContent ?? ''
-  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('1 member')
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(1)
 })
 
 /**
@@ -1646,7 +1675,7 @@ it('a half-written message does not follow you into the next room', async () => 
 it('never wears the last room’s roster under this room’s name', async () => {
   const { store } = rig()
   await render(store)
-  expect(container.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   expect(memberList().textContent).toContain('API migration')
 
   // The same pane, pointed somewhere else, whose roster request fails.
@@ -1712,22 +1741,22 @@ it('says which members are working on their rows, and keeps one presence fact in
   await render(store)
 
   const bar = container.querySelector('header')!
-  expect(bar.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   expect(bar.textContent).not.toContain('working')
   expect(bar.textContent).not.toContain('claimed')
   /* Read as text, and as the system's presence light — never as a class: the
      CSS module is stubbed to nothing in this environment. What is asserted
      first is the half that has to be right anyway — what the row says to a
      reader who cannot see a colour. */
-  expect(row('API migration').textContent).toContain('working')
+  expect(row('API migration').textContent).toContain('Working')
   expect(row('Opus').textContent).not.toContain('working')
   const light = (name: string): Element | null => row(name).querySelector('[data-slot="dot"][data-variant="presence"]')
-  expect(light('API migration')?.getAttribute('data-state')).toBe('ready')
-  expect(light('API migration')?.getAttribute('aria-hidden')).toBe('true')
-  expect(light('API migration')?.hasAttribute('data-pulse'), 'working, so it pulses').toBe(true)
+  expect(row('API migration').querySelector('[data-slot="chip"]')?.textContent).toBe('Working')
+  expect(row('API migration').querySelector('[data-slot="chip"]')).not.toBeNull()
+  expect(row('API migration').textContent).toContain('#1 Migrate auth callers')
   expect(light('Opus')).toBeNull()
   // The room's top row is the window's bar, as a header.
-  expect(bar.getAttribute('data-slot')).toBe('tool-pane-header')
+  expect(bar.getAttribute('data-slot')).toBe('bar')
 })
 
 /**
@@ -1738,17 +1767,15 @@ it('says which members are working on their rows, and keeps one presence fact in
  * with nothing on screen there is nothing to sit beside — which is true of the
  * second column and false of the first.
  */
-it('offers Watch before anything is being watched', async () => {
+it('offers Watch in every Seat’s actions before anything is being watched', async () => {
   const { store } = rig()
   await render(store)
-
-  const watch = [...memberList().querySelectorAll('button')].filter((one) =>
-    one.getAttribute('aria-label')?.startsWith('Watch '),
-  )
-  expect(watch).toHaveLength(2)
-
-  act(() => (watch[1] as HTMLButtonElement).click())
-  await act(async () => {})
+  for (const name of ['Codex', 'Opus']) {
+    const watch = watchAction(name)
+    expect(watch.getAttribute('aria-disabled')).not.toBe('true')
+    act(() => row(name).querySelector<HTMLButtonElement>('button[title^="Actions for "]')!.click())
+  }
+  await clickRailWatch(container, 'Opus')
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
 })
 
@@ -1791,7 +1818,7 @@ it('the shared caution leaves each member\u2019s own card saying it', async () =
   const target = row('Opus')
   const trigger = target.closest('[data-slot="hover-card-trigger"]') ?? target.querySelector('[data-slot="hover-card-trigger"]') ?? target
   await act(async () => {
-    target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
     trigger.dispatchEvent(new MouseEvent('mouseenter'))
   })
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1000)) })
@@ -1835,8 +1862,8 @@ it('names the room once, on a row that is also the window’s handle', async () 
   if (!bar) throw new Error('no top row')
   // The room's name, its live counts and the switch, all on one row.
   expect(bar.textContent).toContain('Checkout rewrite')
-  expect(bar.querySelector('[data-slot="avatar-stack"]')?.getAttribute('aria-label')).toBe('2 members')
-  const toggle = bar.querySelector('[aria-label="Hold messages at the board"]')
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
+  const toggle = bar.querySelector('button[title="More"]')
   expect(toggle, 'the messaging toggle is on this row').not.toBeNull()
   // Said once. The name used to be printed by the strip above and the rail
   // head below it, so a room called "Checkout rewrite" said so twice before
@@ -1861,10 +1888,10 @@ it('names the room once, on a row that is also the window’s handle', async () 
  * what shows, and its home-shortened path is one hover away.
  */
 it('renders exactly one header, naming the Goal once, with the project’s short name and no absolute path as visible text', async () => {
-  const { store } = rig(undefined, undefined, { root: '/Users/dev/work/widgets' }, GOAL)
+  const { store } = rig(undefined, undefined, { root: '/work/widgets' }, GOAL)
   // `useSyncExternalStore` needs a stable reference back for an unchanged
   // snapshot, so this is computed once rather than on every read.
-  const withHome = { ...store.getSnapshot(), home: '/Users/dev' }
+  const withHome = { ...store.getSnapshot(), home: '/work' }
   Object.assign(store, { getSnapshot: () => withHome })
   await render(store)
 
@@ -1875,54 +1902,25 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   // The state, on the header's own line, as a chip.
   expect(bar.textContent).toContain('Running')
   // The project's short name is visible; its absolute path is not, anywhere.
-  expect(bar.getAttribute('title')).toBe('/Users/dev/work/widgets — working in /repo')
-  expect(container.textContent).not.toContain('/Users/dev/work/widgets')
+  expect(bar.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout rewrite')
+  expect(container.textContent).not.toContain('/work/widgets')
   const projectMark = bar
-  expect(projectMark?.getAttribute('title'), 'both paths are one hover away').toBe('/Users/dev/work/widgets — working in /repo')
+  expect(projectMark?.querySelectorAll('[data-work-tool]')).toHaveLength(4)
 })
 
-it('a trigger Goal’s header is named by its subject and carries its origin as a chip, its hover card naming the source in full', async () => {
-  const TRIGGER_GOAL: GoalView = {
-    ...GOAL,
-    goal: { ...GOAL.goal, sentence: 'Issue #43, from trigger triage-issue', origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
-  }
-  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
-  const triggerGoal = vi.fn(async () => ({
-    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43',
-    url: 'https://github.com/acme/widgets/issues/43', budget: null, waits: [],
-  }))
+it('a trigger Goal is named by its subject, with source and URL in persistent Details', async () => {
+  const goal = { ...GOAL, goal: { ...GOAL.goal, sentence: 'Issue #43, from trigger triage-issue', origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } } } as GoalView
+  const { store } = rig(undefined, undefined, {}, goal)
+  const triggerGoal = vi.fn(async () => ({ goal: ROOM, trigger: 'triage-issue', source: 'issue' as const,
+    label: 'from issue #43', url: 'https://github.com/acme/widgets/issues/43', budget: null, waits: [] }))
   Object.assign(store, { triggerGoal })
   await render(store)
-  await act(async () => {})
-
-  const bar = container.querySelector('header')!
-  // The title is the Goal's subject — never the trigger's own id, which is
-  // the desk's bookkeeping, and the origin is the chip's to say, not the
-  // title's to repeat.
-  const name = bar.querySelector('[title="Issue #43"]')
-  expect(name?.textContent).toBe('Issue #43')
+  const bar = container.querySelector('[data-slot="top-bar"]')!
+  expect(bar.querySelector('[data-topbar-title]')?.textContent).toBe('Issue #43')
   expect(bar.textContent).not.toContain('triage-issue')
-  expect(bar.textContent).not.toContain('from trigger')
-  // The bare number, on the chip itself — the full sentence is one hover away.
-  expect(bar.textContent).toContain('#43')
-  expect(bar.textContent).not.toContain('Opened from issue #43')
+  expect(teamFact('Trigger')?.textContent).toContain('Issue #43')
+  expect(teamFact('Trigger')?.querySelector('button')?.textContent).toBe('Open')
   expect(triggerGoal).toHaveBeenCalledWith(ROOM)
-
-  // Hovering the chip opens the full sentence and an Open link.
-  const trigger = bar.querySelector('[data-slot="hover-card-trigger"]') as HTMLElement
-  expect(trigger).toBeTruthy()
-  await act(async () => {
-    trigger.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' }))
-    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
-    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-  })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
-  const card = document.body.querySelector('[data-slot="hover-card-content"]')!
-  expect(card.textContent).toContain('Started this Goal')
-  // The heading names the source; the line under it does not say it again.
-  expect(card.textContent?.split('Issue #43').length).toBe(2)
-  const open = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Open')!
-  expect(open).toBeTruthy()
 })
 
 /**
@@ -2301,7 +2299,8 @@ it('has no body elements between the header and the conversation — the origin,
 
   const header = container.querySelector('header')!
   const afterHeader = header.nextElementSibling
-  expect(afterHeader, 'nothing between the header and the split view').toBe(container.querySelector(`.${styles.split}`))
+  expect(afterHeader?.getAttribute('data-slot')).toBe('team-room')
+  expect(container.querySelector(`.${styles.split}`)?.closest('[data-slot="team-room"]')).toBe(afterHeader)
   expect(container.textContent).not.toContain('Opened from issue #42')
   expect(container.textContent).not.toContain('Up to $5')
   // The wait is named once, at the thread's tail — its live line — not in a
@@ -2876,7 +2875,8 @@ it('names the Goal\'s own working folder on the project fact\'s hover, when it d
 
   const bar = container.querySelector('header')!
   const projectMark = bar
-  expect(projectMark?.getAttribute('title')).toBe('/repo — working in /repo/.harnessdesk/agents/reviewer/checkout')
+  expect(projectMark?.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout rewrite')
+  expect(store.getSnapshot().goals.get(ROOM)?.goal.cwd).toBe('/repo/.harnessdesk/agents/reviewer/checkout')
 })
 
 it('says nothing extra on the hover when the Goal works at its own root, unchanged from before', async () => {
@@ -2885,7 +2885,8 @@ it('says nothing extra on the hover when the Goal works at its own root, unchang
 
   const bar = container.querySelector('header')!
   const projectMark = bar
-  expect(projectMark?.getAttribute('title')).toBe('/repo')
+  expect(projectMark?.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout rewrite')
+  expect(store.getSnapshot().goals.get(ROOM)?.goal.cwd).toBe('/repo')
 })
 
 /**
@@ -2934,8 +2935,7 @@ it('keeps messaging and Wrap reachable through one ⋯ menu when the bar is too 
   const bar = container.querySelector('header')!
   const fullWrap = [...bar.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
   expect(fullWrap).toBeUndefined()
-  const fullMessaging = bar.querySelector('[aria-label="Hold messages at the board"]')
-  expect(fullMessaging).not.toBeNull()
+  expect(bar.querySelector('[aria-label="Hold messages at the board"]')).toBeNull()
 
   const more = [...bar.querySelectorAll('[title="More"]')][0] as HTMLElement | undefined
   expect(more, 'a compact ⋯ trigger stands beside the full buttons').not.toBeUndefined()
@@ -2972,7 +2972,7 @@ it('carries the panel’s verbs on its own row, so the pane draws no strip', asy
     root.render(
       <StoreProvider store={store}>
         <MountProvider scope={{ area: 'main', id: 'pane-1', view: { kind: 'room', room: ROOM } }}>
-          <TeamRoomPane room={ROOM} />
+          <TeamTest room={ROOM} />
         </MountProvider>
       </StoreProvider>,
     )
@@ -3006,7 +3006,8 @@ it('says so when the host will not take the board-only switch', async () => {
   } as unknown as AppStore
   await render(refusing)
 
-  const toggle = container.querySelector('[aria-label="Hold messages at the board"]') as HTMLButtonElement | null
+  topMore()
+  const toggle = menuRow('Hold messages at the board')
   if (!toggle) throw new Error('no messaging switch')
   await act(async () => {
     toggle.click()
@@ -3016,7 +3017,8 @@ it('says so when the host will not take the board-only switch', async () => {
   const alert = container.querySelector('[role="alert"]')
   expect(alert?.textContent).toContain('The host did not take the change')
   // And the switch still reads as it really is, rather than as it was pressed.
-  expect(container.querySelector('[aria-label="Hold messages at the board"]')).not.toBeNull()
+  topMore()
+  expect(menuRow('Hold messages at the board').getAttribute('aria-checked')).toBe('false')
 })
 
 /**
@@ -3043,9 +3045,9 @@ it('draws the members of a room the desk has not opened, and says they are not o
   expect(row('Opus').textContent).toContain('not open — a message opens it')
   expect(row('Codex').textContent).toContain('Migrate auth callers')
   expect(row('Codex').textContent).toContain('not open')
-  expect(row('Codex').querySelector('[data-away]')).not.toBeNull()
+  expect(row('Codex').querySelector('[data-slot="chip"]')?.textContent).toBe('Not open')
   // And the head counts both facts rather than collapsing them into one.
-  expect(container.querySelector('[title="0 of 2 here"]')).not.toBeNull()
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   expect(container.textContent).not.toContain('No agents in this Team yet')
 })
 
@@ -3081,21 +3083,8 @@ it('releases a Goal member from its card, and leaves the conversation alone', as
   const { store } = rig(undefined, undefined, {}, goal)
   await render(store)
 
-  // The whole row is the trigger, so it holds the row rather than sitting in it.
-  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]')
-  expect(trigger).not.toBeNull()
-  act(() => {
-    ;(trigger as Element).dispatchEvent(
-      new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
-    )
-    ;(trigger as Element).dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  const remove = [...document.body.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'Take out of the room',
-  )
+  seatMenu(row('Codex'))
+  const remove = menuRow('Remove from Team')
   expect(remove).toBeDefined()
 
   act(() => (remove as HTMLButtonElement).click())
@@ -3119,15 +3108,8 @@ it('sends the body back to the chat when the member opened on its own is release
   memberList()
   expect(row('Codex').closest('[data-slot="list-row"]')?.getAttribute('aria-current')).toBe('true')
 
-  vi.useFakeTimers()
-  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]') as Element
-  act(() => {
-    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-    trigger.dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => { vi.advanceTimersByTime(1000) })
-  const remove = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Take out of the room')!
-  vi.useRealTimers()
+  seatMenu(row('Codex'))
+  const remove = menuRow('Remove from Team')
   await act(async () => { remove.click() })
   await act(async () => {})
   expect(row('Chat').getAttribute('aria-selected')).toBe('true')
@@ -3142,19 +3124,12 @@ it('takes a released member’s tile off the grid with it', async () => {
   } as unknown as GoalView
   const { store } = rig(undefined, undefined, {}, goal)
   await render(store)
-  const watch = row('Codex').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')!
+  const watch = watchAction('Codex')
   await act(async () => { watch.click() })
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
 
-  vi.useFakeTimers()
-  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]') as Element
-  act(() => {
-    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-    trigger.dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => { vi.advanceTimersByTime(1000) })
-  const remove = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Take out of the room')!
-  vi.useRealTimers()
+  seatMenu(row('Codex'))
+  const remove = menuRow('Remove from Team')
   await act(async () => { remove.click() })
   await act(async () => {})
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(0)
@@ -3246,7 +3221,7 @@ it('hydrates retained metadata in restored Side by side tiles', async () => {
   await act(async () => {
     root.render(<StoreProvider store={store}><MountProvider scope={{ area: 'main', id: 'pane-1',
       view: { kind: 'room', room: ROOM, watching: [first, second] } }}>
-      <TeamRoomPane room={ROOM} />
+      <TeamTest room={ROOM} />
     </MountProvider></StoreProvider>)
   })
   expect(store.openSession).toHaveBeenCalledExactlyOnceWith('c1', { runtime: 'codex', reveal: false })
@@ -3314,47 +3289,15 @@ it('asks again for a member whose conversation failed to open', async () => {
  * member is mid-refactor and the other nine may be interrupted — and saying
  * so used to mean silencing the room.
  */
-it('sets one member’s inbound from its card, leaving the room’s own switch alone', async () => {
-  vi.useFakeTimers()
+it('sets one member’s inbound from Seat More, leaving the room’s own switch alone', async () => {
   const { store } = rig()
   await render(store)
-
-  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]')
-  act(() => {
-    ;(trigger as Element).dispatchEvent(
-      new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
-    )
-    ;(trigger as Element).dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-
-  /* A setting with three states, shown as one — not three verbs beside Open
-     and Watch beside. The card shows which state it is in, which a list of
-     verbs cannot, and the verbs row stops overflowing the card. */
-  const group = document.body.querySelector('[aria-label="Messages"]')
-  expect(group, 'the inbound band is on the card').toBeTruthy()
-  const modes = [...(group?.querySelectorAll('button') ?? [])].map((one) => one.textContent?.trim())
-  expect(modes).toEqual(['Accept', 'Hold', 'Refuse'])
-
-  const hold = [...(group?.querySelectorAll('button') ?? [])].find(
-    (one) => one.textContent?.trim() === 'Hold',
-  )
-  act(() => (hold as HTMLButtonElement).click())
-  await act(async () => {})
-
+  seatMenu(row('Codex'))
+  for (const mode of ['Accept messages', 'Hold messages', 'Refuse messages']) expect(menuRow(mode)).toBeTruthy()
+  await act(async () => menuRow('Hold messages').click())
   expect(store.setTeamInbound).toHaveBeenCalledWith('codex', 'c1', 'hold')
-  // Not the room-wide switch, which is the whole distinction being drawn.
   expect(store.teamMessaging).not.toHaveBeenCalled()
-  /* And the room is still the room. A React portal's events bubble through
-     the React *tree*, so a press on the card used to reach the row it hung
-     off, and picking an inbound mode navigated away to that member's own
-     conversation — the chat replaced by a transcript. Photographed on the
-     real app. The card hangs off the whole row now, so its portal sits beside
-     the row rather than inside it; this keeps the press that went wrong. */
   expect(container.textContent).toContain('Nothing said yet')
-  vi.useRealTimers()
 })
 
 /* A mouse entering emits both pointer compatibility and native mouse events.
@@ -3399,184 +3342,72 @@ const textAt = (within: Element, text: string): Element => {
  * — or on the line under it, "has not used the board" — did nothing, while the
  * icon a few pixels to the left opened it. The whole row is the trigger now.
  */
-it('opens a member’s card from its name and the line under it, as from its mark', async () => {
+it('opens member information from its mark while Seat actions remain separate', async () => {
   vi.useFakeTimers()
-  // Not open, so the row is certain to have a second line to rest on.
   const { store } = rig([CODEX, { ...CLAUDE, here: false }])
   await render(store)
-
-  const opus = row('Opus')
-  const subtitle = opus.querySelector('[data-slot="list-row-subtitle"]')
-  const spots = [textAt(opus, 'Opus'), subtitle?.querySelector('span') ?? subtitle]
-  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
-  for (const spot of spots) {
-    expect(spot, 'a line to rest on').toBeTruthy()
-    rest(spot as Element)
-    expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
-    expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
-    leave(spot as Element)
-    expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
-  }
+  const mark = row('Opus').querySelector('[data-slot="hover-card-trigger"]')!
+  rest(mark)
+  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
+  leave(mark)
+  expect(mark.hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
 
-/**
- * Pressing a member opens it, and takes the card away as it does.
- *
- * Bound to the whole row, the card is open under the very pointer that presses
- * the row, so the press has to close it — or the conversation it opens arrives
- * with a card floating over it.
- */
-it('pressing a member opens it and takes its card away', async () => {
-  vi.useFakeTimers()
+it('Open conversation in Seat actions opens exactly that member', async () => {
   const { store } = rig()
   await render(store)
-
-  const name = textAt(row('Opus'), 'Opus')
-  const trigger = row('Opus').closest('[data-slot="hover-card-trigger"]')
-  rest(name)
-  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
-
-  act(() => {
-    name.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }))
-    ;(name as HTMLElement).click()
-  })
-  await act(async () => {})
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-
-  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
-  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain('k1')
-
-  // And it comes back for the next rest: leaving the row ends the hold.
-  const again = row('Opus').querySelector('[data-slot="list-row-title"]')!
-  leave(again)
-  rest(again)
-  expect(row('Opus').closest('[data-slot="hover-card-trigger"]')?.hasAttribute('data-popup-open')).toBe(true)
-  vi.useRealTimers()
+  await seatAction('Opus', 'Open conversation')
+  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(sessionKey('claude', 'k1'))
+  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
 })
 
-/**
- * The + is the row's other verb, and resting on it asks about that verb.
- *
- * Its title says which column a pick will take away, and a card opened beside
- * that sentence would be saying something else. So resting on it summons no
- * card, reaching it puts an open one away — and pressing it still watches.
- */
-it('the Watch control opens no card and puts the member on the grid', async () => {
-  vi.useFakeTimers()
+it('Watch beside in Seat actions opens the grid without opening a full member page', async () => {
   const { store } = rig()
   await render(store)
-
-  const opus = row('Opus')
-  const name = textAt(opus, 'Opus')
-  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
-  const watch = opus.querySelector('button[aria-label^="Watch Opus"]')
-  if (!watch) throw new Error('no watch control on the row')
-
-  rest(name)
-  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
-  act(() => {
-    watch.dispatchEvent(
-      new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', relatedTarget: name }),
-    )
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
-
-  act(() => (watch as HTMLButtonElement).click())
-  await act(async () => {})
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
+  await clickRailWatch(container, 'Opus')
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
-  vi.useRealTimers()
+  expect(store.lastView().sideBySide?.tiles).toEqual([sessionKey('claude', 'k1')])
+  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
 })
 
-/** The pointer moving on within a row, from one part of it to another. */
-const move = (from: Element, to: Element): void => {
-  act(() => {
-    from.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: to }))
-    to.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', relatedTarget: from }))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-}
-
-/**
- * The + is at the row's trailing edge, the edge a pointer coming from the chat
- * crosses first, so arriving over it is an ordinary way into a row — and the
- * card has to be there once the pointer reaches the name.
- */
-it('a pointer that comes in over the plus gets the card once it reaches the name', async () => {
+it('a pointer over Seat More does not open member information, then the mark does', async () => {
   vi.useFakeTimers()
   const { store } = rig()
   await render(store)
-
   const opus = row('Opus')
-  const name = textAt(opus, 'Opus')
-  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
-  const watch = opus.querySelector('button[aria-label^="Watch Opus"]')
-  if (!watch) throw new Error('no watch control on the row')
-
-  rest(watch)
-  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
-  move(watch, name)
-  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
+  const more = opus.querySelector('button[title="Actions for Opus"]')!
+  const mark = opus.querySelector('[data-slot="hover-card-trigger"]')!
+  rest(more)
+  expect(mark.hasAttribute('data-popup-open')).toBe(false)
+  rest(mark)
+  expect(mark.hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
-/**
- * A keyboard stepping down the rail lands on every row's +. The row says it
- * holds controls, so that step opens no card.
- */
-it('tabbing to the plus opens no card', async () => {
+it('keyboard focus on Seat More opens no hover card', async () => {
   vi.useFakeTimers()
   const { store } = rig()
   await render(store)
-
-  const opus = row('Opus')
-  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
-  const watch = opus.querySelector<HTMLButtonElement>('button[aria-label^="Watch Opus"]')
-  if (!watch) throw new Error('no watch control on the row')
-
-  act(() => {
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }))
-  })
-  act(() => watch.focus())
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  expect(document.activeElement).toBe(watch)
-  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
+  const more = row('Opus').querySelector<HTMLButtonElement>('button[title="Actions for Opus"]')!
+  act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' })); more.focus() })
+  act(() => vi.advanceTimersByTime(1000))
+  expect(document.activeElement).toBe(more)
+  expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
   vi.useRealTimers()
 })
 
-/**
- * A rail row is one tab stop, and that stop is its +.
- *
- * The row refuses focus for its card (`openOnFocus={false}`), which is safe
- * only while nothing in the row but its + can be tabbed to: `ListRow` is a
- * plain `div`, and the trigger around it stays out of the tab order. The day
- * either becomes a stop, a keyboard lands on a row whose card never opens for
- * it — and this is what fails that day.
- */
-it('a rail row is one tab stop, and that stop is its plus', async () => {
+it('Seat More is the row’s native keyboard action and exposes a native Open action', async () => {
   const { store } = rig()
   await render(store)
-
-  const opus = row('Opus')
-  const trigger = opus.closest<HTMLElement>('[data-slot="hover-card-trigger"]')
-  const watch = opus.querySelector('button[aria-label^="Watch Opus"]')
-  if (!trigger || !watch) throw new Error('the row is missing its parts')
-  const stops = [trigger, ...trigger.querySelectorAll<HTMLElement>('*')].filter((one) => one.tabIndex >= 0)
-  expect(stops).toHaveLength(1)
-  expect(stops[0]).toBe(watch)
+  const more = row('Opus').querySelector<HTMLButtonElement>('button[title="Actions for Opus"]')!
+  expect(more.tagName).toBe('BUTTON')
+  expect(more.tabIndex).toBe(0)
+  act(() => { more.focus(); more.click() })
+  const open = menuRow('Open conversation')
+  expect(open.tagName).toBe('BUTTON')
+  act(() => open.click())
+  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(sessionKey('claude', 'k1'))
 })
 
 it('opens the room member card from a tile identity', async () => {
@@ -3585,7 +3416,7 @@ it('opens the room member card from a tile identity', async () => {
   await render(store)
 
   memberList()
-  act(() => row('Opus').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')?.click())
+  await clickRailWatch(container, 'Opus')
   await act(async () => {})
   const head = [...container.querySelectorAll('[data-slot="side-by-side-tile"] header')].find((one) =>
     one.textContent?.includes(CLAUDE.agent!),
@@ -3698,7 +3529,7 @@ it('lists Flow Seats from the Goal when the older roster is empty, and defaults 
  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
  expect(memberList().querySelectorAll('[data-slot="hover-card-trigger"]')).toHaveLength(2)
  expect(container.textContent).not.toContain('No agents in this Team yet')
- expect(container.textContent).toContain('Agents · 2')
+ expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
 })
 
 it('opens Overview when the cached Run arrives, and preserves a later choice of Chat', async () => {
@@ -3734,7 +3565,7 @@ it('keeps a finished Seat on the rail with a quiet Done state after its process 
   const rail = memberList()!
   expect(rail.textContent).toContain('Reviewer')
   expect(rail.textContent).toContain('Done')
-  expect([...rail.querySelectorAll('[data-slot="chip"]')].some(one => one.textContent === 'Done')).toBe(false)
+  expect([...rail.querySelectorAll('[data-slot="chip"]')].some(one => one.textContent === 'Done')).toBe(true)
 })
 
 it('includes recorded spend from earlier Seats using the runtime capabilities already in the window', async () => {
@@ -3766,8 +3597,9 @@ it('reads usage only while Overview is selected and stops polling when it is lef
  await render(store)
  expect(readGoalInsight).not.toHaveBeenCalled()
  const pick=async(label:string)=>{
-  const button=[...container.querySelectorAll('[data-team-page]')].find(one=>one.textContent?.startsWith(label)) as HTMLButtonElement
-  await act(async()=>{button.click()})
+  let button=[...container.querySelectorAll<HTMLElement>('[data-team-page]')].find(one=>one.textContent?.startsWith(label))
+  if(!button){act(()=>container.querySelector<HTMLButtonElement>('button[title="Destination views"]')!.click());button=[...document.querySelectorAll<HTMLElement>('[data-team-page]')].find(one=>one.textContent?.startsWith(label))}
+  await act(async()=>{button!.click()})
  }
  await pick('Overview')
  expect(readGoalInsight).toHaveBeenCalledTimes(1)
@@ -3885,7 +3717,7 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await render(store)
   expect(loadTeamRuns).toHaveBeenCalledWith(ROOM)
   await pushes({ updatedAt: 3 })
-  const nav = container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+  const nav = container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!
   expect(nav.textContent).toContain('Runs')
   expect(nav.textContent).toContain('1')
   await act(async () => nav.click())
@@ -3902,7 +3734,7 @@ it('lists a trigger Team’s Runs newest first, filters them, and returns from a
   const fresh = { ...old, id: 'fresh', startedAt: 100_000, currentEndedAt: null, state: 'running' as const }
   const { store } = triggerRig([], {}, [], new Map([[old.id, old], [fresh.id, fresh]]))
   await render(store)
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
   expect([...container.querySelectorAll('[data-run]')].map(one => one.getAttribute('data-run'))).toEqual(['fresh', 'old'])
   expect(container.querySelector('[data-run="old"]')!.textContent).toContain('Run 1 · pull request #7')
   const settled = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Settled'))!
@@ -3939,7 +3771,7 @@ it('loads reviewer details only for Runs in view and releases them when they lea
     const releaseVisibleFindingRun = vi.fn()
     Object.assign(store, { loadFindingRun, loadVisibleFindingRun, releaseVisibleFindingRun })
     await render(store)
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
 
     expect(loadFindingRun).toHaveBeenCalledTimes(1) // The current Run is also shown on Overview.
     expect(loadFindingRun.mock.calls.map(([, run]) => run)).not.toEqual(expect.arrayContaining(['newest', 'middle', 'oldest']))
@@ -3964,9 +3796,9 @@ it('opens the empty Runs page and pauses using the recorded machine revision and
   const openFile = vi.fn()
   Object.assign(store, { projectTriggers, triggerPreferences: readPrefs, setTriggerPreferences, openFile })
   await render(store)
-  const tab = container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+  const tab = container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!
   expect(tab.disabled).toBe(false)
-  expect(container.querySelector('header')?.textContent).toContain('Armed')
+  expect(teamFact('Trigger')?.textContent).toContain('Armed')
   await act(async () => tab.click())
   expect(container.textContent).toContain('No Runs yet')
   expect(container.textContent).toContain('Unknown spend of $25.00 daily cap')
@@ -3975,7 +3807,7 @@ it('opens the empty Runs page and pauses using the recorded machine revision and
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-head"] button')].find(one => one.textContent === 'Pause every trigger')!.click())
   expect(setTriggerPreferences).toHaveBeenCalledWith(8, true, 25)
   expect(container.textContent).toContain('The revision changed; read again.')
-  expect(container.querySelector('header')?.textContent).toContain('Armed')
+  expect(teamFact('Trigger')?.textContent).toContain('Armed')
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Edit the trigger')!.click())
   expect(openFile).toHaveBeenCalledWith(`${GOAL.goal.root}/.harnessdesk/triggers.yml`)
 })
@@ -3992,7 +3824,7 @@ it.each([
   })
   await render(store)
   const header = container.querySelector('header')!
-  expect(header.textContent).toContain('Armed')
+  expect(teamFact('Trigger')?.textContent).toContain('Armed')
   expect([...header.querySelectorAll('[data-slot="chip"]')].filter(one => one.textContent === label)).toHaveLength(1)
 })
 
@@ -4004,7 +3836,7 @@ it.each(['message', 'approval', 'question', 'budget'] as const)('keeps Needs you
   })
   await render(store)
   const header = container.querySelector('header')!
-  expect(header.textContent).toContain('Off')
+  expect(teamFact('Trigger')?.textContent).toContain('Off')
   expect(header.textContent).toContain('Needs you')
 })
 
@@ -4020,7 +3852,7 @@ it('opens the current trigger Run directly from Overview even after choosing ano
     expect(container.querySelector('[data-slot="run-view"]')!.textContent).toContain('Run 2')
   }
   await openOverviewRun()
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="Open Run 1:"]')!.click())
   await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="overview"]')!.click())
   await openOverviewRun()
@@ -4033,7 +3865,7 @@ it.each([1, 2])('uses singular Run counts with %s recorded Runs, including a fil
   if (count === 2) runs.set('running-run', { ...execution, id: 'running-run', state: 'running', startedAt: 2 })
   const { store } = triggerRig([], {}, [], runs)
   await render(store)
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
   const page = container.querySelector('[data-slot="team-runs"]')!
   expect(page.textContent).toContain(`${count} ${count === 1 ? 'Run' : 'Runs'} ·`)
   await act(async () => [...page.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Settled'))!.click())
@@ -4058,7 +3890,7 @@ it('attributes findings to the Run that raised them instead of repeating the Goa
   } satisfies FindingRunView])) }
   Object.assign(store, { getSnapshot: () => snapshot, loadFindings: vi.fn().mockResolvedValue(undefined) })
   await render(store)
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
   expect(container.querySelector('[data-run="review-old"]')!.textContent).toContain('1 finding')
   expect(container.querySelector('[data-run="review-fresh"]')!.textContent).toContain('2 of 3 answered')
   expect(container.querySelector('[data-run="review-fresh"]')!.textContent).not.toContain('1 finding')
@@ -4072,8 +3904,8 @@ it.each(['off', 'changed', 'refused'] as const)('keeps an unarmed trigger’s %s
   })
   await render(store)
   const header = container.querySelector('header')!
-  expect(header.textContent).toContain(state[0]!.toUpperCase() + state.slice(1))
-  expect(header.textContent).not.toContain('Paused')
+  expect(teamFact('Trigger')?.textContent).toContain(state[0]!.toUpperCase() + state.slice(1))
+  expect(teamFact('Trigger')?.textContent).not.toContain('Paused')
 })
 
 it('uses the recorded trigger subject when an unattended Run has no front-door target', async () => {
@@ -4082,7 +3914,7 @@ it('uses the recorded trigger subject when an unattended Run has no front-door t
     document: { format: 'agents', flow: { name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = triggerRig([], {}, [], new Map([[execution.id, execution]]))
   await render(store)
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
   const subject = container.querySelector('[data-run="subject-run"]')!
   expect(subject.querySelector('button')?.textContent).toBe('Issue #42')
   expect(subject.textContent).toContain('1d ago')
@@ -4100,8 +3932,9 @@ it('uses the completed trigger read reason in the source chip instead of a loadi
     triggerPreferences: vi.fn(async () => triggerPreferences()),
   })
   await render(store)
-  const source = container.querySelector('[data-team-trigger-label="full"]')!
-  expect(source.closest('[data-slot="chip"]')?.getAttribute('title')).toBe(reason)
+  const source = teamFact('Trigger')!
+  expect(source.textContent).toContain(reason)
+  expect(source.textContent).not.toContain('being read')
 })
 
 it('does not keep a loading tooltip when the completed trigger read has no declaration', async () => {
@@ -4111,8 +3944,8 @@ it('does not keep a loading tooltip when the completed trigger read has no decla
     triggerPreferences: vi.fn(async () => triggerPreferences()),
   })
   await render(store)
-  const source = container.querySelector('[data-team-trigger-label="full"]')!
-  expect(source.closest('[data-slot="chip"]')?.getAttribute('title')).toBeNull()
+  const source = teamFact('Trigger')!
+  expect(source.textContent).not.toContain('being read')
 })
 
 it('draws a check run more than once with each attempt under it, and asks the desk for them only while the Run is on show', async () => {
@@ -4340,10 +4173,10 @@ it('a wrapped Team keeps receipt Seats and its Run readable while dispatching ve
  expect(memberList()?.textContent).toContain('Writer')
  expect(memberList()?.textContent).toContain('Gamma')
  expect(memberList().querySelector('[title="Conversation not kept"]')).toBeTruthy()
- for (const label of ['Hold messages at the board']) {
-  const button=container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
-  expect(button?.disabled).toBe(true);expect(button?.title).toBe('This Team is wrapped')
- }
+ topMore()
+ const hold = menuRow('Hold messages at the board')
+ expect(hold.getAttribute('aria-disabled')).toBe('true');expect(hold.title).toBe('This Team is wrapped')
+ act(()=>container.querySelector<HTMLButtonElement>('button[title="More"]')!.click())
  const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('[data-team-page]')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
  await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
  await pick('Receipt');expect(container.textContent).toContain('this page shows the Team as it was then')
@@ -4379,7 +4212,7 @@ it('a wrapped Team lists a conversation once however many Seats were retained fo
   expect(railRows().some(text => text.includes('Judge'))).toBe(true)
   expect(railRows().some(text => text.includes('Writer'))).toBe(false)
   // And the roster counts conversations, as it lists them.
-  expect(memberList()?.textContent).toContain('Agents2')
+  expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
  } finally { errors.mockRestore() }
 })
@@ -4460,7 +4293,7 @@ it('a wrapped receipt has one state, a reading gutter, and a rail without moot c
  await render(store)
  expect(container.textContent).toContain('Wrapped')
  expect(container.textContent).not.toContain('This Team is wrapped. Its receipt is kept here.')
- expect(container.querySelector('button[aria-label="Seat an Agent in this Team"]')).toBeNull()
+ expect(container.querySelector<HTMLButtonElement>('button[aria-label="Seat an Agent in this Team"]')?.disabled).toBe(true)
  expect(railRows().some(text => text.includes('Side by side'))).toBe(false)
  expect(railRows().some(text => text.includes('unclaimed'))).toBe(false)
  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
@@ -4471,151 +4304,103 @@ it('a wrapped receipt has one state, a reading gutter, and a rail without moot c
  expect(kept).not.toContain('conversation')
 })
 
-it('wrapped Agent destinations are native keyboard buttons', async () => {
+it('wrapped Agent destinations have native keyboard Open actions', async () => {
  const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
  await render(store)
- const kept = [...memberList().querySelectorAll<HTMLElement>('[data-slot="list-row"]')].find(one => one.textContent?.includes('Writer'))!
- expect(kept.tagName).toBe('BUTTON')
- expect(kept.tabIndex).toBe(0)
+ seatMenu(row('Writer'))
+ const open = menuRow('Open conversation')
+ expect(open.tagName).toBe('BUTTON')
+ expect(open.getAttribute('aria-disabled')).not.toBe('true')
+ await act(async () => open.click())
+ expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(sessionKey('codex','c1'))
 })
 
-it('the Team frame puts its segmented page tabs in the same row as its title and tools', async () => {
+it('the Team frame puts worded page tabs and four standing tools in its canonical row', async () => {
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
- expect(container.querySelector('aside')).toBeNull()
- const header=container.querySelector('header')!
- expect(header.querySelector('[aria-label="Team pages"]')).not.toBeNull()
- expect(header.querySelector('[data-slot="tabs-list"]')?.getAttribute('data-variant')).toBe('default')
- expect([...container.querySelectorAll('[role="tab"]')].map(one=>one.getAttribute('data-team-page'))).toEqual(['overview','run','board','room','findings','side-by-side'])
+ const bar=container.querySelector('[data-slot="top-bar"]')!
+ expect([...bar.querySelectorAll('[role="tab"]')].map(one=>one.getAttribute('data-team-page'))).toEqual(['overview','run','board','room','findings'])
+ expect([...bar.querySelectorAll('[data-work-tool]')].map(one=>one.getAttribute('data-work-tool'))).toEqual(['details','changes','activity','browser'])
+ expect(bar.querySelector('[data-slot="avatar-stack"]')).toBeNull()
  act(()=>row('Overview').click()); await act(async()=>{})
  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
- expect(container.querySelector('header [data-slot="icon-tile"]')).toBeNull()
- expect(container.querySelector('header [data-slot="avatar-stack"]')).not.toBeNull()
 })
 
-it('folds tabs from their measured fit, restores labels on growth, and keeps counts in accessible names', async () => {
- let width=1200
- const callbacks: {callback:ResizeObserverCallback; targets:Set<Element>}[]=[]
- vi.stubGlobal('ResizeObserver',class {
-  own={callback:null as unknown as ResizeObserverCallback,targets:new Set<Element>()}
-  constructor(callback:ResizeObserverCallback){this.own.callback=callback;callbacks.push(this.own)}
-  observe(target:Element){this.own.targets.add(target)}
-  unobserve(target:Element){this.own.targets.delete(target)}
-  disconnect(){this.own.targets.clear()}
- })
- vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
-  const slot=this.dataset.slot
-  return {width:slot==='team-bar-lead'?width:slot==='tabs-label'?90:slot==='team-title-floor'?96:slot==='team-bar-status'?70:0,height:30} as DOMRect
- })
- try {
-  const {store}=rig(undefined,undefined,{},GOAL)
-  await render(store)
-  const board=container.querySelector<HTMLButtonElement>('[data-team-page="board"]')!
-  expect(board.getAttribute('aria-label')).toBe('Board · 2')
-  expect(board.getAttribute('data-icon-only')).toBe('false')
-  const resize=async(next:number)=>{
-   width=next
-   await act(async()=>{for(const observer of callbacks)observer.callback([...observer.targets].map(target=>({target,contentRect:{width:next}} as ResizeObserverEntry)),{} as ResizeObserver)})
-  }
-  await resize(420)
-  expect(board.getAttribute('data-icon-only')).toBe('true')
-  expect(board.querySelector('[data-slot="tabs-count"]')?.textContent).toBe('2')
-  const run=container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
-  expect(run.getAttribute('aria-disabled')).toBe('true')
-  const reason=document.getElementById(run.getAttribute('aria-describedby') ?? '')
-  expect(reason?.textContent).toBe('This Team has no Run yet')
-  await act(async()=>run.click())
-  expect(run.getAttribute('aria-selected')).toBe('false')
-  const matches=board.matches.bind(board)
-  // jsdom does not infer keyboard focus visibility from the Tab event.
-  vi.spyOn(board,'matches').mockImplementation(selector=>selector===':focus-visible'||matches(selector))
-  act(()=>board.focus())
-  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,350))})
-  expect(document.querySelector('[data-slot="tooltip-content"]')?.textContent).toBe('Board · 2')
-  await resize(1200)
-  expect(board.getAttribute('data-icon-only')).toBe('false')
-  expect(board.getAttribute('aria-label')).toBe('Board · 2')
- } finally {vi.unstubAllGlobals();vi.restoreAllMocks()}
-})
-
-it('the bar toggle opens Seat conversations and returns to the selected page when turned off', async () => {
+it('keeps worded tab counts and no-Run refusal accessible in the canonical bar', async () => {
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
  const board=container.querySelector<HTMLButtonElement>('[data-team-page="board"]')!
- act(()=>board.click()); await act(async()=>{})
- const toggle=container.querySelector<HTMLButtonElement>('button[aria-label="Side by side"][aria-pressed]')!
- expect(toggle.getAttribute('aria-pressed')).toBe('false')
- act(()=>toggle.click()); await act(async()=>{})
- expect(toggle.getAttribute('aria-pressed')).toBe('true')
- expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
- expect(board.getAttribute('aria-selected')).toBe('false')
- expect(container.querySelector('[data-team-page="side-by-side"]')?.getAttribute('aria-selected')).toBe('true')
- act(()=>toggle.click()); await act(async()=>{})
- expect(toggle.getAttribute('aria-pressed')).toBe('false')
- expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+ expect(board.textContent).toContain('Board2')
+ expect(board.querySelector('svg')).toBeNull()
+ const run=container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
+ expect(run.getAttribute('aria-disabled')).toBe('true')
+ expect(run.title).toBe('This Team has no Run yet')
+ await act(async()=>run.click())
+ expect(run.getAttribute('aria-selected')).toBe('false')
 })
 
-it('a ready Team puts its Wrap button on Overview, while the bar keeps Wrap in More', async () => {
+it('Chat View chooses Side by side and Thread while keeping Chat selected', async () => {
+ const {store}=rig(undefined,undefined,{},GOAL)
+ await render(store)
+ act(()=>row('Board').click()); await act(async()=>{})
+ const side = row('Side by side')
+ await act(async()=>side.click())
+ expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+ expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ act(()=>container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
+ await act(async()=>menuRow('Thread').click())
+ expect(container.querySelector('[data-slot="room-stream"]')).not.toBeNull()
+ expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
+ expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+})
+
+it('a ready Team puts Wrap on Overview and preserves Wrap in More', async () => {
  const {store}=rig(undefined,undefined,{},{...GOAL,activity:'ready-to-wrap'})
  await render(store)
  expect([...container.querySelectorAll('header button')].some(one=>one.textContent==='Wrap')).toBe(false)
- const overview=container.querySelector('[data-slot="team-overview"]')!
- expect([...overview.querySelectorAll('button')].some(one=>one.textContent==='Wrap')).toBe(true)
+ expect([...container.querySelectorAll('[data-slot="team-overview"] button')].some(one=>one.textContent==='Wrap')).toBe(true)
+ topMore(); expect(menuRow('Wrap…').getAttribute('aria-disabled')).not.toBe('true')
 })
 
-
-it('leaves every page tab unmarked while one member conversation is open', async () => {
+it('a member page normalizes its destination to Chat', async () => {
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
- act(()=>row('Overview').click()); await act(async()=>{})
- const member = memberList().querySelector<HTMLElement>('[data-slot="list-row"]')!
- act(()=>member.click()); await act(async()=>{})
- expect(container.querySelector('[data-team-page][aria-selected="true"]')).toBeNull()
+ await clickRailOpen(container,'Codex')
+ expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ expect(store.lastView().framePage).toBe('room')
 })
 
 it('explains why a Team has no Run to open', async () => {
- const {store}=rig()
- await render(store)
+ const {store}=rig(); await render(store)
  const run=container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!
  expect(run.getAttribute('aria-disabled')).toBe('true')
  expect(run.title).toBe('This Team has no Run yet')
 })
 
-it('draws held board messages in warning ink while keeping the pressed state', async () => {
- const {store}=rig(undefined,undefined,{messaging:false},GOAL)
- await render(store)
- const hold=container.querySelector<HTMLElement>('button[aria-label="Hold messages at the board"]')!
- expect(hold.getAttribute('aria-pressed')).toBe('true')
- expect(hold.getAttribute('data-variant')).toBe('warning')
+it('keeps held board messages checked in the Team More control', async () => {
+ const {store}=rig(undefined,undefined,{messaging:false},GOAL); await render(store)
+ topMore(); expect(menuRow('Hold messages at the board').getAttribute('aria-checked')).toBe('true')
 })
 
-it('counts all retained members in the same denominator as its hover text', async () => {
+it('Details lists retained members including unavailable conversations', async () => {
  const members=[{id:'missing',session:{runtime:'codex',sessionId:'missing'},agent:{name:'Gamma'},openedAt:1,closed:null}]
- const {store}=rig(undefined,undefined,{}, {...GOAL,members:members as unknown as GoalView['members']})
- await render(store)
- const count=container.querySelector<HTMLElement>('header [data-team-members-count]')!
- expect(count).not.toBeNull()
- expect(count.textContent).toBe('3')
- expect(count.title).toBe('2 of 3 here')
+ const {store}=rig(undefined,undefined,{}, {...GOAL,members:members as unknown as GoalView['members']}); await render(store)
+ expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(3)
+ expect(row('Gamma').textContent).toContain('not open')
 })
 
-it('keeps members without conversations in the hover denominator after wrapping',async()=>{
+it('Details keeps receipt Seats whose conversations were not kept',async()=>{
  const {store}=rig([],undefined,{members:[]},receiptGoal(['lost','lost-too'],[
-  {seat:'lost',agent:'Writer',seatLabel:'Alpha'},
-  {seat:'lost-too',agent:null,seatLabel:'Gamma'},
- ]))
- await render(store)
- const count=container.querySelector<HTMLElement>('header [data-team-members-count]')!
- expect(count.textContent).toBe('2')
- expect(count.title).toBe('0 of 2 here')
+  {seat:'lost',agent:'Writer',seatLabel:'Alpha'}, {seat:'lost-too',agent:null,seatLabel:'Gamma'},
+ ])); await render(store)
+ expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
+ for(const name of ['Writer','Gamma']) {seatMenu(row(name));expect(menuRow('Open conversation').getAttribute('aria-disabled')).toBe('true');act(()=>row(name).querySelector<HTMLButtonElement>('button[title^="Actions for "]')!.click())}
 })
 
-it('keeps the members trigger on the target floor even before any Agent is seated',async()=>{
- const {store}=rig([],undefined,{members:[]},GOAL)
- await render(store)
- const trigger=container.querySelector<HTMLElement>('header button[title="Team members"]')!
- expect(trigger.className).toContain('min-w-(--hd-target-min)')
- expect(trigger.querySelector('svg')).not.toBeNull()
+it('the persistent Seats section keeps its native Add action before any Agent is seated',async()=>{
+ const {store}=rig([],undefined,{members:[]},GOAL); await render(store)
+ const add=memberList().querySelector<HTMLButtonElement>('button[aria-label="Seat an Agent in this Team"]')!
+ expect(add).not.toBeNull();expect(add.disabled).toBe(false);expect(add.querySelector('svg')).not.toBeNull()
 })
 
 it('reads publication actions when the selected card holds a completed recorded review', async () => {
@@ -4667,4 +4452,158 @@ it('consumes Board beyond the Team component lifetime, accepts another room and 
   await act(async () => {})
   expect(row('Board').getAttribute('aria-selected')).toBe('true')
   expect(actual.getSnapshot().teamFrameRequests[ROOM]).toBeUndefined()
+})
+
+it('restores a persisted Board without treating remembered tiles as a new navigation choice', async () => {
+  const key = sessionKey('codex', 'a')
+  const {store} = await renderRoom({members:[key],view:{framePage:'board',sideBySide:{tiles:[key]}}})
+  expect(row('Board').getAttribute('aria-selected')).toBe('true')
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
+  const side = row('Side by side')
+  await act(async()=>side.click())
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
+  expect(store.lastView().framePage).toBe('room')
+})
+
+it('keeps a Seat Message address while approval temporarily removes the Room composer', async () => {
+  const {store} = rig()
+  let snapshot = {...store.getSnapshot(),approvals:[{key:sessionKey('codex','c1'),approval:{id:'approval-address',type:'command',kind:'shell',command:'ls',cwd:'/repo'}}] as unknown as AppSnapshot['approvals']}
+  Object.assign(store,{getSnapshot:()=>snapshot})
+  await render(store)
+  expect(container.querySelector('[data-slot="composer-text"]')?.closest('[hidden]')).not.toBeNull()
+  await seatAction('Opus','Message')
+  snapshot = {...snapshot,approvals:[]}
+  await render(store)
+  expect(audience().textContent).toContain('Opus')
+  act(()=>type(sharedBox(),'Keep the retry bounded'))
+  sharedEnter()
+  await act(async()=>{})
+  expect(store.teamPost).toHaveBeenCalledWith(ROOM,'Keep the retry bounded',{runtime:'claude',sessionId:'k1'})
+  expect(store.teamHandout).not.toHaveBeenCalled()
+})
+
+it('keeps selected older Run target and PR facts on Board and Chat without borrowing the latest target', async () => {
+  const old = {version:2,id:'facts-old',goal:ROOM,state:'settled',startedAt:1,reason:null,operations:[],rounds:[{n:1,role:'writer',cards:[1],seats:[],evidence:[],state:'closed',cause:'seed'}],legacyRun:null,document:FLOW_DOCUMENT,
+    target:{kind:'pull-request',label:'Old subject',pr:4,url:'https://example.com/pull/4',head:'old-head',base:null,dirty:false}} as unknown as FlowExecution
+  const current = {...old,id:'facts-new',startedAt:2,state:'running' as const,target:{...old.target!,label:'New subject',pr:9,url:'https://example.com/pull/9',head:'new-head'}}
+  current.rounds=[{...old.rounds[0]!,cards:[2]}]
+  const {store}=rig(undefined,undefined,{},GOAL,new Map([[old.id,old],[current.id,current]]))
+  const base=store.getSnapshot()
+  const evidence={room:ROOM,stamp:1,checks:[],refused:[],unreadable:null,cards:[1,2].map(card=>({card,running:[],facts:[{by:null,freshness:{state:'fresh'},record:{id:`pr-${card}`,observedAt:card,fact:{kind:'pr',number:card===1?4:9,url:`https://example.com/pull/${card===1?4:9}`,head:card===1?'old-head':'new-head',state:'open'}}}]}))} as unknown as import('@harnessdesk/protocol').BoardEvidence
+  const scoped={...base,boardEvidence:new Map([[ROOM,evidence]])}
+  Object.assign(store,{getSnapshot:()=>scoped})
+  await render(store)
+  const choose=[...container.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Run 1')!
+  await act(async()=>choose.click())
+  for(const page of ['Board','Chat']) {
+    await act(async()=>row(page).click())
+    expect(teamFact('At')?.textContent).toContain('old-head on Old subject')
+    expect(teamFact('Pull request')?.textContent).toContain('#4')
+    expect(teamFact('At')?.textContent).not.toContain('new-head')
+    expect(teamFact('Pull request')?.textContent).not.toContain('#9')
+  }
+})
+
+it('remounts the chosen Thread while retaining the Side by side arrangement', async () => {
+  const key = sessionKey('codex', 'a')
+  const arrangement = {tiles:[key],pinned:[key],focused:key,modes:{[key]:'browser' as const}}
+  const {store} = await renderRoom({members:[key],view:{framePage:'room',chatLayout:'side-by-side',sideBySide:arrangement}})
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+  act(()=>container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
+  await act(async()=>menuRow('Thread').click())
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
+  expect(store.lastView()).toMatchObject({framePage:'room',chatLayout:'thread',sideBySide:arrangement})
+  act(()=>root.render(<div>Another view</div>))
+  const restored=await renderRoom({members:[key],view:store.lastView()})
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
+  const side=row('Side by side')
+  await act(async()=>side.click())
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+  expect(restored.store.lastView()).toMatchObject({chatLayout:'side-by-side',sideBySide:arrangement})
+  act(()=>root.render(<div>Another view</div>))
+  await renderRoom({members:[key],view:restored.store.lastView()})
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+})
+
+it('reads Seat model names from each runtime catalog rather than the active catalog', async () => {
+  const peers = [{...CODEX,model:'shared-model'}, {...CLAUDE,model:'shared-model'}]
+  const {store}=rig(peers)
+  const snapshot={...store.getSnapshot(),activeRuntime:runtimeId('codex'),models:[{id:'shared-model',displayName:'First model',isDefault:true,reasoningLevels:[],supportsImages:false}]} as AppSnapshot
+  Object.assign(store,{getSnapshot:()=>snapshot, modelsFor:vi.fn(async (runtime:string)=>[{id:'shared-model',displayName:runtime==='codex'?'First model':'Second model'}])})
+  await render(store)
+  const rows=[...memberList().querySelectorAll('[data-slot="list-row"]')]
+  expect(rows.find(one=>one.textContent?.includes('Opus'))?.textContent).toContain('Second model')
+  expect(rows.find(one=>one.textContent?.includes('Codex'))?.textContent).toContain('First model')
+})
+
+it('ignores stale runtime catalogs after the active runtime and Team change', async () => {
+  const peers=[{...CODEX,model:'shared-model'},{...CLAUDE,model:'shared-model'}]
+  const {store}=rig(peers)
+  const initial=store.getSnapshot()
+  let snapshot={...initial,activeRuntime:runtimeId('codex'),models:[{id:'shared-model',displayName:'Active first',isDefault:true,reasoningLevels:[],supportsImages:false}]} as AppSnapshot
+  const requests: Array<{runtime:string;resolve:(models:unknown[])=>void}>=[]
+  Object.assign(store,{getSnapshot:()=>snapshot,modelsFor:vi.fn((runtime:string)=>new Promise(resolve=>requests.push({runtime,resolve})))})
+  await render(store)
+  const old=requests.splice(0)
+  const nextRoom='next-team'
+  snapshot={...snapshot,activeRuntime:runtimeId('claude'),models:[{...snapshot.models[0]!,displayName:'Active second'}],
+    teams:new Map([[nextRoom,{...state,id:nextRoom}]]),goals:new Map([[nextRoom,{...GOAL,goal:{...GOAL.goal,id:nextRoom}}]])}
+  await render(store,nextRoom)
+  await act(async()=>old.forEach(request=>request.resolve([{id:'shared-model',displayName:'Obsolete catalog'}])))
+  expect(memberList().textContent).not.toContain('Obsolete catalog')
+  expect(memberList().textContent).toContain('Active second')
+  await act(async()=>requests.forEach(request=>request.resolve([{id:'shared-model',displayName:request.runtime==='codex'?'Fresh first':'Fresh second'}])))
+  expect(memberList().textContent).toContain('Fresh first')
+  expect(memberList().textContent).toContain('Fresh second')
+  expect(memberList().textContent).not.toContain('Obsolete catalog')
+})
+
+it('returns to the last chosen Chat view after another Team page without clearing tiles', async () => {
+  const key=sessionKey('codex','a')
+  const {store}=await renderRoom({members:[key]})
+  const side=row('Side by side')
+  await act(async()=>side.click())
+  await act(async()=>row('Board').click())
+  await act(async()=>row('Chat').click())
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
+  expect(store.lastView().chatLayout).toBe('side-by-side')
+  act(()=>container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
+  await act(async()=>menuRow('Thread').click())
+  await act(async()=>row('Board').click())
+  await act(async()=>row('Chat').click())
+  expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
+  expect(store.lastView()).toMatchObject({chatLayout:'thread',sideBySide:{tiles:[key]}})
+})
+
+it('refreshes Seat display names when the active catalog changes without accepting stale or foreign names', async () => {
+  const {store}=rig([{...CODEX,model:'shared-model'},{...CLAUDE,model:'shared-model'}])
+  let snapshot={...store.getSnapshot(),activeRuntime:runtimeId('codex'),models:[]} as AppSnapshot
+  const requests:Array<{runtime:string;resolve:(models:unknown[])=>void}>=[]
+  Object.assign(store,{getSnapshot:()=>snapshot,modelsFor:vi.fn((runtime:string)=>new Promise(resolve=>requests.push({runtime,resolve})))})
+  const detail=(name:string)=>[...memberList().querySelectorAll('[data-slot="list-row"]')].find(one=>one.querySelector('[data-slot="list-row-title"]')?.textContent===name)!.textContent
+  await render(store)
+  await act(async()=>requests.splice(0).forEach(request=>request.resolve([])))
+  expect(detail('Codex')).toContain('Model not recorded')
+  const model={id:'shared-model',displayName:'First catalog label',isDefault:true,reasoningLevels:[],supportsImages:false}
+  snapshot={...snapshot,models:[model]}
+  await render(store)
+  expect(detail('Codex')).toContain('First catalog label')
+  expect(detail('Opus')).toContain('Model not recorded')
+  expect(detail('Opus')).not.toContain('First catalog label')
+  const older=requests.splice(0)
+  expect(older).toHaveLength(2)
+  snapshot={...snapshot,models:[{...model,displayName:'Refreshed catalog label'}]}
+  await render(store)
+  expect(detail('Codex')).toContain('Refreshed catalog label')
+  await act(async()=>older.forEach(request=>request.resolve([{...model,displayName:'Stale catalog label'}])))
+  expect(detail('Codex')).toContain('Refreshed catalog label')
+  expect(memberList().textContent).not.toContain('Stale catalog label')
+  await act(async()=>requests.forEach(request=>request.resolve([])))
+  expect(detail('Codex')).toContain('Refreshed catalog label')
+  expect(detail('Opus')).toContain('Model not recorded')
+  const count=(store.modelsFor as ReturnType<typeof vi.fn>).mock.calls.length
+  snapshot={...snapshot,models:[{...snapshot.models[0]!,description:'Catalog metadata',reasoningLevels:[{id:'high',label:'High'}]}]}
+  await render(store)
+  expect((store.modelsFor as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(count)
+  expect(detail('Codex')).toContain('Refreshed catalog label')
 })

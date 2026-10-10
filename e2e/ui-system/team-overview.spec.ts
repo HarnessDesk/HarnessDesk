@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { closeTeamDetails, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light','dark'] as const) {
  test(`Team Overview: precedence, resting ink, faces, fold and pane width in ${theme}`, async ({page}) => {
@@ -43,18 +44,18 @@ for (const theme of ['light','dark'] as const) {
   const rig=page.locator('#team-overview-team')
   await expect(rig.locator('[data-slot="team-overview"]')).toBeVisible()
   await expect(rig.getByText('2 done',{exact:true})).toBeVisible()
-  await rig.getByRole('button',{name:'Team members',exact:true}).click()
-  const members=page.locator('[data-slot="team-members"]:visible')
-  expect(await members.textContent()).toMatch(/Agents2/)
-  await expect(members.locator('[data-slot="member-done"]')).toHaveCount(2)
-  for (const state of await members.locator('[data-slot="member-done"]').all()) {
+  const members=await teamSeats(rig)
+  await expect(members.locator('[data-slot="list-row"]')).toHaveCount(2)
+  const completed=members.locator('[data-slot="list-row-trail"] [data-slot="chip"]').filter({hasText:/^Done$/})
+  await expect(completed).toHaveCount(2)
+  for (const state of await completed.all()) {
    expect(await state.evaluate(e => {
     const label = e.getBoundingClientRect()
     const row = e.closest('[data-slot="list-row"]')!.getBoundingClientRect()
     return label.left >= row.left && label.right <= row.right
    })).toBe(true)
   }
-  await page.keyboard.press('Escape')
+  await closeTeamDetails(rig)
   const tree=page.locator('#team-overview-sidebar')
   expect(await tree.locator('[data-slot="sidebar-menu"]').evaluateAll(lists=>[...new Set(lists.map(list=>getComputedStyle(list).listStyleType))])).toEqual(['none'])
   const spinner=tree.locator('[data-slot="spinner"]')

@@ -1,45 +1,43 @@
 import { expect, test, type Locator } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
+import { closeTeamDetails, seatActions, selectTeamPage, teamBar, teamSeats } from './team-frame-actions'
 
-const members = async (frame: Locator): Promise<Locator> => {
- const trigger = frame.getByRole('button', {name:'Team members',exact:true})
- if (await trigger.getAttribute('aria-expanded') !== 'true') {
-  await frame.page().keyboard.press('Escape')
-  await expect(frame.page().locator('[data-slot="team-members"]:visible')).toHaveCount(0)
-  await trigger.click()
- }
- return frame.page().locator('[data-slot="team-members"]:visible')
-}
+const members = teamSeats
 
 for (const theme of ['light','dark'] as const) {
- test(`Wrapped Team: the pane title shares the receipt's reading edge in ${theme}`, async ({page}) => {
+ test(`Wrapped Team: the shell title and receipt keep their own measured edges in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   for (const scene of ['wrapped','older','shared','unlinked','empty','narrow','person','running']) {
    const frame=page.locator(`#team-record-${scene}`)
-   const title=frame.locator('header[data-slot="tool-pane-header"]').first().getByText('Retry the checkout call',{exact:true})
+   const bar=teamBar(frame)
+   const title=bar.locator('[data-topbar-title]')
    const heading=frame.locator('[data-slot="goal-receipt"] [data-slot="section-name"]').first()
    await expect(heading).toBeVisible()
    const titleBox=await title.boundingBox()
-   const headingBox=await heading.boundingBox()
+   const barBox=(await bar.locator('..').boundingBox())!
    expect(titleBox,`${scene}: the pane title is visible`).not.toBeNull()
-   expect(Math.abs(titleBox!.x-headingBox!.x),`${scene}: title and receipt share their leading edge`).toBeLessThan(2)
+   expect(titleBox!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+   expect(barBox.height).toBe(FRAME.bar.height)
+   expect(titleBox!.x).toBeGreaterThanOrEqual(barBox.x)
+   expect(titleBox!.x+titleBox!.width).toBeLessThanOrEqual(barBox.x+barBox.width)
+   expect((await heading.boundingBox())!.width).toBeGreaterThan(0)
   }
  })
  test(`Wrapped Team: Tab and Enter or Space open retained conversations in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-wrapped')
-  const rail=await members(frame)
   for (const [name,key] of [['Alpha','Enter'],['Beta','Space']]) {
-   const destination=(await members(frame)).getByRole('button',{name:new RegExp(`^${name}`)})
+   const actions=await seatActions(frame,name!)
+   const destination=actions.getByRole('menuitem',{name:/^Open conversation(?:\s|$)/})
    await expect(destination).toHaveCount(1)
-   await rail.locator('[data-slot="list-row"]').first().focus()
-   for (let n=0;n<12 && !await destination.evaluate(el=>el===document.activeElement);n++) await page.keyboard.press('Tab')
+   await destination.focus()
    await expect(destination).toBeFocused()
    await page.keyboard.press(key!)
    await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
-   await expect((await members(frame)).getByRole('button',{name:new RegExp(`^${name}`)})).toHaveAttribute('aria-current','true')
-   await page.keyboard.press('Escape')
+   await expect((await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:`Actions for ${name}`,exact:true})})).toHaveAttribute('aria-current','true')
+   await closeTeamDetails(frame)
    await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
   }
  })
@@ -66,7 +64,7 @@ for (const theme of ['light','dark'] as const) {
   expect(measure.answerMark).toBe(false)
   expect(measure.answerLeft).toBe(0)
   for (const name of ['Alpha','Beta']) {
-   const face=(await members(frame)).locator('[data-slot="list-row"]').filter({hasText:name}).locator('[data-slot="icon-tile"]')
+   const face=(await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:`Actions for ${name}`,exact:true})}).locator('[data-slot="icon-tile"]')
    const receiptFaces=frame.locator('[data-slot="goal-receipt"] [data-slot="member-name"]').filter({hasText:name}).locator('[data-slot="icon-tile"]')
    await expect(receiptFaces).toHaveCount(2)
    for (const one of await receiptFaces.all()) {
@@ -107,21 +105,26 @@ for (const theme of ['light','dark'] as const) {
   expect(geometry.right).toBeGreaterThan(0)
   expect(geometry.aligned).toBe(true)
   for (const name of ['Alpha', 'Beta']) {
-   const title = rail.locator('[data-slot="list-row"]').filter({hasText: name}).locator('[data-slot="list-row-title"]')
+   const title = rail.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:`Actions for ${name}`,exact:true})}).locator('[data-slot="list-row-title"]')
    expect(await title.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
    await expect(title).not.toContainText('conversation')
   }
-  await expect(rail.locator('[data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
-  await expect(rail.locator('[data-slot="list-row"]').filter({hasText:'Beta'})).toBeVisible()
-  await expect(frame.getByRole('button',{name:'Seat an Agent in this Team',exact:true})).toHaveCount(0)
-  for (const name of ['Hold messages at the board']) {
-   await expect(frame.getByRole('button',{name,exact:true})).toBeDisabled()
-   await expect(frame.getByRole('button',{name,exact:true})).toHaveAttribute('title','This Team is wrapped')
+  await expect(rail.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})})).toBeVisible()
+  await expect(rail.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Beta',exact:true})})).toBeVisible()
+  await expect(rail.getByRole('button',{name:'Seat an Agent in this Team',exact:true})).toBeDisabled()
+  await expect(rail.getByRole('button',{name:'Seat an Agent in this Team',exact:true})).toHaveAttribute('title','This Team is wrapped')
+  await closeTeamDetails(frame)
+  await teamBar(frame).getByRole('button',{name:'More',exact:true}).click()
+  {
+   const hold=page.getByRole('switch',{name:/^Hold messages at the board(?:\s|$)/})
+   await expect(hold).toHaveAttribute('aria-disabled','true')
+   await expect(hold).toHaveAttribute('title','This Team is wrapped')
+   await expect(hold).toContainText('This Team is wrapped')
   }
   await page.keyboard.press('Escape')
-  await frame.getByRole('tab',{name:/^Run/}).click()
+  await selectTeamPage(frame,'run')
   await expect(frame.locator('[data-slot="run-view"]')).toContainText('Build and review')
-  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})}).click()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toHaveAttribute('placeholder','This Team is wrapped')
   await expect(frame.locator('[data-slot="composer-send"]')).toBeDisabled()
@@ -130,10 +133,15 @@ for (const theme of ['light','dark'] as const) {
   const older=page.locator('#team-record-older')
   await expect((await members(older))).toContainText('Gamma')
   await expect((await members(older)).locator('[title="Conversation not kept"]')).toHaveCount(1)
-  const missing=(await members(older)).locator('[data-slot="list-row"]').filter({hasText:'Gamma'})
-  await expect(missing.getByRole('button')).toHaveCount(0)
+  const missing=(await members(older)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Gamma',exact:true})})
+  await (await members(older)).getByRole('button',{name:'Actions for Gamma',exact:true}).click()
+  const missingOpen=page.getByRole('menuitem',{name:/^Open conversation(?:\s|$)/})
+  await expect(missingOpen).toHaveAttribute('aria-disabled','true')
+  await expect(missingOpen).toHaveAttribute('title','Conversation not kept')
+  await expect(missingOpen).toContainText('Conversation not kept')
   await page.keyboard.press('Escape')
-  await older.getByRole('tab',{name:/^Overview/}).click()
+  await closeTeamDetails(older)
+  await selectTeamPage(older,'overview')
   await expect(older.locator('[data-slot="team-overview"]')).toContainText('Gamma')
   await expect(older.locator('[data-slot="team-overview"]')).toContainText('Conversation not kept')
   await expect(older.locator('[data-slot="team-overview"]').getByRole('button',{name:'Gamma',exact:true})).toHaveCount(0)
@@ -142,11 +150,15 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const rows=async(scene:string)=>(await members(page.locator(`#team-record-${scene}`))).locator('[data-slot="list-row"]')
-  for (const name of ['Alpha','Beta']) await expect((await rows('shared')).filter({hasText:name})).toHaveCount(1)
+  for (const name of ['Alpha','Beta']) await expect((await rows('shared')).filter({has:page.getByRole('button',{name:`Actions for ${name}`,exact:true})})).toHaveCount(1)
   for (const name of ['Alpha','Beta']) {
-   const row=(await rows('unlinked')).filter({hasText:name})
+   const row=(await rows('unlinked')).filter({has:page.getByRole('button',{name:`Actions for ${name}`,exact:true})})
    await expect(row.locator('[title="Conversation not kept"]')).toHaveCount(1)
-   await expect(row.getByRole('button')).toHaveCount(0)
+   const menu=await seatActions(page.locator('#team-record-unlinked'),name)
+   await expect(menu.getByRole('menuitem',{name:/^Open conversation(?:\s|$)/})).toHaveAttribute('aria-disabled','true')
+   await expect(menu.getByRole('menuitem',{name:/^Open conversation(?:\s|$)/})).toHaveAttribute('title','Conversation not kept')
+   await expect(menu.getByRole('menuitem',{name:/^Open conversation(?:\s|$)/})).toContainText('Conversation not kept')
+   await page.keyboard.press('Escape')
   }
   await expect((await members(page.locator('#team-record-unlinked')))).not.toContainText('No Agents were kept')
   await expect((await members(page.locator('#team-record-empty')))).toContainText('No Agents were kept')
@@ -159,16 +171,17 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const shared=page.locator('#team-record-shared')
-  await shared.getByRole('tab',{name:/^Run/}).click()
+  await selectTeamPage(shared,'run')
   const inspector=shared.locator('[data-slot="run-inspector"]')
-  await expect(inspector).not.toContainText('Seat not recorded')
+  await expect(inspector).toHaveCount(0)
   for(const [title,cost] of [['Review the change','$0.21'],['Review the retry budget again','$0.13']]) {
    await shared.locator('[data-slot="run-view"]').getByRole('button',{name:new RegExp(title)}).click()
    await expect(inspector).toContainText(cost)
+   await expect(inspector).not.toContainText('Seat not recorded')
    await expect(inspector.getByRole('button',{name:'Open the conversation',exact:true})).toBeVisible()
   }
   const unlinked=page.locator('#team-record-unlinked')
-  await unlinked.getByRole('tab',{name:/^Run/}).click()
+  await selectTeamPage(unlinked,'run')
   await unlinked.locator('[data-slot="run-view"]').getByRole('button',{name:/Review the change/}).click()
   await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('$0.21')
   await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('Conversation not kept')
@@ -177,7 +190,7 @@ for (const theme of ['light','dark'] as const) {
  test(`Wrapped Team: a question open when the Run ends keeps its place with its final action off in ${theme}`, async ({page}) => {
   const reason='This Team is wrapped'
   const dialog=page.locator('[data-slot="dialog-content"]')
-  const board=async(open:Locator)=>{ await open.getByRole('tab',{name:/^Board/}).click() }
+  const board=async(open:Locator)=>{ await selectTeamPage(open,'board') }
   const cases:{name:string,action:string,ask:(open:Locator)=>Promise<void>}[]=[
    {name:'seating an Agent',action:'Seat Agent',ask:async open=>{ await (await members(open)).getByRole('button',{name:'Seat an Agent in this Team',exact:true}).click() }},
    {name:'adding work',action:'Add to board',ask:async open=>{ await board(open); await open.getByRole('button',{name:/^New job/}).click(); await dialog.getByLabel('What needs doing').fill('Check the retry budget') }},
@@ -201,14 +214,16 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-wrapped')
-  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
-  await frame.locator('header button[aria-label="Conversation"]').click()
-  const compact=page.locator('button',{hasText:'Compact now'})
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})}).click()
+  await closeTeamDetails(frame)
+  await teamBar(frame).getByRole('button',{name:'More',exact:true}).click()
+  const compact=page.getByRole('button',{name:/^Compact now/})
   await expect(compact).toBeDisabled()
   await expect(compact).toHaveAttribute('title','This Team is wrapped')
   await expect(compact).toContainText('This Team is wrapped')
   await page.keyboard.press('Escape')
-  await frame.locator('button:has-text("storefront")').first().click()
+  await teamBar(frame).getByRole('button',{name:'More',exact:true}).click()
+  await page.getByRole('menuitem',{name:'Folder actions',exact:true}).click()
   const review=page.locator('[role="menuitem"]',{hasText:'Review uncommitted changes'})
   await expect(review).toHaveAttribute('aria-disabled','true')
   await expect(review).toHaveAttribute('title','This Team is wrapped')
@@ -222,15 +237,15 @@ for (const theme of ['light','dark'] as const) {
   await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(0)
   await expect(sidebar.getByRole('button',{name:'Gamma',exact:true})).toHaveCount(0)
  })
- test(`Wrapped Team: narrow members popover and receipt stay inside their frame in ${theme}`, async ({page}) => {
+ test(`Wrapped Team: narrow Seats and receipt stay inside their frame in ${theme}`, async ({page}) => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-narrow')
   await members(frame)
-  await expect((await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
+  await expect((await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-  await page.keyboard.press('Escape')
-  await frame.getByRole('tab',{name:'Receipt',exact:true}).click()
+  await closeTeamDetails(frame)
+  await selectTeamPage(frame,'receipt')
   await expect(frame.getByText('What finished',{exact:true})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
   const answers=frame.locator('[data-slot="member-description"]')
@@ -249,7 +264,7 @@ for (const theme of ['light','dark'] as const) {
   await expect(frame.locator('aside')).toHaveCount(0)
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
   await members(frame)
-  await expect((await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
+  await expect((await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})})).toBeVisible()
   await expect(frame.getByText('What finished',{exact:true})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  })
@@ -259,7 +274,7 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const frame=page.locator('#team-record-running')
-  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})}).click()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toHaveAttribute('placeholder','This Team is wrapped')
   const stop=frame.getByRole('button',{name:'Stop',exact:true})
@@ -276,7 +291,7 @@ for (const theme of ['light','dark'] as const) {
   })).toBe(true)
   await expect(frame.locator('[data-slot="composer-send"]')).toHaveCount(1)
   // The other Seat's turn finished: its conversation has nothing to stop, and its single control is off.
-  await (await members(frame)).locator('[data-slot="list-row"]').filter({hasText:'Beta'}).click()
+  await (await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Beta',exact:true})}).click()
   await expect(frame.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
   await expect(frame.locator('[data-slot="composer-send"]')).toBeDisabled()
  })
@@ -286,7 +301,7 @@ for (const theme of ['light','dark'] as const) {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const open=page.locator('#team-record-assign')
-  await open.getByRole('tab',{name:/^Board/}).click()
+  await selectTeamPage(open,'board')
   await open.getByRole('button',{name:'What to do with #3',exact:true}).click()
   await page.getByRole('menuitem',{name:/^Give this to/}).click()
   const dialog=page.locator('[data-slot="dialog-content"]')

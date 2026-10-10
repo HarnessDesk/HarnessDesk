@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import {
   flowStepOf,
@@ -8,6 +8,7 @@ import {
   splitSessionKey,
   type FlowExecution,
   type Intent,
+  type ModelInfo,
   type InsightReport,
   type TeamActor,
   type TeamEntry,
@@ -22,7 +23,6 @@ import {
 
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
-import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { teamSeats, hasConversation, seatDisplayName } from '../lib/team-seats'
@@ -44,14 +44,20 @@ import { openExternal } from '../lib/desktop'
 import { canPlace, forgetMissing, fromStored, MAX_TILES, placeTile, removeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
 import { isPathInside } from '../lib/paths'
-import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import { PaneProvider, usePane, useSnapshot, useStore } from '../state/context'
 import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
-import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
-import { WorkPanelToggle } from '../panels/WorkTools'
-import { PanelActionMenuItems } from '../panels/PanelActions'
+import { useTopBar, useTopBarView, useWorkDetails } from '../panels/top-bar'
+import { RunDetailsView } from '../panels/run-dock'
+import { TEAM_FRAME_PAGES, type TeamFramePage } from '../state/layout'
+import { TeamRunFacts } from './TeamRunFacts'
+import { RunFlowFile } from './RunFlow'
+import { teamSeatCost } from '../lib/team-overview'
+import { seatCeilingWords } from '../lib/agents'
+import type { RunTimelineInput } from '../lib/run-timeline'
+import { WorkTools } from '../panels/WorkTools'
 import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
@@ -62,11 +68,6 @@ import {
   IssueIcon,
   MessageOffIcon,
   MoreIcon,
-  PlanIcon,
-  OverviewIcon,
-  HistoryIcon,
-  SummaryIcon,
-  ReviewIcon,
   PlusIcon,
   PullRequestIcon,
   ShieldOffIcon,
@@ -99,8 +100,13 @@ import { RetryCheck } from './RetryCheck'
 import { RunAgain } from './RunAgain'
 import { WindowControls } from './WindowControls'
 import {
+  SeatList,
+  ToolBody,
+  ToolSection,
+  PanelFilter,
+  type SeatListRow,
+  type TopBarTab,
   ActionError,
-  AvatarStack,
   Bar,
   Button,
   Chip,
@@ -114,29 +120,15 @@ import {
   MemberName,
   KeyValue,
   KeyValueRow,
-  ListRow,
-  ListRows,
   Menu,
   MenuItem,
   MenuToggle,
-  NavigationGroupHeader,
   Note,
   PaneColumn,
   PaneSurface,
   Popover,
   ProgressRing,
-  RailSection,
-  Search,
-  Separator,
   Text,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  ToolPaneHeader,
-  ToolPaneHeaderDivider,
   ToolPaneNotice,
   TurnWorkLive,
   type Tone,
@@ -160,47 +152,15 @@ const NO_ENTRIES: readonly TeamEntry[] = []
 const NO_INTENTS: readonly Intent[] = []
 
 /** Nothing missed, as one object, for the same reason. */
+const isFramePage = (value: string): value is TeamFramePage => TEAM_FRAME_PAGES.some(one => one === value)
+
 const AT_THE_FLOOR = { rows: 0, onlyMessages: true } as const
 
 /**
  * A Team has one content column. Section tabs choose the page; the bar's
  * layout toggle shows Seat conversations side by side. Membership controls
- * live in the faces popover, alongside the unchanged sidebar's Seats.
+ * live in persistent Details, alongside the unchanged sidebar's Seats.
  */
-
-/**
- * A trigger Goal's origin, as a chip in the header's own meta line: the
- * forge's own icon and the bare number — "#42" — never a raw event id or a
- * source token. The full origin used to be a sentence of its own in the page
- * body ("Opened from issue #42 — Open"); it is a hover away from this chip
- * now, and nowhere else. `null` for a schedule, or a source whose subject the
- * host could not resolve — there is no number for the chip to show then, and
- * this earns its place in the header only by being short.
- */
-const OriginChip = ({ status, name }: { readonly status: TriggerGoalStatus; readonly name: string }) => {
-  const subject = originSubject(status)
-  if (!subject) return null
-  const Icon = status.source === 'pull-request' ? PullRequestIcon : status.source === 'issue' ? IssueIcon : ClockIcon
-  return (
-    <HoverCard>
-      <HoverCardTrigger render={<span className="inline-flex" />}>
-        <Chip tone="neutral">
-          <Icon size={11} />
-          {subject}
-        </Chip>
-      </HoverCardTrigger>
-      <HoverCardContent side="bottom" align="start">
-        <Text role="subject">{name}</Text>
-        <Text role="meta" as="div">{originHoverWords(status, name)}</Text>
-        {status.url && (
-          <div className="mt-2">
-            <Button variant="link" size="inline" onClick={() => openExternal(status.url!)}>Open</Button>
-          </div>
-        )}
-      </HoverCardContent>
-    </HoverCard>
-  )
-}
 
 /** Every Team destination shares one measured title, tabs and tools row. */
 export const TeamRoomPane = ({
@@ -222,7 +182,9 @@ export const TeamRoomPane = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const noRunReasonId = useId()
+  const mainOwner = usePane()?.paneId ?? ''
+  const chatComposer = useRef<RoomComposerHandle>(null)
+  const [addressedSeat, setAddressedSeat] = useState<SessionKey | null>(null)
   const goal = snapshot.goals.get(room)
   const record = isRecord(goal)
   const [stoppingRun, setStoppingRun] = useState<string | null>(null)
@@ -257,31 +219,6 @@ export const TeamRoomPane = ({
     if (!run || snapshot.flowExecutions.has(run)) return
     void store.readFlowExecution(run).catch(() => {})
   }, [snapshot.flowExecutions, run, store])
-  /**
-   * What this Goal reviews, for the header's meta line — a flow run's own
-   * resolved target first, since it names the branch too
-   * ("at a1b2c3d on branch feature"); `Goal.at` otherwise, for a front-door
-   * review this Goal was pinned to directly. Absent for an ordinary Goal,
-   * which works wherever its checkout does and has nothing to pin.
-   *
-   * A target with no sha to show still names its subject: `diff`'s own label
-   * already carries both ends of the range ("changes from abc123 to
-   * def456"), so pairing it with a repeated head would say the same commit
-   * twice, and a `working-diff` (or any future kind) with no resolved head
-   * has nothing else to pin. Both read as the label alone — never as
-   * nothing, which is what the old `FlowRunStatus` showed for every target
-   * and nowhere else said.
-   */
-  const pinnedAt = useMemo(() => {
-    const target = flowExecution?.target
-    if (target) {
-      return target.kind !== 'diff' && target.head
-        ? { sha: target.head, label: target.label }
-        : { sha: null, label: target.label }
-    }
-    if (goal?.goal.at) return { sha: goal.goal.at, label: null }
-    return null
-  }, [flowExecution, goal])
   /**
    * A trigger Goal's own status — its origin, and its live budget — read
    * once per Goal and polled while it is open, since both change under a
@@ -390,13 +327,24 @@ export const TeamRoomPane = ({
   /* A wrapped Team opens on its Receipt, with or without a Run: the record is
      what the person came for, and the page tabs are the way around it. */
   const opensOnReceipt = record && Boolean(goal?.receipt)
-  const [open, setOpen] = useState<'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
-    () => (opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'),
+  const [open, setOpen] = useState<TeamFramePage | 'side-by-side' | SessionKey>(
+    () => (mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage === 'room' && (mount.view.chatLayout === 'side-by-side' || mount.view.chatLayout === undefined && grid.tiles.length > 0) ? 'side-by-side' : mount.view.framePage : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'),
   )
-  const selectedPage = useRef<'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings'>(opensOnReceipt ? 'receipt' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room')
-  const destination = useRef({ room, chosen: false })
+  const chatLayout = useRef(mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout : grid.tiles.length > 0 ? 'side-by-side' : 'thread')
+  const selectedPage = useRef<TeamFramePage>(mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage : opensOnReceipt ? 'receipt' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room')
+  const destination = useRef({ room, chosen: mount?.view.kind === 'room' && mount.view.framePage !== undefined })
   useEffect(() => {
-    if (destination.current.room !== room) destination.current = { room, chosen: false }
+    if (destination.current.room !== room) {
+      const restored = mount?.view.kind === 'room' ? mount.view.framePage : undefined
+      destination.current = { room, chosen: restored !== undefined }
+      chatLayout.current = mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout : grid.tiles.length > 0 ? 'side-by-side' : 'thread'
+      if (restored) {
+        selectedPage.current = restored
+        const chat = mount?.view.kind === 'room' ? mount.view.chatLayout : undefined
+        setOpen(restored === 'room' && (chat === 'side-by-side' || chat === undefined && grid.tiles.length > 0) ? 'side-by-side' : restored)
+        return
+      }
+    }
     // Runs are loaded after the Team opens. Apply its default only until the
     // person chooses a destination; a push must not take them away from Chat.
     if (destination.current.chosen || grid.tiles.length > 0) return
@@ -407,7 +355,7 @@ export const TeamRoomPane = ({
   const [chosenRun, setChosenRun] = useState<string | null>(null)
   const [again, setAgain] = useState<FlowExecution | null>(null)
   const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
-  useEffect(() => { setAgain(null); setRetryCheck(null); setChosenRun(null) }, [room])
+  useEffect(() => { setAgain(null); setRetryCheck(null); setChosenRun(null); setAddressedSeat(null) }, [room])
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
   const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)), [snapshot.flowExecutions, room])
@@ -430,7 +378,9 @@ export const TeamRoomPane = ({
   const [timelineReadError, setTimelineReadError] = useState<string | null>(null)
   const [timelineRead, setTimelineRead] = useState(0)
   // What each check of the Run recorded each time it ran: read while the Run is on show, and again when a result lands.
-  const checkAttempts = useCheckAttempts({ execution: timelineRun ?? undefined, evidence: snapshot.boardEvidence.get(room), active: open === 'run', nonce: timelineRead })
+  const detailsVisible = snapshot.workbench.frameTools[`team:${room}`]?.open === true && snapshot.workbench.frameTools[`team:${room}`]?.tool === 'details'
+  const readingRun = open === 'run' || detailsVisible
+  const checkAttempts = useCheckAttempts({ execution: timelineRun ?? undefined, evidence: snapshot.boardEvidence.get(room), active: readingRun, nonce: timelineRead })
   const [runHistoryProblem, setRunHistoryProblem] = useState<{ room: string; message: string } | null>(null)
   useEffect(() => {
     // A trigger Goal names no opener Run. Discover its history even when
@@ -444,7 +394,7 @@ export const TeamRoomPane = ({
     return () => { live = false }
   }, [store, room, goalId, run, flowExecution?.id, timelineRead])
   useEffect(() => {
-    if (open !== 'run' || !timelineRun) return
+    if (!readingRun || !timelineRun) return
     let live = true
     setTimelinePending(true)
     setTimelineReadError(null)
@@ -463,7 +413,7 @@ export const TeamRoomPane = ({
     }).finally(() => { if (live) setTimelinePending(false) })
     const timer = window.setInterval(() => { void store.loadBoardEvidence(room) }, 30_000)
     return () => { live = false; window.clearInterval(timer) }
-  }, [store, room, open, timelineRun?.id, timelineCards, timelineRead])
+  }, [store, room, readingRun, timelineRun?.id, timelineCards, timelineRead])
   /** What the roster is filtered to. Empty is the whole room. */
   const [filter, setFilter] = useState('')
   /** The "add an agent" dialog, opened from the roster's own heading. */
@@ -474,7 +424,7 @@ export const TeamRoomPane = ({
   /** The top row's own failure — the board-only switch not landing. */
   const [barTrouble, setBarTrouble] = useState<string | null>(null)
   /**
-   * What a member control could not do, said in the members popover.
+   * What a member control could not do, said in the Details Seats.
    *
    * A third line rather than a share of either: the chat's `trouble` is what
    * the composer could not do and the bar's is what the top row could not do,
@@ -483,20 +433,19 @@ export const TeamRoomPane = ({
    */
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
-  const show = (next: 'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
+  const show = (next: TeamFramePage | 'side-by-side' | SessionKey): void => {
     destination.current.chosen = true
-    if (next === 'overview' || next === 'receipt' || next === 'run' || next === 'board' || next === 'room' || next === 'findings') selectedPage.current = next as typeof selectedPage.current
-    /* Written against the literals rather than narrowed: `SessionKey` is a
-       branded string, so comparing it to `'board'` tells the compiler nothing
-       and the union survives into the other branch. */
-    if (next === 'receipt') return setOpen('receipt')
-    if (next === 'overview') return setOpen('overview')
-    if (next === 'run') return setOpen('run')
-    if (next === 'board') return setOpen('board')
-    if (next === 'room') return setOpen('room')
-    if (next === 'findings') return setOpen('findings')
-    if (next === 'side-by-side') return setOpen('side-by-side')
-    setOpen(next as SessionKey)
+    if (isFramePage(next)) {
+      selectedPage.current = next
+      if (next === 'room') chatLayout.current = 'thread'
+      store.setTeamFramePage(room, next, next === 'room' ? 'thread' : undefined)
+      setOpen(next)
+      return
+    }
+    selectedPage.current = 'room'
+    if (next === 'side-by-side') chatLayout.current = 'side-by-side'
+    store.setTeamFramePage(room, 'room', next === 'side-by-side' ? 'side-by-side' : undefined)
+    setOpen(next)
   }
 
   useEffect(() => {
@@ -504,6 +453,7 @@ export const TeamRoomPane = ({
     if (!request || !store.consumeTeamFrame(room, request.serial)) return
     destination.current.chosen = true
     selectedPage.current = request.page
+    store.setTeamFramePage(room, request.page)
     setOpen(request.page)
   }, [room, snapshot.teamFrameRequests, store])
 
@@ -516,8 +466,7 @@ export const TeamRoomPane = ({
       return
     }
     setGrid((was) => placeTile(was, key))
-    destination.current.chosen = true
-    setOpen('side-by-side')
+    show('side-by-side')
   }
 
   /**
@@ -686,7 +635,7 @@ export const TeamRoomPane = ({
 
   /* Narrowed once, here, so the provider below gets a `SessionKey` and not a
      union the compiler has to be argued with at the call site. */
-  const singleMember: SessionKey | null = open === 'receipt' || open === 'overview' || open === 'run' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
+  const singleMember: SessionKey | null = isFramePage(open) || open === 'side-by-side' ? null : open as SessionKey
   /**
    * Open the conversation behind any column that has one.
    *
@@ -761,6 +710,22 @@ export const TeamRoomPane = ({
       }
     })
   }, [peers, seats, snapshot.runtimes, snapshot.sessions, team])
+  const modelRuntimes = [...new Set(members.map(peer => peer.runtime))].sort()
+  const modelScope = JSON.stringify([room, snapshot.activeRuntime, snapshot.models.map(model => [model.id, model.displayName]), members.map(peer => [peer.runtime, peer.sessionId, peer.model ?? null])])
+  const [seatModels, setSeatModels] = useState<{ scope: string; catalogs: ReadonlyMap<RuntimeId, readonly ModelInfo[]> } | null>(null)
+  useEffect(() => {
+    let live = true
+    void Promise.all(modelRuntimes.map(async runtime => [runtime, await store.modelsFor(runtime).catch(() => [])] as const))
+      .then(catalogs => { if (live) setSeatModels({ scope: modelScope, catalogs: new Map(catalogs) }) })
+    return () => { live = false }
+  }, [store, modelScope])
+  const seatModelName = (runtime: RuntimeId, model: string | null | undefined): string | null => {
+    if (!model) return null
+    const catalog = seatModels?.scope === modelScope ? seatModels.catalogs.get(runtime) : undefined
+    return catalog?.find(one => one.id === model)?.displayName
+      ?? (runtime === snapshot.activeRuntime ? snapshot.models.find(one => one.id === model)?.displayName : undefined)
+      ?? 'Model not recorded'
+  }
   const displayMembers = useMemo(() => members.map(peer => ({
     nickname: peer.nickname,
     record: goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === sessionKey(peer.runtime, peer.sessionId)),
@@ -771,12 +736,12 @@ export const TeamRoomPane = ({
   useEffect(() => {
     let active = true
     setReport(null)
-    if (open !== 'overview' || !goal || typeof store.readGoalInsight !== 'function') return
+    if ((open !== 'overview' && !detailsVisible) || !goal || typeof store.readGoalInsight !== 'function') return
     const read = () => { void store.readGoalInsight(room).then(answer => { if (active) setReport(answer) }, () => { if (active) setReport(null) }) }
     read()
     const timer = flowExecution?.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
-  }, [store, room, open, Boolean(goal), closedCards, flowExecution?.state])
+  }, [store, room, open, detailsVisible, Boolean(goal), closedCards, flowExecution?.state])
   useEffect(() => {
     if (flowExecution && typeof store.loadFindingRun === 'function') void store.loadFindingRun(room, flowExecution.id).catch(() => {})
   }, [store, room, flowExecution?.id])
@@ -959,7 +924,7 @@ export const TeamRoomPane = ({
     setGrid((was) => forgetMissing(was, present))
     // A member opened on its own who has left takes the body back to the chat.
     setOpen((was) =>
-      was === 'receipt' || was === 'overview' || was === 'run' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
+      isFramePage(was) || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
     )
   }, [peers, roster])
 
@@ -1027,43 +992,11 @@ export const TeamRoomPane = ({
      every row shown would say it, so it is said once above them. */
   const idleShared = shown.length > 1 && shown.every((member) => member.idleOnBoard)
 
-  const memberPresence = {total:allSeats.length,here:allSeats.filter(seat => roster.some(member => member.key === seat.key && member.here)).length}
-  const headerLayout = useNarrowLayout<HTMLElement>(608)
-  // The bar uses PR evidence on every page, including the initial Overview.
+  // PR evidence is shared by every Team page and persistent Details.
   useEffect(() => { void store.loadBoardEvidence(room).catch(() => undefined) }, [store, room])
+  const detailsRun = timelineRun ?? flowExecution
   const pullRequest = runPullRequest(open === 'run' ? timelineRun : flowExecution, snapshot.boardEvidence.get(room))
   const findingCount = snapshot.findingRuns.get(flowExecution?.id ?? '')?.open
-  const barLead = useRef<HTMLDivElement>(null)
-  const [iconTabs, setIconTabs] = useState(false)
-  // Labels keep their intrinsic width when folded. Measure what is left after
-  // the fixed controls and twelve title characters, so growing can unfold too.
-  useLayoutEffect(() => {
-    const lead = barLead.current
-    if (!lead) return
-    const list = lead.querySelector<HTMLElement>('[data-slot="tabs-list"]')!
-    const titleFloor = lead.querySelector<HTMLElement>('[data-slot="team-title-floor"]')!
-    const name = lead.querySelector<HTMLElement>('[data-team-title]')!
-    let disposed = false
-    const measure = () => {
-      const width = lead.getBoundingClientRect().width
-      if (disposed || width <= 0) return
-      const style = getComputedStyle(list)
-      const px = (value: string) => Number.parseFloat(value) || 0
-      const labels = [...list.querySelectorAll<HTMLElement>('[data-slot="tabs-label"]')]
-      const tabsWidth = labels.reduce((sum, label) => sum + label.getBoundingClientRect().width + px(getComputedStyle(label.parentElement!).borderLeftWidth) + px(getComputedStyle(label.parentElement!).borderRightWidth), 0)
-        + px(style.paddingLeft) + px(style.paddingRight) + Math.max(0, labels.length - 1) * px(style.columnGap)
-      const fixed = [...lead.children].filter(child => !child.contains(list) && child !== name)
-        .reduce((sum, child) => sum + child.getBoundingClientRect().width, 0)
-      const gap = px(getComputedStyle(lead).columnGap) * Math.max(0, lead.children.length - 1)
-      setIconTabs(tabsWidth + fixed + Math.min(name.scrollWidth || titleFloor.getBoundingClientRect().width, titleFloor.getBoundingClientRect().width) + gap > width)
-    }
-    measure()
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    observer?.observe(lead)
-    for (const element of [list, ...lead.children, ...list.querySelectorAll('[data-slot="tabs-label"]')]) observer?.observe(element)
-    void document.fonts?.ready.then(measure)
-    return () => { disposed = true; observer?.disconnect() }
-  }, [title, findingCount, intents.length, runs.length, held, goal?.receipt, triggerKind, runState?.label, triggerControl.view?.state, roster.length])
   const toggleSideBySide = () => {
     if (open === 'side-by-side') return show(selectedPage.current)
     if (roster.length === 0) return
@@ -1073,6 +1006,116 @@ export const TeamRoomPane = ({
   const triggerSourceTitle = triggerControl.view?.definition
     ? teamTriggerLabel(originStatus, triggerControl.view)
     : triggerControl.view?.reason ?? (triggerControl.ready ? undefined : triggerControl.problem ?? 'Trigger declaration is being read')
+
+  const teamRoot = goal?.goal.root ?? null
+  const target = goalRunOf(room, goal, snapshot.flowExecutions)?.target
+  const teamBranch = snapshot.worktrees.find(one => one.path === teamRoot)?.branch
+    ?? (snapshot.workspace?.path === teamRoot ? snapshot.workspace.git?.branch : null)
+  const teamChangesRefusal = !teamRoot || !teamBranch || !target?.base || !target.head
+    ? 'The Team branch and base are not recorded yet' : undefined
+  const teamTabs: TopBarTab[] = [
+    { value: 'overview', label: 'Overview', count: needsYou ? 1 : undefined, run: () => show('overview') },
+    { value: 'run', label: 'Run', count: runs.length || undefined, disabled: !runs.length ? 'This Team has no Run yet' : false, run: () => show('run') },
+    { value: 'board', label: 'Board', count: intents.length, run: () => show('board') },
+    { value: 'room', label: 'Chat', count: held || undefined, run: () => show(chatLayout.current === 'side-by-side' ? 'side-by-side' : 'room') },
+    { value: 'findings', label: 'Findings', count: findingCount, disabled: !goal ? 'This Team has no Goal findings' : false, run: () => show('findings') },
+    ...(triggerKind ? [{ value: 'runs', label: 'Runs', count: runs.length, run: () => { setChosenRun(null); show('runs') } }] : []),
+    ...(goal?.receipt ? [{ value: 'receipt', label: 'Receipt', run: () => show('receipt') }] : []),
+  ]
+  useTopBar(mainOwner, {
+    lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
+    place: title, state: runState ? <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip> : undefined,
+    tabs: teamTabs, tab: open === 'side-by-side' || singleMember ? 'room' : open,
+    view: { disabled: 'This view has no layout or filter choices', content: () => null },
+    tools: <WorkTools changesRefusal={teamChangesRefusal} />,
+    more: close => <>
+      {pullRequest && <MenuItem label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
+      <MenuToggle label="Hold messages at the board" checked={!messaging} disabled={record ? RECORD_REASON : false} onChange={() => { void toggleMessaging(); close() }} />
+      <MenuItem label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />
+      <MenuItem label="Fill the window" onSelect={() => { store.zoomPanel('main', 'window'); close() }} />
+    </>, corner: sidebarPlacement(snapshot) !== 'column',
+  }, Boolean(mainOwner))
+
+  const detailsAt = detailsRun?.target ? detailsRun.target.kind !== 'diff' && detailsRun.target.head
+    ? [detailsRun.target.head, detailsRun.target.label].filter(Boolean).join(' on ') : detailsRun.target.label
+    : (!detailsRun || detailsRun.id === flowExecution?.id) ? goal?.goal.at ?? null : null
+  const detailsPullRequest = runPullRequest(detailsRun, snapshot.boardEvidence.get(room))
+  const detailsCosts = detailsRun ? runSeatCosts(detailsRun, allSeats.map(seat => ({
+    id: seat.record.id, cost: teamSeatCost({ team: room, report: report?.goal === room ? report : null }, seat.record.id,
+      snapshot.runtimes.find(info => info.id === seat.record.session?.runtime)?.capabilities.metered),
+  }))).summary : null
+  const detailsInput: RunTimelineInput | null = detailsRun ? {
+    execution: detailsRun, cards: intents, sessions: snapshot.sessions,
+    evidence: snapshot.boardEvidence.get(room), findings: snapshot.findings.get(room)?.rows,
+    findingRun: snapshot.findingRuns.get(detailsRun.id), publicationOn: goal?.goal.findingPublication !== false,
+    origin: detailsRun.intake ? `From trigger ${detailsRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
+    attempts: checkAttempts.attempts, incompleteAttempts: checkAttempts.incomplete,
+  } : null
+  const runChooser = runs.length > 1 ? <span aria-label="Choose a Run">
+    {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm"
+      data-active={detailsRun?.id === one.id || undefined} onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
+  </span> : undefined
+  const seatRows: SeatListRow[] = allSeats.map(seat => {
+    const member = seat.key ? roster.find(one => one.key === seat.key) : undefined
+    const key = seat.key
+    const refusal = key === null ? 'Conversation not kept' : member?.unavailable
+    return {
+      id: seat.record.id, selected: open === key, name: member?.displayName ?? seat.name,
+      mark: <MemberCard entry={member ?? null} side="bottom"><IconTile shape="face" tint={member?.tint ?? 'violet'}>{member?.brand ? <BrandMark brand={member.brand} /> : <AgentIcon />}</IconTile></MemberCard>,
+      detail: member ? [snapshot.runtimes.find(info => info.id === member.peer.runtime)?.presentation.name ?? 'Agent', seatModelName(member.peer.runtime, member.peer.model), member.ceiling ? seatCeilingWords(member.ceiling.ceiling) : null].filter(Boolean).join(' · ') + [
+        !member.canUseBoard ? 'cannot take jobs — tools not reachable' : member.peer.inbound !== 'accept'
+          ? member.peer.inbound === 'hold' ? 'messages held' : 'messages refused' : member.onTask ? `#${member.onTask.id} ${member.onTask.title}`
+          : member.idleOnBoard && !idleShared ? 'has not used the board' : !member.here ? 'not open — a message opens it' : null,
+        member.title && member.title !== member.peer.nickname && (member.title !== member.onTask?.title || member.peer.inbound !== 'accept' || !member.canUseBoard) ? member.title : null,
+        !member.here && member.onTask ? 'not open — a message opens it' : null,
+      ].filter(Boolean).map(one => ` · ${one}`).join('') : seat.role ?? 'Recorded Seat',
+      state: member && snapshot.approvals.some(one => one.key === member.key) ? 'Needs you' : member?.busy ? 'Working' : member?.done ? 'Done' : member && !member.here ? 'Not open' : 'Idle',
+      open: () => { if (key) show(key) }, watch: () => { if (key) watch(key) },
+      message: () => { if (key) { show('room'); setAddressedSeat(key) } },
+      inbound: member?.peer.inbound ?? 'accept', setInbound: mode => { if (key) setInbound(key, mode) },
+      remove: () => { if (key) leave(key) }, refusal,
+      watchRefusal: record ? RECORD_REASON : key && !canPlace(grid, key) ? 'No tile is free; unpin one first' : undefined,
+      messageRefusal: record ? RECORD_REASON : undefined, mutationRefusal: record ? RECORD_REASON : undefined,
+      removeRefusal: !goal ? 'This compatibility room is read-only' : undefined,
+    }
+  })
+  const filteredSeats = filter.trim() ? seatRows.filter(one => `${one.name} ${one.detail}`.toLowerCase().includes(filter.trim().toLowerCase())) : seatRows
+  useWorkDetails(mainOwner, <ToolBody>
+    <ToolSection label="Run">
+      <TeamRunFacts input={detailsInput} number={detailsRun ? runs.findIndex(one => one.id === detailsRun.id) + 1 : 0}
+        chooser={runChooser} at={detailsAt}
+        flowFile={detailsRun && <RunFlowFile root={goal?.goal.root ?? null} name={detailsRun.document.flow.name} compact />}
+        pullRequest={detailsPullRequest} cost={detailsCosts} trigger={triggerKind ? <>{teamTriggerLabel(originStatus, triggerControl.view)}{originStatus && <Text as="span" role="meta" ink="secondary"> · {originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger')}</Text>}{triggerControl.view && <Text as="span" role="meta" title={triggerControl.view.reason ?? undefined}> · {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}</Text>}{triggerControl.view?.reason && <Text as="span" role="meta"> · {triggerControl.view.reason}</Text>}{originStatus?.url && <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button>}</> : undefined} />
+      <RunDetailsView inspectionOnly />
+    </ToolSection>
+    <ToolSection label="Seats" action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
+      disabled={record || !goal} title={record ? RECORD_REASON : !goal ? 'This compatibility room is read-only' : undefined}
+      onClick={() => setAdding(true)}><PlusIcon /></Button>}>
+      {roster.length > 4 && <PanelFilter value={filter} onChange={setFilter} placeholder="Filter Seats" />}
+      {idleShared && <Note>None of these agents has used the board yet.</Note>}
+      {peers !== null && allSeats.length === 0 && <EmptyState variant="inline" title={record ? 'No Agents were kept in this Team’s receipt.' : here === 0
+        ? 'No agents in this Team yet, and no conversations in this project either. + starts one and puts it in.'
+        : here === 1 ? 'No agents in this Team yet. One conversation is open in this project — + adds an agent.'
+        : `No agents in this Team yet. ${here} conversations are open in this project — + adds an agent.`} />}
+      {seatRows.length > 0 && filteredSeats.length === 0 && <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />}
+      <SeatList rows={filteredSeats} />
+    </ToolSection>
+  </ToolBody>, Boolean(mainOwner))
+
+  useTopBarView(mainOwner, {
+    view: { content: close => <Menu close={close}>
+      <MenuItem label="Thread" selected={open === 'room'} onSelect={() => { show('room'); close() }} />
+      <MenuItem label="Side by side" selected={open === 'side-by-side'}
+        disabled={record ? RECORD_REASON : roster.length === 0 ? 'There are no conversations to watch' : false}
+        onSelect={() => { if (open !== 'side-by-side') toggleSideBySide(); close() }} />
+    </Menu> },
+  }, Boolean(mainOwner) && (open === 'room' || open === 'side-by-side'))
+
+  useLayoutEffect(() => {
+    if (open !== 'room' || !addressedSeat || !chatComposer.current) return
+    chatComposer.current.address(addressedSeat)
+    setAddressedSeat(null)
+  }, [open, addressedSeat, pendingApproval?.key])
 
   return (
     <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
@@ -1087,215 +1130,6 @@ export const TeamRoomPane = ({
         onClose={() => setAgain(null)} onStarted={next => { setAgain(null); setChosenRun(next.id); show('run'); void store.loadTeamRuns(room) }} />}
       {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
 
-      <ToolPaneHeader ref={headerLayout.ref} variant="window" corner size="lg" className={`${styles.bar} hd-drag`}
-        data-window-controls={sidebarPlacement(snapshot) !== 'column' ? '' : undefined}
-        contentInset={open === 'receipt' && sidebarPlacement(snapshot) === 'column' ? 'reading' : 'page'}
-        hint={root ? goal && goal.goal.cwd !== root ? `${root} — working in ${goal.goal.cwd}` : root : undefined}
-        title={title} aria-label={title}
-        lead={<div ref={barLead} data-slot="team-bar-lead" className={styles.barLead}>
-          {sidebarPlacement(snapshot) !== 'column' && <WindowControls />}
-          <Text role="subject" data-team-title="" className={styles.barName} title={title}>{title}<span aria-hidden data-slot="team-title-floor" className={styles.titleFloor} /></Text>
-          <div data-slot="team-bar-status" className={styles.barStatus}>
-            {runState && <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip>}
-            {triggerKind && <span data-team-trigger-source=""><Chip tint="amber" title={triggerSourceTitle}>
-              <span data-team-trigger-label="full">{teamTriggerLabel(originStatus, triggerControl.view)}</span>
-              <span data-team-trigger-label="short">{teamTriggerLabel(originStatus, triggerControl.view, true)}</span>
-            </Chip></span>}
-            {triggerKind && triggerControl.view && !record && <Chip tone={triggerControl.view.state === 'armed' && !triggerControl.prefs?.paused ? 'success' : 'neutral'}>
-              {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}
-            </Chip>}
-            {originStatus && <OriginChip status={originStatus} name={title} />}
-          </div>
-          <Tabs value={singleMember ? null : open} className={`${styles.tabs} hd-no-drag`}>
-            <TabsList aria-label="Team pages" data-icon-tabs={iconTabs ? '' : undefined}>
-              {([
-                {value:'overview',label:'Overview',Icon:OverviewIcon,count:overview.needsYou.length || undefined},
-                ...(goal?.receipt ? [{value:'receipt' as const,label:'Receipt',Icon:SummaryIcon,count:undefined}] : []),
-                {value:'run',label:triggerKind ? 'Runs' : 'Run',Icon:HistoryIcon,count:runs.length || undefined},
-                {value:'board',label:'Board',Icon:PlanIcon,count:intents.length},
-                {value:'room',label:'Chat',Icon:CommentIcon,count:held > 0 ? held : undefined},
-                ...(goal ? [{value:'findings' as const,label:'Findings',Icon:ReviewIcon,count:findingCount}] : []),
-                ...(!record && roster.length > 0 ? [{value:'side-by-side' as const,label:'Side by side',Icon:SideBySideIcon,count:undefined}] : []),
-              ] as const).map(tab => {
-                const name = tab.count === undefined ? tab.label : `${tab.label} · ${tab.count}${tab.value === 'room' ? ' held' : ''}`
-                const disabled = tab.value === 'run' && !triggerKind && runs.length === 0
-                const reason = disabled ? 'This Team has no Run yet' : undefined
-                return <Tooltip key={tab.value}>
-                  <TabsTrigger render={<TooltipTrigger />} value={tab.value} data-team-page={tab.value} aria-label={name}
-                    className={disabled ? 'aria-disabled:pointer-events-auto' : undefined}
-                    aria-describedby={disabled ? noRunReasonId : undefined}
-                    icon={<tab.Icon />} iconOnly={iconTabs} count={tab.count}
-                    disabled={disabled} title={disabled && !iconTabs ? reason : tab.value === 'room' ? 'Everyone in this Team' : undefined}
-                    onClick={() => {
-                      if (disabled) return
-                      if (tab.value === 'side-by-side') { if (open !== 'side-by-side') toggleSideBySide(); return }
-                      if (tab.value === 'run' && triggerKind) setChosenRun(null)
-                      show(tab.value)
-                    }}>{tab.label}</TabsTrigger>
-                  {disabled && <span id={noRunReasonId} className="sr-only">{reason}</span>}
-                  {iconTabs && <TooltipContent side="bottom">{name}{reason && ` — ${reason}`}</TooltipContent>}
-                </Tooltip>
-              })}
-            </TabsList>
-          </Tabs>
-        </div>}
-        actions={<div className={`${styles.barVerbs} hd-no-drag`}>
-          <div className={styles.barFacts}>
-            <Popover title="Team members" align="right" triggerVariant={{variant:'ghost',size:'content-min',className:'min-w-(--hd-target-min)'}}
-              label={<><span aria-hidden className="flex items-center gap-(--hd-space-1)">{allSeats.length === 0 ? <AgentIcon size={14} /> : <AvatarStack size="sm" members={allSeats.map(seat => {
-                const entry = roster.find(one => one.key === seat.key)
-                return {id:seat.record.id,name:seat.name,tint:entry?.tint ?? receiptFaces.get(seat.record.id)?.tint,
-                  mark:entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
-              })} />}<Text role="meta" numeric data-team-members-count="" title={`${memberPresence.here} of ${memberPresence.total} here`}>{memberPresence.total}</Text></span><span className="sr-only">Team members</span></>}>
-              {close => <div data-slot="team-members" className={styles.members}>
-          {/* The roster's heading does three jobs: names the section, counts
-              it, and carries the one verb a roster is for. Adding a member used
-              to mean leaving the room, starting a session somewhere else,
-              sending it something, and coming back to see whether it had
-              appeared. */}
-          <NavigationGroupHeader label="Agents">
-            <Text role="meta" numeric className={styles.count}>{allSeats.length}</Text>
-            {goal && !record ? <Button
-              type="button"
-              variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={styles.railAdd}
-              aria-label="Seat an Agent in this Team"
-              disabled={record}
-              title={record ? RECORD_REASON : "Seat an Agent in this Team"}
-              onClick={() => { setAdding(true); close() }}
-            >
-              <PlusIcon size={13} />
-            </Button> : null}
-          </NavigationGroupHeader>
-
-          {/* A filter, once the roster is longer than the eye scans in one go.
-              Four is where a rail of names stops being a picture and starts
-              being a list — and below it the box would be a control that costs
-              a row to save nothing. */}
-          {roster.length > 4 && (
-            /* The sidebar's own filter field: a line rather than a box, in a
-               rail of borderless rows that would read a bordered field as a
-               form to fill in. */
-            <Search
-              size="compact"
-              icon="filter"
-              className={styles.railFilter}
-              value={filter}
-              placeholder="Filter agents"
-              label="Filter agents"
-              onChange={setFilter}
-              clear={{ label: 'Clear the filter', onClick: () => setFilter('') }}
-            />
-          )}
-
-          <RailSection stretch="list" className={styles.railList}>
-          <ListRows size="sm">
-            {peers !== null && roster.length === 0 && unlinked.length === 0 && (
-              /* A zero says what it looked for *and* what it found — and it is
-                 only said once the host has actually answered. Drawn from a
-                 `null` roster it was not a zero at all, it was silence wearing a
-                 sentence: "no conversations in this project yet", in a room that
-                 had four of them a moment before the request failed. It used to
-                 say only what it wanted — "open one in this workspace and it
-                 joins" — to a person who had two conversations open in that
-                 workspace and was reading a roster that said none. The rule it
-                 applies is real and was applied invisibly, which is
-                 indistinguishable from a bug.
-
-                 What the rule *is* has changed: it used to be "a conversation
-                 joins when it is attached to its agent", which was true while a
-                 folder was a board. Nothing joins by itself now — the + above is
-                 the way in — and telling somebody to wait for something that
-                 will never happen is worse than saying nothing.
-
-                 Nor is it said above Seats the list itself draws: an older
-                 receipt may keep every Seat without its conversation, and
-                 those rows below are Agents that were kept (#1317). */
-              <EmptyState
-                variant="inline"
-                className={styles.railEmpty}
-                title={
-                  /* "In this room", not "here": the two used to be one word
-                     because a member only appeared while its conversation was
-                     open, so an empty roster and an empty room were the same
-                     sight. They are different facts now — a room keeps its
-                     members across a quit — and this line is only ever the
-                     second one. */
-                  record ? 'No Agents were kept in this Team’s receipt.' : here === 0
-                    ? 'No agents in this Team yet, and no conversations in this project either. + starts one and puts it in.'
-                    : here === 1
-                      ? 'No agents in this Team yet. One conversation is open in this project — + adds an agent.'
-                      : `No agents in this Team yet. ${here} conversations are open in this project — + adds an agent.`
-                }
-              />
-            )}
-            {roster.length > 0 && shown.length === 0 && (
-              <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />
-            )}
-            {/* A doubt every row shares is the group's, said once. Four rows
-                each reading "has not used the board" explained nothing a
-                single line above them does not, and cost a line of height on
-                every one of them. */}
-            {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
-            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={<span title="Conversation not kept">{seat.name}{seat.role && <Text role="muted"> {seat.role}</Text>}</span>} lead={<SeatFace {...receiptFaces.get(seat.record.id)} />} />)}
-            {shown.map((member) => record ? (
-              <ListRow as="button" key={member.key} size="sm" nav interactive selected={open === member.key} onClick={() => { show(member.key); close() }}
-                lead={<SeatFace brand={member.brand} tint={member.tint} />}
-                title={<>{member.peer.nickname}{allSeats.find(seat => seat.key === member.key)?.role && <Text role="muted"> {allSeats.find(seat => seat.key === member.key)?.role}</Text>}</>} />
-            ) : (
-              <MemberRow
-                key={member.key}
-                member={member}
-                idleSaidAbove={idleShared}
-                onRemove={record ? undefined : () => leave(member.key)}
-                onInbound={record ? undefined : (mode) => setInbound(member.key, mode)}
-                /* Selected means "what the body shows", as every other rail
-                   row means: the member opened on its own. A member on a
-                   tile is shown by the Side by side row, which is selected
-                   then instead. */
-                selected={open === member.key}
-                replaces={
-                  grid.tiles.length > 0 && !grid.tiles.includes(member.key)
-                    ? (memberOf(wouldReplace(member.key) as SessionKey)?.nickname ?? null)
-                    : null
-                }
-                cap={MAX_TILES}
-                full={!canPlace(grid, member.key)}
-                watching={grid.tiles.length > 0}
-                onOpen={() => { show(member.key); close() }}
-                onWatch={() => { watch(member.key); close() }}
-              />
-            ))}
-          </ListRows>
-          </RailSection>
-
-              </div>}
-            </Popover>
-            {pinnedAt && <span data-team-pinned-at=""><Text role="meta" className="truncate" title={pinnedAt.sha ?? undefined}>
-              {pinnedAt.sha ? (pinnedAt.label ? `at ${shortSha(pinnedAt.sha)} on ${pinnedAt.label}` : `at ${shortSha(pinnedAt.sha)}`) : pinnedAt.label}
-            </Text></span>}
-          </div>
-          {!record && <ToolPaneHeaderDivider />}
-          <span className={styles.barWrapFull} hidden={headerLayout.narrow === true}>
-            {!record && <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={open === 'side-by-side'}
-              disabled={roster.length === 0} title={roster.length === 0 ? 'Seat an Agent to show conversations side by side' : 'Show Seat conversations side by side'} onClick={toggleSideBySide}><SideBySideIcon size={14} /></Button>}
-            <Button variant={messaging ? 'ghost' : 'warning'} size="icon-sm" aria-label="Hold messages at the board" aria-pressed={!messaging}
-              disabled={record} title={record ? RECORD_REASON : messaging ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.' : 'Messages wait for the board. Press to let members message each other again.'}
-              onClick={() => void toggleMessaging()}>{messaging ? <CommentIcon size={14} /> : <MessageOffIcon size={14} />}</Button>
-            {pullRequest && <Button variant="ghost" size="icon-sm" aria-label={`Pull request #${pullRequest.number}`} title={`Open pull request #${pullRequest.number}`} onClick={() => void openExternal(pullRequest.url)}><PullRequestIcon size={14} /></Button>}
-          </span>
-          <WorkPanelToggle onToggle={open => store.collapsePanel('right', open)} />
-          <Popover label={<MoreIcon size={14} />} title="More" align="right" triggerVariant={{variant:'ghost',size:'icon-sm'}}>
-            {close => <Menu close={close}>
-              {headerLayout.narrow && <>
-                {!record && <MenuToggle label="Side by side" checked={open === 'side-by-side'} disabled={roster.length === 0 ? 'Seat an Agent first' : false} onChange={() => {toggleSideBySide();close()}} />}
-                <MenuToggle label="Hold messages at the board" checked={!messaging} disabled={record ? RECORD_REASON : false} onChange={() => {void toggleMessaging();close()}} />
-                {pullRequest && <MenuItem label={`Pull request #${pullRequest.number}`} onSelect={() => {void openExternal(pullRequest.url);close()}} />}
-              </>}
-              {goal && !record && <MenuItem label="Wrap…" disabled={wrapDisabled} onSelect={() => {setWrapping(true);close()}} />}
-              <PanelActionMenuItems />
-            </Menu>}
-          </Popover>
-        </div>} />
       {goal ? <GoalHeader view={goal} coveredProblem={flowExecution?.reason ?? timelineRun?.reason} /> : null}
       {flowExecution?.state === 'stalled' && (open !== 'run' || timelineRun?.id !== flowExecution.id) && <PaneColumn inset="reading"><Button variant="link" size="inline" onClick={() => { setChosenRun(flowExecution.id); show('run') }}>Review stopped Run</Button></PaneColumn>}
       {flowExecution ? <FlowRunStatus execution={flowExecution} checkRecovery={open !== 'run'} /> : null}
@@ -1320,11 +1154,11 @@ export const TeamRoomPane = ({
           split has to make room for one. */}
       <div className={styles.split}>
         <div className={styles.body} data-slot="room-body">
-          {open === 'run' && triggerKind && <div hidden={chosenRun !== null} className={chosenRun !== null ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
+          {triggerKind && <div hidden={open !== 'runs'} className={open !== 'runs' ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
             <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} trigger={triggerControl}
               problem={runHistoryProblem?.room === room ? runHistoryProblem.message : runsReviewProblem?.room === room ? runsReviewProblem.text : timelineReadError ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? null}
-              onOpen={setChosenRun} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)}
-              onRunVisibility={onRunReviewVisibility} active={chosenRun === null} />
+              onOpen={id => { setChosenRun(id); show('run') }} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)}
+              onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
           </div>}
           {open === 'receipt' ? (
             <PaneColumn inset="reading" page className="min-h-0 flex-1 overflow-y-auto">
@@ -1362,15 +1196,11 @@ export const TeamRoomPane = ({
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
               statusLine={(now, includeRunReason) => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason={includeRunReason && flowExecution?.state !== 'stalled'} stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
-          ) : open === 'run' && triggerKind && chosenRun === null ? null : open === 'run' && timelineRun ? (
+          ) : open === 'runs' ? null : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {triggerKind && <PaneColumn inset="reading" page><Button variant="link" size="inline" aria-label="Back to Runs" onClick={() => setChosenRun(null)}>Back to Runs</Button></PaneColumn>}
+              {triggerKind && <PaneColumn inset="reading" page><Button variant="link" size="inline" aria-label="Back to Runs" onClick={() => show('runs')}>Back to Runs</Button></PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun}
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
-                runChooser={!triggerKind && runs.length > 1 && <span aria-label="Choose a Run" className="flex flex-wrap gap-2">
-                  {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
-                    onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
-                </span>}
                 continuesNumber={timelineRun.continues ? runs.findIndex(one => one.id === timelineRun.continues) + 1 || undefined : undefined}
                 onRunAgain={goal?.goal.state === 'open' ? () => setAgain(timelineRun) : undefined}
                 onWrap={!wrapDisabled ? () => setWrapping(true) : undefined}
@@ -1510,33 +1340,18 @@ export const TeamRoomPane = ({
               return (
                 <div className={styles.columns} data-columns="1">
                   <section className={styles.column}>
-                    <Bar as="header" rule="bottom" className={styles.columnHead}>
-                      <MemberCard entry={entry} side="bottom" className={styles.columnWho}>
-                        <span className={styles.columnMark}>
-                          <IconTile size="sm" shape="face" tint={entry?.tint ?? 'blue'}>
-                            {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
-                          </IconTile>
-                          {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
-                        </span>
-                        <Text role="row" className={styles.columnName}>{member?.nickname ?? 'Member'}</Text>
-                        <Text role="meta" className={styles.columnSub}>
-                          {[member?.agent === member?.nickname ? null : member?.agent, member?.model].filter(Boolean).join(' · ')}
-                        </Text>
-                      </MemberCard>
-                    </Bar>
                     <div className={styles.columnBody}>
-                      <TopBarProvider><PaneProvider scope={{ paneId: `${mount?.id ?? 'team-room'}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
-                        <TopBarOutlet owner={`${mount?.id ?? 'team-room'}:${key}`} fallback={{ place: 'Member', more: () => null }} />
-                        <Conversation embeddedHeader onChooseProject={onChooseProject} onSignIn={onSignIn} onOpenUsage={onOpenUsage} onOpenRuntimes={onOpenRuntimes} />
+                      <PaneProvider scope={{ paneId: `${mount?.id ?? 'team-room'}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
+                        <Conversation header={false} teamMenuOwner={mainOwner} onChooseProject={onChooseProject} onSignIn={onSignIn} onOpenUsage={onOpenUsage} onOpenRuntimes={onOpenRuntimes} />
                         <Approvals />
-                      </PaneProvider></TopBarProvider>
+                      </PaneProvider>
                     </div>
                   </section>
                 </div>
               )
             })()
           ) : (
-            <Room room={room} draftState={roomDraft} trouble={composerTrouble} onTrouble={setComposerTrouble} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
+            <Room composerRef={chatComposer} room={room} draftState={roomDraft} trouble={composerTrouble} onTrouble={setComposerTrouble} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
           )}
         </div>
       </div>
@@ -1545,7 +1360,6 @@ export const TeamRoomPane = ({
 }
 
 import { seatCeilingOf, type SeatCeilingShown } from '../lib/ceilings'
-import { CeilingChip } from './CeilingChip'
 
 /** One member of the room, as the rail draws it. */
 type Member = {
@@ -1573,19 +1387,6 @@ type Member = {
   title: string | null
   ceiling: SeatCeilingShown | null
 }
-
-const withCeiling = (shown: SeatCeilingShown | null, line: ReactNode): ReactNode =>
-  shown ? (
-    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <CeilingChip ceiling={shown.ceiling} note={shown.note} />
-      {/* A job's title is a sentence, and sentences wrap (rule 9): beside the
-          chip when it fits, under it whole when it does not. Truncated here it
-          read "#1 Do t…" in a rail with the rest of the line to spare. */}
-      {line !== undefined && <span className="min-w-0">{line}</span>}
-    </span>
-  ) : (
-    line
-  )
 
 /**
  * A rail member, as the card reads it.
@@ -1732,235 +1533,6 @@ const MemberCard = ({
   )
 }
 
-/**
- * A member's nickname is its navigation name. The conversation title says
- * what it is doing, so it shares the existing wrapping subtitle with the
- * task or reason rather than competing with the name's ellipsis. Working
- * remains a light; an untitled member still earns no line just for existing.
- */
-const MemberRow = ({
-  member,
-  idleSaidAbove = false,
-  selected,
-  replaces,
-  cap,
-  full,
-  watching,
-  onOpen,
-  onWatch,
-  onRemove,
-  onInbound,
-}: {
-  member: Member
-  /**
-   * The board caution is said once above the list, because every row would
-   * carry it: the row drops its own copy. Only the row — the member's card
-   * still states it, since a card is read one member at a time.
-   */
-  idleSaidAbove?: boolean
-  selected: boolean
-  /** Whose column this pick would take, when the pane is already full. */
-  replaces: string | null
-  cap: number
-  /** No tile is free (the others are pinned), so Watch has no place to put this member. */
-  full: boolean
-  watching: boolean
-  onOpen: () => void
-  onWatch: () => void
-  /** Take this member out of the room. On the card, never on the row. */
-  onRemove?: () => void
-  /** Set what it does with messages sent to it. On the card, like the rest. */
-  onInbound?: (mode: TeamInbound) => void
-}) => {
-  const { peer } = member
-  const inboundState = INBOUND_MODES.find((mode) => mode.value === peer.inbound)?.state ?? null
-  const title = member.title && member.title !== peer.nickname ? member.title : null
-  const taskShown = member.canUseBoard && !inboundState ? member.onTask : null
-  const context = (
-    !member.canUseBoard ? (
-      /* Outranks everything else on the row: what a member is called and
-         what it holds do not matter if it cannot take a job at all.
-         HarnessDesk's tools reach an agent through a server the agent has
-         to accept, and one that refused it can claim nothing — which used
-         to be discoverable only by an agent trying and being refused. */
-      <Text role="meta" tone="warning" className={styles.memberWarn}>
-        <ShieldOffIcon size={11} />
-        cannot take jobs — tools not reachable
-      </Text>
-    ) : inboundState ? (
-      /* Second, above every other second line, because it is the one that
-         changes what happens when you write to this member — and because
-         it is the only one somebody chose. A held or refused member that
-         also holds a job would otherwise show the job and hide the reason
-         the messages are going nowhere, which is the state this control
-         exists to make visible. `accept` says nothing at all: it is the
-         default on every member of every room. */
-      <span className={styles.memberInbound}>{inboundState}</span>
-    ) : member.onTask ? (
-      <>
-        <Text role="meta" tint="violet">#{member.onTask.id}</Text>{' '}
-        {member.onTask.title}
-      </>
-    ) : member.idleOnBoard && !idleSaidAbove ? (
-      /* The lesser of the two cautions, and the reason both exist: the line
-         above is what the harness says about itself, this is what the board
-         has seen. A member can read as able, take nothing, and until now
-         nothing on screen said so. No glyph — it is a doubt, not a refusal,
-         and it must not shout as loudly as one. */
-      <span className={styles.memberIdle}>has not used the board</span>
-    ) : !member.here ? (
-      /* Last of the four, because the three above are all *more* specific
-         and a row shows one. It is here at all because a dimmed mark on
-         its own is a hint, and this row's whole job after a relaunch is to
-         say that the room is intact and nothing is warm yet — including
-         what will happen if you write to it. */
-      <span className={styles.memberIdle}>not open — a message opens it</span>
-    ) : undefined
-  )
-  const row = (
-    <ListRow
-      size="sm"
-      nav
-      interactive
-      wrapSubtitle
-      selected={selected}
-      onClick={onOpen}
-      className={`${styles.memberRow} group/member`}
-      lead={
-        /* A member the desk does not have open is drawn quieter — the mark
-           loses its full weight, the way an unread row differs from a read
-           one. Quieter, never absent: it is a member of this room, it holds
-           its name and its job, and a message reaches it. Said in words on
-           the second line, and to a screen reader below; the dimming is the
-           glance. */
-        <span className={styles.memberMark} {...(member.here ? {} : { 'data-away': '' })}>
-          <IconTile size="sm" shape="face" tint={member.tint}>
-            {member.brand ? <BrandMark brand={member.brand} size={13} /> : <AgentIcon />}
-          </IconTile>
-          {/* Working is a light, not a word. Announced to a screen reader on
-              the name below, where it is a sentence rather than a colour. */}
-          {member.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
-        </span>
-      }
-      title={
-        <>
-          {/* The *nickname*: the one name guaranteed to exist and to be unique
-              here — three Cursor conversations on three models arrive untitled
-              and identical, and used to draw three rows all reading "Cursor". */}
-          {member.displayName ?? peer.nickname}
-          {member.busy && <span className="sr-only"> — working</span>}
-          {!member.here && <span className="sr-only"> — not open</span>}
-        </>
-      }
-      subtitle={withCeiling(
-        member.ceiling,
-        context === undefined ? title ?? undefined : (
-          <>{context}{title && title !== taskShown?.title && <> · {title}</>}</>
-        ),
-      )}
-      trail={
-        /* Watching beside, on every row and at all times.
-           This used to appear only once a member was already up, on the theory
-           that with nothing on screen there is nothing to sit beside. That is
-           true of the *second* column and false of the first: a person who
-           wanted two members up had to open one the ordinary way and then
-           discover a control that had not existed a moment earlier. It is one
-           verb — "put this one up too" — and a verb that appears and
-           disappears is a verb nobody learns. */
-        <span className="inline-flex items-center gap-2">
-        {member.done && <span data-slot="member-done"><Text role="meta">Done</Text></span>}
-        <Button variant="reveal" size="icon-xs"
-          type="button"
-          /* Resting here asks about the column a pick will take — the title
-             says which — not about the agent, so it summons no card and puts
-             an open one away. See `AgentHoverCard`. */
-          data-no-card=""
-          className="flex"
-          {...(full ? { 'aria-disabled': true } : {})}
-          aria-label={
-            full
-              ? `Watch ${peer.nickname}: no tile is free`
-              : replaces
-              ? `Watch ${peer.nickname} in place of ${replaces}`
-              : `Watch ${peer.nickname} beside the others`
-          }
-          title={
-            full
-              ? `No tile is free: the others are pinned — unpin one to make room for ${peer.nickname}`
-              : replaces
-              ? /* Said before the press, not after. A pick that will take a
-                   column away has to say which one while there is still time
-                   not to press it. */
-                `Watch ${peer.nickname} in place of ${replaces} — the grid holds ${cap}`
-              : watching
-                ? `Watch ${peer.nickname} beside the others`
-                : `Watch ${peer.nickname} — opens beside anything you add next`
-          }
-          onClick={(event) => {
-            /* The row's own press is on an ancestor, so stopping the bubble
-               here is the difference between "put it beside" and "put it
-               beside, then replace everything with it". */
-            event.stopPropagation()
-            onWatch()
-          }}
-        >
-          <PlusIcon size={13} />
-        </Button>
-        </span>
-      }
-    />
-  )
-
-  return (
-    /* The row is the card's trigger, edge to edge: the mark, the name and the
-       line under it. It was the tile alone, and the words beside a mark are
-       where a reader rests — resting on "Gemini" did nothing while the icon
-       beside it opened the card. What made a whole row unsafe to bind is
-       carried by `AgentHoverCard`: the row says it holds controls
-       (`openOnFocus={false}`), so the + at its end can be tabbed to without a
-       card opening or closing, and a press takes the card away, so the click
-       that opens this member does not leave a card floating over it. Anchored
-       to the row, the card also opens beside the rail rather than over the
-       names in it.
-
-       That refusal assumes the row itself takes no focus, which holds while
-       `ListRow` is a plain div with a click. If the row becomes a button,
-       every rail row is a focus stop inside a trigger that refuses focus, and
-       the cards go keyboard-unreachable while still looking reachable: the
-       row's own focus would then have to open its card, and only the +'s not. */
-    <MemberCard
-      as="div"
-      openOnFocus={false}
-      entry={member}
-      onOpen={onOpen}
-      onWatch={onWatch}
-      onRemove={onRemove}
-      onInbound={onInbound}
-    >
-      {row}
-    </MemberCard>
-  )
-}
-
-/**
- * The room itself: everyone's channel, and the way into it.
- *
- * The roster is handed down rather than fetched again — one question to the
- * host per room, and the rail and the recipient menu can never disagree about
- * who is here.
- */
-/**
- * The one live fact under the chat, at its tail: who is on it right now, and
- * for how long, or what it is waiting on a person for. Reuses `TurnTail`'s
- * own duration reading rather than inventing a second one — the header's
- * chip already says the run's overall state; this says which member.
- *
- * A room rarely has more than one member genuinely busy at once — the board
- * hands cards out one at a time in the common case — so one line, for
- * whoever in roster order is on it, is enough; a member waiting on a person
- * outranks one merely working, matching the header's own rule.
- */
-/** A raw lowercase fragment from the host, read as a proper sentence. */
 const sentence = (text: string): string => (text.length > 0 ? text[0]!.toUpperCase() + text.slice(1) : text)
 
 const RoomLiveLine = ({
@@ -2221,6 +1793,7 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
 const Room = ({
   room,
   draftState,
+  composerRef,
   trouble,
   onTrouble: setTrouble,
   members,
@@ -2233,6 +1806,7 @@ const Room = ({
 }: {
   readonly room: string
   readonly draftState: RoomComposerDraftState
+  readonly composerRef: RefObject<RoomComposerHandle | null>
   readonly trouble: string | null
   readonly onTrouble: (message: string | null) => void
   /**
@@ -2270,7 +1844,7 @@ const Room = ({
   /* The composer's own handle. The room has one surface that addresses a
      member from outside the box — a name card on a message, offering
      Message — and this is where it lands. */
-  const composer = useRef<RoomComposerHandle>(null)
+  const composer = composerRef
   /* A tick every second, for the two readings on this page that move on
      their own between board mutations: the live line's elapsed seconds, and
      the budget meter's minutes. Local to the room, not a shared clock —

@@ -35,24 +35,27 @@ for (const theme of WALL_THEMES) {
     await expect(main.locator('[data-slot="run-workspace"]')).toBeVisible()
     await expect(main).toContainText('Round 1')
     await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-    await expect(page.locator('[data-slot="run-inspector"]:visible')).toBeVisible()
-    // The retained overlay hides the outer bar until Task8; its own close
-    // remains the available control for returning to the same timeline.
-    await page.getByRole('button', { name: 'Hide this panel', exact: true }).click()
+    const details = page.locator('[data-slot="tool-body"]:visible')
+    await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
+    await expect(details.locator('[aria-label="Seats"]')).toBeVisible()
+    await expect(details.locator('[data-slot="summary-card"][data-surface="card"]')).toHaveCount(0)
+    // The canonical toggle stays above the covered main area and returns to
+    // the same timeline without reselecting or releasing the retained cache.
+    await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
     await expect(main).toContainText('Round 1')
     // The ordinary wall Run truthfully records no Flow steps. Use the existing
     // synthetic recorded-Flow rig for its narrow Steps visibility boundary.
     await openFrame(page, 'run-dock', theme, 720)
-    await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
     await selectFrameTab(page, 'run')
     await main.getByRole('radio', { name: 'Flow', exact: true }).click()
     await expect(main.locator('[data-slot="flow-list"]')).toHaveAttribute('data-placement', 'below')
-    // The visible intent toggle must open the retained Steps on one press,
-    // even when legacy Flow routing has left its raw cache uncollapsed.
+    // The canonical toggle restores remembered Details on one press; retained
+    // legacy Steps stay hidden and Flow keeps its own Steps and Rules below.
     await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-    await expect(page.locator('[data-slot="run-steps"]:visible')).toBeVisible()
-    await page.getByRole('button', { name: 'Hide this panel', exact: true }).click()
+    await expect(page.locator('[data-slot="tool-body"]:visible')).toContainText('Seats')
+    await expect(page.locator('[data-slot="run-steps"]:visible')).toHaveCount(0)
+    await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
   })
 
@@ -78,7 +81,7 @@ for (const theme of WALL_THEMES) {
 
   test(`a menu keeps the contract in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
-    await page.locator('[data-slot="team-room"] header').first().getByRole('button', { name: 'More', exact: true }).click()
+    await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'More', exact: true }).click()
     const menu = page.getByRole('menu').first()
     await expect(menu).toBeVisible()
     const surface = await menu.evaluate((el) => {
@@ -195,25 +198,25 @@ for (const theme of WALL_THEMES) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B3 embedded member retains scoped actions until Team migration in ${theme}`, async ({ page }) => {
+  test(`B4 embedded member retains scoped actions in the canonical Team bar in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team&frame-member-actions=1', theme)
-    await page.getByRole('button', { name: 'Team members', exact: true }).click()
-    const watch = page.getByRole('button', { name: /^Watch Alpha / })
-    await page.locator('[data-slot="team-members"] [data-slot="list-row"]').filter({ has: watch }).click()
     const bar = page.locator('[data-slot="top-bar"]')
+    await bar.getByRole('button', { name: 'Details', exact: true }).click()
+    await page.getByRole('button', { name: 'Actions for Alpha', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Open conversation', exact: true }).click()
     await expect(bar).toHaveCount(1)
-    await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
-    await expect(bar.locator('[data-topbar-title]')).toContainText('Writer conversation')
+    expect(await bar.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool))).toEqual(['details', 'changes', 'activity', 'browser'])
+    await expect(bar.locator('[data-topbar-title]')).toContainText('Retry the checkout call')
     await bar.getByRole('button', { name: 'More', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Compact now', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Save as an Agent…', exact: true })).toBeVisible()
-    await expect(page.getByRole('menuitemcheckbox', { name: 'Browser', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Browser', exact: true })).toHaveCount(0)
     await page.getByRole('menuitem', { name: 'Folder actions', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Commit the changes', exact: true }).click()
     const composer = page.locator('[data-slot="workbench-main"] textarea')
     await expect(composer).toHaveValue('Commit the changes from this conversation with a clear message, then tell me the commit hash.')
     await expect(composer).toBeFocused()
-    await page.screenshot({ path: `output/frame-wall/B3-member-actions-${theme}.png` })
+    await page.screenshot({ path: `output/frame-wall/B4-member-actions-${theme}.png` })
   })
   test(`B3 Details Commit reaches its conversation after Browser focus in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
@@ -284,5 +287,34 @@ for (const theme of WALL_THEMES) {
     expect((await more.boundingBox())!.x).toBe(moreBefore.x)
     await page.mouse.up()
     expect((await first.boundingBox())!.x - (await details.boundingBox())!.x).toBe(FRAME.bar.pad)
+  })
+}
+
+
+for (const theme of WALL_THEMES) {
+  test(`B4 Team tabs own navigation and Chat owns its layout in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme)
+    await expect(page.locator('[data-slot="top-bar"]')).toHaveCount(1)
+    await expect(page.locator('[data-team-page="overview"]')).toBeVisible()
+    await expect(page.locator('[data-team-page="side-by-side"]')).toHaveCount(0)
+    await page.locator('[data-work-tool="details"]').click()
+    const details = page.locator('[data-slot="tool-body"]:visible')
+    const headings = await details.locator('[data-slot="tool-section"] > [data-slot="group-label"]').evaluateAll(nodes => nodes.map(node => node.textContent))
+    expect(headings[0]).toContain('Run')
+    expect(headings[1]).toContain('Seats')
+    await selectFrameTab(page, 'room')
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await expect(page.getByRole('menuitemradio', { name: 'Thread', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: 'Side by side', exact: true })).toBeVisible()
+  })
+  test(`B4 Chat has one composer edge and no view toolbar in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme)
+    await selectFrameTab(page, 'room')
+    await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
+    const composer = page.locator('[data-slot="room-body"] [data-slot="composer"]:visible').first()
+    await expect(composer).toBeVisible()
+    const content = page.locator('[data-slot="room-body"]')
+    const composerBox = (await composer.boundingBox())!, contentBox = (await content.boundingBox())!
+    expect(composerBox.y + composerBox.height).toBeLessThanOrEqual(contentBox.y + contentBox.height + 1)
   })
 }

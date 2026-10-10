@@ -1,9 +1,10 @@
-import { useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
 import { Separator } from '../ui/separator'
 import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { Text } from './Settings'
+import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip'
 import { Menu, MenuItem } from './Menu'
 import { Popover } from './Popover'
 import { MoreIcon, CaretIcon, FilterIcon } from '../../components/Icons'
@@ -39,6 +40,17 @@ export interface TopBarProps {
   readonly extraMore?: readonly TopBarAction[]
   readonly corner?: boolean
 }
+const DestinationTab = ({ tab }: { tab: TopBarTab }) => {
+  const reasonId = useId()
+  const trigger = <TabsTrigger value={tab.value} data-team-page={tab.value}
+    disabled={Boolean(tab.disabled)} title={tab.disabled || undefined} aria-describedby={tab.disabled ? reasonId : undefined}
+    className={tab.disabled ? 'aria-disabled:pointer-events-auto' : undefined}
+    onClick={() => { if (!tab.disabled) tab.run() }}>{tab.label}
+    {tab.count !== undefined && <Text role="meta" numeric>{tab.count}</Text>}</TabsTrigger>
+  return tab.disabled ? <><Tooltip><TooltipTrigger render={trigger} /><TooltipContent>{tab.label} — {tab.disabled}</TooltipContent></Tooltip>
+    <span id={reasonId} className="sr-only">{tab.disabled}</span></> : trigger
+}
+
 export const TopBar = (props: TopBarProps) => {
   const foldedTab = useRef<HTMLButtonElement | null>(null)
   const restoreTabFocus = useRef(false)
@@ -97,9 +109,7 @@ export const TopBar = (props: TopBarProps) => {
       {fold === 0 && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
       {props.tabs && <div data-topbar="tabs" className={styles.fixed}>{(fold < 2 ? <Tabs value={props.tab ?? null}>
         <TabsList aria-label="Destination views" variant="line" className={styles.tabs}>
-          {props.tabs.map(one => <TabsTrigger key={one.value} value={one.value} data-team-page={one.value}
-            disabled={Boolean(one.disabled)} title={one.disabled || undefined} onClick={one.run}>{one.label}
-            {one.count !== undefined && <Text role="meta" numeric>{one.count}</Text>}</TabsTrigger>)}
+          {props.tabs.map(one => <DestinationTab key={one.value} tab={one} />)}
         </TabsList>
       </Tabs> : <Popover title="Destination views" triggerRef={foldedTab} label={<>{current?.label ?? 'Views'}{current?.count !== undefined && <Text role="meta" numeric>{current.count}</Text>}<CaretIcon /></>}>
         {close => <Menu close={close}>{props.tabs?.map(one => <MenuItem key={one.value} label={one.label}

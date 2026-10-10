@@ -54,7 +54,7 @@ import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { BoardListFrames } from './frames-board-list'
 import { TeamBoardPane } from '../components/TeamBoardPane'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
@@ -379,6 +379,16 @@ Object.assign(store as unknown as Record<string, unknown>, {
  * explorer's surface boards mount too — so a screen looks the same in the
  * catalogue as it does here, for the reason that it is the same screen.
  */
+
+/** Catalogue Teams each own a synthetic frame, alongside the shared screen rig. */
+const TeamStandaloneFrame = ({room}:{room:string}) => {
+  const own=useMemo(()=> {
+    const frame=previewStore(store.getSnapshot())
+    Object.assign(frame,{teamPeers:store.teamPeers.bind(store),triggerGoal:store.triggerGoal.bind(store),readGoalInsight:store.readGoalInsight.bind(store)})
+    return frame
+  },[])
+  return <Mount with={own}><TeamFramePreview room={room} /></Mount>
+}
 
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
 export const Frame = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => (
@@ -1110,26 +1120,26 @@ const Preview = () => {
             </Mount>
           </div>
         </Frame>}
-        <Frame id="goal-roster" title="Goal — state, roster and channel">
+        <div className="col-span-full"><Frame id="goal-roster" title="Goal — state, roster and channel">
           <div className="h-[540px]">
-            <TeamRoomPane room={PREVIEW_GOAL.goal.id} />
+            <TeamStandaloneFrame room={PREVIEW_GOAL.goal.id} />
           </div>
-        </Frame>
-        <Frame id="goal-triggered" title="Goal — opened by a trigger">
+        </Frame></div>
+        <div className="col-span-full"><Frame id="goal-triggered" title="Goal — opened by a trigger">
           <div className="h-[540px]">
-            <TeamRoomPane key={goalScene} room={PREVIEW_TRIGGER_GOAL.goal.id} />
+            <TeamStandaloneFrame key={goalScene} room={PREVIEW_TRIGGER_GOAL.goal.id} />
           </div>
-        </Frame>
+        </Frame></div>
         {/* A front-door start's own header meta: a pinned revision ("at
             a1b2c3d on branch feature"), a diff or working-tree's label alone
             (no head to repeat), or a person's own stop line — all read off
             `flowExecutions`, never fetched, so the "flow scene" Dial above
             is what moves this frame. */}
-      <Frame id="goal-front-door" title="Goal — a front-door start's pinned revision or stop line">
+      <div className="col-span-full"><Frame id="goal-front-door" title="Goal — a front-door start's pinned revision or stop line">
           <div className="h-[540px]">
-            <TeamRoomPane key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
+            <TeamStandaloneFrame key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
           </div>
-        </Frame>
+        </Frame></div>
       </div>
 
       {/* Full width, like every other Settings frame on this page — the same

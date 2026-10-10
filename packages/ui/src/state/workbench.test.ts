@@ -490,11 +490,11 @@ describe('protecting the reading column', () => {
     return { ...docked, right: { ...docked.right, size }, frameTools: { [subject]: { tool: 'changes', mode: 'changes', open: true } } }
   }
 
-  test('keeps three columns at 1440 and keeps the sidebar at the 922px equality boundary', () => {
+  test('keeps three columns at 1440 and keeps the sidebar at the 1000px frame boundary', () => {
     expect(sidebarCannotHaveColumn(right(460), 1440)).toBe(false)
     // 240 + 280 + 400, and the two dividers the live window measured.
-    expect(sidebarCannotHaveColumn(right(), 922)).toBe(false)
-    expect(sidebarCannotHaveColumn(right(), 921)).toBe(true)
+    expect(sidebarCannotHaveColumn(right(), 1000)).toBe(false)
+    expect(sidebarCannotHaveColumn(right(), 999)).toBe(true)
   })
 
   test.each([
@@ -521,21 +521,21 @@ describe('protecting the reading column', () => {
     expect(rightPanelOverlays(workbench, 679)).toBe(true)
   })
 
-  test('collapsed or empty right docks do not take the sidebar column at 900', () => {
+  test('collapsed or empty right docks do not take the sidebar column at 1000', () => {
     const drawn = right()
-    expect(sidebarCannotHaveColumn({ ...drawn, right: { ...drawn.right, collapsed: true }, frameTools: { [fixedSubject(drawn.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, 900)).toBe(false)
-    expect(sidebarCannotHaveColumn(emptyWorkbench(), 900)).toBe(false)
+    expect(sidebarCannotHaveColumn({ ...drawn, right: { ...drawn.right, collapsed: true }, frameTools: { [fixedSubject(drawn.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, 1000)).toBe(false)
+    expect(sidebarCannotHaveColumn(emptyWorkbench(), 1000)).toBe(false)
   })
 
   test('uses the sidebar width even while its column is collapsed', () => {
     const workbench = right()
-    expect(sidebarCannotHaveColumn(workbench, 921)).toBe(true)
-    expect(sidebarCannotHaveColumn({ ...workbench, sidebar: { ...workbench.sidebar, size: 220 } }, 902)).toBe(false)
+    expect(sidebarCannotHaveColumn({...workbench,right:{...workbench.right,size:400}}, 1040)).toBe(true)
+    expect(sidebarCannotHaveColumn({ ...workbench, right: {...workbench.right,size:400}, sidebar: { ...workbench.sidebar, size: 220 } }, 1022)).toBe(false)
   })
 
   test('zoom keeps its existing area visibility rules', () => {
     const workbench = zoomArea(right(600), 'right', 'content')
-    expect(sidebarCannotHaveColumn(workbench, 900)).toBe(false)
+    expect(sidebarCannotHaveColumn(workbench, 1000)).toBe(false)
     expect(rightPanelOverlays(workbench, 400)).toBe(false)
   })
 })
@@ -938,8 +938,8 @@ describe('a view drawn in a dock', () => {
     over: { narrowWindow?: boolean; sidebarCollapsed?: boolean; sidebarFloating?: boolean } = {},
   ) => ({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false, workbench, ...over })
 
-  test('is drawn while its dock is open and showing it', () => {
-    expect(drawnInDock(appState(rightRun(STEPS)), 'run-steps')).toBe(true)
+  test('canonical Team Details hides legacy right cache while bottom stays drawn', () => {
+    expect(drawnInDock(appState(rightRun(STEPS)), 'run-steps')).toBe(false)
     expect(drawnInDock(appState(dock(emptyWorkbench(), 'bottom', STEPS)), 'run-steps')).toBe(true)
     expect(drawnInDock(appState(emptyWorkbench()), 'run-steps')).toBe(false)
   })
@@ -962,13 +962,13 @@ describe('a view drawn in a dock', () => {
   test('is not drawn behind the tab in front of it', () => {
     const behind = dock(rightRun(STEPS), 'right', DETAILS)
     expect(drawnInDock(appState(behind), 'run-steps')).toBe(false)
-    expect(drawnInDock(appState(behind), 'run-details')).toBe(true)
+    expect(drawnInDock(appState(behind), 'run-details')).toBe(false)
   })
 
   test('is not drawn while a zoom has the room elsewhere', () => {
     // `shownView` reads this dock as open, which it is; it is not on the screen.
     const docked = rightRun(STEPS)
-    expect(drawnInDock(appState(docked), 'run-steps')).toBe(true)
+    expect(drawnInDock(appState(docked), 'run-steps')).toBe(false)
     expect(drawnInDock(appState(zoomArea(docked, 'main', 'content')), 'run-steps')).toBe(false)
   })
 
@@ -1193,4 +1193,9 @@ describe('a main area saved when it could hold tools', () => {
     })
     expect(strayPanels(saved)).toEqual([])
   })
+})
+
+
+test('an unrequested right panel starts at the canonical frame width', () => {
+  expect(emptyWorkbench().right.size).toBe(400)
 })

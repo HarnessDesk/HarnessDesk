@@ -104,6 +104,10 @@ export interface BrowserView {
 
 export const BLANK = 'about:blank'
 
+export const TEAM_FRAME_PAGES = ['overview', 'run', 'board', 'room', 'findings', 'runs', 'receipt'] as const
+export type TeamFramePage = (typeof TEAM_FRAME_PAGES)[number]
+export type TeamChatLayout = 'thread' | 'side-by-side'
+
 export type PaneView =
   | { readonly kind: 'conversation'; readonly session: SessionKey | null }
   | TerminalView
@@ -147,6 +151,9 @@ export type PaneView =
   | {
       readonly kind: 'room'
       readonly room: string
+      readonly framePage?: TeamFramePage
+      /** Chosen Chat view, independent of the retained tile arrangement. */
+      readonly chatLayout?: TeamChatLayout
       /**
        * The members whose transcripts are up as columns.
        *
@@ -927,6 +934,8 @@ export const readView = (raw: unknown): PaneView => {
       return {
         kind: 'room',
         room,
+        ...(record['chatLayout'] === 'thread' || record['chatLayout'] === 'side-by-side' ? { chatLayout: record['chatLayout'] } : {}),
+        ...(TEAM_FRAME_PAGES.includes(record['framePage'] as TeamFramePage) ? { framePage: record['framePage'] as TeamFramePage } : {}),
         ...(watching.length > 0 ? { watching } : {}),
         ...(sideBySide ? { sideBySide } : {}),
       }

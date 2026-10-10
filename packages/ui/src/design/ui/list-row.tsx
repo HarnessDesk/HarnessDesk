@@ -205,7 +205,7 @@ const ListRow = ({
             'text-(--hd-muted-foreground)',
             size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
             size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
-            wrapSubtitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
+            wrapSubtitle ? 'whitespace-normal [overflow-wrap:normal]' : 'truncate',
             density === 'compact' && 'leading-(--hd-line-xs)',
           )}
         >

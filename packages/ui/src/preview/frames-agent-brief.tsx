@@ -2,9 +2,8 @@ import { ConversationFrame } from './ConversationFrame'
 import { useMemo } from 'react'
 import type { NoticeItem } from '@harnessdesk/protocol'
 import { Conversation } from '../components/Conversation'
-import { TeamRoomPane } from '../components/TeamRoomPane'
-import { MountProvider } from '../panels/mount'
-import { PaneProvider, StoreProvider } from '../state/context'
+import { TeamFramePreview } from './TeamFramePreview'
+import { PaneProvider, StoreProvider, useStore } from '../state/context'
 import { useTheme } from '../state/theme'
 import { Frame } from './main'
 import { PREVIEW_ROOM, previewStore } from './harness'
@@ -46,6 +45,8 @@ End with one line: **Verdict:** and the outcome the task asks for.
 
 const BriefFrames = () => {
   useTheme()
+  const source=useStore()
+  const team=useMemo(()=>previewStore(source.getSnapshot()),[source])
   return <main className="p-4 grid gap-4">
     <Frame id="brief-conversation" title="Freshly seated conversation">
       <div className="h-[820px]">
@@ -56,9 +57,7 @@ const BriefFrames = () => {
     </Frame>
     <Frame id="brief-side-by-side" title="Team — Side by side">
       <div className="h-[820px]">
-        <MountProvider scope={{ area: 'main', id: 'brief-room', view: { kind: 'room', room: PREVIEW_ROOM, sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0]! } } }}>
-          <TeamRoomPane room={PREVIEW_ROOM} />
-        </MountProvider>
+        <StoreProvider store={team}><TeamFramePreview room={PREVIEW_ROOM} view={{ kind: 'room', framePage: 'room', room: PREVIEW_ROOM, sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0]! } }} /></StoreProvider>
       </div>
     </Frame>
   </main>

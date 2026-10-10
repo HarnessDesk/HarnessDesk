@@ -31,7 +31,10 @@ it('owns the navigation group label box and yields its label while filtering', (
   const header = container.querySelector<HTMLElement>('[data-slot="navigation-group-header"]')
   expect(header?.dataset['filtering']).toBe('')
   expect(header?.querySelector('[data-slot="navigation-group-label"]')?.textContent).toBe('Workspaces')
-  expect(css).toMatch(/\.navigationGroupHeader\s*\{[^}]*padding:\s*var\(--hd-label-space, var\(--hd-space-1-5\)\) var\(--hd-bar-pad\) var\(--hd-space-1\) var\(--hd-bar-ink\)/s)
+  expect(header?.dataset['surface']).toBe('navigation')
+  expect(header?.className).toContain('pt-[var(--hd-label-space,var(--hd-space-1-5))]')
+  expect(header?.className).toContain('ps-[calc(var(--hd-rail-inset)+var(--hd-sidebar-start-inset))]')
+  expect(header?.className).toContain('pe-(--hd-sidebar-end-header-inset)')
   expect(css).toMatch(/\.navigationGroupHeader\[data-filtering\] \.navigationGroupLabel\s*\{[^}]*display:\s*none/s)
 })
 

@@ -135,27 +135,6 @@
 /* The one label line over a navigation list. Its asymmetric vertical air is
    measured from the sidebar: the ink sits with the rows while the controls
    remain centred in the exact box they occupied before the role was shared. */
-.navigationGroupHeader {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-1-5);
-  padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
-  padding-inline-start: calc(var(--hd-rail-inset) + var(--hd-sidebar-start-inset));
-  /* Header actions end on the sidebar's text column. */
-  padding-inline-end: var(--hd-sidebar-end-header-inset); /* desk: 0 → 26px, header actions end on the sidebar's text column. */
-}
-
-/* A rail with no filter bar of its own — the app window's nav — has no
-   `--hd-bar-pad` to answer for, so the sidebar's left inset overshot its
-   row's own content by the bar padding it was never given: the label sat
-   17px right of where "Back to app" and every item under it already start.
-   `inset="nav"` reads the row's own `--hd-nav-inset` instead, the same
-   number every `Button size="navigation"` already carries. */
-.navigationGroupHeader[data-inset='nav'] {
-  padding-left: var(--hd-nav-inset);
-}
-
 /* The label's type is `GroupLabel`'s (design/ui/group-label.tsx), the one
    group heading: 13px, secondary ink, sentence case. Only its place in the
    header is said here. */

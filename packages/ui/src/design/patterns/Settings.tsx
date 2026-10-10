@@ -880,7 +880,7 @@ export const NavigationGroupHeader = ({
   labelInk?: 'secondary' | 'muted'
   children?: ReactNode
 }) => (
-  <div
+  <GroupLabel as="div" surface="navigation" navigationInset={inset}
     {...props}
     data-slot="navigation-group-header"
     {...(filtering ? { 'data-filtering': '' } : {})}
@@ -890,7 +890,7 @@ export const NavigationGroupHeader = ({
   >
     <GroupLabel ink={labelInk} className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</GroupLabel>
     {children}
-  </div>
+  </GroupLabel>
 )
 
 /* Inside a card of rows: a `RowChoice` here is a settings row, whatever

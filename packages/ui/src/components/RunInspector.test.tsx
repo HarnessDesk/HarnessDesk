@@ -676,3 +676,17 @@ it.each(['other Run', 'restored', 'stale CI', 'other-head CI', 'dirty diff', 'ot
     } finally { view.close() }
   },
 )
+it.each([null, 'run', 'missing-selection'])('inspectionOnly adds no Summary for selection %s', selectedRow => {
+  const view = render({ inspectionOnly: true, selectedRow })
+  try { expect(view.container.textContent).toBe(''); expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull() }
+  finally { view.close() }
+})
+it('inspectionOnly retains a valid selected step without another Run or Seats summary', () => {
+  const view = render({ inspectionOnly: true, selectedRow: 'person-4-4' })
+  try {
+    expect(view.container.textContent).toContain('Answer the review')
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="panel-frame"]')).toBeNull()
+    expect(view.container.textContent).not.toContain('This Run did not record:')
+  } finally {view.close()}
+})

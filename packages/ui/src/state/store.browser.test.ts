@@ -349,3 +349,40 @@ it('opening the default browser from another Team reuses its resource and reveal
   expect(browser().view.tabs).toEqual(before.tabs)
   expect(browser().view.active).toBe(before.driven)
 })
+
+it('recorded Browser reveal restores the current remembered Team page and tile payload', () => {
+  store.openTeamRoom('fixture-a')
+  store.openBrowser('https://example.com/')
+  const resource = browser()
+  const before = store.getSnapshot().workbench.frameSubjects['team:fixture-a']!
+  store.setTeamFramePage('fixture-a', 'board')
+  const key = 'fixture-runtime\0seat' as never
+  store.setRoomSideBySide(before.paneId, { tiles: [key], pinned: [], focused: key, expanded: null, modes: {}, seen: [key] })
+  const remembered = store.getSnapshot().workbench.frameSubjects['team:fixture-a']!
+  expect(remembered.paneId).toBe(before.paneId)
+  expect(remembered.view).toMatchObject({ kind: 'room', room: 'fixture-a', framePage: 'board', sideBySide: { tiles: [key] } })
+  store.openTeamRoom('fixture-b')
+  store.revealView(resource.id)
+  expect(store.getSnapshot().workbench.main.root).toMatchObject({ id: before.paneId, view: remembered.view })
+  expect(store.getSnapshot().workbench.toolOwners[resource.id]).toBe('team:fixture-a')
+  expect(browser().view).toBe(resource.view)
+})
+
+it.each(['thread','side-by-side'] as const)('real Browser reveal preserves the chosen Chat %s and independent pinned tile state', chatLayout => {
+
+  store.openTeamRoom('fixture-chat')
+  store.openBrowser('https://example.com/')
+  const resource=dockViews(store.getSnapshot().workbench.right).find(one=>one.view.kind==='browser')!
+  const owner=store.getSnapshot().workbench.toolOwners[resource.id]!, remembered=store.getSnapshot().workbench.frameSubjects[owner]!
+  const key='fixture-runtime\0seat' as never
+  store.setRoomSideBySide(remembered.paneId,{tiles:[key],pinned:[key],focused:key,expanded:null,modes:{[key]:'browser'},seen:[key]})
+  store.setTeamFramePage('fixture-chat','room',chatLayout)
+  store.setTeamFramePage('fixture-chat','board')
+  store.setTeamFramePage('fixture-chat','room')
+  const fresh=store.getSnapshot().workbench.frameSubjects[owner]!
+  expect(fresh).toMatchObject({paneId:remembered.paneId,view:{framePage:'room',chatLayout,sideBySide:{tiles:[key],pinned:[key],focused:key,modes:{[key]:'browser'}}}})
+  store.openTeamRoom('another-team')
+  store.revealView(resource.id)
+  expect(store.getSnapshot().workbench.main.root).toMatchObject({id:remembered.paneId,view:fresh.view})
+  expect(store.getSnapshot().workbench.toolOwners[resource.id]).toBe(owner)
+})

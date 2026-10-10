@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
+import { selectTeamPage, teamBar, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Run timeline ordering, selection fill and narrow geometry in ${theme}`, async ({ page }) => {
@@ -48,7 +50,7 @@ for (const theme of ['light', 'dark'] as const) {
     const many = page.locator('#run-view-many [data-slot="run-scroll"]')
     expect(await many.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
     const rig = page.locator('#run-view-team')
-    await rig.getByRole('tab', { name: 'Run · 1', exact: true }).click()
+    await selectTeamPage(rig,'run')
     await expect(rig.locator('[data-slot="run-view"]')).toBeVisible()
     await expect(rig.locator('[data-slot="run-need"]')).toContainText('Ended without a next step')
   })
@@ -56,26 +58,25 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Team tab names and counts survive folding and growth in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-view&theme=${theme}`)
-    const header = page.locator('#run-view-team header').first()
-    const names = ['Overview', 'Run · 1', 'Board · 4', 'Chat', 'Findings', 'Side by side']
-    for (const width of [1440, 680, 1440]) {
+    const frame=page.locator('#run-view-team')
+    const header = teamBar(frame)
+    const tabs = [
+      ['overview','Overview','1'], ['run','Run','1'], ['board','Board','4'], ['room','Chat',null], ['findings','Findings',null],
+    ] as const
+    for (const width of [1440, 720, 1440]) {
       await page.setViewportSize({ width, height: 900 })
-      const iconOnly = width === 680
-      await expect(header.locator(`[data-icon-only="${iconOnly}"]`)).toHaveCount(names.length)
-      for (const name of names) {
-        const tab = header.getByRole('tab', { name, exact: true })
-        await expect(tab).toHaveAccessibleName(name)
-        if (iconOnly) {
-          await tab.hover()
-          await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText(name)
-          // The closed popup stays mounted until its exit finishes. Leave
-          // the trigger and join that exit before hovering the next tab.
-          await header.locator('[data-team-title]').hover()
-          await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0)
-        }
+      await expect.poll(async()=>(await header.locator('[data-topbar-title]').boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      const folded=await header.getAttribute('data-fold')==='2'
+      if(folded) await header.getByTitle('Destination views',{exact:true}).click()
+      for (const [value,label,count] of tabs) {
+        const tab = folded ? page.locator(`[role="menu"] [data-team-page="${value}"]:visible`) : header.locator(`[data-team-page="${value}"]`)
+        await expect(tab).toHaveAccessibleName(new RegExp(`^${label}${count===null?'':`\\s*${count}`}$`))
+        await expect(tab).toHaveAttribute('data-team-page',value)
       }
+      if(folded) await page.keyboard.press('Escape')
+      await expect(header.getByRole('tab',{name:'Side by side',exact:true})).toHaveCount(0)
     }
-    await header.getByRole('tab', { name: 'Run · 1', exact: true }).click()
+    await selectTeamPage(frame,'run')
     await expect(page.locator('#run-view-team [data-slot="run-view"]')).toBeVisible()
   })
 
@@ -227,10 +228,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(flow.locator('[data-step="reviewer"] [title]').filter({ hasText: 'Read only' }))
       .toHaveAttribute('title', 'Changes nothing: it reads, searches and reports.')
     const team = page.locator('#run-view-live-polish-team')
-    await team.getByRole('button', { name: 'Team members', exact: true }).click()
-    const members = page.locator('[data-slot="team-members"]:visible')
-    await expect(members.locator('[data-ceiling="edit"]')).toHaveText('Edit · asked, not enforced')
-    await expect(members.locator('[data-ceiling="read"]')).toHaveText('Read only')
+    const members = await teamSeats(team)
+    await expect(members.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})})).toContainText('Edit · asked, not enforced')
+    await expect(members.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Beta',exact:true})})).toContainText('Read only')
   })
 }
 

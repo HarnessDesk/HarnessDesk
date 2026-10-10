@@ -7,7 +7,7 @@ import { RunAgain } from '../components/RunAgain'
 import { RetryCheck } from '../components/RetryCheck'
 import { RunFlow } from '../components/RunFlow'
 import { RunView, type RunViewTab } from '../components/RunView'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { TeamRunView } from '../components/TeamRunView'
 import { StoreProvider } from '../state/context'
 import { Boundary } from './boundary'
@@ -64,9 +64,9 @@ export const RunViewFrames = () => {
     <section id="run-view-stopped-mid-round" className="flex h-144 flex-col"><RunExample scene="stopped" input={stopped} /></section>
     <section id="run-view-waiting-evidence" className="flex h-144 flex-col"><RunExample scene="running" input={waiting} /></section>
     <section id="run-view-live-polish-flow" className="flex h-224 flex-col"><RunWorkspaceExample scene="live-polish" view="flow" /></section>
-    <section id="run-view-live-polish-team" className="h-144"><StoreProvider store={polish}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+    <section id="run-view-live-polish-team" className="h-144"><StoreProvider store={polish}><TeamFramePreview room="overview-team" /></StoreProvider></section>
     <section id="run-view-flow" className="flex h-144 flex-col"><RunWorkspaceExample view="flow" /></section>
-    <section id="run-view-team" className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+    <section id="run-view-team" className="h-144"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
   </div>
 }
 

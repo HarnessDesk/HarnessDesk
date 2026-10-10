@@ -1,3 +1,4 @@
+import { FRAME } from '../design/frame'
 import { supportsFixedTool, toolOf, chooseTool, readToolIntents, type ToolIntent } from './frame-tools'
 import type { UiArea } from '@harnessdesk/protocol'
 
@@ -124,7 +125,7 @@ export const VIEW_DRAG_TYPE = 'application/x-harnessdesk-view'
  */
 const LIMITS: Record<DockId, { readonly min: number; readonly max: number; readonly start: number }> = {
   sidebar: { min: 200, max: 520, start: 240 },
-  right: { min: 280, max: 900, start: 460 },
+  right: { min: 280, max: 900, start: FRAME.rightPanel.width },
   bottom: { min: 80, max: 600, start: 220 },
 }
 
@@ -965,7 +966,14 @@ export const drawnInDock = (state: Parameters<typeof sidebarPlacement>[0], kind:
   DOCKS.some((area) => {
     const held = state.workbench[area]
     if (held.collapsed || !areaVisible(state.workbench, area)) return false
-    if (area === 'right' && !rightPanelDrawn(state.workbench)) return false
+    if (area === 'right') {
+      if (!rightPanelDrawn(state.workbench)) return false
+      const subject = fixedSubject(state.workbench.main)
+      const intent = subject ? state.workbench.frameTools[subject] : undefined
+      // Canonical Details hides the retained legacy PanelArea, including Steps.
+      const pane = findPane(state.workbench.main, state.workbench.main.focused)
+      if (intent?.tool === 'details' && (intent.mode === 'details' || pane?.view.kind === 'room' && intent.mode === 'run-details')) return false
+    }
     if (area === 'sidebar' && sidebarPlacement(state) === 'away') return false
     return visibleViews(held).some((entry) => entry.view.kind === kind)
   })
@@ -999,7 +1007,7 @@ export const rightPanelDrawn = (workbench: Workbench): boolean => {
 
 /**
  * Whether the sidebar has to give up its column: a window under
- * `NARROW_WINDOW`, or one where it, a drawn right panel and `MIN_READING` do
+ * `FRAME.fold.sidebarFloats`, or one where it, a drawn right panel and `MIN_READING` do
  * not fit side by side.
  *
  * The sidebar's own width counts even while its column is put away, so
@@ -1008,7 +1016,7 @@ export const rightPanelDrawn = (workbench: Workbench): boolean => {
  * by itself and is left out.
  */
 export const sidebarCannotHaveColumn = (workbench: Workbench, windowWidth: number): boolean =>
-  windowWidth < NARROW_WINDOW ||
+  windowWidth < FRAME.fold.sidebarFloats ||
   (workbench.zoom === null &&
     rightPanelDrawn(workbench) &&
     workbench.sidebar.size + workbench.right.size + MIN_READING + 2 * SEAM > windowWidth)
@@ -1389,4 +1397,13 @@ const readZoom = (raw: unknown): Zoom | null => {
   const area = AREAS.find((entry) => entry === record['area'])
   if (!area) return null
   return { area, scope: record['scope'] === 'window' ? 'window' : 'content' }
+}
+
+/** Refresh an existing remembered Team payload without creating or changing resource ownership. */
+export const replaceTeamPayload = (before: Workbench, id: string, view: Extract<PaneView, { kind: 'room' }>): Workbench => {
+  const next = replaceView(before, id, view)
+  const subject = `team:${view.room}`
+  const held = before.frameSubjects[subject]
+  if (!held || held.paneId !== id || held.view.kind !== 'room' || held.view.room !== view.room) return next
+  return { ...next, frameSubjects: { ...next.frameSubjects, [subject]: { ...held, view } } }
 }

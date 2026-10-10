@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 export interface FrameActions {
   readonly inspectFirst?: boolean
   readonly tab?: string
@@ -7,15 +8,11 @@ export interface FrameActions {
   readonly holdMessages?: boolean
 }
 export const selectFrameTab = async (page: Page, value: string): Promise<void> => {
-  const visibleTab = page.locator(`[data-slot="top-bar"] [data-team-page="${value}"]:visible`)
+  const bar = page.locator('[data-slot="top-bar"]:visible').first()
+  await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  const visibleTab = bar.locator(`[data-team-page="${value}"]:visible`)
   if (await visibleTab.count()) {
-    await visibleTab.first().click()
-    return
-  }
-  // Existing Team headers remain until their shell migration in Task 4.
-  const legacyTab = page.locator(`[data-slot="team-room"] [data-team-page="${value}"]:visible`)
-  if (await legacyTab.count()) {
-    await legacyTab.first().click()
+    await visibleTab.click()
     return
   }
   await page.getByTitle('Destination views', { exact: true }).click()

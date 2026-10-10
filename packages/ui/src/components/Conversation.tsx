@@ -4,7 +4,7 @@ import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type Run
 
 import {
   useActiveSession,
-  usePane,
+  usePane, PaneProvider,
   useRuntime,
   useRuntimeAccount,
   useRuntimeHealth,
@@ -269,7 +269,7 @@ const ConversationEmpty = ({
  * capability, so a backend without one shows a shorter menu rather than a
  * disabled row — and no item is keyed to a runtime id.
  */
-const ConversationMenu = ({ embeddedHeader = false, folderActions }: { embeddedHeader?: boolean; folderActions?: (close: () => void) => ReactNode }) => {
+const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActions?: (close: () => void) => ReactNode }) => {
   const store = useStore()
   const runtime = useRuntime()
   const snapshot = useSnapshot()
@@ -342,7 +342,7 @@ const ConversationMenu = ({ embeddedHeader = false, folderActions }: { embeddedH
             {/* Non-tool aliases stay in overflow; fixed tool doors live in TopBar. */}
           <PopoverGroupLabel>View</PopoverGroupLabel>
           {summonable()
-            .filter((definition) => definition.menu === true && definition.kind !== 'changes' && (embeddedHeader || !['agents', 'activity', 'trajectory', 'tasks', 'run-details', 'run-steps', 'browser'].includes(definition.kind)))
+            .filter((definition) => definition.menu === true && definition.kind !== 'changes' && (!['agents', 'activity', 'trajectory', 'tasks', 'run-details', 'run-steps', 'browser'].includes(definition.kind)))
             .map((definition) => {
               const Glyph = definition.icon
               const open = shownView(snapshot.workbench, definition.kind)
@@ -397,7 +397,7 @@ const ConversationMenu = ({ embeddedHeader = false, folderActions }: { embeddedH
           )}
           </>
   )
-  useTopBarMore(pane?.paneId ?? '', menuBody, Boolean(session && pane))
+  useTopBarMore(owner ?? pane?.paneId ?? '', menuBody, Boolean(session && pane))
   return <>
     {confirmUndo && <ConfirmDialog title="Undo the last turn?" confirmLabel="Undo turn" onCancel={() => setConfirmUndo(false)}
       onConfirm={() => { void store.rollback(1); setConfirmUndo(false) }}>
@@ -461,7 +461,7 @@ export const Conversation = ({
   onOpenRuntimes,
   header = true,
   composer = true,
-  embeddedHeader = false,
+  teamMenuOwner,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
@@ -475,8 +475,8 @@ export const Conversation = ({
   /** False where one composer elsewhere speaks for several conversations — a
       Side by side grid of two or more tiles — so this one draws none. */
   composer?: boolean
-  /** Staging only: an embedded Team member keeps its actions until Task 4 owns Team tools. */
-  embeddedHeader?: boolean
+  /** Selected member actions augment its Team bar, retaining the conversation scope. */
+  teamMenuOwner?: string
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -619,18 +619,18 @@ export const Conversation = ({
     lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
     place: <HeaderTitle session={session} />,
     state: session ? <Chip tone={STATUS_PILL_TONE[status]}>{STATUS_LABEL[status]}</Chip> : undefined,
-    tools: embeddedHeader ? undefined : <WorkTools draft={!session} />,
+    tools: <WorkTools draft={!session} />,
     more: session ? () => null : () => <MenuItem label="Choose a project folder…" onSelect={onChooseProject} />,
     corner: sidebarPlacement(snapshot) !== 'column',
   }, header && pane !== null)
   useWorkDetails(pane?.paneId ?? '', <ConversationDetails session={session}
     placeAction={<GitControl onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} />} />,
-    header && pane !== null && !embeddedHeader)
+    header && pane !== null)
 
   return (
     <div className={styles.conversation} ref={conversationRoot}>
-      {header && session && <ConversationMenu embeddedHeader={embeddedHeader} folderActions={embeddedHeader
-        ? close => <GitControl menu menuClose={close} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} /> : undefined} />}
+      {(header || teamMenuOwner) && session && <ConversationMenu owner={teamMenuOwner} folderActions={teamMenuOwner
+        ? close => pane && <PaneProvider scope={pane}><GitControl menu menuClose={close} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} /></PaneProvider> : undefined} />}
 
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the

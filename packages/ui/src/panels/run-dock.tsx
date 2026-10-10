@@ -51,14 +51,14 @@ export const RunDockProvider = ({ children }: { children: ReactNode }) => {
 }
 export const useRunDock = () => useContext(RunDockContext)
 const EmptyRegistry = registry()
-const RunDockView = ({ steps = false }: { steps?: boolean }) => {
+const RunDockView = ({ steps = false, inspectionOnly = false }: { steps?: boolean; inspectionOnly?: boolean }) => {
   const source = useRunDock() ?? EmptyRegistry
   const contents = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const { workbench } = useSnapshot()
   // Dock focus stays with the Run in the main pane; background Teams keep their own records.
   const content = contents.get(workbench.main.focused) ?? contents.get('')
-  if (!content) return <PanelEmpty>Open a Team’s Run to read its details and steps.</PanelEmpty>
-  return steps ? <RunSteps {...content.steps} /> : <RunInspector {...content.inspector} />
+  if (!content) return inspectionOnly ? null : <PanelEmpty>Open a Team’s Run to read its details and steps.</PanelEmpty>
+  return steps ? <RunSteps {...content.steps} /> : <RunInspector {...content.inspector} inspectionOnly={inspectionOnly} />
 }
-export const RunDetailsView = () => <RunDockView />
+export const RunDetailsView = ({ inspectionOnly = false }: { inspectionOnly?: boolean }) => <RunDockView inspectionOnly={inspectionOnly} />
 export const RunStepsView = () => <RunDockView steps />

@@ -694,3 +694,10 @@ test.each([
     ...(raw === undefined ? {} : { mounts: raw }),
   })).toEqual({ kind: 'plugin', contribution: 'fixture-panel', label: 'Legacy panel', mounts: expected })
 })
+
+ test.each(['thread', 'side-by-side'])('restores the chosen Chat layout %s independently of retained tiles', chatLayout => {
+   const sideBySide = { tiles: ['agent\u0000one'], pinned: ['agent\u0000one'], focused: 'agent\u0000one', modes: { 'agent\u0000one': 'flow' } }
+   const view = readView({ kind: 'room', room: 'fixture-team', framePage: 'room', chatLayout, sideBySide })
+   expect(view).toMatchObject({ chatLayout, sideBySide: { tiles: sideBySide.tiles, pinned: sideBySide.pinned, focused: sideBySide.focused } })
+   expect(readView({ kind: 'room', room: 'fixture-team', chatLayout: 'invalid' })).toEqual({ kind: 'room', room: 'fixture-team' })
+ })

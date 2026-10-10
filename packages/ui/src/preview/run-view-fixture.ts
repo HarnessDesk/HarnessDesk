@@ -1,3 +1,4 @@
+import { previewStore } from './harness'
 import { runtimeId, type BoardEvidence, type FindingView, type FlowCheckAttempt, type FlowEntry, type FlowExecution, type FlowPreview, type FlowRunOptions, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { overviewRun, overviewTeamStore } from './team-overview-fixture'
 import { runTimeline } from '../lib/run-timeline'
@@ -132,12 +133,10 @@ export const runTeamStore = (scene: RunScene = 'complete') => {
   const board = { ...snapshot.teams.get('overview-team')!, intents: fixture.cards, channel: fixture.signals }
   const original = snapshot.goals.get('overview-team')!
   const goal = { ...original, board, members: scene === 'live-polish' ? original.members.map((seat, n) => ({ ...seat, ceiling: { level: n === 0 ? 'edit' as const : 'read' as const, hold: n === 0 ? 'asked' as const : 'held' as const } })) : original.members }
-  let next = { ...snapshot, ...(scene === 'live-polish' ? { home: '/home/dev', sessions: new Map([...snapshot.sessions].map(([key, session], n) => [key, { ...session, settings: { ...session.settings, ceiling: goal.members[n]!.ceiling } }])) } : {}), teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]), flowExecutions: new Map([[fixture.execution.id, fixture.execution]]),
+  const next = { ...snapshot, ...(scene === 'live-polish' ? { home: '/home/dev', sessions: new Map([...snapshot.sessions].map(([key, session], n) => [key, { ...session, settings: { ...(session.settings ?? { cwd: session.cwd, model: snapshot.models.find(one => one.isDefault)?.id ?? '' }), ceiling: goal.members[n]!.ceiling ?? undefined } }])) } : {}), teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]), flowExecutions: new Map([[fixture.execution.id, fixture.execution]]),
     boardEvidence: new Map([[board.id, fixture.evidence]]) }
-  const listeners = new Set<() => void>()
-  return new Proxy(base, { get(target, key) {
-    if (key === 'subscribe') return (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }
-    if (key === 'getSnapshot') return () => next
+  const store = previewStore(next)
+  return new Proxy(store, { get(target, key) {
     if (key === 'loadFindings' || key === 'loadBoardEvidence' || key === 'loadTeamRuns') return async () => {}
     if (key === 'flowExecutionSource') return async () => ({ source: RUN_FLOW_SOURCE, vars: { task: 'Retry the checkout call', brief: fixture.execution.brief ?? '' } })
     if (key === 'previewFlow') return async (_root: string, _source: string, _vars: unknown, options?: FlowRunOptions): Promise<FlowPreview> => ({
@@ -148,8 +147,8 @@ export const runTeamStore = (scene: RunScene = 'complete') => {
     })
     if (key === 'startFlowGoal') return async (input: { continues: string; vars: Record<string, string> }) => {
       const execution = { ...runFixture('running').execution, id: 'continued-run', continues: input.continues, brief: input.vars.brief, startedAt: Date.now() }
-      next = { ...next, flowExecutions: new Map(next.flowExecutions).set(execution.id, execution), goals: new Map(next.goals).set(board.id, { ...goal, reservation: { run: execution.id } }) }
-      for (const listener of listeners) listener()
+      const current = store.getSnapshot()
+      store.patch({ flowExecutions: new Map(current.flowExecutions).set(execution.id, execution), goals: new Map(current.goals).set(board.id, { ...goal, reservation: { run: execution.id } }) })
       return execution
     }
     if (key === 'flowCatalog') return async () => [RUN_FLOW_ENTRY]
