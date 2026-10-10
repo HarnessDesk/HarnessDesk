@@ -27,7 +27,7 @@ export const FindingRoundStatus = ({ view, publicationOn = true }: FindingRoundS
           row of its own at the far edge. */}
       <SummaryList aria-label="This round">
         <SummaryItem label="Round">{`${view.finished} of ${view.total}`}</SummaryItem>
-        <SummaryItem label="Open findings" numeric>
+        <SummaryItem label="Open findings">
           {view.open}
           {view.blocking > 0 && <Text role="muted" tone="warning">{` · ${view.blocking} blocking`}</Text>}
         </SummaryItem>
