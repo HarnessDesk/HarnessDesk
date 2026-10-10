@@ -236,22 +236,33 @@ export class Ledger {
   }
 
   /**
-   * Several roots' recorded usage, in order, each exactly what `readInsight`
-   * reads for it alone. Reading the usage sources is the cost of a read
-   * whatever its root, so roots over the same range and runtime share one
-   * pass: on a desk where every Team has a clone of its own, one pass per
-   * root was one pass over every source per Team (#1567).
+   * Several roots' recorded usage, in order. Reading the usage sources is the
+   * cost of a read whatever its root, so roots over the same range and
+   * runtime share one pass: on a desk where every Team has a clone of its
+   * own, one pass per root was one pass over every source per Team (#1567).
+   *
+   * A shared pass carries the source-data budget of the reads it replaces,
+   * `INSIGHT_BYTE_LIMIT` for each of its roots, and spends it once. So each
+   * root reads exactly as it does alone, or further where reading it alone
+   * would have stopped at the budget. One budget for the whole pass capped
+   * every Team at once on a desk with more sources than that.
    */
   async readInsights(queries: readonly InsightQuery[], options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail[]> {
     // Every sample's folder is compared with the root: one read resolves each
     // folder once, or a busy desk spends its main thread in realpath (#1567).
     const read = this.#insightRead.then(() => withCanonicalPaths(async () => {
+      const keyOf = (query: InsightQuery) => `${query.from}\0${query.to}\0${query.runtime ?? ''}`
+      const roots = new Map<string, Set<string>>()
+      for (const query of queries) {
+        const held = roots.get(keyOf(query))
+        if (held) held.add(canonicalPath(query.root)); else roots.set(keyOf(query), new Set([canonicalPath(query.root)]))
+      }
       const passes = new Map<string, Promise<InsightPass>>()
       const details: UsageDetail[] = []
       for (const query of queries) {
-        const key = `${query.from}\0${query.to}\0${query.runtime ?? ''}`
+        const key = keyOf(query)
         let pass = passes.get(key)
-        if (!pass) { pass = this.#insightPass(query, options); passes.set(key, pass) }
+        if (!pass) { pass = this.#insightPass(query, options, this.#insightByteLimit * roots.get(key)!.size); passes.set(key, pass) }
         details.push(await this.#readInsight(query, options, await pass))
       }
       return details
@@ -260,8 +271,8 @@ export class Ledger {
     return read
   }
 
-  /** Every usage source over a query's range and runtime, read once for every root that shares them. */
-  async #insightPass(query: InsightQuery, options: { readonly signal?: AbortSignal }): Promise<InsightPass> {
+  /** Every usage source over a query's range and runtime, read once for every root that shares them, within `budget` bytes. */
+  async #insightPass(query: InsightQuery, options: { readonly signal?: AbortSignal }, budget: number): Promise<InsightPass> {
     if (!Number.isFinite(query.from) || !Number.isFinite(query.to) || query.from >= query.to) {
       throw new Error('Choose a valid Insight time range.')
     }
@@ -310,7 +321,7 @@ export class Ledger {
       // would let such a source spend past what this read promises overall.
       if (target.mtime < query.from) continue
       try {
-        const result = await this.#insightCache.read(target, this.#insightByteLimit - bytes, options.signal)
+        const result = await this.#insightCache.read(target, budget - bytes, options.signal)
         // `bytesRead`, never `offset`: `offset` is the incremental-scan
         // cursor, advanced only for a line actually committed, and a line
         // `take()` rejects as not JSON was still read off disk before it

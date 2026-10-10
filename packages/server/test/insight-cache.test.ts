@@ -272,3 +272,21 @@ test('roots read together share one pass over the usage sources, and each reads 
   await ledger.readInsights([query, { ...query, from: query.from + 1 }])
   assert.equal(listed.length, 2 * onePass, 'a different range is a pass of its own')
 })
+
+test('a pass for several roots carries each root’s byte budget, so none stops where reading it alone would not', async (t) => {
+  const rollout = (cwd: string, id: string) =>
+    `${JSON.stringify({ type: 'session_meta', payload: { id, cwd } })}\n${Array.from({ length: 40 }, (_, second) => event(second)).join('')}`
+  const roots = [query.root, '/work/other', '/work/third']
+  const size = Buffer.byteLength(rollout(query.root, 'session-0'))
+  const desk = async () => {
+    const made = await fixture(Math.floor(size * 1.5)); t.after(() => made.ledger.close())
+    for (const [index, root] of roots.entries()) await writeFile(index === 0 ? made.path : `${made.path}.${index}.jsonl`, rollout(root, `session-${index}`))
+    return made.ledger
+  }
+  const capped = (detail: Awaited<ReturnType<Ledger['readInsight']>>) => detail.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE)
+
+  assert.ok(capped(await (await desk()).readInsight(query)), 'one root alone stops at its budget on a desk with more sources than that')
+  const together = await (await desk()).readInsights(roots.map((root) => ({ ...query, root })))
+  assert.deepEqual(together.map(capped), [false, false, false], 'three roots carry three budgets')
+  assert.deepEqual(together.map((detail) => detail.samples.length), [40, 40, 40])
+})
