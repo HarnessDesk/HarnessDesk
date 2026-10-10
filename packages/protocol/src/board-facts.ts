@@ -214,6 +214,9 @@ export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, 
       // Unanswered: it is the person's step only while the run that opened
       // it is still live. A settled or stopped run is asking nothing more.
       if (forPerson && live) return { column: 'needs', why: 'needs your answer' }
+      // Flow check cards stay open while the host runs their automatic check.
+      // The running evidence makes this work already in progress, not To do.
+      if (flowStep?.kind === 'check' && evidence?.running.length) return { column: 'working', why: null }
       return runStopped ? { column: 'needs', why: 'run stopped' } : { column: 'todo', why: null }
     case 'claimed':
       // Also unanswered: same `live` requirement, though nothing here reads

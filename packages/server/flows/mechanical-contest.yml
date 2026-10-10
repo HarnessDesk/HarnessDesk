@@ -1,7 +1,7 @@
 version: 2
 name: "Mechanical contest"
-summary: "Two attempts; a script's exit status decides."
-description: "Two attempts, and a script decides between them by its exit status alone — never an agent's own prose."
+summary: "Two attempts; optional project checks, then you choose."
+description: "Two isolated attempts, optional project checks, then a person chooses and merges one."
 inputs:
   task:
     label: "Task"
@@ -13,37 +13,15 @@ roles:
     isolate: true
     grant: edit
     independentOf: []
-  decide:
-    kind: check
-    run: "script/flow-contest.sh"
-    cwd: "."
-    exits:
-      "0": first
-      "1": second
-      "2": draw
-    otherwise: no-contest
-    timeout: 300
   referee:
     kind: person
     outcomes: [merged, dropped]
 complete: { referee: [merged, dropped] }
 seed: { role: competitor, title: "{{task}}" }
 rules:
-  - id: to-decide
+  - id: to-person
     on: competitor
-    then: { role: decide, title: "Decide between the two attempts" }
-  - id: first-wins
-    on: decide
-    when: { every: [first] }
-    then: { role: referee, title: "Merge the first attempt" }
-  - id: second-wins
-    on: decide
-    when: { every: [second] }
-    then: { role: referee, title: "Merge the second attempt" }
-  - id: drawn
-    on: decide
-    when: { every: [draw] }
-    then: { role: referee, title: "Pick between two equally scoring attempts" }
+    then: { role: referee, title: "Choose and merge an attempt" }
 messaging: board-only
 # How far a run may go before it stops for a person: closed rounds in all, and
 # closed rounds in a row that brought no new evidence. Raise it for longer loops.
