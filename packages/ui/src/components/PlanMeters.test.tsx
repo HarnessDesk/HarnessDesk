@@ -243,16 +243,15 @@ it('opens the roster behind the token, named account by account', () => {
   const rows = [...document.querySelectorAll('[role="menu"] button')]
   const meters = rows.slice(0, 2)
   for (const [index, row] of meters.entries()) {
-    const name = row.querySelector('[data-slot="usage-meter-row"] > span > span > span')!
-    expect(name.className).toContain('flex')
-    expect(name.className).toContain('gap-(--hd-space-1-5)')
-    expect([...name.children].map(child => child.textContent)).toEqual(['Agent B', index === 0 ? 'work' : 'personal'])
-    expect(row.querySelector('div')).toBeNull()
-    expect(row.querySelector('[data-slot="usage-meter-row"] > :first-child')?.getAttribute('title')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
+    expect(row.getAttribute('role')).toBe('menuitem')
+    expect(row.querySelector('[data-menu-label]')?.textContent).toBe('Agent B')
+    expect(row.querySelector('[data-menu-hint]')?.textContent).toBe(index === 0 ? 'work' : 'personal')
+    expect(row.querySelector('[data-meter-column="name"]')?.textContent).toBe('Weekly')
+    expect(row.querySelector('button')).toBeNull()
     expect(row.querySelector('[role="progressbar"]')?.getAttribute('aria-label')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
   }
   expect(rows.slice(2).map(row => row.textContent)).toEqual([
-    'Agent CNeeds sign-in', 'Agent DNeeds sign-in', 'Agent ENeeds sign-in', 'Agent FNeeds sign-in',
+    'Agent CPlanNeeds sign-in', 'Agent DPlanNeeds sign-in', 'Agent EPlanNeeds sign-in', 'Agent FPlanNeeds sign-in',
   ])
 })
 
@@ -270,7 +269,7 @@ it('keeps a shorter lane blocked until the account-wide window resets', () => {
  const lane = [...document.querySelectorAll('[data-slot="usage-meter-row"]')].find(row => row.textContent?.startsWith('Session'))
  expect(lane?.textContent).toContain('blocked 3d')
  expect(lane?.textContent).not.toContain('in 1 h')
- expect(lane?.lastElementChild?.getAttribute('title')).toBe(`blocked until ${formatReset(gate)}`)
+ expect(lane?.querySelector('[data-meter-column="reset"] > [title]')?.getAttribute('title')).toBe(`blocked until ${formatReset(gate)}`)
 })
 
 it('says nothing at all when a signed-in agent reports no usage', () => {
@@ -337,4 +336,18 @@ it('includes a promoted chip countdown and agent in its direct accessible name',
   expect(name).toContain(`resets in ${promoted.textContent}`)
   expect(name).toContain('Agent B')
   expect(name).toContain('out of quota')
+})
+
+it('opens each plan row once and closes its popup', () => {
+  const opened: string[] = []
+  const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: six, usage: [at('a', 70), at('b', 51)], ...conversationWith('a') }
+  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><PlanMeters onOpen={id => opened.push(id)} onSignIn={() => {}} /></StoreProvider>))
+  act(() => container.querySelector<HTMLElement>('[data-plan-popup="anchor"]')!.closest('button')!.click())
+  act(() => document.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(opened).toEqual(['a'])
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  act(() => container.querySelector<HTMLElement>('[data-plan-popup="rest"]')!.closest('button')!.click())
+  act(() => document.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(opened).toEqual(['a', 'b'])
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 })

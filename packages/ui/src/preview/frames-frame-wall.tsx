@@ -97,12 +97,23 @@ const frameEquivalentRunStore = () => {
   return store
 }
 
+const popupContent = (store: AppStore): AppStore => {
+  const snapshot = store.getSnapshot()
+  if (new URLSearchParams(location.search).get('popup') === 'other-agents') {
+    const missing = snapshot.runtimes.at(-1)!.id
+    Object.assign(snapshot, { usage: snapshot.usage.filter(report => report.runtime !== missing) })
+  }
+  const names = ['Storefront catalogue review and checkout diagnostics', '发布前检查和目录兼容性说明', 'Warehouse inventory reconciliation and retry policy']
+  Object.assign(snapshot, { runtimes: snapshot.runtimes.map((runtime, at) => ({ ...runtime, presentation: { ...runtime.presentation, name: names[at] ?? runtime.presentation.name } })) })
+  return store
+}
+
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
       { kind: 'room', room: 'structure-team' }, null)
-    case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
-    case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
+    case 'conversation': return popupContent(showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
+    case 'draft': return popupContent(showing(previewStore(), { kind: 'conversation', session: null }, null))
     case 'team-run-recorded': return showing(frameRunStore('running'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-not-reached': return showing(frameRunStore('empty'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-equivalent': return showing(frameEquivalentRunStore(), { kind: 'room', room: 'overview-team' }, null)

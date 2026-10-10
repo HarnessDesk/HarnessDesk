@@ -240,3 +240,5 @@ export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
 export { StatusBar, type StatusFact } from './patterns/StatusBar'
 
 export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'
+
+export { WideMenu, WideMenuRows, MenuSearch, MenuFacts, type WideMenuItem, type MenuMeterData, type MenuSearchProps } from './patterns/WideMenu'

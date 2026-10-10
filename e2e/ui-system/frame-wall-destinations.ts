@@ -76,6 +76,10 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'changes-review', query: 'frame-wall=changes-review' },
   { id: 'popup-conversation-more', query: 'frame-wall=conversation&frame-conversation-actions=1', popup: 'More' },
   { id: 'popup-undo-confirmation', query: 'frame-wall=conversation&frame-conversation-actions=1', undo: true },
+  { id: 'popup-wide-menu', query: 'frame-wall=conversation&popup=wide', popup: 'Frame wide menu' },
+  { id: 'popup-metered-menu', query: 'frame-wall=conversation&popup=metered', popup: 'Frame metered menu' },
+  { id: 'popup-plan-usage', query: 'frame-wall=conversation&popup=plan-usage', plan: 'anchor' },
+  { id: 'popup-other-agents', query: 'frame-wall=conversation&popup=other-agents', plan: 'rest' },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
@@ -84,3 +88,5 @@ export const WALL_THEMES = ['light', 'dark'] as const
 
 /** The wall's clock: relative times read the same in every capture. */
 export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
+
+export interface WallDestination { readonly plan?: 'anchor' | 'rest' }
