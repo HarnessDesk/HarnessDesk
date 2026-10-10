@@ -51,7 +51,7 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * the Git pane's three own declarations became named exemptions
  * (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`) rather than a ceiling of three.
  */
-const BURN_DOWN = new Set(['patternClass', 'singleAreaPrimitive', 'uppercaseLabel'])
+const BURN_DOWN = new Set(['patternClass', 'singleAreaPrimitive', 'uppercaseLabel', 'retiredComponent', 'pageMeasureInScreen', 'screenLayout'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -1817,6 +1817,9 @@ const findings = {
   screenAppearance: [],
   singleAreaPrimitive: [],
   uppercaseLabel: [],
+  retiredComponent: [],
+  pageMeasureInScreen: [],
+  screenLayout: [],
   screenUnclassified: [],
   visualKindUnion: [],
   /**
@@ -3089,6 +3092,39 @@ export const screenUnmappedUtilityOf = (file, source, ast) => {
   return findings
 }
 
+/**
+ * Tailwind utilities that place or size a box — display, flex and grid,
+ * gaps, alignment, widths, offsets, margins, overflow. `screenUtilityDeclarationOf`
+ * is taught the appearance utilities and returns null for these, so the
+ * layout side needs its own reading. Heights stay with the appearance rule,
+ * which already judges them by value.
+ */
+const LAYOUT_UTILITY = /^-?(?:flex|inline-flex|grid|inline-grid|block|inline-block|inline|hidden|contents|flow-root|grow|shrink|absolute|relative|fixed|sticky|static|isolate|(?:flex|grid|basis|grow|shrink|order|col|row|auto-cols|auto-rows|gap|gap-x|gap-y|space-x|space-y|justify|justify-items|justify-self|items|content|self|place-content|place-items|place-self|w|min-w|max-w|size|inset|inset-x|inset-y|top|right|bottom|left|start|end|z|m|mx|my|mt|mr|mb|ml|ms|me|overflow|overflow-x|overflow-y|float|clear|object|aspect|columns)-.+)$/
+
+/**
+ * Layout a screen writes for itself (spec, "Blocks, and who owns layout"):
+ * every layout declaration in a screen sheet (the other side of
+ * `screenAppearanceOf`'s boundary) and every layout utility in a screen's
+ * class lists. A burn-down: a page moved into the frame reaches zero, and new
+ * layout in a screen raises the count and fails at once.
+ */
+export const screenLayoutOf = (file, source, ast) => {
+  if (file.endsWith('.css')) {
+    if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(screenAppearanceName(file))) return []
+    return declarationsOf(source)
+      .filter(({ property, value }) => screenPropertySideOf(property, value) === 'layout')
+      .map(({ property }) => `${screenAppearanceName(file)}: ${property}`)
+  }
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (token && LAYOUT_UTILITY.test(token)) findings.push(`${screenAppearanceName(originFile)}: ${rawToken}`)
+  }
+  return findings
+}
+
 const unwrapStyleExpression = (node) => {
   let current = node
   while (
@@ -3323,6 +3359,7 @@ for (const file of cssFiles()) {
     for (const { property } of screenUnclassifiedOf(file, read(file))) {
       findings.screenUnclassified.push(`${name}: ${property}`)
     }
+    findings.screenLayout.push(...screenLayoutOf(file, read(file)))
   }
 
   // Spacing that is not a step of the scale.
@@ -3629,6 +3666,45 @@ export const uppercaseLabelsOf = (file, source) => {
 
 for (const file of [...cssFiles(), ...tsxFiles()]) {
   findings.uppercaseLabel.push(...uppercaseLabelsOf(file, read(file)))
+}
+
+/**
+ * Components the app frame retires (docs/superpowers/specs/2026-10-09-app-frame-design.md,
+ * Components). Each use in a screen is a page still drawing a part of the
+ * frame the shell will own. A burn-down: it reaches zero when the last page
+ * moves into main, and a new use fails at once.
+ */
+export const RETIRED_COMPONENTS = [
+  'AppWindow', 'WindowNav', 'WindowPage', 'PageHead', 'DetailHead', 'BackLink', 'ViewBar',
+  'ToolPaneHeader', 'DockPanelBar', 'DockPanelTabs', 'PanelTools', 'PanelPill', 'PanelActions',
+  'PopoverOption', 'Segmented',
+]
+const RETIRED_JSX = new RegExp(`<(${RETIRED_COMPONENTS.join('|')})(?=[\\s/>])`, 'g')
+
+export const retiredComponentsOf = (file, source) => {
+  if (!file.endsWith('.tsx') || !isScreenSheet(file)) return []
+  const code = withoutComments(source, file, { strict: true })
+  return [...code.matchAll(RETIRED_JSX)].map((match) => `${label(file)}: <${match[1]}>`)
+}
+
+/**
+ * A page measure a screen sets itself rather than taking from `Page`
+ * (spec, Pages: "The page template is the only way in"): the measure and
+ * gutter tokens named in a screen, or `PaneColumn`'s page mode used
+ * directly. A burn-down that reaches zero as pages move onto `Page`.
+ */
+export const pageMeasuresOf = (file, source) => {
+  if (!isScreenSheet(file)) return []
+  const name = label(file)
+  const text = file.endsWith('.css') ? bare(source) : withoutComments(source, file, { strict: true })
+  const found = [...text.matchAll(/--hd-(column|page-wide|page-gutter)\b/g)].map((match) => `${name}: --hd-${match[1]}`)
+  if (file.endsWith('.tsx')) for (const _ of text.matchAll(/<PaneColumn\b[^>]*\spage[\s/>]/g)) found.push(`${name}: <PaneColumn page>`)
+  return found
+}
+
+for (const file of [...cssFiles(), ...tsxFiles()]) {
+  findings.retiredComponent.push(...retiredComponentsOf(file, read(file)))
+  findings.pageMeasureInScreen.push(...pageMeasuresOf(file, read(file)))
 }
 
 /**
@@ -4461,6 +4537,7 @@ for (const file of tsxFiles()) {
   // an arbitrary-property utility naming something on neither side of the
   // boundary (`[text-indent:2px]`) is not silently uncounted.
   findings.screenUnclassified.push(...screenUtilityUnclassifiedOf(file, source, screenAst))
+  findings.screenLayout.push(...screenLayoutOf(file, source, screenAst))
 
   // A glyph control drawn smaller than a finger.
   //
