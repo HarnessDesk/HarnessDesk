@@ -16,6 +16,10 @@ export const WALL_DESTINATIONS = [
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
   { id: 'left-column-probe', query: 'frame-wall=left-column' },
+  { id: 'conversation-left-open', query: 'frame-wall=conversation', leftOpen: true },
+  { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },
+  { id: 'left-account', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'account' },
+  { id: 'left-start', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'start' },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

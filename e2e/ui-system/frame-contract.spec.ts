@@ -180,3 +180,72 @@ for (const theme of WALL_THEMES) {
   })
   }
 }
+
+// D2's standalone column proof; the shell-bottom/fold integration waits for B.
+for (const theme of WALL_THEMES) {
+  test(`D2 left header, page doors and seat in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const column = page.locator('[data-left-column]:visible')
+    const top = column.locator('[data-left-top]')
+    await expect(top.locator('[data-slot="bar"]')).toHaveCount(1)
+    expect((await top.boundingBox())!.height).toBe(FRAME.bar.height)
+    await expect(top.locator('[data-role="wordmark"]')).toHaveCount(0)
+    await expect(top.locator('[data-work-panel-toggle]')).toHaveCount(0)
+    const rows = column.locator('[aria-label="Main sections"] [data-left-row]')
+    await expect(rows).toHaveCount(5)
+    const anatomy = await rows.evaluateAll(nodes => nodes.map(node => {
+      const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
+      const css = getComputedStyle(button)
+      return { name: button.getAttribute('aria-label'), height: button.getBoundingClientRect().height,
+        size: parseFloat(css.fontSize), slots: node.querySelectorAll('[data-left-trailing]').length }
+    }))
+    expect(anatomy.map(row => row.name)).toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    for (const row of anatomy) {
+      expect(row.height).toBe(FRAME.rail.rowHeight)
+      expect(row.size).toBe(FRAME.rail.label)
+      expect(row.slots).toBe(1)
+    }
+    const seat = column.locator('[data-left-seat]')
+    expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+    await expect(seat.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-pressed', 'false')
+    const start = column.getByRole('button', { name: 'New session', exact: true })
+    await expect(start.locator('..').locator('[data-left-trailing] button')).toHaveCount(1)
+  })
+}
+
+
+for (const theme of WALL_THEMES) {
+  test(`D2 existing Settings rail shares row and group anatomy in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings', theme)
+    const nav = page.getByRole('navigation', { name: 'Window navigation' })
+    const group = nav.locator('[data-left-group]').first()
+    const rows = group.locator('[data-left-row]')
+    await expect(rows).toHaveCount(4)
+    const anatomy = await rows.evaluateAll(nodes => nodes.map(node => {
+      const button = node.querySelector('[data-slot="sidebar-menu-button"]')!
+      const icon = button.querySelector('[data-slot="sidebar-menu-icon"]')!
+      const label = button.querySelector('[data-slot="sidebar-menu-label-content"]')!
+      const css = getComputedStyle(button)
+      return { height: button.getBoundingClientRect().height, icon: icon.getBoundingClientRect().width,
+        textX: label.getBoundingClientRect().x, size: parseFloat(css.fontSize) }
+    }))
+    for (const row of anatomy) {
+      expect(row.height).toBe(FRAME.rail.rowHeight)
+      expect(row.icon).toBe(FRAME.rail.icon)
+      expect(row.size).toBe(FRAME.rail.label)
+    }
+    const ink = await group.locator('[data-left-group-text]').boundingBox()
+    expect(ink!.x).toBe(anatomy[0]!.textX)
+    const general = rows.first().getByRole('button')
+    await expect(general).toHaveAttribute('aria-current', 'page')
+    await general.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(rows.nth(1).getByRole('button')).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(rows.nth(1).getByRole('button')).toHaveAttribute('aria-current', 'page')
+    await nav.getByRole('searchbox', { name: 'Search settings' }).fill('keyboard')
+    await expect(nav.locator('[data-left-row]')).toHaveCount(1)
+    await expect(nav.getByRole('button', { name: 'Keyboard shortcuts', exact: true })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Back to app', exact: true })).toBeVisible()
+  })
+}

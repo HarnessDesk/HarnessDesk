@@ -443,6 +443,9 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   LeftColumn: 'packages/ui/src/preview/frames-left-column.tsx',
 }
 
+// Append the production adoption without rewriting the shared seed registry.
+Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
+
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   GitComparisonDialogs: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonNotice: 'packages/ui/src/design/explorer/boards-compositions.tsx',

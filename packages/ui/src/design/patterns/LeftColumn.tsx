@@ -1,3 +1,5 @@
+import { Popover } from './Popover'
+import { CaretIcon } from '../../components/Icons'
 import { forwardRef, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
@@ -16,7 +18,14 @@ export interface LeftColumnAction {
   readonly expanded?: boolean
   readonly kind?: 'more' | 'new'
 }
+export interface LeftColumnMenu {
+  readonly label: string
+  readonly content: (close: () => void) => ReactNode
+  readonly onOpenChange?: (open: boolean) => void
+}
+
 export interface LeftColumnRowProps {
+  readonly menu?: LeftColumnMenu
   readonly label: string
   readonly icon?: ReactNode
   readonly title?: string
@@ -40,16 +49,19 @@ export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((
       {props.trailing && <span data-left-mark className={styles.mark} role="img" aria-label={props.trailing.label} title={props.trailing.label}>
         {props.trailing.kind === 'count' ? <Text role="meta" numeric>{props.trailing.value}</Text> : props.trailing.icon}
       </span>}
-      {props.action && <Button variant="ghost" size="pattern" className={styles.action}
-        data-slot="sidebar-menu-action" aria-label={props.action.label} title={props.action.label}
-        aria-haspopup={props.action.kind === 'new' ? undefined : 'menu'} aria-expanded={props.action.kind === 'new' ? undefined : props.action.expanded} tabIndex={props.action.kind === 'new' ? 0 : -1}
-        onClick={event => { event.stopPropagation(); props.action?.onClick(event) }}>{props.action.kind === 'new' ? <PlusIcon size={16} /> : <MoreIcon size={16} />}</Button>}
+      {props.menu ? <Popover title={props.menu.label} label={<CaretIcon size={16} />} panelWidth="wide" drop="down" align="right"
+  triggerClassName={styles.menuAction} onOpenChange={props.menu.onOpenChange}>
+  {props.menu.content}
+</Popover> : props.action && <Button variant="ghost" size="pattern" className={styles.action}
+  data-slot="sidebar-menu-action" aria-label={props.action.label} title={props.action.label}
+  aria-haspopup={props.action.kind === 'new' ? undefined : 'menu'} aria-expanded={props.action.kind === 'new' ? undefined : props.action.expanded} tabIndex={props.action.kind === 'new' ? 0 : -1}
+  onClick={event => { event.stopPropagation(); props.action?.onClick(event) }}>{props.action.kind === 'new' ? <PlusIcon size={16} /> : <MoreIcon size={16} />}</Button>}
     </span>
   </div>)
 LeftColumnRow.displayName = 'LeftColumnRow'
-export const LeftColumnGroup = ({ label, children }: { label: string; children: ReactNode }) =>
-  <section data-left-group className={styles.group} aria-label={label}>
-    <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>{children}
+export const LeftColumnGroup = ({ label, children, heading = true }: { label: string; children: ReactNode; heading?: boolean }) =>
+  <section data-left-group className={styles.group} aria-label={label} role="group">
+    {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}{children}
   </section>
 export const LeftColumnHead = ({ label, controls }: { label: string; controls: ReactNode }) =>
   <div data-left-head className={styles.head}><GroupLabel className={styles.headLabel}><span data-left-group-text>{label}</span></GroupLabel>

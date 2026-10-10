@@ -28,3 +28,6 @@
 .seat { height: 100%; display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
 .seatMenu { flex: 1; min-width: 0; }
 .topButton[aria-pressed='true'] { background: var(--hd-selected); }
+
+.menuAction { pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); padding: 0; border: 0; border-radius: var(--hd-radius-sm); background: transparent; color: var(--hd-secondary-foreground); }
+.menuAction:hover { background: var(--hd-accent); }

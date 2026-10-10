@@ -28,3 +28,9 @@ test('a missing icon reserves its column; the only trailing action does not open
   act(() => button('Another conversation').click())
   expect(open).toHaveBeenCalledOnce()
 })
+
+test('a row menu is beside its opener and remains the only trailing control', () => {
+  mount(<LeftColumnRow label="New session" menu={{ label: 'More ways to start', content: () => <div>Start choices</div> }} />)
+  expect(container.querySelectorAll('[data-left-trailing] button')).toHaveLength(1)
+  expect(container.querySelector('button button')).toBeNull()
+})

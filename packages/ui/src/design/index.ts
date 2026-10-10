@@ -221,3 +221,5 @@ export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
 
 export { LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumnRow, LeftColumnSeat, LeftColumnTop,
   type LeftColumnRowProps, type LeftColumnTrail, type LeftColumnAction, type LeftColumnTopProps } from './patterns/LeftColumn'
+
+export type { LeftColumnMenu } from './patterns/LeftColumn'
