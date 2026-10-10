@@ -27,7 +27,7 @@ import { ShellProvider } from '../panels/views'
 import { StoreProvider } from '../state/context'
 import type { AppStore } from '../state/store'
 import type { LayoutNode } from '../state/layout'
-import { emptyWorkbench } from '../state/workbench'
+import { dockViews, emptyWorkbench, fixedSubject, normalizeFixedWorkbench } from '../state/workbench'
 import { Workbench } from '../panels/Workbench'
 
 const COLUMNS = libraryColumnsFor(LIBRARY.runtimes)
@@ -99,7 +99,7 @@ const noticeLayoutStore = (id: string, options: {
     kind: 'split' as const, id: `${id}-split`, direction: 'row' as const, ratio: 0.5,
         first: { kind: 'pane' as const, id: paneId, view }, second,
   } : { kind: 'pane' as const, id: paneId, view }
-  const workbench = {
+  const legacyWorkbench = {
     ...noticeWorkbench,
     main: { root, focused: second ? second.id : paneId, expanded: null },
     ...(options.zoom === 'sidebar' ? {
@@ -111,6 +111,16 @@ const noticeLayoutStore = (id: string, options: {
     ...(options.zoom === 'right' ? { zoom: { area: 'right' as const, scope: 'window' as const } } : {}),
     ...(options.zoom === 'sidebar' ? { zoom: { area: 'sidebar' as const, scope: 'window' as const } } : {}),
   }
+  // Legacy saved docks enter through the production fixed-frame migration;
+  // retired zoom and sidebar docks cannot create a second notice host.
+  const subject = fixedSubject(legacyWorkbench.main)
+  const focused = second ?? { kind: 'pane' as const, id: paneId, view }
+  const workbench = subject ? {
+    ...legacyWorkbench,
+    frameTools: { [subject]: { tool: 'activity' as const, mode: 'activity', open: true } },
+    toolOwners: Object.fromEntries(dockViews(legacyWorkbench.right).map(one => [one.id, subject])),
+    frameSubjects: { [subject]: { paneId: focused.id, view: focused.view } },
+  } : legacyWorkbench
   const active = noticeBase.sessions.get(PREVIEW_SESSION_KEY)!
   const approvalKey = noticeBase.teams.get(PREVIEW_ROOM)?.members[0] ?? PREVIEW_SESSION_KEY
   const result = previewStore({
@@ -125,14 +135,13 @@ const noticeLayoutStore = (id: string, options: {
     noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
     narrowWindow: options.narrow ?? false,
     usage: [noticePace],
-    workbench,
+    workbench: normalizeFixedWorkbench(workbench).workbench,
     ...(options.pendingRoomApproval ? { approvals: [{ key: approvalKey, approval: { id: 'preview-room-approval', type: 'command', kind: 'shell', command: 'pnpm test', cwd: PREVIEW_ROOT } }] as never } : {}),
     layout: { ...noticeBase.layout, root, focused: second ? second.id : paneId, expanded: null },
     sessions: new Map([[PREVIEW_SESSION_KEY, active]]),
     ...(options.folderGone ? { foldersGone: new Map([[active.cwd, 'The preview folder is unavailable.']]) } : {}),
   } as never)
-  // Under the window's narrow threshold, and narrower than a right panel needs
-  // beside a readable conversation: the panel covers the main area.
+  // Below the fixed fold, the right tool floats beside the visible composer.
   if (options.narrow) result.setWindowWidth(679)
   return result
 }

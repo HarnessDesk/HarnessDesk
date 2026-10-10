@@ -469,6 +469,25 @@ returns hidden work without deleting it. Usage refreshes do not count as a
 new revision. Known waits order the page; an absent state timestamp remains
 unknown rather than borrowing the Run's age.
 
+The page reads what its open tab shows, and no more. Usage is asked for the
+rows on screen, in one `insight/goals` request that reads the usage sources
+once for every project in it and attributes them per Team, and lands in one
+update. Once per project was not enough: on a desk where each Team has a
+clone of its own, every Team is its own project. A Run and its
+review are read for every Team that is not wrapped, because either can move a
+Team into Needs you and the counts would otherwise be wrong. A wrapped Team's
+Run is read once its row is shown, for its faces, and its review never:
+nothing on a wrapped row follows one, so its unread mark leaves the review out
+too. Successful reads are kept while the page is open; a failed Run or review
+read gets at most two retries, five seconds apart, and an in-flight read is
+never duplicated. Asking again for every
+Run still missing whenever one landed sent a large desk's Settled tab
+thousands of reads. Time in a state is said in its largest unit (`47m`, `5h`,
+`2d`), and only those cells follow a minute clock. A desk with about 500
+Teams had made one full ledger scan per Team on every open, and a one-second
+clock re-rendered the whole table
+([#1567](https://github.com/HarnessDesk/HarnessDesk/issues/1567)).
+
 **The rule:** one plain-data contract derives the rows; no overview fact is
 invented to fill a missing observation.
 
@@ -1260,6 +1279,18 @@ slice budget that keeps the host responsive. Walking an already journalled
 commit or peeling a tag does not move the capture clock. Frontier-only replay
 writes no checkpoint: the saved frontier and durable parent edges can repeat
 that work after a restart without losing an observation.
+
+A peeled tag target follows the same walk bookkeeping as a branch tip: its
+observation alone does not mean its ancestry was visited under the current
+floor. Widening the window therefore revisits tag-only ancestry too, including
+when a legacy checkpoint first acquires a floor.
+
+A failed object-clock batch falls back to individual reads. An already
+journalled commit whose object cannot be read still supplies its durable parent
+edges; an unavailable clock never proves that it is outside the window. Object
+failures remain visible as a history gap. Admission and storage failures still
+refuse progress, and an unreadable commit without durable edges ends the scan
+with that gap rather than starting a retry loop.
 
 ## A Goal is finite; Seats and receipts are the authority
 

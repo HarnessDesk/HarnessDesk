@@ -47,9 +47,9 @@ for (const theme of ['light', 'dark'] as const) {
 
     test('a pointer-opened row menu restores focus quietly; a keyboard-opened one keeps its ring', async ({ page }) => {
       await mountFocusFixture(page)
-      const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
+      const label = 'Pin the flaky inventory test after reconciling every retry branch'
       const sidebar = page.locator('[data-frame-id="sidebar-column"]')
-      const row = sidebar.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({ has: page.getByRole('button', { name: `Actions for ${label}`, exact: true }) }).locator('[data-slot="sidebar-menu-button"]')
+      const row = sidebar.locator('[data-region="session-row"] [data-left-row]').filter({ has: page.getByRole('button', { name: `Actions for ${label}`, exact: true, includeHidden: true }) }).locator('[data-slot="sidebar-menu-button"]')
       await row.hover()
       await sidebar.getByRole('button', { name: `Actions for ${label}`, exact: true }).click()
       await expect(page.getByRole('menu')).toBeVisible()

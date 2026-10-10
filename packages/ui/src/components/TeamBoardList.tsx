@@ -87,11 +87,11 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
   return <PaneColumn ref={root} inset="reading" className="flex flex-col gap-3" data-slot="board-list" data-grouped={grouped || undefined}>
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter jobs" onChange={setQuery} /></div>
-      <Tabs value={state} onValueChange={value => setState(value as typeof state)}><TabsList><TabsTrigger value="all">All <Text role="meta" numeric>{intents.length}</Text></TabsTrigger>
+      <Tabs value={state} onValueChange={value => setState(value as typeof state)}><TabsList><TabsTrigger value="all" count={intents.length}>All </TabsTrigger>
       {filters.map(id => {
         const column = FACT_COLUMNS.find(one => one.id === id)!
         if (id === 'aside' && count(id) === 0 && state !== id) return null
-        return <TabsTrigger key={id} value={id}>{column.title} <Text role="meta" numeric>{count(id)}</Text></TabsTrigger>
+        return <TabsTrigger key={id} value={id} count={count(id)}>{column.title} </TabsTrigger>
       })}
       </TabsList></Tabs>
       <span className="flex-1" />

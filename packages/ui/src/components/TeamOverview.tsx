@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   Button, Card, Chip, DisclosureChevron, EmptyState, Section, SectionBody,
-  IconTile, ListRow, ListRows, PaneColumn, Table, TableBody, TableCell,
+  IconTile, MiddleTruncate, ListRow, ListRows, PaneColumn, Table, TableBody, TableCell,
   TableHead, TableHeader, TableRow, Text,
 } from '../design'
 import { useNarrowLayout } from '../lib/use-narrow-layout'
@@ -90,7 +90,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
     const next = doingLine(held.current.get(row.seat) ?? null, row.doing, now)
     held.current.set(row.seat, next)
     const line = words(next.line ?? row.reason ?? '')
-    return line ? <div data-slot="seat-doing" title={line} className={wrap ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'}><Text role="meta">{line}</Text></div> : null
+    const path = /^Edit(?:ed|ing) (?:.*[\\/].+|[^.]+\.[\w-]+)$/.test(line)
+    return line ? <div data-slot="seat-doing" title={line} className={wrap && !path ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'}><Text role="meta">{path ? <MiddleTruncate>{line}</MiddleTruncate> : line}</Text></div> : null
   }
   const name = (row: SeatRow) => <Text as="span" className="block" role="subject" truncate title={words(row.name)}>{words(row.name)}</Text>
   const openName = (row: SeatRow) => opens(row) ? <Button stretched hoverFill={false} variant="row" size="content-min" bordered={false} aria-label={`Open ${words(row.name)}`} onClick={() => onOpen?.(row.seat)} className="block max-w-full">{name(row)}</Button> : name(row)
@@ -126,7 +127,6 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                   : <Text role="meta">{runWords[run.state]}</Text>)}
                 {statusLine && evidenceWait && !findingsWait && !runNeedsYou && !run.needsYou && <Chip tone="neutral">Waiting</Chip>}
                 {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
-                {run.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
               </div>
               <div className="flex flex-wrap gap-3">
                 {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}

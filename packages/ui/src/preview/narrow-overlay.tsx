@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client'
 import { Workbench } from '../panels/Workbench'
 import '../panels/builtins'
 import { StoreProvider } from '../state/context'
-import { emptyWorkbench } from '../state/workbench'
+import { dockViews, emptyWorkbench } from '../state/workbench'
 import { BLANK } from '../state/layout'
 import { runtimeId } from '@harnessdesk/protocol'
 import { AppWindowMode } from '../components/AppWindow'
@@ -54,6 +54,12 @@ const store = previewStore({
   sidebarCollapsed: true,
   usage,
 })
+// The synthetic shell closes the actual mounted resource through the same
+// view lifecycle as the host-backed store's terminal-id convenience method.
+Object.assign(store, { closeTerminal: (terminalId: string) => {
+  const entry = dockViews(store.getSnapshot().workbench.bottom).find(one => one.view.kind === 'terminal' && one.view.terminalId === terminalId)
+  if (entry) store.closeView(entry.id)
+} })
 
 store.showViewIn(panelView.kind === 'terminal' ? 'bottom' : 'right', panelView as never)
 

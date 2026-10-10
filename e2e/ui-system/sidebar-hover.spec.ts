@@ -1,8 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
-const sidebar = (page: Page) => page.locator('[class*="sidebar_"]')
-const workspace = (page: Page) => page.locator('[data-region="sidebar-content"] [data-slot="sidebar-menu-item"]').filter({
-  has: page.locator('button[aria-label="Actions for HarnessDesk"]'),
+const sidebar = (page: Page) => page.locator('[data-frame-id="sidebar-column"] [data-left-column]')
+const workspace = (page: Page) => page.locator('[data-project-root] [data-left-row]').filter({
+  has: page.locator('button[data-draggable][aria-label="HarnessDesk"]'),
 })
 
 test('conversation labels reach the row rail without changing box width on hover', async ({ page }) => {
@@ -154,17 +155,19 @@ test('settled gives up on an animation whose timeline never advances', async ({ 
 })
 
 for (const theme of ['light', 'dark'] as const) {
-test(`workspace hover keeps its pin visible and label width fixed (${theme})`, async ({ page }, testInfo) => {
+test(`workspace hover substitutes its pin and label width fixed (${theme})`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const group = workspace(page)
-    const actions = group.getByRole('button', { name: 'Actions for HarnessDesk', exact: true })
-    await group.hover()
-    await actions.click()
+    const opener = group.locator('button[data-draggable]')
+    await opener.focus()
+    await page.keyboard.press('Shift+F10')
     await page.getByRole('menuitem', { name: 'Pin', exact: true }).click()
-    const pin = group.locator('[data-slot="sidebar-menu-badge"][aria-label="Pinned"]')
+    const pin = group.locator('[data-left-mark][aria-label="Pinned"]')
     const title = group.locator('[data-slot="sidebar-menu-label"]')
+    await opener.blur()
+    await page.mouse.move(1400, 0)
     await expect(pin).toBeVisible()
 
     for (const width of [260, 200, 480]) {
@@ -180,7 +183,7 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
       if (width === 260) {
         await group.screenshot({ path: testInfo.outputPath('workspace-hover.png') })
         await testInfo.attach('workspace-geometry', {
-          body: JSON.stringify({ pin: await settled(pin), label: after, add: await settled(add), actions: await settled(actions) }),
+          body: JSON.stringify({ label: after, add: await settled(add) }),
           contentType: 'application/json',
         })
       }
@@ -190,11 +193,14 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
       expect(after.top).toBe(before.top)
       // The action shares the trailing slot with the badge, so it may cover
       // the pin while hovered; the pin returns when the pointer leaves.
-      await expect(pin).toBeVisible()
+      await expect(pin).toBeHidden()
       expect(await unobstructed(add)).toBe(true)
-      expect(await unobstructed(actions)).toBe(true)
+      await opener.blur()
+      await page.mouse.move(1400, 0)
+      await expect(pin).toBeVisible()
     }
-    await actions.click()
+    await opener.focus()
+    await page.keyboard.press('Shift+F10')
     await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click()
     await expect(pin).toHaveCount(0)
   })
@@ -204,52 +210,47 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
       await page.emulateMedia({ colorScheme: theme })
       await page.goto('/preview.html')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-      await sidebar(page).getByRole('button', { name: 'How this list is shown', exact: true }).click()
-      await page.getByRole('menuitem', { name: /^Density\b/ }).hover()
-      await page.getByRole('menuitemradio', { name: density, exact: true }).click()
+      await page.evaluate(value => {
+        const { store } = (window as unknown as { __hdPreview: {
+          store: { getSnapshot(): { listPrefs: object }; patch(value: unknown): void }
+        } }).__hdPreview
+        store.patch({ listPrefs: { ...store.getSnapshot().listPrefs, density: value } })
+      }, density === 'Compact' ? 'compact' : 'comfortable')
       const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
-      const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
+      const row = page.locator('[data-region="session-row"] [data-left-row]').filter({
         has: page.locator(`button[aria-label="Actions for ${label}"]`),
       })
       const open = row.locator('[data-slot="sidebar-menu-button"]')
       const action = row.getByRole('button', { name: `Actions for ${label}`, exact: true })
-      const branch = row.getByRole('img', { name: 'Worktree chore/settings-audit', exact: true })
-      const gone = row.getByRole('img', { name: /^Folder is gone/ })
-      await expect(gone).toBeVisible()
-
       for (const width of [260, 200, 480]) {
         await setWidth(page, width)
         await row.scrollIntoViewIfNeeded()
+        expect((await open.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
+        const title = await open.getAttribute('title')
+        expect(title).toContain(label)
+        expect(title).toContain('Worktree')
+        expect(title).toContain('The transcript can be read; nothing more can be sent.')
         await page.mouse.move(1400, 0)
         await open.blur()
-        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
-        await page.waitForTimeout(300)
-        const before = await settled(branch)
-        const goneBefore = await settled(gone)
+        const before = await settled(open.locator('[data-slot="sidebar-menu-label-content"]'))
+        const marks = row.locator('[data-left-mark]')
+        await expect(marks).toHaveCount(1)
+        await expect(marks).toBeVisible()
         await row.hover()
         await expect(action).toBeVisible()
-        await page.waitForTimeout(300)
-        const moved = await settled(branch)
+        await expect(marks).toBeHidden()
+        const after = await settled(open.locator('[data-slot="sidebar-menu-label-content"]'))
+        expect(after.left).toBe(before.left)
+        expect(after.right).toBe(before.right)
+        expect(await open.getAttribute('title')).toBe(title)
+        expect(await unobstructed(action)).toBe(true)
         if (width === 260) {
           await row.screenshot({ path: testInfo.outputPath('session-hover.png') })
           await testInfo.attach('session-geometry', {
-            body: JSON.stringify({ branch: moved, gone: await settled(gone), action: await settled(action), font: await open.evaluate(node => getComputedStyle(node).fontSize) }),
+            body: JSON.stringify({ label: after, action: await settled(action), height: (await open.boundingBox())!.height }),
             contentType: 'application/json',
           })
         }
-        // The action takes the rail and each mark yields one shared target.
-        expect(moved.left).toBe(before.left - 24)
-        expect(moved.top).toBe(before.top)
-        const actionBox = await settled(action)
-        expect(actionBox.left + actionBox.width / 2).toBe(before.left + before.width / 2)
-        for (const [mark, resting] of [[branch, before], [gone, goneBefore]] as const) {
-          const markBox = await settled(mark)
-          expect(markBox.left).toBe(resting.left - 24)
-          expect(markBox.top).toBe(resting.top)
-          expect(markBox.right <= actionBox.left || actionBox.right <= markBox.left).toBe(true)
-          expect(await unobstructed(mark)).toBe(true)
-        }
-        expect(await unobstructed(action)).toBe(true)
         await action.click()
         await expect(page.getByRole('menuitem', { name: 'Archive', exact: true })).toBeVisible()
         await page.keyboard.press('Escape')

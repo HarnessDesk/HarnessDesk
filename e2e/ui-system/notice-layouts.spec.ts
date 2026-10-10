@@ -4,6 +4,15 @@ test.use({ colorScheme: process.env.NOTICE_FRAME_THEME === 'dark' ? 'dark' : 'li
 
 const layout = (page: Page, id: string): Locator => page.locator(`[data-frame-id="${id}"]`)
 
+const chooseDestination = async (page: Page, frame: Locator, name: string) => {
+  const tab = frame.getByRole('tab', { name: new RegExp(`^${name}`) })
+  if (await tab.count()) await tab.click()
+  else {
+    await frame.locator('button[title="Destination views"]').click()
+    await page.getByRole('menuitem', { name: new RegExp(`^${name}`) }).click()
+  }
+}
+
 const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): Promise<void> => {
   await expect(frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveCount(1)
   await expect(frame.locator(`[data-slot="${surface === 'composer' ? 'composer-notice' : 'notice-strip'}"]`)).toHaveCount(1)
@@ -12,7 +21,7 @@ const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): P
 test('real Workbench and Panes put each notice in one mounted outlet', async ({ page }) => {
   await page.goto('/preview.html?notice-placement')
   const room = layout(page, 'coverage-notice-room-board')
-  await room.getByRole('tab', { name: /^Board/ }).click()
+  await chooseDestination(page, room, 'Board')
 
   const frameDir = process.env.NOTICE_FRAME_DIR
   if (frameDir) {
@@ -79,7 +88,8 @@ test('a narrow room keeps its composer notice visible when widened', async ({ pa
     nodes.filter((node) => node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && node.getClientRects().length > 0).length,
   )
 
-  await expect(frame.getByRole('tab', { name: /^Board/ })).toBeVisible()
+  await expect(frame.locator('[data-topbar="tabs"]')).toBeVisible()
+  await expect(frame.locator('[data-topbar="tabs"]')).toContainText('Chat')
   await expect(body).toBeVisible()
   await expect.poll(visibleNoticeCount).toBe(1)
   await expect(frame.locator('[data-slot="composer-notices"] [data-slot="notice-strip"]')).toBeVisible()

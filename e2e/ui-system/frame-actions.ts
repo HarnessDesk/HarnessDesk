@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 export interface FrameActions {
   readonly inspectFirst?: boolean
@@ -7,9 +7,25 @@ export interface FrameActions {
   readonly tool?: 'details' | 'changes' | 'activity' | 'browser'
   readonly holdMessages?: boolean
 }
+export const settleFrameBar = async (bar: Locator): Promise<void> => {
+  // The title keeps its floor during measurement too. Wait for the staged
+  // fold to settle before choosing between its tab and menu spellings.
+  await bar.evaluate(async node => {
+    await document.fonts.ready
+    let previous = ''
+    let stable = 0
+    while (stable < 4) {
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      const current = `${node.getAttribute('data-fold')}:${node.getBoundingClientRect().width}`
+      stable = current === previous ? stable + 1 : 0
+      previous = current
+    }
+  })
+}
 export const selectFrameTab = async (page: Page, value: string): Promise<void> => {
   const bar = page.locator('[data-slot="top-bar"]:visible').first()
   await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  await settleFrameBar(bar)
   const visibleTab = bar.locator(`[data-team-page="${value}"]:visible`)
   if (await visibleTab.count()) {
     await visibleTab.click()

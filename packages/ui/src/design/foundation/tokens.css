@@ -586,6 +586,7 @@ body {
   --hd-composer-track-model-folded: 48px;
   --hd-composer-track-model-tight: var(--hd-target-min);
   --hd-composer-track-send: 32px;
+  --hd-composer-send-size: 30px;
   --hd-composer-slots-preview-narrow: 560px;
   --hd-composer-slots-preview-tight: 360px;
 
@@ -1171,6 +1172,9 @@ body {
   --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* Solved from the row's box. */
   /* Every row in a navigation column stands the same. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
+  /* Frame left-column rows have one size in both interfaces. */
+  --hd-left-row-h: 30px;
+  --hd-frame-icon-button: 28px;
   --hd-nav-radius: var(--hd-radius); /* The row radius. */
   --hd-nav-gap: var(--hd-space-2);
   /* How far a row's text sits from its own edge. Named separately from the
@@ -1464,9 +1468,8 @@ body[data-hd-interface='studio'] {
     var(--hd-sidebar-selected-foreground) 86%,
     transparent
   );
-  --hd-nav-h: 34px;
-  /* One height for every row in a navigation column, as Desk has too since
-     #1073 — only taller. */
+  --hd-nav-h: var(--hd-left-row-h); /* desk: shared 30px FRAME destination contract; Studio 34 → 30, Desk stays 30 */
+  /* One height for every row in a navigation column, shared with FRAME left-column and menu rows. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
@@ -1629,4 +1632,15 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
   --hd-table-name-size: var(--hd-text-sm);
   --hd-table-sentence-size: var(--hd-text-xs);
   --hd-table-end-gap: var(--hd-space-2);
+}
+
+/* --- popup rows -------------------------------------------------------------
+   App-frame row leading and height are independent of navigation density.
+   The facts card keeps its key column in the same foundation contract.
+*/
+:root {
+  --hd-menu-row-h: 30px;
+  --hd-menu-label-line: 18px;
+  --hd-menu-search-h: 28px;
+  --hd-info-card-key: 96px;
 }

@@ -133,6 +133,19 @@ export interface InsightReport {
   readonly gaps: readonly string[]
 }
 
+/** The most Teams one `insight/goals` request reads; a longer list is asked for in parts. */
+export const INSIGHT_GOALS_LIMIT = 200
+
+/**
+ * Several Teams' reports from one read (`insight/goals`). Each report names
+ * its Team in `goal`; a Team that could not be read is in `failed`, never a
+ * report of zero.
+ */
+export interface InsightGoalsReport {
+  readonly reports: readonly InsightReport[]
+  readonly failed: readonly string[]
+}
+
 export interface InsightSelector {
   readonly agent: string
   readonly origin: AgentOrigin

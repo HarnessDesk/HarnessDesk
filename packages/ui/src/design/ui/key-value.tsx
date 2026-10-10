@@ -83,17 +83,15 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
           head left to give — and the head keeps enough of itself (`~/…`) to
           show that something was cut. A name wider than all of that is the
           one case where the tail ellipsises too. */}
+      {/* Flex text trims edge spaces. Keep a name's word boundary visible;
+          accessible text and copying still use the original string. */}
       {head !== '' && (
-        <span aria-hidden="true" data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head}</span>
+        <span aria-hidden="true" data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head.replace(/ +$/, spaces => '\u00a0'.repeat(spaces.length))}</span>
       )}
-      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail}</span>
+      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail.replace(/^ +/, spaces => '\u00a0'.repeat(spaces.length))}</span>
     </span>
   )
 }
-
-/** In a list that mixes words and numbers, a number starts where the words do. */
-const MIXED_KV = 'group-has-[[data-slot=key-value-row]:not([data-numeric])]/kv:text-left'
-const MIXED_SUMMARY = 'group-has-[[data-slot=summary-item]:not([data-numeric])]/summary:text-left'
 
 /** The key column's look, one spelling for every shape of the list. */
 const KEY_CLASS = 'text-start text-(--hd-muted-foreground)'
@@ -115,13 +113,9 @@ const valueOf = (children: React.ReactNode, kind: 'text' | 'path'): React.ReactN
  * and read as sentences: they wrap inside their column and never push it past
  * the container. A path is given as `kind="path"` and gives up its middle,
  * with the whole path in its title while it is cut. Numbers — a count, a
- * total, money — are set on tabular figures when the row says `numeric`, and
- * right-aligned only in a list whose every value is a number, where lining
- * them up by place is the point (a receipt, a context breakdown). In a list
- * that mixes words and numbers they start where the words start: a count
- * right-aligned across a wide page sat 1,600px from its key, beside a word
- * that sat against it, and the reader could not tell which key either
- * belonged to.
+ * total, money — are right-aligned on tabular figures when the row says
+ * `numeric`, including beside words and paths. The page's measure keeps a
+ * fact near its key; alignment preserves the numeric column's reading rule.
  *
  * `emphasis` on the last pair is the totals-line rule: the figure everything
  * above was building toward gets weight, and it gets it from a prop rather
@@ -206,7 +200,7 @@ const KeyValueRow = ({
     <dd
       className={cn(
         'min-w-0 break-words',
-        numeric ? `text-right tabular-nums ${MIXED_KV}` : 'text-left',
+        numeric ? 'text-right tabular-nums' : 'text-left',
         variant === 'panel' && 'text-sm',
         emphasis && 'font-semibold',
       )}
@@ -231,8 +225,7 @@ const KeyValueRow = ({
  * Each `SummaryItem` is a row of three columns shared by the whole card: the
  * key, muted, in a column as wide as the widest key; the value, left-aligned
  * and wrapping as a sentence (`kind="path"` gives up the middle, `numeric`
- * sets tabular figures, right-aligned only when every value is a number — the
- * `KeyValueRow` rules); and an
+ * right-aligns tabular figures — the `KeyValueRow` rules); and an
  * optional trailing `action`, a small button or a ⋯ menu, at the row's end.
  * A `note` is one line of explanation under the value, in the secondary ink,
  * and wraps rather than ellipsises: it is a sentence.
@@ -272,12 +265,12 @@ const SummaryItem = ({ className, label, children, note, action, numeric = false
   return <div data-slot="summary-item" {...(numeric ? { 'data-numeric': '' } : {})}
     {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
     className={cn('col-span-full grid grid-cols-subgrid gap-y-(--hd-space-0-5)',
-      panel ? 'py-(--hd-inset-row)' : 'p-(--hd-inset-row) gap-x-(--hd-space-6) border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0', className)} {...props}>
-    <dt className={cn(KEY_CLASS, !panel && 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', ON_ACTION_LINE)}>{label}</dt>
+      panel ? 'py-(--hd-space-2) border-b-(length:--hd-border-width) border-(--hd-border) last:border-b-0' : 'p-(--hd-inset-row) gap-x-(--hd-space-6) border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0', className)} {...props}>
+    <dt className={cn(KEY_CLASS, !panel && 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', !panel && ON_ACTION_LINE)}>{label}</dt>
     <dd className="col-span-2 m-0 grid min-w-0 grid-cols-subgrid">
       <div data-slot="summary-value" className={cn('min-w-0 break-words text-(--hd-foreground)',
-        numeric ? panel ? 'text-left tabular-nums' : `text-right tabular-nums ${MIXED_SUMMARY}` : 'text-left',
-        action == null && 'col-span-2', ON_ACTION_LINE)}>
+        numeric ? panel ? 'text-left tabular-nums' : 'text-right tabular-nums' : 'text-left',
+        action == null && 'col-span-2', !panel && ON_ACTION_LINE)}>
         {valueOf(children, kind)}
         {note != null && <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">{note}</p>}
       </div>

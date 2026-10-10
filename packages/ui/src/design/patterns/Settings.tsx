@@ -17,6 +17,7 @@ import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
 import { ChoiceRow, choiceListClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
 import styles from './Settings.module.css'
+import { switcherTrack, switcherItem } from '../ui/switcher'
 
 /**
  * The parts every settings surface is assembled from.
@@ -565,23 +566,9 @@ export const Segmented = <T extends string>({
 }) => (
   <ToggleGroup
     type="single"
-    /*
-     * `inline-flex gap-0` is not decoration: it is how the look wins.
-     *
-     * The vendored RadioGroup declares `grid gap-2` and merges a caller's
-     * className through `cn`, which is tailwind-merge — and tailwind-merge
-     * cannot see a CSS-module class, so `.segmented`'s own
-     * `display: inline-flex` survived the merge and then *lost the cascade*:
-     * the Tailwind sheet is bundled after every module, so at equal
-     * specificity the utility wins. The result was a segmented control that
-     * had been rendering as a one-column stack — Theme, Palette, Accent and
-     * Corners each a vertical list of buttons instead of a row.
-     *
-     * Passing the utilities that belong to the same tailwind-merge groups
-     * (`display`, `gap`) makes the merge drop `grid gap-2` outright, which is
-     * the only fix that does not depend on which sheet loads last.
-     */
-    className={`inline-flex gap-0 ${styles.segmented}`}
+    /* The utility displaces the primitive's grid in tailwind-merge; the
+       shared switcher sheet owns the track's gap and geometry. */
+    className={`inline-flex ${switcherTrack}`}
     aria-label={label}
     value={value}
     /* A second press on the chosen segment asks the group to empty itself.
@@ -597,18 +584,9 @@ export const Segmented = <T extends string>({
         value={option.value}
         disabled={!!option.disabled}
         title={typeof option.disabled === 'string' ? option.disabled : undefined}
-        /*
-         * The lifted chosen state lives here, not in the vendored primitive:
-         * `design/ui/toggle-group.tsx` stays on the registry's own
-         * `bg-accent`/`text-accent-foreground` press (this app's quiet hover
-         * wash), so the segment's own three tokens — the card, its hairline
-         * shadow, primary ink — ride on this item, where tailwind-merge
-         * resolves them against the primitive's. The same merge drops the
-         * primitive's `hover:text-muted-foreground`, which would otherwise
-         * dim an unchosen segment's label on hover from secondary ink down
-         * to tertiary.
-         */
-        className={`${styles.segItem} hover:text-(--hd-foreground) data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground) data-pressed:shadow-(--hd-shadow-sm)`}
+        /* Tabs and filters share the switcher’s track, size and raised press.
+           Keep the primitive's hover from dimming a segment's label. */
+        className={`${switcherItem} hover:text-(--hd-foreground) data-pressed:bg-(--hd-background) data-pressed:text-(--hd-foreground)`}
       >
         {option.label}
       </ToggleGroupItem>
@@ -883,14 +861,16 @@ export const NavigationGroupHeader = ({
    * header adds back in (`--hd-bar-ink`). A rail with no bar of its own,
    * such as the app window's nav, reads `'nav'` instead: the row's own
    * `--hd-nav-inset`, the same number `Button size="navigation"` uses.
+   * `'row'` answers to the frame's fixed icon edge inside an inset column.
    */
-  inset?: 'bar' | 'nav'
+  inset?: 'bar' | 'nav' | 'row'
   labelInk?: 'secondary' | 'muted'
   children?: ReactNode
 }) => (
   <GroupLabel as="div" surface="navigation" navigationInset={inset}
     {...props}
     data-slot="navigation-group-header"
+    data-surface=""
     {...(filtering ? { 'data-filtering': '' } : {})}
     {...(keepLabelWhenFiltering ? { 'data-keep-label': '' } : {})}
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}

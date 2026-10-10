@@ -195,6 +195,96 @@ for (const restart of [false, true]) test(`lowering the floor reseeds unchanged 
   assert.equal(f.fingerprinted.length, 72, 'unchanged floor does not repeat discovery')
 })
 
+for (const mode of ['live', 'restart', 'legacy']) test(`a wider window walks already observed tag-only ancestry: ${mode}`, async (t) => {
+  t.mock.method(performance, 'now', () => 0)
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const f = history()
+  const tag = sha(900)
+  const target = sha(460)
+  const git: GitReader = {
+    ...f.git,
+    snapshot: async () => ({ refs: new Map([['refs/heads/main', sha(500)], ['refs/tags/only-tag', tag]]), heads: new Map(), takenAt: firstOpened }),
+    commit: async (id, signal) => id === tag ? null : id === sha(500)
+      ? { sha: id, tree: id, parents: [], committedAt: 500 * DAY } : f.git.commit(id, signal),
+    ancestors: async () => [target],
+    batch: (_signal, work) => work(git),
+  }
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'provenance.ndjson'))
+  let floor = 449 * DAY
+  const options = { git, journal, changed: () => {}, problem: () => {}, watch: noWatch, pollMs: 0,
+    now: () => firstOpened, openedAt: firstOpened, historyFloor: () => floor }
+  let observer = new RefObserver(options)
+  t.after(() => observer.close())
+  await observer.start(handle, null)
+  await observer.idle()
+  assert.ok(f.fingerprinted.includes(target), 'the tag target is already journalled')
+  assert.ok(!f.fingerprinted.includes(sha(440)), 'its older parents start outside the window')
+  const saved = readCheckpoint((await journal.read()).entries) as WorkerCheckpoint
+  floor = 429 * DAY
+  if (mode !== 'live') {
+    await observer.close()
+    const checkpoint = mode === 'legacy' ? { ...saved, openedAt: undefined, historyFloor: undefined } : saved
+    await writeCheckpoint(journal, checkpoint)
+    observer = new RefObserver(options)
+    await observer.start(handle, readCheckpoint((await journal.read()).entries) as WorkerCheckpoint)
+  } else observer.wake()
+  await observer.idle()
+  assert.ok(f.fingerprinted.includes(sha(440)), 'only the tag reaches this newly eligible ancestor')
+  assert.ok(f.fingerprinted.includes(sha(429)), 'tag ancestry walks all the way to the wider floor')
+  assert.equal(f.fingerprinted.filter((id) => id === target).length, 1, 'the target is walked without fingerprinting it again')
+  assert.deepEqual(observer.checkpoint!.frontier, [])
+  assert.equal(observer.checkpoint!.historyFloor, floor)
+})
+
+for (const restart of [false, true]) test(`two projects with shared commits and different floors drain their own batches${restart ? ' across a restart' : ''}`, async (t) => {
+  t.mock.method(performance, 'now', () => 0)
+  const f = history()
+  const narrow = await makeRepo()
+  const wide = await makeRepo()
+  const narrowHandle = await admitProject(narrow.dir, narrow.stateDir, [narrow.dir])
+  const wideHandle = await admitProject(wide.dir, wide.stateDir, [wide.dir])
+  t.after(async () => { await gitReader(narrowHandle).close(); await gitReader(wideHandle).close() })
+  const narrowJournal = new ProvenanceJournal(join(narrow.stateDir, 'provenance.ndjson'))
+  const wideJournal = new ProvenanceJournal(join(wide.stateDir, 'provenance.ndjson'))
+  const problems: string[] = []
+  const options = { git: f.git, problem: (_kind: string, reason: string) => problems.push(reason), watch: noWatch, pollMs: 0,
+    now: () => firstOpened, openedAt: firstOpened }
+  const other = new RefObserver({ ...options, journal: narrowJournal, changed: () => {}, historyFloor: () => 449 * DAY })
+  t.after(() => other.close())
+  await other.start(narrowHandle, null)
+  await other.idle()
+  assert.equal((await narrowJournal.read()).entries.filter((entry) => entry.kind === 'commit').length, 52)
+  const batches: number[] = []
+  let closing: Promise<void> | undefined
+  let observer: RefObserver
+  const wideOptions = { ...options, journal: wideJournal, historyFloor: () => 249 * DAY,
+    changed: () => {
+      batches.push(observer.checkpoint!.frontier.length)
+      if (restart && batches.length === 1) closing = observer.close()
+    },
+  }
+  observer = new RefObserver(wideOptions)
+  t.after(() => observer.close())
+  await observer.start(wideHandle, null)
+  await observer.idle()
+  if (restart) {
+    await closing
+    const saved = readCheckpoint((await wideJournal.read()).entries) as WorkerCheckpoint
+    assert.equal((await wideJournal.read()).entries.filter((entry) => entry.kind === 'commit').length, 200)
+    observer = new RefObserver(wideOptions)
+    await observer.start(wideHandle, saved)
+    await observer.idle()
+  }
+  assert.equal((await wideJournal.read()).entries.filter((entry) => entry.kind === 'commit').length, 252)
+  assert.deepEqual(batches, [1, 0], 'each project makes bounded progress even when another has seen the same IDs')
+  assert.deepEqual(problems, [])
+  const checkpoint = observer.checkpoint!
+  assert.equal(captureHealth({ project: wide.dir, enabled: true, fatal: false, issues: problems, checkedAt: checkpoint.scanStartedAt,
+    lastCapturedAt: checkpoint.capturedThrough, pending: checkpoint.frontier.length, gaps: 0, revision: 1 }).state, 'healthy')
+})
+
 for (const legacy of [false, true]) test(`a long below-floor frontier drains in one batch without checkpoint churn${legacy ? ' on upgrade' : ''}`, async (t) => {
   const repo = await makeRepo()
   const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])

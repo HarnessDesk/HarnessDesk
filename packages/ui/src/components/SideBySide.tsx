@@ -174,18 +174,22 @@ export const SideBySide = ({
     const grid = gridRef.current
     const dock = composerRef.current
     if (!grid || !dock) return
-    const chromeRows = (): Element[][] => [...grid.querySelectorAll('[data-mode="browser"]')].map(body => {
-      const bars = [...(body.querySelector('[data-slot="tool-pane"]')?.children ?? [])]
+    const chromeRows = (): Element[][] => [...grid.querySelectorAll('[data-mode="browser"]')].flatMap(body => {
+      const pane = body.querySelector('[data-slot="tool-pane"]')
+      if (!pane) return []
+      const bars = [...pane.children]
         .filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
-      return body.previousElementSibling ? [body.previousElementSibling, ...bars] : bars
+      return [body.previousElementSibling ? [body.previousElementSibling, ...bars] : bars]
     })
     const measure = (): void => {
       const tokens = getComputedStyle(grid)
       // The embedded browser has a tile header, slim address bar and footer.
       // Keep a usable page below them even before its live surface mounts.
-      const chrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
-      const browserTile = Math.max(chrome || 0, ...chromeRows().map(rows =>
-        rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0))) + 80
+      const fallbackChrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
+      const mountedChrome = chromeRows().map(rows =>
+        rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0))
+      const chrome = mountedChrome.length ? Math.max(...mountedChrome) : fallbackChrome || 0
+      const browserTile = chrome + 80
       setRoom(was => {
         // Hiding the shared dock for the fallback must not immediately bring
         // the cramped grid back. Retain its clearance until it is shown again.

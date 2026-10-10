@@ -89,7 +89,7 @@ let restoreBarGeometry = () => {}
 beforeEach(() => {
   const bounds = HTMLElement.prototype.getBoundingClientRect
   const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    return this.matches('[data-topbar-title]') ? new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height) : bounds.call(this)
+    return this.matches('[data-topbar-title], [data-topbar="place"]') ? new DOMRect(0, 0, 300, FRAME.bar.height) : bounds.call(this)
   })
   const computed = getComputedStyle
   const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
@@ -691,7 +691,8 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
   store.stopFlowExecution = stopping
   await render(store)
   if (door === 'Run') { act(() => row('Run').click()); await act(async () => {}) }
-  const frame = container.querySelector(door === 'Run' ? '[data-slot="top-bar"]' : '[aria-label="Run"]')!
+  if (door === 'Overview') { act(() => row('Run').click()); await act(async () => {}) }
+  const frame = container.querySelector('[data-slot="top-bar"]')!
   act(() => [...frame.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.click())
   const question = document.body.querySelector('[role="alertdialog"]')!
   expect([...question.querySelectorAll('[data-stop-seat]')].map(one => one.textContent)).toEqual([
@@ -705,7 +706,10 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
     expect(stop.disabled).toBe(true)
     expect(stop.title).toBe('This Run is not running')
     expect(container.textContent).toContain('By you')
-  } else expect(container.textContent).not.toContain('Stop run…')
+  } else {
+    act(() => (row('Overview') as HTMLButtonElement).click())
+    expect(container.textContent).not.toContain('Stop run…')
+  }
 })
 
 it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rejection and %s dismissal, even after reopening the pane', async dismissal => {
@@ -724,6 +728,7 @@ it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rej
   store.stopFlowExecution = stopping
   await render(store)
   const click = (scope: Element, name: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)!.click()
+  await act(async () => row('Run').click())
   act(() => click(container, 'Stop run…'))
   let question = document.body.querySelector('[role="alertdialog"]')!
   act(() => {
@@ -734,7 +739,7 @@ it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rej
   await act(async () => click(question, 'Stop run'))
   runs.set(execution.id, stopped)
   await pushes({ updatedAt: 2 })
-  expect(container.textContent).not.toContain('Stop run…')
+  expect([...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.disabled).toBe(true)
   problems.set(execution.id, { reason: 'The brief changed.', message: 'One Seat could not be released.' })
   await pushes({ updatedAt: 3 })
   await act(async () => reject(new Error('One Seat could not be released.')))
@@ -800,7 +805,8 @@ it('names no pinned revision for a Goal with neither a flow target nor Goal.at',
   await render(store)
 
   const facts = teamFact('At')
-  expect(facts?.textContent).toContain('Not recorded')
+  expect(facts).toBeNull()
+  expect(container.textContent).toContain('No Run recorded.')
 })
 
 it('Findings joins only a Goal’s own navigation; a loose conversation keeps none of it', async () => {
@@ -4014,9 +4020,9 @@ it('draws a check run more than once with each attempt under it, and asks the de
   const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   expect(readCheckAttempts).toHaveBeenCalledWith('gate-run', 1)
-  expect([...container.querySelectorAll('[data-row]')].map(one => one.getAttribute('data-row'))).toEqual(['start', 'round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2'])
-  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(true)
+  expect([...container.querySelectorAll('[data-row]')].map(one => one.getAttribute('data-row'))).toEqual(['check-1-1'])
   await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
+  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(true)
   const inspector = container.querySelector('[data-slot="run-inspector"]')!
   expect([...inspector.querySelectorAll('section')].find(one => one.textContent?.startsWith('Attempts'))?.textContent).toContain('Attempt 2')
 })
@@ -4062,14 +4068,15 @@ it('a new attempt appears under the check when its result lands, and the earlier
   await render(store)
   const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
-  const rows = () => [...container.querySelectorAll('[data-kind="attempt"]')].map(one => one.getAttribute('data-row'))
-  expect(rows()).toEqual(['attempt-1-1-1', 'attempt-1-1-2'])
+  await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLElement).click())
+  const rows = () => [...container.querySelectorAll('[data-slot="run-inspector"] [data-attempt]')].map(one => one.getAttribute('data-attempt'))
+  expect(rows()).toEqual(['2', '1'])
   // The person ran it again; its result lands as new evidence on the card, and the pane asks again.
   recorded = [...recorded, attempt(3)]
   snapshot = snapshotWith('f3')
   await render(store)
   expect(readCheckAttempts).toHaveBeenCalledTimes(2)
-  expect(rows()).toEqual(['attempt-1-1-1', 'attempt-1-1-2', 'attempt-1-1-3'])
+  expect(rows()).toEqual(['3', '2', '1'])
   await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
   const attempts = container.querySelector('[data-slot="run-inspector"] [data-attempt="1"]')!
   await act(async () => { [...attempts.querySelectorAll('button')].find(one => one.textContent === 'Show output')!.click() })

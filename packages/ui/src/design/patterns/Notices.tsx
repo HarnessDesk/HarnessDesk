@@ -278,7 +278,7 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
   const lineRef = useRef<HTMLSpanElement>(null)
   const wrapped = useWrappedText(lineRef, [message.title, message.body])
   return (
-    <div className={styles.composer} data-slot="composer-notice" data-tone={message.tone ?? 'neutral'} {...(wrapped ? { 'data-wrapped': '' } : {})} role="status">
+    <div className={styles.composer} data-slot="composer-notice" data-surface="" data-tone={message.tone ?? 'neutral'} {...(wrapped ? { 'data-wrapped': '' } : {})} role="status">
       <Lead message={message} />
       <span className={styles.line} data-slot="notice-message-line">
         <span ref={lineRef} className={styles.lineText}>
@@ -325,7 +325,7 @@ export const NoticeStrip = ({
   const message = messages[pager.at]
   if (!message) return null
   return (
-    <div className={styles.strip} data-slot="notice-strip" data-tone={message.tone ?? 'neutral'} role="status">
+    <div className={styles.strip} data-slot="notice-strip" data-surface="" data-tone={message.tone ?? 'neutral'} role="status">
       <Lead message={message} size="sm" />
       <span className={styles.line} data-slot="notice-message-line">
         <span className={styles.lineText}>

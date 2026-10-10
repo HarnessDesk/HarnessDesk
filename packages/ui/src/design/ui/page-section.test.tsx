@@ -134,6 +134,7 @@ it('SummaryList is one card whose items share a key, a value and an action colum
   expect(file?.getAttribute('data-kind')).toBe('path')
   expect(seats?.hasAttribute('data-numeric')).toBe(true)
   expect(seats?.querySelector('[data-slot="summary-value"]')?.className).toContain('text-right')
+  expect(seats?.querySelector('[data-slot="summary-value"]')?.className).not.toContain('/summary:text-left')
   expect(seats?.querySelector('[data-slot="summary-value"]')?.className).toContain('tabular-nums')
   expect(file?.querySelector('[data-slot="summary-value"]')?.className).toContain('text-left')
   expect(seats?.querySelector('[data-slot="summary-action"]')).toBeNull()
@@ -221,7 +222,8 @@ it('panel facts keep a fixed key column without a card or narrow stacked keys', 
   expect(list.className).not.toContain('@max-md')
   const item = wrap.querySelector('[data-slot="summary-item"]')!
   expect(item.className).toContain('grid-cols-subgrid')
-  expect(item.className).toContain('py-(--hd-inset-row)')
+  expect(item.className).toContain('py-(--hd-space-2)')
+  expect(item.className).toContain('border-b-(length:--hd-border-width)')
   expect(item.className).not.toContain('p-(--hd-inset-row)')
   expect(item.className).not.toContain('gap-x-')
   expect(wrap.querySelector('dt')?.className).not.toContain('col-span-full')
@@ -234,8 +236,8 @@ it('ToolBody composes the shared tool inset, group head and prose boundaries', a
   const scroll = container.querySelector('[data-slot="tool-scroll"]')!
   expect(scroll.getAttribute('data-inset')).toBe('tool')
   expect(scroll.className).toContain('py-(--hd-inset-row)')
-  const head = container.querySelector('[data-slot="group-label"][data-surface="tool"]')!
-  expect(head.getAttribute('data-surface')).toBe('tool')
+  const head = container.querySelector('[data-slot="group-label"][data-group-surface="tool"]')!
+  expect(head.getAttribute('data-group-surface')).toBe('tool')
   expect(head.className).toContain('px-(--hd-inset-row)')
   expect(container.querySelector('[data-slot="tool-prose"]')?.className).toContain('px-(--hd-space-4)')
 })

@@ -172,7 +172,13 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
   const signature = (kind: Check, element: Element) => {
     const testId = element.closest('[data-testid]')?.getAttribute('data-testid')
     const key = `${context.page} / ${context.id} / ${kind} / ${testId ? `[data-testid=${testId}]` : descriptors(element)}`
-    diagnostics[key] = context.title
+    const edge = element.getBoundingClientRect()
+    const ancestry: string[] = []
+    for (let node: Element | null = element; node && node !== root.parentElement && ancestry.length < 5; node = node.parentElement) {
+      const style = getComputedStyle(node), rect = node.getBoundingClientRect()
+      ancestry.push(`${node.getAttribute('data-slot') ?? node.tagName} ${node.getAttribute('aria-label') ?? node.getAttribute('title') ?? ''} x=${rect.left},right=${rect.right},padding=${style.paddingLeft}/${style.paddingRight}`)
+    }
+    diagnostics[key] = `${context.title}: ${element.getAttribute('aria-label') ?? element.getAttribute('title') ?? element.tagName} (${edge.left}..${edge.right}) ${ancestry.join(' > ')}`
     return key
   }
   const found: Record<Check, Map<string, Set<Element>>> = {
@@ -181,6 +187,7 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     'header-off-body': new Map(),
   }
   const diagnostics: Record<string, string> = {}
+  const geometry: unknown[] = []
   const record = (kind: Check, element: Element) => {
     const key = signature(kind, element)
     const instances = found[kind].get(key) ?? new Set<Element>()
@@ -257,6 +264,11 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // A visible border/fill makes the button box its edge; a ghost button has no visible box, so align its glyph.
     const trailingEdge = visibleBox ? buttonRect.right : glyph.right
     if (Math.abs(columnRight - trailingEdge) >= 2 && surfaceRect.right - buttonRect.right <= 48) {
+      geometry.push({ check: 'trailing-glyph-off-column', target: descriptors(button),
+        label: button.getAttribute('aria-label') ?? button.getAttribute('title'),
+        surface: descriptors(surface), row: descriptors(row), columnRight, trailingEdge,
+        surfaceRight: surfaceRect.right, buttonRight: buttonRect.right, glyphRight: glyph.right,
+        rightInset, visibleBox, html: button.outerHTML })
       record('trailing-glyph-off-column', button)
     }
   }
@@ -271,7 +283,9 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const headerish = header.matches(`header, ${headingSelector}`) || !!header.querySelector(headingSelector)
     if (!headerish) continue
     // Start at the heading's first text glyph so a decorative mark before it is not measured as the heading.
-    const heading = header.matches(headingSelector) ? header : header.querySelector(headingSelector) ?? header
+    const frameTitle = header.getAttribute('data-content-inset') === 'frame'
+      ? header.querySelector('[data-topbar-title]') : null
+    const heading = frameTitle ?? (header.matches(headingSelector) ? header : header.querySelector(headingSelector) ?? header)
     const headerText = firstTextLine(heading)
     let bodyLeft: number | null = null
     for (const child of children.slice(1)) {
@@ -305,6 +319,20 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       bodyLeft = surface.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) +
         parseFloat(style.getPropertyValue('--hd-space-6'))
     }
+    // TopBar names the frame, whose controls stand on the bar's 8px edge;
+    // the reading body has a separate 24px gutter. Its named lead and parent
+    // slots spend space before the title. Measure that declared edge, so a
+    // translated title still fails rather than comparing it with nested prose.
+    if (frameTitle) {
+      const style = getComputedStyle(header)
+      const gap = parseFloat(style.getPropertyValue('--hd-bar-gap'))
+      const lead = header.querySelector('[data-topbar="lead"]')
+      const parent = header.querySelector('[data-topbar="place"] > button')
+      bodyLeft = header.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) +
+        parseFloat(style.getPropertyValue('--hd-bar-pad'))
+      if (lead && !hidden(lead) && lead.getBoundingClientRect().width > 0) bodyLeft += lead.getBoundingClientRect().width + gap
+      if (parent && !hidden(parent)) bodyLeft += parent.getBoundingClientRect().width + gap
+    }
     // Corner rows spend a layout inset for native window controls. Compare
     // from their ordinary padding edge, retaining any additional glyph offset.
     let cornerShift = 0
@@ -323,6 +351,9 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       }
     }
     if (headerText && bodyLeft !== null && Math.abs(headerText.left - cornerShift - bodyLeft) >= 2) {
+      geometry.push({ check: 'header-off-body', target: descriptors(header),
+        heading: heading.textContent, surface: descriptors(surface), headingLeft: headerText.left,
+        bodyLeft, cornerShift, html: header.outerHTML })
       record('header-off-body', header)
     }
   }
@@ -331,7 +362,7 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     check,
     [...found[check]].flatMap(([key, instances]) => Array.from(instances, () => key)).sort(),
   ])) as Record<Check, string[]>
-  return { findings, diagnostics }
+  return { findings, diagnostics, geometry }
 }, { page: pageName, id: stableId, title })
 
 test('the rendered frames and boards hold the alignment census ceiling', async ({ page }, testInfo) => {
@@ -431,6 +462,18 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
   expect(differences.join('\n\n') || 'every recorded signature is still present and no new ones appeared').toBe('every recorded signature is still present and no new ones appeared')
 })
 
+test('a frame title uses its bar edge and still detects a translated title', async ({ page }) => {
+  await page.setContent(`<main id="root"><section data-surface style="width:400px">
+    <header data-content-inset="frame" style="--hd-bar-pad:8px;--hd-bar-gap:8px;padding-left:8px;display:flex">
+      <div data-topbar="lead" style="width:24px"></div>
+      <div data-topbar="place" style="display:flex;gap:8px;margin-left:8px"><button>Team</button><div data-topbar-title>Room</div></div>
+    </header><p style="margin-left:24px">The reading body</p></section></main>`)
+  const read = () => measure(page, '#root', 'fixture', 'frame-title', 'Frame title')
+  expect((await read()).findings['header-off-body']).toEqual([])
+  await page.locator('[data-topbar-title]').evaluate(element => { (element as HTMLElement).style.transform = 'translateX(4px)' })
+  expect((await read()).findings['header-off-body']).toHaveLength(1)
+})
+
 test('a corner inset adjusts the header reference without hiding a real offset', async ({ page }) => {
   await page.setContent(`<main id="root">
     <section data-surface style="width:400px; --titlebar-inset:80px">
@@ -458,7 +501,7 @@ test('a page toolbar follows the pane gutter while its cards and centred facts k
   expect((await read()).findings['header-off-body']).toHaveLength(1)
 })
 
-test('placement frames are measured without exemptions', async ({ page }) => {
+test('placement frames are measured without exemptions', async ({ page }, testInfo) => {
   await page.goto('/preview.html?notice-placement')
   await settle(page)
   const frames = page.locator('[data-frame-id^="coverage-notice-"]')
@@ -468,7 +511,8 @@ test('placement frames are measured without exemptions', async ({ page }) => {
     const notices = frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]')
     await expect(notices).toHaveCount(1)
     const result = await measure(page, `[data-frame-id="${id}"] > div`, 'preview.html', id, id)
-    for (const check of CHECKS) expect.soft(result.findings[check], `${id}: ${check}`).toEqual([])
+    await testInfo.attach(`${id}-geometry`, { body: JSON.stringify(result.geometry, null, 2), contentType: 'application/json' })
+    for (const check of CHECKS) expect.soft(result.findings[check], `${id}: ${check} ${JSON.stringify(result.diagnostics)}`).toEqual([])
   }
 })
 

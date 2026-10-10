@@ -1,5 +1,15 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
+  await page.evaluate(async fixtureUsage => {
+    const container = document.createElement('section')
+    document.body.appendChild(container)
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    mountPlanMetersSpecimen(container, fixtureUsage)
+  }, fixtureUsage)
+  await expect(page.locator('[data-frame-id="supported-plan-meters"]')).toBeVisible()
+}
+
 test('the app footer keeps the plan track and separates its reading from the roster token', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
@@ -442,4 +452,32 @@ test('no band head covers what it heads, first band or not', async ({ page }) =>
     return found
   })
   expect(overlaps).toEqual([])
+})
+
+test('the supported plan control keeps the plan track and separates its reading from the roster token', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/preview.html')
+  await mountPlanMeters(page)
+  const strip = page.getByRole('group', { name: 'Plan usage' })
+  await expect(strip).toBeVisible()
+  // The preview's plan strip holds a meter with a track and a second reading
+  // after it; whatever that reading says, it must sit clear of the first.
+  await expect(strip.locator('[data-slot="plan-meter"]')).toHaveCount(2)
+
+  const measured = await strip.evaluate(node => {
+    const [meter, next] = [...node.querySelectorAll<HTMLElement>('[data-slot="plan-meter"]')]
+    const track = meter!.querySelector<HTMLElement>('[data-slot="progress-track"]')!
+    const figure = [...meter!.querySelectorAll<HTMLElement>('[data-slot="text"]')].at(-1)!
+    const icon = next!.querySelector('svg')
+    const reading = [...next!.querySelectorAll<HTMLElement>('[data-slot="text"]')].at(-1)!
+    return {
+      trackWidth: track.getBoundingClientRect().width,
+      gap: next!.getBoundingClientRect().left - figure.getBoundingClientRect().right,
+      iconColor: icon ? getComputedStyle(icon).color : null,
+      readingColor: getComputedStyle(reading).color,
+    }
+  })
+  expect(measured.trackWidth).toBeGreaterThan(0)
+  expect(measured.gap).toBeGreaterThan(0)
+  if (measured.iconColor) expect(measured.iconColor).toBe(measured.readingColor)
 })

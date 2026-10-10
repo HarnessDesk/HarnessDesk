@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Text, Textarea } from '../design'
-import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, withAttemptCheck } from '../lib/team-start'
+import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, withAttemptCheck } from '../lib/team-start'
 import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, TeamIcon } from './Icons'
 import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
@@ -182,7 +182,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         templates.current = draft?.template ?? policy
         // The suggestion is a first-use default. A saved check or a draft
         // the person cleared remains theirs, including an empty command.
-        if (!draft && policy && learn.projectCheckCommand && policy.roles.some(role => role.id === 'competitor') && policy.roles.some(role => role.id === 'judge') && !policy.roles.some(role => role.kind === 'check')) {
+        if (!draft && policy && learn.projectCheckCommand && supportsAttemptCheck(policy) && !policy.roles.some(role => role.kind === 'check')) {
           setPolicyPending(true)
           const rendered = await store.renderShape(withAttemptCheck(policy, policy, learn.projectCheckCommand))
           if (mine !== sequence.current) return

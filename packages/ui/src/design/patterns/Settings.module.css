@@ -721,63 +721,6 @@
   color: var(--hd-secondary-foreground);
 }
 
-.segmented {
-  display: inline-flex;
-  padding: var(--hd-seg-pad);
-  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
-  background: var(--hd-muted);
-}
-
-/*
- * A segment, and the arithmetic that decides how tall the track ends up.
- *
- * The track is this height plus `.segmented`'s 2px of padding on each edge,
- * and both interfaces now trim both edges — so the track lands exactly on
- * `--hd-field-h` and the segmented control, the button and the field on a
- * settings row share a line. Desk used to trim one edge and come out 2px
- * taller than the control beside it; that was called "a real inconsistency,
- * simply older than this change" when `--hd-seg-trim` was named, and this is
- * the change it was named for.
- *
- * The cell's label steps down with its box, the way the small button's does.
- * At 24px with a 13px label the cell was at box ÷ cap 2.60 — the tightest
- * control in the app, on the one that appears twenty times on the settings
- * pages.
- *
- * Both trims are derived from `--hd-seg-pad` rather than written out, so the
- * arithmetic cannot drift from the padding it depends on: widen the track
- * and the segment follows.
- */
-.segItem {
-  height: calc(var(--hd-field-h) - var(--hd-seg-trim, var(--hd-seg-pad))); /* desk: 24 → 26 */
-  padding: 0 var(--hd-space-3);
-  border: none;
-  border-radius: calc(var(--hd-radius-md) - 2px); /* desk: 4 → 6, with the track */
-  background: none;
-  color: var(--hd-secondary-foreground); /* desk: was tertiary — an unchosen answer is still explanation, not a count (#988) */
-  font-size: var(--hd-seg-text); /* desk: 13 → 12, the small rung's label */
-  cursor: pointer;
-}
-
-/*
- * The chosen answer, lifted out of the track: a raised card, a hairline
- * shadow, primary ink. This is redundant with the Tailwind `data-pressed:`
- * utilities on `toggleVariants` (`design/ui/toggle-group.tsx`) rather than
- * this control's only source of truth — the vendored default there was
- * `data-pressed:bg-accent data-pressed:text-accent-foreground`, which is the
- * app's quiet hover wash, not a lifted surface, and it was winning the
- * cascade (Tailwind's generated sheet loads after every CSS module, so at
- * equal specificity the utility wins — the same defect `.segmented`'s own
- * `inline-flex gap-0` comment above documents for `grid gap-2`). Both rules
- * now agree on the same three tokens, so neither load order nor a future
- * re-vendoring of the utility can put the two out of sync again.
- */
-.segItem[data-pressed] {
-  background: var(--hd-card);
-  color: var(--hd-foreground);
-  box-shadow: var(--hd-shadow-sm);
-}
-
 /* --- the switch ---------------------------------------------------------
  *
  * One shape, two mountings. `.toggle` is the button you press when the switch

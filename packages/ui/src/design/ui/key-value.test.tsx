@@ -60,6 +60,7 @@ it('right-aligns a value on tabular figures only when the row says numeric', () 
   )
   const [money, words] = [...list.querySelectorAll('dd')]
   expect(money?.className).toContain('text-right')
+  expect(money?.className).not.toContain('/kv:text-left')
   expect(money?.className).toContain('tabular-nums')
   expect(money?.className).toContain('font-semibold')
   expect(words?.className).not.toContain('text-right')
@@ -166,4 +167,12 @@ it('keeps an accounting note out of the shared key column', () => {
   const line = list.querySelector('[data-slot="key-value-note"]')!
   expect(line.textContent).toBe(note)
   expect(line.closest('[data-slot="key-value-row"]')).toBeTruthy()
+})
+
+it.each(['Edited worktrees.ts', 'very filename.ts'])('keeps the word boundary visible when truncating %s', text => {
+  const line = draw(<MiddleTruncate>{text}</MiddleTruncate>)
+  const visible = [...line.querySelectorAll('[data-part]')].map(one => one.textContent ?? '')
+  expect(visible.some(one => one.startsWith('\u00a0') || one.endsWith('\u00a0'))).toBe(true)
+  expect(visible.join('').replaceAll('\u00a0', ' ')).toBe(text)
+  expect(line.querySelector('.sr-only')?.textContent).toBe(text)
 })

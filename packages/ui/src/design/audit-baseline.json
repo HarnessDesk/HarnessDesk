@@ -4,7 +4,7 @@
   "rawWeight": 0,
   "patternClass": 0,
   "screenAppearance": 0,
-  "singleAreaPrimitive": 12,
+  "singleAreaPrimitive": 11,
   "uppercaseLabel": 0,
   "screenUnclassified": 0,
   "visualKindUnion": 0,
@@ -22,7 +22,7 @@
   "rawDuration": 0,
   "rawColour": 0,
   "arbitraryUtility": 0,
-  "retiredComponent": 84,
+  "retiredComponent": 81,
   "pageMeasureInScreen": 21,
-  "screenLayout": 2990
+  "screenLayout": 2955
 }

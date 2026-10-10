@@ -2,14 +2,22 @@ import { expect, test } from '@playwright/test'
 
 const views = ['trajectory', 'git', 'terminal', 'browser', 'file', 'changes', 'agents', 'tasks'] as const
 
+const expectClosed = async (page: import('@playwright/test').Page, view: typeof views[number]) => {
+  await expect.poll(() => page.evaluate((terminal) => {
+    const store = (window as unknown as { __narrowOverlayStore: import('../../packages/ui/src/state/store').AppStore }).__narrowOverlayStore
+    const snapshot = store.getSnapshot(), subject = store.workSubject()
+    if (!terminal) return subject !== null && snapshot.workbench.frameTools[subject]?.open === false
+    const root = snapshot.workbench.bottom.root
+    return root.kind === 'stack' && root.views.every(one => one.view.kind !== 'terminal')
+  }, view === 'terminal')).toBe(true)
+}
+
 const tabToCollapse = async (page: import('@playwright/test').Page, collapse: import('@playwright/test').Locator) => {
-  await page.evaluate(() => {
-    const target = document.querySelector<HTMLElement>('button[aria-label="Hide this panel"]')
-    if (!target) throw new Error('right-panel collapse button is missing')
+  await collapse.evaluate((target) => {
     const focusable = [...document.querySelectorAll<HTMLElement>(
       'a[href], button, input, select, textarea, [tabindex]',
     )].filter((node) => node.tabIndex >= 0 && node.getClientRects().length > 0 && !node.matches(':disabled'))
-    const previous = focusable[focusable.indexOf(target) - 1]
+    const previous = focusable[focusable.indexOf(target as HTMLElement) - 1]
     if (!previous) throw new Error('collapse button has no preceding Tab stop')
     previous.focus()
   })
@@ -26,24 +34,18 @@ for (const view of views) {
     await expect(composer).toBeVisible()
     await composer.focus()
 
-    const collapse = page.getByRole('button', { name: 'Hide this panel', exact: true })
+    const collapse = page.getByRole('button', { name: view === 'terminal' ? 'Close terminal' : 'Toggle right panel', exact: true })
     await tabToCollapse(page, collapse)
     await page.keyboard.press('Enter')
-    await expect.poll(() => page.evaluate(() => {
-      const store = (window as Window & { __narrowOverlayStore: { getSnapshot: () => { workbench: { right: { collapsed: boolean } } } } }).__narrowOverlayStore
-      return store.getSnapshot().workbench.right.collapsed
-    })).toBe(true)
+    await expectClosed(page, view)
     await expect(composer).toBeFocused()
 
     await page.reload()
     await composer.focus()
-    const again = page.getByRole('button', { name: 'Hide this panel', exact: true })
+    const again = page.getByRole('button', { name: view === 'terminal' ? 'Close terminal' : 'Toggle right panel', exact: true })
     await tabToCollapse(page, again)
     await page.keyboard.press('Space')
-    await expect.poll(() => page.evaluate(() => {
-      const store = (window as Window & { __narrowOverlayStore: { getSnapshot: () => { workbench: { right: { collapsed: boolean } } } } }).__narrowOverlayStore
-      return store.getSnapshot().workbench.right.collapsed
-    })).toBe(true)
+    await expectClosed(page, view)
     await expect(composer).toBeFocused()
   })
 }
@@ -63,7 +65,7 @@ test('terminal: Escape then Tab moves focus from xterm to the panel controls', a
   await page.keyboard.press('Escape')
   await expect(terminal).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(page.getByRole('button', { name: 'Hide this panel' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Close terminal' })).toBeFocused()
 })
 
 test('git commit history is one Tab stop and uses arrow keys within the grid', async ({ page }) => {

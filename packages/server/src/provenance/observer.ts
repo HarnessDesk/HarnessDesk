@@ -3,7 +3,7 @@ import { lstat, readdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
 
-import type { GitReader, LogCursor, RepoHandle, ReflogMove } from './git.js'
+import type { CommitObject, GitReader, LogCursor, RepoHandle, ReflogMove } from './git.js'
 import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, type JournalEntry, writeCheckpoint } from './journal.js'
 import { moves } from './model.js'
 import { backlog, type CommitObservation } from './reconcile.js'
@@ -89,6 +89,10 @@ let watchers = 0
 // five seconds of elapsed work; yielding separately bounds synchronous slices.
 const SCAN_ITEMS = 200
 const SCAN_MS = 5000
+/** Object failures can fall back to durable edges; admission and storage failures cannot. */
+const unreadableObject = (error: unknown): boolean =>
+  ['git-failed', 'git-timeout', 'invalid-object-answer', 'invalid-commit', 'invalid-commit-clock']
+    .includes((error as Error).message)
 /**
  * What a checkpoint durably says. Every scan moves its generation and its time
  * forward; a scan that found nothing else to record says what the last one
@@ -296,7 +300,14 @@ export class RefObserver {
     await git.batch(signal, async (reader) => {
       const unread = frontier.filter((sha) => !hasWalked(sha))
       if (unread.length && reader.commitTimes) {
-        const clocks = await reader.commitTimes(unread, signal)
+        // A failed clock probe must not strand the entire frontier. Individual
+        // reads can still capture other objects or follow durable parent edges.
+        const clocks = await reader.commitTimes(unread, signal).catch((error: unknown) => {
+          signal.throwIfAborted()
+          if (!unreadableObject(error)) throw error
+          this.#options.problem('degraded', 'history-gap')
+          return new Map<string, number | null>()
+        })
         const remaining: string[] = []
         const slices = new WorkSlices()
         for (const sha of frontier) {
@@ -319,7 +330,15 @@ export class RefObserver {
         visited += 1
         if (hasWalked(sha)) continue
         const existing = commits.get(sha)
-        const object = await reader.commit(sha, signal)
+        let object: CommitObject | null
+        try {
+          object = await reader.commit(sha, signal)
+        } catch (error) {
+          signal.throwIfAborted()
+          if (!existing || !unreadableObject(error)) throw error
+          this.#options.problem('degraded', 'history-gap')
+          object = null
+        }
         // A commit clock only bounds passive discovery. Existing observations
         // remain intact, and admitted diff facts are still read by Reconciler.
         if (object?.committedAt !== undefined && object.committedAt !== null && object.committedAt < historyFloor) {
@@ -340,7 +359,7 @@ export class RefObserver {
           const target = targets[0]
           if (target && target !== sha) {
             if (first && !baseline.includes(target)) baseline.push(target)
-            if (!commits.has(target) && !frontier.includes(target)) frontier.unshift(target)
+            if (!hasWalked(target) && !frontier.includes(target)) frontier.unshift(target)
             continue
           }
         }

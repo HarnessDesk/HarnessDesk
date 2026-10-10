@@ -1,4 +1,5 @@
 import { teamsInput } from '../lib/teams-snapshot'
+import { SidebarMenuState } from '../design'
 import { teamListRow, type TeamListState } from '../lib/teams-list'
 import {
   Button,
@@ -6,6 +7,14 @@ import {
   ContextMenu,
   DisclosureChevron,
   Dot,
+  FRAME,
+  LeftColumnList,
+  LeftColumnRename,
+  LeftColumnGroup,
+  LeftColumnListOptions,
+  LeftColumnEmpty,
+  LeftColumnRow,
+  type LeftColumnTrail,
   Input,
   Menu,
   MenuItem,
@@ -13,19 +22,7 @@ import {
   MenuSeparator,
   Popover,
   Separator,
-  SidebarGroup,
-  SidebarGroupContent,
-  GroupLabel,
-  SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuState,
   Spinner,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   Submenu,
   Text,
   buttonVariants,
@@ -44,7 +41,7 @@ import { teamSeats, hasConversation } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
 import { goalName } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
-import { panes, sessionOf } from '../state/layout'
+import { panes } from '../state/layout'
 
 import { useSnapshot, useSnapshotSelector, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
@@ -59,13 +56,9 @@ import {
   ExpandAllIcon,
   FolderGoneIcon,
   ForkIcon,
-  MoreIcon,
   PencilIcon,
   PanelIcon,
   PinIcon,
-  PlusIcon,
-  RowsLooseIcon,
-  RowsTightIcon,
   SlidersIcon,
   SortNameIcon,
   TeamIcon,
@@ -76,7 +69,6 @@ import { SessionHoverCard } from './AgentCards'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { WorkspaceMenu } from './WorkspaceMenu'
-import styles from './Sidebar.module.css'
 
 /**
  * The session list, grouped by the folder each session belongs to.
@@ -101,9 +93,7 @@ const relativeTime = (timestamp: number, now: number): string => {
 }
 
 type SessionRowSlice = {
-  openInPane: boolean
   runtime: AppSnapshot['runtimes'][number] | undefined
-  density: AppSnapshot['listPrefs']['density']
   pinned: boolean
   liveTitle: string | null | undefined
   deskCopy: boolean
@@ -117,8 +107,8 @@ type SessionRowSlice = {
 }
 
 const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boolean =>
-  left.openInPane === right.openInPane && left.runtime === right.runtime &&
-  left.density === right.density && left.pinned === right.pinned &&
+  left.runtime === right.runtime &&
+  left.pinned === right.pinned &&
   left.liveTitle === right.liveTitle && left.deskCopy === right.deskCopy && left.trace === right.trace &&
   left.backgrounded === right.backgrounded && left.folderGone === right.folderGone &&
   left.active === right.active && left.needsYou === right.needsYou &&
@@ -146,7 +136,7 @@ const SessionRow = memo(({
   const [draft, setDraft] = useState('')
   const key = sessionKey(summary.runtime, summary.id)
   const {
-    openInPane, runtime, density, pinned, liveTitle, deskCopy, trace, backgrounded,
+    runtime, pinned, liveTitle, deskCopy, trace, backgrounded,
     folderGone, active, needsYou, seatLabel,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
@@ -154,9 +144,7 @@ const SessionRow = memo(({
       snapshot.queues.get(key)?.status === 'paused'
     const trace = live ? traceOf(live, needsYou) : null
     return {
-      openInPane: panes(snapshot.layout.root).some((pane) => sessionOf(pane) === key),
       runtime: snapshot.runtimes.find((entry) => entry.id === summary.runtime),
-      density: snapshot.listPrefs.density,
       pinned: snapshot.listPrefs.pinnedSessions.includes(String(key)),
       liveTitle: live?.title,
       deskCopy: live?.deskCopy === true,
@@ -194,13 +182,6 @@ const SessionRow = memo(({
   const worktree = isWorktreeSession(summary)
   const running = !needsYou && (backgrounded > 0 || (trace !== null && ACTIVE_STATES.has(trace)) || summary.status.type === 'active')
   const hasActivityMark = running || (!needsYou && traceShown)
-  const badgeSlot = (step: 0 | 1 | 2) => step === 0
-    ? undefined
-    : step === 1
-      ? 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-action-step))]'
-      : 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-double-action-step))]'
-  const worktreeSlot = badgeSlot(hasActivityMark ? 1 : 0)
-  const folderGoneSlot = badgeSlot((worktree ? 1 : 0) + (hasActivityMark ? 1 : 0) as 0 | 1 | 2)
   const rowRef = useRef<HTMLButtonElement>(null)
   /* Brought on screen when it becomes the active one. A list long enough to
      hold a month of review rooms keeps the conversation being typed into
@@ -212,13 +193,8 @@ const SessionRow = memo(({
     if (active) rowRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [active])
 
-  /* The row's own height when renaming starts, which the box then holds: a
-     comfortable row's second line, or a chip on a compact one, makes the row
-     taller than any fixed box, and the rows below would move up under it. */
-  const [renameHeight, setRenameHeight] = useState<number | undefined>(undefined)
   const startRename = useCallback(() => {
     setDraft(summary.title ?? '')
-    setRenameHeight(rowRef.current?.getBoundingClientRect().height || undefined)
     setRenaming(true)
   }, [summary.title])
   const commitRename = useCallback(() => {
@@ -228,111 +204,39 @@ const SessionRow = memo(({
     void store.renameSession(title, key)
   }, [draft, key, store, summary.title])
 
-  return (
-    <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
-      <SidebarMenuItem className="list-none" trailingMarks={(Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) + Number(needsYou)) as 0 | 1 | 2 | 3 | 4} data-menu-open={menu.at ? '' : undefined}>
-        {renaming ? (
-          <Input
-            variant="quiet" controlSize="row" className={styles.renameInput}
-            style={renameHeight ? { minHeight: renameHeight } : undefined}
-            value={draft}
-            autoFocus
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') commitRename()
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                setRenaming(false)
-              }
-            }}
-          />
-        ) : (
-          <>
-            <SidebarMenuButton
-              ref={rowRef}
-              trailingOverlay
-              // The needs-you chip is inline content. The shared sidebar
-              // grammar gives the chip its actual width on the inset rail
-              // and folds it while this row’s own actions appear.
-              labelTrailingContent={needsYou}
-              size={density === 'compact' ? 'sm' : 'default'}
-              isActive={active}
-              data-active={active ? 'true' : undefined}
-              aria-current={active ? 'page' : undefined}
-              data-open={openInPane ? '' : undefined}
-              title={`${agentName} · ${needsYou ? 'Needs you' : traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`}
-              onClick={() => void store.openSession(summary.id, { runtime: summary.runtime })}
-              icon={
-                <SessionHoverCard
-                  session={summary}
-                  actions={[
-                    ...(active ? [] : [{ label: 'Open', primary: true,
-                      onSelect: () => void store.openSession(summary.id, { runtime: summary.runtime }) }]),
-                    { label: 'Rename', onSelect: startRename },
-                  ]}
-                >
-                  <Text role="meta" className="inline-flex items-center justify-center" aria-label={agentName}>
-                    {runtime ? <RuntimeMark runtime={runtime} size={14} /> : <AgentIcon size={14} />}
-                  </Text>
-                </SessionHoverCard>
-              }
-              label={
-                /* The outer label keeps its full-width geometry. A trailing
-                   state/action overlays the rail, but these earned chips and
-                   glyphs must remain readable beside it. */
-                <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
-                  <span className="min-w-0 truncate">{label}</span>
-                  {needsYou && <SidebarMenuState label="Needs you" tone="warning" state="limit" />}
-                </span>
-              }
-            />
-            {folderGone && (
-              <SidebarMenuBadge className={folderGoneSlot}
-                role="img"
-                aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
-                title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
-                <Text role="meta"><FolderGoneIcon size={11} /></Text>
-              </SidebarMenuBadge>
-            )}
-            {worktree && (
-              <SidebarMenuBadge className={worktreeSlot}
-                role="img"
-                aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
-                title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
-                <Text role="meta"><BranchIcon size={11} /></Text>
-              </SidebarMenuBadge>
-            )}
-            {hasActivityMark && (
-              <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Running'}>
-                {running ? <Spinner size="sm" tone="neutral" data-tasks={backgrounded > 0 ? '' : undefined} data-live={summary.status.type === 'active' ? '' : undefined} aria-hidden /> : <Dot state={dotState} variant="navigation"
-                  pulse={trace !== null && ACTIVE_STATES.has(trace)}
-                  data-tasks={backgrounded > 0 ? '' : undefined}
-                  data-live={summary.status.type === 'active' ? '' : undefined}
-                  data-trace={traceShown ? trace : undefined}
-                  aria-hidden="true" />}
-              </SidebarMenuBadge>
-            )}
-            <Tooltip>
-              <TooltipTrigger data-slot="sidebar-menu-action" render={
-                <SidebarMenuAction showOnHover
-                  data-state={menu.at ? 'open' : undefined}
-                  aria-haspopup="menu" aria-expanded={menu.at !== null}
-                  onClick={(event) => {
-                    // The row is the list's tab stop and the menu's return
-                    // target; the hover-only action must not keep focus.
-                    rowRef.current?.focus({ preventScroll: true })
-                    menu.open(event)
-                  }}
-                  aria-label={`Actions for ${label}`}>
-                  <MoreIcon size={12} />
-                </SidebarMenuAction>
-              } />
-              <TooltipContent>Actions for {label}</TooltipContent>
-            </Tooltip>
-          </>
-        )}
-      </SidebarMenuItem>
+  const facts = [
+    label, agentName,
+    needsYou ? 'Needs you' : traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now),
+    summary.git?.branch,
+    worktree ? `Worktree ${folderName(summary.cwd)}` : null,
+    folderGone ? `${folderGone}. The transcript can be read; nothing more can be sent.` : null,
+    backgrounded > 0 ? `${backgrounded} running in the background` : null,
+  ].filter(Boolean).join(' · ')
+  const trailing: LeftColumnTrail | undefined = needsYou
+    ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
+    : hasActivityMark
+      ? { kind: 'mark', icon: running ? <Spinner size="sm" tone="neutral" aria-hidden /> : <Dot state={dotState} variant="navigation" />, label: backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Running' }
+      : folderGone
+        ? { kind: 'mark', icon: <FolderGoneIcon size={16} />, label: `${folderGone}. The transcript can be read; nothing more can be sent.` }
+        : worktree
+          ? { kind: 'mark', icon: <BranchIcon size={16} />, label: `Worktree ${summary.git?.branch ?? folderName(summary.cwd)}` }
+          : pinned ? { kind: 'mark', icon: <PinIcon size={16} />, label: 'Pinned' } : undefined
+
+  return <div data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex}
+    data-virtual-count={virtualCount} onContextMenu={menu.open}>
+    {renaming ? <LeftColumnRename input={<Input variant="quiet" controlSize="row"
+      value={draft} autoFocus onChange={event => setDraft(event.target.value)} onBlur={commitRename}
+      onKeyDown={event => {
+        if (event.key === 'Enter') commitRename()
+        if (event.key === 'Escape') { event.preventDefault(); setRenaming(false) }
+      }} />} /> : <LeftColumnRow ref={rowRef} label={label} title={facts} selected={active}
+      onClick={() => { void store.openSession(summary.id, { runtime: summary.runtime }) }}
+      icon={<SessionHoverCard session={summary} actions={[
+      ...(active ? [] : [{ label: 'Open', primary: true, onSelect: () => { void store.openSession(summary.id, { runtime: summary.runtime }) } }]),
+      { label: 'Rename', onSelect: startRename },
+    ]}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
+      trailing={trailing} action={{ label: `Actions for ${label}`, expanded: menu.at !== null,
+        onClick: event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) } }} />}
       <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close}>
         <MenuItem
           icon={<PencilIcon size={13} />}
@@ -399,8 +303,7 @@ const SessionRow = memo(({
           onSelect={() => onDelete(summary)}
         />
       </ContextMenu>
-    </SidebarMenu>
-  )
+    </div>
 })
 
 /**
@@ -420,12 +323,12 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
   const openCount = roots.filter((root) => !collapsedRoots.includes(root)).length
 
   return (
-    <span className={styles.listControls} {...(filtered ? { 'data-filtered': '' } : {})}>
+    <LeftColumnListOptions filtered={filtered}>
       <Popover
         title="How this list is shown"
         drop="down"
         align="left"
-        triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs', className: styles.headerDisplayAction })}
+        triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs' })}
         label={<SlidersIcon size={13} />}
       >
         {(close) => (
@@ -447,20 +350,6 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
                 selected={prefs.sort === 'name'}
                 label="Name"
                 onSelect={() => store.setListPrefs({ sort: 'name' })}
-              />
-            </Submenu>
-            <Submenu label="Density" value={prefs.density === 'comfortable' ? 'Comfortable' : 'Compact'}>
-              <MenuItem
-                icon={<RowsLooseIcon size={14} />}
-                selected={prefs.density === 'comfortable'}
-                label="Comfortable"
-                onSelect={() => store.setListPrefs({ density: 'comfortable', densityPicked: true })}
-              />
-              <MenuItem
-                icon={<RowsTightIcon size={14} />}
-                selected={prefs.density === 'compact'}
-                label="Compact"
-                onSelect={() => store.setListPrefs({ density: 'compact', densityPicked: true })}
               />
             </Submenu>
             <Submenu label="Show agents" value={prefs.agent === null ? 'All agents' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All agents'}>
@@ -500,15 +389,14 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
           </Menu>
         )}
       </Popover>
-      {filtered && <Dot state="signin" className={styles.filterState} aria-hidden="true" />}
-    </span>
+      {filtered && <Dot state="signin" aria-hidden="true" />}
+    </LeftColumnListOptions>
   )
 }
 
 /**
- * A project's row. Click opens and closes it; the two buttons at its end
- * appear on hover — a new session, and everything else behind a kebab —
- * and a right-click anywhere on the row opens that same everything-else,
+ * A project's row. Click folds it; New session appears on hover.
+ * A right-click anywhere on the row opens its remaining actions,
  * because the row is a thing, and things have context menus.
  *
  * The row can also be picked up and dropped somewhere else in the list. That
@@ -566,7 +454,6 @@ const GroupHead = ({
   const edge = drag.over?.root === group.root ? drag.over.edge : null
   return (
     <div
-      className={styles.groupHead}
       {...(menu.at ? { 'data-menu-open': '' } : {})}
       {...(edge ? { 'data-insert': edge } : {})}
       {...(drag.dragging === group.root ? { 'data-dragging': '' } : {})}
@@ -578,54 +465,13 @@ const GroupHead = ({
       onDragEnd={drag.onEnd}
       onContextMenu={menu.open}
     >
-      <SidebarMenu>
-        <SidebarMenuItem trailingActions={2} trailingMarks={pinned ? 1 : 0} data-current={holdsOpen ? '' : undefined}>
-          <SidebarMenuButton
-            trailingActions={2}
-            data-draggable=""
-            data-insert={edge ?? undefined}
-            data-dragging={drag.dragging === group.root ? '' : undefined}
-            aria-expanded={open}
-            onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
-            title={`${holdsOpen ? (current ? 'The folder this app is working in.\n' : 'Holds the folder this app is working in.\n') : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
-            label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
-              <Text role="prose" ink="secondary" truncate>{group.name}</Text>
-              <DisclosureChevron open={open} size="xs" className="opacity-0 group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100" />
-              {stopped && <span className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden">
-                <SidebarMenuState
-                  label="Capture stopped"
-                  title={`${stopped.reason} ${stopped.nextStep}`}
-                  tone="neutral"
-                  state="unknown"
-                  compactAtNarrow
-                />
-              </span>}
-            </span>}
-          />
-          {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
-          <Tooltip>
-            <TooltipTrigger data-slot="sidebar-menu-action" render={
-              <SidebarMenuAction showOnHover className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]"
-                onClick={() => void store.startSessionIn(actualRoot)}
-                aria-label={`New session in ${group.name}`}>
-                <PlusIcon size={12} />
-              </SidebarMenuAction>
-            } />
-            <TooltipContent>New session in {group.name}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger data-slot="sidebar-menu-action" render={
-              <SidebarMenuAction showOnHover data-state={menu.at ? 'open' : undefined}
-                aria-haspopup="menu" aria-expanded={menu.at !== null}
-                onClick={menu.open}
-                aria-label={`Actions for ${group.name}`}>
-                <MoreIcon size={12} />
-              </SidebarMenuAction>
-            } />
-            <TooltipContent>Actions for {group.name}</TooltipContent>
-          </Tooltip>
-        </SidebarMenuItem>
-      </SidebarMenu>
+      <LeftColumnRow project current={holdsOpen} dragging={drag.dragging === group.root} insertion={edge ?? undefined} label={group.name} icon={<DisclosureChevron open={open} size="xs" />}
+        expanded={open} title={`${holdsOpen ? (current ? 'The folder this app is working in.\n' : 'Holds the folder this app is working in.\n') : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.${stopped ? `\n${stopped.reason} ${stopped.nextStep}` : ''}`}
+        onClick={event => event.altKey ? onToggleAll() : onToggle()}
+        trailing={stopped ? { kind: 'mark', icon: <Dot variant="navigation" />, label: `${stopped.reason} ${stopped.nextStep}` }
+          : pinned ? { kind: 'mark', icon: <PinIcon size={16} />, label: 'Pinned' } : undefined}
+        action={{ kind: 'new', label: `New session in ${group.name}`,
+          onClick: () => { void store.startSessionIn(actualRoot) } }} />
       <WorkspaceMenu
         group={group}
         current={current}
@@ -639,27 +485,9 @@ const GroupHead = ({
 }
 
 /**
- * A room, in the tree, with the conversations in it folded underneath.
- *
- * A project holds as many rooms as the work wants — the same way it holds
- * sessions — so a room is a row at the same level as a loose conversation,
- * and the ones it holds are one level further in. The group glyph says it is
- * several agents; the dot on each child says it is one.
- *
- * The whole row opens the room. The chevron is a separate button beside it,
- * because "show me who is in here" and "take me in there" are different
- * questions and a tree that answers the wrong one is a tree you stop
- * expanding.
- */
-/**
- * A room's members, resolved against what the tree is *showing* — the agent
- * filter applies here as it does everywhere else, and the live session map is
- * read too, because a conversation reaches `sessions` a beat before it
- * reaches `history`: adding an agent from the room's own rail put it in the
- * roster while the tree still said "0" beneath, for as long as the history
- * took to catch up. `RoomRow`'s own count and its nested member list both
- * read this, so the two can never disagree about how many the row is
- * showing.
+ * Resolve a Team's member data for agent-filter matching and external activation.
+ * History, live conversations and durable Seats all remain sources of ownership;
+ * the sidebar presents only the owning Team, without member disclosure rows.
  */
 const roomMembers = (
   room: TeamState,
@@ -696,131 +524,39 @@ const roomMembers = (
     )
 }
 
-const RoomRow = ({
-  room,
-  state,
-  sessions,
-  now,
-  open,
-  onToggle,
-  onDelete,
-  hiddenKeys,
-  virtualKey,
-  virtualIndex,
-  virtualCount,
-}: {
+const RoomRow = ({ room, state, virtualKey, virtualIndex, virtualCount }: {
   readonly room: TeamState
   readonly state: TeamListState
-  /** The project's conversations — members are matched against these. */
-  readonly sessions: readonly SessionSummary[]
-  readonly now: number
-  readonly open: boolean
-  readonly onToggle: () => void
-  readonly onDelete: (summary: SessionSummary) => void
-  readonly hiddenKeys: ReadonlySet<string>
   readonly virtualKey?: string
   readonly virtualIndex?: number
   readonly virtualCount?: number
 }) => {
-  const store = useStore()
-  const snapshot = useSnapshot()
+  const store = useStore(), snapshot = useSnapshot()
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
   const seats = teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions))
-  const waiting = state === 'needs-you' || seats.some(({ key }) =>
-    key && (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused' || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
+  const waiting = state === 'needs-you' || seats.some(({ key }) => key &&
+    (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused'
+      || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
   const running = !waiting && (state === 'working' || goal?.activity === 'working' || seats.some(({ key }) => {
     const live = key ? snapshot.sessions.get(key) : undefined
     return live !== undefined && isBusy(live)
   }))
-  /* Resolved against what the tree is *showing* first, so the agent filter
-     applies here as it does everywhere else — a room drawn straight from its
-     member list would keep conversations the filter had just removed from
-     every other row, the sidebar disagreeing with itself one line apart.
-     Then the live session map, because a conversation reaches `sessions` a
-     beat before it reaches `history`: adding an agent from the room's own
-     rail put it in the roster while the tree said "No agents in here yet"
-     directly beneath, for as long as the history took to catch up.
-
-     The filter is then applied to the answer rather than by withholding that
-     second lookup. Starving it was the same rule by accident and only while
-     the group happened to be carrying the members: a room in a project the
-     tree drew for the room's own sake has no sessions of its own, so every
-     member resolved to nothing and a full room read "No agents in here yet"
-     under a filter its members matched. Saying which conversations the
-     filter keeps is the rule; where they were found is not. */
-  const filtered = snapshot.listPrefs.agent !== null
-  const members = roomMembers(room, sessions, snapshot, hiddenKeys)
-  /* A wrapped Team's Seats whose conversation was not kept: names, with nothing to open. Listed together, as the
-     conversations that were kept are. */
-  const unlinked = open ? teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).filter(one => !hasConversation(one)) : []
-  const claimed = room.intents.filter((one) => one.state === 'claimed').length
-  const held = room.channel.filter(
-    (entry) => entry.kind === 'message' && entry.state === 'held',
-  ).length
-
-  return (
-    <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(waiting || running) as 0 | 1 | 2}>
-        <div className="relative min-w-0">
-          <SidebarMenuButton
-            trailingOverlay
-            role="button"
-          aria-label={`Room ${name}`}
-          title={`${name} — ${held > 0 ? `${held} held ${held === 1 ? 'message' : 'messages'} waiting for you` : 'the board, the chat, and who is here'}${claimed > 0 ? ` · ${claimed} claimed ${claimed === 1 ? 'job' : 'jobs'}` : ''}`}
-          data-held={held > 0 ? '' : undefined}
-          onClick={() => store.openTeamRoom(room.id)}
-          onKeyDown={(event) => {
-            if (event.target !== event.currentTarget) return
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              event.stopPropagation()
-              store.openTeamRoom(room.id)
-            }
-          }}
-          icon={<Text role="meta"><TeamIcon size={14} /></Text>}
-          label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
-            <span className="min-w-0 truncate">{name}</span>
-            {waiting && <SidebarMenuState label="Needs you" tone="warning" state="limit" />}
-          </span>}
-        />
-        {running && <SidebarMenuBadge aria-label="Running" className={held > 0 ? 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-action-step))]' : undefined}>
-          <Spinner size="sm" tone="neutral" aria-hidden />
-        </SidebarMenuBadge>}
-        {held > 0 && <SidebarMenuBadge kind="count" title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
-          {held}
-        </SidebarMenuBadge>}
-        <SidebarMenuAction showOnHover
-          aria-expanded={open}
-          aria-label={open ? `Hide the agents in ${name}` : `Show the agents in ${name}`}
-          title={filtered
-            ? `${members.length} of this room's conversations match the agent filter`
-            : members.length === 1 ? '1 conversation in this room' : `${members.length} conversations in this room`}
-          onClick={onToggle}>
-          <DisclosureChevron open={open} size="xs" />
-        </SidebarMenuAction>
-        </div>
-        {unlinked.length > 0 && (
-          <SidebarMenu nested>
-            {unlinked.map((one) => (
-              <SidebarMenuItem key={one.record.id}>
-                <SidebarMenuButton disabled title="Conversation not kept" label={one.name} />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        )}
-        {open && members.length > 0 && (
-          <SidebarMenu nested>
-            {members.map((summary) => (
-              <SidebarMenuItem key={summary.id}>
-                <SessionRow summary={summary} now={now} onDelete={onDelete} />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        )}
-      </SidebarMenuItem>
-    </SidebarMenu>
-  )
+  const claimed = room.intents.filter(entry => entry.state === 'claimed').length
+  const unread = state === 'unread'
+  const held = room.channel.filter(entry => entry.kind === 'message' && entry.state === 'held').length
+  const selected = panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === room.id)
+  const trailing: LeftColumnTrail | undefined = waiting
+    ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
+    : unread ? { kind: 'mark', icon: <Dot state="signin" variant="navigation" />, label: 'Unread activity' }
+      : running ? { kind: 'mark', icon: <Spinner size="sm" tone="neutral" />, label: 'Working' }
+      : held > 0 ? { kind: 'count', value: held, label: `${held} held messages` } : undefined
+  return <div data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
+    <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected}
+      title={`${name}${waiting ? ' · Needs you' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
+      buttonProps={{ 'aria-label': `Room ${name}` }} trailing={trailing}
+      onClick={() => store.openTeamRoom(room.id)} />
+  </div>
 }
 
 /**
@@ -839,28 +575,10 @@ const GoneFolders = ({ folders }: { folders: readonly string[] }) => {
   const menu = useContextMenu()
   const count = folders.length === 1 ? '1 folder' : `${folders.length} folders`
   return (
-    <SidebarMenu data-region="gone-folders" onContextMenu={menu.open}>
-      <SidebarMenuItem trailingActions={1} data-menu-open={menu.at ? '' : undefined}>
-        <SidebarMenuButton
-          trailingActions={1}
-          title="Conversations in a folder that no longer exists are not listed here. They are kept, and search and the archive still find them."
-          onClick={menu.open}
-          icon={<Text role="meta"><FolderGoneIcon size={14} /></Text>}
-          label={<Text role="meta" truncate>{folders.length === 1 ? '1 folder is gone' : `${folders.length} folders are gone`}</Text>}
-        />
-        <Tooltip>
-          <TooltipTrigger data-slot="sidebar-menu-action" render={
-            <SidebarMenuAction showOnHover
-              data-state={menu.at ? 'open' : undefined}
-              aria-haspopup="menu" aria-expanded={menu.at !== null}
-              onClick={menu.open}
-              aria-label="Actions for gone folders">
-              <MoreIcon size={12} />
-            </SidebarMenuAction>
-          } />
-          <TooltipContent>Actions for gone folders</TooltipContent>
-        </Tooltip>
-      </SidebarMenuItem>
+    <div data-region="gone-folders" onContextMenu={menu.open}>
+      <LeftColumnRow label={folders.length === 1 ? '1 folder is gone' : `${folders.length} folders are gone`}
+        icon={<FolderGoneIcon size={16} />} title="Conversations in a folder that no longer exists are not listed here. They are kept, and search and the archive still find them."
+        onClick={menu.open} action={{ label: 'Actions for gone folders', expanded: menu.at !== null, onClick: menu.open }} />
       <ContextMenu at={menu.at} label="Actions for gone folders" onClose={menu.close}>
         <MenuItem
           icon={<FolderGoneIcon size={13} />}
@@ -869,7 +587,7 @@ const GoneFolders = ({ folders }: { folders: readonly string[] }) => {
           onSelect={() => void store.forgetFolders(folders)}
         />
       </ContextMenu>
-    </SidebarMenu>
+    </div>
   )
 }
 
@@ -886,8 +604,6 @@ const WindowedProjectRows = ({
   enabled,
   targetIndex,
   navigationIndex,
-  density,
-  className,
   footer,
   renderRow,
 }: {
@@ -895,8 +611,6 @@ const WindowedProjectRows = ({
   enabled: boolean
   targetIndex: number
   navigationIndex: number | null
-  density: AppSnapshot['listPrefs']['density']
-  className?: string
   footer?: ReactNode
   renderRow: (row: ProjectRow, index: number) => ReactNode
 }) => {
@@ -909,7 +623,7 @@ const WindowedProjectRows = ({
   const keyIndexes = useRef(new Map<string, number>())
   const snapshot = useSnapshot()
   keyIndexes.current = new Map(rows.map((row, index) => [row.kind === 'room' ? `room:${row.room.id}` : `session:${row.summary.runtime}:${row.summary.id}`, index]))
-  const estimate = density === 'compact' ? 34 : 46
+  const estimate = FRAME.rail.rowHeight
   const scrollTarget = navigationIndex ?? targetIndex
   const virtualLabels = JSON.stringify(rows.map((row) => {
     if (row.kind === 'room') {
@@ -1034,16 +748,10 @@ const WindowedProjectRows = ({
     row?.scrollIntoView?.({ block: 'nearest' })
   }, [navigationIndex, renderStart, renderEnd])
 
-  if (!enabled) return <SidebarGroupContent nested ref={root} className={className} data-virtual-project="true">{rows.map(renderRow)}{footer}</SidebarGroupContent>
-  return (
-    <SidebarGroupContent nested ref={root} className={className} data-virtual-project="true"
-      data-virtual-labels={virtualLabels}>
-      {renderStart > 0 && <div aria-hidden="true" style={{ height: renderBeforeHeight }} />}
-      {rows.slice(renderStart, renderEnd).map((row, index) => renderRow(row, renderStart + index))}
-      {renderAfterHeight > 0 && <div aria-hidden="true" style={{ height: renderAfterHeight }} />}
-      {footer}
-    </SidebarGroupContent>
-  )
+  if (!enabled) return <LeftColumnList ref={root} footer={footer}>{rows.map(renderRow)}</LeftColumnList>
+  return <LeftColumnList ref={root} labels={virtualLabels} before={renderBeforeHeight} after={renderAfterHeight} footer={footer}>
+    {rows.slice(renderStart, renderEnd).map((row, index) => renderRow(row, renderStart + index))}
+  </LeftColumnList>
 }
 
 /** Where a dragged project would land: above or below the row under the pointer. */
@@ -1344,7 +1052,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
   const treeRef = useRef<HTMLDivElement>(null)
   const typeahead = useRef({ text: '', timer: 0 })
   const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const lastReveal = useRef<string | null>(null)
   const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
   const { groups, noFolder, hiddenPinned, gone } = useProjectList({ searching })
@@ -1396,12 +1103,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
     [pinnedRows],
   )
-  const toggleTeam = useCallback((id: string) => setExpanded(current => {
-    const next = new Set(current)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    return next
-  }), [])
+
 
   /* The rooms in each project, so a room can be drawn where it belongs.
      There used to be one line above the whole tree reading "Room · 2 open · 1
@@ -1484,8 +1186,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
-      const nestedMember = target.closest('[data-nested="true"]') !== null
-      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const current = Number(virtual?.dataset.virtualIndex)
       const count = Number(virtual?.dataset.virtualCount)
@@ -1505,8 +1206,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     }
     if (event.key === 'Home' || event.key === 'End') {
       event.preventDefault()
-      const nestedMember = target.closest('[data-nested="true"]') !== null
-      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
       if (virtual && windowedProject) {
@@ -1524,18 +1224,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       if (row) focus(row)
       return
     }
-    if (event.key === 'ArrowRight') {
-      const disclosure = target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
-      if (disclosure) {
-        event.preventDefault()
-        if (disclosure.getAttribute('aria-expanded') !== 'true') disclosure.click()
-        window.requestAnimationFrame(() => {
-          const member = target.parentElement?.parentElement?.querySelector<HTMLButtonElement>('[data-nested="true"] [data-slot="sidebar-menu-button"]')
-          focus(member ?? undefined)
-        })
-        return
-      }
-    }
     if (event.key === 'ArrowRight' && target.hasAttribute('aria-expanded')) {
       event.preventDefault()
       if (target.getAttribute('aria-expanded') !== 'true') {
@@ -1550,19 +1238,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     }
     if (event.key === 'ArrowLeft') {
       event.preventDefault()
-      const nested = target.closest<HTMLElement>('[data-nested="true"]')
-      const room = nested?.parentElement
-      const roomOpener = room?.querySelector<HTMLButtonElement>('[aria-label^="Room "]')
-      const disclosure = room?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
-      if (nested && roomOpener && disclosure) {
-        if (disclosure.getAttribute('aria-expanded') === 'true') {
-          focus(roomOpener)
-          disclosure.click()
-        }
-        else focus(roomOpener)
-      } else if (target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.getAttribute('aria-expanded') === 'true') {
-        target.parentElement.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.click()
-      } else if (target.getAttribute('aria-expanded') === 'true') target.click()
+      if (target.getAttribute('aria-expanded') === 'true') target.click()
       else {
         const parent = rows.slice(0, index).reverse().find((row) => row.getAttribute('aria-expanded') === 'true')
         focus(parent)
@@ -1574,8 +1250,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       window.clearTimeout(typeahead.current.timer)
       typeahead.current.timer = window.setTimeout(() => { typeahead.current.text = '' }, 500)
       const query = typeahead.current.text
-      const nestedMember = target.closest('[data-nested="true"]') !== null
-      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
       const labels: string[] = virtual && windowedProject
@@ -1631,7 +1306,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       if (activeGroup === noFolderGroup) setNoFolderOpen(true)
       else if (collapsed.has(activeGroup.root)) toggle(activeGroup.root)
       if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
-      if (activeTeam) setExpanded(current => new Set(current).add(activeTeam.id))
     }
 
     const roomKeys = new Set(
@@ -1745,7 +1419,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
         return !teamKeys.has(key) && !liftedKeys.has(key)
       },
     )
-    const projectSessions = group.sessions.filter((summary) => !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))
     const visibleCount = Math.min(loose.length, revealedCount.get(group.root) ?? COLLAPSED_LIMIT)
     const shown = loose.slice(0, visibleCount)
     const pinnedIndexes = new Map(
@@ -1779,10 +1452,8 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     )
     return (
       <div key={group.root} data-navigation-root={group.root} data-project-root={folderless ? undefined : group.root} data-no-folder={folderless ? '' : undefined}>
-        {folderless ? <SidebarMenu><SidebarMenuItem>
-          <SidebarMenuButton label="No folder" icon={<DisclosureChevron open={open} size="xs" className={styles.groupChevron} />}
-            aria-expanded={open} onClick={() => setNoFolderOpen(value => !value)} />
-        </SidebarMenuItem></SidebarMenu> : <GroupHead
+        {folderless ? <LeftColumnRow label="No folder" icon={<DisclosureChevron open={open} size="xs" />}
+          expanded={open} onClick={() => setNoFolderOpen(value => !value)} /> : <GroupHead
           group={group}
           open={open}
           pinned={pinnedRoots.includes(group.root)}
@@ -1793,9 +1464,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
           drag={drag}
         />}
         {open && !searching && allRooms.length === 0 && group.sessions.length === 0 && (
-          <Text as="div" role="meta" className={styles.groupBlank}>
-            No conversations yet — ⌘N starts one here.
-          </Text>
+          <LeftColumnEmpty>No conversations yet — ⌘N starts one here.</LeftColumnEmpty>
         )}
         {open && (allRooms.length > 0 || loose.length > 0) && (
           <WindowedProjectRows
@@ -1803,30 +1472,18 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
             enabled={rows.length > 50}
             targetIndex={activeRowIndex}
             navigationIndex={navigationTarget?.root === group.root ? navigationTarget.index : null}
-            density={snapshot.listPrefs.density}
-            className={styles.nested}
-            footer={loose.length > visibleCount ? (
-              <SidebarMenu><SidebarMenuItem>
-                <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label="Show more" title={`${loose.length - visibleCount} more conversations`}
-                  onClick={() => {
-                    const shown = revealedCount.get(group.root) ?? COLLAPSED_LIMIT
-                    setNavigationTarget({ root: group.root, index: rows.length })
-                    setRevealedCount((current) => new Map(current).set(group.root, Math.min(loose.length, shown + EXPANSION_STEP)))
-                  }} />
-              </SidebarMenuItem></SidebarMenu>
-            ) : undefined}
+            footer={loose.length > visibleCount ? <LeftColumnRow label="Show more" title={`${loose.length - visibleCount} more conversations`}
+              onClick={() => {
+                const shown = revealedCount.get(group.root) ?? COLLAPSED_LIMIT
+                setNavigationTarget({ root: group.root, index: rows.length })
+                setRevealedCount(current => new Map(current).set(group.root, Math.min(loose.length, shown + EXPANSION_STEP)))
+              }} /> : undefined}
             renderRow={(row, index) =>
               row.kind === 'room' ? (
                 <RoomRow
                   key={row.room.id}
                   room={row.room}
                   state={teamRows.get(row.room.id)!.state}
-                  sessions={projectSessions}
-                  now={now}
-                  open={expanded.has(row.room.id)}
-                  onToggle={() => toggleTeam(row.room.id)}
-                  onDelete={setDeleting}
-                  hiddenKeys={liftedKeys}
                   virtualKey={`room:${row.room.id}`}
                   virtualIndex={index}
                   virtualCount={rows.length}
@@ -1852,43 +1509,29 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       if (root && row) setNavigationTarget({ root, index: Number(row.dataset.virtualIndex) })
     }} role="group" aria-label="Conversations" data-region="session-tree">
       {pinnedRows.length > 0 && (
-        <SidebarGroup className={styles.triage} data-sidebar-band="pinned">
-          <GroupLabel ink="muted">Pinned · {pinnedRows.length}</GroupLabel>
-          <SidebarGroupContent nested>
-            {pinnedRows.map((summary) => (
-              <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} />
-            ))}
-          </SidebarGroupContent>
-          <Separator />
-        </SidebarGroup>
+        <div data-sidebar-band="pinned">
+          <LeftColumnGroup label={`Pinned · ${pinnedRows.length}`}>
+            {pinnedRows.map(summary => <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} />)}
+            <Separator />
+          </LeftColumnGroup>
+        </div>
       )}
       {nearContent}
       {far.length > 0 && (
         <div>
-          <SidebarMenu><SidebarMenuItem>
-            <SidebarMenuButton
-              label={<span className="flex items-center gap-(--hd-space-2)"><Text role="navigation" ink="muted">Other projects</Text><span data-slot="sidebar-menu-icon" className="inline-flex shrink-0 items-center justify-center"><DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} /></span></span>}
-              aria-expanded={othersOpen}
-              onClick={() => setOthersOpen(!othersOpen)}
-              {...(dragging && !far.some((group) => group.root === dragging) ? { 'data-insert': 'into' } : {})}
-              title={dragging ? 'Drop here to let this project sort itself again' : undefined}
-              onDragOver={(event) => {
-                if (!dragging) return
-                event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
-              }}
-              onDrop={(event) => {
-                if (!dragging) return
-                event.preventDefault()
-                store.moveProject(dragging, -1)
-                setAnnouncement('Back in automatic order')
-                setDragging(null)
-                setOver(null)
-              }}
-            />
-            <SidebarMenuBadge aria-label={`${far.length} other projects`}>{far.length}</SidebarMenuBadge>
-          </SidebarMenuItem></SidebarMenu>
-          {othersOpen && <SidebarGroupContent>{farContent}{goneLine}</SidebarGroupContent>}
+          <LeftColumnRow label="Other projects" icon={<DisclosureChevron open={othersOpen} size="xs" />} expanded={othersOpen}
+            onClick={() => setOthersOpen(!othersOpen)} title={dragging ? 'Drop here to let this project sort itself again' : 'Other projects'}
+            insertion={dragging && !far.some(group => group.root === dragging) ? 'into' : undefined}
+            trailing={{ kind: 'count', value: far.length, label: `${far.length} other projects` }}
+            buttonProps={{ onDragOver: event => {
+              if (!dragging) return
+              event.preventDefault(); event.dataTransfer.dropEffect = 'move'
+            }, onDrop: event => {
+              if (!dragging) return
+              event.preventDefault(); store.moveProject(dragging, -1)
+              setAnnouncement('Back in automatic order'); setDragging(null); setOver(null)
+            } }} />
+          {othersOpen && <div>{farContent}{goneLine}</div>}
         </div>
       )}
       {far.length === 0 && goneLine}

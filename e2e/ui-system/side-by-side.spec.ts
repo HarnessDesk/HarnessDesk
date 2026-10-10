@@ -100,7 +100,6 @@ const setPreviewDials = async (page: Page, theme: 'light' | 'dark', look: 'desk'
 const gotoPreview = async (page: Page) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/preview.html?side-by-side')
-  await page.waitForSelector('[class*="rowWrap_"]')
   await page.waitForSelector('[data-frame-id="side-by-side-four"] [data-slot="side-by-side-grid"]')
   await page.evaluate(async () => { await document.fonts.ready })
 }
@@ -580,6 +579,8 @@ for (const theme of ['light', 'dark'] as const) {
     await room.evaluate(node => { node.style.height = '1000px' })
     const tiles = target.locator('[data-slot="side-by-side-tile"]')
     await expect(tiles.locator('iframe')).toHaveCount(2)
+    await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden])')).toHaveCount(4)
+    await expectGridLayout(grid(page, 'side-by-side-four-browsers'))
     const draft = target.locator('[data-shared-composer] textarea')
     await draft.fill('Keep the retry small.')
     // Leave 90px for the page: enough without Find, too little with it.

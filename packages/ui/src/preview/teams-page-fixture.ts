@@ -1,5 +1,5 @@
 import { sessionKey, type FlowExecution, type SessionKey, type TeamState, type GoalView, type InsightReport, type Session, type SeatRecord } from '@harnessdesk/protocol'
-import { previewStore } from './harness'
+import { goalInsightsFrom, previewStore } from './harness'
 import { overviewTeamStore, overviewReport } from './team-overview-fixture'
 import type { AppSnapshot } from '../state/snapshot'
 import { teamsInput } from '../lib/teams-snapshot'
@@ -69,10 +69,12 @@ export const teamsPageStore=(scene:TeamsScene='active',finished?:'before'|'after
  const listeners=new Set<()=>void>()
  const snapshot=()=>state
  const patch=(overrides:Partial<AppSnapshot>)=>{state={...state,...overrides};for(const listener of listeners)listener()}
+ const readOne=(id:string):Promise<InsightReport>=>scene==='pending'?new Promise(()=>{}):scene==='failed'?Promise.reject(new Error('Usage unavailable')):Promise.resolve(reports.get(id)!)
  return new Proxy(base,{get(target,key){
   if(key==='getSnapshot')return snapshot
   if(key==='subscribe')return (listener:()=>void)=>{listeners.add(listener);return()=>listeners.delete(listener)}
-  if(key==='readGoalInsight')return (id:string)=>scene==='pending'?new Promise(()=>{}):scene==='failed'?Promise.reject(new Error('Usage unavailable')):Promise.resolve(reports.get(id)!)
+  if(key==='readGoalInsight')return readOne
+  if(key==='readGoalInsights')return goalInsightsFrom(readOne)
   if(key==='setTeamHidden')return (id:string,hidden:boolean)=>{const prefs=snapshot().teamsPrefs;const input=teamsInput(snapshot()).find(one=>one.team.id===id)!;const marks={...prefs.hidden};if(hidden)marks[id]=teamListRow(input).change;else delete marks[id];patch({teamsPrefs:{...prefs,hidden:marks}})}
   if(key==='markTeamSeen')return (id:string,change:string)=>patch({teamsPrefs:{...snapshot().teamsPrefs,seen:{...snapshot().teamsPrefs.seen,[id]:change}}})
   return Reflect.get(target,key)

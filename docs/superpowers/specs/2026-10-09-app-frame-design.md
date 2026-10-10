@@ -215,7 +215,7 @@ One container, whatever main shows.
   views (Overview, Run, Board, Chat, Findings, Runs) are tabs in the window
   bar, and its seats are in its Overview and the Details tool, not rows under
   it. Opening the Team returns to the view it was last on.
-- **Group label:** 13px/500, secondary ink, in both modes.
+- **Group label:** 13px/500, secondary ink, in both modes; it starts at the icons' x, not the text's, with 16px above a group that follows another (the owner's choice, 2026-10-10).
 - **Seat row (40):** you, at the bottom, with the gear that opens Settings.
   The gear reads as pressed while Settings is open.
 - **Sessions mode:** New session ⌄, then one row each for Teams, Agents,

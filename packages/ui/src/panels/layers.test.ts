@@ -119,6 +119,13 @@ it('fixed panel hiding keeps its full box instead of shrinking it to tabs (revie
     expect(rule).toContain('position: absolute')
     expect(rule).not.toMatch(/display:\s*none|width:\s*(?:0|fit-content)|flex:\s*none/)
   }
+  expect(flat(host)).not.toContain('[data-collapsed]')
+  expect(workbench).not.toContain('DockPanelTabs')
+  for (const area of ['right', 'bottom']) {
+    expect(fixedShellCss).toContain(`.shell[data-${area}-open='false'] .${area}`)
+  }
+  expect(fixedShellCss).toContain('visibility: hidden; pointer-events: none;')
+  expect(fixedShellCss).toContain('var(--frame-bottom-retained)')
 })
 
 it('the seam has a place to grab wider than the line it draws (review of #183, round 7; #202)', () => {

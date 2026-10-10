@@ -5,10 +5,12 @@
  */
 import type { FrameActions } from './frame-actions'
 
-export interface WallDestination extends FrameActions { readonly id: string; readonly query: string }
+import type { WallActions } from './frame-wall-actions'
+
+export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
-  { id: 'topbar-probe', query: 'frame-wall=topbar' },
+  { id: 'topbar-probe', surface: 'pattern', query: 'frame-wall=topbar' },
   { id: 'conversation', query: 'frame-wall=conversation' },
   { id: 'conversation-status-tasks', query: 'frame-wall=conversation&frame-status=tasks' },
   { id: 'team-status-reconnecting', query: 'frame-wall=team&frame-status=reconnecting' },
@@ -33,6 +35,11 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'team-runs', query: 'frame-wall=team-trigger', tab: 'runs' },
   { id: 'team-receipt', query: 'frame-wall=team-receipt', tab: 'receipt' },
   { id: 'team-overview', query: 'frame-wall=team', tab: 'overview' },
+  { id: 'team-overview-panel-open', query: 'frame-wall=team', tab: 'overview', tool: 'details' },
+  { id: 'team-board-panel-open', query: 'frame-wall=team', tab: 'board', tool: 'details' },
+  { id: 'team-chat-panel-open', query: 'frame-wall=team', tab: 'room', tool: 'details' },
+  { id: 'team-findings-panel-open', query: 'frame-wall=team', tab: 'findings', tool: 'details' },
+  { id: 'team-run-panel-open', query: 'frame-wall=team-run-recorded', tab: 'run', tool: 'details' },
   { id: 'team-run', query: 'frame-wall=team', tab: 'run' },
   { id: 'team-run-flow', query: 'frame-wall=team-run-recorded', tab: 'run', viewChoice: 'Flow' },
   { id: 'team-run-details', query: 'frame-wall=team-run-recorded', tab: 'run', inspectFirst: true },
@@ -51,12 +58,28 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'agent', query: 'frame-wall=agent' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
+  { id: 'left-column-probe', surface: 'pattern', query: 'frame-wall=left-column' },
+  { id: 'conversation-left-open', query: 'frame-wall=conversation', leftOpen: true },
+  { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },
+  { id: 'left-account', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'account' },
+  { id: 'left-start', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'start' },
+  { id: 'left-work', query: 'frame-wall=left-work', leftOpen: true },
+  { id: 'left-project-menu', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'project' },
+  { id: 'left-session-menu', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'session' },
+  { id: 'left-session-card', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'card' },
+  { id: 'left-work-pattern', surface: 'pattern', query: 'frame-wall=left-work-pattern' },
+  { id: 'settings-middle', surface: 'pattern', query: 'frame-wall=settings-middle' },
+  { id: 'settings-middle-filtered', surface: 'pattern', query: 'frame-wall=settings-middle', settingsQuery: 'mute' },
+  { id: 'settings-middle-empty', surface: 'pattern', query: 'frame-wall=settings-middle', settingsQuery: 'no matching preference with a deliberately long search phrase' },
+  { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
+  { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
+  { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },
   { id: 'settings-general', query: 'frame-wall=settings-general' },
   { id: 'settings-runtimes', query: 'frame-wall=settings-runtimes' },
   { id: 'library', query: 'frame-wall=library' },
   { id: 'plugins', query: 'frame-wall=plugins' },
   { id: 'changes-review', query: 'frame-wall=changes-review' },
-]
+] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
 export const WALL_WIDTHS = [1440, 1100, 720] as const

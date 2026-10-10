@@ -131,23 +131,31 @@ test('a scripted transcript jump lands in the same task with motion reduced', as
   expect(read.top).toBeLessThan(before)
 })
 
-test('a focused row shifts its checkout mark immediately before the next frame', async ({ page }) => {
+test('a focused row yields its fixed priority slot immediately before the next frame', async ({ page }) => {
   await page.goto('/preview.html')
-  const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
+  const row = page.locator('[data-region="session-row"] [data-left-row]').filter({
     has: page.locator(`button[aria-label="Actions for ${label}"]`),
   })
-  await expect(row.getByRole('img', { name: 'Worktree chore/settings-audit', exact: true })).toBeVisible()
+  const priority = row.locator('[data-left-mark]')
+  await expect(priority).toHaveCount(1)
+  await expect(priority).toHaveAttribute('role', 'img')
+  await expect(priority).toHaveAccessibleName('This folder no longer exists.. The transcript can be read; nothing more can be sent.')
+  await expect(priority).toBeVisible()
   await page.mouse.move(1400, 0)
+  await row.scrollIntoViewIfNeeded()
   const read = await row.evaluate(async (node) => {
-    const mark = node.querySelector('[role="img"][aria-label="Worktree chore/settings-audit"]')!
+    const mark = node.querySelector('[data-left-mark]')!
+    const action = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-action"]')!
     const box = () => {
       const rect = mark.getBoundingClientRect()
       return { left: rect.left, right: rect.right, top: rect.top }
     }
     const resting = box()
-    // `:focus-within` gives the row the padding its ⋯ needs, as a hover does.
+    const restingVisibility = { mark: getComputedStyle(mark).visibility, action: getComputedStyle(action).visibility }
+    // `:focus-within` gives the fixed trailing slot to the row's action.
     node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!.focus()
     const first = box()
+    const firstVisibility = { mark: getComputedStyle(mark).visibility, action: getComputedStyle(action).visibility }
     const started = document.getAnimations()
       .filter((animation) => animation instanceof CSSTransition
         && node.contains((animation.effect as KeyframeEffect | null)?.target ?? null))
@@ -158,12 +166,19 @@ test('a focused row shifts its checkout mark immediately before the next frame',
       .filter((animation) => animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
       .map((animation) => animation.finished.catch(() => undefined)))
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-    return { resting, first, later: box(), started }
+    return { resting, restingVisibility, first, firstVisibility, later: box(),
+      laterVisibility: { mark: getComputedStyle(mark).visibility, action: getComputedStyle(action).visibility },
+      title: node.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!.title, started }
   })
-  // The trailing action overlays its fixed slot; focus does not resize the row.
+  // The mark yields at once, without moving its slot or losing the checkout fact.
+  expect(read.restingVisibility).toEqual({ mark: 'visible', action: 'hidden' })
+  expect(read.firstVisibility).toEqual({ mark: 'hidden', action: 'visible' })
+  expect(read.laterVisibility).toEqual(read.firstVisibility)
   expect(read.first).toEqual(read.later)
-  expect(read.later.left).toBe(read.resting.left - 24)
-  expect(read.later.right).toBe(read.resting.right - 24)
+  expect(read.later).toEqual(read.resting)
+  expect(read.title).toContain('Worktree')
+  expect(read.title).toContain('chore/settings-audit')
+  expect(read.title).toContain('This folder no longer exists.')
   expect(read.started).toEqual([])
 })
 
@@ -268,7 +283,7 @@ test('a floating sidebar put away with motion reduced is hidden at once, with no
   await page.goto('/design.html?view=panels')
   // At this width the right panel covers main, including the sidebar toggle.
   // Collapse the panel through its visible control before opening the sidebar.
-  const hidePanel = page.getByRole('button', { name: 'Hide this panel', exact: true })
+  const hidePanel = page.getByRole('button', { name: 'Toggle right panel', exact: true })
   await expect(hidePanel).toBeVisible()
   await hidePanel.click()
   const show = page.locator('button[aria-label="Show sidebar"]').filter({ visible: true }).first()

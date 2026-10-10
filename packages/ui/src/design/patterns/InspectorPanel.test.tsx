@@ -63,7 +63,14 @@ it.each([
   const mark = row.querySelector<HTMLElement>('[data-slot="inspector-row-mark"]')!
   expect(mark.className).toContain('size-(--hd-table-face)')
   expect(mark.className).not.toContain('mt-px')
-  expect(row.querySelector('[data-role="row"]')?.textContent).toBe('Review')
+  expect(row.querySelector('[data-role="row"] [data-slot="middle-truncate"] .sr-only')?.textContent).toBe('Review')
+})
+
+it('cuts file titles and path subtitles in their middle while sentences wrap', () => {
+  const path = 'packages/checkout/very-long-retry-budget-handler.ts'
+  act(() => root.render(<><PanelRow title={path} sub={path} subPath /><PanelRow title="A refusal that must remain readable" wrapTitle /></>))
+  expect([...container.querySelectorAll('[data-slot="middle-truncate"] .sr-only')].map(one => one.textContent)).toEqual([path, path])
+  expect(container.querySelectorAll('[data-slot="inspector-row"]')[1]?.textContent).toBe('A refusal that must remain readable')
 })
 
 it('a reading inspector keeps its reading body and gives ordinary controls their row gutter', () => {

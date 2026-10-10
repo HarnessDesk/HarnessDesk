@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 
 import { buttonEdge, buttonVariants } from '../ui/button'
 
+import { MenuPresentation, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import styles from './Popover.module.css'
 import { useHeaderStatusGroup } from './HeaderStatusGroup'
 
@@ -107,6 +108,7 @@ export const Popover = ({
   tone = 'calm',
   fullWidth = false,
   panelWidth = 'content',
+  icons = 'none',
   tightTrigger = false,
   triggerClassName,
   triggerVariant,
@@ -147,6 +149,7 @@ export const Popover = ({
    * wide-panel width while still respecting the viewport clamp.
    */
   panelWidth?: 'content' | 'trigger' | 'wide'
+  icons?: MenuIcons
   onOpenChange?: (open: boolean) => void
   /** Colours the trigger by risk, for controls where neutral would mislead. */
   tone?: 'calm' | 'warn' | 'alert'
@@ -216,6 +219,7 @@ export const Popover = ({
     // press: the window moves and the button only fires when the pointer
     // happened not to travel, which reads as a control that works every other
     // time. app-region is a property of a box, and this anchor is the box.
+    <MenuPresentation icons={icons} wide={panelWidth === 'wide'}>
     <BasePopover
       open={open}
       onOpenChange={(next, details) => {
@@ -262,11 +266,13 @@ export const Popover = ({
             /* A row unfolded may flip to the row's other side, never off to a
                third one: short of room it scrolls under `--available-height`,
                the way Base UI's own dropdowns do. */
-            {...(panelWidth === 'trigger' ? { collisionAvoidance: { fallbackAxisSide: 'none' as const } } : {})}
+            {...(panelWidth !== 'content' ? { collisionAvoidance: { fallbackAxisSide: 'none' as const } } : {})}
             className={styles.positioner}
           >
             <PopoverPopup
               ref={panel}
+              data-popup-kind={panelWidth === 'wide' ? 'wide-menu' : 'menu'}
+              data-menu-icons={icons}
               aria-labelledby={triggerId}
               className={styles.panel}
               data-width={panelWidth === 'trigger' || panelWidth === 'wide' ? panelWidth : undefined}
@@ -283,6 +289,7 @@ export const Popover = ({
         </PopoverPortal>
       </div>
     </BasePopover>
+    </MenuPresentation>
   )
 }
 
@@ -314,11 +321,14 @@ export const PopoverSurface = forwardRef<
     onDismiss?: () => void
   }
 >(({ className, limit, anchor, onDismiss, ...props }, ref) => {
+  const { icons, wide } = useMenuPresentation()
   useDismissOverlays(Boolean(anchor), () => onDismiss?.())
   const surface = <div
     ref={ref}
     {...props}
     data-slot="popover-surface"
+    data-popup-kind={wide ? 'wide-menu' : 'menu'}
+    data-menu-icons={icons}
     {...(limit ? { 'data-limit': limit } : {})}
     {...(anchor ? { 'data-width': 'trigger' } : {})}
     className={`${styles.panel}${className ? ` ${className}` : ''}`}

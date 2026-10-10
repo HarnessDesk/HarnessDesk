@@ -3,6 +3,16 @@ import path from 'node:path'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
+const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
+  await page.evaluate(async fixtureUsage => {
+    const container = document.createElement('section')
+    document.body.appendChild(container)
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    mountPlanMetersSpecimen(container, fixtureUsage)
+  }, fixtureUsage)
+  await expect(page.locator('[data-frame-id="supported-plan-meters"]')).toBeVisible()
+}
+
 const capture = async (page: Page, frame: Locator, name: string) => {
   if (!process.env.USAGE_TABLES_FRAMES_DIR) return
   // Audit the photographed surface, including its tooltip and field values.

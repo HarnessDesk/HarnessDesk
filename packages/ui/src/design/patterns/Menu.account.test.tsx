@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { Menu, MenuAccountGroup, MenuItem, MenuLabel } from './Menu'
 import css from './Menu.module.css?raw'
+import popupCss from '../ui/popup.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -35,9 +36,10 @@ it('offers the compact account-menu roles without changing ordinary rows', () =>
   const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
   expect(rows.map((row) => row.dataset['layout'])).toEqual(['profile', 'account'])
   expect(document.querySelector<HTMLElement>('[data-size="compact"]')?.textContent).toBe('Run new sessions as')
-  expect(css).toMatch(/\.row\[data-layout='profile'\]\s*\{[^}]*padding:\s*0 var\(--hd-space-2\)/s)
-  expect(css).toMatch(/\.row\[data-layout='account'\]\s*\{[^}]*padding:\s*var\(--hd-space-1-5\) var\(--hd-space-2\)/s)
-  expect(css).toMatch(/\.label\[data-size='compact'\]\s*\{[^}]*font-weight:\s*var\(--hd-weight-normal\)/s)
+  expect(css).toMatch(/\[data-menu-row\]\[data-layout='profile'\]\s*\{[^}]*padding:\s*0 var\(--hd-space-2\)/s)
+  expect(css).toMatch(/\[data-menu-row\]\[data-layout='account'\]\s*\{[^}]*padding:\s*var\(--hd-space-1-5\) var\(--hd-space-2\)/s)
+  expect(popupCss).toMatch(/\[data-menu-group\]\s*\{[^}]*font-weight:\s*var\(--hd-weight-medium\)/s)
+  expect(popupCss).not.toMatch(/\[data-menu-group\]\[data-size='compact'\]\s*\{[^}]*font-weight:/s)
 })
 
 it('groups account rows under a heading that names them and is not a choice', () => {
@@ -59,7 +61,7 @@ it('groups account rows under a heading that names them and is not a choice', ()
   expect(label?.querySelector('[aria-hidden="true"] [data-mark]')).not.toBeNull()
   // The heading is no choice: only the rows are items.
   expect([...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((row) => row.textContent)).toEqual(['One', 'Two'])
-  expect(css).toMatch(/\.group\[data-heading\] > \.row\[data-layout='account'\]\s*\{[^}]*margin-left:\s*var\(--hd-space-3\)/s)
+  expect(css).toMatch(/\.group\[data-heading\] > \[data-menu-row\]\[data-layout='account'\]\s*\{[^}]*margin-left:\s*var\(--hd-space-3\)/s)
 })
 
 it('keeps a group without its heading: no name, no step, the same parent for its row', () => {

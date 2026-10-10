@@ -5,6 +5,7 @@ import conversationTsx from '../components/Conversation.tsx?raw'
 import panesCss from '../components/Panes.module.css?raw'
 import sidebarCss from '../components/Sidebar.module.css?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
+import leftColumnSource from '../design/patterns/LeftColumn.tsx?raw'
 import teamRoomCss from '../components/TeamRoomPane.module.css?raw'
 import teamRoomTsx from '../components/TeamRoomPane.tsx?raw'
 import terminalPaneSource from '../components/TerminalPane.tsx?raw'
@@ -72,7 +73,8 @@ describe('the row under the macOS window buttons', () => {
 
   it("the sidebar's title bar leaves room for them through the shared bar's corner", () => {
     expect(sidebarCss).not.toMatch(/\.titlebar\s*{[^}]*padding/s)
-    expect(sidebarSource).toMatch(/<Bar corner\b/)
+    expect(sidebarSource).toMatch(/<LeftColumnTop\b/)
+    expect(leftColumnSource).toMatch(/<Bar corner\b/)
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]'")
   })
 
@@ -119,6 +121,10 @@ describe('the row under the macOS window buttons', () => {
     expect(fixedShellSource).toContain('<div data-frame-region="top" className={styles.top}>{top}</div>')
     expect(fixedShellSource).toContain('<div data-frame-region="main" className={styles.main}>{main}</div>')
     for (const area of ['right', 'bottom']) expect(fixedShellSource).toContain(`data-frame-region="${area}"`)
+    // Fixed tools have no split halves or tab strips that can own the corner.
+    expect(workbenchCss).not.toContain('.half')
+    expect(workbenchCss).not.toContain(".shell[data-lights='right']")
+    expect(workbenchCss).not.toContain(".shell[data-lights='bottom']")
   })
 
   it('unless an expansion has left the second half holding the window', () => {
@@ -138,7 +144,7 @@ describe('nothing decides this for itself', () => {
     eager: true,
   })
 
-  it('only the shell asks whether there are window buttons at all', () => {
+  it('only the work and nonwork shell hosts ask whether there are window buttons at all', () => {
     const asking = Object.entries(sources)
       .filter(([path]) => !/\.test\.tsx?$/.test(path) && !/\/lib\/desktop\.ts$/.test(path))
       .filter(([, text]) => /hasTrafficLights\(\)/.test(text))

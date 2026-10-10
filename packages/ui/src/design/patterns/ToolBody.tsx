@@ -16,7 +16,8 @@ export const ToolSection = ({ label, children, action }: { label: string; childr
   data-slot="tool-section" aria-label={label} className="min-w-0">
   <GroupLabel as="div" surface="tool"><Text role="meta" weight="medium" ink="secondary">{label}</Text>{action}</GroupLabel>{children}
 </section>
-export const ToolProse = ({ children }: { children: ReactNode }) => <SectionBody data-slot="tool-prose" spacing="tool-prose"><Text role="prose" ink="secondary">{children}</Text></SectionBody>
+/** A missing-fact note uses the row edge and second-line type; prose keeps its reading inset. */
+export const ToolProse = ({ children, variant = 'prose' }: { children: ReactNode; variant?: 'prose' | 'note' }) => <SectionBody data-slot="tool-prose" spacing={variant === 'note' ? 'inline' : 'tool-prose'}><Text role={variant === 'note' ? 'meta' : 'prose'} ink="secondary">{children}</Text></SectionBody>
 
-export const ToolBodyControls = ({ children, ...props }: { children: ReactNode } & Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'>) => <div {...props} data-slot="tool-controls"
+export const ToolBodyControls = ({ children, ...props }: { children: ReactNode } & Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'>) => <div {...props} data-slot="tool-controls" data-surface=""
   className="hd-no-drag flex min-w-0 shrink-0 flex-wrap items-center gap-(--hd-space-2) px-(--hd-inset-row) py-(--hd-space-2)">{children}</div>

@@ -5,6 +5,7 @@ import { useToolBodySections } from './ToolBody'
 import { ToolFooterPublisher } from './ToolFooter'
 import { Button, buttonVariants } from '../ui/button'
 import { ChangeStats } from './Change'
+import { MiddleTruncate } from '../ui/key-value'
 import { PaneColumn } from './PaneColumn'
 import { Chip, Dot, Search, Text } from './Settings'
 
@@ -119,14 +120,14 @@ const PanelRow = ({
         </span>
       ) : null}
       <span className="flex min-w-0 flex-1 flex-col">
-        <Text role="row" truncate={!wrapTitle} className={cn('flex min-w-0 gap-2', wrapTitle ? 'items-start' : 'items-center')}>{title}</Text>
+        <Text role="row" truncate={!wrapTitle} className={cn('flex min-w-0 gap-2', wrapTitle ? 'items-start' : 'items-center')}>{typeof title === 'string' && !wrapTitle ? <MiddleTruncate>{title}</MiddleTruncate> : title}</Text>
         {sub ? (
           <Text
             role="meta"
             truncate
-            className={cn('mt-(--hd-table-line-gap)', subPath && 'text-left [direction:rtl] [unicode-bidi:plaintext]')}
+            className="mt-(--hd-table-line-gap)"
           >
-            {sub}
+            {subPath && typeof sub === 'string' ? <MiddleTruncate>{sub}</MiddleTruncate> : sub}
           </Text>
         ) : null}
         {ask ? <Text role="meta" ink="secondary" className={cn('mt-(--hd-table-line-gap) [overflow-wrap:anywhere]', askLines === 2 && 'line-clamp-2')}>{ask}</Text> : null}

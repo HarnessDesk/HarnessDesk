@@ -141,3 +141,5 @@ export * from './tone'
 export * from './tooltip'
 
 export * from './flow-step'
+
+export * from './menu-row'

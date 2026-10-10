@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseClientMessage, ValidationError } from '../src/index.js'
+import { INSIGHT_GOALS_LIMIT, parseClientMessage, ValidationError } from '../src/index.js'
 
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
@@ -20,6 +20,15 @@ test('Insight reads accept only bounded host-owned queries', () => {
     { ...query, amount: 0 },
   ]) assert.throws(() => request('insight/usage', invalid), ValidationError)
   assert.throws(() => request('insight/compare', { ...query, goals: Array.from({ length: 51 }, () => 'goal-1'), left: selector, right: selector }), ValidationError)
+})
+
+test('a many-Team Insight read is a bounded list of distinct Goals', () => {
+  const goals = Array.from({ length: INSIGHT_GOALS_LIMIT }, (_, index) => `goal-${index}`)
+  assert.doesNotThrow(() => request('insight/goals', { goals }))
+  for (const invalid of [[], [...goals, 'goal-extra'], ['goal-1', 'goal-1'], ['']]) {
+    assert.throws(() => request('insight/goals', { goals: invalid }), ValidationError)
+  }
+  assert.throws(() => request('insight/goals', { goals: ['goal-1'], root: '/work/repo' }), ValidationError)
 })
 
 test('Insight order accepts a bounded host stamp, never a submitted order or cost', () => {

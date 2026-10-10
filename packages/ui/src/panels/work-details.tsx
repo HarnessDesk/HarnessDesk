@@ -29,16 +29,17 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
     <ToolSection label={session ? 'Conversation' : 'Starts in'}>
       <SummaryList surface="panel" aria-label="Conversation facts">
         <SummaryItem label="Agent">{agentName}</SummaryItem>
-        <SummaryItem label="Ceiling" note={shown ? shown.note
+        {shown && <SummaryItem label="Ceiling" note={shown ? shown.note
           ? `${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}: ${shown.note}` : ceilingMeaning(shown.ceiling.level) : undefined}>
           {shown ? seatCeilingWords(shown.ceiling) : 'Not recorded'}
-        </SummaryItem>
+        </SummaryItem>}
         <SummaryItem label="Folder" kind="path" action={placeAction} note={armed ? 'Source folder; the worktree is made when the message goes' : undefined}>
           {cwd ?? 'Choose a project folder'}
         </SummaryItem>
-        <SummaryItem label="Branch" kind="path">{branch ?? 'Not recorded'}</SummaryItem>
+        {branch && <SummaryItem label="Branch" kind="path">{branch}</SummaryItem>}
         <SummaryItem label="Context">{context?.title ?? 'No usage yet'}</SummaryItem>
       </SummaryList>
+      {(!shown || !branch) && <ToolProse>Not recorded for this {session ? 'conversation' : 'draft'}: {[!shown && 'the ceiling', !branch && 'the branch'].filter(Boolean).join(', ')}.</ToolProse>}
       <Slot name="session.header" />
     </ToolSection>
     <ToolSection label="Plan">
