@@ -86,6 +86,8 @@ export interface IntentClaim {
    * commits were made in it. Null when there was none.
    */
   readonly upstream?: string | null
+  /** Host-only checkout-move history at claim time; null when it could not be read. */
+  readonly checkoutMark?: string | null
   /**
    * Paths the checkout already showed changed or untracked the moment this
    * ownership began — a shared checkout's own pre-existing dirt, kept only so
@@ -192,6 +194,8 @@ export interface Intent {
    * claim measures to HEAD, not to where it last stopped.
    */
   readonly until?: string | null
+  /** Branch read with `until` at the end of this claim; absent on older cards. */
+  readonly untilBranch?: string | null
   /** Why it is blocked, when someone said so rather than a dependency. */
   readonly blockedReason?: string | null
   /**

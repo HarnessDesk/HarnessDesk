@@ -327,6 +327,7 @@ export interface FlowExecutionPort {
    */
   headOf(cwd: string, branch: string | null): Promise<{
     readonly at: string | null
+    readonly branch?: string | null
     readonly dirty: boolean
     readonly dirtyFiles?: number | null
     readonly dirtyPaths?: readonly string[] | null
@@ -1717,9 +1718,15 @@ export class FlowExecutions {
         continue
       }
       const head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
+      const stopped = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)?.untilBranch
       if (!head.at) unsettled.push({ card, why: 'its checkout has no commit to judge', checkout: seat.checkout })
+      else if (stopped !== undefined && head.branch !== undefined && head.branch !== stopped) {
+        unsettled.push({ card, why: 'its checkout switched branches after this card finished; return to its final branch before reviewing',
+          checkout: { cwd: seat.checkout.cwd, branch: stopped } })
+      }
       else if (head.dirty) unsettled.push({ card, why: 'its checkout has changes that are not committed', checkout: seat.checkout })
-      else subjects.push({ card, round: round.n, checkout: { cwd: seat.checkout.cwd, branch: seat.checkout.branch }, at: head.at })
+      else subjects.push({ card, round: round.n, checkout: { cwd: seat.checkout.cwd,
+        branch: head.branch === undefined ? seat.checkout.branch : head.branch }, at: head.at })
     }
     return { subjects, unsettled }
   }

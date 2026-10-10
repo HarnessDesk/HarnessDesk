@@ -479,6 +479,11 @@ interface HeldCandidate {
   readonly expires: number
 }
 
+/** A SHA alone cannot preserve a candidate after its checkout changed branches. */
+const stillOffered = (subject: FlowSubject, held: HeldCandidate): boolean =>
+  subject.card === held.candidate.card && subject.at === held.candidate.at &&
+  subject.checkout.cwd === held.checkout.cwd && subject.checkout.branch === held.checkout.branch
+
 /** Server-only: the plugin bridge's two hooks land here, never in protocol. */
 export interface FlowReviewPort {
   candidates(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]>
@@ -660,7 +665,7 @@ export class FlowReview implements FlowReviewPort {
     if (!held || held.goal !== bound.goal || held.card !== card || held.run !== run || held.seat !== bound.seat) {
       throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
     }
-    if (!bound.subjects.some((one) => one.card === held.candidate.card && one.at === held.candidate.at)) {
+    if (!bound.subjects.some((one) => stillOffered(one, held))) {
       throw new Error('That candidate has moved on. Ask for review candidates again.')
     }
     const facts = await this.#port.facts(bound.goal)
@@ -712,7 +717,7 @@ export class FlowReview implements FlowReviewPort {
     if (!bound) return null
     const held = this.#candidates.get(candidate)
     if (!held || held.goal !== bound.goal || held.card !== intent || held.seat !== bound.seat) return null
-    if (!bound.subjects.some((one) => one.card === held.candidate.card && one.at === held.candidate.at)) return null
+    if (!bound.subjects.some((one) => stillOffered(one, held))) return null
     return { candidate: held.candidate, checkout: held.checkout, goal: held.goal, round: held.round, seat: held.seat }
   }
 
@@ -734,7 +739,7 @@ export class FlowReview implements FlowReviewPort {
     if (!held || held.goal !== bound.goal || held.card !== input.intent || held.seat !== bound.seat) {
       throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
     }
-    if (!bound.subjects.some((one) => one.card === held.candidate.card && one.at === held.candidate.at)) {
+    if (!bound.subjects.some((one) => stillOffered(one, held))) {
       throw new Error('That candidate has moved on. Ask for review candidates again.')
     }
     const record: EvidenceRecord = {

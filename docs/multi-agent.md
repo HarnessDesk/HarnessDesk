@@ -384,6 +384,21 @@ when the window comes back to the front, and every thirty seconds while it is
 on screen. The diff, pull request and CI are looked at when a card is finished
 and, at most every five minutes a card, when a board is read.
 
+Review candidates name the writer's current commit and branch, read from its
+own checkout rather than the branch its Seat opened on. If that checkout
+switched branches while the card ran, even if it switched back, the finished
+card's note says its work may span more than one branch and asks for a review
+of the final revision. An unreadable branch history says so too. A switch in
+the project's main checkout does not change an isolated attempt's evidence.
+A candidate whose commit, branch or checkout no longer matches what was
+offered must be requested again before a verdict can be recorded.
+The final branch is kept with the card's stopping commit: switching that
+checkout again after completion refuses review candidates until it returns,
+rather than substituting work on another branch.
+A stopped diff keeps that commit and branch on every later look. A new
+observation of the same fact on another branch is kept too; an unchanged
+payload does not preserve its earlier branch label.
+
 A project names its checks in `checks.yml` in its `.harnessdesk` folder —
 `verify: { run: pnpm verify, timeout: 1200 }` — and every card offers *Run
 verify*. What runs is the file as committed: a change in your working copy

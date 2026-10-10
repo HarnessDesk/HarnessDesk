@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -15,6 +15,28 @@ import { tempDir } from './scratch.js'
  */
 
 const run = promisify(execFile)
+
+test('checkout marks ignore commits, detect a switch and return, and stay local to a worktree', async () => {
+  const { dir, git } = await makeRepo()
+  const initial = await checkoutMarkOf(dir)
+  assert.ok(initial)
+  await writeFile(join(dir, 'README.md'), 'next\n')
+  await git('commit', '-q', '-am', 'next')
+  assert.equal(await checkoutMarkOf(dir), initial, 'ordinary work does not look like a branch switch')
+  const lane = join(tempDir('hd-mark-lane-'), 'checkout')
+  await git('worktree', 'add', '-q', '-b', 'lane', lane)
+  const isolated = await checkoutMarkOf(lane)
+  await git('switch', '-c', 'other')
+  const moved = await checkoutMarkOf(dir)
+  assert.notEqual(moved, initial)
+  await git('switch', 'main')
+  assert.notEqual(await checkoutMarkOf(dir), moved)
+  assert.notEqual(await checkoutMarkOf(dir), initial, 'same branch and SHA do not hide the excursion')
+  assert.equal(await checkoutMarkOf(lane), isolated, 'the person switch leaves a lane alone')
+  await git('config', 'core.logAllRefUpdates', 'false')
+  await rm(join(dir, '.git', 'logs', 'HEAD'))
+  assert.equal(await checkoutMarkOf(dir), null, 'missing history is unknown')
+})
 
 test('a revision is the commit, the branch, and whether the tree holds changes not committed', async () => {
   const { dir, git } = await makeRepo()

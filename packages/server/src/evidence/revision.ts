@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -38,6 +39,17 @@ const gitOr = async (cwd: string, args: readonly string[]): Promise<string | nul
   } catch {
     return null
   }
+}
+
+/**
+ * Only checkout moves, from this worktree's own HEAD reflog. Ordinary commits
+ * do not change the mark; a switch and return does, even at the same SHA.
+ * The bounded Git reader returns null for unavailable or oversized history.
+ */
+export const checkoutMarkOf = async (cwd: string): Promise<string | null> => {
+  if (await gitOr(cwd, ['reflog', 'exists', 'HEAD']) === null) return null
+  const moves = await gitOr(cwd, ['reflog', 'show', '--format=%H%x00%gs', '--grep-reflog=^checkout: moving from ', 'HEAD'])
+  return moves === null ? null : createHash('sha256').update(moves).digest('hex')
 }
 
 /** Where a checkout is: its commit, the branch it is on, and whether it holds changes not committed. */

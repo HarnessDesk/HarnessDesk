@@ -173,7 +173,7 @@ import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmen
 import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
 import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
-import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
+import { checkoutMarkOf, projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
@@ -453,8 +453,8 @@ export interface HostOptions {
    * else, where the desk's own `gh` adapter is composed.
    */
   readonly findingForge?: FindingForgePort
-  /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
-  readonly evidence?: { readonly gh?: GhInCheckout }
+  /** The evidence plane's forge and clock. Tests answer as the forge would and control refresh time. */
+  readonly evidence?: { readonly gh?: GhInCheckout; readonly now?: () => number }
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -1032,6 +1032,7 @@ export class Host {
         dir: join(this.#state.directory, 'evidence'),
         seenFile: join(this.#state.directory, SEEN_FILE),
         ...(options.evidence?.gh ? { gh: options.evidence.gh } : {}),
+        ...(options.evidence?.now ? { now: options.evidence.now } : {}),
         cipher: options.credentialCipher ?? plainCipher,
       },
       {
@@ -1234,8 +1235,8 @@ export class Host {
       notifyPerson: (notice) => this.#push({ method: 'person/notice', params: { notice } }),
       // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
       startOf: async (cwd) => {
-        const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
-        return revision ? { head: revision.head, upstream, dirtyPaths: revision.dirtyPaths } : null
+        const [revision, upstream, checkoutMark] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd), checkoutMarkOf(cwd)])
+        return revision ? { head: revision.head, branch: revision.branch, upstream, dirtyPaths: revision.dirtyPaths, checkoutMark } : null
       },
       cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
       // A refused save is put back before the Goal's queue runs anything else.
@@ -1418,7 +1419,7 @@ export class Host {
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)
         return revision
-          ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
+          ? { at: revision.head, branch: revision.branch, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
@@ -3943,9 +3944,10 @@ export class Host {
        from a checkout's pre-existing dirt; a failed read leaves it null,
        which is a finish's own signal to never refuse for dirt it cannot
        attribute (#1049). */
-    const [upstream, dirtyPaths] = await Promise.all([
+    const [upstream, dirtyPaths, checkoutMark] = await Promise.all([
       upstreamTipOf(opening.checkout.cwd).catch(() => null),
       revisionOf(opening.checkout.cwd).then((revision) => revision?.dirtyPaths ?? null).catch(() => null),
+      checkoutMarkOf(opening.checkout.cwd).catch(() => null),
     ])
     await this.#goalPlaneWrite(goal, (intents) => {
       const current = intents.find((one) => one.id === card)
@@ -3963,9 +3965,10 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths, checkoutMark },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
+        untilBranch: undefined,
         updatedAt: at,
         blockedBy: null,
         blockedReason: null,
