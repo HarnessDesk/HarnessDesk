@@ -33,6 +33,11 @@ for (const destination of WALL_DESTINATIONS) {
         await expect(page.locator('[data-frame-id="frame-wall"]')).toBeVisible()
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         await applyFrameActions(page, destination)
+        if (destination.id === 'agent') {
+          // The selected Agent reads its real authoring document asynchronously.
+          await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toContainText('Implementer')
+          await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Start a conversation as Implementer', exact: true })).toBeVisible()
+        }
         if (destination.id === 'conversation-file') {
           // The native editor loads after the shell; a blank box is not File evidence.
           await expect(page.locator('[data-slot="work-tools"] .cm-content')).toContainText('Storefront')

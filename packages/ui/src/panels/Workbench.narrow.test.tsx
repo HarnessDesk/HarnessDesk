@@ -8,7 +8,11 @@ import { StoreProvider } from '../state/context'
 import { expand as expandLayout, panes as layoutPanes, split as splitLayout } from '../state/layout'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dock, dockViews, emptyWorkbench, fixedSubject, type Workbench as Model } from '../state/workbench'
-import { Workbench } from './Workbench'
+import { Workbench as WorkbenchBody } from './Workbench'
+import { TopBarProvider } from './top-bar'
+import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
+import type { ComponentProps } from 'react'
+const Workbench = (props: ComponentProps<typeof WorkbenchBody>) => <TopBarProvider><ShellHostsProvider><WorkbenchBody {...props} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
 import { views } from './views'
 import './builtins'
 

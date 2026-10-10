@@ -1,3 +1,7 @@
+import type { ComponentProps } from 'react'
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
+import { fixedSubject } from '../state/workbench'
 import { act, useEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -8,7 +12,9 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Profile } from '../lib/profile'
-import { Settings, type Section } from './Settings'
+import { Settings as SettingsBody, type Section } from './Settings'
+
+const Settings = (props: ComponentProps<typeof SettingsBody>) => <TopBarProvider><ShellHostsProvider><SettingsBody {...props} /><ShellOutlets activeOwner="settings" /></ShellHostsProvider></TopBarProvider>
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
 const HOME = '/home/u'
@@ -88,6 +94,7 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
   return {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    workSubject: () => fixedSubject(snapshot.layout),
     transport: { request },
     // The Profile page writes the name when it is let go.
     setProfile: vi.fn(),
@@ -113,7 +120,7 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
 
 /** The title of the page on show — the nav rail's labels live outside it. */
 const page = (): string =>
-  document.body.querySelector('[data-slot="page-title"]')?.textContent?.trim() ?? ''
+  document.body.querySelector('[data-topbar-title]')?.textContent?.trim() ?? ''
 
 /** The nav rail's own row, found by its label rather than its position. */
 const navRow = (label: string): HTMLElement | undefined =>

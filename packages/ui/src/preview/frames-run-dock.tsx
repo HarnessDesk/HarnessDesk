@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useMemo } from 'react'
 import type { BoardEvidence, Evidence } from '@harnessdesk/protocol'
 import { Sidebar } from '../components/Sidebar'
@@ -41,7 +43,7 @@ export const RunDockFrame = ({ older = false }: { older?: boolean }) => {
   const store = useMemo(() => runDockStore(older), [older])
   return <StoreProvider store={store}><ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
     <div id="run-dock-frame" className="h-screen bg-background">
-      <Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} />
+      <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
     </div>
   </ShellProvider></StoreProvider>
 }

@@ -12,7 +12,7 @@ export interface StatusFact {
 }
 /** The app's readings share one window-wide foot, below every retained region. */
 export const StatusBar = ({ usage, facts, terminal }: { usage: ReactNode; facts: readonly StatusFact[]; terminal: ReactNode }) => <Bar as="footer" height="status" rule="top" paintedRule
-  data-slot="status-bar" className="hd-no-drag min-w-0">
+  data-slot="status-bar" className="hd-no-drag min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
   {usage}{facts.map(one => one.run ? <Button key={one.id} variant="quiet" size="xs" title={one.detail}
     disabled={one.disabled} onClick={one.run}>{one.label}</Button> : <Text key={one.id} role="meta" title={one.detail}>{one.label}</Text>)}
   <span className="min-w-0 flex-1" />{terminal}

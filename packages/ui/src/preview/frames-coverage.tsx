@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useEffect, useRef, useState } from 'react'
 
 import { runtimeId, type FlowPreview, type UsageReport } from '@harnessdesk/protocol'
@@ -144,7 +146,7 @@ const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readon
     >
       <StoreProvider store={noticeLayoutStore(id, options)}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
-          <Workbench sidebar={<div className="p-2">Preview sidebar</div>} />
+          <TopBarProvider><ShellHostsProvider><Workbench sidebar={<div className="p-2">Preview sidebar</div>} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
         </ShellProvider>
       </StoreProvider>
     </div>

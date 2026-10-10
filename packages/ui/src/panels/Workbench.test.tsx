@@ -32,7 +32,11 @@ import {
   type Workbench as Model,
 } from '../state/workbench'
 import { toolOf } from '../state/frame-tools'
-import { Workbench } from './Workbench'
+import { Workbench as WorkbenchBody } from './Workbench'
+import { TopBarProvider } from './top-bar'
+import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
+import type { ComponentProps } from 'react'
+const Workbench = (props: ComponentProps<typeof WorkbenchBody>) => <TopBarProvider><ShellHostsProvider><WorkbenchBody {...props} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
 import { permits, views } from './views'
 import './builtins'
 

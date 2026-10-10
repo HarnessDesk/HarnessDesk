@@ -14,7 +14,11 @@ import { previewStore, PREVIEW_SESSION_KEY } from '../preview/harness'
 import { overviewTeamStore } from '../preview/team-overview-fixture'
 import { TeamFramePreview } from '../preview/TeamFramePreview'
 import { activeView, emptyWorkbench, dockViews } from '../state/workbench'
-import { Workbench } from './Workbench'
+import { Workbench as WorkbenchBody } from './Workbench'
+import { TopBarProvider } from './top-bar'
+import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
+import type { ComponentProps } from 'react'
+const Workbench = (props: ComponentProps<typeof WorkbenchBody>) => <TopBarProvider><ShellHostsProvider><WorkbenchBody {...props} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
 import './builtins'
 import { onDismissOverlays } from '../lib/overlays'
 import { FRAME } from '../design/frame'
@@ -602,6 +606,37 @@ it.each(['details', 'close'] as const)('B7 hidden fixed Browser cannot consume s
   act(() => document.dispatchEvent(shortcut))
   expect(shortcut.defaultPrevented).toBe(false)
   expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === entry.id)?.view).toBe(before.view)
+})
+
+it('suspending work retains its real Browser and denies hidden shortcuts while P13 selects the returning tool', async () => {
+  const store = mountWork(true)
+  await act(async () => store.openBrowser('https://example.com/suspended', { profile: 'lane-suspended' }))
+  const entry = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  const node = container.querySelector(`[data-tool-mount="${entry.id}"] [data-slot="tool-pane"]`)
+  const address = node!.querySelector<HTMLInputElement>('[aria-label="Address"]')!
+  act(() => address.focus())
+  const active = new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true, cancelable: true })
+  await act(async () => { document.dispatchEvent(active); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(active.defaultPrevented).toBe(true)
+  const before = dockViews(store.getSnapshot().workbench.right).find(one => one.id === entry.id)!
+  await act(async () => root.render(<StoreProvider store={store}><Workbench suspended sidebar={<div />} /></StoreProvider>))
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"] [data-slot="tool-pane"]`)).toBe(node)
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"]`)?.hasAttribute('inert')).toBe(true)
+  expect(container.querySelector('[data-slot="work-tools"]')?.getAttribute('data-open')).toBe('false')
+  const hidden = new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true, cancelable: true })
+  act(() => document.dispatchEvent(hidden))
+  expect(hidden.defaultPrevented).toBe(false)
+  expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === entry.id)?.view).toBe(before.view)
+  // A real work request is remembered under the covered window, without revealing its tools.
+  act(() => store.chooseWorkTool('activity'))
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.tool).toBe('activity')
+  expect(container.querySelector('[data-slot="work-tools"]')?.getAttribute('data-open')).toBe('false')
+  await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
+  expect(container.querySelector('[data-slot="work-tools"]')?.getAttribute('data-tool')).toBe('activity')
+  expect(container.querySelector('[data-slot="work-tools"]')?.getAttribute('data-open')).toBe('true')
+  act(() => store.revealView(entry.id))
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"] [data-slot="tool-pane"]`)).toBe(node)
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"]`)?.hasAttribute('inert')).toBe(false)
 })
 
 

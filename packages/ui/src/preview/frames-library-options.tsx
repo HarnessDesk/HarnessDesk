@@ -214,7 +214,7 @@ const OverviewMatrix = () => (
 const OptionB = () => (
   <Frame id="library-option-b" title="Option B — Library window by agent">
     <div className="relative min-h-screen" style={{ transform: 'translateZ(0)' }}>
-      <AppWindow label="Library">
+      <AppWindow owner="settings" onClose={() => {}} label="Library">
         <WindowNav onBack={noop}>
           <WindowNavItem icon={<LibraryIcon size={14} />} label="Overview" selected={false} onClick={noop} />
           <WindowNavItem icon={<FolderIcon size={14} />} label="This repository" selected={false} onClick={noop} />
@@ -235,7 +235,7 @@ const OptionB = () => (
 const OptionC = () => (
   <Frame id="library-option-c" title="Option C — Library window with fix queue">
     <div className="relative min-h-screen" style={{ transform: 'translateZ(0)' }}>
-      <AppWindow label="Library">
+      <AppWindow owner="settings" onClose={() => {}} label="Library">
         <WindowNav onBack={noop}>
           <WindowNavItem icon={<AlertIcon size={14} />} label="Needs you" count={LIBRARY_NEEDS_YOU.length} selected onClick={noop} />
           <WindowGroup label="Kit">
@@ -371,7 +371,7 @@ const OptionD = () => {
   return (
     <Frame id="library-option-d" title="Option D — recommended: inventory window with Needs you">
       <div className="relative min-h-screen" style={{ transform: 'translateZ(0)' }}>
-        <AppWindow label="Library">
+        <AppWindow owner="settings" onClose={() => {}} label="Library">
           <WindowNav onBack={noop}>
             <WindowNavItem icon={<LibraryIcon size={14} />} label="Overview" selected onClick={noop} />
             <WindowNavItem icon={<AlertIcon size={14} />} label="Needs you" count={LIBRARY_NEEDS_YOU.length} selected={false} onClick={noop} />

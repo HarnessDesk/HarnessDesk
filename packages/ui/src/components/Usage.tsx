@@ -318,7 +318,7 @@ export const Usage = ({
         : undefined
 
   return (
-    <AppWindow label="Dashboard">
+    <AppWindow owner="dashboard" onClose={onClose} label="Dashboard">
       <WindowNav onBack={onClose}>
         <WindowGroup label="Views">
           <WindowNavItem

@@ -48,8 +48,14 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'team-findings', query: 'frame-wall=team', tab: 'findings' },
   { id: 'teams', query: 'frame-wall=teams' },
   { id: 'agents', query: 'frame-wall=agents' },
+  { id: 'agent', query: 'frame-wall=agent' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
+  { id: 'settings-general', query: 'frame-wall=settings-general' },
+  { id: 'settings-runtimes', query: 'frame-wall=settings-runtimes' },
+  { id: 'library', query: 'frame-wall=library' },
+  { id: 'plugins', query: 'frame-wall=plugins' },
+  { id: 'changes-review', query: 'frame-wall=changes-review' },
 ]
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

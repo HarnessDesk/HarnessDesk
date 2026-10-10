@@ -135,7 +135,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
   const absolute = (path: string): string => (path.startsWith('/') || !root ? path : `${root}/${path}`)
 
   return (
-    <AppWindow label="Changes">
+    <AppWindow owner="changes-review" onClose={onClose} label="Changes">
       <WindowNav
         onBack={onClose}
         search={{ value: query, placeholder: 'Filter files', label: 'Filter files', onChange: setQuery }}

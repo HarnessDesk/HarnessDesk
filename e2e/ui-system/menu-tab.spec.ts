@@ -155,7 +155,7 @@ test.describe('a Popover’s menu', () => {
         const held = document.activeElement
         return (
           held === document.body ||
-          (held instanceof HTMLElement && held.isConnected && !held.closest('[data-base-ui-portal],[role="menu"]'))
+          (held instanceof Element && held.isConnected && !held.closest('[data-base-ui-portal],[role="menu"]'))
         )
       }),
     ).toBe(true)

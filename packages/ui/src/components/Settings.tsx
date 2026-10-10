@@ -2004,7 +2004,7 @@ export const Settings = ({
     .filter((group) => group.entries.length > 0)
 
   return (
-    <AppWindow label="Settings">
+    <AppWindow owner="settings" onClose={onClose} onBack={() => onSection('general')} label="Settings">
       <WindowNav
         onBack={onClose}
         search={{

@@ -38,7 +38,7 @@ it('folds Ready to wrap, lets Settled open it, and Hide never deletes it',async(
  expect(container.querySelector('[data-team-row]')).toBeNull()
  await act(async()=>button('Ready to wrap').click())
  expect(container.querySelector('[data-team-row]')).not.toBeNull()
- await act(async()=>container.querySelector<HTMLButtonElement>('button[title="More"]')!.click())
+ await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row] button[title="More"]')!.click())
  await act(async()=>button('Hide').click())
  expect(hidden).toHaveBeenCalledWith('overview-team',true)
  await act(async()=>button('Settled').click())

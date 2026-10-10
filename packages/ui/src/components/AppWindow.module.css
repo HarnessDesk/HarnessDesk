@@ -12,8 +12,6 @@
   position: fixed;
   inset: 0;
   z-index: var(--hd-z-window);
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 

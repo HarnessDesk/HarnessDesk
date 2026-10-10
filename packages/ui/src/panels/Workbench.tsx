@@ -1,7 +1,6 @@
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
-import { TopBarProvider, WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
-import { WorkTopBar } from './WorkTopBar'
-import { WorkStatusBar } from './WorkStatusBar'
+import { WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
+import { useShellHosts } from './shell-hosts'
 import { RunDockProvider } from './run-dock'
 import {
   createContext,
@@ -106,7 +105,10 @@ const LIVE: Record<DockId, string> = {
   bottom: '--frame-bottom-drag',
 }
 
-export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
+const WorkActive = createContext(true)
+
+export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; suspended?: boolean }) => {
+  const { topRef, footRef } = useShellHosts('work')
   const store = useStore()
   const snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot)
@@ -134,6 +136,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const rightPanelOverlay = rightPanelOverlays(workbench, snapshot.windowWidth)
 
   useLayoutEffect(() => {
+    if (suspended) return
     if (rightPanelDrawn(workbench)) {
       wasRightPanelDrawn.current = true
       return
@@ -180,7 +183,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     store.focusPane(focused.id)
     const back = target ?? firstFocusable ?? pane
     back?.focus({ preventScroll: true })
-  }, [snapshot.layout, store, workbench])
+  }, [snapshot.layout, store, workbench, suspended])
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
@@ -196,7 +199,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const corner = hasTrafficLights() ? cornerArea(workbench, column, snapshot.windowWidth) : null
 
   const sidebarBox = useRef<HTMLDivElement>(null)
-  useFloatingSidebar(floating, sidebarBox, main)
+  useFloatingSidebar(floating && !suspended, sidebarBox, main)
   const standingSidebar = column ? workbench.sidebar.size : 0
   const rightWidth = effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar)
   const bottomHeight = effectiveBottomHeight(workbench, snapshot.windowHeight)
@@ -210,9 +213,9 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     '--frame-bottom-retained': `${Math.max(FRAME.bottomPanel.min, Math.min(workbench.bottom.size, Math.floor(snapshot.windowHeight / 2)))}px`,
     '--frame-status': `${FRAME.statusBar.height}px`,
   } as CSSProperties
-  return <TopBarProvider><RunDockProvider><ComposerMountsProvider><ShellContext.Provider value={shell}>
+  return <WorkActive.Provider value={!suspended}><KeyboardHereContext.Provider value={suspended ? false : null}><RunDockProvider><ComposerMountsProvider><ShellContext.Provider value={shell}>
     <FixedShell ref={shell} viewportWidth={snapshot.windowWidth} style={frameStyle} className={styles.shell}
-      leftFloating={narrow} panelFloating={rightPanelOverlay} leftOpen={showSidebar} rightOpen={rightPanelDrawn(workbench)} bottomOpen={bottomHeight > 0}
+      leftFloating={narrow} panelFloating={rightPanelOverlay} leftOpen={showSidebar} rightOpen={!suspended && rightPanelDrawn(workbench)} bottomOpen={!suspended && bottomHeight > 0} inert={suspended}
       {...(corner ? { 'data-lights': corner } : {})} {...(narrow ? { 'data-narrow': '' } : {})}
       onFocusCapture={event => { rightPanelFocus.current = event.target instanceof HTMLElement && event.target.closest('[data-fixed-tool-frame]') ? event.target : null }}
       left={<><WorkbenchRail ref={sidebarBox} className={styles.sidebar}
@@ -220,7 +223,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
         {...(floating ? { 'data-floating': '', tabIndex: -1, role: 'dialog', 'aria-label': 'Sidebar' } : {})}>
         {sidebar}
       </WorkbenchRail>{column && <AreaSeam area="sidebar" orientation="vertical" label="Resize the sidebar" direction={1} />}</>}
-      top={<WorkTopBar />}
+      top={<div ref={topRef} data-shell-host="top" />}
       main={<div ref={main} className={styles.main} data-slot="workbench-main" data-notice-bounds=""
         onFocusCapture={event => {
           if (!(event.target instanceof HTMLElement) || event.target === main.current) return
@@ -228,11 +231,11 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
           const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
           if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
         }}><NoticeStripFallback area="main" /><Panes /></div>}
-      right={<RightPanel />} bottom={<BottomPanel />} status={<WorkStatusBar />}>
+      right={<RightPanel />} bottom={<BottomPanel />} status={<div ref={footRef} data-shell-host="status" />}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
     </FixedShell>
-  </ShellContext.Provider></ComposerMountsProvider></RunDockProvider></TopBarProvider>
+  </ShellContext.Provider></ComposerMountsProvider></RunDockProvider></KeyboardHereContext.Provider></WorkActive.Provider>
 
 }
 
@@ -310,7 +313,8 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
 const RightPanel = () => {
   const snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot)
-  const drawn = rightPanelDrawn(workbench)
+  const workActive = useContext(WorkActive)
+  const drawn = workActive && rightPanelDrawn(workbench)
   const overlay = rightPanelOverlays(workbench, snapshot.windowWidth)
   const sized = !overlay
   const noticeHost = drawn && noticeArea(workbench, snapshot.windowWidth) === 'right'
@@ -336,7 +340,8 @@ const BottomPanel = () => {
   const titleOf = useViewTitle()
   const current = activeView(dock)
   const active = entries.find(entry => entry.id === current?.id) ?? entries[0]
-  const shown = effectiveBottomHeight(workbench, snapshot.windowHeight) > 0
+  const workActive = useContext(WorkActive)
+  const shown = workActive && effectiveBottomHeight(workbench, snapshot.windowHeight) > 0
   const noticeHost = shown && noticeArea(workbench, snapshot.windowWidth) === 'bottom'
   return <>
     {shown && <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />}

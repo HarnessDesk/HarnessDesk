@@ -1,3 +1,4 @@
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -233,7 +234,7 @@ const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; reado
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsRosterSection {...props} onLeave={onLeave} />
+        <TopBarProvider><AgentsRosterSection {...props} onLeave={onLeave} /><TopBarOutlet owner="agents" fallback={{ place: 'Agents', more: () => null }} /></TopBarProvider>
       </StoreProvider>,
     )
   })
@@ -1062,7 +1063,8 @@ const higher = (ceiling: 'edit' | 'merge', holds: readonly string[], unheld: 'se
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AgentPage entry={entry} onBack={() => {}} onLeave={onLeave} />
+        <TopBarProvider><AgentPage entry={entry} onBack={() => {}} onLeave={onLeave} />
+          <TopBarOutlet owner="agents" fallback={{ place: 'Agents', more: () => null }} /></TopBarProvider>
       </StoreProvider>,
     )
   })

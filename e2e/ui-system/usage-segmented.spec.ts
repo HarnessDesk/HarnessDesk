@@ -1,9 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-test('the conversation header keeps the plan track and separates its reading from the roster token', async ({ page }) => {
+test('the app footer keeps the plan track and separates its reading from the roster token', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
-  const strip = page.getByRole('group', { name: 'Plan usage' })
+  const strip = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="status-bar"]').getByRole('group', { name: 'Plan usage' })
   await expect(strip).toBeVisible()
   // The preview's plan strip holds a meter with a track and a second reading
   // after it; whatever that reading says, it must sit clear of the first.
@@ -245,7 +245,7 @@ for (const [look, theme] of [
       const text = document.createRange()
       text.selectNodeContents(node)
       const textBox = text.getBoundingClientRect()
-      const pageTitle = dialog.querySelector<HTMLElement>('[data-slot="page-title"]')!
+      const pageTitle = dialog.querySelector<HTMLElement>('[data-topbar-title]')!
       const headingStyle = getComputedStyle(node)
       const figures = [...dialog.querySelectorAll<HTMLElement>('[data-role="figure"]')]
         .map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color }))

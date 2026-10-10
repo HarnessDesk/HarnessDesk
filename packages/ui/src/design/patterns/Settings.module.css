@@ -853,6 +853,13 @@
   min-width: 0;
 }
 
+/* A framed page moves its title into the bar, retaining the support copy and
+   scope controls. Their bottom edge starts the page's existing section rhythm. */
+.pageHeadContent[data-page-support] {
+  align-items: flex-end; /* desk: flex-start → flex-end, copy and scope controls share the support row's lower edge after the title moves into the bar */
+  margin-bottom: var(--hd-space-6); /* desk: the loose framed copy's browser margin → the existing 24px page section rhythm */
+}
+
 /* A page title and the app's own name carry the same role: one 20px semibold
    heading, rather than the page outsizing the wordmark that leads to it. */
 .pageTitle {
@@ -1333,6 +1340,18 @@
   align-items: flex-start;
   gap: var(--hd-space-4);
   min-width: 0;
+}
+
+/* Detail titles and marks move into the frame; their supporting facts keep
+   the existing reading measure below the Back link, alongside their actions. */
+.detailHeadContent[data-detail-support] {
+  align-items: flex-end; /* desk: flex-start → flex-end, supporting facts and actions share the section's lower edge */
+  margin-bottom: var(--hd-space-6); /* desk: loose framed support → the existing 24px detail section rhythm */
+}
+
+.detailHeadContent[data-detail-support] .detailOwner {
+  display: block; /* desk: inline next to Back → a fact on its own line below Back */
+  line-height: var(--hd-line-sm); /* desk: the loose metadata line height → the existing detail support line token */
 }
 
 .detailMark {

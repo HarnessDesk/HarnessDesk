@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { forwardRef, useState } from 'react'
 import type * as React from 'react'
@@ -19,6 +20,9 @@ const Dialog = ({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>)
 const DialogTrigger = ({ ...props }: React.ComponentProps<typeof DialogPrimitive.Trigger>) => (
   <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 )
+
+/** Inserts a shell row into its registered host without creating another overlay. */
+const renderShellSlot = (children: React.ReactNode, host: HTMLElement) => createPortal(children, host)
 
 const DialogPortal = ({ ...props }: React.ComponentProps<typeof DialogPrimitive.Portal>) => (
   <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
@@ -202,6 +206,7 @@ export {
   DialogHeader,
   DialogOverlay,
   DialogPortal,
+  renderShellSlot,
   DialogPopup,
   DialogTitle,
   DialogTrigger,

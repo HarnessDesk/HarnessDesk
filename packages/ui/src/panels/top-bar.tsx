@@ -10,9 +10,11 @@ type Entry = {
 type Published = { readonly value: Entry; readonly tokens: Partial<Record<keyof Entry, object>> }
 const registry = () => {
   let entries = new Map<string, Published>()
+  const claims = new Map<string, Partial<Record<keyof Entry, object>>>()
   const listeners = new Set<() => void>()
   const emit = () => { for (const listener of listeners) listener() }
   const publish = <K extends keyof Entry>(owner: string, part: K, value: Entry[K], token: object): void => {
+    if (claims.get(owner)?.[part] !== token) return
     const before = entries.get(owner)
     if (before?.tokens[part] === token && before.value[part] === value) return
     entries = new Map(entries).set(owner, {
@@ -30,7 +32,9 @@ const registry = () => {
     else entries.delete(owner)
     emit()
   }
-  return { publish, remove, subscribe: (fn: () => void) => {
+  return { claim: (owner: string, part: keyof Entry, token: object) => {
+    claims.set(owner, { ...claims.get(owner), [part]: token })
+  }, publish, remove, subscribe: (fn: () => void) => {
     listeners.add(fn); return () => { listeners.delete(fn) }
   }, getSnapshot: () => entries }
 }
@@ -43,12 +47,13 @@ const usePart = <K extends keyof Entry>(owner: string, part: K, value: Entry[K],
   const source = useContext(Context)
   const token = useRef<object>({})
   useLayoutEffect(() => {
-    if (enabled) source?.publish(owner, part, value, token.current)
-  }, [source, owner, part, value, enabled])
-  useLayoutEffect(() => {
     const identity = token.current
+    if (enabled) source?.claim(owner, part, identity)
     return () => source?.remove(owner, part, identity)
   }, [source, owner, part, enabled])
+  useLayoutEffect(() => {
+    if (enabled) source?.publish(owner, part, value, token.current)
+  }, [source, owner, part, value, enabled])
 }
 export const useTopBar = (owner: string, slots: TopBarProps, enabled = true): void => usePart(owner, 'base', slots, enabled)
 export const useTopBarView = (owner: string, slots: ViewSlots, enabled = true): void => usePart(owner, 'view', slots, enabled)

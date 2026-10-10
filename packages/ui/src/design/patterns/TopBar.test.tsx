@@ -20,6 +20,7 @@ let root: Root
 let frames: Map<number, FrameRequestCallback>
 let nextFrame: number
 let availableTitle: number
+let resizeCallbacks: (() => void)[]
 
 // jsdom has no flex layout. Hold the observed outer row at 720 while its
 // rendered slots consume room: state + verb words cost 40, expanded tabs
@@ -44,7 +45,11 @@ beforeEach(() => {
   })
   vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id) })
   // No resize is delivered: only the intrinsic slot inputs change.
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} })
+  resizeCallbacks = []
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: () => void) { resizeCallbacks.push(callback) }
+    observe() {} disconnect() {} unobserve() {}
+  })
   const computedStyle = getComputedStyle
   vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
     const result = computedStyle(node, pseudo)
@@ -165,4 +170,26 @@ test('a refused destination stays reachable with its reason and refuses click an
   })
   expect(run).not.toHaveBeenCalled()
   expect(tab.hasAttribute('data-active')).toBe(false)
+})
+
+test('a verb without an icon keeps its words through both folds and expanding restores focused tabs', () => {
+  availableTitle = 60
+  render({ verb: { label: 'Decide this run', run: noop } })
+  expect(container.querySelector('[data-slot="top-bar"]')?.getAttribute('data-fold')).toBe('2')
+  expect(container.querySelector('[data-topbar="verb"]')?.textContent).toBe('Decide this run')
+  availableTitle = 300
+  act(() => resizeCallbacks.forEach(callback => callback()))
+  render({ verb: { label: 'Decide this run', run: noop } })
+  const tab = container.querySelector<HTMLButtonElement>('[data-team-page="overview"]')!
+  act(() => tab.focus())
+  availableTitle = 60
+  act(() => resizeCallbacks.forEach(callback => callback()))
+  render({ verb: { label: 'Decide this run', run: noop } })
+  expect(document.activeElement).toBe(container.querySelector('[data-topbar="tabs"] button'))
+  availableTitle = 300
+  act(() => resizeCallbacks.forEach(callback => callback()))
+  render({ verb: { label: 'Decide this run', run: noop } })
+  expect(document.activeElement).toBe(container.querySelector('[data-team-page="overview"]'))
+  expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Ready')
+  expect(container.querySelectorAll('[role="tab"]')).toHaveLength(2)
 })

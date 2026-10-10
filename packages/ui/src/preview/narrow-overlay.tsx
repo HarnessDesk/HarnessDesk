@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
@@ -64,7 +66,7 @@ createRoot(root).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        <Workbench sidebar={<div />} />
+        <TopBarProvider><ShellHostsProvider><Workbench sidebar={<div />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

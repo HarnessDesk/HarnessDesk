@@ -1,3 +1,7 @@
+import type { ComponentProps } from 'react'
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
+import { fixedSubject } from '../state/workbench'
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +11,9 @@ import { NO_CAPABILITIES, runtimeId } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Usage, type DashboardView } from './Usage'
+import { Usage as UsageBody, type DashboardView } from './Usage'
+
+const Usage = (props: ComponentProps<typeof UsageBody>) => <TopBarProvider><ShellHostsProvider><UsageBody {...props} /><ShellOutlets activeOwner="dashboard" /></ShellHostsProvider></TopBarProvider>
 
 /**
  * The Dashboard's rail-as-views restructure (the whole-page study's option B):
@@ -66,6 +72,7 @@ const makeStore = (): AppStore => {
   return {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    workSubject: () => fixedSubject(snapshot.layout),
     transport: { request: vi.fn(async () => null) },
     loadAccounts: vi.fn(async () => {}),
     loadUsage: vi.fn(async () => {}),
@@ -176,12 +183,12 @@ describe('the header’s account scope', () => {
 
   it('scopes whichever view is open, not only the one it was chosen from', async () => {
     await render('spend')
-    expect(document.querySelector('h1')?.textContent).toBe('Spend')
+    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Spend')
     await chooseAccount('Low Agent')
     // The scope moves the control beside the title, the same thing clicking
     // that account in the old rail used to do — the title itself stays the
     // view's own name (review of #1057, NIT 3).
-    expect(document.querySelector('h1')?.textContent).toBe('Spend')
+    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Spend')
     expect(scopeTrigger().textContent).toContain('Low Agent')
   })
 
@@ -190,7 +197,7 @@ describe('the header’s account scope', () => {
     await chooseAccount('Low Agent')
     expect(scopeTrigger().textContent).toContain('Low Agent')
     await act(async () => railButton('Activity').click())
-    expect(document.querySelector('h1')?.textContent).toBe('Activity')
+    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Activity')
     expect(scopeTrigger().textContent).toContain('Low Agent')
   })
 })

@@ -99,6 +99,7 @@ export {
   DialogOverlay,
   DialogPopup,
   DialogPortal,
+  renderShellSlot,
   DialogTitle,
   DialogTrigger,
   DialogViewport,
@@ -134,6 +135,7 @@ export {
   AppWindowRailScroll,
   AppWindowRailTop,
   AppWindowSurface,
+  AppWindowTopHost,
 } from './patterns/AppWindow'
 export * from './patterns/InspectorPanel'
 export { Page, type PageWidth } from './patterns/Page'
@@ -228,3 +230,5 @@ export { SeatList, type SeatListRow } from './patterns/SeatList'
 export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
 
 export { StatusBar, type StatusFact } from './patterns/StatusBar'
+
+export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'

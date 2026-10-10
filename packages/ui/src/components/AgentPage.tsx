@@ -1,3 +1,4 @@
+import { useTopBarView } from '../panels/top-bar'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -219,6 +220,10 @@ export const AgentPage = ({
     }
   }
 
+  useTopBarView('agents', { verb: definition ? {
+    label: `Start a conversation as ${definition.name}`,
+    run: () => { void store.startAsAgent(entry.id).then(key => { if (key) onLeave() }) },
+  } : undefined })
   return (
     <>
       <BackLink to="Agents" onClick={onBack} />
@@ -231,23 +236,6 @@ export const AgentPage = ({
         name={name}
         owner={originWords(entry.origin, project)}
         {...(definition?.description ? { blurb: definition.description } : {})}
-        {...(definition
-          ? {
-              actions: (
-                <Button
-                  variant="default"
-                  onClick={() => {
-                    // Never disabled: one that cannot be seated here raises the refusal sheet, with its fixes.
-                    void store.startAsAgent(entry.id).then((key) => {
-                      if (key) onLeave()
-                    })
-                  }}
-                >
-                  Start a conversation as {definition.name}
-                </Button>
-              ),
-            }
-          : {})}
       />
 
       {/*
