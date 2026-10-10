@@ -157,7 +157,7 @@ const ToolPaneBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   bleed?: boolean
-  /** `page`: the page gutter on every side, for a body under a `ViewBar` whose blocks start on its edge. */
+  /** `dense`: a canvas gutter (Board, graph, diff); `page`: the reading-page gutter. */
   inset?: 'dense' | 'page'
 }) => (
   <div
