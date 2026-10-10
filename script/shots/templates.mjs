@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** New Team → completed shipped templates, driven only through the renderer. */
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -145,12 +146,13 @@ try {
         const diffs = checking.view.board.intents.filter(one => one.role === 'competitor').map(card => facts.cards.find(one => one.card === card.id).facts.find(one => one.record.fact.kind === 'diff').record)
         for (const diff of diffs) photographedRevisions.add(diff.fact.to)
         assert.equal(new Set(diffs.map(one => one.checkout.cwd)).size, 2, 'each attempt wrote in its own lane')
+        const changedPaths = diffs.map(one => execFileSync('git', ['diff', '--name-only', one.fact.from, one.fact.to], { cwd: one.checkout.cwd, encoding: 'utf8' }).trim().split('\n'))
         for (const diff of diffs) {
           assert.notEqual(diff.checkout.cwd, rig.repo)
-          const attempts = readdirSync(diff.checkout.cwd).filter(one => /^rig-attempt-[12]\.txt$/.test(one))
-          assert.equal(attempts.length, 1)
-          assert.match(readFileSync(join(diff.checkout.cwd, attempts[0]), 'utf8'), /^Attempt [12]:/)
+          assert.deepEqual(changedPaths[diffs.indexOf(diff)], ['rig-attempt.txt'], 'both committed attempts change the same relative path')
+          assert.match(readFileSync(join(diff.checkout.cwd, 'rig-attempt.txt'), 'utf8'), /^Attempt [12]:/)
         }
+        assert.notEqual(readFileSync(join(diffs[0].checkout.cwd, 'rig-attempt.txt'), 'utf8'), readFileSync(join(diffs[1].checkout.cwd, 'rig-attempt.txt'), 'utf8'), 'the shared path contains distinct attempts')
         await expect(boardTitle('Check the attempt')).toHaveCount(2)
         const checkCards = page.locator('[data-slot="board-card"]').filter({ has: boardTitle('Check the attempt') })
         await expect(boardColumn('To do').getByRole('heading', { level: 4 })).toHaveCount(2)
@@ -184,12 +186,13 @@ try {
         await page.getByRole('dialog').getByRole('button', { name: 'Merge', exact: true }).click()
         await expect(page.getByRole('dialog', { name: 'Merge into main', exact: true })).toHaveCount(0)
         rig.git('merge-base', '--is-ancestor', diffs[0].fact.to, 'main')
+        assert.equal(readFileSync(join(rig.repo, 'rig-attempt.txt'), 'utf8'), readFileSync(join(diffs[0].checkout.cwd, 'rig-attempt.txt'), 'utf8'), 'the person merged the judged content')
         const board = await rig.host.call('evidence/board', { room: run.goal })
         const checks = board.cards.flatMap(one => one.facts.filter(fact => fact.record.fact.kind === 'check').map(fact => fact.record))
         assert.equal(checks.length, 2)
         assert.ok(checks.every(one => one.fact.run === TEMPLATE_CHECK && one.fact.exit === 0))
         assert.deepEqual(checks.map(one => one.fact.at).sort(), diffs.map(one => one.fact.to).sort(), 'each check names its actual committed attempt')
-        evidence.push({ template, firstRecord: 'path/name/lastOpenedAt/id only', lanes: diffs.length, checks: checks.map(one => ({ command: one.fact.run, exitCode: one.fact.exit, at: one.fact.at })), pickedHead: diffs[0].fact.to, mergedHead: rig.git('rev-parse', 'main'), rounds: picked.execution.rounds.map(one => one.role) })
+        evidence.push({ template, firstRecord: 'path/name/lastOpenedAt/id only', lanes: diffs.length, changedPaths, distinctContents: true, checks: checks.map(one => ({ command: one.fact.run, exitCode: one.fact.exit, at: one.fact.at })), pickedHead: diffs[0].fact.to, mergedHead: rig.git('rev-parse', 'main'), rounds: picked.execution.rounds.map(one => one.role) })
       } else {
         rig.release('writer')
         await observe(cards => cards.some(one => one.role === 'reviewer' && one.state === 'claimed'), 'fresh reviewer seated')
@@ -245,6 +248,16 @@ try {
         evidence.at(-1).reviewCommentUrl = comments[0].html_url
       }
       await expect(page.getByText(template === 'comparison' ? 'Rounds 4 of 4' : 'Rounds 3 of 7', { exact: true })).toBeVisible()
+      // The board settles before the final turn/activity event reaches the
+      // sidebar. Capture the finished Goal only once both surfaces agree.
+      await page.waitForFunction(({ goal, run }) => {
+        const snapshot = window.__hdStore.getSnapshot()
+        return snapshot.flowExecutions.get(run)?.state === 'settled' &&
+          snapshot.goals.has(goal) && snapshot.goals.get(goal).activity !== 'working'
+      }, { goal: run.goal, run: run.id })
+      // The rig uses the active list: a finished Team leaves that sidebar.
+      await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+      evidence.at(-1).settledSidebar = true
       await photograph('13-finished-overview')
       await tab('Run')
       await page.getByRole('radio', { name: 'Timeline', exact: true }).click()
