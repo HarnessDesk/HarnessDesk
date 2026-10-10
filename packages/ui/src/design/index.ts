@@ -178,6 +178,7 @@ export {
   useContextMenu,
   useMenuClose,
   type MenuAccountFigure,
+  type MenuItemProps,
   type MenuPoint,
 } from './patterns/Menu'
 export {
@@ -185,12 +186,6 @@ export {
   Popover,
   dismissOverlays,
   PopoverGroupLabel,
-  PopoverOption,
-  PopoverOptionBody,
-  PopoverOptionHint,
-  PopoverOptionLabel,
-  PopoverOptionLive,
-  PopoverOptionMark,
   PopoverSurface,
   useDismissOverlays,
   useEscapeSurface,
@@ -234,7 +229,7 @@ export type { LeftColumnMenu } from './patterns/LeftColumn'
 
 export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'
 import './ui/popup.css'
-export { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
+export { MenuPresentation, MenuRowContent, MenuListboxOption, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
 
 export { FixedShell, ShellNoticeHost, type FixedShellProps } from './patterns/FixedShell'
 
@@ -243,3 +238,12 @@ export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './pat
 
 export { AppWindowLeftFrame } from './patterns/AppWindow'
 export { LeftColumnModeHead } from './patterns/LeftColumn'
+export { WideMenu, WideMenuRows, MenuSearch, MenuFacts, type WideMenuItem, type MenuMeterData, type MenuSearchProps } from './patterns/WideMenu'
+
+export { InfoCard, InfoCardBody, type InfoFact, type InfoNote, type InfoCardData, type InfoComposition } from './patterns/InfoCard'
+export { useMenusOpen } from './ui/popup-state'
+
+export { AgentCardModeContext } from './patterns/AgentCard'
+export { SubjectActionRows, SubjectActionsMenu } from './patterns/SubjectActionsMenu'
+
+export { InboxMenu } from './patterns/InboxMenu'

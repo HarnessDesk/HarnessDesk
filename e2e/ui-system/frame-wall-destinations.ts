@@ -10,6 +10,11 @@ import type { WallActions } from './frame-wall-actions'
 export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftWidth?: number; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'popup-composer-model', query: 'frame-wall=conversation', composerModel: true },
+  { id: 'popup-topbar-view', query: 'frame-wall=team', tab: 'findings', topbarPopup: 'view' },
+  { id: 'popup-folded-tabs', query: 'frame-wall=team', tab: 'findings', topbarPopup: 'tabs' },
+  { id: 'popup-dropdown-none', query: 'frame-wall=conversation&popup=dropdown-none', popup: 'Frame dropdown' },
+  { id: 'popup-dropdown-icons', query: 'frame-wall=conversation&popup=dropdown-icons', popup: 'Frame dropdown' },
   { id: 'topbar-probe', surface: 'pattern', query: 'frame-wall=topbar' },
   { id: 'conversation', query: 'frame-wall=conversation' },
   { id: 'conversation-seat-usage', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'usage' },
@@ -83,6 +88,37 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'library', query: 'frame-wall=library' },
   { id: 'plugins', query: 'frame-wall=plugins' },
   { id: 'changes-review', query: 'frame-wall=changes-review' },
+  { id: 'popup-conversation-more', query: 'frame-wall=conversation&frame-conversation-actions=1', popup: 'More' },
+  { id: 'popup-undo-confirmation', query: 'frame-wall=conversation&frame-conversation-actions=1', undo: true },
+  { id: 'popup-wide-menu', query: 'frame-wall=conversation&popup=wide', popup: 'Frame wide menu' },
+  { id: 'popup-metered-menu', query: 'frame-wall=conversation&popup=metered', popup: 'Frame metered menu' },
+  { id: 'popup-plan-usage', query: 'frame-wall=conversation&popup=plan-usage', plan: 'anchor' },
+  { id: 'popup-branch-flyout', query: 'frame-wall=conversation', git: true, branch: true },
+  { id: 'popup-branch-context', query: 'frame-wall=conversation', git: true, gitRef: true },
+  { id: 'popup-create-branch', query: 'frame-wall=conversation', git: true, branch: true, createBranch: true },
+  { id: 'popup-account-menu', query: 'frame-wall=conversation', account: true },
+  { id: 'popup-sign-out-confirmation', query: 'frame-wall=conversation', account: true, signOut: true },
+  { id: 'popup-other-agents', query: 'frame-wall=conversation&popup=other-agents', plan: 'rest' },
+  { id: 'popup-info-card', query: 'frame-wall=conversation&popup=info', hover: 'Storefront catalogue review' },
+  { id: 'popup-info-card-focused', query: 'frame-wall=conversation&popup=info', focus: 'Storefront catalogue review' },
+  { id: 'popup-info-menu-exclusion', query: 'frame-wall=conversation&popup=info-and-menu', popup: 'Frame menu' },
+  { id: 'popup-context-info', query: 'frame-wall=conversation', contextInfo: true },
+  { id: 'popup-member-info', query: 'frame-wall=conversation&popup=member-info', memberInfo: true },
+  { id: 'popup-budget-info', query: 'frame-wall=conversation&popup=budget-info', hover: 'Run budget' },
+  { id: 'popup-seat-actions', query: 'frame-wall=team', tool: 'details', popup: 'Actions for Alpha' },
+  { id: 'popup-context-info-focused', query: 'frame-wall=conversation', infoFocus: 'context' },
+  { id: 'popup-member-info-focused', query: 'frame-wall=conversation&popup=member-info', focus: 'Frame member facts' },
+  { id: 'popup-budget-info-focused', query: 'frame-wall=conversation&popup=budget-info', focus: 'Run budget' },
+  { id: 'popup-account-info', query: 'frame-wall=conversation', leftOpen: true, infoTarget: '[data-info-source="account"]' },
+  { id: 'popup-header-info', query: 'header-status=1', infoTarget: '[data-info-source="header"]' },
+  { id: 'popup-publication-info', query: 'frame-wall=conversation&popup=publication-info', infoTarget: '[data-kind="pullRequest"] a[href]' },
+  { id: 'popup-publication-actions', query: 'frame-wall=conversation&popup=publication-info', popup: 'acme/storefront #12 actions' },
+  { id: 'popup-subject-actions', query: 'frame-wall=conversation&popup=subject-actions', popup: 'Scout actions' },
+  { id: 'popup-origin-details', query: 'frame-wall=team-trigger&popup=origin-details', tool: 'details' },
+  { id: 'popup-inbox', query: 'frame-wall=conversation&popup=inbox', inbox: true },
+  { id: 'popup-inbox-expanded', query: 'frame-wall=conversation&popup=inbox', inbox: true, expandInbox: true },
+  { id: 'popup-suggestions', query: 'frame-wall=conversation&popup=suggestions' },
+  { id: 'popup-select', query: 'frame-wall=conversation&popup=select', select: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
@@ -114,3 +150,4 @@ export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded
   { id: 'left-project-hover', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'hover-open' },
   { id: 'left-project-folded', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'folded' },
 )
+export interface WallDestination { readonly plan?: 'anchor' | 'rest' }

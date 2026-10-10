@@ -200,7 +200,7 @@ export const ScopeControl = ({
       title="Scope the dashboard to one account"
       triggerVariant={{ variant: 'outline' }}
       align="left"
-    >
+     icons="none">
       {(close) => (
         <Menu close={close}>
           <MenuItem
@@ -439,7 +439,7 @@ export const Card = ({
           title={`What to do about ${agent}`}
           triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs' })}
           align="right"
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuItem

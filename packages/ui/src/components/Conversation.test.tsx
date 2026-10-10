@@ -11,6 +11,8 @@ import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Conversation } from './Conversation'
 import styles from './Conversation.module.css'
 import { TopBarProvider, TopBarOutlet, WorkDetailsOutlet } from '../panels/top-bar'
+import * as harness from '../preview/harness'
+import { FrameWall } from '../preview/frames-frame-wall'
 
 /**
  * What a conversation says when it has nothing to show.
@@ -509,7 +511,7 @@ it('the conversation’s menu cannot compact a wrapped Team’s conversation —
 
   const row = compactRow()
   if (!row) throw new Error('no Compact now in the menu')
-  expect(row.disabled).toBe(true)
+  expect(row.getAttribute('aria-disabled')).toBe('true')
   expect(row.title).toBe('This Team is wrapped')
   expect(row.textContent).toContain('This Team is wrapped')
   expect(row.textContent).not.toContain('Summarise older turns')
@@ -824,4 +826,42 @@ it('shows one quiet copy notice using the agent presentation name', () => {
   expect(container.textContent).toContain('HarnessDesk’s copy — Demo Agent’s own record is unavailable.')
   expect(container.textContent?.split('HarnessDesk’s copy').length).toBe(2)
   expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('Kept answer')
+})
+
+it('Undo leaves the menu before asking, and Keep never rolls back', async () => {
+  const store = harness.previewStore()
+  const fixture = vi.spyOn(harness, 'previewStore').mockReturnValue(store)
+  const previousURL = location.href
+  history.replaceState(null, '', '/preview.html?frame-wall=conversation&frame-conversation-actions=1')
+  const rollback = vi.fn()
+  Object.defineProperty(store, 'rollback', { configurable: true, value: rollback })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const click = async (label: string, role?: string) => {
+    const candidates = [...document.querySelectorAll<HTMLElement>(role ? `[role="${role}"]` : 'button')]
+    const found = candidates.find(n => n.getAttribute('aria-label') === label || n.textContent?.trim() === label)
+    expect(found, label).toBeTruthy()
+    await act(async () => { found!.click() })
+  }
+  try {
+    await act(async () => { root.render(<StoreProvider store={store}><FrameWall /></StoreProvider>) })
+    await click('More')
+    const memory = document.querySelector('[role="switch"]')
+    expect(memory?.hasAttribute('data-menu-row')).toBe(true)
+    expect(memory?.getAttribute('title')).toContain('carry what it learns here into new ones.')
+    const undo = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent?.startsWith('Undo the last turn'))
+    expect(undo).toBeTruthy()
+    await act(async () => { undo!.click() })
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(rollback).not.toHaveBeenCalled()
+    await click('Keep')
+    expect(rollback).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => { root.unmount() })
+    host.remove()
+    fixture.mockRestore()
+    history.replaceState(null, '', previousURL)
+  }
 })

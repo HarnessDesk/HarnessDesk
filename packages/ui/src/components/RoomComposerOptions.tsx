@@ -46,7 +46,7 @@ export const RoomComposerOptions = ({ members }: { members: readonly RoomMember[
               fullWidth title={LABELS[slot]} drop="up" align="left"
               tone={slot === 'permissions' ? riskTone(targets.flatMap((target) => target.slots.permissions)) : 'calm'}
               label={<><Icon size={13} /><Text role="row" className="truncate">{summary(slot)}</Text></>}
-            >
+             icons="none">
               {close => (
                 <Menu close={close}>
                   {targets.length === 0 && <MenuNote>Choose a member to read its settings.</MenuNote>}

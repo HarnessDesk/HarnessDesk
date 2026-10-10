@@ -1,3 +1,4 @@
+import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
 import { FRAME, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
@@ -2137,6 +2138,8 @@ const AdoptedBoard = () => {
               <SelectItem value="studio">Studio</SelectItem>
             </SelectContent>
           </Select>
+          <SuggestionsExample />
+          <SelectExample />
         </Case>
 
         <Case label="scroll area &mdash; real overflow">
@@ -2164,7 +2167,7 @@ const AdoptedBoard = () => {
           <div className="flex flex-wrap gap-2">
             <HoverCard>
               <HoverCardTrigger render={<Button variant="outline">Preview details</Button>} />
-              <HoverCardContent className="p-3">A richer, enterable preview rather than a repeated label.</HoverCardContent>
+              <HoverCardContent><InfoCardBody title="Workspace facts" rows={[{ id: 'folder', label: 'Folder', value: 'workspace/storefront', kind: 'path' }]} /></HoverCardContent>
             </HoverCard>
             <Tooltip>
               <TooltipTrigger render={<Button variant="outline">Rest or focus</Button>} />
@@ -3093,6 +3096,10 @@ export const SeatListBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'popup-inbox', title: 'Inbox menu', about: 'Kept notifications, complete expanded facts and actions.', render: () => <PopupInboxBoard /> },
+  { id: 'subject-actions', title: 'Subject actions', about: 'Verbs and Messages choices retain their callbacks outside facts.', render: () => <PopupSubjectBoard /> },
+  { id: 'info-card', title: 'Info card', about: 'Complete facts on hover and focus, without actions or menu overlap.', render: () => <PopupInfoBoard /> },
+  { id: 'wide-menu', title: 'Wide menu', about: 'Search, long names, aligned usage and footer in one bounded surface.', render: () => <PopupWideBoard /> },
   { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
   { id: 'fixed-shell', title: 'FixedShell', about: 'Real-length content in both themes.', render: FixedShellBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
@@ -3452,7 +3459,7 @@ export const SettingsNavigationBoard = () => {
 }
 COMPOSITION_BOARDS.push({ id: 'settings-navigation', title: 'Settings navigation', about: 'Controlled preferences with Back and search.', render: SettingsNavigationBoard })
 
-import { MenuExample } from '../catalog/popup-examples'
+import { MenuExample, SuggestionsExample, SelectExample } from '../catalog/popup-examples'
 const MENU_ROW_CATALOG_VARIANTS = ['default'] as const
 const MENU_ROW_CATALOG_SIZES = ['default'] as const
 const MENU_ROW_CATALOG_STATES = ['default'] as const
@@ -3464,3 +3471,24 @@ export const AppWindowLeftBoard = () => <div className="grid h-96 w-full" data-c
   body={<Text as="p" role="row">Preference content stays in its existing window until phase E.</Text>}
   /></div>
 COMPOSITION_BOARDS.push({ id: 'app-window-left', title: 'Window left column', about: 'Temporary shared left slot with one shell header and no status strip.', render: AppWindowLeftBoard })
+import { WideMenuExample, MeteredMenuExample, InfoCardExample } from '../catalog/popup-examples'
+const WIDEMENU_CATALOG_VARIANTS = ['default'] as const
+const WIDEMENU_CATALOG_SIZES = ['default'] as const
+const WIDEMENU_CATALOG_STATES = ['default'] as const
+const PopupWideBoard = () => <>{WIDEMENU_CATALOG_VARIANTS.map(variant => WIDEMENU_CATALOG_SIZES.map(size => WIDEMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><WideMenuExample /><MeteredMenuExample /></div>)))}</>
+
+const INFOCARD_CATALOG_VARIANTS = ['default'] as const
+const INFOCARD_CATALOG_SIZES = ['default'] as const
+const INFOCARD_CATALOG_STATES = ['default'] as const
+const PopupInfoBoard = () => <>{INFOCARD_CATALOG_VARIANTS.map(variant => INFOCARD_CATALOG_SIZES.map(size => INFOCARD_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InfoCardExample /></div>)))}</>
+
+const SUBJECTACTIONSMENU_CATALOG_VARIANTS = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_SIZES = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_STATES = ['default'] as const
+const PopupSubjectBoard = () => <>{SUBJECTACTIONSMENU_CATALOG_VARIANTS.map(variant => SUBJECTACTIONSMENU_CATALOG_SIZES.map(size => SUBJECTACTIONSMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><SubjectActionsMenu label="Scout" actions={[{ label: 'Open', onSelect: () => {} }, { label: 'Message', onSelect: () => {} }]} choice={{ label: 'Messages', value: 'hold', options: [{ value: 'accept', label: 'Accept' }, { value: 'hold', label: 'Hold' }, { value: 'refuse', label: 'Refuse' }], onChange: () => {} }} /></div>)))}</>
+
+import { InboxExample } from '../catalog/popup-examples'
+const INBOXMENU_CATALOG_VARIANTS = ['default'] as const
+const INBOXMENU_CATALOG_SIZES = ['default'] as const
+const INBOXMENU_CATALOG_STATES = ['default'] as const
+const PopupInboxBoard = () => <>{INBOXMENU_CATALOG_VARIANTS.map(variant => INBOXMENU_CATALOG_SIZES.map(size => INBOXMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InboxExample /></div>)))}</>

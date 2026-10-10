@@ -1599,47 +1599,13 @@ it after the last.
 
 `packages/ui/src/design/patterns/Menu.tsx`
 
-Several accounts of one agent, under one heading. `heading={false}` keeps
-the group — so a row does not change parent, and lose focus, when the
-heading comes and goes — but draws no heading and steps nothing in: one
-account of the agent on show, as one row wearing its own mark.
-
-The heading wears the agent's mark once and names it; it is not a choice,
-so it takes no hover and no press, and it is the group's accessible name —
-`aria-labelledby`, the wiring the vendored group label would give. Plain
-elements rather than `DropdownMenuGroup`/`DropdownMenuLabel`: one screen
-composes this, and the audit's single-area primitive ceiling may only
-fall. The `account` rows under a heading step in so that, after an
-`AccountMark size="dot"` (the account's colour), their names start on the
-heading's name column; the heading already drew whose they are.
+A stable account group whose heading shares the level's text edge.
 
 ### `MenuAccountRow`
 
 `packages/ui/src/design/patterns/Menu.tsx`
 
-One account in the seat menu: a leading mark, the name and its identity,
-the tag that only exists to tell two same-named rows apart, and the
-trailing figure. `AccountFooter` (`components/Sidebar.tsx`) composes this
-from the running app, and the catalogue's Foundation propagation page
-composes the identical part from the same shape of props (#993) — the
-layout no longer exists twice.
-
-`mark` is handed over already built — an `AccountMark` wrapped in its own
-hover card, or a bare `size="dot"` mark under a heading — because the card
-is the app's own account-specific chrome and has no business in a part
-shared with the catalogue. `identity` is kept as `title` and
-`data-identity` on the name's own block, not the row's, exactly as the
-seat menu drew it before this moved.
-
-Every `MenuItem` prop a seat row still needs passes straight through:
-`current`, `expanded`, `keepOpen`, `onSelect`, and — set by the caller as
-ever, since it is a React reserved prop rather than one this component
-reads — `key`.
-
-The layout is the row's own and is kept to layout properties only (flex,
-gap, min/max-width, overflow, white-space): a pattern with one screen
-consumer is charged for anything else it draws itself (docs/design.md).
-Ink and type come from `Text`.
+An account identity, badge and figure rendered by the canonical row.
 
 ### `MenuToggle`
 
@@ -1747,8 +1713,7 @@ last time; actions name their destination.
 `packages/ui/src/design/patterns/Notices.tsx`
 
 The bell and the inbox behind it. The bell carries the unread count in its
-own tint; the inbox opens beside it as a panel of its own, wide enough for
-a card to read in two lines, rather than folding into a menu.
+own tint; the wide menu keeps complete message facts and their actions.
 
 ### `showToast`
 
@@ -2280,7 +2245,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `retiredComponent` | 81 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2955 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2840 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

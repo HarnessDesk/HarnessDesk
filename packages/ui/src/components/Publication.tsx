@@ -6,115 +6,26 @@ import { openExternal } from '../lib/desktop'
 import { useStore } from '../state/context'
 import { AgentHoverCard } from './AgentCards'
 import { GitHubMark } from './BrandIcons'
-import { Button, CardBand, CardCrest, CardCrestBody, CardShell, CodeText, IconTile, KindGlyph, StatePill, Text, publicationVerb } from '../design'
+import { Button, InfoCardBody, SubjectActionsMenu, CodeText, KindGlyph, StatePill, Text, publicationVerb } from '../design'
 import { FrontDoor } from './FrontDoor'
 import styles from './Publication.module.css'
 
 const figure = (n: number | null): string => (n === null ? '' : n.toLocaleString())
 
-/**
- * Something on the forge, as a card: a pull request, a review, a comment.
- *
- * Built on the agent card's anatomy — crest, bands, verbs — because the reader
- * has learnt it there and a second anatomy for a second kind of thing would
- * cost them the learning twice. Its bands are literally `CardBand`, the same
- * part `AgentCard` draws its own on: this card's bands used to redraw it a
- * hairline off (`py-2` where the part is `py-2.5`), and that step is the
- * only visible change the sharing makes. What differs is the subject: a pull
- * request has a state that is a judgement (merged is good news, closed
- * without merging is not), so its pill takes a tone where an agent's tile
- * takes a tint.
- *
- * The text on it is the forge's own. The card shows the pull request's title
- * and the opening of its description exactly as GitHub holds them, which is
- * how the signature at the end of a short description appears here — as part
- * of the text, not as a claim the desk makes about it.
- *
- * Rendered only from this row's hover card (below): a publication reference is
- * a fact of this conversation, not a shared catalogue piece, so its anatomy
- * lives here rather than in `design/patterns/` — `StatePill` and `KindGlyph`,
- * which other screens also draw, stay behind in `PublicationCard.tsx`. The
- * shell and crest are the one exception: `CardShell`/`CardCrest` are the same
- * two the agent card stands on, so this card composes them rather than
- * redrawing the anatomy a second time.
- */
-export const PublicationCard = ({ reference }: { reference: ForgeReference }) => {
-  const facts: string[] = []
-  if (reference.author) facts.push(reference.author)
-  if (reference.files !== null) facts.push(`${reference.files} file${reference.files === 1 ? '' : 's'}`)
-  const sized = reference.additions !== null || reference.deletions !== null
-
-  return (
-    <CardShell slot="publication-card" kind={reference.kind}>
-      {/* Crest: the forge's mark, the address, the title as the forge has it. */}
-      <CardCrest>
-        <IconTile>
-          <GitHubMark size={16} />
-        </IconTile>
-        <CardCrestBody>
-          <span className="flex items-center gap-1.5">
-            <Text role="meta" className="min-w-0 truncate">
-              <CodeText>{reference.repo} #{reference.number}</CodeText>
-            </Text>
-            <StatePill state={reference.state} />
-          </span>
-          {/* The whole of a title the clamp cuts. The row's chip had a tooltip
-              carrying this and gave it up — the card opens on the same rest,
-              and two boxes on one rest is the rule this card broke — so the
-              heading is where a long title has to be readable in full. A
-              different rest, on a surface already opened on purpose. */}
-          {reference.title && (
-            <Text
-              as="span"
-              role="row"
-              title={reference.title}
-              className="mt-0.5 block line-clamp-2"
-            >
-              {reference.title}
-            </Text>
-          )}
-        </CardCrestBody>
-      </CardCrest>
-
-      {(facts.length > 0 || sized) && (
-        <CardBand className="flex items-center gap-2">
-          {facts.length > 0 && (
-            <Text role="meta" className="min-w-0 truncate">{facts.join(' · ')}</Text>
-          )}
-          {sized && (
-            <span className="ml-auto flex shrink-0 gap-1.5">
-              <Text role="meta" tone="success" numeric><CodeText>+{figure(reference.additions ?? 0)}</CodeText></Text>
-              <Text role="meta" tone="danger" numeric><CodeText>−{figure(reference.deletions ?? 0)}</CodeText></Text>
-            </span>
-          )}
-        </CardBand>
-      )}
-
-      {reference.excerpt && (
-        <CardBand>
-          <Text as="p" role="meta" className="line-clamp-6 whitespace-pre-line">
-            {reference.excerpt}
-          </Text>
-        </CardBand>
-      )}
-
-      <CardBand className="flex items-center gap-1.5">
-        <Button size="sm" variant="secondary" onClick={() => openExternal(reference.url)}>
-          Open on GitHub
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            void navigator.clipboard?.writeText(reference.url)
-          }}
-        >
-          Copy link
-        </Button>
-      </CardBand>
-    </CardShell>
-  )
-}
+/** Forge facts remain plain text on the shared InfoCard body. Actions live
+ * beside the publication link in the row's subject menu. */
+export const PublicationCard = ({ reference }: { reference: ForgeReference }) => <InfoCardBody
+  title={reference.title || `${reference.repo} #${reference.number}`}
+  rows={[
+    { id: 'address', label: 'Reference', value: `${reference.repo} #${reference.number}` },
+    { id: 'kind', label: 'Kind', value: reference.kind },
+    ...(reference.state ? [{ id: 'state', label: 'State', value: reference.state }] : []),
+    ...(reference.author ? [{ id: 'author', label: 'Author', value: reference.author }] : []),
+    ...(reference.files === null ? [] : [{ id: 'files', label: 'Files', value: reference.files }]),
+    ...(reference.additions === null ? [] : [{ id: 'added', label: 'Added', value: figure(reference.additions) }]),
+    ...(reference.deletions === null ? [] : [{ id: 'removed', label: 'Removed', value: figure(reference.deletions) }]),
+  ]}
+  notes={reference.excerpt ? [reference.excerpt] : []} />
 
 /**
  * A publication in the transcript: what the conversation put on the forge.
@@ -168,6 +79,10 @@ export const Publication = ({ item, root }: { item: PublicationItem; root?: stri
         </Button>
       </AgentHoverCard>
       <StatePill state={reference.state} />
+      <SubjectActionsMenu label={`${reference.repo} #${reference.number}`} actions={[
+        { label: 'Open reference', onSelect: () => openExternal(reference.url) },
+        { label: 'Copy link', onSelect: () => { void navigator.clipboard?.writeText(reference.url) } },
+      ]} />
       {canReview && (
         <Button
           variant="quiet"

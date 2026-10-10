@@ -95,7 +95,7 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
       })}
       </TabsList></Tabs>
       <span className="flex-1" />
-      <Popover label={<MoreIcon />} title="View: columns and sort" align="right">
+      <Popover label={<MoreIcon />} title="View: columns and sort" align="right" icons="none">
         {close => <Menu close={close}>
           <MenuLabel>Sort</MenuLabel>
           <MenuItem label="Needs you first" current={sort === 'state'} onSelect={() => setSort('state')} />

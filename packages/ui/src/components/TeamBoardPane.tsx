@@ -984,7 +984,7 @@ const IntentCard = ({
   const menuVerbs = verbs.filter(one => !listColumns || record || one !== primary)
   const actions = (
         menuVerbs.length > 0 || checkItems.length > 0 || onAssign ? (
-          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right" icons="none">
             {(close) => (
               <Menu close={close}>
                 {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}
@@ -1124,7 +1124,6 @@ const IntentCard = ({
             <SessionHoverCard
               session={session ?? null}
               className="flex min-w-0 flex-1 items-center gap-1.5"
-              actions={[{ label: 'Open', primary: true, onSelect: onOpenHolder }]}
             >
               <IconTile size="sm" shape="face" tint={holderTint}>
                 {runtime ? (

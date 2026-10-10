@@ -1,5 +1,7 @@
 import { Select as SelectPrimitive } from '@base-ui/react/select'
-import type * as React from 'react'
+import * as React from 'react'
+import { registerMenu } from './popup-state'
+import { MenuPresentation, MenuRowContent, menuRowAttributes, type MenuRowData } from './menu-row'
 
 import { CaretIcon, CheckIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
@@ -9,9 +11,13 @@ import { floatingMotion } from './motion'
  * utilities dropped. For a picker that must survive jsdom (tests drive it
  * with a plain change event), reach for NativeSelect instead. */
 
-const Select = ({ ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) => (
-  <SelectPrimitive.Root data-slot="select" {...props} />
-)
+const Select = ({ open: controlledOpen, defaultOpen, onOpenChange, ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) => {
+  const [localOpen, setLocalOpen] = React.useState(defaultOpen ?? false)
+  const effectiveOpen = controlledOpen ?? localOpen
+  const menuId = React.useRef(Symbol('select'))
+  React.useLayoutEffect(() => effectiveOpen ? registerMenu(menuId.current) : undefined, [effectiveOpen])
+  return <SelectPrimitive.Root {...props} open={effectiveOpen} onOpenChange={(next, details) => { onOpenChange?.(next, details); if (!details.isCanceled) setLocalOpen(next) }} data-slot="select" />
+}
 
 const SelectGroup = ({ ...props }: React.ComponentProps<typeof SelectPrimitive.Group>) => (
   <SelectPrimitive.Group data-slot="select-group" {...props} />
@@ -42,7 +48,7 @@ const SelectTrigger = ({
 )
 
 const SelectContent = ({
-  className,
+  className: _className,
   children,
   align = 'start',
   side = 'bottom',
@@ -57,68 +63,32 @@ const SelectContent = ({
       sideOffset={sideOffset}
       className="z-(--hd-z-popover)"
     >
-      <SelectPrimitive.Popup
-        data-slot="select-content"
-        className={cn(
-          floatingMotion,
-          'bg-popover text-popover-foreground relative max-h-(--available-height) min-w-32 overflow-x-hidden overflow-y-auto rounded-lg border shadow-md data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
-          className,
-        )}
-        {...props}
-      >
-        <SelectScrollUpButton />
-        <SelectPrimitive.List className="min-w-(--anchor-width) scroll-my-1 p-1">
-          {children}
-        </SelectPrimitive.List>
-        <SelectScrollDownButton />
+      <SelectPrimitive.Popup {...props} data-slot="select-content" data-popup-kind="menu" data-menu-icons="none" className={floatingMotion}>
+        <MenuPresentation icons="none">
+          <SelectScrollUpButton />
+          <SelectPrimitive.List>{children}</SelectPrimitive.List>
+          <SelectScrollDownButton />
+        </MenuPresentation>
       </SelectPrimitive.Popup>
     </SelectPrimitive.Positioner>
   </SelectPrimitive.Portal>
 )
 
-const SelectLabel = ({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.GroupLabel>) => (
-  <SelectPrimitive.GroupLabel
-    data-slot="select-label"
-    className={cn('text-muted-foreground px-2 py-1 text-xs', className)}
-    {...props}
-  />
-)
+const SelectLabel = ({ className: _className, ...props }: React.ComponentProps<typeof SelectPrimitive.GroupLabel>) => <SelectPrimitive.GroupLabel {...props} data-slot="select-label" data-menu-group="" />
 
-const SelectItem = ({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Item>) => (
-  <SelectPrimitive.Item
-    data-slot="select-item"
-    className={cn(
-      "focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex w-full cursor-default items-center gap-2 rounded-sm py-1 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
-      className,
-    )}
-    {...props}
-  >
-    <span className="absolute right-2 flex size-3.5 items-center justify-center">
-      <SelectPrimitive.ItemIndicator>
-        <CheckIcon size={14} />
-      </SelectPrimitive.ItemIndicator>
-    </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+const SelectItem = ({ label, hint, className: _className, children, ...props }:
+  React.ComponentProps<typeof SelectPrimitive.Item> & Partial<Pick<MenuRowData, 'label' | 'hint'>>) => {
+  const data: MenuRowData = {
+    label: <SelectPrimitive.ItemText>{label ?? children}</SelectPrimitive.ItemText>,
+    hint,
+    trailing: <SelectPrimitive.ItemIndicator className="inline-flex"><CheckIcon size={16} /></SelectPrimitive.ItemIndicator>,
+  }
+  return <SelectPrimitive.Item {...props} label={label} {...menuRowAttributes(data)} data-slot="select-item">
+    <MenuRowContent {...data} />
   </SelectPrimitive.Item>
-)
+}
 
-const SelectSeparator = ({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Separator>) => (
-  <SelectPrimitive.Separator
-    data-slot="select-separator"
-    className={cn('bg-border pointer-events-none -mx-1 my-1 h-px', className)}
-    {...props}
-  />
-)
+const SelectSeparator = ({ className: _className, ...props }: React.ComponentProps<typeof SelectPrimitive.Separator>) => <SelectPrimitive.Separator {...props} data-slot="select-separator" data-menu-separator="" />
 
 const SelectScrollUpButton = ({
   className,

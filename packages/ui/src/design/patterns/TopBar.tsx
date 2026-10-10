@@ -144,7 +144,7 @@ export const TopBar = (props: TopBarProps) => {
         </TabsList>
       </Tabs>}{(fold >= 2 || settledFold >= 2) && <div key="folded" style={fold < 2 && foldedAnchor.current ? {
         position: 'fixed', left: foldedAnchor.current.left, top: foldedAnchor.current.top,
-      } : undefined}><Popover title="Destination views" triggerRef={foldedTab} label={<>{current?.label ?? 'Views'}{current?.count !== undefined && <Text role="meta" numeric>{current.count}</Text>}<CaretIcon /></>}>
+      } : undefined}><Popover title="Destination views" triggerRef={foldedTab} label={<>{current?.label ?? 'Views'}{current?.count !== undefined && <Text role="meta" numeric>{current.count}</Text>}<CaretIcon /></>} icons="none">
         {close => <Menu close={close}>{props.tabs?.map(one => <MenuItem key={one.value} label={one.label}
           value={one.count} teamPage={one.value} selected={one.value === props.tab} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
       </Popover></div>}</div>}
@@ -154,13 +154,13 @@ export const TopBar = (props: TopBarProps) => {
         {props.verb.icon}{(fold === 0 || !props.verb.icon) && props.verb.label}
       </Button>}</div>
       <div data-topbar="view" className={styles.fixed}>{props.view && <Popover title="View" narrowed={props.view.narrowed} reason={props.view.disabled || undefined} disabled={Boolean(props.view.disabled)}
-        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} label={<SlidersIcon />}>
+        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} label={<SlidersIcon />} icons="none">
         {close => props.view?.content(close)}
       </Popover>}</div>
       <div ref={tools} data-topbar="tools" className={styles.fixed} data-standing={props.rightColumnWidth ? '' : undefined}
         style={props.rightColumnWidth ? { '--topbar-right-column': typeof props.rightColumnWidth === 'number' ? `${props.rightColumnWidth}px` : props.rightColumnWidth } as CSSProperties : undefined}>{props.tools}
       <div data-topbar="more" className={styles.fixed}><Popover title="More" label={<MoreIcon />}
-        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} icons="none">
         {close => <Menu close={close}>{(fold === 3 || settledFold === 3) && props.verb && !props.verb.icon && <>
           <MenuItem label={props.verb.label} disabled={props.verb.disabled} onSelect={() => { props.verb?.run(); close() }} />
           <MenuSeparator />

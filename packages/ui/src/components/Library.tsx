@@ -771,7 +771,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
               align="right"
               triggerVariant={{ variant: 'outline' }}
               triggerRef={filterTrigger}
-            >
+             icons="none">
               {(close) => (
                 <Menu close={close}>
                   <MenuLabel>Show</MenuLabel>
@@ -812,7 +812,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
                   {snapshot.agents && snapshot.agents.length > 0 && (
                     <>
                       <MenuSeparator />
-                      <Submenu label="Declared by" value={agentName ?? 'Any Agent'}>
+                      <Submenu label="Declared by" value={agentName ?? 'Any Agent'} wide icons="none">
                         <MenuItem label="Any Agent" selected={agentFilter === ''} onSelect={() => setAgentFilter('')} />
                         {snapshot.agents.map((entry) => (
                           <MenuItem

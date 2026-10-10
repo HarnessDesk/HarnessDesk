@@ -1879,7 +1879,7 @@ it('the shared caution leaves each member\u2019s own card saying it', async () =
     trigger.dispatchEvent(new MouseEvent('mouseenter'))
   })
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1000)) })
-  const card = document.body.querySelector('[data-slot="agent-card"]')
+  const card = document.body.querySelector('[data-popup-kind="info-card"]')
   expect(card, 'the member card opened').not.toBeNull()
   expect(card!.textContent).toContain('Reachable, but has taken nothing from the board this run.')
 })
@@ -2405,7 +2405,7 @@ it("the composer's own budget meter reads what is left, and its hover card has t
   expect(document.body.textContent).toContain('$1.20 of $5')
   // The same meaning as the footer's own "Round 1 of 1": the round being
   // worked, never a count of rounds used beside it.
-  const rows = [...document.body.querySelectorAll('[data-slot="key-value-row"]')].map((one) => one.textContent)
+  const rows = [...document.body.querySelectorAll('[data-info-pair]')].map((one) => one.textContent)
   expect(rows).toContain('Round1 of 1')
   expect(rows.some((one) => one?.startsWith('Rounds'))).toBe(false)
   expect(document.body.textContent).toContain('12 of 60 min')
@@ -3375,7 +3375,7 @@ it('opens member information from its mark while Seat actions remain separate', 
   await render(store)
   const mark = row('Opus').querySelector('[data-slot="hover-card-trigger"]')!
   rest(mark)
-  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
+  expect(document.querySelector('[data-popup-kind="info-card"]')?.textContent).toContain('Opus')
   leave(mark)
   expect(mark.hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
@@ -3420,7 +3420,7 @@ it('keyboard focus on Seat More opens no hover card', async () => {
   act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' })); more.focus() })
   act(() => vi.advanceTimersByTime(1000))
   expect(document.activeElement).toBe(more)
-  expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
+  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
   vi.useRealTimers()
 })
 
@@ -3451,7 +3451,7 @@ it('opens the room member card from a tile identity', async () => {
   if (!head) throw new Error('no tile head for the watched member')
 
   rest(textAt(head, CLAUDE.agent!))
-  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
+  expect(document.querySelector('[data-popup-kind="info-card"]')?.textContent).toContain('Opus')
   vi.useRealTimers()
 })
 

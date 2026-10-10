@@ -12,6 +12,7 @@ import { gitWorktrees } from './git-fixture'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
 import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
 import { PopupWall } from './popup-wall'
+import { triggerGoalStatus } from './intake-fixture'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { ChangesReview } from '../components/ChangesReview'
 import { AppWindowMode } from '../components/AppWindow'
@@ -73,9 +74,13 @@ const showing = (store: AppStore, view: PaneView, session: AppSnapshot['activeSe
 export const triggerTeamStore = (): AppStore => {
   const source = overviewTeamStore('running').getSnapshot()
   const goal = source.goals.get('overview-team')!
-  return previewStore({ ...source, goals: new Map(source.goals).set('overview-team', {
+  const store = previewStore({ ...source, goals: new Map(source.goals).set('overview-team', {
     ...goal, goal: { ...goal.goal, origin: { kind: 'trigger', trigger: 'fixture-trigger', event: 'fixture-event' } },
   }) })
+  return new URLSearchParams(location.search).get('popup') === 'origin-details' ? new Proxy(store, { get(target, key) {
+    if (key === 'triggerGoal') return async () => triggerGoalStatus({ goal: 'overview-team', trigger: 'fixture-trigger', budget: null })
+    return Reflect.get(target, key)
+  } }) : store
 }
 
 const frameRunStore = (scene: RunScene) => {
@@ -100,13 +105,25 @@ const frameEquivalentRunStore = () => {
   return store
 }
 
+const popupContent = (store: AppStore): AppStore => {
+  const snapshot = store.getSnapshot()
+  store.listBranches = async () => ['main', 'feature/storefront-checkout-diagnostics-and-retry-policy', 'feature/catalogue', 'release/next', 'fix/search', 'feature/发布前检查'].map((name, at) => ({ name, current: at === 0, committedAt: Date.now() - (at + 1) * 60_000 }))
+  if (new URLSearchParams(location.search).get('popup') === 'other-agents') {
+    const missing = snapshot.runtimes.at(-1)!.id
+    Object.assign(snapshot, { usage: snapshot.usage.filter(report => report.runtime !== missing) })
+  }
+  const names = ['Storefront catalogue review and checkout diagnostics', '发布前检查和目录兼容性说明', 'Warehouse inventory reconciliation and retry policy']
+  Object.assign(snapshot, { runtimes: snapshot.runtimes.map((runtime, at) => ({ ...runtime, presentation: { ...runtime.presentation, name: names[at] ?? runtime.presentation.name } })) })
+  return store
+}
+
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
       { kind: 'room', room: 'structure-team' }, null)
-    case 'conversation': return showing(previewStore(new URLSearchParams(window.location.search).has('sidebar-geometry')
-      ? sidebarGeometryFixture(previewStore().getSnapshot()) : undefined), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
-    case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
+    case 'conversation': return popupContent(showing(previewStore(new URLSearchParams(window.location.search).has('sidebar-geometry')
+      ? sidebarGeometryFixture(previewStore().getSnapshot()) : undefined), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
+    case 'draft': return popupContent(showing(previewStore(), { kind: 'conversation', session: null }, null))
     case 'team-run-recorded': return showing(frameRunStore('running'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-not-reached': return showing(frameRunStore('empty'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-equivalent': return showing(frameEquivalentRunStore(), { kind: 'room', room: 'overview-team' }, null)
@@ -197,6 +214,11 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.get('frame-conversation-actions') === '1') {
+      Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
+        ...runtime, capabilities: { ...runtime.capabilities, memory: true, compaction: true, undo: true },
+      })) })
+    }
     if (query.get('frame-sidebar-hidden') === '1') Object.assign(snapshot, { sidebarCollapsed: true, sidebarFloating: false })
     if (query.get('frame-status') === 'tasks') {
       const task: BackgroundTask = { id: 'frame-task', label: 'Review the checkout', kind: 'command', state: 'running',

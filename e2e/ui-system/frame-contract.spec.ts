@@ -1,4 +1,6 @@
+import { applySettingsNavigationActions } from './left-column-actions'
 import { applyLeftColumnActions } from './left-column-actions'
+import { openWallDestination } from './frame-wall-actions'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
@@ -134,15 +136,28 @@ for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents'
 for (const theme of WALL_THEMES) {
   test(`Owner fix 2 seat usage menu returns focus and has plan actions in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
-    const trigger = page.locator('[data-left-seat] [data-slot="popover-trigger"]')
+    const trigger = page.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))')
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'usage' })
     const menu = page.getByRole('menu')
     await expect(menu).toBeVisible()
     await expect(menu.getByRole('menuitem', { name: 'Open usage', exact: true })).toBeVisible()
     await expect(menu.locator('[data-slot="usage-meter-row"]')).not.toHaveCount(0)
+    const rows = menu.getByRole('menuitem')
+    const count = await rows.count()
+    expect(count).toBeGreaterThan(1)
+    await page.keyboard.press('Home')
+    for (let index = 0; index < count; index++) {
+      await expect(rows.nth(index)).toBeFocused()
+      if (index + 1 < count) await page.keyboard.press('ArrowDown')
+    }
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
     await expect(trigger).toBeFocused()
+    await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'usage' })
+    await page.keyboard.press('Home')
+    await page.keyboard.press('Tab')
+    await expect(menu).toHaveCount(0)
+    await expect(page.locator('[data-left-seat] [data-slot="popover-trigger"]:has([data-slot="inbox-button"])')).toBeFocused()
   })
   test(`Owner fix 2 modal tools preserve work intent and preserve File and terminal nodes in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation&frame-tool=file&frame-tool-path=%2Frepo%2FREADME.md&frame-terminal=1&frame-status=tasks', theme)
@@ -620,8 +635,8 @@ for (const theme of WALL_THEMES) {
     expect(await bar.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool))).toEqual(['details', 'changes', 'activity', 'browser'])
     await expect(bar.locator('[data-topbar-title]')).toContainText('Retry the checkout call')
     await bar.getByRole('button', { name: 'More', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Compact now', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Save as an Agent…', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Compact now', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Save as an Agent…', exact: true })).toBeVisible()
     await expect(page.getByRole('menuitemcheckbox', { name: 'Browser', exact: true })).toHaveCount(0)
     await page.getByRole('menuitem', { name: 'Folder actions', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Commit the changes', exact: true }).click()
@@ -1342,14 +1357,14 @@ const menuMetrics = async (surface: Locator) => surface.evaluate((el) => {
   const box = el.getBoundingClientRect()
   return { width: box.width, radius: css.borderTopLeftRadius, pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft], border: css.borderTopWidth, overflow: el.scrollWidth > el.clientWidth || [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-hint],[data-menu-meter],[data-info-note]')].some(node => node.scrollWidth > node.clientWidth) }
 })
-const rowMetrics = async (surface: Locator) => surface.locator('[data-menu-row]').evaluateAll((els) => els.map(el => {
+const rowMetrics = async (surface: Locator) => surface.evaluate(surface => [...surface.querySelectorAll('[data-menu-row]')].filter(el => el.closest('[data-popup-kind]') === surface).map(el => {
   const css = getComputedStyle(el)
   const label = el.querySelector('[data-menu-label]')!
   const hint = el.querySelector('[data-menu-hint]')
   const icon = el.querySelector('[data-menu-icon]')
   return { height: el.getBoundingClientRect().height, radius: css.borderTopLeftRadius, padTop: parseFloat(css.paddingTop), padBottom: parseFloat(css.paddingBottom), labelHeight: label.getBoundingClientRect().height, labelSize: getComputedStyle(label).fontSize, labelLine: getComputedStyle(label).lineHeight, labelWeight: getComputedStyle(label).fontWeight, font: getComputedStyle(label).fontFamily, smoothing: getComputedStyle(label).getPropertyValue('-webkit-font-smoothing'), hintHeight: hint?.getBoundingClientRect().height ?? 0, meterHeight: el.querySelector('[data-menu-meter]')?.getBoundingClientRect().height ?? 0, hintSize: hint ? getComputedStyle(hint).fontSize : null, hintLine: hint ? getComputedStyle(hint).lineHeight : null, icon: Boolean(icon), iconWidth: icon?.getBoundingClientRect().width ?? 0, gap: parseFloat(css.columnGap), iconTop: icon?.getBoundingClientRect().top ?? 0, labelTop: label.getBoundingClientRect().top }
 }))
-const expectMenuGeometry = async (surface: Locator) => {
+const expectMenuPlateGeometry = async (surface: Locator) => {
   const m = await menuMetrics(surface)
   expect(m.width).toBeGreaterThanOrEqual(FRAME_MENU.min)
   expect(m.width).toBeLessThanOrEqual(FRAME_MENU.max)
@@ -1357,6 +1372,9 @@ const expectMenuGeometry = async (surface: Locator) => {
   expect(m.radius).toBe(`${FRAME_MENU.radius}px`)
   expect(m.border).toBe('0px')
   expect(m.overflow).toBe(false)
+}
+const expectMenuGeometry = async (surface: Locator) => {
+  await expectMenuPlateGeometry(surface)
   const rows = await rowMetrics(surface)
   expect(rows.length).toBeGreaterThan(0)
   expect(new Set(rows.map(row => row.icon)).size, 'whole-level icon policy').toBe(1)
@@ -1384,29 +1402,44 @@ const expectMenuGeometry = async (surface: Locator) => {
       expect(row.iconTop).toBe(row.labelTop)
     }
   }
+  await expectMenuAnatomy(surface, rows[0]!.icon)
+}
+const expectMenuAnatomy = async (surface: Locator, icons: boolean) => {
   const anatomy = await surface.evaluate(el => {
     const secondary = getComputedStyle(el).getPropertyValue('--hd-secondary-foreground').trim()
     const probe = document.createElement('span'); probe.style.color = secondary; el.append(probe)
     const secondaryColor = getComputedStyle(probe).color; probe.remove()
+    const own = (node: Element) => node.closest('[data-popup-kind]') === el
     return {
-      groups: [...el.querySelectorAll('[data-menu-group]')].map(node => { const css = getComputedStyle(node); return { size: css.fontSize, weight: css.fontWeight, color: css.color } }),
-      hints: [...el.querySelectorAll('[data-menu-hint]')].map(node => getComputedStyle(node).color),
-      separators: [...el.querySelectorAll('[data-menu-separator]')].map(node => { const css = getComputedStyle(node); return { height: node.getBoundingClientRect().height, margins: [css.marginTop, css.marginRight, css.marginBottom, css.marginLeft] } }),
+      groups: [...el.querySelectorAll('[data-menu-group]')].filter(own).map(node => { const css = getComputedStyle(node); return { size: css.fontSize, weight: css.fontWeight, color: css.color } }),
+      hints: [...el.querySelectorAll('[data-menu-hint]')].filter(own).map(node => getComputedStyle(node).color),
+      separators: [...el.querySelectorAll('[data-menu-separator]')].filter(own).map(node => { const css = getComputedStyle(node); return { height: node.getBoundingClientRect().height, margins: [css.marginTop, css.marginRight, css.marginBottom, css.marginLeft] } }),
       secondaryColor,
     }
   })
   for (const group of anatomy.groups) expect(group).toEqual({ size: `${FRAME_MENU.groupSize}px`, weight: String(FRAME_MENU.groupWeight), color: anatomy.secondaryColor })
+  const hintInk = await surface.evaluate(el => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--hd-muted-foreground)'; el.append(probe)
+    const muted = getComputedStyle(probe).color; probe.remove()
+    const enabled: string[] = []; const refused: string[] = []
+    for (const hint of el.querySelectorAll('[data-menu-hint]')) {
+      if (hint.closest('[data-popup-kind]') !== el) continue
+      (hint.closest('[data-menu-row]:is([data-disabled],[aria-disabled="true"],:disabled)') ? refused : enabled).push(getComputedStyle(hint).color)
+    }
+    return { muted, enabled, refused }
+  })
+  for (const color of hintInk.refused) expect(color).toBe(hintInk.muted)
+  anatomy.hints = hintInk.enabled
   for (const color of anatomy.hints) expect(color).toBe(anatomy.secondaryColor)
   for (const separator of anatomy.separators) expect(separator).toEqual({ height: FRAME_MENU.separator, margins: Array(4).fill(`${FRAME_MENU.padding}px`) })
   const edge = await surface.evaluate(el => {
     const box = el.getBoundingClientRect()
     const labels = [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-group],[data-menu-note],[data-menu-footer],[data-menu-search]')]
-    return labels.filter(n => n.offsetParent !== null).map(n => {
+    return labels.filter(n => n.offsetParent !== null && n.closest('[data-popup-kind]') === el).map(n => {
       const css = getComputedStyle(n)
       return n.getBoundingClientRect().left + parseFloat(css.paddingLeft) - box.left
     })
   })
-  const icons = rows[0]!.icon
   const expected = FRAME_MENU.padding + FRAME_MENU.rowInset + (icons ? FRAME_MENU.icon + FRAME_MENU.gap : 0)
   for (const x of edge) expect(x).toBe(expected)
 }
@@ -1854,3 +1887,318 @@ d7a.describe('D7a heading disclosure', () => {
     }
   }
 })
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C2 Undo is outside More at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-conversation-actions=1', theme, width)
+    await openWallDestination(page, { undo: true })
+    await expect(page.getByRole('alertdialog', { name: 'Undo the last turn?' })).toBeVisible()
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(page.getByRole('alertdialog')).toBeHidden()
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C4 wide menu search and footer at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=wide', theme, width)
+    await page.getByRole('button', { name: 'Frame wide menu', exact: true }).click()
+    const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+    await expectMenuGeometry(surface)
+    const input = surface.locator('[data-menu-search] input')
+    expect((await input.boundingBox())!.height).toBe(FRAME_MENU.searchHeight)
+    const footer = surface.locator('[data-menu-footer]')
+    await expect(footer).toBeVisible()
+    expect(await footer.evaluate(el => el.previousElementSibling?.getAttribute('role'))).toBe('separator')
+    const firstLabel = surface.locator('[data-menu-label]').first()
+    expect((await firstLabel.boundingBox())!.height).toBeGreaterThan(FRAME_MENU.labelLine)
+    expect(await firstLabel.evaluate(el => getComputedStyle(el).whiteSpace)).not.toBe('nowrap')
+    await input.fill('发布')
+    await expect(surface.locator('[data-menu-row]')).toHaveCount(1)
+    await expectMenuGeometry(surface)
+  })
+  test(`C4 missing usage keeps its reading column at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=metered', theme, width)
+    await page.getByRole('button', { name: 'Frame metered menu', exact: true }).click()
+    const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+    await expectMenuGeometry(surface)
+    const xs = await surface.locator('[data-slot="usage-meter-row"]').evaluateAll(rows => rows.map(row => row.querySelector('[data-meter-column="reading"]')!.getBoundingClientRect().left))
+    expect(xs).toHaveLength(2)
+    expect(xs[0]).toBe(xs[1])
+  })
+  for (const plan of ['anchor', 'rest']) {
+    test(`C4 actual plan usage ${plan} at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, `frame-wall=conversation&popup=${plan === 'rest' ? 'other-agents' : 'plan-usage'}`, theme, width)
+      const trigger = page.locator(`[data-plan-popup="${plan}"]`).locator('xpath=ancestor::button[1]')
+      await trigger.click()
+      const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+      await expectMenuGeometry(surface)
+      await expect(surface.locator('[data-slot="usage-meter-row"]')).not.toHaveCount(0)
+      const columns = await surface.locator('[data-slot="usage-meter-row"]').evaluateAll(rows => rows.map(row => ({ reading: row.querySelector('[data-meter-column="reading"]')!.getBoundingClientRect().left, reset: row.querySelector('[data-meter-column="reset"]')?.getBoundingClientRect().left ?? null })))
+      if (plan === 'rest') await expect(surface.locator('[data-meter-note]')).toHaveText('No usage reported')
+      const resets = columns.map(row => row.reset).filter(x => x !== null)
+      expect(new Set(resets).size).toBeLessThanOrEqual(1)
+      await expect(surface.locator('[data-menu-footer]')).toBeVisible()
+      expect(await page.locator('[data-popup-kind="info-card"]:visible').count()).toBe(0)
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    })
+  }
+}
+
+const expectInfoGeometry = async (card: Locator) => {
+  await expect(card).toBeVisible()
+  await expect.poll(async () => (await card.boundingBox())?.width).toBe(FRAME.infoCard.width)
+  const m = await menuMetrics(card)
+  expect(m.width).toBe(FRAME.infoCard.width)
+  expect(m.pad).toEqual(Array(4).fill(`${FRAME.infoCard.padding}px`))
+  expect(m.radius).toBe(`${FRAME.menu.radius}px`)
+  expect(m.overflow).toBe(false)
+  await expect(card.locator('button,a[href],input,select,textarea,[role="button"],[role^="menuitem"],[role="switch"]')).toHaveCount(0)
+  const edges = await card.evaluate(el => {
+    const x = el.getBoundingClientRect().left
+    return [...el.querySelectorAll<HTMLElement>('[data-info-title],[data-info-facts],[data-info-note]')].map(node => node.getBoundingClientRect().left - x)
+  })
+  for (const x of edges) expect(x).toBe(FRAME.infoCard.padding)
+  const keys = await card.locator('[data-info-facts] dt').evaluateAll(keys => keys.map(key => key.getBoundingClientRect().width))
+  for (const width of keys) expect(width).toBe(FRAME.summaryKey.infoCard)
+}
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C7 info card hover and focus at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=info', theme, width)
+    const trigger = page.getByRole('button', { name: 'Storefront catalogue review', exact: true })
+    await trigger.hover()
+    const card = page.locator('[data-popup-kind="info-card"]:visible').last()
+    await expectInfoGeometry(card)
+    await page.mouse.move(0, 0)
+    await expect(card).toBeHidden()
+    await page.keyboard.press('Tab')
+    await trigger.focus()
+    await expectInfoGeometry(card)
+  })
+  test(`C7 menu cancels a pending facts card at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=info-and-menu', theme, width)
+    await page.getByRole('button', { name: 'Storefront catalogue review', exact: true }).hover()
+    await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toBeVisible()
+    await page.waitForTimeout(500)
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toBeVisible()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-popup-kind="menu"]')).toHaveCount(0)
+    const facts = page.getByRole('button', { name: 'Storefront catalogue review', exact: true })
+    await facts.focus()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
+    await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-popup-kind="menu"]')).toHaveCount(0)
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await facts.focus()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const source of ['context', 'member', 'budget']) {
+  test(`C8 production ${source} info adapter at ${width} in ${theme}`, async ({ page }) => {
+    const query = source === 'context' ? 'frame-wall=conversation' : `frame-wall=conversation&popup=${source}-info`
+    await openFrame(page, query, theme, width)
+    const trigger = source === 'budget' ? page.getByRole('button', { name: 'Run budget', exact: true }) : page.locator(`[data-info-source="${source}"]`).first()
+    await trigger.hover()
+    await expectInfoGeometry(page.locator('[data-popup-kind="info-card"]:visible').last())
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C6 account menu and separate consent at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await openWallDestination(page, { account: true })
+    await expectMenuGeometry(page.locator('[data-popup-kind="wide-menu"]:visible').last())
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.getByRole('menuitem', { name: /^Sign out of/ }).click()
+    await expect(page.getByRole('alertdialog')).toBeVisible()
+    await expect(page.locator('[data-popup-kind="wide-menu"]:visible')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Keep signed in', exact: true }).click()
+    await expect(page.getByRole('alertdialog')).toBeHidden()
+  })
+}
+
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C5 branch search and entry at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await openWallDestination(page, { git: true, branch: true })
+    const flyout = page.locator('[data-slot="dropdown-menu-sub-content"]:visible').last()
+    await expectMenuGeometry(flyout)
+    const input = flyout.locator('[data-menu-search] input')
+    await expect(input).toBeFocused()
+    expect((await input.boundingBox())!.height).toBe(FRAME_MENU.searchHeight)
+    await input.fill('发布')
+    await expect(flyout.locator('[data-menu-row][role="menuitemradio"]')).toHaveCount(1)
+    await expect(flyout.locator('[data-menu-label]').filter({ hasText: 'feature/发布前检查' })).toHaveCount(1)
+    await input.fill('missing')
+    await expect(flyout.locator('[data-menu-note]')).toContainText(['No branch matches.', 'Checking out a branch keeps the existing folder.'])
+    await page.getByRole('menuitem', { name: 'Create and checkout new branch…', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Create and checkout new branch' })).toBeVisible()
+    await expect(page.locator('[data-popup-kind]:visible')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Keep current branch', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+  })
+
+}
+for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
+  test(`C9 suggestion listbox uses the only row at ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=suggestions', theme, width)
+    const list = page.getByRole('listbox')
+    await expect(list).toBeVisible()
+    await expect(list).toHaveAttribute('data-popup-kind', 'wide-menu')
+    await expectMenuGeometry(list)
+    await expect(list.getByRole('option')).toHaveCount(3)
+    await expect(list.getByRole('option').last()).toHaveAttribute('aria-disabled', 'true')
+    await page.getByRole('textbox', { name: 'Frame suggestion anchor' }).focus()
+    await expect(page.getByRole('textbox', { name: 'Frame suggestion anchor' })).toBeFocused()
+  })
+  test(`C9 Select preserves selection with canonical geometry at ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=select', theme, width)
+    await page.getByRole('combobox', { name: 'Frame Select' }).click()
+    const plate = page.locator('[data-slot="select-content"]')
+    await expectMenuGeometry(plate)
+    await page.getByRole('option', { name: 'Catalogue diagnostics and checkout retry policy' }).click()
+    await expect(page.getByRole('combobox', { name: 'Frame Select' })).toContainText('Catalogue diagnostics and checkout retry policy')
+    await expect(plate).toBeHidden()
+    const trigger = page.getByRole('combobox', { name: 'Frame Select' })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(plate).toBeVisible()
+    await page.keyboard.press('Home')
+    await page.keyboard.press('Enter')
+    await expect(trigger).toContainText('Scout — Storefront compatibility review')
+    await expect(plate).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
+  test(`C3 refused rows retain icons and mute every text track at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'start' })
+    const worktree = page.getByRole('menuitem', { name: /^New worktree/ })
+    await expect(worktree).toHaveAttribute('aria-disabled', 'true')
+    await expectRefusedMenuRow(worktree)
+    await page.keyboard.press('Escape')
+    if (width === 720) await page.getByRole('dialog', { name: 'Sidebar', exact: true }).getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+    await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+    const images = page.getByRole('menuitem', { name: /^Attach images/ })
+    await expect(images).toHaveAttribute('aria-disabled', 'true')
+    await expectRefusedMenuRow(images)
+  })
+}
+const expectRefusedMenuRow = async (row: Locator) => {
+  const colors = await row.evaluate(el => {
+    const resolve = document.createElement('span'); resolve.style.color = 'var(--hd-muted-foreground)'; el.append(resolve)
+    const muted = getComputedStyle(resolve).color; resolve.remove()
+    return { muted, tracks: [el, ...el.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-hint]')].map(node => getComputedStyle(node).color) }
+  })
+  expect(colors.tracks.length).toBe(4)
+  for (const color of colors.tracks) expect(color).toBe(colors.muted)
+  const icon = row.locator('[data-menu-icon] svg')
+  await expect(icon).toHaveCount(1)
+  const box = (await icon.boundingBox())!
+  expect([box.width, box.height]).toEqual([16, 16])
+  const hint = row.locator('[data-menu-hint]')
+  expect(await hint.evaluate(el => [getComputedStyle(el).fontSize, getComputedStyle(el).lineHeight])).toEqual(['12px', '16px'])
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const mode of ['none', 'icons']) {
+  test(`C3 dropdown ${mode} at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, `frame-wall=conversation&popup=dropdown-${mode}`, theme, width)
+    await page.getByRole('button', { name: 'Frame dropdown', exact: true }).click()
+    await expectMenuGeometry(page.locator('[data-popup-kind="menu"]:visible').last())
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: 'Frame dropdown', exact: true })).toBeFocused()
+  })
+}
+for (const theme of WALL_THEMES) {
+  test(`C3 actual dynamic model level never mixes icons in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const trigger = page.getByTitle(/Model and reasoning/).first()
+    await trigger.click()
+    const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+    await expectMenuGeometry(surface)
+    expect(await surface.locator('[data-menu-icon]').count()).toBe(0)
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C10 inbox retains expanded facts and actions at ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=inbox', theme, width)
+    await page.getByRole('button', { name: 'Inbox, 1 unread', exact: true }).click()
+    const plate = page.locator('[data-popup-kind="wide-menu"]:visible')
+    await expectMenuGeometry(plate)
+    await page.getByRole('menuitem', { name: /The Storefront catalogue compatibility check/ }).click()
+    await expect(plate).toContainText('workspace/storefront/project.config.json')
+    await expect(plate).toContainText('tools.search.timeout')
+    await expect(page.getByRole('menuitem', { name: 'Open the findings', exact: true })).toBeVisible()
+    await expectMenuGeometry(plate)
+    await page.getByRole('menuitem', { name: 'Open the findings', exact: true }).click()
+    await expect(plate).toBeHidden()
+  })
+}
+
+const expectDestinationPopupContracts = async (page: Page, destination: typeof WALL_DESTINATIONS[number], theme: 'light' | 'dark', width: number) => test.step(destination.id, async () => {
+  await openFrame(page, destination.query, theme, width)
+  await applyFrameActions(page, destination)
+  await applyLeftColumnActions(page, destination)
+  await applySettingsNavigationActions(page, destination)
+  await openWallDestination(page, destination)
+  const kinds = new Set<string>()
+  const rich = page.locator('[data-slot="popover-popup"]:visible,[data-slot="popover-surface"]:visible,[data-slot="dropdown-menu-popup"][data-popup-kind]:visible,[data-slot="dropdown-menu-content"]:visible,[data-slot="dropdown-menu-sub-content"]:visible,[data-slot="hover-card-content"]:visible,[data-slot="select-content"]:visible')
+  for (let at = 0; at < await rich.count(); at += 1) {
+    const popup = rich.nth(at)
+    await expect(popup).not.toHaveAttribute('data-starting-style', '')
+    const kind = await popup.getAttribute('data-popup-kind')
+    expect(['menu', 'wide-menu', 'info-card']).toContain(kind)
+    kinds.add(kind!)
+    if (kind === 'info-card') {
+      await expectInfoGeometry(popup)
+      expect(await popup.locator('button,a,input,select,[role="menuitem"],[role="switch"]').count()).toBe(0)
+    } else if (destination.id === 'left-inbox') {
+      // The sidebar's empty Inbox has facts and a footer, with exactly zero actions.
+      await expect(popup).toHaveAttribute('data-popup-kind', 'wide-menu')
+      await expect(popup).toHaveAttribute('data-menu-icons', 'none')
+      await expect(popup.locator('[data-menu-row]')).toHaveCount(0)
+      await expect(popup.locator('[data-menu-note]')).toHaveText('Nothing kept yet. Messages an Agent sends you wait here.')
+      await expect(popup.locator('[data-menu-footer]')).toHaveText('Kept until you clear them.')
+      await expectMenuPlateGeometry(popup)
+      await expectMenuAnatomy(popup, false)
+    } else await expectMenuGeometry(popup)
+  }
+  return kinds
+})
+
+// Small batches keep the normal test timeout without dropping a wall destination.
+const popupContractDestinations = WALL_DESTINATIONS.filter(destination => !destination.gitRef)
+for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
+  for (let offset = 0; offset < popupContractDestinations.length; offset += 5) {
+    const destinations = popupContractDestinations.slice(offset, offset + 5)
+    test(`C10 exhaustive popup contracts ${destinations.map(destination => destination.id).join(', ')} at ${width} in ${theme}`, async ({ page }) => {
+      for (const destination of destinations) await expectDestinationPopupContracts(page, destination, theme, width)
+    })
+  }
+  test(`C10 all three popup kinds are exercised at ${width} in ${theme}`, async ({ page }) => {
+    const kinds = new Set<string>()
+    for (const id of ['popup-menu-none', 'popup-wide-menu', 'popup-info-card']) {
+      const destination = WALL_DESTINATIONS.find(destination => destination.id === id)!
+      const found = await expectDestinationPopupContracts(page, destination, theme, width)
+      expect(found.size).toBeGreaterThan(0)
+      for (const kind of found) kinds.add(kind)
+    }
+    expect([...kinds].sort()).toEqual(['info-card', 'menu', 'wide-menu'])
+  })
+  for (const destination of WALL_DESTINATIONS.filter(destination => destination.gitRef)) {
+    test(`C10 exhaustive popup contracts ${destination.id} at ${width} in ${theme}`, async ({ page }) => {
+      test.fixme(true, 'Controller decision pending: refs rail requires a panel at least 640px wide; the preview allocates 400px.')
+      await expectDestinationPopupContracts(page, destination, theme, width)
+    })
+  }
+}

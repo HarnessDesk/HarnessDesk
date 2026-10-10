@@ -1722,3 +1722,5 @@
 }
 
 .metaListMuted { color: var(--hd-muted-foreground); }
+
+.avatarMenu { width: var(--hd-space-4); height: var(--hd-space-4); }

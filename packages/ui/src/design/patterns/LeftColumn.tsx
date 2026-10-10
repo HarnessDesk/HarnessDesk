@@ -1,3 +1,4 @@
+import type { MenuIcons } from '../ui/menu-row'
 import { Popover } from './Popover'
 import { CaretIcon } from '../../components/Icons'
 import { forwardRef, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
@@ -20,7 +21,7 @@ export interface LeftColumnAction {
   readonly kind?: 'more' | 'new'
 }
 export interface LeftColumnMenu {
-  readonly icons?: 'all' | 'none'
+  readonly icons?: MenuIcons
   readonly label: string
   readonly content: (close: () => void) => ReactNode
   readonly onOpenChange?: (open: boolean) => void

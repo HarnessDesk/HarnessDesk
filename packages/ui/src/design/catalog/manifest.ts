@@ -22,6 +22,10 @@ export type CatalogEntry = {
 type ModuleSeed = readonly [name: string, exampleId: string, purpose: string]
 
 const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'popup-inbox': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'subject-actions': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'info-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'wide-menu': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'app-frame': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   button: 'packages/ui/src/design/explorer/boards.tsx',
   control: 'packages/ui/src/design/explorer/boards.tsx',
@@ -109,7 +113,7 @@ const TABLE_CONSUMERS = [
 const KEY_VALUE_CONSUMERS = [
   'packages/ui/src/components/TeamRoomPane.tsx',
   'packages/ui/src/components/TriggerSettings.tsx',
-  'packages/ui/src/components/ContextUsage.tsx',
+  'packages/ui/src/components/AgentAttachments.tsx',
   'packages/ui/src/components/GitPane.tsx',
 ] as const
 
@@ -168,6 +172,10 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  InboxMenu: ['default'],
+  SubjectActionsMenu: ['default'],
+  InfoCard: ['default'],
+  WideMenu: ['default'],
 
   TopBar: ['light', 'dark'],
   SeatList: ['light', 'dark'],
@@ -278,6 +286,10 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  InboxMenu: ['default'],
+  SubjectActionsMenu: ['default'],
+  InfoCard: ['default'],
+  WideMenu: ['default'],
 
   SeatList: ['default', 'populated', 'disabled', 'long-title'],
   FixedShell: ['default', 'open', 'closed', 'folded-state'],
@@ -400,6 +412,10 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
+  InboxMenu: ['default'],
+  SubjectActionsMenu: ['default'],
+  InfoCard: ['default'],
+  WideMenu: ['default'],
   button: ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
   input: ['default', 'compact', 'bare', 'row'],
@@ -415,6 +431,10 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  InboxMenu: 'packages/ui/src/design/patterns/Notices.tsx',
+  SubjectActionsMenu: 'packages/ui/src/components/TeamRoomPane.tsx',
+  InfoCard: 'packages/ui/src/components/ContextUsage.tsx',
+  WideMenu: 'packages/ui/src/components/PlanMeters.tsx',
 
   SeatList: 'packages/ui/src/components/TeamRoomPane.tsx',
   FixedShell: 'packages/ui/src/panels/Workbench.tsx',
@@ -622,6 +642,10 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['InboxMenu', 'popup-inbox', 'Kept messages and their actions through the wide-menu contract'],
+  ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],
+  ['InfoCard', 'info-card', 'Facts only on hover or focus, suppressed while any menu is open'],
+  ['WideMenu', 'wide-menu', 'Search, long names, aligned usage and footer in one bounded surface'],
   ['SeatList', 'seat-list', 'SeatList presentation owned by the fixed shell'],
   ['FixedShell', 'fixed-shell', 'FixedShell presentation owned by the fixed shell'],
   ['ToolBody', 'tool-body', 'ToolBody presentation owned by the fixed shell'],

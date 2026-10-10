@@ -134,11 +134,7 @@ const mount = async (which: 'Settings' | 'Dashboard'): Promise<() => boolean> =>
             <Usage onClose={() => setOpen(false)} onSignIn={() => {}} scope={null} />
           ))}
         <Popover label="Range" title="Range">
-          {(close) => (
-            <button type="button" onClick={close}>
-              Last 30 days
-            </button>
-          )}
+          {close => <Menu close={close}><MenuItem label="Last 30 days" onSelect={close} /></Menu>}
         </Popover>
       </>
     )

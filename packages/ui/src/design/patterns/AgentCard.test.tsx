@@ -257,6 +257,7 @@ it('draws an Agent band only for a conversation seated as one', () => {
     agent: {
       name: 'Code reviewer',
       ceiling: 'Read only · asked, not enforced',
+      ceilingText: 'Read only — asked of the runtime',
       description: 'Reviews a change it did not write.',
       origin: 'Built in',
       seat: 'Claude · Opus 5 · High',

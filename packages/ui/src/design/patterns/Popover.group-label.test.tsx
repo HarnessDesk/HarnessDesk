@@ -25,7 +25,7 @@ afterEach(() => {
 it('names the group-label role and can leave its inset to a containing row', () => {
   act(() => root.render(<PopoverGroupLabel inset={false}>Tasks · 3/3</PopoverGroupLabel>))
 
-  const label = container.querySelector<HTMLElement>('[data-slot="group-label"]')
+  const label = container.querySelector<HTMLElement>('[data-menu-group]')
   expect(label?.textContent).toBe('Tasks · 3/3')
   expect(label?.dataset['inset']).toBe('false')
 })
