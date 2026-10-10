@@ -123,9 +123,9 @@ afterEach(() => {
 })
 
 const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<AppSnapshot> = {}) => {
-  let snapshot = { ...emptySnapshot(), status: 'open', ...extra } as AppSnapshot
+  let snapshot = { ...emptySnapshot(), status: 'open', windowWidth: 1440, windowHeight: 900, ...extra } as AppSnapshot
   // Raw compatibility fixtures retain payloads and original scopes. Right
-  // and bottom now project the fixed shell; sidebar remains until Task 8.
+  // and bottom project the fixed shell; the sidebar payload stays compatibility-only.
   const compatibility = Object.keys(snapshot.workbench.frameTools).length === 0
   const apply = (next: Model): void => {
     const subject = fixedSubject(next.main)
@@ -154,7 +154,7 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
     activateView: (area: never, id: string) => settle(activate(snapshot.workbench, area, id)),
     closeView: (id: string) => settle(undock(snapshot.workbench, id)),
     moveView: (id: string, to: never) => settle(moveView(snapshot.workbench, id, to, permits)),
-    resizePanel: (area: never, size: number) => settle(resizeDock(snapshot.workbench, area, size)),
+    resizePanel: (area: never, size: number) => settle(resizeDock(snapshot.workbench, area, size, snapshot.windowHeight)),
     resizePanelSplit: (area: never, id: string, ratio: number) =>
       settle(resizeDockSplit(snapshot.workbench, area, id, ratio)),
     togglePanel: (area: never) => settle(toggleDock(snapshot.workbench, area)),
@@ -332,18 +332,18 @@ it('the sidebar tracks its seam while the pointer is down, and the store hears i
   render(harness.store)
 
   const seam = seamAt('Resize the sidebar')
-  const shell = seam.parentElement as HTMLElement
+  const shell = seam.closest('[data-slot="fixed-shell"]') as HTMLElement
   const sidebar = seam.previousElementSibling as HTMLElement
 
   // The column's width is the variable, or none of the rest of this reaches it.
-  expect(sidebar.style.width).toBe('var(--panel-sidebar)')
-  expect(shell.style.getPropertyValue('--panel-sidebar-w')).toBe('240px')
+  expect(sidebar.parentElement?.getAttribute('data-frame-region')).toBe('left')
+  expect(shell.style.getPropertyValue('--frame-left-size')).toBe('240px')
 
   point(seam, 'pointerdown', 240)
   point(seam, 'pointermove', 300)
 
   // Mid-drag: the panel has moved and the store has not been told anything.
-  expect(shell.style.getPropertyValue('--panel-sidebar-drag')).toBe('300px')
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('300px')
   expect(resizePanel).not.toHaveBeenCalled()
   // And the window is holding still — see lib/resizing.ts for what that buys.
   expect(document.documentElement.getAttribute('data-hd-resizing')).toBe('vertical')
@@ -355,8 +355,8 @@ it('the sidebar tracks its seam while the pointer is down, and the store hears i
   expect(harness.snapshot.workbench.sidebar.size).toBe(300)
   // The override is gone with the gesture: left behind it outranks every later
   // change, and the panel stops answering to anything but its own seam.
-  expect(shell.style.getPropertyValue('--panel-sidebar-drag')).toBe('')
-  expect(shell.style.getPropertyValue('--panel-sidebar-w')).toBe('300px')
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('')
+  expect(shell.style.getPropertyValue('--frame-left-size')).toBe('300px')
   expect(document.documentElement.hasAttribute('data-hd-resizing')).toBe(false)
 })
 
@@ -364,13 +364,13 @@ it('a seam dragged past its limit stops at the limit, and commits that', () => {
   const harness = rig()
   render(harness.store)
   const seam = seamAt('Resize the sidebar')
-  const shell = seam.parentElement as HTMLElement
+  const shell = seam.closest('[data-slot="fixed-shell"]') as HTMLElement
 
   point(seam, 'pointerdown', 240)
   point(seam, 'pointermove', 2000)
-  expect(shell.style.getPropertyValue('--panel-sidebar-drag')).toBe('520px')
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('360px')
   point(seam, 'pointerup', 2000)
-  expect(harness.snapshot.workbench.sidebar.size).toBe(520)
+  expect(harness.snapshot.workbench.sidebar.size).toBe(360)
 })
 
 it('the bottom panel grows upward, and its seam commits a height', () => {
@@ -383,7 +383,7 @@ it('the bottom panel grows upward, and its seam commits a height', () => {
   point(seam, 'pointerdown', 0, 400)
   point(seam, 'pointermove', 0, 340)
   point(seam, 'pointerup', 0, 340)
-  expect(harness.snapshot.workbench.bottom.size).toBe(280)
+  expect(harness.snapshot.workbench.bottom.size).toBe(300)
 })
 
 it('an arrow key resizes a panel for good, not just for a frame', () => {
@@ -396,8 +396,8 @@ it('an arrow key resizes a panel for good, not just for a frame', () => {
   act(() => {
     seam.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
   })
-  // The nudge is 2% of the resizable span, now 200–520 px.
-  expect(harness.snapshot.workbench.sidebar.size).toBe(246)
+  // The nudge is 2% of the resizable span, now 200–360 px.
+  expect(harness.snapshot.workbench.sidebar.size).toBe(243)
 })
 
 /*
@@ -444,7 +444,7 @@ it('a drag that ends where it began leaves no override behind', () => {
   const harness = rig()
   render(harness.store)
   const seam = seamAt('Resize the sidebar')
-  const shell = seam.parentElement as HTMLElement
+  const shell = seam.closest('[data-slot="fixed-shell"]') as HTMLElement
 
   point(seam, 'pointerdown', 240)
   point(seam, 'pointermove', 300)
@@ -454,7 +454,7 @@ it('a drag that ends where it began leaves no override behind', () => {
   // The store never changed, so nothing re-rendered and the layout effect that
   // normally clears the override never ran. Left behind, it outranks every
   // later change and the panel stops answering to anything but its own seam.
-  expect(shell.style.getPropertyValue('--panel-sidebar-drag')).toBe('')
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('')
   expect(harness.snapshot.workbench.sidebar.size).toBe(240)
 })
 
@@ -462,7 +462,7 @@ it('a cancelled drag keeps the size it started with', () => {
   const harness = rig()
   render(harness.store)
   const seam = seamAt('Resize the sidebar')
-  const shell = seam.parentElement as HTMLElement
+  const shell = seam.closest('[data-slot="fixed-shell"]') as HTMLElement
 
   point(seam, 'pointerdown', 240)
   point(seam, 'pointermove', 400)
@@ -473,7 +473,7 @@ it('a cancelled drag keeps the size it started with', () => {
   // Cancel is not a quiet commit: the gesture was abandoned, so the panel goes
   // back to the size it had rather than keeping wherever the pointer got to.
   expect(harness.snapshot.workbench.sidebar.size).toBe(240)
-  expect(shell.style.getPropertyValue('--panel-sidebar-drag')).toBe('')
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('')
   expect(document.documentElement.hasAttribute('data-hd-resizing')).toBe(false)
 })
 
@@ -888,77 +888,67 @@ it('a work tool has no second draggable panel strip', () => {
   expect(container.querySelector('[draggable="true"][data-tool-mount]')).toBeNull()
 })
 
-/**
- * The seam between two halves of a docked panel, `DockSplit`, which the panel
- * playground's split copies. Tested here as well as there, or a break in the
- * workbench's own handlers leaves the copy green (#230).
- */
-const splitRig = (direction: 'row' | 'column') => {
-  const harness = rig((start) => {
-    const both = dock(dock(start, 'sidebar', { kind: 'changes' }), 'sidebar', { kind: 'activity' })
-    return splitDock(both, dockViews(both.sidebar)[1]!.id, direction)
-  })
-  const resizePanelSplit = vi.spyOn(harness.store as unknown as Record<string, never>, 'resizePanelSplit')
+/** Shared gesture proofs follow the actual fixed-region seams after dock splits retire. */
+const windowResizing = () => document.documentElement.getAttribute('data-hd-resizing')
+const areaGestureRig = (direction: 'row' | 'column') => {
+  const harness = rig(start => direction === 'row' ? resizeDock(start, 'sidebar', 280)
+    : resizeDock(dock(start, 'bottom', { kind: 'terminal', terminalId: 'gesture-pty', runtime: 'fixture' as never, cwd: '/work/storefront' }), 'bottom', 285))
+  const resizePanel = vi.spyOn(harness.store as unknown as Record<string, never>, 'resizePanel')
   render(harness.store)
-  const seam = container.querySelector<HTMLElement>('[aria-label="Resize these panels"]')
-  expect(seam, 'the transitional sidebar panel is split').toBeTruthy()
-  const box = seam!.parentElement as HTMLElement
-  box.getBoundingClientRect = () =>
-    ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600, toJSON: () => ({}) }) as DOMRect
-  return { seam: seam!, box, resizePanelSplit }
+  const seam = seamAt(direction === 'row' ? 'Resize the sidebar' : 'Resize the bottom panel')
+  const box = seam.closest('[data-slot="fixed-shell"]') as HTMLElement
+  const area = direction === 'row' ? 'left' : 'bottom'
+  const min = direction === 'row' ? 200 : 120, span = direction === 'row' ? 160 : 330
+  const shown = () => box.style.getPropertyValue(`--frame-${area}-drag`)
+  const requested = () => direction === 'row' ? harness.snapshot.workbench.sidebar.size : harness.snapshot.workbench.bottom.size
+  return { seam, box, resizePanel, shown, requested, min, span }
 }
 
-/** The ratio a drag is showing, or '' when none is. */
-const splitShown = (box: HTMLElement): string => box.style.getPropertyValue('--split-drag')
-/** The ratio the store holds. */
-const splitRatio = (box: HTMLElement): number => parseFloat(box.style.getPropertyValue('--split-ratio'))
-const windowResizing = (): string | null => document.documentElement.getAttribute('data-hd-resizing')
-
-it('a split seam tracks the pointer while it is down, and the store hears it once (#230)', () => {
-  const { seam, box, resizePanelSplit } = splitRig('row')
+it('an area seam tracks the pointer while it is down, and the store hears it once (#230)', () => {
+  const { seam, box, resizePanel, shown, requested, min, span } = areaGestureRig('row')
   point(seam, 'pointerdown', 500)
-  point(seam, 'pointermove', 600)
-  // A hundred pixels of a thousand is a tenth of the split: shown, and nothing told yet.
-  expect(parseFloat(splitShown(box))).toBeCloseTo(0.6, 5)
-  expect(resizePanelSplit).not.toHaveBeenCalled()
-  point(seam, 'pointerup', 600)
-  expect(resizePanelSplit).toHaveBeenCalledTimes(1)
-  expect(splitRatio(box)).toBeCloseTo(0.6, 5)
-  expect(splitShown(box)).toBe('')
+  point(seam, 'pointermove', 516)
+  // Sixteen pixels of the 160px span is a tenth: shown, and nothing told yet.
+  expect((parseFloat(shown()) - min) / span).toBeCloseTo(0.6, 5)
+  expect(resizePanel).not.toHaveBeenCalled()
+  point(seam, 'pointerup', 516)
+  expect(resizePanel).toHaveBeenCalledTimes(1)
+  expect(((requested() - min) / span)).toBeCloseTo(0.6, 5)
+  expect(shown()).toBe('')
 })
 
-it('a cancelled split drag keeps the ratio it started with (#230)', () => {
-  const { seam, box, resizePanelSplit } = splitRig('row')
+it('a cancelled area drag keeps the requested size it started with (#230)', () => {
+  const { seam, box, resizePanel, shown, requested, min, span } = areaGestureRig('row')
   point(seam, 'pointerdown', 500)
-  point(seam, 'pointermove', 600)
-  point(seam, 'pointercancel', 600)
-  expect(splitShown(box)).toBe('')
-  expect(splitRatio(box)).toBeCloseTo(0.5, 5)
-  expect(resizePanelSplit).not.toHaveBeenCalled()
+  point(seam, 'pointermove', 516)
+  point(seam, 'pointercancel', 516)
+  expect(shown()).toBe('')
+  expect(((requested() - min) / span)).toBeCloseTo(0.5, 5)
+  expect(resizePanel).not.toHaveBeenCalled()
 })
 
-it('a split drag that loses its pointer capture ends there, and keeps where it got to (#230)', () => {
-  const { seam, box } = splitRig('row')
+it('an area drag that loses its pointer capture ends there, and keeps where it got to (#230)', () => {
+  const { seam, box, shown, requested, min, span } = areaGestureRig('row')
   point(seam, 'pointerdown', 500)
-  point(seam, 'pointermove', 600)
-  point(seam, 'lostpointercapture', 600)
-  expect(splitRatio(box)).toBeCloseTo(0.6, 5)
+  point(seam, 'pointermove', 516)
+  point(seam, 'lostpointercapture', 516)
+  expect(((requested() - min) / span)).toBeCloseTo(0.6, 5)
   // Ended, not merely paused: a later move is not a drag.
   point(seam, 'pointermove', 800)
-  expect(splitShown(box)).toBe('')
+  expect(shown()).toBe('')
   expect(windowResizing()).toBeNull()
 })
 
-it('a split one above the other drags along its height (#230)', () => {
-  const { seam, box } = splitRig('column')
+it('a bottom-area seam drags along its height (#230)', () => {
+  const { seam, box, shown, requested, min, span } = areaGestureRig('column')
   point(seam, 'pointerdown', 500, 300)
-  // Sixty pixels of six hundred is a tenth; the four hundred across are not its axis.
-  point(seam, 'pointermove', 900, 360)
-  expect(parseFloat(splitShown(box))).toBeCloseTo(0.6, 5)
+  // Thirty-three pixels of the 330px span is a tenth; the four hundred across are not its axis.
+  point(seam, 'pointermove', 900, 267)
+  expect((parseFloat(shown()) - min) / span).toBeCloseTo(0.6, 5)
 })
 
-it('a split drag marks the window as resizing for as long as it lasts, however it ends (#230)', () => {
-  const { seam } = splitRig('row')
+it('an area drag marks the window as resizing for as long as it lasts, however it ends (#230)', () => {
+  const { seam } = areaGestureRig('row')
   point(seam, 'pointerdown', 500)
   expect(windowResizing()).toBe('vertical')
   point(seam, 'pointerup', 500)
@@ -967,37 +957,35 @@ it('a split drag marks the window as resizing for as long as it lasts, however i
   point(seam, 'pointercancel', 500)
   expect(windowResizing()).toBeNull()
   point(seam, 'pointerdown', 500)
-  // The split goes away under the pointer.
+  // The region goes away under the pointer.
   act(() => root.unmount())
   expect(windowResizing()).toBeNull()
   root = createRoot(container)
 })
 
-it('a split in a dock dragged past either end stops where the store stops it, and commits that (review of #183, round 7)', () => {
+it('an area seam dragged past either end stops where the store stops it, and commits that (review of #183, round 7)', () => {
   // The preview clamps the ratio itself and the store clamps it again on release. Two copies of the limits
   // would stop the drag in one place and commit it in another: a jump as the pointer lets go.
-  const { seam, box } = splitRig('row')
+  const { seam, box, shown, requested, min, span } = areaGestureRig('row')
   // The handle states the same range, for its keys and for a screen reader.
-  expect(seam.getAttribute('aria-valuemin')).toBe(String(Math.round(MIN_RATIO * 100)))
-  expect(seam.getAttribute('aria-valuemax')).toBe(String(Math.round(MAX_RATIO * 100)))
-  for (const [to, limit] of [[5000, MAX_RATIO], [-5000, MIN_RATIO]] as const) {
+  expect(seam.getAttribute('aria-valuemin')).toBe('0')
+  expect(seam.getAttribute('aria-valuemax')).toBe('100')
+  for (const [to, limit] of [[5000, 1], [-5000, 0]] as const) {
     point(seam, 'pointerdown', 500)
     point(seam, 'pointermove', to)
-    expect(splitShown(box)).toBe(limit.toFixed(4))
+    expect(shown()).toBe(String(min + limit * span) + 'px')
     point(seam, 'pointerup', to)
-    expect(splitRatio(box)).toBe(limit)
-    expect(splitShown(box)).toBe('')
+    expect(((requested() - min) / span)).toBe(limit)
+    expect(shown()).toBe('')
   }
 })
 
-it('a docked sidebar panel is a child of the sidebar column itself (review of #183, round 7)', () => {
-  // `.sidebar .panel[data-collapsed] { flex: none }` gives the height back only to a direct flex child of the
-  // column, and it is one because the slot the panel renders through adds no element of its own. A wrapper
-  // would stop the rule without a word, and the stylesheet test, which compares selectors, would stay green.
-  const { store } = rig((start) => dock(start, 'sidebar', { kind: 'activity' }))
-  render(store)
-  expect(panels()).toHaveLength(1)
-  expect(panels()[0]!.parentElement).toBe(container.querySelector('[data-testid="tree"]'))
+it('does not render a restored sidebar dock or release its retained compatibility payload', () => {
+  const harness = rig(start => dock(start, 'sidebar', { kind: 'activity' }))
+  const held = dockViews(harness.snapshot.workbench.sidebar)
+  render(harness.store)
+  expect(container.querySelector('[data-frame-region="left"] [data-slot="dock-panel"]')).toBeNull()
+  expect(dockViews(harness.snapshot.workbench.sidebar)).toEqual(held)
 })
 
 /** Every control wearing this label — two of them is the bug, not a choice. */
@@ -1056,25 +1044,27 @@ const pointFrom = (
   })
 }
 
-it('a second pointer on a split seam does not take the drag, and the window is given back (#252)', () => {
-  const { seam, box, resizePanelSplit } = splitRig('row')
+it('a second pointer on the retained area seam does not take the drag, and the window is given back (#252)', () => {
+  const { seam, box, resizePanel, shown, requested, min, span } = areaGestureRig('row')
   pointFrom(seam, 'pointerdown', 1, 500)
   // The control: a drag in flight suppresses the window, before and after.
   expect(windowResizing()).toBe('vertical')
 
   // A second finger lands on the seam the first is still holding.
-  pointFrom(seam, 'pointerdown', 2, 600)
-  pointFrom(seam, 'pointermove', 1, 600)
+  pointFrom(seam, 'pointerdown', 2, 516)
+  pointFrom(seam, 'pointermove', 1, 516)
   /* The delta is still the first pointer's — 500 to 600 of a thousand is a
      tenth. Taken by the second, the drag would measure from 600 and show the
      ratio it started at, which is the seam jumping out from under the finger
      holding it. */
-  expect(parseFloat(splitShown(box))).toBeCloseTo(0.6, 5)
+  expect((parseFloat(shown()) - min) / span).toBeCloseTo(0.6, 5)
 
-  pointFrom(seam, 'pointerup', 2, 600)
-  pointFrom(seam, 'pointerup', 1, 600)
+  pointFrom(seam, 'pointerup', 2, 516)
+  expect(windowResizing()).toBe('vertical')
+  expect(resizePanel).not.toHaveBeenCalled()
+  pointFrom(seam, 'pointerup', 1, 516)
   expect(windowResizing()).toBeNull()
-  expect(resizePanelSplit).toHaveBeenCalledTimes(1)
+  expect(resizePanel).toHaveBeenCalledTimes(1)
 })
 
 it('a second pointer on an area seam leaves no suppression behind (#252)', () => {
@@ -1145,4 +1135,54 @@ it.each([[['sidebar']], [['bottom']], [undefined]] as const)('never instantiates
   expect(component).not.toHaveBeenCalled()
   expect(container.querySelector('[data-testid="view-changes"]')).not.toBeNull()
   expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(retained)
+})
+
+
+it.each([['sidebar', 'Resize the sidebar', 360, 240], ['right', 'Resize the right panel', 600, 400], ['bottom', 'Resize the bottom panel', 400, 240]] as const)('double-click restores the %s FRAME default through the real seam', (area, label, initial, reset) => {
+  const harness = rig(start => resizeDock(dock(dock(start, 'right', { kind: 'changes' }), 'bottom', { kind: 'terminal', terminalId: 'reset-pty', runtime: 'fixture' as never, cwd: '/work/storefront' }), area, initial))
+  render(harness.store)
+  act(() => seamAt(label).dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
+  expect(harness.snapshot.workbench[area].size).toBe(reset)
+})
+
+
+it('a live sidebar out-and-back gesture keeps the preferred right width and never writes during movement', () => {
+  const harness = rig(start => resizeDock(dock(start, 'right', { kind: 'changes' }), 'right', 640))
+  const resizePanel = vi.spyOn(harness.store as unknown as Record<string, never>, 'resizePanel')
+  render(harness.store)
+  const seam = seamAt('Resize the sidebar')
+  const shell = seam.closest('[data-slot="fixed-shell"]') as HTMLElement
+  point(seam, 'pointerdown', 240)
+  point(seam, 'pointermove', 360)
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('360px')
+  expect(harness.snapshot.workbench.right.size).toBe(640)
+  expect(resizePanel).not.toHaveBeenCalled()
+  point(seam, 'pointermove', 240)
+  point(seam, 'pointerup', 240)
+  expect(harness.snapshot.workbench.sidebar.size).toBe(240)
+  expect(harness.snapshot.workbench.right.size).toBe(640)
+  expect(resizePanel).not.toHaveBeenCalled()
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('')
+})
+
+it('keeps the live seam size until a deferred store publication paints its committed replacement', () => {
+  const harness = rig()
+  const publish = harness.store.resizePanel
+  let pending: (() => void) | undefined
+  vi.spyOn(harness.store, 'resizePanel').mockImplementation((area, size) => {
+    pending = () => publish(area, size)
+  })
+  render(harness.store)
+  const seam = seamAt('Resize the sidebar')
+  const shell = seam.closest('[data-slot="fixed-shell"]') as HTMLElement
+  point(seam, 'pointerdown', 240)
+  point(seam, 'pointermove', 300)
+  point(seam, 'pointerup', 300)
+  expect(harness.snapshot.workbench.sidebar.size).toBe(240)
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('300px')
+  expect(pending).toBeTypeOf('function')
+  act(() => pending!())
+  expect(harness.snapshot.workbench.sidebar.size).toBe(300)
+  expect(shell.style.getPropertyValue('--frame-left-size')).toBe('300px')
+  expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('')
 })

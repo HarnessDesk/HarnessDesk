@@ -224,3 +224,5 @@ export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse } 
 export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed, type ToolFoot } from './patterns/ToolFooter'
 
 export { SeatList, type SeatListRow } from './patterns/SeatList'
+
+export { FixedShell, type FixedShellProps } from './patterns/FixedShell'

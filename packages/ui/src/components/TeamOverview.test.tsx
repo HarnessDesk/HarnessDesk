@@ -267,3 +267,34 @@ it('calls the frozen Flow budget Rounds, including its agent and person steps', 
  expect(box.textContent).toContain('Rounds 4 of 4')
  expect(box.textContent).not.toContain('Reviews 4 of 4')
 })
+
+it('chooses Agents layout from the allocation inside the reading inset at the unchanged 800 boundary', () => {
+ let resize!:ResizeObserverCallback, measured:Element|null=null
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function(this:HTMLElement) {
+  return {width:this.matches('[aria-label="Seats"]')?752:800} as DOMRect
+ })
+ const observer={observe:(target:Element)=>{measured=target},unobserve:()=>{},disconnect:()=>{}}
+ vi.stubGlobal('ResizeObserver',class {
+  constructor(callback:ResizeObserverCallback){resize=callback}
+  observe=observer.observe
+  unobserve=observer.unobserve
+  disconnect=observer.disconnect
+ })
+ try {
+  const onOpen=vi.fn()
+  const seats=[row('Alpha',{card:{id:1,title:'Fix signup'},state:'working',doing:'Reading the retry',cost:{value:2,unit:'turns',estimated:false}}),row('Beta',{card:{id:2,title:'Review signup'},state:'working',doing:'Reviewing the retry'})]
+  act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats}} onOpen={onOpen}/>))
+  expect(box.querySelector('[data-slot="team-overview"]')?.getAttribute('data-layout')).toBe('narrow')
+  expect(box.querySelector('[data-slot="table"]')).toBeNull()
+  expect(measured).toBe(box.querySelector('[aria-label="Seats"]'))
+  act(()=>box.querySelector<HTMLButtonElement>('[aria-label="Open Alpha"]')!.click())
+  expect(onOpen).toHaveBeenCalledWith('Alpha')
+  act(()=>resize([{target:measured!,contentRect:{width:800}} as ResizeObserverEntry],observer as unknown as ResizeObserver))
+  expect(box.querySelector('[data-slot="team-overview"]')?.getAttribute('data-layout')).toBe('table')
+  expect([...box.querySelectorAll('th')].map(one=>one.textContent)).toEqual(['Agent','Card','Round','State','Now','Time','Cost','Open conversation'])
+  expect(box.querySelector('[data-seat="Alpha"]')?.textContent).toContain('#1 · Fix signup')
+  expect(box.querySelector('[data-seat="Beta"]')?.textContent).toContain('#2 · Review signup')
+  act(()=>box.querySelector<HTMLButtonElement>('[aria-label="Open Beta"]')!.click())
+  expect(onOpen).toHaveBeenCalledWith('Beta')
+ } finally {vi.unstubAllGlobals()}
+})

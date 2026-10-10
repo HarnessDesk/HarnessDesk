@@ -589,11 +589,12 @@ export interface AppSnapshot {
   readonly sidebarCollapsed: boolean
   /** The window's width in CSS pixels, known before the first frame and once per resize frame. */
   readonly windowWidth: number
+  /** Live CSS-pixel viewport height; passive shrink preserves PTY intent. */
+  readonly windowHeight: number
   /**
-   * The sidebar cannot have a column — a window under `NARROW_WINDOW`, or one
-   * too narrow for it, a drawn right panel and `MIN_READING` (see
-   * `sidebarCannotHaveColumn`). A fact derived from the window and the
-   * workbench rather than a choice, kept here because `toggleSidebar` has to
+   * The sidebar cannot have a column — a window under FRAME's 1000px fold
+   * (see `sidebarCannotHaveColumn`). A fact derived only from the window,
+   * kept here because `toggleSidebar` has to
    * know which of the two sidebar states it is flipping.
    */
   readonly narrowWindow: boolean
@@ -922,7 +923,8 @@ const EMPTY: AppSnapshot = {
   draftHandoff: null,
   draftPlace: null,
   sidebarCollapsed: false,
-  windowWidth: 1440,
+  windowWidth: typeof window === 'undefined' ? 1440 : window.innerWidth,
+  windowHeight: typeof window === 'undefined' ? 900 : window.innerHeight,
   narrowWindow: false,
   sidebarFloating: false,
   theme: 'system',

@@ -104,6 +104,7 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
   let snapshot = {
     ...emptySnapshot(),
     status: 'open',
+    windowWidth: 1440, windowHeight: 900,
     workbench: prepare(workbench),
     layout: workbench.main,
     ...(extra.narrowWindow ? { windowWidth: 679 } : {}),
@@ -189,13 +190,9 @@ const scrim = (): HTMLElement | null => shell().querySelector(':scope > [aria-hi
 const sidebar = (): HTMLElement => {
   const found = [...shell().children].find((child) => child.textContent?.includes('A row in the sidebar'))
   if (!found) throw new Error('no sidebar')
-  return found as HTMLElement
+  return found.querySelector<HTMLElement>('[data-slot="workbench-rail"]') ?? found as HTMLElement
 }
-const content = (): HTMLElement => {
-  const found = [...shell().children].find((child) => child.textContent?.includes('the conversation'))
-  if (!found) throw new Error('no content')
-  return found as HTMLElement
-}
+const content = (): HTMLElement => container.querySelector<HTMLElement>('[data-slot="workbench-main"]')!
 const seam = (label: string): Element | null => container.querySelector(`[aria-label="${label}"]`)
 /** An open popover; each is drawn into the document's body, not beside its trigger. */
 const menu = (): HTMLElement | null => document.querySelector('[data-slot="popover-popup"]')
@@ -212,7 +209,7 @@ it('a wide window keeps the column, with its seam, and nothing covering anything
   expect(shell().hasAttribute('data-narrow')).toBe(false)
   expect(seam('Resize the sidebar')).not.toBeNull()
   expect(scrim()).toBeNull()
-  expect(sidebar().style.width).toBe('var(--panel-sidebar)')
+  expect(sidebar().parentElement?.getAttribute('data-frame-region')).toBe('left')
 })
 
 it('a narrow window takes the sidebar out of the row: no column, no seam, nothing covered', () => {
@@ -222,7 +219,7 @@ it('a narrow window takes the sidebar out of the row: no column, no seam, nothin
   expect(shell().hasAttribute('data-narrow')).toBe(true)
   // Put away, and not by a width of nothing: it keeps its own and slides.
   expect(sidebar().hasAttribute('data-hidden')).toBe(true)
-  expect(sidebar().style.width).toBe('var(--panel-sidebar)')
+  expect(sidebar().parentElement?.getAttribute('data-frame-region')).toBe('left')
   expect(seam('Resize the sidebar')).toBeNull()
   expect(scrim()?.hasAttribute('data-open')).toBe(false)
   expect(content().hasAttribute('inert')).toBe(false)
@@ -409,7 +406,7 @@ it('Escape a context menu inside it takes closes the menu and leaves the sidebar
   expect(store.closeFloatingSidebar).not.toHaveBeenCalled()
 })
 
-it('a panel on the right that covers the conversation puts it out of reach, and gives it back when it goes', () => {
+it('a nonmodal right float leaves the conversation usable while open and after close', () => {
   /* In a narrow window the panel takes the conversation's width, over it, and
      the conversation stayed reachable underneath: Tab from the panel walked
      into its composer and header. Found in review, measured in a real engine. */
@@ -424,8 +421,8 @@ it('a panel on the right that covers the conversation puts it out of reach, and 
 
   const narrow = rig({ narrowWindow: true }, docked)
   render(narrow.store)
-  expect(conversation()?.closest('[inert]')).not.toBeNull()
-  expect(conversation()?.closest('[data-right-panel-overlay]')).not.toBeNull()
+  expect(conversation()?.closest('[inert]')).toBeNull()
+  expect(shell().getAttribute('data-panel-floats')).toBe('true')
 
   narrow.patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(conversation()?.closest('[inert]')).toBeNull()
@@ -445,7 +442,7 @@ it('returns focus to the conversation target, or its composer when that target i
 
   opener!.focus()
   patch({ narrowWindow: true, windowWidth: 679 })
-  expect(opener?.closest('[inert]')).not.toBeNull()
+  expect(opener?.closest('[inert]')).toBeNull()
   view!.focus()
   patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(document.activeElement).toBe(opener)
@@ -582,48 +579,23 @@ it('does not restore a saved node after its pane switches to another view', () =
   expect(document.activeElement).not.toBe(document.body)
 })
 
-it('a panel on the right overlays only below 400px remaining and otherwise keeps its seam', () => {
+it('the right float uses exact1280 equality while main remains usable', () => {
   const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
-  const wide = rig({}, docked)
+  const wide = rig({ windowWidth: 1280 }, docked)
   render(wide.store)
-  const panel = container.querySelector('[data-testid="view-changes"]')?.closest('[style]') as HTMLElement | null
-  // The control: beside the conversation, at its own width, with its seam.
   expect(seam('Resize the right panel')).not.toBeNull()
-  expect(panel?.style.width).toBe('var(--panel-right)')
-
-  const narrow = rig({ narrowWindow: true, windowWidth: 700 }, {
-    ...docked,
-    right: { ...docked.right, size: 280 },
-  })
-  render(narrow.store)
-  expect(seam('Resize the right panel')).not.toBeNull()
-  expect(container.querySelector('[data-right-panel-overlay]')).toBeNull()
-  expect(container.querySelector('[data-testid="in-the-conversation"]')?.closest('[inert]')).toBeNull()
-  act(() => seam('Resize the right panel')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
-  expect(narrow.store.getSnapshot().workbench.right.size).toBe(299)
-  const boxes = [...container.querySelectorAll<HTMLElement>('[style]')].filter(
-    (box) => box.style.width === 'var(--panel-right)',
-  )
-  expect(boxes).toHaveLength(1)
-
-  const overlay = rig({ narrowWindow: true, windowWidth: 679 }, {
-    ...docked,
-    right: { ...docked.right, size: 280 },
-  })
-  render(overlay.store)
+  expect(shell().getAttribute('data-panel-floats')).toBe('false')
+  expect(content().closest('[inert]')).toBeNull()
+  wide.patch({ windowWidth: 1279 })
   expect(seam('Resize the right panel')).toBeNull()
-  expect(container.querySelector('[data-right-panel-overlay]')).not.toBeNull()
-  expect([...container.querySelectorAll<HTMLElement>('[style]')].filter(
-    (box) => box.style.width === 'var(--panel-right)',
-  )).toEqual([])
+  expect(shell().getAttribute('data-panel-floats')).toBe('true')
+  expect(content().closest('[inert]')).toBeNull()
 })
-
-it('clamps the right seam so the standing sidebar and conversation keep 400px each', () => {
+it('clamps the standing right seam to preserve main480 with sidebar360', () => {
   const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
-  const { store } = rig({ windowWidth: 1200 }, docked)
+  const { store } = rig({ windowWidth: 1280 }, { ...docked, sidebar: { ...docked.sidebar, size: 360 }, right: { ...docked.right, size: 640 } })
   render(store)
-  const handle = seam('Resize the right panel')!
-  act(() => handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
-  expect(store.resizePanel).toHaveBeenCalled()
-  expect(store.getSnapshot().workbench.right.size).toBe(558)
+  act(() => seam('Resize the right panel')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
+  expect(store.resizePanel).toHaveBeenCalledWith('right', 438)
+  expect(store.getSnapshot().workbench.right.size).toBe(438)
 })

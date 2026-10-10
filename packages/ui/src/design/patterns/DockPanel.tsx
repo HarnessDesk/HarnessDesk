@@ -199,6 +199,13 @@ const RULE: Record<PanelEdge, string> = {
   bottom: 'border-b border-(--hd-border)',
 }
 
+const PAINTED_RULE: Record<PanelEdge, string> = {
+  left: 'after:inset-y-0 after:left-0 after:w-(--hd-border-width)',
+  right: 'after:inset-y-0 after:right-0 after:w-(--hd-border-width)',
+  top: 'after:inset-x-0 after:top-0 after:h-(--hd-border-width)',
+  bottom: 'after:inset-x-0 after:bottom-0 after:h-(--hd-border-width)',
+}
+
 /**
  * The frame: a column with a rule on the edge it hugs, and its own ground.
  *
@@ -210,16 +217,17 @@ const RULE: Record<PanelEdge, string> = {
 export const DockPanel = ({
   edge,
   collapsed,
+  paintedRule = false,
   className,
   ...props
-}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean }) => (
+}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean; paintedRule?: boolean }) => (
   <section
     data-slot="dock-panel"
     data-edge={edge}
     {...(collapsed ? { 'data-collapsed': '' } : {})}
     className={cn(
       'flex min-h-0 min-w-0 flex-col overflow-hidden bg-(--hd-card)',
-      RULE[edge],
+      paintedRule ? cn('relative after:absolute after:pointer-events-none after:bg-(--hd-border)', PAINTED_RULE[edge]) : RULE[edge],
       className,
     )}
     {...props}
@@ -641,21 +649,22 @@ export const PanelSeam = ({
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (captured.current !== null) return
       event.preventDefault()
       event.currentTarget.setPointerCapture(event.pointerId)
       captured.current = { node: event.currentTarget, pointer: event.pointerId }
       markDragging(event.currentTarget, true)
       beginResize(orientation)
-      live.current = size
-      from.current = { at: orientation === 'vertical' ? event.clientX : event.clientY, size }
+      live.current = clamp(size)
+      from.current = { at: orientation === 'vertical' ? event.clientX : event.clientY, size: clamp(size) }
     },
-    [orientation, size],
+    [orientation, size, clamp],
   )
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const start = from.current
-      if (!start) return
+      if (!start || captured.current?.pointer !== event.pointerId) return
       const now = orientation === 'vertical' ? event.clientX : event.clientY
       push(clamp(start.size + (now - start.at) * direction))
     },
@@ -686,10 +695,10 @@ export const PanelSeam = ({
       markDragging(held?.node, false)
       captured.current = null
       endResize()
-      if (commit) onCommit?.(live.current)
+      if (commit) onCommit?.(clamp(live.current))
       else onCancel?.()
     },
-    [onCommit, onCancel],
+    [onCommit, onCancel, clamp],
   )
 
   /*
@@ -720,7 +729,7 @@ export const PanelSeam = ({
       /* The keyboard's own commit. Without it an arrow key moved the preview
          and nothing else — the nudge was drawn and then forgotten, so a panel
          resized from the keyboard snapped back at the next render. */
-      onCommit={() => onCommit?.(live.current)}
+      onCommit={() => onCommit?.(clamp(live.current))}
       /* `direction` says which way the panel grows, and the keyboard has to
          agree with the screen: on the right and bottom panels a larger size
          moves the seam *toward* the start, so ArrowRight there would have
@@ -729,12 +738,12 @@ export const PanelSeam = ({
       invert={direction === -1}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={() => stop(true)}
-      onPointerCancel={() => stop(false)}
+      onPointerUp={event => { if (captured.current?.pointer === event.pointerId) stop(true) }}
+      onPointerCancel={event => { if (captured.current?.pointer === event.pointerId) stop(false) }}
       /* Capture can end without either of those: the browser drops it when the
          captured node is removed, and some inputs surrender it on their own.
          That path used to leave the drag running forever. */
-      onLostPointerCapture={() => stop(true)}
+      onLostPointerCapture={event => { if (captured.current?.pointer === event.pointerId) stop(true) }}
       className={cn(
         'z-10 transition-colors',
         orientation === 'vertical' ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
@@ -753,10 +762,11 @@ export const PanelSeam = ({
 export const FixedPanelFrame = ({ open, edge, style, className, ...props }: React.ComponentProps<'div'> & { open: boolean; edge: 'right' | 'bottom' }) => <div
   {...(open ? {} : { 'data-hidden': '', inert: true })}
   className={cn('flex flex-col data-[hidden]:absolute data-[hidden]:inset-y-0 data-[hidden]:right-0 data-[hidden]:invisible data-[hidden]:pointer-events-none data-[hidden]:overflow-hidden', edge === 'bottom' && 'data-[hidden]:left-0', className)}
-  style={{ ...(edge === 'bottom' ? { height: 'var(--panel-bottom)' } : {}), ...style }} {...props} />
+  style={{ ...(edge === 'bottom' ? { height: open ? '100%' : 'var(--frame-bottom-retained)' } : {}), ...style }} {...props} />
 
 /** The retained frame's containing block, shared by standing and floating modes. */
 export const FixedPanelRow = ({ className, ...props }: React.ComponentProps<'div'>) => <div className={cn('relative', className)} {...props} />
+
 export const FixedPanelBody = ({ className, ...props }: React.ComponentProps<'div'>) => <div
   className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)} {...props} />
 /** Plugin sections join Details' flow; hidden native layers keep their existing boxes. */

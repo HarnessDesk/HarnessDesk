@@ -108,3 +108,26 @@ it('PreviewStore terminal cleanup preserves main and every nonterminal right-too
   expect(dockViews(store.getSnapshot().workbench.bottom)).toHaveLength(0)
   expect(dockViews(store.getSnapshot().workbench.right)).toEqual(held)
 })
+
+
+it('PreviewStore refuses 239 before resource admission and retains a real PTY while height is hidden', async () => {
+  const { previewStore } = await import('./harness')
+  const { dockViews, effectiveBottomHeight } = await import('../state/workbench')
+  const store = previewStore()
+  store.setWindowSize(1440, 239)
+  await store.openTerminal()
+  expect(dockViews(store.getSnapshot().workbench.bottom)).toHaveLength(0)
+  expect(store.getSnapshot().notices.at(-1)?.message).toBe('The terminal needs a window at least 240px tall.')
+  store.setWindowSize(1440, 240)
+  await store.openTerminal()
+  const held = dockViews(store.getSnapshot().workbench.bottom)[0]!
+  expect(held.view.kind).toBe('terminal')
+  expect(effectiveBottomHeight(store.getSnapshot().workbench, 240)).toBe(120)
+  store.setWindowSize(1440, 239)
+  store.setWindowWidth(1280)
+  expect(store.getSnapshot().windowHeight).toBe(239)
+  expect(effectiveBottomHeight(store.getSnapshot().workbench, 239)).toBe(0)
+  expect(dockViews(store.getSnapshot().workbench.bottom)[0]).toBe(held)
+  store.setWindowSize(1440, 900)
+  expect(effectiveBottomHeight(store.getSnapshot().workbench, 900)).toBe(240)
+})

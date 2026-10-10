@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 
+const toolWall = process.env.FRAME_TOOL_WALL_DIR ?? 'output/frame-wall/tool-bodies'
+
 const resizePanel = async (page: Page, width: number) => {
   const panel = page.locator('[data-slot="work-tools"]')
   const current = (await panel.boundingBox())!.width
@@ -74,7 +76,14 @@ for (const theme of ['light', 'dark'] as const) {
           expect(edge, 'contributed prose uses the canonical 16px inset').toBe(16)
           await expect(panel.locator('[data-slot="tool-section"]')).not.toHaveCount(0)
         }
-        await page.screenshot({ path: `output/frame-wall/B7a-tools/${mode}-${width}-${theme}.png` })
+        await expect.poll(async () => page.locator('[data-slot="workbench-main"]').evaluate(main => {
+          const edge = main.getBoundingClientRect()
+          return [...main.querySelectorAll('[data-slot="composer-tools"] button')].every(button => {
+            const box = button.getBoundingClientRect()
+            return box.width === 0 || box.left >= edge.left - 0.5 && box.right <= edge.right + 0.5
+          })
+        }), `${mode}: composer controls stay inside main at ${width}`).toBe(true)
+        await page.screenshot({ path: `${toolWall}/${mode}-${width}-${theme}.png` })
       }
     })
   }

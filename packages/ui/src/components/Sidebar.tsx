@@ -3,14 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { Slot } from '../slots/registry'
 import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
-// Imported for its side effect: the Tasks panel registers itself into the
-// `sidebar.panel` slot rendered below.
-import './TaskPanel'
 import {
   AccountMark,
   UsageMeterRow,
@@ -273,7 +269,6 @@ export const Sidebar = ({
       </div>
       <Separator />
       <div className={styles.footer} data-region="sidebar-footer">
-        <Slot name="sidebar.panel" />
         <SidebarNotices />
         <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={onOpenUsage} onSignIn={onSignIn} />
       </div>

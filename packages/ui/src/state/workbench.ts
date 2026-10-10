@@ -123,17 +123,21 @@ export const VIEW_DRAG_TYPE = 'application/x-harnessdesk-view'
  * split tree inside `main` keeps fractions for the opposite reason — two
  * documents side by side share the space they are given.
  */
-const LIMITS: Record<DockId, { readonly min: number; readonly max: number; readonly start: number }> = {
-  sidebar: { min: 200, max: 520, start: 240 },
-  right: { min: 280, max: 900, start: FRAME.rightPanel.width },
-  bottom: { min: 80, max: 600, start: 220 },
+const LIMITS = {
+  sidebar: { min: FRAME.sidebar.min, max: FRAME.sidebar.max, start: FRAME.sidebar.width },
+  right: { min: FRAME.rightPanel.min, max: FRAME.rightPanel.max, start: FRAME.rightPanel.width },
+  bottom: { min: FRAME.bottomPanel.min, max: Number.POSITIVE_INFINITY, start: FRAME.bottomPanel.height },
+} satisfies Record<DockId, { min: number; max: number; start: number }>
+
+/** Bottom geometry follows the live viewport; 900 preserves pure callers. */
+export const dockLimits = (area: DockId, windowHeight = 900): { min: number; max: number } => ({
+  min: LIMITS[area].min,
+  max: area === 'bottom' ? Math.max(FRAME.bottomPanel.min, Math.floor(windowHeight / 2)) : LIMITS[area].max,
+})
+const clampSize = (area: DockId, size: number, windowHeight = 900): number => {
+  const limits = dockLimits(area, windowHeight)
+  return Math.min(limits.max, Math.max(limits.min, Math.round(Number.isFinite(size) ? size : LIMITS[area].start)))
 }
-
-/** The bounds a dock's size is held inside, for a handle that wants to draw them. */
-export const dockLimits = (area: DockId): { readonly min: number; readonly max: number } => LIMITS[area]
-
-const clampSize = (area: DockId, size: number): number =>
-  Math.min(LIMITS[area].max, Math.max(LIMITS[area].min, Math.round(size)))
 
 // ------------------------------------------------------------------- views
 
@@ -844,8 +848,8 @@ export const focusedMount = (workbench: Workbench): string =>
 export const focusView = (workbench: Workbench, id: MountedId | null): Workbench =>
   id === null || areaOf(workbench, id) !== null ? { ...workbench, focus: id } : workbench
 
-export const resizeDock = (workbench: Workbench, area: DockId, size: number): Workbench =>
-  patchDock(workbench, area, { ...workbench[area], size: clampSize(area, size) })
+export const resizeDock = (workbench: Workbench, area: DockId, size: number, windowHeight = 900): Workbench =>
+  patchDock(workbench, area, { ...workbench[area], size: clampSize(area, size, windowHeight) })
 
 /**
  * Collapses a dock to its tab strip.
@@ -1015,20 +1019,24 @@ export const rightPanelDrawn = (workbench: Workbench): boolean => {
  * seam mid-drag cannot cross it under the pointer. A zoom answers visibility
  * by itself and is left out.
  */
-export const sidebarCannotHaveColumn = (workbench: Workbench, windowWidth: number): boolean =>
-  windowWidth < FRAME.fold.sidebarFloats ||
-  (workbench.zoom === null &&
-    rightPanelDrawn(workbench) &&
-    workbench.sidebar.size + workbench.right.size + MIN_READING + 2 * SEAM > windowWidth)
+export const sidebarCannotHaveColumn = (_workbench: Workbench, windowWidth: number): boolean =>
+  windowWidth < FRAME.fold.sidebarFloats
 
-/**
- * Whether the right panel leaves less than the reading width beside it and
- * therefore covers the whole main area —
- * the one rule `Workbench` hides and inerts the middle by, and the corner and
- * the notice strip follow (#1179).
- */
+/** A fixed nonmodal float leaves main usable below the equality boundary. */
 export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): boolean =>
-  windowWidth - workbench.right.size - SEAM < MIN_READING && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+  windowWidth < FRAME.fold.panelFloats && rightPanelDrawn(workbench)
+
+/** Requested preferences survive viewport changes; only drawing is clamped. */
+export const effectiveRightWidth = (workbench: Workbench, windowWidth: number, standingSidebar: number): number => {
+  if (!rightPanelDrawn(workbench)) return 0
+  const max = windowWidth < FRAME.fold.panelFloats
+    ? Math.max(0, windowWidth - FRAME.page.canvasGutter)
+    : Math.max(FRAME.rightPanel.min, windowWidth - standingSidebar - FRAME.main.min - 2 * SEAM)
+  return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max))
+}
+export const effectiveBottomHeight = (workbench: Workbench, windowHeight: number): number =>
+  windowHeight < FRAME.bottomPanel.min * 2 || workbench.bottom.collapsed || terminals(workbench).length === 0 || !areaVisible(workbench, 'bottom')
+    ? 0 : Math.min(Math.max(workbench.bottom.size, FRAME.bottomPanel.min), Math.floor(windowHeight / 2))
 
 /**
  * The area the strip above the panes rides (`NoticeStripOutlet`): the one
@@ -1045,7 +1053,6 @@ export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): b
 export const noticeArea = (workbench: Workbench, windowWidth: number): 'main' | 'right' | 'bottom' | 'sidebar' => {
   const zoom = workbench.zoom
   if (zoom !== null && zoom.area !== 'main') return zoom.area
-  if (rightPanelOverlays(workbench, windowWidth)) return 'right'
   return 'main'
 }
 
@@ -1078,11 +1085,6 @@ export const focusedComposerVisible = (workbench: Workbench, windowWidth: number
   const id = focusedMount(workbench)
   const area = areaOfMount(workbench, id)
   if (!areaVisible(workbench, area)) return false
-  // A right panel drawn over the whole main area makes the
-  // conversation behind it unreachable — `inert` in `Workbench.tsx` — even
-  // though `areaVisible` still calls `main` on screen, since nothing there is
-  // zoomed. That is a second way to be covered `areaVisible` does not know.
-  if (area === 'main' && rightPanelOverlays(workbench, windowWidth)) return false
   const view = area === 'main' ? findPane(workbench.main, id)?.view : mountedView(workbench, id)?.view
   if (!view) return false
   return view.kind === 'room' || (view.kind === 'conversation' && view.session !== null)
@@ -1175,16 +1177,8 @@ export const areaVisible = (workbench: Workbench, area: AreaId): boolean => {
  * same rule), so its tab strip, not the hidden conversation's header, is the
  * row under the buttons.
  */
-export const cornerArea = (workbench: Workbench, sidebarShown: boolean, windowWidth = Number.POSITIVE_INFINITY): AreaId =>
-  sidebarShown
-    ? 'sidebar'
-    : rightPanelOverlays(workbench, windowWidth)
-      ? 'right'
-      : areaVisible(workbench, 'main')
-        ? 'main'
-        : areaVisible(workbench, 'right') && dockViews(workbench.right).length > 0
-          ? 'right'
-          : 'bottom'
+export const cornerArea = (_workbench: Workbench, sidebarShown: boolean, _windowWidth = Number.POSITIVE_INFINITY): AreaId =>
+  sidebarShown ? 'sidebar' : 'main'
 
 // ---------------------------------------------------------- narrow windows
 
@@ -1201,7 +1195,7 @@ export const cornerArea = (workbench: Workbench, sidebarShown: boolean, windowWi
  * So below it the sidebar floats over the conversation instead of standing
  * beside it.
  */
-export const NARROW_WINDOW = 720
+export const NARROW_WINDOW = FRAME.fold.sidebarFloats
 
 /**
  * The narrowest conversation that stands beside anything.
@@ -1212,7 +1206,7 @@ export const NARROW_WINDOW = 720
  * conversation (`rightPanelOverlays`) — navigation before the thing being
  * consulted, and that before the work. See docs/decisions.md.
  */
-export const MIN_READING = 400
+export const MIN_READING = FRAME.main.min
 
 /**
  * The divider between two columns, which is taken from one of them. Measured
@@ -1269,7 +1263,7 @@ export const sidebarPlacement = (state: {
  * find their panes where they left them, not an empty window with a note about
  * a new layout engine. A malformed document costs the layout, never the window.
  */
-export const readWorkbench = (raw: unknown): Workbench | null => {
+export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | null => {
   if (typeof raw !== 'object' || raw === null) return null
   const record = raw as Record<string, unknown>
 
@@ -1307,10 +1301,10 @@ export const readWorkbench = (raw: unknown): Workbench | null => {
 
   return {
     frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
-    sidebar: readDock('sidebar', record['sidebar']),
+    sidebar: readDock('sidebar', record['sidebar'], windowHeight),
     main,
-    right: readDock('right', record['right']),
-    bottom: readDock('bottom', record['bottom']),
+    right: readDock('right', record['right'], windowHeight),
+    bottom: readDock('bottom', record['bottom'], windowHeight),
     zoom: readZoom(record['zoom']),
     focus: typeof record['focus'] === 'string' ? record['focus'] : null,
   }
@@ -1323,13 +1317,13 @@ export const readWorkbench = (raw: unknown): Workbench | null => {
  * that is exactly what it was. Nobody loses their panels to the upgrade, and
  * the migration is one branch rather than a version field.
  */
-const readDock = (area: DockId, raw: unknown): Dock => {
+const readDock = (area: DockId, raw: unknown, windowHeight: number): Dock => {
   if (typeof raw !== 'object' || raw === null) return emptyDock(area)
   const record = raw as Record<string, unknown>
   const root = readDockNode(record['root']) ?? readStack(record) ?? emptyStack()
   return prunedDock({
     root,
-    size: clampSize(area, typeof record['size'] === 'number' ? record['size'] : LIMITS[area].start),
+    size: clampSize(area, typeof record['size'] === 'number' ? record['size'] : LIMITS[area].start, windowHeight),
     collapsed: record['collapsed'] === true,
   })
 }

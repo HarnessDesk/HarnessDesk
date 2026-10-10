@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { Workbench } from '../panels/Workbench'
 import '../panels/builtins'
 import { StoreProvider } from '../state/context'
-import { dock, emptyWorkbench } from '../state/workbench'
+import { emptyWorkbench } from '../state/workbench'
 import { BLANK } from '../state/layout'
 import { runtimeId } from '@harnessdesk/protocol'
 import { AppWindowMode } from '../components/AppWindow'
@@ -34,7 +34,7 @@ const views = {
   tasks: { kind: 'tasks' },
 } as const
 const panelView = views[requestedView as keyof typeof views] ?? views.trajectory
-const workbench = { ...dock(emptyWorkbench(), 'right', panelView as never), main }
+const workbench = { ...emptyWorkbench(), main }
 const usage = previewStore().getSnapshot().usage.map((report) =>
   report.source.kind === 'file'
     ? {
@@ -52,6 +52,8 @@ const store = previewStore({
   sidebarCollapsed: true,
   usage,
 })
+
+store.showViewIn(panelView.kind === 'terminal' ? 'bottom' : 'right', panelView as never)
 
 ;(window as Window & { __narrowOverlayStore?: typeof store }).__narrowOverlayStore = store
 

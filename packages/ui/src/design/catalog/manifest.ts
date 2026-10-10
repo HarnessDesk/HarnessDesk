@@ -169,6 +169,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   TopBar: ['light', 'dark'],
   SeatList: ['light', 'dark'],
+  FixedShell: ['light', 'dark'],
   ToolBody: ['light', 'dark'],
   ToolFooter: ['light', 'dark'],
   Page: ['light', 'dark'],
@@ -274,6 +275,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   SeatList: ['default', 'populated', 'disabled', 'long-title'],
+  FixedShell: ['default', 'open', 'closed', 'folded-state'],
   ToolBody: ['default', 'empty', 'populated', 'editing'],
   ToolFooter: ['default', 'empty', 'populated'],
   TopBar: ['default', 'disabled', 'filtered', 'folded-state', 'long-title'],
@@ -406,6 +408,7 @@ Object.assign(SIZES, {
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   SeatList: 'packages/ui/src/components/TeamRoomPane.tsx',
+  FixedShell: 'packages/ui/src/panels/Workbench.tsx',
   ToolBody: 'packages/ui/src/panels/work-details.tsx',
   ToolFooter: 'packages/ui/src/panels/Workbench.tsx',
   TopBar: 'packages/ui/src/panels/top-bar.tsx',
@@ -450,6 +453,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  FixedShell: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ToolBody: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ToolFooter: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   TopBar: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -602,6 +606,7 @@ export const CANONICAL_UI_MODULES = [
 
 export const CANONICAL_PATTERN_MODULES = [
   ['SeatList', 'seat-list', 'SeatList presentation owned by the fixed shell'],
+  ['FixedShell', 'fixed-shell', 'FixedShell presentation owned by the fixed shell'],
   ['ToolBody', 'tool-body', 'ToolBody presentation owned by the fixed shell'],
   ['ToolFooter', 'tool-footer', 'ToolFooter presentation owned by the fixed shell'],
   ['TopBar', 'top-bar', 'TopBar presentation owned by the fixed shell'],

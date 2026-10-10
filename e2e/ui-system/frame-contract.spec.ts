@@ -29,6 +29,75 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
   return px
 }, token)
 
+for (const theme of WALL_THEMES) {
+  test(`B8 Agents layout measures allocated rows and keeps names inside their column in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme)
+    await page.locator('[data-work-tool="details"]').click()
+    const overview = page.locator('[data-slot="team-overview"]')
+    const seats = overview.locator('[aria-label="Seats"]')
+    const allocated = (await seats.boundingBox())!.width
+    expect(allocated).toBeLessThan(800)
+    await expect(overview).toHaveAttribute('data-layout', 'narrow')
+    // Keep the existing 800 breakpoint, and exercise both sides on the real
+    // row allocation after the canonical reading inset.
+    const atThreshold = 1440 + 800 - allocated
+    await page.setViewportSize({ width: atThreshold - 1, height: 900 })
+    await expect.poll(async () => (await seats.boundingBox())!.width).toBe(799)
+    await expect(overview).toHaveAttribute('data-layout', 'narrow')
+    await page.setViewportSize({ width: atThreshold, height: 900 })
+    await expect.poll(async () => (await seats.boundingBox())!.width).toBe(800)
+    await expect(overview).toHaveAttribute('data-layout', 'table')
+    for (const name of ['Alpha', 'Beta']) {
+      const action = seats.getByRole('button', { name: `Open ${name}`, exact: true })
+      await expect(action).toBeVisible()
+      const cell = action.locator('xpath=ancestor::td')
+      const bounds = (await cell.boundingBox())!, label = (await action.boundingBox())!
+      expect(label.x).toBeGreaterThanOrEqual(bounds.x)
+      expect(label.x + label.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+    }
+  })
+  for (const width of [1280, 1279, 1000, 999, 720]) {
+    test(`B8 fixed folds at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=conversation', theme, width)
+      await page.locator('[data-work-tool="details"]').click()
+      const shell = page.locator('[data-slot="fixed-shell"]')
+      await expect(shell).toHaveAttribute('data-panel-floats', String(width < FRAME.fold.panelFloats))
+      await expect(shell).toHaveAttribute('data-left-floats', String(width < FRAME.fold.sidebarFloats))
+      const main = page.locator('[data-frame-region="main"]')
+      expect(await main.evaluate(node => node.closest('[inert]') !== null)).toBe(false)
+      await expect(page.locator('[data-slot="workbench-main"]')).not.toHaveAttribute('inert', '')
+      if (width >= FRAME.fold.panelFloats) expect((await main.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.main.min)
+      await expect(page.locator('[data-region="sidebar"] [data-slot="dock-panel"]')).toHaveCount(0)
+      const bar = (await page.locator('[data-frame-region="top"]').boundingBox())!
+      const panel = (await page.locator('[data-frame-region="right"]').boundingBox())!
+      expect(Math.abs(panel.y - bar.y - FRAME.bar.height)).toBeLessThanOrEqual(1)
+      expect(panel.x).toBeGreaterThanOrEqual(0)
+      expect(panel.x + panel.width).toBeLessThanOrEqual(width)
+      if (width < FRAME.fold.panelFloats) expect(panel.width).toBe(FRAME.rightPanel.width)
+    })
+  }
+  test(`B8 terminal height and seam default are measured in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
+    const terminal = page.locator('[data-terminal-id]')
+    const id = await terminal.getAttribute('data-terminal-id')
+    const seam = page.getByRole('separator', { name: 'Resize the bottom panel' })
+    await seam.focus()
+    for (let i = 0; i < 40; i++) await seam.press('ArrowUp')
+    expect((await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBeLessThanOrEqual(450)
+    await seam.dblclick()
+    expect(Math.round((await page.locator('[data-frame-region="bottom"]').boundingBox())!.height)).toBe(FRAME.bottomPanel.height)
+    await page.setViewportSize({ width: 1440, height: 240 })
+    await expect.poll(async () => (await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBe(FRAME.bottomPanel.min)
+    await page.setViewportSize({ width: 1440, height: 239 })
+    await expect(terminal).toBeHidden()
+    await expect(terminal).toHaveAttribute('data-terminal-id', id!)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(terminal).toBeVisible()
+    await expect(terminal).toHaveAttribute('data-terminal-id', id!)
+    await expect.poll(async () => (await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBe(FRAME.bottomPanel.height)
+  })
+}
+
 for (const theme of WALL_THEMES) for (const tool of ['details', 'changes', 'activity', 'browser']) {
   test(`B7a ${tool} is a flat body without furniture in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)

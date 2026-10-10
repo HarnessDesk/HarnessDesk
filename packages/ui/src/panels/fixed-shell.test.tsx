@@ -39,6 +39,8 @@ beforeEach(() => {
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   if (!window.matchMedia) Object.defineProperty(window, 'matchMedia', { value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) })
+  vi.stubGlobal('innerWidth', 1440)
+  vi.stubGlobal('innerHeight', 900)
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
 })
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -131,7 +133,7 @@ it('standing tools use the same live width as the right column', () => {
   act(() => button('Details')!.click())
   const slot = container.querySelector<HTMLElement>('[data-topbar="tools"]')!
   expect(slot.hasAttribute('data-standing')).toBe(true)
-  expect(slot.style.getPropertyValue('--topbar-right-column')).toBe('var(--panel-right)')
+  expect(slot.style.getPropertyValue('--topbar-right-column')).toBe('var(--frame-right)')
 })
 
 it('Details Commit returns from Browser focus to its owning conversation composer', async () => {
@@ -609,4 +611,67 @@ it('default Changes and Activity provide actual subject bodies through canonical
   expect(container.querySelector('[data-slot="work-tools"][data-tool="changes"] [data-slot="tool-body"]')).not.toBeNull()
   await act(async () => button('Activity')!.click())
   expect(container.querySelector('[data-slot="work-tools"]')?.textContent).toContain('Events')
+})
+
+
+it('the six region nodes and the Browser body survive closing and both exact folds', async () => {
+  const store = mountWork(true)
+  await act(async () => { await store.openBrowser() })
+  const regions = [...container.querySelectorAll('[data-frame-region]')]
+  expect(regions.map(node => node.getAttribute('data-frame-region'))).toEqual(['left', 'top', 'main', 'right', 'bottom', 'status'])
+  const browser = container.querySelector('[data-slot="tool-pane"]')!
+  const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  for (const width of [1280, 1279, 1000, 999, 720, 1440]) {
+    act(() => store.setWindowSize(width, 900))
+    expect([...container.querySelectorAll('[data-frame-region]')]).toEqual(regions)
+    expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
+    expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === resource.id)?.view).toBe(resource.view)
+  }
+  act(() => store.toggleWorkPanel())
+  expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
+  expect(regions[3]!.hasAttribute('inert')).toBe(true)
+  act(() => store.toggleWorkPanel())
+  expect([...container.querySelectorAll('[data-frame-region]')]).toEqual(regions)
+})
+
+it('right-tool Escape is scoped, respects a nested refusal, and returns focus to its door', async () => {
+  const store = mountWork(true)
+  act(() => store.setWindowSize(720, 900))
+  await act(async () => { await store.openBrowser() })
+  const subject = store.workSubject()!
+  const main = container.querySelector<HTMLElement>('[data-slot="workbench-main"]')!
+  const address = container.querySelector<HTMLInputElement>('[data-slot="tool-pane"] input')!
+  const outside = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => main.dispatchEvent(outside))
+  expect(outside.defaultPrevented).toBe(false)
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(true)
+  const stop = (event: KeyboardEvent) => event.preventDefault()
+  address.addEventListener('keydown', stop)
+  act(() => address.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(true)
+  address.removeEventListener('keydown', stop)
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  await act(async () => { address.dispatchEvent(escape); await new Promise(resolve => setTimeout(resolve, 50)) })
+  expect(escape.defaultPrevented).toBe(true)
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+  expect(document.activeElement).toBe(button('Browser'))
+  expect(container.querySelector('[data-slot="workbench-main"]')!.hasAttribute('inert')).toBe(false)
+})
+
+it('a deferred Activity Escape returns to the current same-subject tool instead of its captured door', () => {
+  const store = mountWork(true)
+  act(() => store.chooseWorkTool('activity'))
+  const subject = store.workSubject()!
+  const body = container.querySelector<HTMLElement>('[data-slot="work-tools"]')!
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+  act(() => body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+  expect(frames.length).toBeGreaterThan(0)
+  act(() => store.chooseWorkTool('details'))
+  expect(store.workSubject()).toBe(subject)
+  act(() => button('Details')!.focus())
+  act(() => { for (const callback of [...frames]) callback(0) })
+  expect(document.activeElement).toBe(button('Details'))
+  expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'details', open: true })
 })

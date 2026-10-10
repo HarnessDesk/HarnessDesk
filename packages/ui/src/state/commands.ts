@@ -342,8 +342,8 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
  * `/board`. A plugin's arrives beside them rather than needing a place of its
  * own to be discovered.
  *
- * The command opens it in the first area the contribution declares; where it
- * goes after that is the person's, and is remembered per project.
+ * The command uses the declared mount at admission; compatible contributions
+ * become Details sections, and unsupported sidebar/bottom-only mounts refuse.
  */
 const panelCommands = (
   snapshot: AppSnapshot,
