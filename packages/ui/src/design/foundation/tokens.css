@@ -502,6 +502,8 @@ body {
   /* What a bar holds its controls at, and how far they stand from its ends.
      One pair for every bar in the window, so a control in the title row and a
      control in a pane's header sit on the same rhythm. */
+  --hd-bar-divider-h: 14px;
+  --hd-bar-title-min: 180px;
   --hd-bar-gap: var(--hd-space-1-5);
   /* Where a boxed control's edge sits. */
   --hd-bar-pad: var(--hd-space-2);

@@ -17,7 +17,8 @@ import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
-import { Page, ViewBar } from '..'
+import { Page, ViewBar, TopBar } from '..'
+import { DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../../components/Icons'
 
 const PAGE_CATALOG_VARIANTS = ['light', 'dark'] as const
 const PAGE_CATALOG_SIZES = ['default'] as const
@@ -3027,7 +3028,27 @@ const ComparisonNoticeBoard = () => {
   </>
 }
 
+const TOPBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
+const TOPBAR_CATALOG_SIZES = ['default'] as const
+const TOPBAR_CATALOG_STATES = ['default', 'disabled', 'filtered', 'folded-state', 'long-title'] as const
+export const TopBarBoard = () => {
+  const [tab, setTab] = useState('findings')
+  const tabs = ['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({
+    value: label.toLowerCase(), label, count: label === 'Findings' ? 12 : undefined,
+    run: () => setTab(label.toLowerCase()),
+  }))
+  return <div data-catalog-variants={TOPBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOPBAR_CATALOG_SIZES.join(' ')} data-catalog-states={TOPBAR_CATALOG_STATES.join(' ')}>{[1440, 720].map(width => <section key={width} style={{ width, maxWidth: '100%' }}>
+    <TopBar place="Checkout retry · 長いチーム名" tab={tab} tabs={tabs} state={<Chip tone="warning">Needs you</Chip>}
+      verb={{ label: 'Decide this run', run: () => {} }}
+      tools={<><Button variant="ghost" size="icon-sm" title="Details"><PlanIcon /></Button><Button variant="ghost" size="icon-sm" title="Changes"><DiffIcon /></Button><Button variant="ghost" size="icon-sm" title="Activity"><HistoryIcon /></Button><Button variant="ghost" size="icon-sm" title="Browser"><GlobeIcon /></Button><Button variant="ghost" size="icon-sm" title="Toggle panel"><PanelIcon /></Button></>}
+      view={{ narrowed: width === 720, content: close => <Menu close={close}><MenuItem label="All" onSelect={close} /><MenuItem label="Open" onSelect={close} /><MenuItem label="Blocking" onSelect={close} /></Menu> }}
+      more={close => <MenuItem label="Wrap…" onSelect={close} />} />
+    <TopBar place="A session without layout choices" verb={{ label: 'New job', icon: <PlusIcon />, run: () => {} }} view={{ disabled: 'This view has no layout choices', content: () => null }} more={() => null} />
+  </section>)}</div>
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
   { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
   { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },
   { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },

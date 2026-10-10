@@ -91,3 +91,28 @@ it('tells its caller again when it opens after something else dismissed it', () 
 
   expect(heard.mock.calls).toEqual([[true], [false], [true]])
 })
+
+it('keeps a disabled icon trigger named and explains why it cannot open', () => {
+  const heard = vi.fn()
+  act(() => root.render(<Popover label={<span />} title="View" disabled
+    reason="This view has no layout choices" onOpenChange={heard}>
+    {() => <span>Inside</span>}
+  </Popover>))
+  const trigger = container.querySelector<HTMLButtonElement>('button')!
+  expect(trigger.disabled).toBe(true)
+  expect(trigger.getAttribute('aria-label')).toBe('View')
+  expect(trigger.title).toBe('This view has no layout choices')
+  click(trigger)
+  expect(document.body.textContent).not.toContain('Inside')
+  expect(heard).not.toHaveBeenCalled()
+})
+
+it('marks only a narrowed shared trigger and clears the marker when the view is reset', () => {
+  const draw = (narrowed: boolean) => <Popover label={<span />} title="View" narrowed={narrowed}>
+    {() => null}
+  </Popover>
+  act(() => root.render(draw(true)))
+  expect(container.querySelector('button')?.getAttribute('data-filtered')).toBe('true')
+  act(() => root.render(draw(false)))
+  expect(container.querySelector('button')?.hasAttribute('data-filtered')).toBe(false)
+})

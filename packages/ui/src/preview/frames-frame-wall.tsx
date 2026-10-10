@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
+import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { AppWindowMode } from '../components/AppWindow'
 import { Settings, type Section } from '../components/Settings'
@@ -67,11 +69,26 @@ const PageOver = ({ destination }: { destination: Destination }) => {
   return null
 }
 
+const TopBarProbe = () => {
+  const [tab, setTab] = useState('findings')
+  return <div data-frame-id="frame-wall" className="h-screen bg-background">
+    <TopBar place="Checkout retry · 長いチーム名" tab={tab}
+      state={<Chip tone="warning">Needs you</Chip>}
+      verb={{ label: 'New job', icon: <PlusIcon />, run: () => {} }}
+      view={{ content: close => <Menu close={close}><MenuItem label="All" onSelect={close} /><MenuItem label="Open" onSelect={close} /></Menu> }}
+      tools={<><Button variant="ghost" size="icon-sm" title="Details"><PlanIcon /></Button><Button variant="ghost" size="icon-sm" title="Changes"><DiffIcon /></Button><Button variant="ghost" size="icon-sm" title="Activity"><HistoryIcon /></Button><Button variant="ghost" size="icon-sm" title="Browser"><GlobeIcon /></Button><Button variant="ghost" size="icon-sm" title="Toggle panel"><PanelIcon /></Button></>}
+      tabs={['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({
+        value: label.toLowerCase(), label, run: () => setTab(label.toLowerCase()),
+      }))} more={() => null} />
+  </div>
+}
+
 export const FrameWall = () => {
   useTheme()
   const requested = new URLSearchParams(location.search).get('frame-wall')
   const destination: Destination = FRAME_WALL_DESTINATIONS.find((one) => one === requested) ?? 'conversation'
   const store = useMemo(() => storeFor(destination), [destination])
+  if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
       <AppWindowMode.Provider value="modal">

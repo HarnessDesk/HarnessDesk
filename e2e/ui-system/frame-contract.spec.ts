@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES } from './frame-wall-destinations'
+import { selectFrameTab } from './frame-actions'
 
 /**
  * The rendered check (spec, "How it is checked"): the app measured against
@@ -78,7 +79,7 @@ for (const theme of WALL_THEMES) {
   for (const width of [1440, 720]) {
     test(`the Findings page keeps the reading measure at ${width} in ${theme}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=team', theme, width)
-      await page.locator('[data-team-page="findings"]').first().click()
+      await selectFrameTab(page, 'findings')
       const column = page.locator('[data-slot="page"][data-width="reading"]').first()
       await expect(column).toBeVisible()
       const measured = await column.evaluate((el) => {
@@ -101,4 +102,55 @@ for (const theme of WALL_THEMES) {
       expect(measured.edges, 'every block starts at the column edge').toEqual(measured.edges.map(() => 0))
     })
   }
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B1 TopBar is one contract-height row in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=topbar', theme)
+    const rows = page.locator('[data-slot="top-bar"]')
+    await expect(rows.first()).toBeVisible()
+    for (const box of await rows.evaluateAll(nodes => nodes.map(node => node.closest('header')!.getBoundingClientRect().height))) {
+      expect(Math.round(box)).toBe(FRAME.bar.height)
+    }
+    const divider = rows.first().locator('[data-slot="bar-divider"]')
+    expect((await divider.boundingBox())!.height).toBe(FRAME.bar.dividerHeight)
+    expect((await divider.boundingBox())!.width).toBe(await divider.evaluate(node => Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-border-width'))))
+    await expect(rows.first().locator('[data-topbar="more"]')).toBeVisible()
+    await expect(rows.first().locator('[data-team-page="findings"]')).toBeVisible()
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B1 probe exercises folded tabs and restores them in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=topbar', theme, 720)
+    const row = page.locator('[data-slot="top-bar"]')
+    await expect(row).toHaveAttribute('data-fold', '2')
+    expect((await row.locator('[data-topbar-title]').boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await selectFrameTab(page, 'run')
+    await expect(page.getByTitle('Destination views', { exact: true })).toContainText('Run')
+    await expect(row).toHaveAttribute('data-fold', '2')
+    await page.getByTitle('Destination views', { exact: true }).focus()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(row).toHaveAttribute('data-fold', '0')
+    await expect(row.getByRole('tab', { name: 'Run', exact: true })).toHaveAttribute('data-active', '')
+    await expect(row.getByRole('tab', { name: 'Run', exact: true })).toBeFocused()
+    await page.setViewportSize({ width: 720, height: 900 })
+    await expect(row).toHaveAttribute('data-fold', '2')
+    await expect(page.getByTitle('Destination views', { exact: true })).toBeFocused()
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B1 catalogue preserves words for a verb without an icon in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/design.html?view=top-bar&theme=${theme}`)
+    const rows = page.locator('[data-slot="top-bar"]')
+    await expect(rows).toHaveCount(4)
+    const narrow = rows.nth(2)
+    await expect(narrow).toHaveAttribute('data-fold', '2')
+    await expect(narrow.getByRole('button', { name: 'Decide this run', exact: true })).toHaveText('Decide this run')
+    expect((await narrow.locator('[data-topbar-title]').boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expect(rows.nth(3).getByRole('button', { name: 'View', exact: true })).toBeDisabled()
+    await page.screenshot({ path: `output/frame-wall/B1-catalogue-${theme}.png`, fullPage: true })
+  })
 }

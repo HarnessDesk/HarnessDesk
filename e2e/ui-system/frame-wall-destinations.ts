@@ -3,7 +3,12 @@
  * "The visual check"). `tab` is a Team view's `data-team-page` value. A phase
  * that adds a destination adds it here, and the wall grows with it.
  */
-export const WALL_DESTINATIONS = [
+import type { FrameActions } from './frame-actions'
+
+export interface WallDestination extends FrameActions { readonly id: string; readonly query: string }
+
+export const WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'topbar-probe', query: 'frame-wall=topbar' },
   { id: 'conversation', query: 'frame-wall=conversation' },
   { id: 'draft', query: 'frame-wall=draft' },
   { id: 'team-overview', query: 'frame-wall=team', tab: 'overview' },
@@ -15,7 +20,7 @@ export const WALL_DESTINATIONS = [
   { id: 'agents', query: 'frame-wall=agents' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
-] as const
+]
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
 export const WALL_WIDTHS = [1440, 1100, 720] as const

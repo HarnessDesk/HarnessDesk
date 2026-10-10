@@ -167,6 +167,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  TopBar: ['light', 'dark'],
   Page: ['light', 'dark'],
   ViewBar: ['light', 'dark'],
   GitComparisonDialogs: ['default'],
@@ -270,6 +271,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  TopBar: ['default', 'disabled', 'filtered', 'folded-state', 'long-title'],
   Page: ['default'],
   ViewBar: ['default'],
   GitComparisonDialogs: ['default'],
@@ -399,6 +401,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  TopBar: 'packages/ui/src/panels/top-bar.tsx',
   Page: 'packages/ui/src/components/GoalFindings.tsx',
   ViewBar: 'packages/ui/src/components/GoalFindings.tsx',
   GitComparisonDialogs: 'packages/ui/src/components/ComparisonActions.tsx',
@@ -440,6 +443,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  TopBar: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   GitComparisonDialogs: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonNotice: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonDecision: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -588,6 +592,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['TopBar', 'top-bar', 'TopBar presentation owned by the fixed shell'],
   ['GitComparisonDialogs', 'git-comparison-dialogs', 'Shared merge and revision-diff questions for Changes and Side by side'],
   ['ComparisonDecision', 'comparison-decision', 'A recorded comparison recommendation and the person merge, compare and keep actions'],
   ['ComparisonSummary', 'comparison-summary', 'The confirmed merge receipt in the Side by side reading column'],

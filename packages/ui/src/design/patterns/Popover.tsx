@@ -95,6 +95,9 @@ const hasText = (node: ReactNode): boolean => {
 export const Popover = ({
   label,
   title,
+  disabled = false,
+  reason,
+  narrowed = false,
   drop = 'down',
   align = 'right',
   side,
@@ -114,6 +117,9 @@ export const Popover = ({
 }: {
   label: ReactNode
   title?: string
+  disabled?: boolean
+  reason?: string
+  narrowed?: boolean
   /** Replaces the default trigger look, for a button that already has one. */
   triggerClassName?: string
   /**
@@ -160,6 +166,7 @@ export const Popover = ({
   // there updated one component while React was rendering another (#973).
   const told = useRef(false)
   const setOpen = (next: boolean): void => {
+    if (next && disabled) return
     setOpenState(next)
     if (next === told.current) return
     told.current = next
@@ -210,7 +217,7 @@ export const Popover = ({
       open={open}
       onOpenChange={(next, details) => {
         if (!next && details.reason === 'escape-key') trigger.current?.focus()
-        setOpen(next)
+        setOpen(next && !disabled)
       }}
     >
       <div className={`${styles.anchor} hd-no-drag`} data-drop={drop} data-align={align} data-full-width={fullWidth || undefined}>
@@ -225,7 +232,9 @@ export const Popover = ({
           style={edge?.style}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
-          title={grouped ? undefined : title}
+          data-filtered={narrowed || undefined}
+          disabled={disabled}
+          title={grouped ? undefined : reason ?? title}
         /* Icon-only triggers use their title as a name. Outside a status
            group, words (including text in fragments) name themselves.
            Grouped triggers instead use the title to keep folded words and

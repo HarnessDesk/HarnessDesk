@@ -208,3 +208,16 @@
 .trigger[data-tone='alert']:hover {
   background: var(--hd-hover);
 }
+
+/* A narrowed view is a state of the shared trigger, including custom button looks. */
+.anchor > button[data-filtered="true"] { position: relative; }
+.anchor > button[data-filtered="true"]::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  width: var(--hd-space-1);
+  height: var(--hd-space-1);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-foreground);
+}

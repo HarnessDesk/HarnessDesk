@@ -271,6 +271,7 @@ export const MenuItem = ({
   title,
   badge,
   selected,
+  teamPage,
   current,
   expanded,
   danger,
@@ -292,6 +293,7 @@ export const MenuItem = ({
   title?: string
   badge?: string
   selected?: boolean
+  teamPage?: string
   /** Marks the app's current account/session independently of checked semantics. */
   current?: boolean
   /** Exposes a row-owned disclosure without surrendering menu keyboard behavior. */
@@ -311,6 +313,7 @@ export const MenuItem = ({
   const reasonId = useId()
   return (
     <DropdownMenuItem
+      data-team-page={teamPage}
       ref={ref}
       render={<button type="button" disabled={Boolean(disabled)} />}
       nativeButton

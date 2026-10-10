@@ -248,6 +248,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
 | `--hd-bar-h` | `40px` |
+| `--hd-bar-divider-h` | `14px` |
+| `--hd-bar-title-min` | `180px` |
 | `--hd-bar-gap` | `6px` |
 | `--hd-bar-pad` | `8px` |
 | `--hd-rail-inset` | `8px` |

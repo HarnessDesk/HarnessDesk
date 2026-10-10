@@ -10,7 +10,7 @@
  * CSS pixels at the default interface (Desk).
  */
 export const FRAME = {
-  bar: { height: 40, pad: 8, gap: 6, iconButton: 28, titleMin: 180 },
+  bar: { height: 40, pad: 8, gap: 6, iconButton: 28, titleMin: 180, dividerHeight: 14 },
   sidebar: { width: 240, min: 200, max: 360 },
   rightPanel: { width: 400, min: 320, max: 640 },
   bottomPanel: { height: 240, min: 120 },
@@ -27,6 +27,8 @@ export const FRAME = {
 /** Every token the frame names, and the pixels it must resolve to. */
 export const FRAME_TOKENS: Readonly<Record<string, number>> = {
   '--hd-bar-h': FRAME.bar.height,
+  '--hd-bar-divider-h': FRAME.bar.dividerHeight,
+  '--hd-bar-title-min': FRAME.bar.titleMin,
   '--hd-titlebar-height': FRAME.bar.height,
   '--hd-sidebar-width': FRAME.sidebar.width,
   '--hd-column': FRAME.page.reading,

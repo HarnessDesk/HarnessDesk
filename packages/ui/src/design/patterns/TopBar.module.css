@@ -1,0 +1,10 @@
+.bar { min-width: 0; }
+.row { display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
+.fixed { display: flex; align-items: center; flex: none; gap: var(--hd-bar-gap); }
+.fixed:empty { display: none; }
+.row [data-topbar="tabs"] { flex: none; }
+.place { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 1 1 auto; min-width: 0; }
+.title { flex: 1; min-width: 0; }
+.title > * { display: block; min-width: 0; }
+.spacer { flex: 0 0 0; min-width: 0; }
+.tabs { flex-wrap: nowrap; flex: none; }

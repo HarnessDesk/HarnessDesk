@@ -218,3 +218,5 @@ export { ComparisonDecision } from './patterns/ComparisonDecision'
 export { ComparisonSummary } from './patterns/ComparisonSummary'
 
 export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
+
+export { TopBar, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
